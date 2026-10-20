@@ -68,6 +68,107 @@ const PaginationSchema = z
   })
   .optional();
 
+// What an automation may do without approval. Every other non-GET Gmail call
+// stays gated, so an endpoint missing from these lists (permanent delete,
+// settings that forward or auto-reply, message insert or import, delegates,
+// sendAs, label or filter management) can never bypass approval:
+// - reversible label moves, always;
+// - sending and composing a send, only when the owner enabled automation sends.
+const GMAIL_LABEL_WRITE =
+  /^users\/[^/]+\/(?:messages\/(?:batchModify|[^/]+\/(?:modify|trash|untrash))|threads\/[^/]+\/(?:modify|trash|untrash))$/;
+const GMAIL_SEND_WRITE = /^users\/[^/]+\/(?:(?:messages|drafts)\/send|drafts)$/;
+const GMAIL_DRAFT_UPDATE = /^users\/[^/]+\/drafts\/[^/]+$/;
+
+// The request URL parser turns `\` into `/` and resolves `..`, and the executor
+// sends encoded slashes literally. A segment is therefore matched only after it
+// is split and decoded on its own, and only if it is plain id characters, so
+// `%2f`, `%5c`, a backslash, or a dot segment can never reshape the path the
+// patterns above see.
+const GMAIL_SAFE_SEGMENT = /^[A-Za-z0-9_.@+-]+$/;
+
+type GmailRequestShape = {
+  /** Segments after the `gmail/v1` prefix, decoded and checked. */
+  segments: string[];
+  /** The media-upload host rather than the REST host. */
+  upload: boolean;
+};
+
+// An absolute URL counts only in the one form the executor reads as absolute
+// (`http(s)://`), on a Gmail API host with no port or credentials; any other
+// scheme-like prefix is not matched. Null means the request cannot be tied to a
+// Gmail endpoint. A malformed encoding or URL throws, and callers treat a
+// throwing gate as approval required.
+function gmailRequestShape(path: string): GmailRequestShape | null {
+  let pathname: string;
+  let upload = false;
+  if (/^https?:\/\//i.test(path)) {
+    const url = new URL(path);
+    if (
+      url.protocol !== "https:" ||
+      url.port !== "" ||
+      url.username !== "" ||
+      url.password !== ""
+    ) {
+      return null;
+    }
+    if (url.hostname === "gmail.googleapis.com") {
+      pathname = url.pathname;
+    } else if (
+      url.hostname === "www.googleapis.com" &&
+      url.pathname.startsWith("/upload/gmail/v1/")
+    ) {
+      pathname = url.pathname.slice("/upload".length);
+      upload = true;
+    } else {
+      return null;
+    }
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
+    return null;
+  } else {
+    [pathname = ""] = path.split(/[?#]/, 1);
+  }
+  const segments = pathname
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => decodeURIComponent(segment));
+  if (
+    segments.some(
+      (segment) =>
+        segment === "." ||
+        segment === ".." ||
+        !GMAIL_SAFE_SEGMENT.test(segment),
+    )
+  ) {
+    return null;
+  }
+  if (segments[0] === "gmail" && segments[1] === "v1") segments.splice(0, 2);
+  return { segments, upload };
+}
+
+function isReversibleGmailLabelWrite(
+  method: string,
+  request: GmailRequestShape | null,
+): boolean {
+  return (
+    method === "POST" &&
+    request !== null &&
+    !request.upload &&
+    GMAIL_LABEL_WRITE.test(request.segments.join("/"))
+  );
+}
+
+function isGmailSendWrite(
+  method: string,
+  request: GmailRequestShape | null,
+): boolean {
+  if (request === null) return false;
+  const path = request.segments.join("/");
+  return (
+    (method === "POST" && GMAIL_SEND_WRITE.test(path)) ||
+    (method === "PUT" && !request.upload && GMAIL_DRAFT_UPDATE.test(path))
+  );
+}
+
 export default createProviderApiRequestAction(
   { executeRequest: executeProviderApiRequest },
   {
@@ -75,6 +176,7 @@ export default createProviderApiRequestAction(
       "Make an arbitrary authenticated HTTP request to a Mail-connected provider API. " +
       "Use this as the flexible escape hatch when a convenience action cannot express the needed Gmail endpoint, search query, filter setting, thread/message format, Google Calendar endpoint, CRM object, pagination mode, payload, or API version. " +
       "The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses. " +
+      "Unattended automations may send (when the owner allows it), draft, and move labels through this tool; every other non-GET Gmail write needs approval they cannot give. " +
       "Provider calls share a provider/key-aware quota governor with in-flight dedupe, Retry-After handling, and cooldown queuing, so prefer this general path over one-off throttling logic. " +
       "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write response items into a scratch dataset instead of returning the raw body. " +
       "Returns { dataset, rowCount, columns, sampleRows } so only a compact summary enters context. Use query-staged-dataset to aggregate, filter, and project the data without re-fetching. " +
@@ -212,13 +314,29 @@ export default createProviderApiRequestAction(
     getOwnerEmail: () => getCredentialContext()?.userEmail ?? null,
     http: false,
     toolCallable: false,
+    // The gate decides per request (method and path). A per-tool "always allow"
+    // would otherwise cover Gmail deletes and settings writes too.
+    allowPersistentApproval: false,
     needsApproval: (
-      args: { provider: string; method?: string },
+      args: { provider: string; method?: string; path: string },
       ctx?: ActionRunContext,
-    ) =>
-      args.provider === "gmail" &&
-      !["GET", "HEAD"].includes(String(args.method ?? "GET").toUpperCase())
-        ? requiresEmailSendApproval(ctx)
-        : false,
+    ) => {
+      // Only Gmail paths are decoded: a malformed path on another provider
+      // would otherwise throw here and be held for approval.
+      if (args.provider !== "gmail") return false;
+      const method = String(args.method ?? "GET").toUpperCase();
+      if (["GET", "HEAD"].includes(method)) return false;
+      // Both exemptions are for unattended automations; an interactive caller
+      // keeps the approval every non-GET Gmail write already needed.
+      if (ctx?.caller === "automation") {
+        const request = gmailRequestShape(args.path);
+        if (isReversibleGmailLabelWrite(method, request)) return false;
+        // The send opt-in covers sending and composing a send, not every
+        // write: with it on, a permanent delete or a forwarding setting still
+        // needs approval.
+        if (!isGmailSendWrite(method, request)) return true;
+      }
+      return requiresEmailSendApproval(ctx);
+    },
   },
 );

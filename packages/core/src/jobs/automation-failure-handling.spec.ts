@@ -11,6 +11,7 @@ afterAll(async () => {
 type ExecuteInput = string | { sql: string; args?: unknown[] };
 
 const rawClient = {
+  transaction: pglite.transaction,
   execute: vi.fn(async (input: ExecuteInput) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -28,7 +29,7 @@ const rawClient = {
 
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, getDbExec: () => rawClient };
+  return { ...actual, getDbExec: () => actual.getScopedDbExec() ?? rawClient };
 });
 
 interface StoredResource {
@@ -47,7 +48,9 @@ const resourceStore = vi.hoisted(() => ({
 vi.mock("../resources/store.js", () => {
   const key = (owner: string, path: string) => `${owner}:${path}`;
   const copy = (row: StoredResource | undefined) => (row ? { ...row } : null);
-  return {
+  const store = {
+    ensureTable: vi.fn(async () => {}),
+    SHARED_OWNER: "__shared__",
     organizationIdFromResourceOwner: (owner: string) =>
       owner.startsWith("__organization__:")
         ? decodeURIComponent(owner.slice("__organization__:".length))
@@ -94,6 +97,15 @@ vi.mock("../resources/store.js", () => {
       return { ...row };
     },
   };
+  return {
+    ...store,
+    resourcePutIfCurrentInTransaction: async (
+      input: Parameters<typeof store.resourcePutIfCurrent>[0],
+    ) => {
+      const resource = await store.resourcePutIfCurrent(input);
+      return resource ? { resource, notify: vi.fn() } : null;
+    },
+  };
 });
 
 vi.mock("../resources/emitter.js", () => ({
@@ -113,7 +125,7 @@ vi.mock("../chat-threads/store.js", () => ({
     threadData: "{}",
     messageCount: 0,
   })),
-  updateThreadData: vi.fn(async () => {}),
+  updateThreadData: vi.fn(async () => true),
   withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
     fn(),
 }));
@@ -121,6 +133,15 @@ vi.mock("../chat-threads/store.js", () => ({
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
+  AgentLoopAbortedError: class AgentLoopAbortedError extends Error {
+    usage: unknown;
+
+    constructor(usage: unknown) {
+      super("Agent run was aborted.");
+      this.name = "AbortError";
+      this.usage = usage;
+    }
+  },
   runAgentLoopDirectWithSoftTimeout: runAgentLoopMock,
 }));
 
@@ -188,11 +209,12 @@ vi.mock("./scheduler-health.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./scheduler-health.js")>()),
   acquireAutomationSchedulerLease: vi.fn(async () => "test-lease"),
   releaseAutomationSchedulerLease: vi.fn(async () => undefined),
-  renewAutomationSchedulerLease: vi.fn(async () => undefined),
+  renewAutomationSchedulerLease: vi.fn(async () => true),
   recordAutomationSchedulerHealth: vi.fn(async () => undefined),
 }));
 
 const { processRecurringJobs, runJobNow } = await import("./scheduler.js");
+const { ensureRunTables } = await import("../agent/run-store.js");
 const { registerErrorCaptureProvider } =
   await import("../server/capture-error.js");
 const { automationHash } = await import("./automation-events.js");
@@ -314,6 +336,7 @@ async function historyOf(name: string) {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(START);
+  await ensureRunTables();
   resourceStore.rows.clear();
   createThreadMock.mockClear();
   insertRunSpy.mockClear();
@@ -325,15 +348,18 @@ beforeEach(async () => {
   deployEnvironmentMock.mockReset().mockReturnValue("local");
   resetStaleWorkReapThrottle();
   await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
-    INSERT INTO "user" (id, email) VALUES ('u1', 'alice@agent-native.test'), ('u2', 'qa-bot@local.test')
+    CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY, name TEXT, email TEXT UNIQUE,
+      created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
+    );
+    INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ('u1', 'u1', 'alice@agent-native.test', now(), now()), ('u2', 'u2', 'qa-bot@local.test', now(), now())
       ON CONFLICT DO NOTHING;
     CREATE TABLE IF NOT EXISTS org_members (
-      org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+      id TEXT, joined_at BIGINT, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
       federation_removal_pending_at BIGINT
     );
     DELETE FROM org_members;
-    INSERT INTO org_members (org_id, email, role) VALUES ('acme', 'alice@agent-native.test', 'member');
+    INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ('acme:alice@agent-native.test', 'acme', 'alice@agent-native.test', 'member', 0);
   `);
   await rawClient.execute(`DELETE FROM automation_runs`).catch(() => undefined);
 });
@@ -731,7 +757,7 @@ describe("scheduled automations that cannot run", () => {
     engineUsableMock.mockResolvedValue(false);
     await pglite.exec(`
       DELETE FROM org_members;
-      INSERT INTO org_members (org_id, email, role) VALUES ('acme', 'bob@agent-native.test', 'owner');
+      INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ('acme:bob@agent-native.test', 'acme', 'bob@agent-native.test', 'owner', 0);
     `);
     putOrgReminderJob();
 
@@ -810,7 +836,7 @@ describe("owners that cannot run automations", () => {
 
   it("runs a personal automation whose stored account email differs only in case", async () => {
     await pglite.exec(
-      `INSERT INTO "user" (id, email) VALUES ('u-carol', 'Carol@Agent-Native.test') ON CONFLICT DO NOTHING`,
+      `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ('u-carol', 'u-carol', 'Carol@Agent-Native.test', now(), now()) ON CONFLICT DO NOTHING`,
     );
     try {
       putJob("carol@agent-native.test", "carol-digest", [

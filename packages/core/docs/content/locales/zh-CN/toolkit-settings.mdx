@@ -85,7 +85,7 @@ export default function SettingsRoute() {
 应用页面通常从一个 `extraTabs` 条目开始，该条目会成为应用分组中的独立页面。如需更多控制，可在模块作用域调用 `registerSettingsPages`，注册一个 `SettingsPageDefinition`（包含 `id`、`group`、`order`、`label`、`icon`、`component`，以及可选的 `visible`、`subpages` 和 `searchEntries`）。如果定义的 ID 与现有页面相同，就会替换该页面。Dispatch 就是这样在“成员”页面中加入应用角色列的：
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
@@ -184,6 +184,8 @@ buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limi
 Agent-Native 为符合条件的开源用途采用 OpenAI 官方的 Sign in with ChatGPT 令牌共享流程。该流程授权本地应用使用已登录用户的 ChatGPT 方案，向 OpenAI 的公开 Responses API 发出符合条件的请求。它不会授予应用访问用户 ChatGPT 对话或历史记录的权限。
 
 ChatGPT 方案实验室功能默认关闭。要使用此功能，请前往**设置 → 实验室**开启。个人在本地运行开源应用无需申请合作伙伴批准，也无需预先配置客户端 ID：OpenAI 会在首次登录时签发客户端 ID，应用会将其与该 ChatGPT 账户关联并在之后复用。
+
+访问 ChatGPT 方案需要使用个人账户。在本地开发时，请在首次登录前设置 `access.autoCreateDefaultOrg: false`，以免应用为该账户创建默认组织。如果账户已经属于某个组织，请使用个人账户访问 ChatGPT 方案。
 
 此流程需要 OAuth 通过用户设备上的环回地址 `127.0.0.1` 接收 HTTP 回调，因此不适用于远程托管的应用；`localhost` 也不能替代 `127.0.0.1`。托管在 `*.agent-native.com` 上的网站无法使用此流程。需要合作伙伴批准的是托管应用的运营方，可通过 OpenAI 的[意向申请表](https://openai.com/form/sign-in-with-chatgpt-interest)申请。
 

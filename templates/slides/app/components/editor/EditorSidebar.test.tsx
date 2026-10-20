@@ -91,6 +91,29 @@ afterEach(() => {
   scrollIntoView.mockClear();
 });
 
+describe("EditorSidebar slides header", () => {
+  it("shows the empty state and wires the header New slide button", () => {
+    const onAddSlide = vi.fn();
+    const { getByLabelText, getByText } = render(
+      <EditorSidebar
+        slides={[]}
+        activeSlideId=""
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        onAddSlide={onAddSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    getByText("editorSidebar.emptyTitle");
+    fireEvent.click(getByLabelText("editorSidebar.newSlide"));
+    expect(onAddSlide).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("EditorSidebar thumbnail scroll cue", () => {
   it("scrolls an opened slide thumbnail into view", () => {
     const slides: Slide[] = [
@@ -209,15 +232,14 @@ describe("EditorSidebar thumbnail scroll cue", () => {
   });
 });
 
-describe("compact filmstrip", () => {
-  const slides: Slide[] = [
-    { id: "slide-1", content: "<div />", notes: "", layout: "content" },
-    { id: "slide-2", content: "<div />", notes: "", layout: "content" },
-  ];
-  const renderSidebar = (compact?: boolean) =>
-    render(
+describe("full-width filmstrip", () => {
+  it("numbers each slide beside its thumbnail, not on it", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+    ];
+    const { container } = render(
       <EditorSidebar
-        compact={compact}
         slides={slides}
         activeSlideId="slide-1"
         deckId="deck-1"
@@ -229,21 +251,7 @@ describe("compact filmstrip", () => {
       />,
     );
 
-  it("narrows the rail to thumbnails numbered on the slide itself", () => {
-    const { container } = renderSidebar(true);
-
-    expect(container.firstElementChild?.className).toContain("w-24");
-    expect(container.firstElementChild?.className).not.toContain("w-48");
-    const thumbnail = container.querySelector(
-      '[data-slide-thumbnail-id="slide-2"] [data-slide-thumbnail-frame]',
-    );
-    expect(thumbnail?.textContent).toContain("2");
-  });
-
-  it("keeps the full rail by default", () => {
-    const { container } = renderSidebar();
-
-    expect(container.firstElementChild?.className).toContain("w-48");
+    expect(container.firstElementChild?.className).toContain("w-full");
     expect(
       container.querySelector(
         '[data-slide-thumbnail-id="slide-2"] [data-slide-thumbnail-frame]',

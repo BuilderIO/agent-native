@@ -387,6 +387,7 @@ export function NewWorkspaceAppFlow({
         <div className="flex flex-col gap-3">
           <PromptComposer
             autoFocus
+            requireAgentEngine
             disabled={isSubmitting}
             placeholder="Describe the app your teammate should be able to use..."
             draftScope="dispatch:new-app"

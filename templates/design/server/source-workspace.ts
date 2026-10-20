@@ -170,6 +170,11 @@ function dbExecForDrizzleTransaction(
 
 const _designTransactionExecs = new WeakMap<object, DbExec>();
 
+export interface DesignSourceMutationTransactionOutcome {
+  callbackCompleted: boolean;
+  rollbackConfirmed: boolean;
+}
+
 export function getDesignSourceMutationExec(transaction: object): DbExec {
   const exec = _designTransactionExecs.get(transaction);
   if (!exec) {
@@ -183,19 +188,46 @@ export function getDesignSourceMutationExec(transaction: object): DbExec {
 export function withDesignSourceMutationTransaction<T>(
   designId: string,
   callback: (tx: DesignSourceMutationTransaction) => Promise<T>,
+  outcome?: DesignSourceMutationTransactionOutcome,
 ): Promise<T> {
-  return getDb().transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
-    );
-    const transactionExec = dbExecForDrizzleTransaction(tx);
-    _designTransactionExecs.set(tx, transactionExec);
-    try {
-      return await callback(tx);
-    } finally {
-      _designTransactionExecs.delete(tx);
-    }
-  });
+  if (outcome) {
+    outcome.callbackCompleted = false;
+    outcome.rollbackConfirmed = false;
+  }
+  let callbackError: unknown;
+  let callbackThrew = false;
+  return getDb()
+    .transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+      );
+      const transactionExec = dbExecForDrizzleTransaction(tx);
+      _designTransactionExecs.set(tx, transactionExec);
+      try {
+        try {
+          const result = await callback(tx);
+          if (outcome) outcome.callbackCompleted = true;
+          return result;
+        } catch (error) {
+          callbackThrew = true;
+          callbackError = error;
+          throw error;
+        }
+      } finally {
+        _designTransactionExecs.delete(tx);
+      }
+    })
+    .catch((error: unknown) => {
+      if (
+        outcome &&
+        callbackThrew &&
+        !outcome.callbackCompleted &&
+        callbackError === error
+      ) {
+        outcome.rollbackConfirmed = true;
+      }
+      throw error;
+    });
 }
 
 export function withDesignSourceReadTransaction<T>(
@@ -287,6 +319,22 @@ export async function resolveSourceWorkspace(
   };
 }
 
+export async function loadSelectedSourceWorkspaceFile(
+  file: SourceWorkspaceFile,
+): Promise<SourceWorkspaceFile | null> {
+  const [selected] = await getDb()
+    .select({ content: schema.designFiles.content })
+    .from(schema.designFiles)
+    .where(
+      and(
+        eq(schema.designFiles.id, file.id),
+        eq(schema.designFiles.designId, file.designId),
+      ),
+    )
+    .limit(1);
+  return selected ? { ...file, content: selected.content } : null;
+}
+
 export function findSourceWorkspaceFile(
   files: SourceWorkspaceFile[],
   target: { fileId?: string; path?: string },
@@ -297,10 +345,11 @@ export function findSourceWorkspaceFile(
     ? files.find((candidate) => candidate.id === target.fileId)
     : files.find((candidate) => candidate.filename === normalizedPath);
   if (!file) {
-    throw new Error(
+    fail(
       target.fileId
         ? `Source file id "${target.fileId}" not found.`
         : `Source file "${normalizedPath}" not found.`,
+      { statusCode: 404, errorCode: "source_file_not_found" },
     );
   }
   return file;
@@ -350,8 +399,9 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
  * and the live document is either the persisted base it was derived from or
  * the working copy itself (for callers that already published it to Yjs).
  * Any third live value is a genuine concurrent edit and fails closed. The
- * returned live hash must be passed to `writeInlineSourceFile`, whose
- * read-check-write lock closes the race after this preparation step.
+ * returned live hash must be passed to `writeInlineSourceFile`. A caller may
+ * also supply the working-copy hash, accepted only when live source now
+ * exactly matches that copy.
  */
 export class SourceWorkspaceEditConflictError extends Error {
   readonly statusCode = 409;
@@ -444,12 +494,17 @@ export async function prepareInlineSourceEdit(args: {
       "A source revision is required with current editor content.",
     );
   }
-  if (!args.file.updatedAt || args.revision !== args.file.updatedAt) {
+  if (!args.file.updatedAt) {
     throw new SourceWorkspaceEditConflictError();
   }
 
+  const revisionMatches = args.revision === args.file.updatedAt;
   const persistedVersionHash = sourceContentHash(args.file.content ?? "");
   const workingVersionHash = sourceContentHash(args.currentContent);
+  // A lagging editor timestamp is safe only when it already holds the live bytes.
+  if (!revisionMatches && workingVersionHash !== live.versionHash) {
+    throw new SourceWorkspaceEditConflictError();
+  }
   if (
     live.versionHash !== persistedVersionHash &&
     live.versionHash !== workingVersionHash
@@ -468,11 +523,17 @@ export async function writeInlineSourceFile(args: {
   file: SourceWorkspaceFile;
   content: string;
   expectedVersionHash?: string;
+  expectedWorkingCopyHash?: string;
   identityOnly?: boolean;
   operationSource?: string;
   operationRevision?: number;
   allowUrlBackedTransition?: boolean;
-}): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
+}): Promise<{
+  content: string;
+  versionHash: string;
+  changed: boolean;
+  updatedAt: string;
+}> {
   return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
     withDesignSourceMutationTransaction(args.designId, async (tx) => {
       await assertAccess("design", args.designId, "editor");
@@ -540,11 +601,17 @@ export async function writeInlineSourceFile(args: {
       let identityOnlyOperationSource: string | undefined;
       let identityOnlyOperationRevision: number | undefined;
       const liveBaseHash = current.versionHash;
+      const liveMatchesPreparedWorkingCopy =
+        !identityOnly &&
+        args.expectedVersionHash !== undefined &&
+        args.expectedWorkingCopyHash !== undefined &&
+        args.expectedWorkingCopyHash === current.versionHash;
 
       if (
-        args.expectedVersionHash &&
+        args.expectedVersionHash !== undefined &&
         !identityOnly &&
-        args.expectedVersionHash !== current.versionHash
+        args.expectedVersionHash !== current.versionHash &&
+        !liveMatchesPreparedWorkingCopy
       ) {
         throw new SourceWorkspaceEditConflictError(
           "Source file changed since it was read. Re-read the file and retry.",
@@ -599,6 +666,7 @@ export async function writeInlineSourceFile(args: {
         if (exactPersistedOperation) {
           await validatePreparedNoop();
           return {
+            content: current.content,
             versionHash: candidateHash,
             changed: false,
             updatedAt: currentFile.updatedAt ?? new Date().toISOString(),
@@ -647,6 +715,7 @@ export async function writeInlineSourceFile(args: {
       if (!changed && !identityOnly) {
         await validatePreparedNoop();
         return {
+          content: current.content,
           versionHash: current.versionHash,
           changed: false,
           updatedAt: currentFile.updatedAt ?? updatedAt,
@@ -675,9 +744,10 @@ export async function writeInlineSourceFile(args: {
       assertCandidateIntegrity(args.content);
 
       const liveBeforeApply = readPreparedSourceText(lease);
-      const expectedLiveHash = identityOnly
-        ? liveBaseHash
-        : args.expectedVersionHash;
+      const expectedLiveHash =
+        identityOnly || liveMatchesPreparedWorkingCopy
+          ? liveBaseHash
+          : args.expectedVersionHash;
       if (
         expectedLiveHash &&
         expectedLiveHash !== sourceContentHash(liveBeforeApply)
@@ -817,6 +887,7 @@ export async function writeInlineSourceFile(args: {
         .where(eq(schema.designs.id, args.designId));
 
       return {
+        content: authoritativeContent,
         versionHash: sourceContentHash(authoritativeContent),
         changed: authoritativeContent !== current.content,
         updatedAt,

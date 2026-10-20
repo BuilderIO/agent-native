@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-09-14"
+last_reviewed: "2026-10-18"
 ---
 
 # Comments
@@ -38,15 +38,19 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 ## Product contract
 
 - A Comment thread is owned by one Page and may target one or several Blocks or ranges in its Blocks fields.
+- A thread on a Collection row can instead target one Property value, such as Status or a date. It records the Property's name and the value it had when the thread started. Relations, rollups, and formulas are the exception: what they show depends on who is reading, so the thread records no value and each reader sees their own current one. Once a recorded value changes, the thread shows what it was; once the Property is deleted, the thread says so. It never moves itself onto the newer value. A Property thread has no quoted text, and replies follow the ordinary thread rules.
+- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. Opening either shows the row's Comments, at that cell's thread when there is one. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
 - Rich Comment bodies use the shared Blocks-field grammar; replies and mentions retain the same Page authority.
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
 - Comments submitted through MCP or the in-app agent's Action tools retain the authenticated account as their author and separately persist their submission source. The UI and notifications identify them as posted via AI on that person's behalf; this describes submission, not a claim that AI wrote every word. Replies record their own source, edits preserve the original submission attribution, and historical comments without provenance remain unclassified.
 - A structured `@AI` or connected-model mention in the Comment composer explicitly invokes AI. The inline model tile shows the selected provider and model and is where the model is changed; a Comment addresses at most one model, while people can be mentioned freely. Send offers Auto, Reply in thread, Suggest changes, or Apply changes and resolve. Auto resolves one of those three bounded intents before execution; Suggest changes uses the existing suggested-edits availability and access rules.
+- A sent Comment keeps who each `@Name` means: the person's email or the agent's model, stored beside the readable text. Each one renders as the chip the composer showed, with an avatar for a person and a provider logo for an agent. Comments from before mentions carried identity, and `@` text with no stored identity, stay plain text.
+- One identity card opens from a mention, an author's avatar, or an author's name. A person shows their name, email, and workspace role. An AI author shows its model, thinking effort, and when it ran, and the requester can open the agent conversation that wrote it. Effort, time, or a conversation that was never recorded shows as not recorded rather than guessed.
 - Every AI request binds the authenticated requester, Page body, original root Comment and thread, submitted conversation, revision, exact agent thread and initial turn. A scoped run can use only that intent's dedicated operation; targeting and write authority do not come from chat history or model-written arguments.
 - Each explicit AI Send keeps its source Comment, submitted mode, resolved intent, operation, agent thread, provider/model identity, and reasoning attempts distinct. Unrelated Page edits trigger a bounded contextual refresh or exact-target reanchor; changed feedback, ambiguous targets, and partial saves remain typed, recoverable states on the original thread.
 - Comment AI runs stay out of the active chat until a person explicitly opens them. Progress and the resulting response appear on the source Comment; an AI-addressed follow-up continues that exact agent thread, while a newly requested mutation starts a separately scoped operation. Open AI conversation reveals the exact authorized session with a Comment-specific prefill.
-- Reply adds an AI-attributed answer to the original thread without editing or resolving. Suggest creates a native proposal linked in both directions and leaves the original thread open, including after human acceptance. Apply-and-resolve verifies the saved edit and unchanged source conversation before resolving; conflicts and partial success remain available for review. The resolved thread shows a bounded before/after of what changed and stays in view until the person dismisses it. Its requester can undo the change, which reverses the exact saved edits and reopens the thread, only while the changed text is still as AI left it.
+- Reply adds an AI-attributed answer to the original thread without editing or resolving. Suggest creates a native proposal linked in both directions and reviewed as a card inside the source thread. Accepting or rejecting it decides only the proposal: the thread stays open until someone resolves it, and acceptance moves the thread's quote onto the accepted text. An AI-addressed follow-up asking for a different change posts the reply to that thread first, then adds a revised proposal there that supersedes the requester's earlier pending one from the same thread. Apply-and-resolve verifies the saved edit and unchanged source conversation before resolving; conflicts and partial success remain available for review. The resolved thread shows a bounded before/after of what changed and stays in view until the person dismisses it. Its requester can undo the change, which reverses the exact saved edits and reopens the thread, only while the changed text is still as AI left it.
 - Retrying one request recovers its retained operation and result. It does not silently replace its intent, duplicate a reply or proposal, or reapply a saved edit. Unknown historical authorship is not retrospectively labeled AI.
 - References and embeds display the authoritative Page-owned thread; they do not clone or re-home it.
 - A person or agent with comment access can react to a Comment or reply with one emoji at a time through the shared reaction Action. Each person reacts with a given emoji at most once, reactions inherit the Comment's access, and deleting the Comment removes them. Suggested-edit discussions present reactions the same way while keeping their own storage.
@@ -62,6 +66,18 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 ### React without replying
 
 Given an open Comment, when a commenter adds 👍 twice and 🎉 once, the thread shows one 👍 and one 🎉 marked as theirs; removing 👍 leaves only 🎉, a person without comment access cannot react, and deleting the Comment removes its reactions.
+
+### Know who a mention means
+
+Given a Comment that mentions a teammate and Claude, when it is sent, both names render as chips with the teammate's avatar and Claude's logo, and hovering or focusing either one shows who it is. An older Comment whose `@Sam` was saved as text still reads `@Sam`. Hovering the AI reply's author shows its model, effort, and time, and its requester can open the conversation that wrote it.
+
+### Comment on one Property value
+
+Given a Collection row whose Status is Blocked, when a commenter starts a thread on Status from the row's peek, the thread reads "Status · Blocked" with no "Highlight unavailable" warning, and the Status cell in the table shows a marker that opens that thread. When Status later changes to Done, the thread reads "was Blocked"; when the Property is deleted, it reads "Status (removed)". A thread started on a Property that is not on the Page, or on a Property and quoted text at once, is rejected.
+
+### See open Comments from a Collection
+
+Given a Collection where one row has two open threads and a private row has one, a viewer who can read every row but the private one sees "2" beside the first row's name and no count on the private row. Clicking the count opens that row's peek with its Comments showing. Resolving the last open thread clears the count. An agent listing the Collection's Comments in one call gets the same threads, each naming its row and target, and nothing from the private row.
 
 ### Preserve a deleted anchor
 
@@ -112,6 +128,10 @@ same-thread continuation or handoff. Live local acceptance proved distinct hidde
 threads, concurrent loading, unchanged navigation, fresh retry identity, and
 recoverable failure UI; a successful model/tool completion and inline continuation
 remain required integration proof.
+
+A Comment AI proposal now renders in its source thread in place of the receipt reply, with Accept and Reject, and leaves the margin. `thread-suggestions.test.ts` covers thread grouping and receipt matching; `comment-reanchor.test.ts` covers moving the quote onto accepted text and declining to invent one across Markdown syntax. A live local run proved the full loop with a real model: comment, proposal in thread, an "actually, make it X" reply, a revised proposal superseding the first, acceptance with the thread still open and its highlight intact, then a separate resolve.
+
+A thread can target one Property value. `content-database-comments.db.test.ts` proves the recorded name and value survive a value change, a relation's linked rows are never recorded for other readers, invalid targets are rejected, per-row and per-Property open counts follow row access and resolution, and the Collection-wide Comment read returns only readable rows. `comment-property-target.test.ts` covers how each Property type reads as text. Rich-text Property values do not yet offer a Property target; they keep body-style quoted Comments.
 
 ## Proof plan
 

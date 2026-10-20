@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getRequestContext } from "../server/request-context.js";
 import {
   createMCPServerForRequest,
   type MCPCallerIdentity,
@@ -22,6 +23,9 @@ vi.mock("../audit/record.js", () => ({
 
 const SVC = "svc-ci@service.org_1";
 const runs: string[] = [];
+let observedVerifiedServiceIdentity:
+  | { userEmail: string; orgId: string }
+  | undefined;
 
 function config(): MCPConfig {
   const action = (name: string, readOnly: boolean) =>
@@ -30,6 +34,8 @@ function config(): MCPConfig {
       readOnly,
       run: async () => {
         runs.push(name);
+        observedVerifiedServiceIdentity =
+          getRequestContext()?.verifiedServiceIdentity;
         return { ok: name };
       },
     }) as any;
@@ -86,6 +92,7 @@ function textOf(result: any): string {
 beforeEach(() => {
   vi.clearAllMocks();
   runs.length = 0;
+  observedVerifiedServiceIdentity = undefined;
 });
 
 describe("MCP tools/list for a service principal", () => {
@@ -150,16 +157,27 @@ describe("MCP tools/list for a service principal", () => {
     expect(recordActionAuditMock.mock.calls[0][0]).toMatchObject({
       ctx: {
         actionName: "mcp:tools/list",
-        caller: "mcp",
         userEmail: SVC,
         orgId: "org_1",
       },
+      attribution: { caller: "mcp" },
       error: { statusCode: 403 },
     });
   });
 });
 
 describe("MCP tools/call for a service principal", () => {
+  it("carries verified service identity into the tool request context", async () => {
+    activeWithGrant(["list-docs"]);
+    const client = await clientFor(serviceIdentity);
+    await client.callTool({ name: "list-docs", arguments: {} });
+
+    expect(observedVerifiedServiceIdentity).toEqual({
+      userEmail: SVC,
+      orgId: "org_1",
+    });
+  });
+
   it("runs a granted tool", async () => {
     activeWithGrant(["list-docs"]);
     const client = await clientFor(serviceIdentity);
@@ -187,9 +205,9 @@ describe("MCP tools/call for a service principal", () => {
     const audit = recordActionAuditMock.mock.calls[0][0];
     expect(audit.ctx).toMatchObject({
       actionName: "delete-doc",
-      caller: "mcp",
       userEmail: SVC,
     });
+    expect(audit.attribution).toMatchObject({ caller: "mcp" });
     expect(audit.error.statusCode).toBe(403);
   });
 
@@ -339,10 +357,10 @@ describe("MCP App resources for a service principal", () => {
     expect(recordActionAuditMock.mock.calls[0][0]).toMatchObject({
       ctx: {
         actionName: `mcp:${method}`,
-        caller: "mcp",
         userEmail: SVC,
         orgId: "org_1",
       },
+      attribution: { caller: "mcp" },
       error: { statusCode: 403 },
     });
   });

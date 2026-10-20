@@ -19,9 +19,13 @@ proof_requirements:
     "Agent proposals use the ordinary action, review, and history path; they are not a private inline editor.",
     "Collaborators see reconciliation and failures honestly rather than silently losing edits.",
   ]
-evidence: []
+evidence:
+  [
+    "../../../app/components/editor/DocumentEditor.layout.test.ts",
+    "../../../app/hooks/use-create-page.test.tsx",
+  ]
 superseded_by: null
-last_reviewed: "2026-10-06"
+last_reviewed: "2026-10-08"
 ---
 
 # Document editor
@@ -49,6 +53,12 @@ Ravi turns a paragraph into a callout, anchors a Comment, accepts an agent edit,
 - This does not add a raw-source editing mode, a second agent composer, or a private inline mutation engine.
 
 ## Acceptance stories
+
+### Start writing a blank Page immediately
+
+Given the create Action has returned a new empty Page while the editor's first
+read is still pending, when the Page opens, then its title and body are
+editable from that create response and any later read failure remains visible.
 
 ### Reconcile collaboration
 

@@ -12,6 +12,8 @@ import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode, RefObject } from "react";
 
+import type { TextCommitStatus } from "@/pages/design-editor/command-types";
+
 import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
@@ -179,12 +181,13 @@ export interface MultiScreenCanvasProps {
   selectedPenPathNodeId?: string | null;
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];
   lockedScreenIds?: ReadonlySet<string> | readonly string[];
-  fullViewScreenIds?: string[];
   pendingReviewScreenIds?: ReadonlySet<string> | readonly string[];
   onReviewPendingScreen?: (screenId: string) => void;
   interactMode?: boolean;
   interactScreenId?: string | null;
   focusedInteractViewport?: { width: number; height: number } | null;
+  /** The corner class of the focused Interact frame; a string, so the memoised canvas compares it by value. */
+  focusedInteractCornerClass?: string | null;
   readOnly?: boolean;
   editableScreenIds?: ReadonlySet<string>;
   activeScreenHasHoveredChild?: boolean;
@@ -195,6 +198,9 @@ export interface MultiScreenCanvasProps {
   reviewResourceId?: string;
   reviewPinMode?: boolean;
   reviewCommentsHidden?: boolean;
+  pixelGridEnabled?: boolean;
+  snapToPixelGrid?: boolean;
+  showRulers?: boolean;
   reviewCanPost?: boolean;
   reviewCanResolve?: boolean;
   reviewTargetId?: string | null;
@@ -217,6 +223,7 @@ export interface MultiScreenCanvasProps {
     id: string,
     selectionToggle?: { screenId: string; selected: boolean },
   ) => void;
+  onSelectForGesture?: (id: string) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
@@ -254,6 +261,14 @@ export interface MultiScreenCanvasProps {
   onPrimitiveCreated?: (
     screenId: string,
     nodeId: string,
+    options?: {
+      nextTool?: "move" | "pen";
+      preserveActiveTool?: boolean;
+    },
+  ) => void;
+  onPrimitivesCreated?: (
+    created: ReadonlyArray<{ screenId: string; nodeId: string }>,
+    selected?: { screenId: string; nodeId: string },
     options?: {
       nextTool?: "move" | "pen";
       preserveActiveTool?: boolean;
@@ -351,10 +366,9 @@ export interface MultiScreenCanvasProps {
       row: number;
       rowEnd: number;
     };
-    targetAnchorRect?: CrossScreenHitTestAnchorRect;
+    targetAbsoluteOrigin?: CrossScreenHitTestOrigin;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
-    targetOutsideBoardContentBounds?: boolean;
     sourcePointerOffset?: Point;
     sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
@@ -492,7 +506,7 @@ export interface MultiScreenCanvasProps {
     value: string,
     info?: ElementInfo,
     details?: { html?: string },
-  ) => void;
+  ) => TextCommitStatus | void;
   vectorEdit?: VectorEditOverlayState | null;
   gradientEditTarget?: GradientEditOverlayTarget | null;
   onDropFiles?: (
@@ -501,7 +515,10 @@ export interface MultiScreenCanvasProps {
   ) => void;
   cameraCommand?: {
     fitBounds: FrameBounds;
+    canvasZoom?: number;
     paddingScreenPx?: number;
+    /** Pan at the current zoom, and only when no part of `fitBounds` is in view. */
+    revealOnly?: boolean;
     nonce: number;
   } | null;
   suppressLineupRecenter?: {
@@ -513,7 +530,8 @@ export interface MultiScreenCanvasProps {
   deferLineupZoomChange?: boolean;
   /**
    * Omitted: the first layout fits every screen. Set (a screen id, or null for
-   * the first screen): it fits that one screen to the pane width instead.
+   * the first screen): it focuses that screen. By default it fits the pane
+   * width; `fitFocusedViewport` fits both axes and centers it.
    */
   initialFitScreenId?: string | null;
   /**
@@ -521,10 +539,164 @@ export interface MultiScreenCanvasProps {
    * pane so it reflows into the pane instead of leaving empty canvas below it.
    */
   fillFocusedViewport?: boolean;
+  /** With `initialFitScreenId` set: center the full screen inside the pane. */
+  fitFocusedViewport?: boolean;
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
   visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
 }
+
+export type MultiScreenCanvasReviewProps = Pick<
+  MultiScreenCanvasProps,
+  | "reviewResourceId"
+  | "reviewPinMode"
+  | "reviewCommentsHidden"
+  | "reviewCanPost"
+  | "reviewCanResolve"
+  | "reviewTargetId"
+  | "reviewFocusRequest"
+  | "reviewCurrentUserEmail"
+  | "onExitReviewPinMode"
+  | "onDispatchCommentToAgent"
+  | "onSendThreadToAgent"
+  | "reviewSendingThreadId"
+  | "reviewDesignTitle"
+  | "onCommentPin"
+  | "pendingReviewScreenIds"
+  | "onReviewPendingScreen"
+>;
+
+export type MultiScreenCanvasBoardProps = Pick<
+  MultiScreenCanvasProps,
+  | "boardFileId"
+  | "boardFileContent"
+  | "boardCodeLayerSource"
+  | "boardFrameGeometry"
+  | "onBoardDrawPrimitive"
+  | "boardEditMode"
+  | "boardRuntimeStructureInsertRequest"
+  | "boardRuntimeStructureRollbackRequest"
+  | "runtimeStructurePendingTransactionRef"
+  | "onBoardRuntimeStructureInsertRejected"
+  | "onBoardRuntimeStructureInsertApplied"
+  | "onBoardRuntimeStructureRollbackResult"
+  | "boardIsActive"
+  | "onBoardElementSelect"
+  | "onBoardSelectionWorldBoundsChange"
+  | "onBoardElementMarqueeSelect"
+  | "onBoardElementHover"
+  | "onBoardElementClear"
+  | "onBoardElementDblClickText"
+  | "onBoardIframeHotkey"
+  | "onBoardFigmaClipboardPaste"
+  | "onBoardImagePaste"
+  | "onBoardIframeContextMenu"
+  | "onBoardTextEditingStateChange"
+  | "boardClearSelectionRequest"
+  | "boardSelectedSelector"
+  | "boardSelectedSelectorCandidates"
+  | "boardSelectedSourceId"
+  | "boardHoveredSelector"
+  | "boardHoveredSelectorCandidates"
+  | "boardLockedSelectors"
+  | "boardHiddenSelectors"
+  | "onBoardVisualStructureChange"
+  | "onBoardVisualStyleChange"
+  | "onBoardVisualStyleBatchChange"
+  | "onBoardVisualDuplicateChange"
+  | "onBoardTextContentChange"
+>;
+
+export type MultiScreenCanvasBreakpointsProps = Pick<
+  MultiScreenCanvasProps,
+  | "onAddBreakpoint"
+  | "breakpointMutationPending"
+  | "onActiveBreakpointChange"
+  | "onRemoveBreakpoint"
+  | "onChangeBreakpointWidth"
+  | "onEditBreakpoint"
+  | "renderBreakpointContent"
+  | "onBreakpointContentHeightChange"
+>;
+
+export type MultiScreenCanvasCameraProps = Pick<
+  MultiScreenCanvasProps,
+  | "cameraCommand"
+  | "suppressLineupRecenter"
+  | "preserveCameraOnScreenCountChange"
+  | "deferLineupZoomChange"
+  | "chromeInsetLeft"
+  | "chromeInsetRight"
+  | "visibleCanvasRectRef"
+  | "onZoomChange"
+  | "initialFitScreenId"
+  | "fillFocusedViewport"
+  | "fitFocusedViewport"
+>;
+
+export type MultiScreenCanvasCreationProps = Pick<
+  MultiScreenCanvasProps,
+  | "activeTool"
+  | "toolProps"
+  | "onActiveToolChange"
+  | "onCreatePrimitive"
+  | "onPrimitiveCreated"
+  | "onPrimitivesCreated"
+  | "onUpdatePenPath"
+  | "onPrimitiveReparent"
+  | "onCreateScreenFrame"
+  | "frameToolDraws"
+  | "vectorEdit"
+  | "gradientEditTarget"
+>;
+
+export type MultiScreenCanvasGeometryProps = Pick<
+  MultiScreenCanvasProps,
+  | "geometryById"
+  | "geometryOverridesById"
+  | "onGeometryChange"
+  | "onGeometryCommit"
+  | "onPrimaryContentHeightChange"
+  | "onScreenContentNaturalHeightChange"
+  | "layoutGrids"
+  | "nudgeAmounts"
+  | "onNudgeSelection"
+>;
+
+export type MultiScreenCanvasSelectionProps = Pick<
+  MultiScreenCanvasProps,
+  | "selectedScreenIds"
+  | "selectedElementScreenId"
+  | "selectedPenPathNodeId"
+  | "onScreenSelectionChange"
+  | "selectAllRequest"
+  | "clearSelectionRequest"
+  | "onSelectionChange"
+  | "onLayerMarqueeSelectionChange"
+  | "selectedLayerSelectorGroupsByScreen"
+  | "activeScreenHasHoveredChild"
+  | "hoveredChildScreenId"
+  | "directlyHoveredScreenId"
+>;
+
+export type MultiScreenCanvasGroupedProps = Omit<
+  MultiScreenCanvasProps,
+  | keyof MultiScreenCanvasReviewProps
+  | keyof MultiScreenCanvasBoardProps
+  | keyof MultiScreenCanvasBreakpointsProps
+  | keyof MultiScreenCanvasCameraProps
+  | keyof MultiScreenCanvasCreationProps
+  | keyof MultiScreenCanvasGeometryProps
+  | keyof MultiScreenCanvasSelectionProps
+> & {
+  review?: MultiScreenCanvasReviewProps;
+  board?: MultiScreenCanvasBoardProps;
+  breakpoints?: MultiScreenCanvasBreakpointsProps;
+  camera?: MultiScreenCanvasCameraProps;
+  creation?: MultiScreenCanvasCreationProps;
+  geometry?: MultiScreenCanvasGeometryProps;
+  selection?: MultiScreenCanvasSelectionProps;
+};
 
 export interface VisibleCanvasRect {
   x: number;
@@ -577,7 +749,7 @@ export interface VectorEditOverlayState {
 }
 
 /**
- * Figma-parity on-canvas gradient editing handles (follow-up to IP21's
+ * On-canvas gradient editing handles (follow-up to IP21's
  * inspector-only `GradientEditor`). Supplied by the parent (DesignEditor)
  * whenever a fill's gradient tab is open in the inspector for a selected
  * board/draft primitive or screen frame this canvas renders chrome for; see
@@ -703,6 +875,7 @@ export interface ResizeDragState {
   type: "resize";
   originClient: Point;
   originFrames: FrameGeometryById;
+  savedFrames: FrameGeometryById;
   originBounds: FrameGeometry;
   targetIds: string[];
   handle: ResizeHandle;
@@ -746,6 +919,7 @@ export interface PanDragState {
   type: "pan";
   originClient: Point;
   originPan: Point;
+  originZoom: number;
 }
 
 export interface DraftMoveDragState {
@@ -861,6 +1035,11 @@ export interface CrossScreenHitTestAnchorRect {
   height: number;
 }
 
+export interface CrossScreenHitTestOrigin {
+  left: number;
+  top: number;
+}
+
 export interface CrossScreenHitTestResult {
   targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
@@ -873,6 +1052,7 @@ export interface CrossScreenHitTestResult {
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
   guideRect?: CrossScreenHitTestAnchorRect;
+  absoluteOrigin?: CrossScreenHitTestOrigin;
   gridPlacement?: {
     column: number;
     columnEnd: number;

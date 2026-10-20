@@ -12,6 +12,12 @@ import { z } from "zod";
 import { assertWorkspaceConnectionDeleteManager } from "./connection-permissions.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   description: "Delete a shared workspace integration connection.",
   chatUI: {
     renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -41,7 +47,7 @@ export default defineAction({
         ...(connection.accountLabel
           ? { detail: connection.accountLabel.slice(0, 500) }
           : {}),
-        url: "/integrations",
+        url: "/settings/integrations",
       },
     };
   },

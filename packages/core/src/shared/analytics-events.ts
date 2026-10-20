@@ -16,6 +16,9 @@ export const AGENT_NATIVE_ACTION_EVENTS = {
   failed: "action_failed",
 } as const;
 
+/** Ephemeral join key shared by legacy and canonical records for one event. */
+export const TRACKING_EVENT_ALIAS_ID_PROPERTY = "event_alias_id";
+
 export type AgentNativeLifecycleEventName =
   (typeof AGENT_NATIVE_LIFECYCLE_EVENTS)[keyof typeof AGENT_NATIVE_LIFECYCLE_EVENTS];
 
@@ -306,6 +309,7 @@ export function legacyLifecycleEvent(
     name === "auth.signup_clicked" ||
     name === "auth.login_clicked" ||
     name === "builder connect clicked" ||
+    name === "builder_connect_clicked" ||
     name.startsWith("click ") ||
     name.startsWith("try ") ||
     name.startsWith("choose ") ||

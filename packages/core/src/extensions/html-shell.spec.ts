@@ -2,14 +2,27 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  defineAppConfig,
+  getAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import {
   buildExtensionHtml,
   EXTENSION_FRAME_ANCESTORS,
   EXTENSION_IFRAME_CSP,
   EXTENSION_IFRAME_META_CSP,
+  extensionIframeCspBase,
+  extensionIframeMetaCspFromDisplaySources,
 } from "./html-shell.js";
+import {
+  buildExtensionIframeCsp,
+  buildExtensionIframeMetaCsp,
+  getExtensionIframeDisplaySources,
+} from "./iframe-csp.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXTENSION_HOST_DIR = join(
@@ -22,6 +35,12 @@ const EXTENSION_HOST_DIR = join(
   "app",
   "extensions",
 );
+
+// The CSP resolves app config, so an unset config has to be the baseline every
+// other assertion in this file measures against.
+afterEach(() => {
+  resetAppConfigForTests();
+});
 
 describe("buildExtensionHtml", () => {
   it("uses a constrained iframe CSP", () => {
@@ -44,6 +63,38 @@ describe("buildExtensionHtml", () => {
     expect(EXTENSION_FRAME_ANCESTORS).toContain(
       "https://*.web-sandbox.oaiusercontent.com",
     );
+  });
+
+  it("routes clicked external extension links through a private parent channel", () => {
+    const html = buildExtensionHtml(
+      '<a href="https://docs.example.com/metric">Metric docs</a>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("if (!event.isTrusted");
+    expect(html).toContain("link.getAttribute('href')");
+    expect(html).toContain(
+      "link.getAttributeNS('http://www.w3.org/1999/xlink', 'href')",
+    );
+    expect(html).toContain("bootstrapScript.remove()");
+    expect(html).toContain("var routeFrameName = window.name;");
+    expect(html).toContain("if (routeNameContainsNonce) window.name = '';");
+    expect(html).not.toContain("history.replaceState(");
+    expect(html).toContain("sendExternalLink(request)");
+    expect(html).toContain("event.preventDefault()");
+    expect(html).toContain(
+      "destination.origin === new URL(document.baseURI).origin",
+    );
+    expect(html).toContain("agent-native-extension.hello-link-channel");
+    expect(html).not.toContain("agent-native-extension.reseed-link-channel");
+    expect(html).toContain("agent-native-extension.open-external-link");
+    expect(html).not.toContain("__agentNativeExtensionLinkNonce");
+    expect(html).toContain("document.addEventListener('submit'");
+    expect(html).not.toContain("link.setAttribute('target'");
+    expect(html).not.toContain("location.assign");
+    expect(html).toContain("window.addEventListener('click'");
   });
 
   it("keeps frame-ancestors in the HTTP header CSP only", () => {
@@ -117,6 +168,22 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("providerApi: providerApi");
     expect(html).not.toContain("accessToken");
     expect(html).not.toContain("clientSecret");
+  });
+
+  it("sets up link routing before extension content can run", () => {
+    const html = buildExtensionHtml(
+      "<main id=extension-content></main>",
+      ":root{}",
+      false,
+      "extension-1",
+    );
+    const content = html.indexOf("<main id=extension-content>");
+
+    // Behavior is covered in toolkit's extension-link-routing.spec.ts.
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeGreaterThan(-1);
+    expect(html.indexOf("openUrlToken: _openUrlToken")).toBeLessThan(content);
+    expect(html.indexOf("})(_openUrlToken);")).toBeGreaterThan(-1);
+    expect(html.indexOf("})(_openUrlToken);")).toBeLessThan(content);
   });
 
   it("exposes a chat bridge helper to extension code", () => {
@@ -254,6 +321,289 @@ describe("buildExtensionHtml", () => {
   });
 });
 
+describe("extension iframe display-only media sources", () => {
+  // Read one directive's source list, so a widening assertion cannot pass on
+  // an `https:` that belongs to `script-src` or `style-src`.
+  function sources(csp: string, directive: string): string[] {
+    const match = new RegExp(`(?:^|; )${directive} ([^;]*);`).exec(csp);
+    expect(match).not.toBeNull();
+    return (match?.[1] ?? "").split(" ").filter(Boolean);
+  }
+
+  it("blocks every remote image until a deployment opts in", () => {
+    expect(buildExtensionIframeMetaCsp()).toBe(EXTENSION_IFRAME_META_CSP);
+    expect(sources(buildExtensionIframeMetaCsp(), "img-src")).toEqual([
+      "'self'",
+      "data:",
+      "blob:",
+    ]);
+    expect(sources(buildExtensionIframeMetaCsp(), "media-src")).toEqual([
+      "'self'",
+      "data:",
+      "blob:",
+    ]);
+  });
+
+  it("applies configured image and media sources to the meta CSP", () => {
+    defineAppConfig({
+      extensions: {
+        iframeImageSources: ["'self'", "https:", "data:", "blob:"],
+        iframeMediaSources: ["'self'", "https:", "data:", "blob:"],
+      },
+    });
+
+    const csp = buildExtensionIframeMetaCsp();
+    expect(sources(csp, "img-src")).toEqual([
+      "'self'",
+      "https:",
+      "data:",
+      "blob:",
+    ]);
+    expect(sources(csp, "media-src")).toEqual([
+      "'self'",
+      "https:",
+      "data:",
+      "blob:",
+    ]);
+    expect(
+      buildExtensionHtml(
+        "<div/>",
+        ":root{}",
+        false,
+        "extension-1",
+        undefined,
+        csp,
+      ),
+    ).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${csp}" />`,
+    );
+  });
+
+  it("keeps the client-built shell on the default CSP unless one is passed", () => {
+    defineAppConfig({
+      extensions: { iframeImageSources: ["'self'", "https:"] },
+    });
+
+    expect(
+      buildExtensionHtml("<div/>", ":root{}", false, "extension-1"),
+    ).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />`,
+    );
+  });
+
+  // ExtensionViewer and InlineExtensionFrame build this shell in the browser,
+  // so it must not pull the app-config store (top-level process.env reads)
+  // into client bundles.
+  it("does not import app config into the client-rendered shell", () => {
+    // source-read-ok: client-bundle boundary check on html-shell.ts's import list
+    const shell = readFileSync(join(HERE, "html-shell.ts"), "utf8");
+    const imports = shell
+      .split("\n")
+      .filter(
+        (line) =>
+          /^\s*(import|export) .* from /.test(line) || /^} from /.test(line),
+      );
+    for (const line of imports) {
+      expect(line).not.toMatch(/app-config\/(index|store)/);
+    }
+    expect(shell).not.toContain("getAppConfig");
+  });
+
+  it("hands out a fresh default so a mutated config cannot reach the next parse", () => {
+    expect(Object.isFrozen(DEFAULT_EXTENSION_DISPLAY_SOURCES)).toBe(true);
+    defineAppConfig({});
+    const first = getAppConfig().extensions.iframeImageSources;
+    expect(first).not.toBe(DEFAULT_EXTENSION_DISPLAY_SOURCES);
+    first.push("'self'; script-src *");
+    resetAppConfigForTests();
+    defineAppConfig({});
+    expect(getAppConfig().extensions.iframeImageSources).toEqual([
+      "'self'",
+      "data:",
+      "blob:",
+    ]);
+    expect(buildExtensionIframeMetaCsp()).toBe(EXTENSION_IFRAME_META_CSP);
+  });
+
+  // SECURITY: getAppConfig() returns the cached resolved config, which a caller
+  // can mutate after the schema validated it. The CSP builder revalidates.
+  it("refuses a resolved config that was mutated after validation", () => {
+    defineAppConfig({
+      extensions: { iframeImageSources: ["'self'", "https:"] },
+    });
+    getAppConfig().extensions.iframeImageSources.push("'self'; connect-src *");
+    expect(() => buildExtensionIframeMetaCsp()).toThrow(/img-src/);
+    expect(() => buildExtensionIframeCsp()).toThrow(/img-src/);
+    expect(() => getExtensionIframeDisplaySources()).toThrow(/img-src/);
+
+    resetAppConfigForTests();
+    defineAppConfig({});
+    getAppConfig().extensions.iframeMediaSources.splice(
+      0,
+      Infinity,
+      "'none'",
+      "https:",
+    );
+    expect(() => buildExtensionIframeMetaCsp()).toThrow(/media-src/);
+
+    resetAppConfigForTests();
+    defineAppConfig({});
+    getAppConfig().extensions.iframeImageSources.length = 0;
+    expect(() => buildExtensionIframeMetaCsp()).toThrow(/img-src/);
+  });
+
+  it("validates both lists wherever the policy is built", () => {
+    for (const bad of [
+      ["'self'; connect-src *"],
+      ["'self' https://a.example"],
+      ["'none'", "https:"],
+      [],
+    ]) {
+      expect(() => extensionIframeCspBase(bad, ["'self'"])).toThrow(TypeError);
+      expect(() => extensionIframeCspBase(["'self'"], bad)).toThrow(TypeError);
+    }
+    expect(() =>
+      extensionIframeCspBase([42 as unknown as string], ["'self'"]),
+    ).toThrow(TypeError);
+  });
+
+  it("serves copies of the configured lists to client-rendered frames", () => {
+    defineAppConfig({
+      extensions: {
+        iframeImageSources: ["'self'", "https://cdn.example.com"],
+        iframeMediaSources: ["'self'", "blob:"],
+      },
+    });
+    const served = getExtensionIframeDisplaySources();
+    expect(served).toEqual({
+      imageSources: ["'self'", "https://cdn.example.com"],
+      mediaSources: ["'self'", "blob:"],
+    });
+    served.imageSources.push("'self'; connect-src *");
+    expect(getAppConfig().extensions.iframeImageSources).toEqual([
+      "'self'",
+      "https://cdn.example.com",
+    ]);
+  });
+
+  it("builds the client meta CSP from served lists and fails closed", () => {
+    const csp = extensionIframeMetaCspFromDisplaySources({
+      imageSources: ["'self'", "https:"],
+      mediaSources: ["'self'", "data:"],
+    });
+    expect(sources(csp, "img-src")).toEqual(["'self'", "https:"]);
+    expect(sources(csp, "media-src")).toEqual(["'self'", "data:"]);
+    expect(sources(csp, "connect-src")).toEqual(["'self'"]);
+
+    for (const body of [
+      null,
+      "https:",
+      {},
+      { imageSources: ["'self'"] },
+      { imageSources: "https:", mediaSources: ["'self'"] },
+      {
+        imageSources: ["'self'; connect-src *"],
+        mediaSources: ["'self'"],
+      },
+      { imageSources: ["'none'", "https:"], mediaSources: ["'self'"] },
+    ]) {
+      expect(extensionIframeMetaCspFromDisplaySources(body)).toBe(
+        EXTENSION_IFRAME_META_CSP,
+      );
+    }
+  });
+
+  it("applies each directive's own list rather than one shared list", () => {
+    defineAppConfig({
+      extensions: {
+        iframeImageSources: ["'self'", "data:", "https://cdn.example.com"],
+        iframeMediaSources: ["'self'", "data:"],
+      },
+    });
+
+    const csp = buildExtensionIframeMetaCsp();
+    expect(sources(csp, "img-src")).toEqual([
+      "'self'",
+      "data:",
+      "https://cdn.example.com",
+    ]);
+    expect(sources(csp, "media-src")).toEqual(["'self'", "data:"]);
+  });
+
+  it("keeps frame-ancestors in the header CSP the render route sets", () => {
+    defineAppConfig({
+      extensions: { iframeImageSources: ["'self'", "https:"] },
+    });
+
+    const csp = buildExtensionIframeCsp();
+    expect(sources(csp, "img-src")).toEqual(["'self'", "https:"]);
+    expect(csp).toContain(`frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`);
+    expect(csp).not.toContain("frame-ancestors *");
+  });
+
+  // SECURITY: img-src / media-src are the configurable directives. connect-src
+  // and the other directives stay locked. A remote img-src origin is its own
+  // egress permission (the browser requests the URL); it must not also rewrite
+  // connect-src or inject another directive.
+  it("leaves connect-src and every other directive at the framework default", () => {
+    const locked = {
+      "default-src": ["'none'"],
+      "script-src": [
+        "'self'",
+        "https://cdn.jsdelivr.net",
+        "'unsafe-eval'",
+        "'unsafe-inline'",
+      ],
+      "style-src": [
+        "'self'",
+        "'unsafe-inline'",
+        "https://cdn.jsdelivr.net",
+        "https://fonts.googleapis.com",
+      ],
+      "font-src": ["https://fonts.gstatic.com"],
+      "connect-src": ["'self'"],
+      "frame-src": ["'none'"],
+      "object-src": ["'none'"],
+      "base-uri": ["'none'"],
+      "form-action": ["'none'"],
+    };
+
+    defineAppConfig({
+      extensions: {
+        iframeImageSources: ["'self'", "https:", "https://cdn.example.com"],
+        iframeMediaSources: ["'self'", "https:", "https://cdn.example.com"],
+      },
+    });
+
+    const widened = buildExtensionIframeCsp();
+    for (const [directive, expected] of Object.entries(locked)) {
+      expect(sources(widened, directive)).toEqual(expected);
+    }
+    expect(sources(widened, "img-src")).toEqual([
+      "'self'",
+      "https:",
+      "https://cdn.example.com",
+    ]);
+  });
+
+  it("refuses a source expression that would inject another directive", () => {
+    for (const source of [
+      "'self'; script-src *",
+      "'self' https://a.example",
+      "https://cdn.example.com/path",
+      "javascript:alert(1)",
+      "",
+    ]) {
+      expect(() =>
+        defineAppConfig({ extensions: { iframeImageSources: [source] } }),
+      ).toThrow();
+    }
+    expect(() =>
+      defineAppConfig({ extensions: { iframeImageSources: [] } }),
+    ).toThrow();
+  });
+});
+
 describe("extension iframe sandbox attribute (CI guard)", () => {
   // SECURITY: the host-side iframe MUST be rendered with a sandbox attribute
   // that does NOT include `allow-same-origin`. Adding it would let the
@@ -273,8 +623,8 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
         "sandbox={EXTENSION_IFRAME_SANDBOX}",
       );
       if (usesNormalizedSandbox) {
-        expect(text).toContain(
-          "normalizeAgentNativeExtensionSandbox(undefined)",
+        expect(text).toMatch(
+          /normalizeAgentNativeExtensionSandbox\(\s*undefined,\s*\{\s*mode:\s*"nonce"\s*\},?\s*\)/,
         );
       } else {
         expect(sandboxMatches.length).toBeGreaterThan(0);

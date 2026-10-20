@@ -1,9 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
 import {
   IconBackground,
   IconBlur,
@@ -42,6 +38,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import type { RenderNestedColorPicker } from "../inspector/color-picker-nested";
+import {
+  DesignColorPicker,
+  inferPaintType,
+} from "../inspector/DesignColorPicker";
 import {
   GlslShaderEffectSection,
   useScreenGlslShaders,
@@ -51,6 +52,10 @@ import {
   InspectorControlField,
   InspectorControlPopoverContent,
 } from "../inspector/InspectorControlPopover";
+import {
+  hasSelectedNativeEffects,
+  NativeShaderEffectSection,
+} from "../inspector/NativeShaderPanel";
 import type { ElementInfo } from "../types";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -90,7 +95,7 @@ export interface ShadowLayer {
 // guard:allow-raw-color — authored shadows need a concrete CSS color fallback.
 const DEFAULT_DROP_SHADOW_COLOR = "rgba(0, 0, 0, 0.25)";
 
-function defaultDropShadowLayer(index: number): ShadowLayer {
+export function defaultDropShadowLayer(index: number): ShadowLayer {
   return {
     id: `shadow-${index}`,
     x: 0,
@@ -241,12 +246,11 @@ export function remapIndexedShadowStash(
 }
 
 function shadowColorWithOpacity(color: string, opacity: number): string {
-  const parsed = parseCssColor(color);
-  return parsed
-    ? rgbaToCss(withColorOpacity(parsed, opacity))
-    : opacity <= 0
-      ? "rgba(0, 0, 0, 0)"
-      : color;
+  return (
+    withCssColorOpacity(color, opacity) ??
+    // guard:allow-raw-color — a shadow with no readable color falls back to concrete transparent black.
+    (opacity <= 0 ? "rgba(0, 0, 0, 0)" : color)
+  );
 }
 
 export function effectsSelectionIsMixed(styles: {
@@ -613,6 +617,7 @@ function ShadowEffectRow({
           label={t("editPanel.labels.color")}
           value={cssColorOrFallback(layer.color, DEFAULT_DROP_SHADOW_COLOR)}
           onChange={(value, meta) => onChange({ color: value }, meta)}
+          bindTokens
         />
       </InspectorControlField>
     </EffectPopoverRow>
@@ -635,6 +640,29 @@ export function EffectsProperties({
   const t = useT();
   const [shaderPickerOpen, setShaderPickerOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const openShaderPickerAfterMenuCloseRef = useRef(false);
+  const renderShaderColorPicker: RenderNestedColorPicker = (request) => (
+    <DesignColorPicker
+      open
+      anchorElement={request.anchor}
+      onOpenChange={(open) => {
+        if (!open) request.onClose();
+      }}
+      value={request.css}
+      paintType={
+        request.supportedPaintTypes ? inferPaintType(request.css, 100) : "solid"
+      }
+      supportedPaintTypes={request.supportedPaintTypes ?? ["solid"]}
+      maxGradientStops={request.maxGradientStops}
+      showReverseStops={request.showReverseStops}
+      onChange={request.onChange}
+      onChangeComplete={request.onCommit}
+      side="left"
+      restoreOnEscape
+      opaqueSrgb={request.opaqueSrgb}
+      disabled={request.disabled}
+    />
+  );
   const styles = element.computedStyles;
   const backdropFilterValue =
     styles.backdropFilter || styles.webkitBackdropFilter;
@@ -703,12 +731,18 @@ export function EffectsProperties({
         mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
     ),
   );
+  const hasNativeEffect = hasSelectedNativeEffects(
+    glslShaderContext?.content,
+    glslShaderContext?.nodeId,
+    glslShaderContext?.selector,
+  );
   const hasEffectsContent =
     effectsAreMixed ||
     shadowLayers.length > 0 ||
     filterHasBlur ||
     backdropFilterHasBlur ||
     hasShaderEffect ||
+    hasNativeEffect ||
     shaderPickerOpen;
 
   return (
@@ -723,7 +757,13 @@ export function EffectsProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
-          <DropdownMenu open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+          <DropdownMenu
+            open={addMenuOpen}
+            onOpenChange={(open) => {
+              if (open) openShaderPickerAfterMenuCloseRef.current = false;
+              setAddMenuOpen(open);
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -740,7 +780,16 @@ export function EffectsProperties({
               </TooltipTrigger>
               <TooltipContent>{t("editPanel.labels.addEffect")}</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuContent
+              align="end"
+              className="min-w-44"
+              onCloseAutoFocus={(event) => {
+                if (!openShaderPickerAfterMenuCloseRef.current) return;
+                event.preventDefault();
+                openShaderPickerAfterMenuCloseRef.current = false;
+                setShaderPickerOpen(true);
+              }}
+            >
               <DropdownMenuItem
                 className="gap-2 !text-[11px]"
                 onSelect={addDropShadow}
@@ -766,7 +815,7 @@ export function EffectsProperties({
                 <DropdownMenuItem
                   className="gap-2 !text-[11px]"
                   onSelect={() => {
-                    setTimeout(() => setShaderPickerOpen(true), 0);
+                    openShaderPickerAfterMenuCloseRef.current = true;
                   }}
                 >
                   <IconWaveSine className="size-3.5" />
@@ -783,7 +832,7 @@ export function EffectsProperties({
           {effectsAreMixed ? (
             <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
               {
-                "Click + to replace mixed content" /* i18n-ignore figma mixed effects hint */
+                "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
               }
             </p>
           ) : (
@@ -972,11 +1021,19 @@ export function EffectsProperties({
             </>
           )}
           {glslShaderContext?.nodeId ? (
-            <GlslShaderEffectSection
-              context={glslShaderContext}
-              pickerOpen={shaderPickerOpen}
-              onPickerOpenChange={setShaderPickerOpen}
-            />
+            <>
+              <GlslShaderEffectSection
+                context={glslShaderContext}
+                pickerOpen={false}
+                onPickerOpenChange={setShaderPickerOpen}
+              />
+              <NativeShaderEffectSection
+                context={glslShaderContext}
+                pickerOpen={shaderPickerOpen}
+                onPickerOpenChange={setShaderPickerOpen}
+                renderColorPicker={renderShaderColorPicker}
+              />
+            </>
           ) : null}
         </>
       ) : null}

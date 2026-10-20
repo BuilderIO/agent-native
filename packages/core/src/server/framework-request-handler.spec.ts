@@ -1,4 +1,4 @@
-import { createError, readBody } from "h3";
+import { createApp, createError, readBody } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -110,6 +110,38 @@ describe("framework request handler", () => {
     );
   });
 
+  it("dispatches a large action catalog without nesting one H3 middleware per path", async () => {
+    const h3 = createApp();
+    const app = getH3App({ h3 });
+    const prefixes = [
+      "/_agent-native/actions",
+      "/_agent-native/webmcp/actions",
+      "/mcp/tool",
+    ];
+    for (const prefix of prefixes) {
+      for (let index = 0; index < 1_000; index++) {
+        app.use(`${prefix}/action-${index}`, () => ({ prefix, index }));
+      }
+    }
+
+    expect(h3["~middleware"].length).toBeLessThan(100);
+    const response = await h3.fetch(
+      new Request("http://example.test/_agent-native/actions/action-365"),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      prefix: "/_agent-native/actions",
+      index: 365,
+    });
+    const last = await h3.fetch(
+      new Request("http://example.test/mcp/tool/action-999"),
+    );
+    expect(last.status).toBe(200);
+    expect(await last.json()).toEqual({ prefix: "/mcp/tool", index: 999 });
+    const unmatched = await h3.fetch(new Request("http://example.test/home"));
+    expect(unmatched.status).toBe(404);
+  });
+
   it("marks server-runtime duty started on the first getH3App() call for a nitroApp", () => {
     expect(isServerRuntimeStarted()).toBe(false);
 
@@ -137,6 +169,57 @@ describe("framework request handler", () => {
     expect(sawContext).toBe(true);
     expect(sawEmail).toBeUndefined();
     vi.unstubAllEnvs();
+  });
+
+  it("scopes shared database pools to each Cloudflare H3 request", async () => {
+    const workerGlobal = globalThis as typeof globalThis & {
+      __env__?: unknown;
+    };
+    const previousEnvironment = Object.getOwnPropertyDescriptor(
+      workerGlobal,
+      "__env__",
+    );
+    workerGlobal.__env__ = {};
+    try {
+      const { sharedDbPool } = await import("../db/client.js");
+      const nitroApp = createNitroApp();
+      getH3App(nitroApp);
+
+      const pools: Array<{
+        query: () => Promise<void>;
+        end: () => Promise<void>;
+      }> = [];
+      const pool = sharedDbPool(
+        "framework-request-test",
+        "postgres://db.test/app",
+        () => {
+          const created = {
+            query: vi.fn(async () => {}),
+            end: vi.fn(async () => {}),
+          };
+          pools.push(created);
+          return created;
+        },
+      );
+      nitroApp.h3["~middleware"].push(
+        async (_event: any, next: () => unknown) => {
+          await pool.query();
+          return next();
+        },
+      );
+
+      await dispatch(nitroApp, "/api/pool-scope");
+
+      expect(pools).toHaveLength(1);
+      expect(pools[0]?.query).toHaveBeenCalledOnce();
+      expect(pools[0]?.end).toHaveBeenCalledOnce();
+    } finally {
+      if (previousEnvironment) {
+        Object.defineProperty(workerGlobal, "__env__", previousEnvironment);
+      } else {
+        delete workerGlobal.__env__;
+      }
+    }
   });
 
   it("lets a handler's own request context shadow the boundary store", async () => {

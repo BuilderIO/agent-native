@@ -13,7 +13,10 @@ export interface EngineModelGroup {
 export interface ChatModelEngineEntry {
   name: string;
   label: string;
+  defaultModel?: string;
   supportedModels?: readonly string[];
+  /** Full runtime model set, independent of any user-selected picker subset. */
+  runtimeSupportedModels?: readonly string[];
   modelDisplayNames?: Readonly<Record<string, string>>;
   acceptsCustomModels?: boolean;
   preserveCustomModels?: boolean;

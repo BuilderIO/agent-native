@@ -84,7 +84,7 @@ Définissez `visible: false` pour une zone d’application tant que le lab corre
 Une page d’application commence généralement par un élément `extraTabs`, qui devient sa propre page dans le groupe de l’application. Pour mieux la contrôler, enregistrez au niveau du module une `SettingsPageDefinition` (`id`, `group`, `order`, `label`, `icon`, `component`, ainsi que les champs facultatifs `visible`, `subpages` et `searchEntries`) avec `registerSettingsPages`. Une définition reprenant l’identifiant d’une page existante la remplace. C’est ainsi qu’une application peut substituer sa propre variante à une page de Core. Dispatch ajoute de cette manière sa colonne de rôle d’application à Membres :
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
@@ -185,6 +185,8 @@ Agent-Native utilise le flux officiel de partage de jetons Sign in with ChatGPT 
 Le labo du forfait ChatGPT est désactivé par défaut. Activez-le dans **Paramètres → Labs**.
 
 Pour une application open source exécutée localement, vous n’avez besoin ni d’une approbation partenaire d’OpenAI ni d’un identifiant client préconfiguré. OpenAI attribue l’identifiant client lors de la première connexion, puis l’application le réutilise pour ce compte ChatGPT.
+
+L’accès au forfait ChatGPT nécessite un compte personnel. En développement local, définissez `access.autoCreateDefaultOrg: false` avant la première connexion afin que l’application ne crée pas d’organisation par défaut pour ce compte. Si le compte appartient déjà à une organisation, utilisez un compte personnel pour accéder au forfait ChatGPT.
 
 Cette implémentation nécessite un rappel OAuth HTTP sur `127.0.0.1`, l’adresse de bouclage sur l’ordinateur de l’utilisateur ; `localhost` ne peut pas la remplacer. Ce flux en libre-service ne fonctionne pas sur les sites hébergés `*.agent-native.com`. L’approbation partenaire concerne l’opérateur de l’application hébergée, qui peut la demander via le [formulaire d’intérêt d’OpenAI](https://openai.com/form/sign-in-with-chatgpt-interest).
 

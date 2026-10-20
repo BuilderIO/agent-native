@@ -32,6 +32,7 @@ type BuilderConnectChoiceFlow = Pick<BuilderConnectFlow, "connecting"> & {
   error?: string | null;
   errorKind?: BuilderConnectErrorKind | null;
   retry?: () => boolean | void;
+  statusCheckEnabled?: boolean;
   statusReadSettledCount?: number;
   statusResolved?: boolean;
 };
@@ -91,24 +92,51 @@ export function BuilderConnectChoicePanel({
           defaultValue: "Activate free credits",
         })}
       </h2>
-      <p
-        className="text-xs leading-5 text-muted-foreground"
-        role={flow.connecting ? "status" : undefined}
-        aria-live={flow.connecting ? "polite" : undefined}
-      >
-        {flow.connecting
-          ? t("agentChat.onboarding.builderProvisioningDescription", {
-              defaultValue:
-                "Creating your Builder.io account and activating free credits.",
-            })
-          : t("agentChat.onboarding.builderActivationDescription", {
-              defaultValue:
-                "Create or connect a Builder.io account in one click to get free credits.",
-            })}
-      </p>
+      {!flow.accountExists ? (
+        <p
+          id="builder-connect-popover-description"
+          className="text-xs leading-5 text-muted-foreground"
+          role={flow.connecting ? "status" : undefined}
+          aria-live={flow.connecting ? "polite" : undefined}
+        >
+          {flow.connecting
+            ? t("agentChat.onboarding.builderProvisioningDescription", {
+                defaultValue:
+                  "Creating your Builder.io account and activating free credits.",
+              })
+            : canProvisionAccount
+              ? t("agentChat.onboarding.builderActivationDescription", {
+                  defaultValue:
+                    "Create a new account to activate free credits, or continue with an existing account.",
+                })
+              : statusReadFailed
+                ? t("agentChat.onboarding.builderActivationCheckFailed", {
+                    defaultValue:
+                      "Couldn't check whether this app can create new accounts.",
+                  })
+                : flow.statusCheckEnabled === false
+                  ? t(
+                      "agentChat.onboarding.builderActivationUnavailableInMode",
+                      {
+                        defaultValue:
+                          "Create a Builder.io account or sign in to connect.",
+                      },
+                    )
+                  : flow.statusResolved === false
+                    ? t("agentChat.onboarding.builderActivationChecking", {
+                        defaultValue:
+                          "Checking whether new account activation is available.",
+                      })
+                    : t("agentChat.onboarding.builderActivationUnavailable", {
+                        defaultValue:
+                          "Create a Builder.io account or sign in to connect.",
+                      })}
+        </p>
+      ) : null}
       {flow.accountExists ? (
         <div
           role="alert"
+          id="builder-connect-popover-account-exists"
           className="rounded-md bg-muted px-3 py-2 text-xs leading-5"
         >
           <p className="font-medium text-foreground">
@@ -155,65 +183,92 @@ export function BuilderConnectChoicePanel({
         </div>
       ) : null}
       <BuilderConnectIncludedServices appId={appId} />
-      <div className="flex flex-col gap-2">
+      {canProvisionAccount && !flow.accountExists ? (
+        <div className="flex flex-col gap-2">
+          <Button
+            type="button"
+            data-testid={primaryTestId}
+            className="w-full"
+            aria-describedby="builder-connect-popover-description"
+            onClick={onCreateAndActivate}
+            disabled={flow.connecting}
+          >
+            {flow.connecting ? <Spinner aria-hidden /> : null}
+            {flow.connecting
+              ? t("agentChat.onboarding.builderActivating", {
+                  defaultValue: "Activating Builder.io free credits",
+                })
+              : t("agentChat.onboarding.builderCreateAndActivate", {
+                  defaultValue: "Create and activate",
+                })}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            data-testid={secondaryTestId}
+            className="w-full"
+            onClick={onExistingAccount}
+            disabled={flow.connecting}
+          >
+            {t("agentChat.onboarding.builderExistingAccount", {
+              defaultValue: "I have a Builder.io account",
+            })}
+          </Button>
+        </div>
+      ) : (
         <Button
           type="button"
           data-testid={primaryTestId}
           className="w-full"
-          onClick={onCreateAndActivate}
-          disabled={flow.connecting || !canProvisionAccount}
-        >
-          {flow.connecting ? <Spinner aria-hidden /> : null}
-          {flow.connecting
-            ? t("agentChat.onboarding.builderActivating", {
-                defaultValue: "Activating Builder.io free credits",
-              })
-            : t("agentChat.onboarding.builderCreateAndActivate", {
-                defaultValue: "Create and activate",
-              })}
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          data-testid={secondaryTestId}
-          className="w-full"
+          aria-describedby={
+            flow.accountExists
+              ? "builder-connect-popover-account-exists"
+              : "builder-connect-popover-description"
+          }
           onClick={onExistingAccount}
           disabled={flow.connecting}
         >
-          {t("agentChat.onboarding.builderExistingAccount", {
-            defaultValue: "I have a Builder.io account",
-          })}
+          {flow.connecting ? <Spinner aria-hidden /> : null}
+          {flow.accountExists
+            ? t("agentChat.onboarding.builderExistingAccount", {
+                defaultValue: "I have a Builder.io account",
+              })
+            : t("agentChat.onboarding.builderConnect", {
+                defaultValue: "Connect Builder.io",
+              })}
         </Button>
-      </div>
-      <p className="text-[11px] leading-4 text-muted-foreground">
-        {t("agentChat.onboarding.builderConsentPrefix", {
-          defaultValue: "By creating a Builder.io account, you agree to our",
-        })}{" "}
-        <a
-          href="https://www.builder.io/legal/terms"
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {t("agentChat.onboarding.builderTerms", {
-            defaultValue: "Terms of Service",
-          })}
-        </a>{" "}
-        {t("agentChat.onboarding.builderConsentAnd", {
-          defaultValue: "and",
-        })}{" "}
-        <a
-          href="https://www.builder.io/legal/privacy"
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {t("agentChat.onboarding.builderPrivacy", {
-            defaultValue: "Privacy Policy",
-          })}
-        </a>
-        .
-      </p>
+      )}
+      {canProvisionAccount && !flow.accountExists ? (
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          {t("agentChat.onboarding.builderConsentPrefix", {
+            defaultValue: "By creating a Builder.io account, you agree to our",
+          })}{" "}
+          <a
+            href="https://www.builder.io/legal/terms"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("agentChat.onboarding.builderTerms", {
+              defaultValue: "Terms of Service",
+            })}
+          </a>{" "}
+          {t("agentChat.onboarding.builderConsentAnd", {
+            defaultValue: "and",
+          })}{" "}
+          <a
+            href="https://www.builder.io/legal/privacy"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("agentChat.onboarding.builderPrivacy", {
+              defaultValue: "Privacy Policy",
+            })}
+          </a>
+          .
+        </p>
+      ) : null}
     </div>
   );
 }

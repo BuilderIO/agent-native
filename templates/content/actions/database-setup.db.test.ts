@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { withMigrationRuntime } from "@agent-native/core/db";
 import {
   runFrameworkReleaseMigrations,
   runWithRequestContext,
@@ -43,7 +44,7 @@ beforeAll(async () => {
   getDb = db.getDb;
   schema = db.schema;
   if (databaseUrl.startsWith("postgres"))
-    await runFrameworkReleaseMigrations(undefined);
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   await (await import("../server/plugins/db.js")).default(undefined as never);
   create = (await import("./create-content-database.js")).default;
   read = (await import("./get-content-database.js")).default;
@@ -66,6 +67,54 @@ afterAll(() => {
 });
 
 describe("ordinary database setup", () => {
+  it("advertises Blocks metadata as editable and renames it through the setup action", async () => {
+    const created = await as(owner, () =>
+      create.run({
+        spaceId,
+        title: "Poems",
+        idempotencyKey: "blocks-metadata",
+      }),
+    );
+    const description = await as(owner, () =>
+      describeDatabase.run({ databaseId: created.database.id }),
+    );
+    if (!("mutationContract" in description) || !description.mutationContract)
+      throw new Error("Fixture database has no mutation contract.");
+    const primary = created.properties.find(
+      (property) => property.definition.type === "blocks",
+    )!.definition;
+    expect(
+      description.setupContract?.properties.find(
+        (property) => property.propertyId === primary.id,
+      ),
+    ).toEqual({ propertyId: primary.id, editable: true, reason: null });
+    const configure = (await import("./configure-document-property.js"))
+      .default;
+    await as(owner, () =>
+      configure.run({
+        operation: "update",
+        target: {
+          spaceId,
+          databaseId: created.database.id,
+          databaseDocumentId: created.database.documentId,
+        },
+        expectedSchemaRevision: description.mutationContract!.schemaRevision,
+        idempotencyKey: "rename-blocks",
+        propertyId: primary.id,
+        patch: { name: "Current draft" },
+      }),
+    );
+    const fresh = await as(owner, () =>
+      describeDatabase.run({ databaseId: created.database.id }),
+    );
+    if (!("properties" in fresh))
+      throw new Error("Fixture database is unavailable.");
+    expect(
+      fresh.properties.find((property) => property.definition.id === primary.id)
+        ?.definition.name,
+    ).toBe("Current draft");
+  });
+
   it("preserves the UI optimistic Page identity through the shared reliable create path", async () => {
     const newDocumentId = `optimistic-${runId}`;
     const args = {

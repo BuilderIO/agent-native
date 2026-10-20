@@ -78,6 +78,7 @@ import { ToastAction } from "@agent-native/toolkit/ui/toast";
 import { toast } from "@agent-native/toolkit/ui/use-toast";
 import {
   DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS,
+  getDesktopAppLaunchBehavior,
   getDesktopVisibleApps,
   isDesktopAppVisible,
   toAppDefinition,
@@ -159,6 +160,7 @@ import {
   type MultiFrontierNotice,
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
+import { PinnedWebviewFrame } from "./PinnedWebviewFrame.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
 import UpdatePrompt from "./UpdatePrompt.js";
 
@@ -1318,7 +1320,10 @@ export default function CodeAgentsHub({
           layout={chatFirstAppLayout}
           createAppTrigger={
             onChatFirstAppCreated ? (
-              <CreateAppPromptPopover onCreated={onChatFirstAppCreated} />
+              <CreateAppPromptPopover
+                onCreated={onChatFirstAppCreated}
+                onOpenSettings={onOpenSettings}
+              />
             ) : undefined
           }
           onCreateApp={onCreateApp}
@@ -2592,6 +2597,143 @@ export default function CodeAgentsHub({
       )
     : undefined;
   const chatFirstPreviewUrl = chatFirstPreviewApp?.devUrl?.trim();
+  const chatFirstAppTabView = (tab: ChatFirstSurfaceTab) => {
+    const app = surfaceApps.find((candidate) => candidate.id === tab.appId);
+    if (!app) return null;
+    const dispatchControlPlane =
+      tab.appId === "dispatch" && isDispatchControlPlanePath(tab.path);
+    const surfaceApp = dispatchControlPlane
+      ? { ...app, name: dispatchControlPlaneTitle(tab.path) ?? app.name }
+      : app;
+    const isTabActive = isChatFirstSurfaceTabActive({
+      surfaceActive: isActive,
+      tabId: tab.id,
+      activeTabId: activeChatFirstSurfaceTab?.id,
+    });
+    const shouldFocusRequestedTab =
+      isTabActive &&
+      chatFirstAppOpenRequest?.appId === tab.appId &&
+      chatFirstAppOpenRequest?.path === tab.path;
+    const appAuthState = appAuthStateByTab[tab.id];
+    const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
+    const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
+      appId: surfaceApp.id,
+      path: tab.path,
+      appAuthState,
+    });
+    const nativeOAuthActive =
+      appAuthState !== "unauthenticated" &&
+      surfaceApp.id === "dispatch" &&
+      isNativeDesktopIntegrationsPath(tab.path) &&
+      nativeOAuthActiveByTab[tab.id] === true;
+    const nativeIntegrationsSurface =
+      showNativeIntegrations || nativeOAuthActive;
+    const showNativeIntegrationsGuest =
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: nativeIntegrationsSurface,
+        nativeOAuthActive,
+      });
+    return {
+      surfaceApp,
+      dispatchControlPlane,
+      isTabActive,
+      shouldFocusRequestedTab,
+      appAuthState,
+      desktopIdentityStatus,
+      nativeOAuthActive,
+      nativeIntegrationsSurface,
+      showNativeIntegrationsGuest,
+    };
+  };
+  const renderChatFirstAppWebview = (
+    tab: ChatFirstSurfaceTab,
+    {
+      surfaceApp,
+      dispatchControlPlane,
+      isTabActive,
+      shouldFocusRequestedTab,
+      nativeOAuthActive,
+      showNativeIntegrationsGuest,
+    }: NonNullable<ReturnType<typeof chatFirstAppTabView>>,
+    preload = false,
+  ) => (
+    <AppWebview
+      preload={preload}
+      ref={(webview) => {
+        if (webview) appWebviewRefs.current[tab.id] = webview;
+        else delete appWebviewRefs.current[tab.id];
+      }}
+      app={toAppDefinition(surfaceApp)}
+      appConfig={surfaceApp}
+      isActive={isTabActive}
+      focusNonce={
+        shouldFocusRequestedTab
+          ? chatFirstAppOpenRequest?.focusNonce
+          : undefined
+      }
+      showDesktopIdentityGate={false}
+      surfaceHidden={!showNativeIntegrationsGuest}
+      refreshKey={refreshKey}
+      theme={theme}
+      urlPath={tab.path}
+      urlParams={
+        dispatchControlPlane
+          ? dispatchControlPlaneUrlParams(tab.path)
+          : { embedded: "1", chatFirst: "1" }
+      }
+      onAuthStateChange={(state) => handleAppAuthStateChange(tab.id, state)}
+      onMainFrameLoadFailure={() => {
+        if (!nativeOAuthActive && isNativeDesktopIntegrationsPath(tab.path)) {
+          handleAppAuthStateChange(tab.id, "unauthenticated");
+        }
+      }}
+      onDesktopIdentityStatusChange={(status) => {
+        handleDesktopIdentityStatusChange(tab.id, status);
+        if (
+          isTabActive &&
+          (status === "failed" ||
+            status === "sign-in-required" ||
+            status === "signed-in")
+        ) {
+          onDesktopIdentityStatusChange?.(status);
+        }
+      }}
+      onWebContentsIdChange={(webContentsId) =>
+        handleWebContentsIdChange(tab.id, webContentsId)
+      }
+    />
+  );
+  // These apps keep one webview from launch, laid over their root tab whenever
+  // it is shown, so the first open finds the page already loaded.
+  const pinnedChatFirstAppTabs = useMemo(
+    () =>
+      surfaceApps
+        .filter(
+          (app) =>
+            app.enabled &&
+            isDesktopAppVisible(app) &&
+            getDesktopAppLaunchBehavior(app.id).preloadAtLaunch,
+        )
+        .map((app) =>
+          chatFirstAppSurfaceTab(app, undefined, undefined, "main"),
+        ),
+    [surfaceApps],
+  );
+  const pinnedChatFirstAppTabIds = useMemo(
+    () => new Set(pinnedChatFirstAppTabs.map((tab) => tab.id)),
+    [pinnedChatFirstAppTabs],
+  );
+  const [pinnedChatFirstAppSlots, setPinnedChatFirstAppSlots] = useState<
+    Record<string, HTMLElement | null>
+  >({});
+  const pinnedChatFirstAppSlotRefs = useRef<
+    Record<string, (slot: HTMLElement | null) => void>
+  >({});
+  const pinnedChatFirstAppSlotRef = (tabId: string) =>
+    (pinnedChatFirstAppSlotRefs.current[tabId] ??= (slot) =>
+      setPinnedChatFirstAppSlots((current) =>
+        current[tabId] === slot ? current : { ...current, [tabId]: slot },
+      ));
   const renderChatFirstSurfaceTab = useCallback(
     (tab: ChatFirstSurfaceTab) => {
       if (tab.kind === "side-chat") {
@@ -2689,41 +2831,17 @@ export default function CodeAgentsHub({
         );
       }
       if (tab.kind === "app" && tab.appId) {
-        const app = surfaceApps.find((candidate) => candidate.id === tab.appId);
-        if (!app) return null;
-        const dispatchControlPlane =
-          tab.appId === "dispatch" && isDispatchControlPlanePath(tab.path);
-        const surfaceApp = dispatchControlPlane
-          ? { ...app, name: dispatchControlPlaneTitle(tab.path) ?? app.name }
-          : app;
-        const isTabActive = isChatFirstSurfaceTabActive({
-          surfaceActive: isActive,
-          tabId: tab.id,
-          activeTabId: activeChatFirstSurfaceTab?.id,
-        });
-        const shouldFocusRequestedTab =
-          isTabActive &&
-          chatFirstAppOpenRequest?.appId === tab.appId &&
-          chatFirstAppOpenRequest.path === tab.path;
-        const appAuthState = appAuthStateByTab[tab.id];
-        const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
-        const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
-          appId: surfaceApp.id,
-          path: tab.path,
+        const view = chatFirstAppTabView(tab);
+        if (!view) return null;
+        const {
+          surfaceApp,
+          isTabActive,
           appAuthState,
-        });
-        const nativeOAuthActive =
-          appAuthState !== "unauthenticated" &&
-          surfaceApp.id === "dispatch" &&
-          isNativeDesktopIntegrationsPath(tab.path) &&
-          nativeOAuthActiveByTab[tab.id] === true;
-        const nativeIntegrationsSurface =
-          showNativeIntegrations || nativeOAuthActive;
-        const showNativeIntegrationsGuest =
-          shouldShowNativeDesktopIntegrationsGuest({
-            showNativeIntegrations: nativeIntegrationsSurface,
-            nativeOAuthActive,
-          });
+          desktopIdentityStatus,
+          nativeOAuthActive,
+          nativeIntegrationsSurface,
+          showNativeIntegrationsGuest,
+        } = view;
         return (
           <ChatFirstAppPane
             app={surfaceApp}
@@ -2775,55 +2893,14 @@ export default function CodeAgentsHub({
                     }
                     aria-hidden={!showNativeIntegrationsGuest}
                   >
-                    <AppWebview
-                      ref={(webview) => {
-                        if (webview) appWebviewRefs.current[tab.id] = webview;
-                        else delete appWebviewRefs.current[tab.id];
-                      }}
-                      app={toAppDefinition(surfaceApp)}
-                      appConfig={surfaceApp}
-                      isActive={isTabActive}
-                      focusNonce={
-                        shouldFocusRequestedTab
-                          ? chatFirstAppOpenRequest.focusNonce
-                          : undefined
-                      }
-                      showDesktopIdentityGate={false}
-                      surfaceHidden={!showNativeIntegrationsGuest}
-                      refreshKey={refreshKey}
-                      theme={theme}
-                      urlPath={tab.path}
-                      urlParams={
-                        dispatchControlPlane
-                          ? dispatchControlPlaneUrlParams(tab.path)
-                          : { embedded: "1", chatFirst: "1" }
-                      }
-                      onAuthStateChange={(state) =>
-                        handleAppAuthStateChange(tab.id, state)
-                      }
-                      onMainFrameLoadFailure={() => {
-                        if (
-                          !nativeOAuthActive &&
-                          isNativeDesktopIntegrationsPath(tab.path)
-                        ) {
-                          handleAppAuthStateChange(tab.id, "unauthenticated");
-                        }
-                      }}
-                      onDesktopIdentityStatusChange={(status) => {
-                        handleDesktopIdentityStatusChange(tab.id, status);
-                        if (
-                          isTabActive &&
-                          (status === "failed" ||
-                            status === "sign-in-required" ||
-                            status === "signed-in")
-                        ) {
-                          onDesktopIdentityStatusChange?.(status);
-                        }
-                      }}
-                      onWebContentsIdChange={(webContentsId) =>
-                        handleWebContentsIdChange(tab.id, webContentsId)
-                      }
-                    />
+                    {pinnedChatFirstAppTabIds.has(tab.id) ? (
+                      <div
+                        ref={pinnedChatFirstAppSlotRef(tab.id)}
+                        className="h-full"
+                      />
+                    ) : (
+                      renderChatFirstAppWebview(tab, view)
+                    )}
                   </div>
                   {nativeIntegrationsSurface && (
                     <div
@@ -2892,6 +2969,9 @@ export default function CodeAgentsHub({
       nativeOAuthActiveByTab,
       webContentsIdByTab,
       watchChatFirstAgent,
+      chatFirstAppTabView,
+      renderChatFirstAppWebview,
+      pinnedChatFirstAppTabIds,
     ],
   );
   const showTerminalSurface =
@@ -3235,6 +3315,18 @@ export default function CodeAgentsHub({
             ) : null}
           </ChatFirstSurfacePanel>
         ) : null}
+        {pinnedChatFirstAppTabs.map((tab) => {
+          const view = chatFirstAppTabView(tab);
+          if (!view) return null;
+          return (
+            <PinnedWebviewFrame
+              key={tab.id}
+              slot={pinnedChatFirstAppSlots[tab.id] ?? null}
+            >
+              {renderChatFirstAppWebview(tab, view, true)}
+            </PinnedWebviewFrame>
+          );
+        })}
       </div>
     </QueryClientProvider>
   );

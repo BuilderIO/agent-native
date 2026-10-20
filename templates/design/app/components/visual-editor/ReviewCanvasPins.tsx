@@ -28,6 +28,14 @@ import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+  buildSourceEquivalentSelector,
+  isSourceLocationMatch,
+  resolveSourceEquivalentSelector,
+  resolveSourceEquivalentSelectorResult,
+  type SourceEquivalentSelectorStatus,
+} from "@shared/source-equivalent-selector";
+import {
   IconChevronDown,
   IconCircleCheck,
   IconDots,
@@ -43,6 +51,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -78,6 +87,7 @@ import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   formatNodeSelectionQuestion,
   formatNodeRepromptSubmission,
+  NODE_REPROMPT_PREVIEW_FAILED_EVENT,
   inferNodeRepromptSendMode,
   NODE_REPROMPT_PRESENTED_EVENT,
   NODE_REPROMPT_RESOLVED_EVENT,
@@ -95,15 +105,21 @@ import {
   type ReviewBoardGeometry,
   type ReviewAnchorRegion,
   type ReviewAnchorPoint,
+  type ReviewAnchorSelectorResolution,
   type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
 import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
 import {
   getReviewPinPosition,
+  getReviewPopoverBox,
   getReviewPopoverPlacement,
+  isReviewPointVisible,
   placeReviewDraftPin,
+  reviewRegionClipPath,
   type ReviewDraftPin,
   type ReviewPinPosition,
+  type ReviewPopoverPlacement,
+  type ReviewVisibleRegion,
 } from "./review-canvas-state";
 
 export interface RepromptDraftRequest {
@@ -111,6 +127,9 @@ export interface RepromptDraftRequest {
   fileId: string;
   target: NodeRewriteTarget;
   point?: ReviewAnchorPoint;
+  /** Preset instruction; with `submit` it is sent without opening the composer for typing. */
+  instruction?: string;
+  submit?: boolean;
 }
 
 export interface ReviewFocusRequest {
@@ -157,6 +176,11 @@ interface ReviewFrameNodeGeometry {
   viewportHeight: number;
 }
 
+interface ReviewSelectorBoxReply {
+  box: ReviewFrameNodeGeometry | null;
+  selectorStatus: SourceEquivalentSelectorStatus;
+}
+
 interface ReviewImageAttachment {
   url: string;
   name: string;
@@ -173,9 +197,13 @@ interface PendingReviewReaction {
 const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "👀"];
 const REVIEW_IDENTITY_SELECTOR =
-  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]";
+  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]";
 
-type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement>;
+interface ReviewPopoverAnchor {
+  clientPoint: ReviewCanvasPoint;
+  region: ReviewVisibleRegion;
+  preferred: ReviewPopoverPlacement;
+}
 
 interface CanvasCameraSnapshot {
   camera: { x: number; y: number; zoom: number };
@@ -264,29 +292,41 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
     const document = iframe?.contentDocument;
     if (!document) return null;
     const escape = globalThis.CSS?.escape;
-    if (escape) {
-      return document.querySelector(
-        `[data-agent-native-node-id="${escape(nodeId)}"],` +
-          `[data-code-layer-id="${escape(nodeId)}"],` +
-          `[data-layer-id="${escape(nodeId)}"],` +
-          `[data-builder-id="${escape(nodeId)}"],#${escape(nodeId)}`,
-      );
-    }
-    return (
-      Array.from(
-        document.querySelectorAll(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
-        ),
-      ).find((element) =>
-        [
-          "data-agent-native-node-id",
-          "data-code-layer-id",
-          "data-layer-id",
-          "data-builder-id",
-          "id",
-        ].some((attribute) => element.getAttribute(attribute) === nodeId),
-      ) ?? null
+    const matches = escape
+      ? Array.from(
+          document.querySelectorAll(
+            `[data-agent-native-node-id="${escape(nodeId)}"],` +
+              `[data-code-layer-id="${escape(nodeId)}"],` +
+              `[data-layer-id="${escape(nodeId)}"],` +
+              `[data-builder-id="${escape(nodeId)}"],` +
+              `[data-loc="${escape(nodeId)}"],#${escape(nodeId)}`,
+          ),
+        )
+      : Array.from(
+          document.querySelectorAll(
+            "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
+          ),
+        ).filter((element) =>
+          [
+            "data-agent-native-node-id",
+            "data-code-layer-id",
+            "data-layer-id",
+            "data-builder-id",
+            "data-loc",
+            "id",
+          ].some((attribute) => element.getAttribute(attribute) === nodeId),
+        );
+    // Repeated identities are ambiguous; returning null lets the click-specific selector
+    // keep the pin on the instance the bridge actually hit.
+    const sourceMatches = matches.filter((element) =>
+      isSourceLocationMatch(element, nodeId),
     );
+    if (sourceMatches.length > 1) return null;
+    if (sourceMatches.length > 0 && matches.length > sourceMatches.length) {
+      return null;
+    }
+    if (matches.length > 1) return null;
+    return sourceMatches[0] ?? matches[0] ?? null;
   } catch {
     return null;
   }
@@ -338,49 +378,213 @@ function nodePoint(
   return elementPoint(canvas, findNodeElement(canvas, nodeId), frameGeometry);
 }
 
-function selectorPoint(
+interface ReviewClientRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * What the pointer is over: the node id, the selector that finds the element
+ * again, and the box it had when the bridge reported it.
+ */
+interface ReviewHoverTarget {
+  nodeId: string | null;
+  selector: string | null;
+  box: ReviewFrameNodeGeometry | null;
+  selectorStatus?: SourceEquivalentSelectorStatus;
+}
+
+function sameHoverTarget(
+  left: ReviewHoverTarget | null,
+  right: ReviewHoverTarget | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.nodeId !== right.nodeId) return false;
+  if (left.selector !== right.selector) return false;
+  if (left.selectorStatus !== right.selectorStatus) return false;
+  if (!left.box || !right.box) return left.box === right.box;
+  return (
+    left.box.viewportWidth === right.box.viewportWidth &&
+    left.box.viewportHeight === right.box.viewportHeight &&
+    left.box.rect.left === right.box.rect.left &&
+    left.box.rect.top === right.box.rect.top &&
+    left.box.rect.width === right.box.rect.width &&
+    left.box.rect.height === right.box.rect.height
+  );
+}
+
+/** The box a bridge reply carries, or null when the element was not found. */
+function frameBoxFromPayload(
+  payload: Record<string, unknown>,
+): ReviewFrameNodeGeometry | null {
+  const rect = payload.rect as Record<string, unknown> | undefined;
+  if (!rect || typeof rect !== "object") return null;
+  const box = {
+    left: Number(rect.left),
+    top: Number(rect.top),
+    width: Number(rect.width),
+    height: Number(rect.height),
+  };
+  const viewportWidth = Number(payload.viewportWidth);
+  const viewportHeight = Number(payload.viewportHeight);
+  if (
+    ![...Object.values(box), viewportWidth, viewportHeight].every(
+      Number.isFinite,
+    )
+  ) {
+    return null;
+  }
+  return { rect: box, viewportWidth, viewportHeight };
+}
+
+function hoverTargetFromPayload(
+  payload: Record<string, unknown>,
+): ReviewHoverTarget | null {
+  const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : null;
+  const box = frameBoxFromPayload(payload);
+  if (!nodeId && !box) return null;
+  return {
+    nodeId,
+    selector:
+      typeof payload.hitSelector === "string" ? payload.hitSelector : null,
+    box,
+  };
+}
+
+/** A frame-viewport rect in client coordinates, mapped the same way as elementPoint. */
+function frameRectToClient(
   canvas: HTMLElement,
-  selector: string,
-): ReviewAnchorPoint | null {
+  frameRect: ReviewClientRect,
+  viewport?: { width: number; height: number },
+): ReviewClientRect | null {
   const iframe = canvas.querySelector<HTMLIFrameElement>(
     "iframe[data-design-preview-iframe]",
   );
+  if (!iframe) return null;
+  const iframeRect = iframe.getBoundingClientRect();
+  const scaleX =
+    iframeRect.width / Math.max(1, viewport?.width ?? iframe.clientWidth);
+  const scaleY =
+    iframeRect.height / Math.max(1, viewport?.height ?? iframe.clientHeight);
+  return {
+    left: iframeRect.left + frameRect.left * scaleX,
+    top: iframeRect.top + frameRect.top * scaleY,
+    width: frameRect.width * scaleX,
+    height: frameRect.height * scaleY,
+  };
+}
+
+/** A node's box in client coordinates, from its live element or the last reported frame rect. */
+function nodeClientRect(
+  canvas: HTMLElement,
+  nodeId: string,
+  frameGeometry?: ReviewFrameNodeGeometry,
+): ReviewClientRect | null {
+  const elementRect =
+    findNodeElement(canvas, nodeId)?.getBoundingClientRect() ??
+    frameGeometry?.rect;
+  if (!elementRect) return null;
+  return frameRectToClient(
+    canvas,
+    elementRect,
+    frameGeometry
+      ? {
+          width: frameGeometry.viewportWidth,
+          height: frameGeometry.viewportHeight,
+        }
+      : undefined,
+  );
+}
+
+/**
+ * Where a hover target is drawn. The box is the element the bridge actually hit, so it
+ * wins: a node-id lookup returns the first of any repeated clones. The node lookup covers
+ * a target that has no box.
+ */
+function hoverTargetClientRect(
+  canvas: HTMLElement,
+  target: ReviewHoverTarget,
+  nodeGeometry: Record<string, ReviewFrameNodeGeometry>,
+): ReviewClientRect | null {
+  if (target.box) {
+    return frameRectToClient(canvas, target.box.rect, {
+      width: target.box.viewportWidth,
+      height: target.box.viewportHeight,
+    });
+  }
+  return target.nodeId
+    ? nodeClientRect(canvas, target.nodeId, nodeGeometry[target.nodeId])
+    : null;
+}
+
+/**
+ * The overlay portals to body but is a React child of the design frame, so its
+ * mouse-down and click would bubble into the frame's select handlers. Only
+ * those two: stopping native propagation for mouse move or up would starve the
+ * window listeners that finish a canvas pan started over the plane.
+ */
+function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
+  event.stopPropagation();
+}
+
+/**
+ * Preview-frame elements belong to another realm, so instanceof against this window's
+ * HTMLElement or SVGElement is false for them. Check the shape instead.
+ */
+function isRenderedElement(value: unknown): value is HTMLElement | SVGElement {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Element).nodeType === 1 &&
+    typeof (value as HTMLElement).style === "object"
+  );
+}
+
+/**
+ * Resolves versioned source paths with their matching sibling rules and leaves
+ * unversioned persisted selectors on their original native CSS semantics.
+ */
+function selectorElement(
+  canvas: HTMLElement,
+  selector: string,
+): Element | null {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  if (!doc) return null;
   try {
-    return elementPoint(
-      canvas,
-      iframe?.contentDocument?.querySelector(selector) ?? null,
-    );
-  } catch {
-    return null;
+    return resolveSourceEquivalentSelector(doc, selector);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "SyntaxError"
+    ) {
+      return null;
+    }
+    throw error;
   }
 }
 
-function structuralSelector(element: Element, document: Document): string {
-  if (element === document.body || element === document.documentElement) {
-    return "";
+function selectorPoint(
+  canvas: HTMLElement,
+  selector: string,
+): ReviewAnchorSelectorResolution {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  if (!doc) return { status: "unavailable" };
+  const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+  if (resolution.status !== "matched") {
+    return { status: resolution.status };
   }
-  const parts: string[] = [];
-  let current: Element | null = element;
-  while (
-    current &&
-    current !== document.body &&
-    current !== document.documentElement
-  ) {
-    const tag = current.tagName.toLowerCase();
-    const siblings = current.parentElement
-      ? Array.from(current.parentElement.children).filter(
-          (candidate) => candidate.tagName === current?.tagName,
-        )
-      : [];
-    const index = siblings.indexOf(current);
-    parts.unshift(
-      siblings.length > 1 && index >= 0
-        ? `${tag}:nth-of-type(${index + 1})`
-        : tag,
-    );
-    current = current.parentElement;
-  }
-  return parts.length > 0 ? `body > ${parts.join(" > ")}` : "";
+  const point = elementPoint(canvas, resolution.element);
+  return point ? { status: "matched", point } : { status: "unavailable" };
 }
 
 function elementAnchorAtPoint(
@@ -403,10 +607,15 @@ function elementAnchorAtPoint(
     if (!document || !iframe || !iframeRect) return {};
     const scaleX = iframe.clientWidth / Math.max(1, iframeRect.width);
     const scaleY = iframe.clientHeight / Math.max(1, iframeRect.height);
-    const element = document.elementFromPoint(
-      (clientX - iframeRect.left) * scaleX,
-      (clientY - iframeRect.top) * scaleY,
-    );
+    const element =
+      document
+        .elementsFromPoint(
+          (clientX - iframeRect.left) * scaleX,
+          (clientY - iframeRect.top) * scaleY,
+        )
+        .find(
+          (candidate) => !candidate.closest("[data-agent-native-edit-overlay]"),
+        ) ?? null;
     let identifiedAncestor: Element | null = null;
     for (
       let current = element;
@@ -438,6 +647,7 @@ function elementAnchorAtPoint(
       anchor.getAttribute("data-code-layer-id") ??
       anchor.getAttribute("data-layer-id") ??
       anchor.getAttribute("data-builder-id") ??
+      anchor.getAttribute("data-loc") ??
       anchor.getAttribute("id") ??
       undefined;
     const layerName =
@@ -445,7 +655,7 @@ function elementAnchorAtPoint(
         ?.value ?? undefined;
     const targetSelector = nodeId
       ? undefined
-      : structuralSelector(anchor, document) || undefined;
+      : buildSourceEquivalentSelector(anchor) || undefined;
     return {
       ...(nodeId ? { nodeId } : {}),
       ...(targetSelector ? { targetSelector } : {}),
@@ -779,6 +989,66 @@ function displayReviewCommentBody(body: string): string {
   return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
+// Everything here is portaled to <body> above the editor's stacking context,
+// so sidebars, the top bar and the bottom toolbar that overlap the canvas
+// would otherwise be painted over.
+const WORKING_AREA_CHROME_SELECTOR =
+  '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
+const BOTTOM_TOOLBAR_SELECTOR = "[data-design-bottom-toolbar]";
+const MAIN_SURFACE_SELECTOR =
+  ".agent-sidebar-main-surface, .agent-layout-main-surface";
+
+function workingAreaRect(
+  bounds: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
+): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+  let left = bounds.left;
+  let top = bounds.top;
+  let right = bounds.right;
+  const bottom = bounds.bottom;
+  document.querySelectorAll(WORKING_AREA_CHROME_SELECTOR).forEach((el) => {
+    // Popovers tagged as inspector content float beside the panel, not in it.
+    if (el.closest("[data-radix-popper-content-wrapper]")) return;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    const region = el.getAttribute("data-design-chrome-region");
+    if (region === "top-bar") top = Math.max(top, r.bottom);
+    else if (region === "left-shell") left = Math.max(left, r.right);
+    else if (region === "right-panel") right = Math.min(right, r.left);
+  });
+  return {
+    left,
+    top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
+// The canvas element can be a single screen frame, so the region is bounded by
+// the app's main surface (which excludes the agent sidebar), not the canvas.
+function reviewVisibleRegion(canvas: HTMLElement): ReviewVisibleRegion {
+  const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
+  const area = workingAreaRect(
+    surface
+      ? surface.getBoundingClientRect()
+      : {
+          left: 0,
+          top: 0,
+          right: window.innerWidth,
+          bottom: window.innerHeight,
+        },
+  );
+  const toolbar = document
+    .querySelector(BOTTOM_TOOLBAR_SELECTOR)
+    ?.getBoundingClientRect();
+  return {
+    ...area,
+    bottomNotch:
+      toolbar && toolbar.width > 0 && toolbar.height > 0
+        ? { left: toolbar.left, right: toolbar.right, top: toolbar.top }
+        : null,
+  };
+}
+
 export function ReviewCanvasPins({
   active,
   hidden = false,
@@ -838,6 +1108,8 @@ export function ReviewCanvasPins({
   const setUnread = useSetReviewThreadUnread();
   const updateComment = useUpdateReviewComment();
   const [canvas, setCanvas] = useState<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [layoutTick, setLayoutTick] = useState(0);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<
@@ -879,11 +1151,20 @@ export function ReviewCanvasPins({
   const [frameNodeGeometry, setFrameNodeGeometry] = useState<
     Record<string, ReviewFrameNodeGeometry>
   >({});
+  const [hoverTarget, setHoverTarget] = useState<ReviewHoverTarget | null>(
+    null,
+  );
+  const hoverTargetRef = useRef<ReviewHoverTarget | null>(null);
+  const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverFrameRef = useRef<number | null>(null);
+  const hoverRequestRef = useRef(0);
+  const selectorRequestRef = useRef(0);
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
   const migrationInFlightRef = useRef(false);
   const lastRepromptDraftNonceRef = useRef<number | null>(null);
+  const autoSubmitRepromptPinIdRef = useRef<string | null>(null);
   const lastPinRequestNonceRef = useRef<number | null>(null);
   const frameCallbacksRef = useRef<
     Map<string, (payload: Record<string, unknown>) => void>
@@ -915,6 +1196,33 @@ export function ReviewCanvasPins({
     };
     window.addEventListener(NODE_REPROMPT_PRESENTED_EVENT, onRepromptSettled);
     window.addEventListener(NODE_REPROMPT_RESOLVED_EVENT, onRepromptSettled);
+    const onRepromptPreviewFailed = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          fileId?: string;
+          reason?: string;
+          repromptId?: string;
+        }>
+      ).detail;
+      if (
+        detail?.repromptId !== pendingRepromptId ||
+        detail.fileId !== targetId
+      ) {
+        return;
+      }
+      setPendingRepromptId(null);
+      toast.error(
+        t(
+          detail.reason === "target-unresolved"
+            ? "designEditor.nodeRewrite.previewTargetUnavailable"
+            : "designEditor.nodeRewrite.previewFailed",
+        ),
+      );
+    };
+    window.addEventListener(
+      NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+      onRepromptPreviewFailed,
+    );
     return () => {
       window.removeEventListener(
         NODE_REPROMPT_PRESENTED_EVENT,
@@ -924,8 +1232,12 @@ export function ReviewCanvasPins({
         NODE_REPROMPT_RESOLVED_EVENT,
         onRepromptSettled,
       );
+      window.removeEventListener(
+        NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+        onRepromptPreviewFailed,
+      );
     };
-  }, [cancelDraft, onClose, pendingRepromptId]);
+  }, [cancelDraft, onClose, pendingRepromptId, t, targetId]);
 
   const threads = useMemo(
     () => buildReviewThreads(comments.data?.comments ?? []),
@@ -950,34 +1262,22 @@ export function ReviewCanvasPins({
           ? materializeBoardReviewAnchor(effectiveAnchor, boardGeometry)
           : parseReviewAnchor(effectiveAnchor);
       if (parsed?.relativePoint && canvas) {
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : parsed.selector
-            ? (() => {
-                const iframe = canvas.querySelector<HTMLIFrameElement>(
-                  "iframe[data-design-preview-iframe]",
-                );
-                try {
-                  return (
-                    iframe?.contentDocument?.querySelector(parsed.selector) ??
-                    null
-                  );
-                  // coercion-ok: cross-origin preview frames make selector lookup unavailable.
-                } catch {
-                  return null;
-                }
-              })()
-            : null;
+        const nodeId = parsed.nodeId;
+        const nodeElement = nodeId ? findNodeElement(canvas, nodeId) : null;
+        // A repeated data-loc resolves to no node element; the saved selector names this instance.
+        const element =
+          nodeElement ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const point = relativeElementCanvasPoint(
           canvas,
           element,
           parsed.relativePoint,
-          parsed.nodeId ? frameNodeGeometry[parsed.nodeId] : undefined,
+          nodeElement && nodeId ? frameNodeGeometry[nodeId] : undefined,
         );
         if (point) {
           return {
             point,
-            source: parsed.nodeId ? ("node" as const) : ("selector" as const),
+            source: nodeElement ? ("node" as const) : ("selector" as const),
           };
         }
       }
@@ -1146,14 +1446,25 @@ export function ReviewCanvasPins({
   useEffect(() => {
     if (!canvas) return;
     let animationFrame = 0;
+    const resizeObserver = new ResizeObserver(() => bump());
+    // Chrome that mounted after the last pass is picked up on the next bump.
+    const observeChrome = () => {
+      document
+        .querySelectorAll(
+          `${WORKING_AREA_CHROME_SELECTOR}, ${BOTTOM_TOOLBAR_SELECTOR}`,
+        )
+        .forEach((region) => resizeObserver.observe(region));
+      const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
+      if (surface) resizeObserver.observe(surface);
+    };
     const bump = () => {
       if (animationFrame) return;
       animationFrame = window.requestAnimationFrame(() => {
         animationFrame = 0;
+        observeChrome();
         setLayoutTick((current) => current + 1);
       });
     };
-    const resizeObserver = new ResizeObserver(bump);
     resizeObserver.observe(canvas);
     const iframe = canvas.querySelector<HTMLIFrameElement>(
       "iframe[data-design-preview-iframe]",
@@ -1161,6 +1472,7 @@ export function ReviewCanvasPins({
     if (iframe) resizeObserver.observe(iframe);
     const frameShell = canvas.closest<HTMLElement>("[data-frame-shell]");
     if (frameShell) resizeObserver.observe(frameShell);
+    observeChrome();
     const layoutOwners = new Set<HTMLElement>();
     for (const owner of [
       canvas.querySelector<HTMLElement>("[data-multi-screen-canvas-world]"),
@@ -1243,6 +1555,87 @@ export function ReviewCanvasPins({
     return () => window.removeEventListener("message", handleMessage);
   }, [canvas]);
 
+  // An open composer or thread keeps its element highlighted; otherwise the highlight follows the pointer.
+  const popoverNodeId = useMemo(() => {
+    if (draftPin) {
+      return (
+        resolveReviewAnchor(draftPin.anchor, () => null)?.anchor.nodeId ?? null
+      );
+    }
+    const thread = threads.find(
+      (candidate) => candidate.root.threadId === activeThreadId,
+    );
+    return thread
+      ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor.nodeId ??
+          null)
+      : null;
+  }, [activeThreadId, draftPin, threads]);
+  const popoverKey = draftPin
+    ? `draft:${draftPin.id}`
+    : activeThreadId
+      ? `thread:${activeThreadId}`
+      : null;
+  const popoverOpen = popoverKey !== null;
+  // The pointer moves onto the popover, which clears the hover; keep what it was over when this popover opened.
+  const [popoverHover, setPopoverHover] = useState<{
+    key: string;
+    target: ReviewHoverTarget | null;
+  } | null>(null);
+  // The popover is about its anchor, so a stored selector wins over the pointer; the
+  // hover is the fallback for a draft that has not saved one yet.
+  const popoverAnchorSelector = draftPin
+    ? (draftPin.anchor.selector ?? null)
+    : (() => {
+        const thread = threads.find(
+          (candidate) => candidate.root.threadId === activeThreadId,
+        );
+        return thread
+          ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor
+              .selector ?? null)
+          : null;
+      })();
+  useEffect(() => {
+    // Closing drops the snapshot, so reopening the same thread takes a fresh one.
+    if (!popoverKey) {
+      setPopoverHover(null);
+      return;
+    }
+    // A bridge-corrected anchor selector replaces the snapshot's, so the highlight re-measures from it.
+    setPopoverHover((current) =>
+      current?.key === popoverKey &&
+      (!popoverAnchorSelector ||
+        current.target?.selector === popoverAnchorSelector)
+        ? current
+        : {
+            key: popoverKey,
+            target: popoverAnchorSelector
+              ? { nodeId: null, selector: popoverAnchorSelector, box: null }
+              : hoverTargetRef.current,
+          },
+    );
+  }, [popoverAnchorSelector, popoverKey]);
+  const popoverSnapshot =
+    popoverHover?.key === popoverKey ? popoverHover.target : null;
+  // A layout change re-measures the snapshot's box from this selector.
+  const snapshotSelector = popoverSnapshot?.selector ?? null;
+  const highlightTarget: ReviewHoverTarget | null = popoverOpen
+    ? popoverNodeId
+      ? {
+          nodeId: popoverNodeId,
+          selector: snapshotSelector,
+          // Node IDs can be shared by repeated instances, so only a selector identifies this box's instance.
+          box:
+            popoverSnapshot &&
+            popoverAnchorSelector !== null &&
+            popoverSnapshot.selector === popoverAnchorSelector
+              ? popoverSnapshot.box
+              : null,
+        }
+      : popoverSnapshot
+    : hoverTarget;
+  const highlightNodeId = highlightTarget?.nodeId ?? null;
+  const highlightHasBox = Boolean(highlightTarget?.box);
+
   const anchoredNodeIds = useMemo(() => {
     const nodeIds = new Set<string>();
     for (const thread of threads) {
@@ -1253,8 +1646,10 @@ export function ReviewCanvasPins({
       ? resolveReviewAnchor(draftPin.anchor, () => null)
       : null;
     if (draft?.anchor.nodeId) nodeIds.add(draft.anchor.nodeId);
+    // A box already measured for the highlight needs no node rect, and asking for one re-renders on every hover.
+    if (highlightNodeId && !highlightHasBox) nodeIds.add(highlightNodeId);
     return [...nodeIds].sort();
-  }, [draftPin, threads]);
+  }, [draftPin, highlightHasBox, highlightNodeId, threads]);
 
   useEffect(() => {
     if (!canvas || anchoredNodeIds.length === 0) {
@@ -1389,23 +1784,15 @@ export function ReviewCanvasPins({
         }
       }
       if (resolved.anchor.nodeId || resolved.anchor.selector) {
-        const element = resolved.anchor.nodeId
-          ? findNodeElement(canvas, resolved.anchor.nodeId)
-          : (() => {
-              const iframe = canvas.querySelector<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              );
-              try {
-                return (
-                  iframe?.contentDocument?.querySelector(
-                    resolved.anchor.selector!,
-                  ) ?? null
-                );
-              } catch {
-                return null;
-              }
-            })();
-        if (element instanceof HTMLElement || element instanceof SVGElement) {
+        // A repeated data-loc resolves to no node; the saved selector names the instance.
+        const element =
+          (resolved.anchor.nodeId
+            ? findNodeElement(canvas, resolved.anchor.nodeId)
+            : null) ??
+          (resolved.anchor.selector
+            ? selectorElement(canvas, resolved.anchor.selector)
+            : null);
+        if (isRenderedElement(element)) {
           element.scrollIntoView({ block: "center", inline: "center" });
           const previousBoxShadow = element.style.boxShadow;
           element.style.boxShadow =
@@ -1497,13 +1884,17 @@ export function ReviewCanvasPins({
     setDraftMentions([]);
     setPendingRepromptId(null);
     setDraftMode("reprompt");
+    const draftPinId = crypto.randomUUID();
+    autoSubmitRepromptPinIdRef.current = repromptDraftRequest.submit
+      ? draftPinId
+      : null;
     setDraftPin({
-      id: crypto.randomUUID(),
+      id: draftPinId,
       anchor: {
         ...(nodeId ? { nodeId } : {}),
         point,
       },
-      draft: "",
+      draft: repromptDraftRequest.instruction ?? "",
       resolutionTarget: "agent",
       metadata: {
         mode: "reprompt",
@@ -1575,8 +1966,8 @@ export function ReviewCanvasPins({
     setReplyAttachments([]);
     setReplyMentions([]);
     setExpandedClusterKey(null);
-    if (active) onClose();
-  }, [active, cancelDraft, hidden, onClose]);
+    if (active) onCloseRef.current();
+  }, [active, cancelDraft, hidden]);
 
   const dropCanvasPin = useCallback(
     (canvasPoint: ReviewCanvasPoint) => {
@@ -1670,7 +2061,27 @@ export function ReviewCanvasPins({
           typeof payload.layerName === "string" ? payload.layerName : undefined;
         const tagName =
           typeof payload.tagName === "string" ? payload.tagName : undefined;
-        if (!nodeId && !targetSelector && !layerName && !tagName) return;
+        // The bridge's hit selector is the one that re-finds this element, so it replaces
+        // the parent's structural guess made when the pin was dropped.
+        const hitSelector =
+          typeof payload.hitSelector === "string"
+            ? payload.hitSelector
+            : undefined;
+        const bridgeSelector = hitSelector ?? targetSelector;
+        // Source-location IDs can become repeated after a render, so retain the hit path as their
+        // instance discriminator. Plain IDs remain anchored by their unique identity.
+        const nodeElement =
+          canvas && nodeId ? findNodeElement(canvas, nodeId) : null;
+        const nodeFoundById = Boolean(nodeElement);
+        const anchorSelector = nodeFoundById
+          ? nodeElement &&
+            nodeId &&
+            isSourceLocationMatch(nodeElement, nodeId) &&
+            bridgeSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+            ? bridgeSelector
+            : undefined
+          : (hitSelector ?? targetSelector);
+        if (!nodeId && !anchorSelector && !layerName && !tagName) return;
         setDraftPin((current) => {
           if (
             !current ||
@@ -1679,19 +2090,44 @@ export function ReviewCanvasPins({
           ) {
             return current;
           }
+          const anchor = { ...current.anchor, point: current.anchor.point };
+          const cannotResolveNodeIdentity = Boolean(
+            nodeId && !nodeFoundById && !anchorSelector,
+          );
+          const sourceSelectorKeepsIdentity = Boolean(
+            nodeId === current.anchor.nodeId &&
+            anchorSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX),
+          );
+          if (nodeFoundById && nodeId) {
+            anchor.nodeId = nodeId;
+            if (anchorSelector) anchor.selector = anchorSelector;
+            else delete anchor.selector;
+          } else if (anchorSelector) {
+            if (nodeId) anchor.nodeId = nodeId;
+            else delete anchor.nodeId;
+            anchor.selector = anchorSelector;
+          } else if (cannotResolveNodeIdentity && nodeId) {
+            anchor.nodeId = nodeId;
+            delete anchor.selector;
+            delete anchor.relativePoint;
+          }
+          if (
+            anchor.nodeId !== current.anchor.nodeId ||
+            anchor.selector !== current.anchor.selector
+          ) {
+            if (!sourceSelectorKeepsIdentity) delete anchor.relativePoint;
+          }
+          const metadata = { ...current.metadata };
+          if (nodeFoundById) delete metadata.targetSelector;
+          else if (anchorSelector) metadata.targetSelector = anchorSelector;
+          else if (cannotResolveNodeIdentity) delete metadata.targetSelector;
           return {
             ...current,
-            anchor: {
-              ...current.anchor,
-              ...(nodeId ? { nodeId } : {}),
-              ...(targetSelector ? { selector: targetSelector } : {}),
-              point: current.anchor.point,
-            },
+            anchor,
             metadata: {
-              ...current.metadata,
+              ...metadata,
               ...(layerName ? { layerName } : {}),
               ...(tagName ? { tagName } : {}),
-              ...(targetSelector ? { targetSelector } : {}),
             },
           };
         });
@@ -1732,6 +2168,140 @@ export function ReviewCanvasPins({
     [canvas],
   );
 
+  const clearHoverNode = useCallback(() => {
+    hoverRequestRef.current += 1;
+    if (hoverFrameRef.current !== null) {
+      window.cancelAnimationFrame(hoverFrameRef.current);
+      hoverFrameRef.current = null;
+    }
+    hoverPointerRef.current = null;
+    hoverTargetRef.current = null;
+    setHoverTarget(null);
+  }, []);
+
+  // The click plane covers the frame, so the frame never gets hover of its own;
+  // ask the bridge which node is under the pointer instead.
+  const scheduleHoverNode = useCallback(
+    (clientX: number, clientY: number) => {
+      hoverPointerRef.current = { x: clientX, y: clientY };
+      if (hoverFrameRef.current !== null) return;
+      hoverFrameRef.current = window.requestAnimationFrame(() => {
+        hoverFrameRef.current = null;
+        const point = hoverPointerRef.current;
+        const iframe = canvas?.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        const iframeRect = iframe?.getBoundingClientRect();
+        if (!point || !iframe?.contentWindow || !iframeRect?.width) return;
+        const correlationId = crypto.randomUUID();
+        const request = ++hoverRequestRef.current;
+        frameCallbacksRef.current.set(correlationId, (payload) => {
+          // A newer move or a leave has superseded this reply.
+          if (request !== hoverRequestRef.current) return;
+          const target = hoverTargetFromPayload(payload);
+          const unchanged = sameHoverTarget(hoverTargetRef.current, target);
+          hoverTargetRef.current = target;
+          if (unchanged) return;
+          setHoverTarget(target);
+        });
+        window.setTimeout(
+          () => frameCallbacksRef.current.delete(correlationId),
+          2_000,
+        );
+        iframe.contentWindow.postMessage(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId,
+            x:
+              (point.x - iframeRect.left) *
+              (iframe.clientWidth / iframeRect.width),
+            y:
+              (point.y - iframeRect.top) *
+              (iframe.clientHeight / iframeRect.height),
+          },
+          "*",
+        );
+      });
+    },
+    [canvas],
+  );
+
+  const requestSelectorBox = useCallback(
+    (selector: string, onBox: (reply: ReviewSelectorBoxReply) => void) => {
+      const iframe = canvas?.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe?.contentWindow) return;
+      const correlationId = crypto.randomUUID();
+      const request = ++selectorRequestRef.current;
+      frameCallbacksRef.current.set(correlationId, (payload) => {
+        // A newer layout change has re-measured since this request went out.
+        if (request !== selectorRequestRef.current) return;
+        const rawStatus = payload.selectorStatus;
+        const selectorStatus: SourceEquivalentSelectorStatus =
+          rawStatus === "matched" ||
+          rawStatus === "not-found" ||
+          rawStatus === "invalid-selector"
+            ? rawStatus
+            : payload.rect
+              ? "matched"
+              : "not-found";
+        onBox({ box: frameBoxFromPayload(payload), selectorStatus });
+      });
+      window.setTimeout(
+        () => frameCallbacksRef.current.delete(correlationId),
+        2_000,
+      );
+      iframe.contentWindow.postMessage(
+        { type: "agent-native:review-selector-rects", correlationId, selector },
+        "*",
+      );
+    },
+    [canvas],
+  );
+
+  // Panning or zooming moves what sits under a still pointer, and moves the boxes
+  // already reported: re-measure both on every layout change.
+  const layoutTickRef = useRef(layoutTick);
+  useEffect(() => {
+    const layoutMoved = layoutTickRef.current !== layoutTick;
+    layoutTickRef.current = layoutTick;
+    const point = hoverPointerRef.current;
+    if (point) scheduleHoverNode(point.x, point.y);
+    if (!popoverKey) return;
+    if (!snapshotSelector) {
+      // A box with no selector cannot be measured again. Once the layout has moved, drop it
+      // rather than draw it where the element used to be.
+      if (layoutMoved) {
+        setPopoverHover((current) =>
+          current?.key === popoverKey && current.target?.box
+            ? { key: popoverKey, target: { ...current.target, box: null } }
+            : current,
+        );
+      }
+      return;
+    }
+    requestSelectorBox(snapshotSelector, (reply) => {
+      setPopoverHover((current) => {
+        if (current?.key !== popoverKey || !current.target) return current;
+        const target = {
+          ...current.target,
+          box: reply.box,
+          selectorStatus: reply.selectorStatus,
+        };
+        return sameHoverTarget(current.target, target)
+          ? current
+          : { key: popoverKey, target };
+      });
+    });
+  }, [
+    layoutTick,
+    popoverKey,
+    requestSelectorBox,
+    scheduleHoverNode,
+    snapshotSelector,
+  ]);
+
   const handlePlacementPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0 || !canvas || !canPost) return;
@@ -1751,24 +2321,32 @@ export function ReviewCanvasPins({
       if (!start || !canvas) return;
       placementDragRef.current = null;
       suppressPlacementClickRef.current = true;
+      const area = workingAreaRect(canvas.getBoundingClientRect());
+      const endX = Math.min(
+        Math.max(event.clientX, area.left),
+        area.left + area.width,
+      );
+      const endY = Math.min(
+        Math.max(event.clientY, area.top),
+        area.top + area.height,
+      );
       const isRegion =
-        Math.abs(event.clientX - start.startX) > 6 ||
-        Math.abs(event.clientY - start.startY) > 6;
+        Math.abs(endX - start.startX) > 6 || Math.abs(endY - start.startY) > 6;
       const region = isRegion
         ? regionBetween(
             canvas.getBoundingClientRect(),
             { x: start.startX, y: start.startY },
-            { x: event.clientX, y: event.clientY },
+            { x: endX, y: endY },
           )
         : null;
       if (region) {
         dropPin(
-          start.startX + (event.clientX - start.startX) / 2,
-          start.startY + (event.clientY - start.startY) / 2,
+          start.startX + (endX - start.startX) / 2,
+          start.startY + (endY - start.startY) / 2,
           region,
         );
       } else {
-        dropPin(event.clientX, event.clientY);
+        dropPin(endX, endY);
       }
       setRegionPreview(null);
       event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -1848,7 +2426,7 @@ export function ReviewCanvasPins({
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : resolved?.anchor.selector;
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
@@ -1875,26 +2453,19 @@ export function ReviewCanvasPins({
         createdAt: new Date().toISOString(),
       };
       let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
+      if (!element && targetSelector && canvas) {
+        element = selectorElement(canvas, targetSelector);
       }
       setAgentSubmitting(true);
       try {
         await callAction("begin-node-rewrite-request", pending);
+        setDraftMode("reprompt");
+        setPendingRepromptId(repromptId);
         const submission = formatNodeRepromptSubmission({
           ...pending,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
+          subtreeHtml: isRenderedElement(element)
+            ? element.outerHTML
+            : undefined,
         });
         const delivery = await sendToDesignAgentChatAndConfirm(
           {
@@ -1910,11 +2481,11 @@ export function ReviewCanvasPins({
         if (!delivery.delivered) {
           throw new Error(delivery.reason ?? "Reprompt was not delivered.");
         }
-        setDraftMode("reprompt");
-        setPendingRepromptId(repromptId);
         setDraftComposerOpen(false);
         toast.success(t("designEditor.nodeRewrite.sent"));
       } catch (error) {
+        setPendingRepromptId(null);
+        setDraftMode("comment");
         await callAction("cancel-node-rewrite-request", {
           designId: resourceId,
           fileId: targetId,
@@ -1940,6 +2511,14 @@ export function ReviewCanvasPins({
     ],
   );
 
+  // A preset that cannot submit (stale source, busy agent) leaves its
+  // instruction in the open composer for the user to send.
+  useEffect(() => {
+    if (!draftPin || autoSubmitRepromptPinIdRef.current !== draftPin.id) return;
+    autoSubmitRepromptPinIdRef.current = null;
+    void submitReprompt(draftPin, []);
+  }, [draftPin, submitReprompt]);
+
   const submitSelectionQuestion = useCallback(
     async (
       pin: ReviewDraftPin,
@@ -1951,7 +2530,7 @@ export function ReviewCanvasPins({
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : resolved?.anchor.selector;
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
@@ -1966,16 +2545,8 @@ export function ReviewCanvasPins({
         ...(targetSelector ? { selector: targetSelector } : {}),
       };
       let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
+      if (!element && targetSelector && canvas) {
+        element = selectorElement(canvas, targetSelector);
       }
       setAgentSubmitting(true);
       try {
@@ -1984,10 +2555,9 @@ export function ReviewCanvasPins({
           fileId: targetId,
           target,
           instruction,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
+          subtreeHtml: isRenderedElement(element)
+            ? element.outerHTML
+            : undefined,
         });
         const delivery = await sendToDesignAgentChatAndConfirm(
           {
@@ -2056,9 +2626,10 @@ export function ReviewCanvasPins({
         const canvasRect = canvas.getBoundingClientRect();
         const clientX = canvasRect.left + (point.xPct / 100) * canvasRect.width;
         const clientY = canvasRect.top + (point.yPct / 100) * canvasRect.height;
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : null;
+        // A repeated source location has no node element; the saved selector still names the instance.
+        const element =
+          (parsed.nodeId ? findNodeElement(canvas, parsed.nodeId) : null) ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const relativePoint = element
           ? elementRelativePoint(canvas, element, clientX, clientY)
           : null;
@@ -2112,6 +2683,18 @@ export function ReviewCanvasPins({
     ],
   );
 
+  // Unmounting the plane fires no pointerleave, so a hover from before would survive toggling pin mode back on.
+  const planeMounted =
+    Boolean(canvas) &&
+    !hidden &&
+    active &&
+    canPost &&
+    !pendingRepromptId &&
+    showPlacementPlane;
+  useEffect(() => {
+    if (!planeMounted) clearHoverNode();
+  }, [clearHoverNode, planeMounted]);
+
   if (hidden || !canvas) return null;
   if (
     !active &&
@@ -2122,19 +2705,45 @@ export function ReviewCanvasPins({
     return null;
   }
   const rect = canvas.getBoundingClientRect();
-  const viewport = {
-    width: window.innerWidth,
-    height: window.innerHeight,
-  };
+  const region = reviewVisibleRegion(canvas);
   void layoutTick;
 
+  const positionClientPoint = (
+    position: ReviewPinPosition,
+  ): ReviewCanvasPoint =>
+    (position.canvasPoint
+      ? canvasPointToClientPoint(canvas, position.canvasPoint)
+      : null) ?? {
+      x: rect.left + (position.point.xPct / 100) * rect.width,
+      y: rect.top + (position.point.yPct / 100) * rect.height,
+    };
+  const popoverAnchorFor = (
+    point: ReviewAnchorPoint,
+    clientPoint: ReviewCanvasPoint,
+  ): ReviewPopoverAnchor => ({
+    clientPoint,
+    region,
+    preferred: getReviewPopoverPlacement(
+      point,
+      { x: clientPoint.x - region.left, y: clientPoint.y - region.top },
+      { width: region.width, height: region.height },
+    ),
+  });
+
   const visibleThreads = threads.filter((thread) => thread.root.anchor);
+  // Pin numbers stay stable while panning: index before dropping pins whose
+  // anchor is off the canvas or under editor chrome.
   const positionedThreads = visibleThreads
     .flatMap((thread) => {
       const position = pinPositionFor(thread.root.threadId, thread.root.anchor);
       return position ? [{ thread, position }] : [];
     })
-    .map((entry, index) => ({ ...entry, index }));
+    .map((entry, index) => ({
+      ...entry,
+      index,
+      clientPoint: positionClientPoint(entry.position),
+    }))
+    .filter((entry) => isReviewPointVisible(region, entry.clientPoint));
   // ponytail: bounded review lists make this simple O(n²) cluster scan preferable to a spatial index.
   const pinGroups: Array<{
     key: string;
@@ -2172,16 +2781,29 @@ export function ReviewCanvasPins({
   const draftPinPosition = draftPin
     ? pinPositionFor(null, draftPin.anchor)
     : null;
+  const draftClientPoint = draftPinPosition
+    ? positionClientPoint(draftPinPosition)
+    : null;
   const pinPlacementEnabled = active && canPost && !pendingRepromptId;
   const placementPlaneVisible = pinPlacementEnabled && showPlacementPlane;
+  const placementRect = placementPlaneVisible ? workingAreaRect(rect) : rect;
   const placementHintVisible =
     placementPlaneVisible &&
     !draftComposerOpen &&
     !activeThreadId &&
     !repromptDraftRequest;
+  const highlightRect =
+    placementPlaneVisible && canvas && highlightTarget
+      ? hoverTargetClientRect(canvas, highlightTarget, frameNodeGeometry)
+      : null;
 
   return createPortal(
-    <>
+    <div
+      data-review-overlay-root
+      className="contents"
+      onMouseDown={stopReviewOverlayEvent}
+      onClick={stopReviewOverlayEvent}
+    >
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
@@ -2190,15 +2812,17 @@ export function ReviewCanvasPins({
           }
           className="fixed z-40 cursor-crosshair"
           style={{
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
+            left: placementRect.left,
+            top: placementRect.top,
+            width: placementRect.width,
+            height: placementRect.height,
           }}
           onPointerDown={handlePlacementPointerDown}
-          onPointerMove={(event) =>
-            updateRegionPreview(event.clientX, event.clientY)
-          }
+          onPointerMove={(event) => {
+            updateRegionPreview(event.clientX, event.clientY);
+            scheduleHoverNode(event.clientX, event.clientY);
+          }}
+          onPointerLeave={clearHoverNode}
           onPointerUp={handlePlacementPointerUp}
           onPointerCancel={handlePlacementPointerUp}
           onClick={(event) => {
@@ -2212,327 +2836,330 @@ export function ReviewCanvasPins({
           }}
         />
       ) : null}
-      {pinPlacementEnabled && regionPreview ? (
-        <div
-          data-review-region-preview
-          className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
-          style={{
-            left: rect.left + (regionPreview.xPct / 100) * rect.width,
-            top: rect.top + (regionPreview.yPct / 100) * rect.height,
-            width: (regionPreview.widthPct / 100) * rect.width,
-            height: (regionPreview.heightPct / 100) * rect.height,
-          }}
-        />
-      ) : null}
-      {placementHintVisible ? (
-        <div className="pointer-events-none fixed left-1/2 top-16 z-[45] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs shadow-lg">
-          <IconMessageCircle className="size-3.5 text-primary" />
-          {t("review.clickToPin")}
-          <span className="text-[10px] text-muted-foreground">
-            {t("review.escToExit")}
-          </span>
-        </div>
-      ) : null}
-      {pinGroups.map((group) => {
-        if (group.entries.length > 1 && expandedClusterKey !== group.key) {
-          return (
-            <ReviewPinCluster
-              key={group.key}
-              count={group.entries.length}
-              canvasRect={rect}
-              point={group.point}
-              onClick={() => {
-                setExpandedClusterKey(group.key);
-                const thread = group.entries[0]!.thread;
-                if (threadIsUnread(thread.root.threadId)) {
-                  setThreadUnread(thread, false);
-                }
-                setActiveThreadId(thread.root.threadId);
-              }}
-            />
-          );
-        }
-        return group.entries.map(({ thread, index, position }) => {
-          const clientPoint = position.canvasPoint
-            ? canvasPointToClientPoint(canvas, position.canvasPoint)
-            : null;
-          const popoverPoint = clientPoint ?? {
-            x: rect.left + (position.point.xPct / 100) * rect.width,
-            y: rect.top + (position.point.yPct / 100) * rect.height,
-          };
-          return (
-            <ReviewPin
-              key={thread.root.threadId}
-              index={index}
-              canvasRect={rect}
-              point={position.point}
-              clientPoint={clientPoint}
-              onClick={() => {
-                if (!draftPin?.draft.trim()) setDraftPin(null);
-                setDraftComposerOpen(false);
-                setReplyDraft("");
-                setReplyAttachments([]);
-                setReplyMentions([]);
-                setEditCandidate(null);
-                setEditDraft("");
-                setEditMentions([]);
-                if (threadIsUnread(thread.root.threadId)) {
-                  setThreadUnread(thread, false);
-                }
-                setActiveThreadId(thread.root.threadId);
-              }}
-              active={activeThreadId === thread.root.threadId}
-              resolved={thread.root.status === "resolved"}
-              unread={threadIsUnread(thread.root.threadId)}
-              region={(() => {
-                const parsed = parseReviewAnchor(
-                  optimisticAnchors[thread.root.threadId] ?? thread.root.anchor,
-                );
-                return parsed?.worldRegion && boardGeometry
-                  ? (canvasRegionFromBoardWorldRegion(
-                      parsed.worldRegion,
-                      boardGeometry,
-                    ) ?? parsed.region)
-                  : parsed?.region;
-              })()}
-              canMove={
-                canPost &&
-                thread.root.canDelete === true &&
-                !updateComment.isPending
-              }
-              onMove={(point) => moveThread(thread, point)}
-            >
-              {activeThreadId === thread.root.threadId ? (
-                <ReviewThreadPopover
-                  thread={thread}
-                  canResolve={canResolve}
-                  discussion={discussion}
-                  onReact={react}
-                  pendingReaction={
-                    reactToComment.isPending && reactToComment.variables
-                      ? reactToComment.variables
-                      : null
+      <div
+        data-review-layer
+        className="pointer-events-none fixed inset-0 z-[45]"
+        style={{ clipPath: reviewRegionClipPath(region) }}
+      >
+        {highlightRect ? (
+          <div
+            data-review-hover-highlight
+            className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
+            style={{
+              left: highlightRect.left,
+              top: highlightRect.top,
+              width: highlightRect.width,
+              height: highlightRect.height,
+            }}
+          />
+        ) : null}
+        {pinPlacementEnabled && regionPreview ? (
+          <div
+            data-review-region-preview
+            className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
+            style={{
+              left: rect.left + (regionPreview.xPct / 100) * rect.width,
+              top: rect.top + (regionPreview.yPct / 100) * rect.height,
+              width: (regionPreview.widthPct / 100) * rect.width,
+              height: (regionPreview.heightPct / 100) * rect.height,
+            }}
+          />
+        ) : null}
+        {placementHintVisible ? (
+          <div
+            className="pointer-events-none fixed top-16 z-[45] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs shadow-lg"
+            style={{ left: region.left + region.width / 2 }}
+          >
+            <IconMessageCircle className="size-3.5 text-primary" />
+            {t("review.clickToPin")}
+            <span className="text-[10px] text-muted-foreground">
+              {t("review.escToExit")}
+            </span>
+          </div>
+        ) : null}
+        {pinGroups.map((group) => {
+          if (group.entries.length > 1 && expandedClusterKey !== group.key) {
+            return (
+              <ReviewPinCluster
+                key={group.key}
+                count={group.entries.length}
+                canvasRect={rect}
+                point={group.point}
+                onClick={() => {
+                  setExpandedClusterKey(group.key);
+                  const thread = group.entries[0]!.thread;
+                  if (threadIsUnread(thread.root.threadId)) {
+                    setThreadUnread(thread, false);
                   }
-                  sending={sendingThreadId === thread.root.threadId}
-                  canReply={canPost && thread.root.status === "open"}
-                  canEdit={Boolean(
-                    canPost &&
-                    normalizedCurrentUserEmail &&
-                    thread.root.authorEmail?.trim().toLowerCase() ===
-                      normalizedCurrentUserEmail,
-                  )}
-                  editing={editCandidate?.id === thread.root.id}
-                  editDraft={editDraft}
-                  editMentions={editMentions}
-                  updating={updateComment.isPending}
-                  onEdit={() => {
-                    setEditCandidate(thread.root);
-                    setEditDraft(thread.root.body);
-                    setEditMentions([...thread.root.mentions]);
-                  }}
-                  onEditDraftChange={setEditDraft}
-                  onEditMentionsChange={setEditMentions}
-                  onEditCancel={() => {
-                    setEditCandidate(null);
-                    setEditDraft("");
-                    setEditMentions([]);
-                  }}
-                  onEditSubmit={submitEdit}
-                  unread={threadIsUnread(thread.root.threadId)}
-                  onCopyLink={() => void copyThreadLink(thread)}
-                  onSetUnread={(unread) => setThreadUnread(thread, unread)}
-                  onDelete={() => setDeleteCandidate(thread.root)}
-                  canDelete={canPost && (thread.root.canDelete ?? false)}
-                  placement={getReviewPopoverPlacement(
-                    position.point,
-                    popoverPoint,
-                    viewport,
-                  )}
-                  replyDraft={replyDraft}
-                  replyMentions={replyMentions}
-                  mentionOptions={mentionOptions}
-                  replyAttachments={replyAttachments}
-                  onReplyAttachmentsChange={setReplyAttachments}
-                  onReplyDraftChange={setReplyDraft}
-                  onReplyMentionsChange={setReplyMentions}
-                  onClose={closeActiveThread}
-                  onReply={() => {
-                    const body = replyDraft.trim();
-                    if (!body) return;
-                    replyComment.mutate(
-                      {
-                        resourceType,
-                        resourceId,
-                        commentId: thread.root.id,
-                        body,
-                        ...(replyMentions.length
-                          ? { mentions: [...replyMentions] }
-                          : {}),
-                        ...(replyAttachments.length
-                          ? {
-                              metadata: {
-                                attachments:
-                                  reviewAttachmentMetadata(replyAttachments),
-                              },
-                            }
-                          : {}),
-                      },
-                      {
-                        onSuccess: () => {
-                          setReplyDraft("");
-                          setReplyAttachments([]);
-                          setReplyMentions([]);
-                        },
-                        onError: () => toast.error(t("review.replyFailed")),
-                      },
-                    );
-                  }}
-                  onStatusChange={() =>
-                    resolveThread.mutate(
-                      {
-                        resourceType,
-                        resourceId,
-                        threadId: thread.root.threadId,
-                        status:
-                          thread.root.status === "open" ? "resolved" : "open",
-                      },
-                      {
-                        onSuccess: () => {
-                          setActiveThreadId(null);
-                          if (thread.root.status === "open") {
-                            toast.success(t("review.resolved"), {
-                              action: {
-                                label: t("review.undo"),
-                                onClick: () =>
-                                  resolveThread.mutate({
-                                    resourceType,
-                                    resourceId,
-                                    threadId: thread.root.threadId,
-                                    status: "open",
-                                  }),
-                              },
-                            });
-                          } else {
-                            toast.success(t("review.reopen"));
-                          }
-                        },
-                        onError: () => toast.error(t("review.resolveFailed")),
-                      },
-                    )
-                  }
-                  onSendToAgent={
-                    onSendThreadToAgent &&
-                    (thread.root.resolutionTarget === "human" ||
-                      Boolean(thread.root.consumedAt))
-                      ? () => onSendThreadToAgent(thread)
-                      : undefined
-                  }
-                  replying={replyComment.isPending}
-                  resolving={resolveThread.isPending}
-                />
-              ) : null}
-            </ReviewPin>
-          );
-        });
-      })}
-      {draftPin && draftPinPosition ? (
-        <ReviewPin
-          key={draftPin.id}
-          index={visibleThreads.length}
-          canvasRect={rect}
-          point={draftPinPosition.point}
-          clientPoint={
-            draftPinPosition.canvasPoint
-              ? canvasPointToClientPoint(canvas, draftPinPosition.canvasPoint)
-              : null
+                  setActiveThreadId(thread.root.threadId);
+                }}
+              />
+            );
           }
-          draft
-          pending={Boolean(pendingRepromptId)}
-          onClick={() => {
-            if (pendingRepromptId) return;
-            setActiveThreadId(null);
-            setReplyDraft("");
-            setReplyAttachments([]);
-            setDraftComposerOpen(true);
-          }}
-          active={draftComposerOpen}
-        >
-          {draftComposerOpen ? (
-            <DraftComposer
-              value={draftPin.draft}
-              mentions={draftMentions}
-              mentionOptions={mentionOptions}
-              onMentionsChange={setDraftMentions}
-              attachments={draftAttachments}
-              onAttachmentsChange={setDraftAttachments}
-              onChange={(value) => {
-                setDraftPin((current) =>
-                  current ? { ...current, draft: value } : current,
-                );
-                setDraftMentions((current) =>
-                  current.filter((mention) =>
-                    value.includes(`@${mention.label}`),
-                  ),
-                );
-              }}
-              onCancel={cancelDraft}
-              onSubmit={(resolutionTarget) => {
-                setDraftPin((current) =>
-                  current ? { ...current, resolutionTarget } : current,
-                );
-                postDraft(
-                  { ...draftPin, resolutionTarget },
-                  draftAttachments,
-                  draftMentions,
-                );
-              }}
-              onSmartSubmit={(mode) => {
-                if (mode === "preview")
-                  void submitReprompt(draftPin, draftAttachments);
-                else void submitSelectionQuestion(draftPin, draftAttachments);
-              }}
-              resolutionTarget={draftPin.resolutionTarget}
-              showAgentAction={
-                Boolean(onDispatchCommentToAgent) || draftMode === "reprompt"
-              }
-              smartAgentAvailable={
-                sourceType === "inline" &&
-                Boolean(
-                  resolveReviewAnchor(draftPin.anchor, () => null)?.anchor
-                    .nodeId || draftPin.metadata.targetSelector,
-                )
-              }
-              initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
-              placement={getReviewPopoverPlacement(
-                draftPinPosition.point,
-                draftPinPosition.canvasPoint
-                  ? canvasPointToClientPoint(
-                      canvas,
-                      draftPinPosition.canvasPoint,
-                    )
-                  : {
-                      x:
-                        rect.left +
-                        (draftPinPosition.point.xPct / 100) * rect.width,
-                      y:
-                        rect.top +
-                        (draftPinPosition.point.yPct / 100) * rect.height,
-                    },
-                viewport,
-              )}
-              commentSubmitting={createComment.isPending}
-              agentSubmitting={agentSubmitting}
-            />
-          ) : null}
-        </ReviewPin>
-      ) : null}
+          return group.entries.map(
+            ({ thread, index, position, clientPoint }) => (
+              <ReviewPin
+                key={thread.root.threadId}
+                index={index}
+                canvasRect={rect}
+                point={position.point}
+                clientPoint={clientPoint}
+                onClick={() => {
+                  if (!draftPin?.draft.trim()) setDraftPin(null);
+                  setDraftComposerOpen(false);
+                  setReplyDraft("");
+                  setReplyAttachments([]);
+                  setReplyMentions([]);
+                  setEditCandidate(null);
+                  setEditDraft("");
+                  setEditMentions([]);
+                  if (threadIsUnread(thread.root.threadId)) {
+                    setThreadUnread(thread, false);
+                  }
+                  setActiveThreadId(thread.root.threadId);
+                }}
+                active={activeThreadId === thread.root.threadId}
+                resolved={thread.root.status === "resolved"}
+                unread={threadIsUnread(thread.root.threadId)}
+                region={(() => {
+                  const parsed = parseReviewAnchor(
+                    optimisticAnchors[thread.root.threadId] ??
+                      thread.root.anchor,
+                  );
+                  return parsed?.worldRegion && boardGeometry
+                    ? (canvasRegionFromBoardWorldRegion(
+                        parsed.worldRegion,
+                        boardGeometry,
+                      ) ?? parsed.region)
+                    : parsed?.region;
+                })()}
+                canMove={
+                  canPost &&
+                  thread.root.canDelete === true &&
+                  !updateComment.isPending
+                }
+                onMove={(point) => moveThread(thread, point)}
+              >
+                {activeThreadId === thread.root.threadId ? (
+                  <ReviewThreadPopover
+                    thread={thread}
+                    canResolve={canResolve}
+                    discussion={discussion}
+                    onReact={react}
+                    pendingReaction={
+                      reactToComment.isPending && reactToComment.variables
+                        ? reactToComment.variables
+                        : null
+                    }
+                    sending={sendingThreadId === thread.root.threadId}
+                    canReply={canPost && thread.root.status === "open"}
+                    canEdit={Boolean(
+                      canPost &&
+                      normalizedCurrentUserEmail &&
+                      thread.root.authorEmail?.trim().toLowerCase() ===
+                        normalizedCurrentUserEmail,
+                    )}
+                    editing={editCandidate?.id === thread.root.id}
+                    editDraft={editDraft}
+                    editMentions={editMentions}
+                    updating={updateComment.isPending}
+                    onEdit={() => {
+                      setEditCandidate(thread.root);
+                      setEditDraft(thread.root.body);
+                      setEditMentions([...thread.root.mentions]);
+                    }}
+                    onEditDraftChange={setEditDraft}
+                    onEditMentionsChange={setEditMentions}
+                    onEditCancel={() => {
+                      setEditCandidate(null);
+                      setEditDraft("");
+                      setEditMentions([]);
+                    }}
+                    onEditSubmit={submitEdit}
+                    unread={threadIsUnread(thread.root.threadId)}
+                    onCopyLink={() => void copyThreadLink(thread)}
+                    onSetUnread={(unread) => setThreadUnread(thread, unread)}
+                    onDelete={() => setDeleteCandidate(thread.root)}
+                    canDelete={canPost && (thread.root.canDelete ?? false)}
+                    anchor={popoverAnchorFor(position.point, clientPoint)}
+                    replyDraft={replyDraft}
+                    replyMentions={replyMentions}
+                    mentionOptions={mentionOptions}
+                    replyAttachments={replyAttachments}
+                    onReplyAttachmentsChange={setReplyAttachments}
+                    onReplyDraftChange={setReplyDraft}
+                    onReplyMentionsChange={setReplyMentions}
+                    onClose={closeActiveThread}
+                    onReply={() => {
+                      const body = replyDraft.trim();
+                      if (!body) return;
+                      replyComment.mutate(
+                        {
+                          resourceType,
+                          resourceId,
+                          commentId: thread.root.id,
+                          body,
+                          ...(replyMentions.length
+                            ? { mentions: [...replyMentions] }
+                            : {}),
+                          ...(replyAttachments.length
+                            ? {
+                                metadata: {
+                                  attachments:
+                                    reviewAttachmentMetadata(replyAttachments),
+                                },
+                              }
+                            : {}),
+                        },
+                        {
+                          onSuccess: () => {
+                            setReplyDraft("");
+                            setReplyAttachments([]);
+                            setReplyMentions([]);
+                          },
+                          onError: () => toast.error(t("review.replyFailed")),
+                        },
+                      );
+                    }}
+                    onStatusChange={() =>
+                      resolveThread.mutate(
+                        {
+                          resourceType,
+                          resourceId,
+                          threadId: thread.root.threadId,
+                          status:
+                            thread.root.status === "open" ? "resolved" : "open",
+                        },
+                        {
+                          onSuccess: () => {
+                            setActiveThreadId(null);
+                            if (thread.root.status === "open") {
+                              toast.success(t("review.resolved"), {
+                                action: {
+                                  label: t("review.undo"),
+                                  onClick: () =>
+                                    resolveThread.mutate({
+                                      resourceType,
+                                      resourceId,
+                                      threadId: thread.root.threadId,
+                                      status: "open",
+                                    }),
+                                },
+                              });
+                            } else {
+                              toast.success(t("review.reopen"));
+                            }
+                          },
+                          onError: () => toast.error(t("review.resolveFailed")),
+                        },
+                      )
+                    }
+                    onSendToAgent={
+                      onSendThreadToAgent &&
+                      (thread.root.resolutionTarget === "human" ||
+                        Boolean(thread.root.consumedAt))
+                        ? () => onSendThreadToAgent(thread)
+                        : undefined
+                    }
+                    replying={replyComment.isPending}
+                    resolving={resolveThread.isPending}
+                  />
+                ) : null}
+              </ReviewPin>
+            ),
+          );
+        })}
+        {draftPin &&
+        draftPinPosition &&
+        draftClientPoint &&
+        isReviewPointVisible(region, draftClientPoint) ? (
+          <ReviewPin
+            key={draftPin.id}
+            index={visibleThreads.length}
+            canvasRect={rect}
+            point={draftPinPosition.point}
+            clientPoint={draftClientPoint}
+            draft
+            pending={Boolean(pendingRepromptId)}
+            onClick={() => {
+              if (pendingRepromptId) return;
+              setActiveThreadId(null);
+              setReplyDraft("");
+              setReplyAttachments([]);
+              setDraftComposerOpen(true);
+            }}
+            active={draftComposerOpen}
+          >
+            {draftComposerOpen ? (
+              <DraftComposer
+                value={draftPin.draft}
+                mentions={draftMentions}
+                mentionOptions={mentionOptions}
+                onMentionsChange={setDraftMentions}
+                attachments={draftAttachments}
+                onAttachmentsChange={setDraftAttachments}
+                onChange={(value) => {
+                  setDraftPin((current) =>
+                    current ? { ...current, draft: value } : current,
+                  );
+                  setDraftMentions((current) =>
+                    current.filter((mention) =>
+                      value.includes(`@${mention.label}`),
+                    ),
+                  );
+                }}
+                onCancel={cancelDraft}
+                onSubmit={(resolutionTarget) => {
+                  setDraftPin((current) =>
+                    current ? { ...current, resolutionTarget } : current,
+                  );
+                  postDraft(
+                    { ...draftPin, resolutionTarget },
+                    draftAttachments,
+                    draftMentions,
+                  );
+                }}
+                onSmartSubmit={(mode) => {
+                  if (mode === "preview")
+                    void submitReprompt(draftPin, draftAttachments);
+                  else void submitSelectionQuestion(draftPin, draftAttachments);
+                }}
+                resolutionTarget={draftPin.resolutionTarget}
+                showAgentAction={
+                  Boolean(onDispatchCommentToAgent) || draftMode === "reprompt"
+                }
+                smartAgentAvailable={
+                  sourceType === "inline" &&
+                  Boolean(
+                    resolveReviewAnchor(draftPin.anchor, () => null)?.anchor
+                      .nodeId || draftPin.metadata.targetSelector,
+                  )
+                }
+                initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
+                anchor={popoverAnchorFor(
+                  draftPinPosition.point,
+                  draftClientPoint,
+                )}
+                commentSubmitting={createComment.isPending}
+                agentSubmitting={agentSubmitting}
+              />
+            ) : null}
+          </ReviewPin>
+        ) : null}
+      </div>
       <AlertDialog
         open={Boolean(deleteCandidate)}
         onOpenChange={(open) => {
           if (!open && !deleteComment.isPending) setDeleteCandidate(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          data-review-popover
+          overlayProps={{
+            "data-review-popover": "",
+            "data-review-confirmation-overlay": "",
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("review.deleteCommentTitle")}
@@ -2568,7 +3195,7 @@ export function ReviewCanvasPins({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>,
+    </div>,
     document.body,
   );
 }
@@ -2673,7 +3300,7 @@ function ReviewPin({
   return (
     <div
       data-review-popover
-      className="fixed z-[45]"
+      className="pointer-events-auto fixed z-[45]"
       style={{
         left:
           clientPoint?.x ??
@@ -2766,7 +3393,7 @@ function ReviewPinCluster({
     <button
       type="button"
       data-review-pin-cluster
-      className="fixed z-[45] flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-primary bg-primary text-xs font-semibold text-primary-foreground shadow-lg hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="pointer-events-auto fixed z-[45] flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-primary bg-primary text-xs font-semibold text-primary-foreground shadow-lg hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       style={{
         left: canvasRect.left + (point.xPct / 100) * canvasRect.width,
         top: canvasRect.top + (point.yPct / 100) * canvasRect.height,
@@ -2922,6 +3549,57 @@ function ReviewImageAttachments({
   );
 }
 
+// Placement depends on the popover's own height, which is only known once its
+// content has rendered, so the frame measures itself before the first paint.
+function ReviewPopoverFrame({
+  anchor,
+  children,
+}: {
+  anchor: ReviewPopoverAnchor;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  const measure = useCallback(() => {
+    const element = ref.current;
+    if (!element) return;
+    // scrollHeight is the full content height even while maxHeight scrolls it.
+    setHeight(
+      element.scrollHeight + element.offsetHeight - element.clientHeight,
+    );
+  }, []);
+  useLayoutEffect(measure);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measure]);
+  const box = getReviewPopoverBox(
+    anchor.clientPoint,
+    anchor.region,
+    anchor.preferred,
+    height,
+  );
+  return (
+    <div
+      ref={ref}
+      data-review-popover
+      className="absolute z-[260] overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-popover shadow-xl"
+      style={{
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        maxHeight: box.maxHeight,
+      }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
+
 function DraftComposer({
   value,
   mentions,
@@ -2937,7 +3615,7 @@ function DraftComposer({
   showAgentAction,
   smartAgentAvailable,
   initialAgentMode,
-  placement,
+  anchor,
   commentSubmitting,
   agentSubmitting,
 }: {
@@ -2955,7 +3633,7 @@ function DraftComposer({
   showAgentAction: boolean;
   smartAgentAvailable: boolean;
   initialAgentMode: "auto" | NodeRepromptSendMode;
-  placement: ReviewPopoverPlacement;
+  anchor: ReviewPopoverAnchor;
   commentSubmitting: boolean;
   agentSubmitting: boolean;
 }) {
@@ -3036,15 +3714,7 @@ function DraftComposer({
     </div>
   ) : undefined;
   return (
-    <div
-      data-review-popover
-      className={cn(
-        "absolute z-[260] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.horizontal === "end" ? "right-3" : "left-3",
-        placement.vertical === "above" ? "bottom-3" : "top-1",
-      )}
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ReviewPopoverFrame anchor={anchor}>
       <div className="flex items-center justify-between px-3 pb-2 pt-3">
         <span className="text-sm font-medium">
           {initialAgentMode === "preview"
@@ -3119,7 +3789,7 @@ function DraftComposer({
         enterSubmitTarget={initialAgentMode === "preview" ? "agent" : "human"}
         onEscape={onCancel}
       />
-    </div>
+    </ReviewPopoverFrame>
   );
 }
 
@@ -3200,6 +3870,7 @@ function ReviewReactionControls({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
+            data-review-popover
             data-review-reaction-menu
             align="end"
             onClick={(event) => event.stopPropagation()}
@@ -3257,7 +3928,7 @@ function ReviewThreadPopover({
   onSetUnread,
   onDelete,
   canDelete,
-  placement,
+  anchor,
   replyDraft,
   replyMentions,
   mentionOptions,
@@ -3294,7 +3965,7 @@ function ReviewThreadPopover({
   onSetUnread: (unread: boolean) => void;
   onDelete: () => void;
   canDelete: boolean;
-  placement: ReviewPopoverPlacement;
+  anchor: ReviewPopoverAnchor;
   replyDraft: string;
   replyMentions: readonly ReviewMention[];
   mentionOptions: readonly ReviewMention[];
@@ -3312,15 +3983,7 @@ function ReviewThreadPopover({
   const avatarUrl = useAvatarUrl(thread.root.authorEmail);
   const [replyUploading, setReplyUploading] = useState(false);
   return (
-    <div
-      data-review-popover
-      className={cn(
-        "absolute z-[260] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.horizontal === "end" ? "right-3" : "left-3",
-        placement.vertical === "above" ? "bottom-3" : "top-1",
-      )}
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ReviewPopoverFrame anchor={anchor}>
       <div className="flex items-start gap-2.5 p-3">
         <Avatar className="size-7 shrink-0">
           {avatarUrl ? <AvatarImage src={avatarUrl} alt={rootAuthor} /> : null}
@@ -3545,7 +4208,7 @@ function ReviewThreadPopover({
           ) : null}
         </div>
       ) : null}
-    </div>
+    </ReviewPopoverFrame>
   );
 }
 

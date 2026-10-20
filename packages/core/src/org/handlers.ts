@@ -31,6 +31,7 @@ const nanoid = (): string =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
+import { routeAuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
@@ -163,7 +164,10 @@ function normalizeWorkspaceAppDefaultVisibility(
   );
 }
 
-function getInviteAppUrl(event: H3Event): string {
+// Agent calls have no event, so they get the configured app URL. Do not fall
+// back to the request context's `requestOrigin`: some paths fill it from an
+// unchecked x-forwarded-host, which would put a caller-chosen host in the email.
+function getInviteAppUrl(event?: H3Event): string {
   return getAppProductionUrl(event);
 }
 
@@ -421,8 +425,11 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         statusCode: 503,
         message: "Identity removal succeeded but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     const nextOrg = await e.execute({
       sql: `SELECT org_id AS "orgId" FROM org_members
@@ -686,7 +693,7 @@ function assertCanInviteRole(
   }
 }
 
-interface SingleInviteResult {
+export interface SingleInviteResult {
   id: string;
   email: string;
   role: "member" | "admin";
@@ -700,11 +707,11 @@ interface SingleInviteFailure {
   error: string;
 }
 
-async function inviteOne(
+export async function inviteOne(
   ctx: { orgId: string; orgName: string | null; email: string },
   rawEmail: string,
   role: "member" | "admin",
-  event: H3Event,
+  event?: H3Event,
   appId?: string,
   appRoles?: string[],
 ): Promise<SingleInviteResult> {
@@ -872,6 +879,7 @@ export const createInvitationHandler = defineEventHandler(
             inv.appRoles,
           );
           succeeded.push(result);
+          await auditInvitation(event, ctx, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           failed.push({ email: lower, error: message });
@@ -895,9 +903,27 @@ export const createInvitationHandler = defineEventHandler(
       body?.appId,
       body?.appRoles,
     );
+    await auditInvitation(event, ctx, result);
     return result;
   },
 );
+
+function auditInvitation(
+  event: H3Event,
+  ctx: { orgId: string | null; email: string },
+  invite: SingleInviteResult,
+): Promise<void> {
+  return recordOrgAdminAuditEvent({
+    action: "invite-organization-member",
+    targetType: "org-invitation",
+    targetId: invite.email,
+    summary: `Invited ${invite.email} as ${invite.role}`,
+    userEmail: ctx.email,
+    orgId: ctx.orgId,
+    args: { email: invite.email, role: invite.role },
+    attribution: routeAuditAttribution(event),
+  });
+}
 
 export const listInvitationsHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -1229,8 +1255,11 @@ export const removeMemberHandler = defineEventHandler(
         message:
           "The member was revoked from the identity authority but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -1323,6 +1352,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       userEmail: ctx.email,
       orgId: ctx.orgId,
       args: { email: memberEmailLower, previousRole: currentRole, role },
+      attribution: routeAuditAttribution(event),
     });
 
     return { email: memberEmailLower, role };
@@ -1765,23 +1795,36 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const e = await exec();
-
-  if (raw) {
-    const existing = await e.execute({
-      sql: `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? AND id != ? LIMIT 1`,
-      args: [raw, ctx.orgId],
+  if (!e.transaction) {
+    throw createError({
+      statusCode: 503,
+      message: "Organization domain updates require transaction support",
     });
-    if (existing.rows.length > 0) {
-      throw createError({
-        statusCode: 409,
-        message: "Another organization already uses this domain",
-      });
-    }
   }
 
-  await e.execute({
-    sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
-    args: [raw, ctx.orgId],
+  await e.transaction(async (tx) => {
+    if (raw) {
+      await tx.execute({
+        sql: `SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))`,
+        args: [`agent-native:org-domain:${raw}`],
+      });
+
+      const existing = await tx.execute({
+        sql: `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? AND id != ? LIMIT 1`,
+        args: [raw, ctx.orgId],
+      });
+      if (existing.rows.length > 0) {
+        throw createError({
+          statusCode: 409,
+          message: "Another organization already uses this domain",
+        });
+      }
+    }
+
+    await tx.execute({
+      sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
+      args: [raw, ctx.orgId],
+    });
   });
   invalidateDomainMatchCache();
   invalidateMemberOrgCaches();
@@ -1882,6 +1925,14 @@ export const revealA2ASecretHandler = defineEventHandler(
   },
 );
 
+// An org secret equal to the deploy-wide A2A_SECRET makes the receiver treat
+// every verified user call from that org as an organization principal.
+async function isDeploymentA2ASecret(secret: string): Promise<boolean> {
+  const { getGlobalA2ASecret } = await import("../a2a/client.js");
+  const deploymentSecret = getGlobalA2ASecret();
+  return deploymentSecret !== undefined && secret.trim() === deploymentSecret;
+}
+
 /** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner only) */
 export const setA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -1905,6 +1956,13 @@ export const setA2ASecretHandler = defineEventHandler(
     if (!secret) {
       const { randomBytes } = await import("node:crypto");
       secret = randomBytes(32).toString("base64url");
+    }
+    if (await isDeploymentA2ASecret(secret)) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "The organization A2A secret must differ from this app's A2A_SECRET, otherwise verified user calls from this organization are downgraded to organization-level access. Choose a different secret.",
+      });
     }
 
     const e = await exec();
@@ -2143,13 +2201,19 @@ export const receiveA2ASecretHandler = defineEventHandler(
 
     const e = await exec();
     const orgRes = await e.execute({
-      sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
       args: [orgDomain],
     });
     if (orgRes.rows.length === 0) {
       throw createError({
         statusCode: 404,
         message: "No local org matches that domain",
+      });
+    }
+    if (orgRes.rows.length > 1) {
+      throw createError({
+        statusCode: 409,
+        message: "Multiple local organizations match that domain",
       });
     }
     const row = orgRes.rows[0] as any;
@@ -2183,6 +2247,16 @@ export const receiveA2ASecretHandler = defineEventHandler(
       throw createError({
         statusCode: 401,
         message: "Invalid or expired organization token",
+      });
+    }
+
+    // Checked only after the caller is verified so an unauthenticated request
+    // cannot probe whether a value equals this deployment's A2A_SECRET.
+    if (await isDeploymentA2ASecret(newSecret)) {
+      throw createError({
+        statusCode: 409,
+        message:
+          "The pushed organization A2A secret equals this app's A2A_SECRET, so verified user calls from this organization would be downgraded to organization-level access. Use a distinct organization secret.",
       });
     }
 

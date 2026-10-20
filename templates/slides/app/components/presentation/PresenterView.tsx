@@ -1,18 +1,40 @@
-import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronLeft, IconChevronRight, IconX } from "@tabler/icons-react";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconMicrophone,
+  IconX,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
-import { isMediaKeyboardEvent } from "@/lib/slide-video";
+import {
+  isInteractiveKeyboardEvent,
+  isMediaKeyboardEvent,
+} from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
+import type { SlideTransitionType } from "../../../shared/slide-transitions";
+import { openPresentChannel, type PresentMessage } from "./present-channel";
 import {
-  advancePresentIndex,
-  openPresentChannel,
-  type PresentMessage,
-} from "./present-channel";
+  annotateBuildSteps,
+  buildClickCount,
+  getBuildSteps,
+} from "./slide-build-steps";
+import {
+  canCommand,
+  createSlideNavigation,
+  reduceSlideNavigation,
+  type SlideNavigationLayout,
+  type SlideNavigationState,
+} from "./slide-navigation";
+import {
+  hasVoiceNavigationPartialExpired,
+  matchVoiceNavigationPhrase,
+} from "./voice-navigation";
 
 interface PresenterViewProps {
   slides: Slide[];
@@ -28,6 +50,17 @@ function formatElapsed(seconds: number) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+// The presenter holds no flight, only the settled position it mirrors.
+function presenterNavState(position: {
+  index: number;
+  buildStep: number;
+}): SlideNavigationState {
+  return {
+    ...createSlideNavigation(position.index),
+    buildStep: position.buildStep,
+  };
+}
+
 export default function PresenterView({
   slides,
   deckId,
@@ -36,6 +69,16 @@ export default function PresenterView({
   designSystem,
 }: PresenterViewProps) {
   const t = useT();
+  const { locale } = useLocale();
+  const {
+    supported: voiceSupported,
+    isActive: voiceActive,
+    transcript: voiceTranscript,
+    start: startVoiceTranscription,
+    stop: stopVoiceTranscription,
+    getIncompleteReason,
+  } = useLiveTranscription({ lang: locale });
+  const [voiceError, setVoiceError] = useState(false);
   const initialIndex = useMemo(() => {
     const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
     if (rawSlides.length === 0) return 0;
@@ -52,7 +95,12 @@ export default function PresenterView({
     }
     return 0;
   }, [slides, startIndex]);
-  const [index, setIndex] = useState(initialIndex);
+  // The index and build step move together, so one update can take both.
+  const [position, setPosition] = useState({
+    index: initialIndex,
+    buildStep: 0,
+  });
+  const index = position.index;
   const [elapsed, setElapsed] = useState(0);
   const safeSlides = useMemo(
     () =>
@@ -62,6 +110,18 @@ export default function PresenterView({
           )
         : [],
     [slides],
+  );
+  const buildSteps = useMemo(
+    () => safeSlides.map((slide) => getBuildSteps(slide).steps),
+    [safeSlides],
+  );
+  // The presenter animates nothing, so each press commits at its boundary.
+  const presenterLayout = useMemo<SlideNavigationLayout>(
+    () => ({
+      stepCounts: buildSteps.map((steps) => buildClickCount(steps)),
+      transitions: buildSteps.map((): SlideTransitionType => "none"),
+    }),
+    [buildSteps],
   );
   const channelRef = useRef<BroadcastChannel | null>(null);
   const controllerConnectedRef = useRef(false);
@@ -76,7 +136,12 @@ export default function PresenterView({
     channel.onmessage = (event: MessageEvent<PresentMessage>) => {
       if (event.data?.type === "state") {
         controllerConnectedRef.current = true;
-        setIndex(event.data.index);
+        setPosition({
+          index: event.data.index,
+          buildStep: event.data.buildStep,
+        });
+      } else if (event.data?.type === "bye") {
+        controllerConnectedRef.current = false;
       }
     };
     channel.postMessage({ type: "hello" } satisfies PresentMessage);
@@ -97,14 +162,29 @@ export default function PresenterView({
       const channel = channelRef.current;
       if (message.type === "command" && !controllerConnectedRef.current) {
         channel?.postMessage(message);
-        setIndex((current) =>
-          advancePresentIndex(current, message.command, safeSlides.length),
-        );
+        // With no audience to report back, the presenter moves itself by the
+        // audience's own rule: a press reveals the next build before it advances.
+        setPosition((current) => {
+          const next = reduceSlideNavigation(
+            presenterNavState(current),
+            { type: "command", command: message.command },
+            presenterLayout,
+          );
+          if (
+            next.displayedIndex === current.index &&
+            next.buildStep === current.buildStep
+          ) {
+            return current;
+          }
+          return { index: next.displayedIndex, buildStep: next.buildStep };
+        });
         return;
       }
+      // Connected: this is a relay only. The audience applies the command once
+      // and reports its new state back, so nothing here steps the presenter.
       channel?.postMessage(message);
     },
-    [safeSlides.length],
+    [presenterLayout],
   );
 
   const goNext = useCallback(
@@ -116,9 +196,113 @@ export default function PresenterView({
     [send],
   );
 
+  const nextVoiceCommand = t("presentation.voiceNavigationNextCommand");
+  const previousVoiceCommand = t("presentation.voiceNavigationPreviousCommand");
+  const voiceCommandHint = t("presentation.voiceNavigationHint", {
+    next: nextVoiceCommand,
+    previous: previousVoiceCommand,
+  });
+  // guard:allow-raw-color — presenter controls stay legible on the dedicated dark stage.
+  const voiceActiveButtonClassName = "bg-white/25 ring-1 ring-white/40";
+  // guard:allow-raw-color — presenter controls stay legible on the dedicated dark stage.
+  const voiceIdleButtonClassName = "bg-white/10 hover:bg-white/20";
+  const voiceStatusClassName =
+    // guard:allow-raw-color — presenter status stays legible on the dedicated dark stage.
+    "sr-only min-w-0 max-w-48 truncate text-xs text-white/60 md:not-sr-only";
+  const lastTranscriptRef = useRef("");
+  const pendingVoicePhraseRef = useRef("");
+  const pendingVoicePhraseAtRef = useRef<number | null>(null);
+
+  const toggleVoiceNavigation = useCallback(() => {
+    if (voiceActive) {
+      stopVoiceTranscription();
+      lastTranscriptRef.current = voiceTranscript;
+      pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
+      setVoiceError(false);
+      return;
+    }
+
+    lastTranscriptRef.current = "";
+    pendingVoicePhraseRef.current = "";
+    pendingVoicePhraseAtRef.current = null;
+    setVoiceError(false);
+    startVoiceTranscription();
+    if (getIncompleteReason()) setVoiceError(true);
+  }, [
+    getIncompleteReason,
+    startVoiceTranscription,
+    stopVoiceTranscription,
+    voiceActive,
+    voiceTranscript,
+  ]);
+
+  useEffect(() => {
+    if (!voiceActive && getIncompleteReason()) setVoiceError(true);
+  }, [getIncompleteReason, voiceActive]);
+
+  useEffect(() => {
+    if (!voiceActive) {
+      lastTranscriptRef.current = voiceTranscript;
+      pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
+      return;
+    }
+
+    const previousTranscript = lastTranscriptRef.current;
+    const addition = voiceTranscript.startsWith(previousTranscript)
+      ? voiceTranscript.slice(previousTranscript.length)
+      : voiceTranscript;
+    lastTranscriptRef.current = voiceTranscript;
+    if (!addition.trim()) return;
+
+    const now = Date.now();
+    if (
+      pendingVoicePhraseAtRef.current !== null &&
+      hasVoiceNavigationPartialExpired(pendingVoicePhraseAtRef.current, now)
+    ) {
+      pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
+    }
+    const candidate = pendingVoicePhraseRef.current + addition;
+    const match = matchVoiceNavigationPhrase(candidate, {
+      next: nextVoiceCommand,
+      previous: previousVoiceCommand,
+    });
+    const additionMatch = matchVoiceNavigationPhrase(addition, {
+      next: nextVoiceCommand,
+      previous: previousVoiceCommand,
+    });
+    const commandMatch = match.type === "command" ? match : additionMatch;
+    if (commandMatch.type === "command") {
+      pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
+      if (commandMatch.command === "next") goNext();
+      else goPrev();
+    } else if (additionMatch.type === "partial") {
+      pendingVoicePhraseRef.current = addition;
+      pendingVoicePhraseAtRef.current = now;
+    } else if (match.type === "partial") {
+      pendingVoicePhraseRef.current = candidate;
+      pendingVoicePhraseAtRef.current = now;
+    } else {
+      pendingVoicePhraseRef.current = "";
+      pendingVoicePhraseAtRef.current = null;
+    }
+  }, [
+    goNext,
+    goPrev,
+    nextVoiceCommand,
+    previousVoiceCommand,
+    voiceActive,
+    voiceTranscript,
+  ]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (isMediaKeyboardEvent(e)) return;
+      if (isMediaKeyboardEvent(e) || isInteractiveKeyboardEvent(e)) return;
+      // Same as the audience view: auto-repeat keydowns are not new presses.
+      if (e.repeat) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
@@ -155,7 +339,7 @@ export default function PresenterView({
 
     if (isDeepLinkChange) {
       prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
-      setIndex(initialIndex);
+      setPosition({ index: initialIndex, buildStep: 0 });
       return;
     }
 
@@ -163,17 +347,26 @@ export default function PresenterView({
     const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
     prevSafeSlideIdsRef.current = newIds;
-    setIndex(
+    const nextIndex =
       followedIndex >= 0
         ? followedIndex
-        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1)),
-    );
+        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1));
+    setPosition((current) => ({ ...current, index: nextIndex }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeSlides, startIndex, deckId]);
 
   const current = safeSlides[index];
   const next = safeSlides[index + 1];
+  // A button is enabled exactly when its key press would move the presenter.
+  const navState = presenterNavState(position);
   const notes = current?.notes?.trim();
+  // The same annotation the audience renders, at the audience's build step.
+  const currentPreview = useMemo(
+    () =>
+      current &&
+      annotateBuildSteps(current, buildSteps[index], position.buildStep),
+    [buildSteps, current, index, position.buildStep],
+  );
 
   if (safeSlides.length === 0) {
     return (
@@ -202,8 +395,48 @@ export default function PresenterView({
         </span>
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            onClick={toggleVoiceNavigation}
+            disabled={!voiceSupported}
+            title={
+              !voiceSupported
+                ? t("presentation.voiceNavigationUnavailable")
+                : voiceError
+                  ? t("presentation.voiceNavigationError")
+                  : voiceCommandHint
+            }
+            className={`cursor-pointer rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-30 ${voiceActive ? voiceActiveButtonClassName : voiceIdleButtonClassName}`}
+            aria-label={t("presentation.voiceNavigation")}
+            aria-description={
+              !voiceSupported
+                ? t("presentation.voiceNavigationUnavailable")
+                : voiceError
+                  ? t("presentation.voiceNavigationError")
+                  : voiceCommandHint
+            }
+            aria-pressed={voiceActive}
+          >
+            <IconMicrophone className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <span
+            role="status"
+            aria-live="polite"
+            className={voiceStatusClassName}
+          >
+            {voiceError
+              ? t("presentation.voiceNavigationError")
+              : voiceActive
+                ? t("presentation.voiceNavigationListening", {
+                    next: nextVoiceCommand,
+                    previous: previousVoiceCommand,
+                  })
+                : !voiceSupported
+                  ? t("presentation.voiceNavigationUnavailable")
+                  : ""}
+          </span>
+          <button
             onClick={goPrev}
-            disabled={index === 0}
+            disabled={!canCommand(navState, presenterLayout, "prev")}
             className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.previousSlide")}
           >
@@ -211,7 +444,7 @@ export default function PresenterView({
           </button>
           <button
             onClick={goNext}
-            disabled={index >= safeSlides.length - 1}
+            disabled={!canCommand(navState, presenterLayout, "next")}
             className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.nextSlide")}
           >
@@ -230,9 +463,10 @@ export default function PresenterView({
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         <div className="flex gap-4">
           <div className="w-2/3 overflow-hidden rounded-lg bg-black">
-            {current && (
+            {currentPreview && (
               <SlideRenderer
-                slide={current}
+                slide={currentPreview}
+                slidePosition={{ number: index + 1, count: safeSlides.length }}
                 thumbnail
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
@@ -247,6 +481,10 @@ export default function PresenterView({
               <div className="overflow-hidden rounded-lg bg-black">
                 <SlideRenderer
                   slide={next}
+                  slidePosition={{
+                    number: index + 2,
+                    count: safeSlides.length,
+                  }}
                   thumbnail
                   aspectRatio={aspectRatio}
                   designSystem={designSystem}

@@ -23,6 +23,7 @@ import { and, eq, getTableName, isNull, lt, or, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
+import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.js";
 import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
@@ -32,12 +33,19 @@ import {
 } from "./error-capture.js";
 import {
   assertFirstPartyAnalyticsBigQuerySql,
+  ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS,
+  ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS,
   type FirstPartyAnalyticsSink,
+  type FirstPartyAnalyticsEventSourceProjection,
+  type FirstPartyAnalyticsEventsProjection,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   insertFirstPartyAnalyticsRowsWithResults,
+  planFirstPartyEventsSource,
   queryFirstPartyAnalyticsInBigQuery,
+  renderFirstPartyAnalyticsBigQueryRequestSql,
+  settleFirstPartyEventsSource,
 } from "./first-party-analytics-backend.js";
 import {
   firstPartyCacheKey,
@@ -47,14 +55,17 @@ import {
   firstPartyAnalyticsDeliveryFallbackKey,
   isFirstPartyAnalyticsDeliveryQueueMissingError,
 } from "./first-party-analytics-delivery.js";
+import { FirstPartyAnalyticsValidationError } from "./first-party-analytics-errors.js";
 import {
   classifyFirstPartyAnalyticsQuery,
   queryOutcomeFromError,
   recordFirstPartyAnalyticsQueryPressure,
 } from "./first-party-analytics-health.js";
+import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
+import { raceWithAbort } from "./gcloud.js";
 import {
   MAX_APP_LENGTH,
   MAX_EVENT_NAME_LENGTH,
@@ -90,17 +101,69 @@ export interface IncomingAnalyticsEvent {
   timestamp?: string | number | Date | null;
 }
 
-export interface AnalyticsQueryResult {
+export interface AnalyticsQueryResult extends SqlQueryExecutionMetadata {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
-  truncated?: boolean;
+}
+
+export type FirstPartyAnalyticsQueryBackend = "postgres" | "bigquery";
+
+export interface FirstPartyAnalyticsQueryResultWithBackend extends AnalyticsQueryResult {
+  backend: FirstPartyAnalyticsQueryBackend;
 }
 
 export interface AnalyticsQueryOptions {
+  /** Fail before running anything when the query would read another backend. */
+  requireBackend?: "postgres";
   cache?: boolean;
   timeoutMs?: number;
+  maxBytesBilled?: number;
+  signal?: AbortSignal;
+  eventDateRange?: { startDate: string; endDate: string };
+  scopedEventsSingleScan?: boolean;
+  scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+  scopedEventsSourceProjections?: Record<
+    string,
+    FirstPartyAnalyticsEventSourceProjection
+  >;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
+  /**
+   * Read the raw event table even when an events model is configured, for
+   * callers that need events newer than the model's last build.
+   */
+  eventsSource?: "raw";
+}
+
+export class FirstPartyAnalyticsQueryTimeoutError extends Error {
+  constructor() {
+    super("First-party analytics query timed out");
+    this.name = "FirstPartyAnalyticsQueryTimeoutError";
+  }
+}
+
+export class FirstPartyAnalyticsBackendNotPostgresError extends Error {
+  readonly code = "first_party_backend_not_postgres";
+  readonly bigQueryTables: string[];
+
+  constructor(bigQueryTables: string[]) {
+    super(
+      `Not run: this scope reads ${bigQueryTables.join(", ")} from BigQuery, not Postgres. Only session_recordings is read from Postgres. Tell the user, and rerun without backend: "postgres" only if they accept a BigQuery query.`,
+    );
+    this.name = "FirstPartyAnalyticsBackendNotPostgresError";
+    this.bigQueryTables = bigQueryTables;
+  }
+}
+
+function isFirstPartyAnalyticsTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as Error & { code?: unknown }).code;
+  return (
+    error instanceof FirstPartyAnalyticsQueryTimeoutError ||
+    error.name === "DbTimeoutError" ||
+    code === "CONNECT_TIMEOUT" ||
+    /^First-party analytics query timed out after \d+ms$/.test(error.message)
+  );
 }
 
 const MAX_EVENTS_PER_REQUEST = 100;
@@ -111,11 +174,26 @@ const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_event_daily_rollups",
   "analytics_user_days",
   "session_recordings",
+  "analytics_content_items",
+  "analytics_content_metric_snapshots",
+  "analytics_content_collection_runs",
 ] as const;
 const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
+]);
+// The Content view's daily snapshots. They live only in the Analytics SQL
+// store, so a query that reads them never routes to BigQuery, even for an
+// organization whose events sink is BigQuery.
+const FIRST_PARTY_CONTENT_TABLES = new Set([
+  "analytics_content_items",
+  "analytics_content_metric_snapshots",
+  "analytics_content_collection_runs",
+]);
+const FIRST_PARTY_SQL_STORE_ONLY_TABLES = new Set([
+  "session_recordings",
+  ...FIRST_PARTY_CONTENT_TABLES,
 ]);
 const FIRST_PARTY_QUERY_TABLE_LIST = FIRST_PARTY_QUERY_TABLE_NAMES.join(", ");
 
@@ -329,6 +407,87 @@ export async function listAnalyticsPublicKeys(
   }));
 }
 
+export async function updateAnalyticsPublicKeyOrigins(
+  scope: AnalyticsScope,
+  keyId: string,
+  originsToAdd: string[],
+): Promise<{
+  id: string;
+  publicKeyPrefix: string;
+  replayAllowedOrigins: string[];
+  addedOrigins: string[];
+  changed: boolean;
+} | null> {
+  const db = getDb() as any;
+  const keyScope = scope.orgId
+    ? or(
+        eq(schema.analyticsPublicKeys.orgId, scope.orgId),
+        and(
+          eq(schema.analyticsPublicKeys.ownerEmail, scope.userEmail),
+          isNull(schema.analyticsPublicKeys.orgId),
+        ),
+      )
+    : and(
+        eq(schema.analyticsPublicKeys.ownerEmail, scope.userEmail),
+        isNull(schema.analyticsPublicKeys.orgId),
+      );
+  const where = and(eq(schema.analyticsPublicKeys.id, keyId), keyScope);
+
+  return db.transaction(async (tx: any) => {
+    const [row] = await tx
+      .select({
+        id: schema.analyticsPublicKeys.id,
+        publicKeyPrefix: schema.analyticsPublicKeys.publicKeyPrefix,
+        replayAllowedOrigins: schema.analyticsPublicKeys.replayAllowedOrigins,
+      })
+      .from(schema.analyticsPublicKeys)
+      .where(where)
+      .for("update");
+    if (!row) return null;
+
+    const currentOrigins = parseReplayAllowedOriginsForUpdate(
+      row.replayAllowedOrigins,
+    );
+    const currentSet = new Set(currentOrigins);
+    const addedOrigins = originsToAdd.filter((origin) => {
+      if (currentSet.has(origin)) return false;
+      currentSet.add(origin);
+      return true;
+    });
+    if (addedOrigins.length === 0) {
+      return {
+        id: row.id,
+        publicKeyPrefix: row.publicKeyPrefix,
+        replayAllowedOrigins: currentOrigins,
+        addedOrigins,
+        changed: false,
+      };
+    }
+
+    const nextOrigins = [...currentOrigins, ...addedOrigins];
+    const [updated] = await tx
+      .update(schema.analyticsPublicKeys)
+      .set({ replayAllowedOrigins: JSON.stringify(nextOrigins) })
+      .where(where)
+      .returning({
+        id: schema.analyticsPublicKeys.id,
+        publicKeyPrefix: schema.analyticsPublicKeys.publicKeyPrefix,
+        replayAllowedOrigins: schema.analyticsPublicKeys.replayAllowedOrigins,
+      });
+    if (!updated) return null;
+
+    return {
+      id: updated.id,
+      publicKeyPrefix: updated.publicKeyPrefix,
+      replayAllowedOrigins: parseReplayAllowedOriginsForUpdate(
+        updated.replayAllowedOrigins,
+      ),
+      addedOrigins,
+      changed: true,
+    };
+  });
+}
+
 const LAST_USED_AT_REFRESH_MS = 60_000;
 
 export async function touchPublicKeyLastUsedAt(
@@ -383,6 +542,32 @@ function parseReplayAllowedOrigins(value: unknown): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+function parseReplayAllowedOriginsForUpdate(value: unknown): string[] {
+  if (typeof value !== "string") {
+    throw invalidStoredReplayOriginsError();
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw invalidStoredReplayOriginsError();
+  }
+  if (
+    Array.isArray(parsed) &&
+    parsed.every((origin) => typeof origin === "string")
+  ) {
+    return parsed;
+  }
+  throw invalidStoredReplayOriginsError();
+}
+
+function invalidStoredReplayOriginsError() {
+  return Object.assign(
+    new Error("Stored replay origins cannot be read safely."),
+    { errorCode: "invalid_origin_allowlist", statusCode: 409 },
+  );
 }
 
 export async function revokeAnalyticsPublicKey(
@@ -855,12 +1040,16 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
     tokens[0]?.kind !== "word" ||
     !["select", "with"].includes(tokens[0].value)
   ) {
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
       "First-party analytics queries must start with SELECT or WITH",
     );
   }
   if (tokens.some((token) => token.text === ";")) {
-    throw new Error("Only a single SELECT statement is allowed");
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
+      "Only a single SELECT statement is allowed",
+    );
   }
   const mutations = new Set([
     "insert",
@@ -878,13 +1067,20 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
   if (
     tokens.some((token) => token.kind === "word" && mutations.has(token.value))
   ) {
-    throw new Error("Only read-only SELECT queries are allowed");
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
+      "Only read-only SELECT queries are allowed",
+    );
   }
   if (tokens.some((token) => token.kind === "parameter")) {
-    throw new Error("Bind placeholders are not supported in dashboard SQL");
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
+      "Bind placeholders are not supported in dashboard SQL",
+    );
   }
   if (tokens.some((token) => token.kind === "word" && token.value === "only")) {
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_shape",
       "ONLY-qualified table sources are not supported in first-party analytics queries",
     );
   }
@@ -895,7 +1091,8 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
         token.value.toLowerCase() === "session_replay_chunks",
     )
   ) {
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "disallowed_source",
       "First-party analytics queries cannot read session replay chunks",
     );
   }
@@ -903,7 +1100,8 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
   const query = readAgentSqlQuery(sql, { dialect: "postgres" });
   for (const cte of query.ctes) {
     if (FIRST_PARTY_QUERY_TABLES.has(cte.name.toLowerCase())) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "disallowed_source",
         `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found CTE ${cte.name})`,
       );
     }
@@ -911,7 +1109,8 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
   let usesAllowedTable = false;
   for (const source of query.sources) {
     if (source.commaSeparated) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "invalid_shape",
         "Comma-separated table sources are not supported in first-party analytics queries; use an explicit JOIN",
       );
     }
@@ -922,25 +1121,40 @@ function validateFirstPartyAnalyticsSqlShape(sql: string): AgentSqlQuery {
       FIRST_PARTY_QUERY_TABLES.has(source.name)
     ) {
       if (source.quoted) {
-        throw new Error(
+        throw new FirstPartyAnalyticsValidationError(
+          "invalid_shape",
           "Quoted table identifiers are not supported in first-party analytics queries",
         );
       }
       usesAllowedTable = true;
       continue;
     }
-    throw new Error(
+    throw new FirstPartyAnalyticsValidationError(
+      "disallowed_source",
       `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found ${ref})`,
     );
   }
   if (!usesAllowedTable) {
-    throw new Error(`Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`);
+    throw new FirstPartyAnalyticsValidationError(
+      "disallowed_source",
+      `Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`,
+    );
   }
   return query;
 }
 
 export function validateFirstPartyAnalyticsSql(sql: string): void {
-  validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+  try {
+    validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+  } catch (error) {
+    if (error instanceof FirstPartyAnalyticsValidationError) throw error;
+    throw new FirstPartyAnalyticsValidationError(
+      "invalid_query",
+      error instanceof Error
+        ? error.message
+        : "First-party Analytics query validation failed",
+    );
+  }
 }
 
 // The identity column each source can be filtered on. Daily event rollups
@@ -951,12 +1165,30 @@ const TEST_IDENTITY_COLUMNS: Record<string, string> = {
   session_recordings: "user_id",
 };
 
+/** Tenant keys a scope may read in the tenant-keyed tables. */
+function scopeTenantKeys(scope: AnalyticsScope): string[] {
+  if (scope.orgId) {
+    return [
+      `org:${scope.orgId}`,
+      ...(scope.credentialScope === "org" ? [] : [`user:${scope.userEmail}`]),
+    ];
+  }
+  return scope.credentialScope === "org" ? [] : [`user:${scope.userEmail}`];
+}
+
+const SCOPED_ANALYTICS_EVENTS_CTE = "agent_native_scoped_analytics_events";
+const SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX =
+  "agent_native_scoped_analytics_event_source_";
+
 function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
   today: string,
   parameterOffset: number,
   includeTestIdentities: boolean,
+  eventPushdownPredicates: string[] = [],
+  scopedEventsSingleScan = false,
+  scopedEventsProjection?: FirstPartyAnalyticsEventSourceProjection,
 ): {
   sql: string;
   args: Array<string | null>;
@@ -966,23 +1198,32 @@ function scopedTableSource(
     identityColumn && !includeTestIdentities
       ? ` AND NOT ${testIdentitySql(identityColumn)}`
       : "";
+  const eventPushdownFilter =
+    tableName === "analytics_events" && eventPushdownPredicates.length > 0
+      ? ` AND (${eventPushdownPredicates.map((predicate) => `(${predicate})`).join(" OR ")})`
+      : "";
+  if (FIRST_PARTY_CONTENT_TABLES.has(tableName)) {
+    const tenantKeys = scopeTenantKeys(scope);
+    if (tenantKeys.length === 0) {
+      return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
+    }
+    const branches = tenantKeys.map(
+      (_, index) =>
+        `SELECT * FROM ${tableName} WHERE tenant_key = $${parameterOffset + index + 1}`,
+    );
+    return {
+      sql: `(${branches.join(" UNION ALL ")})`,
+      args: tenantKeys,
+    };
+  }
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
-    if (scope.credentialScope === "org" && !scope.orgId) {
+    const tenantKeys = scopeTenantKeys(scope);
+    if (tenantKeys.length === 0) {
       return {
         sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`,
         args: [],
       };
     }
-    const tenantKeys = scope.orgId
-      ? [
-          `org:${scope.orgId}`,
-          ...(scope.credentialScope === "org"
-            ? []
-            : [`user:${scope.userEmail}`]),
-        ]
-      : scope.credentialScope === "org"
-        ? []
-        : [`user:${scope.userEmail}`];
     const branches = tenantKeys.map((_, index) => {
       const tenantKeyParameter = parameterOffset + index * 2 + 1;
       return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}${testIdentityFilter}`;
@@ -1002,18 +1243,33 @@ function scopedTableSource(
     );
   }
 
+  const eventSelection =
+    tableName !== "analytics_events"
+      ? "*"
+      : scopedEventsProjection === "onboarding_journey"
+        ? ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ")
+        : scopedEventsProjection === "onboarding_journey_response_identity"
+          ? ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ")
+          : "*";
+  const select = `SELECT ${eventSelection}`;
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
     if (scope.credentialScope === "org") {
       return {
-        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter})`,
+        sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
         args: [scope.orgId, today],
       };
     }
     const ownerParameter = parameterOffset + 3;
+    if (tableName === "analytics_events" && scopedEventsSingleScan) {
+      return {
+        sql: `(${select} FROM ${tableName} WHERE (org_id = $${orgParameter} OR (org_id IS NULL AND owner_email = $${ownerParameter})) AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+        args: [scope.orgId, today, ownerEmail],
+      };
+    }
     return {
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${testIdentityFilter})`,
+      sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter} UNION ALL ${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
@@ -1021,7 +1277,7 @@ function scopedTableSource(
     return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${testIdentityFilter})`,
+    sql: `(${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${eventPushdownFilter}${testIdentityFilter})`,
     args: [ownerEmail, today],
   };
 }
@@ -1045,7 +1301,8 @@ function assertNoSessionRecordingFilterTables(sql: string): void {
       (token.kind === "word" || token.kind === "quoted-identifier") &&
       SESSION_RECORDING_FILTER_TABLES.has(token.value)
     ) {
-      throw new Error(
+      throw new FirstPartyAnalyticsValidationError(
+        "disallowed_source",
         `First-party analytics queries cannot reference ${token.value}`,
       );
     }
@@ -1144,13 +1401,125 @@ export function scopedAnalyticsSql(
   sql: string,
   scope: AnalyticsScope,
   today = todayIsoDate(),
-  { includeTestIdentities = false }: { includeTestIdentities?: boolean } = {},
+  {
+    includeTestIdentities = false,
+    scopedEventsNotMaterialized = false,
+    scopedEventsSingleScan = false,
+    scopedEventsProjection,
+    scopedEventsSourceProjections,
+  }: {
+    includeTestIdentities?: boolean;
+    scopedEventsNotMaterialized?: boolean;
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+  } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
   const configuredSql = withConfiguredTestIdentities(sql);
   const query = validateFirstPartyAnalyticsSqlShape(configuredSql);
+  const hasRawEvents = query.sources.some(
+    (source) => !source.cte && source.name === "analytics_events",
+  );
+  if (
+    hasRawEvents &&
+    query.ctes.some(
+      (cte) => cte.name.toLowerCase() === SCOPED_ANALYTICS_EVENTS_CTE,
+    )
+  ) {
+    throw new Error("Query uses a reserved first-party analytics CTE name");
+  }
+  const rawEventSources = query.sources.filter(
+    (source) => !source.cte && source.name === "analytics_events",
+  );
+  const sourcePredicates = rawEventSources.map((source) =>
+    firstPartyEventPushdownPredicates(configuredSql, source.start, {
+      allowDirectSource: true,
+    }),
+  );
+  const sourceSpecificEventCtes = new Map<
+    number,
+    { name: string; sql: string }
+  >();
+  const sourceSpecificCteDefinitions: string[] = [];
+  if (scopedEventsSourceProjections && rawEventSources.length > 0) {
+    if (
+      query.ctes.some((cte) =>
+        cte.name
+          .toLowerCase()
+          .startsWith(SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX),
+      )
+    ) {
+      throw new Error("Query uses a reserved first-party analytics CTE name");
+    }
+    rawEventSources.forEach((source, index) => {
+      const sourceKey = (source.alias?.name ?? source.name).toLowerCase();
+      const projection = scopedEventsSourceProjections[sourceKey];
+      if (!projection) {
+        throw new Error(
+          "Every raw analytics event source needs an explicit projection",
+        );
+      }
+      const scopedSource = scopedTableSource(
+        "analytics_events",
+        scope,
+        today,
+        args.length,
+        includeTestIdentities,
+        sourcePredicates[index] ?? [],
+        scopedEventsSingleScan,
+        projection,
+      );
+      args.push(...scopedSource.args);
+      const name = `${SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX}${index}`;
+      sourceSpecificEventCtes.set(source.start, {
+        name,
+        sql: scopedSource.sql,
+      });
+      sourceSpecificCteDefinitions.push(
+        `${name} AS ${scopedEventsNotMaterialized ? "NOT MATERIALIZED " : ""}${scopedSource.sql}`,
+      );
+    });
+  }
+  const eventPushdownPredicates =
+    sourcePredicates.length > 0 &&
+    sourcePredicates.every((predicates) => predicates.length > 0)
+      ? sourcePredicates.map(
+          (predicates) =>
+            `(${predicates.map((predicate) => `(${predicate})`).join(" AND ")})`,
+        )
+      : [];
+  const scopedEvents =
+    hasRawEvents && !scopedEventsSourceProjections
+      ? scopedTableSource(
+          "analytics_events",
+          scope,
+          today,
+          args.length,
+          includeTestIdentities,
+          eventPushdownPredicates,
+          scopedEventsSingleScan,
+          scopedEventsProjection,
+        )
+      : null;
+  if (scopedEvents) args.push(...scopedEvents.args);
   const rewritten = rewriteAgentSqlQuerySources(query, (source) => {
     if (source.cte) return configuredSql.slice(source.start, source.end);
+    if (source.name === "analytics_events") {
+      const sourceSpecific = sourceSpecificEventCtes.get(source.start);
+      if (scopedEventsSourceProjections) {
+        if (!sourceSpecific) {
+          throw new Error(
+            "Every raw analytics event source needs an explicit projection",
+          );
+        }
+        return `${sourceSpecific.name}${source.alias ? "" : ` AS ${source.name}`}`;
+      }
+      return `${SCOPED_ANALYTICS_EVENTS_CTE}${source.alias ? "" : ` AS ${source.name}`}`;
+    }
     const scopedSource = scopedTableSource(
       source.name,
       scope,
@@ -1161,7 +1530,32 @@ export function scopedAnalyticsSql(
     args.push(...scopedSource.args);
     return scopedSource.sql + (source.alias ? "" : ` AS ${source.name}`);
   });
-  return { sql: rewritten, args };
+  if (!scopedEvents && sourceSpecificCteDefinitions.length === 0) {
+    return { sql: rewritten, args };
+  }
+
+  const rewrittenQuery = readAgentSqlQuery(rewritten, { dialect: "postgres" });
+  const firstToken = rewrittenQuery.tokens[0];
+  if (!firstToken) throw new Error("First-party analytics query is empty");
+  const withToken =
+    firstToken.kind === "word" && firstToken.value === "with"
+      ? firstToken
+      : null;
+  const recursiveToken =
+    withToken &&
+    rewrittenQuery.tokens[1]?.kind === "word" &&
+    rewrittenQuery.tokens[1].value === "recursive"
+      ? rewrittenQuery.tokens[1]
+      : null;
+  const prefixEnd = recursiveToken?.end ?? withToken?.end;
+  const scopedCte = sourceSpecificCteDefinitions.length
+    ? sourceSpecificCteDefinitions.join(", ")
+    : `${SCOPED_ANALYTICS_EVENTS_CTE} AS ${scopedEventsNotMaterialized ? "NOT MATERIALIZED " : ""}${scopedEvents!.sql}`;
+  const resultSql =
+    prefixEnd !== undefined
+      ? `${rewritten.slice(0, prefixEnd)} ${scopedCte},${rewritten.slice(prefixEnd)}`
+      : `${rewritten.slice(0, firstToken.start)}WITH ${scopedCte} ${rewritten.slice(firstToken.start)}`;
+  return { sql: resultSql, args };
 }
 
 function valueType(value: unknown): string {
@@ -1182,62 +1576,103 @@ function inferSchema(rows: Record<string, unknown>[]): {
   }));
 }
 
+function firstPartyAnalyticsTableBackend(
+  table: string,
+  sink: FirstPartyAnalyticsSink,
+): FirstPartyAnalyticsQueryBackend {
+  return sink === "bigquery" && !FIRST_PARTY_SQL_STORE_ONLY_TABLES.has(table)
+    ? "bigquery"
+    : "postgres";
+}
+
+/** Where queries over each first-party table run for a scope's sink. */
+export function firstPartyAnalyticsTableBackends(
+  sink: FirstPartyAnalyticsSink,
+): Record<
+  (typeof FIRST_PARTY_QUERY_TABLE_NAMES)[number],
+  FirstPartyAnalyticsQueryBackend
+> {
+  return Object.fromEntries(
+    FIRST_PARTY_QUERY_TABLE_NAMES.map((table) => [
+      table,
+      firstPartyAnalyticsTableBackend(table, sink),
+    ]),
+  ) as Record<
+    (typeof FIRST_PARTY_QUERY_TABLE_NAMES)[number],
+    FirstPartyAnalyticsQueryBackend
+  >;
+}
+
 function firstPartyAnalyticsQueryTarget(
   sql: string,
   sink: FirstPartyAnalyticsSink,
-): "sql-store" | "bigquery" {
-  if (sink !== "bigquery") return "sql-store";
-  const sources = readAgentSqlQuery(sql, {
-    dialect: "postgres",
-  }).sources.filter((source) => !source.cte);
-  const usesSessionRecordings = sources.some(
-    (source) => source.name === "session_recordings",
-  );
-  const usesEventTables = sources.some(
-    (source) => source.name !== "session_recordings",
-  );
-  if (usesSessionRecordings && usesEventTables) {
-    throw new Error(
-      "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
+  requireBackend?: FirstPartyAnalyticsQueryBackend,
+): FirstPartyAnalyticsQueryBackend {
+  const sourceBackends = new Map<string, FirstPartyAnalyticsQueryBackend>();
+  for (const source of readAgentSqlQuery(sql, { dialect: "postgres" })
+    .sources) {
+    if (source.cte) continue;
+    sourceBackends.set(
+      source.name,
+      firstPartyAnalyticsTableBackend(source.name, sink),
     );
   }
-  return usesSessionRecordings ? "sql-store" : "bigquery";
+  if (requireBackend) {
+    const elsewhere = [...sourceBackends]
+      .filter(([, backend]) => backend !== requireBackend)
+      .map(([table]) => table);
+    if (elsewhere.length > 0) {
+      throw new FirstPartyAnalyticsBackendNotPostgresError(elsewhere);
+    }
+  }
+  const backends = new Set(sourceBackends.values());
+  if (backends.size > 1) {
+    throw new FirstPartyAnalyticsValidationError(
+      "cross_backend_join",
+      "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings or the analytics_content_* tables in the Analytics SQL store separately.",
+    );
+  }
+  return backends.has("bigquery") ? "bigquery" : "postgres";
 }
 
 async function withVerifiedPostgresQuery<T>(
   statement: AgentPostgresStatement,
   timeoutMs: number,
   read: (transaction: DbExec) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const exec = getDbExec();
   if (!exec.transaction) {
     throw new Error("This database does not support interactive transactions.");
   }
   const deadlineAt = Date.now() + timeoutMs;
-  return exec.transaction(async (transaction) => {
-    const checked: DbExec = {
-      execute: (input: DbExecStatement) => {
-        const remainingMs = deadlineAt - Date.now();
-        if (remainingMs <= 0)
-          throw new Error("First-party analytics query timed out");
-        const query = typeof input === "string" ? { sql: input } : input;
-        return transaction.execute({
-          ...query,
-          timeoutMs: remainingMs,
-          maxAttempts: 1,
-        });
-      },
-    };
-    await checked.execute("SET TRANSACTION READ ONLY");
-    await verifyAgentPostgresExpressions(
-      {
-        unsafe: async (sql, args) =>
-          (await checked.execute({ sql, args })).rows,
-      },
-      statement,
-    );
-    return read(checked);
-  });
+  return raceWithAbort(
+    exec.transaction(async (transaction) => {
+      const checked: DbExec = {
+        execute: (input: DbExecStatement) => {
+          const remainingMs = deadlineAt - Date.now();
+          if (remainingMs <= 0)
+            throw new FirstPartyAnalyticsQueryTimeoutError();
+          const query = typeof input === "string" ? { sql: input } : input;
+          return transaction.execute({
+            ...query,
+            timeoutMs: remainingMs,
+            maxAttempts: 1,
+          });
+        },
+      };
+      await checked.execute("SET TRANSACTION READ ONLY");
+      await verifyAgentPostgresExpressions(
+        {
+          unsafe: async (sql, args) =>
+            (await checked.execute({ sql, args })).rows,
+        },
+        statement,
+      );
+      return read(checked);
+    }),
+    signal,
+  );
 }
 
 export async function validateFirstPartyAnalyticsSqlForScope(
@@ -1262,88 +1697,317 @@ export async function validateFirstPartyAnalyticsSqlForScope(
   assertFirstPartyAnalyticsBigQuerySql(sql);
 }
 
+/**
+ * The BigQuery request a first-party panel query would send, for a dry run.
+ * Mirrors the BigQuery branch of `queryFirstPartyAnalyticsWithBackend` with a
+ * dashboard panel's default options, including reading the events model when
+ * it covers the query; `eventsSource: "raw"` keeps it on the raw table, as
+ * alerts do. SQL the policy rejects comes back as `invalid`; a failure to load
+ * the backend throws, since it says nothing about the query.
+ */
+export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
+  sql: string,
+  scope: AnalyticsScope,
+  signal?: AbortSignal,
+  options: Pick<AnalyticsQueryOptions, "eventsSource"> = {},
+): Promise<
+  | { target: "bigquery"; sql: string }
+  | { target: "sql-store" }
+  | { target: "invalid"; error: unknown }
+> {
+  let shaped: ReturnType<typeof validateFirstPartyAnalyticsSqlShape>;
+  try {
+    shaped = validateFirstPartyAnalyticsSqlShape(sql);
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  // Backend and table lookups stay outside the try blocks: their failures are
+  // load errors, while everything that inspects the SQL means invalid SQL.
+  const backend = await getFirstPartyAnalyticsBackend(scope, signal);
+  let scoped: ReturnType<typeof scopedAnalyticsSql>;
+  try {
+    if (firstPartyAnalyticsQueryTarget(sql, backend.sink) !== "bigquery") {
+      return { target: "sql-store" };
+    }
+    validateAnalyticsSqlFunctions(shaped, "bigquery");
+    scoped = scopedAnalyticsSql(sql, scope);
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  const table = await getFirstPartyAnalyticsTable(backend.table, signal);
+  let planned: ReturnType<typeof planFirstPartyEventsSource>;
+  try {
+    planned = planFirstPartyEventsSource(sql, backend.modelTable, {
+      eventsSource: options.eventsSource,
+    });
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+  const { eventsSource } = await settleFirstPartyEventsSource(planned, signal);
+  try {
+    return {
+      target: "bigquery",
+      sql: renderFirstPartyAnalyticsBigQueryRequestSql(
+        scoped.sql,
+        scoped.args,
+        table,
+        eventsSource?.source === "model"
+          ? { eventsModelTable: eventsSource.table }
+          : {},
+      ),
+    };
+  } catch (error) {
+    return { target: "invalid", error };
+  }
+}
+
 export async function queryFirstPartyAnalytics(
   sql: string,
   scope: AnalyticsScope,
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
+  const { backend: _backend, ...result } =
+    await queryFirstPartyAnalyticsWithBackend(sql, scope, options);
+  return result;
+}
+
+export async function queryFirstPartyAnalyticsWithBackend(
+  sql: string,
+  scope: AnalyticsScope,
+  options: AnalyticsQueryOptions = {},
+): Promise<FirstPartyAnalyticsQueryResultWithBackend> {
   validateFirstPartyAnalyticsSqlShape(sql);
-  const backend = await getFirstPartyAnalyticsBackend(scope);
+  const timeoutMs = options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS;
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 2_147_483_647
+  ) {
+    throw new Error("First-party analytics timeout must be a positive integer");
+  }
   const scopeOptions = {
     includeTestIdentities: options.includeTestIdentities === true,
+    scopedEventsSingleScan: options.scopedEventsSingleScan === true,
+    scopedEventsProjection: options.scopedEventsProjection,
+    scopedEventsSourceProjections: options.scopedEventsSourceProjections,
   };
-  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
-    validateAnalyticsSqlFunctions(
-      validateFirstPartyAnalyticsSqlShape(sql),
-      "bigquery",
-    );
-    const table = await getFirstPartyAnalyticsTable(backend.table);
-    const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
-    return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
-  }
-  validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
-  const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
-  const scopedSql = scoped.sql;
-  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
-  const statement = readAgentPostgresStatement(wrappedSql);
-  const timeoutMs = Math.max(
-    1,
-    options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
-  );
-  const deadlineAt = Date.now() + timeoutMs;
-  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
-  const compute = async (
-    queryTimeoutMs = timeoutMs,
-  ): Promise<AnalyticsQueryResult> => {
-    const startedAt = Date.now();
-    try {
-      const result = await withVerifiedPostgresQuery(
-        statement,
-        queryTimeoutMs,
-        (transaction) =>
-          transaction.execute({ sql: wrappedSql, args: scoped.args }),
-      );
-      const durationMs = Date.now() - startedAt;
-      void recordFirstPartyAnalyticsQueryPressure(scope, {
-        durationMs,
-        outcome: "success",
-        queryClass,
-      }).catch((error) => {
-        console.warn(
-          "[first-party-analytics] Query pressure recording failed:",
-          error,
-        );
-      });
-      const resultRows = result.rows as Record<string, unknown>[];
-      const truncated = resultRows.length > MAX_QUERY_ROWS;
-      const rows = truncated ? resultRows.slice(0, MAX_QUERY_ROWS) : resultRows;
-      return {
-        rows,
-        schema: inferSchema(rows),
-        ...(truncated ? { truncated: true } : {}),
-      };
-    } catch (error) {
-      void recordFirstPartyAnalyticsQueryPressure(scope, {
-        durationMs: Date.now() - startedAt,
-        outcome: queryOutcomeFromError(error),
-        queryClass,
-      }).catch((recordingError) => {
-        console.warn(
-          "[first-party-analytics] Query pressure recording failed:",
-          recordingError,
-        );
-      });
-      throw error;
-    }
-  };
-  if (!options.cache) return compute();
-  await withVerifiedPostgresQuery(statement, timeoutMs, async () => {});
-  const remainingMs = deadlineAt - Date.now();
-  if (remainingMs <= 0)
-    throw new Error("First-party analytics query timed out");
-  return withFirstPartyCache(cacheKey, wrappedSql, compute, {
+  const startedAt = Date.now();
+  const deadlineAt = Date.now() + timeoutMs;
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(
+    () => timeoutController.abort(new FirstPartyAnalyticsQueryTimeoutError()),
     timeoutMs,
-    deadlineAt,
-  });
+  );
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, timeoutController.signal])
+    : timeoutController.signal;
+  const normalizeFailure = (error: unknown) => {
+    if (
+      timeoutController.signal.aborted ||
+      isFirstPartyAnalyticsTimeoutError(error)
+    ) {
+      return new FirstPartyAnalyticsQueryTimeoutError();
+    }
+    if (options.signal?.aborted) {
+      return error instanceof Error
+        ? error
+        : new DOMException("The operation was aborted", "AbortError");
+    }
+    return error;
+  };
+  const remainingTime = () => {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) throw new FirstPartyAnalyticsQueryTimeoutError();
+    return remainingMs;
+  };
+  try {
+    const backend = await raceWithAbort(
+      getFirstPartyAnalyticsBackend(scope, signal),
+      signal,
+    );
+    const queryTarget = firstPartyAnalyticsQueryTarget(
+      sql,
+      backend.sink,
+      options.requireBackend,
+    );
+    if (queryTarget === "bigquery") {
+      const recordBigQueryPressure = async (
+        outcome: ReturnType<typeof queryOutcomeFromError> | "success",
+      ) => {
+        try {
+          await recordFirstPartyAnalyticsQueryPressure(scope, {
+            durationMs: Date.now() - startedAt,
+            outcome,
+            queryClass,
+          });
+        } catch (error) {
+          console.warn(
+            "[first-party-analytics] Query pressure recording failed:",
+            { errorType: error instanceof Error ? error.name : "non_error" },
+          );
+        }
+      };
+      try {
+        validateAnalyticsSqlFunctions(
+          validateFirstPartyAnalyticsSqlShape(sql),
+          "bigquery",
+        );
+        const table = await raceWithAbort(
+          getFirstPartyAnalyticsTable(backend.table, signal),
+          signal,
+        );
+        const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
+        const renderOptions = {
+          eventDateRange: options.eventDateRange,
+          scopedEventsSingleScan: options.scopedEventsSingleScan === true,
+          scopedEventsProjection: options.scopedEventsProjection,
+          scopedEventsSourceProjections: options.scopedEventsSourceProjections,
+        };
+        const result = await raceWithAbort(
+          queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
+            ...renderOptions,
+            eventsSource: planFirstPartyEventsSource(sql, backend.modelTable, {
+              ...renderOptions,
+              eventsSource: options.eventsSource,
+            }),
+            maxBytesBilled: options.maxBytesBilled,
+            timeoutMs: remainingTime(),
+            signal,
+          }),
+          signal,
+        );
+        if (timeoutController.signal.aborted) {
+          throw new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        await recordBigQueryPressure("success");
+        return { ...result, backend: "bigquery" };
+      } catch (error) {
+        const failure = normalizeFailure(error);
+        if (!options.signal?.aborted) {
+          await recordBigQueryPressure(queryOutcomeFromError(failure));
+        }
+        throw failure;
+      }
+    }
+
+    validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+    const scoped = scopedAnalyticsSql(sql, scope, undefined, {
+      ...scopeOptions,
+      scopedEventsNotMaterialized: true,
+    });
+    const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
+    const statement = readAgentPostgresStatement(wrappedSql);
+    const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
+    const compute = async (
+      queryTimeoutMs = remainingTime(),
+      computeSignal: AbortSignal = signal,
+    ): Promise<AnalyticsQueryResult> => {
+      const queryStartedAt = Date.now();
+      const queryDeadlineAt = queryStartedAt + queryTimeoutMs;
+      const remainingQueryTime = () => {
+        const remainingMs = queryDeadlineAt - Date.now();
+        if (remainingMs <= 0) {
+          throw new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        return remainingMs;
+      };
+      const normalizeComputeFailure = (error: unknown) => {
+        if (computeSignal === signal) return normalizeFailure(error);
+        if (
+          isFirstPartyAnalyticsTimeoutError(error) ||
+          isFirstPartyAnalyticsTimeoutError(computeSignal.reason)
+        ) {
+          return new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        if (computeSignal.aborted) {
+          return error instanceof Error
+            ? error
+            : new DOMException("The operation was aborted", "AbortError");
+        }
+        return error;
+      };
+      try {
+        const result = await withVerifiedPostgresQuery(
+          statement,
+          Math.min(queryTimeoutMs, remainingQueryTime()),
+          (transaction) =>
+            transaction.execute({ sql: wrappedSql, args: scoped.args }),
+          computeSignal,
+        );
+        if (computeSignal.aborted) {
+          throw computeSignal.reason instanceof Error
+            ? computeSignal.reason
+            : new DOMException("The operation was aborted", "AbortError");
+        }
+        void recordFirstPartyAnalyticsQueryPressure(scope, {
+          durationMs: Date.now() - queryStartedAt,
+          outcome: "success",
+          queryClass,
+        }).catch((error) => {
+          console.warn(
+            "[first-party-analytics] Query pressure recording failed:",
+            { errorType: error instanceof Error ? error.name : "non_error" },
+          );
+        });
+        const resultRows = result.rows as Record<string, unknown>[];
+        const truncated = resultRows.length > MAX_QUERY_ROWS;
+        const rows = truncated
+          ? resultRows.slice(0, MAX_QUERY_ROWS)
+          : resultRows;
+        return {
+          rows,
+          schema: inferSchema(rows),
+          cached: false,
+          fetchedAt: new Date().toISOString(),
+          ...(truncated ? { truncated: true } : {}),
+        };
+      } catch (error) {
+        const failure = normalizeComputeFailure(error);
+        const abandoned =
+          computeSignal.aborted &&
+          !isFirstPartyAnalyticsTimeoutError(computeSignal.reason) &&
+          (computeSignal !== signal || !timeoutController.signal.aborted);
+        if (!abandoned) {
+          void recordFirstPartyAnalyticsQueryPressure(scope, {
+            durationMs: Date.now() - queryStartedAt,
+            outcome: queryOutcomeFromError(failure),
+            queryClass,
+          }).catch((recordingError) => {
+            console.warn(
+              "[first-party-analytics] Query pressure recording failed:",
+              {
+                errorType:
+                  recordingError instanceof Error
+                    ? recordingError.name
+                    : "non_error",
+              },
+            );
+          });
+        }
+        throw failure;
+      }
+    };
+    if (!options.cache) return { ...(await compute()), backend: "postgres" };
+    await withVerifiedPostgresQuery(
+      statement,
+      remainingTime(),
+      async () => {},
+      signal,
+    );
+    remainingTime();
+    const result = await raceWithAbort(
+      withFirstPartyCache(cacheKey, wrappedSql, compute, {
+        timeoutMs,
+        deadlineAt,
+        signal,
+      }),
+      signal,
+    );
+    return { ...result, backend: "postgres" };
+  } catch (error) {
+    throw normalizeFailure(error);
+  } finally {
+    clearTimeout(timeout);
+  }
 }

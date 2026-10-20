@@ -84,7 +84,7 @@ export default function SettingsRoute() {
 通常、アプリのページは `extraTabs` の項目から始まり、アプリグループ内の独立したページになります。さらに細かく制御するには、モジュールスコープで `registerSettingsPages` を使って `SettingsPageDefinition`（`id`、`group`、`order`、`label`、`icon`、`component`、および省略可能な `visible`、`subpages`、`searchEntries`）を登録します。既存ページと同じ ID の定義を登録すると、そのページが置き換わります。これを利用して、アプリは core のページを独自の実装に差し替えられます。Dispatch はこの方法で Members にアプリロール列を表示します。
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
@@ -185,6 +185,8 @@ Agent-Native は、条件を満たすオープンソース利用に OpenAI 公�
 ChatGPT プランのラボはデフォルトでオフです。**設定 → Labs** で有効にしてください。
 
 ローカルで実行するオープンソースアプリでは、OpenAI のパートナー承認も、事前設定されたクライアント ID も必要ありません。初回サインイン時に OpenAI がクライアント ID を発行し、アプリはその ChatGPT アカウント用に再利用します。
+
+ChatGPT プランへのアクセスには個人アカウントが必要です。ローカル開発では、初回サインイン前に `access.autoCreateDefaultOrg: false` を設定し、そのアカウント用のデフォルト組織が作成されないようにしてください。アカウントがすでに組織に所属している場合は、ChatGPT プランへのアクセスに個人アカウントを使用してください。
 
 この実装では、OAuth コールバックをユーザーのマシン上のループバックアドレス `127.0.0.1` に設定する必要があります。`localhost` は代わりに使えません。このセルフサービスフローは、ホスト型の `*.agent-native.com` サイトでは利用できません。パートナー承認が必要なのは、ホスト型アプリの運営者です。運営者は OpenAI の[関心フォーム](https://openai.com/form/sign-in-with-chatgpt-interest)から申請できます。
 

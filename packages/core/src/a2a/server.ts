@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   defineEventHandler,
   setResponseHeader,
@@ -8,6 +10,17 @@ import {
 import * as jose from "jose";
 
 import "../authorization/check-action.js";
+import {
+  withExecutionFence,
+  type ExecutionFence,
+} from "../agent/execution-fence.js";
+import {
+  TURN_EXECUTION_LEASE_MS,
+  TurnExecutionLeaseBusyError,
+  claimTaskExecutionLease,
+  releaseTurnExecutionLease,
+  renewTaskExecutionLease,
+} from "../agent/run-store.js";
 import { redactArgsToJson } from "../audit/redact.js";
 import {
   extractBearerToken,
@@ -19,6 +32,7 @@ import {
   recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
@@ -34,9 +48,11 @@ import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
   organizationPrincipalClaims,
   verifyA2AOrganizationIdentity,
+  type A2AOrganizationCredential,
 } from "./organization-identity.js";
 import {
   claimA2AApproval,
+  a2aTaskLeaseThreadId,
   getA2AApprovalForOwner,
   settleA2AApproval,
 } from "./task-store.js";
@@ -51,6 +67,25 @@ function warnA2AUnauthOnce(): void {
     "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint runs unauthenticated. " +
       "This is allowed in development but blocked in production. Set A2A_SECRET before deploying.",
   );
+}
+
+const warnedDemotions = new Set<string>();
+// A token that asserts a user but resolves to an organization principal is the
+// signature of misaligned A2A secrets; without this the only symptom is every
+// delegated call from that org failing later with no verified user. Keyed by
+// org and cause so a changed cause logs again. Never log the secret or the
+// asserted email.
+function warnUserAssertionDemotedOnce(
+  orgId: string,
+  payload: jose.JWTPayload,
+  reason: string,
+): void {
+  if (typeof payload.sub !== "string" || !payload.sub.trim()) return;
+  const key = `${orgId}\n${reason}`;
+  if (warnedDemotions.has(key)) return;
+  warnedDemotions.add(key);
+  // eslint-disable-next-line no-console
+  console.warn(`[a2a] orgId=${orgId} ${reason}`);
 }
 
 /**
@@ -168,7 +203,7 @@ function expectedJwtAudience(
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  const receiverBasePath = process.env.APP_BASE_PATH;
+  const receiverBasePath = getConfiguredAppBasePath() || undefined;
   if (fromEnv) {
     return audienceForRoute(
       canonicalA2AAudience(String(fromEnv), receiverBasePath),
@@ -252,6 +287,138 @@ export async function verifyA2AToken(
   },
 ): Promise<A2ATokenPayload> {
   return (await verifyA2ATokenInternal(token, event, audienceOptions)).payload;
+}
+
+export type A2ATokenFailureCause =
+  | "malformed"
+  | "secret-missing"
+  | "audience-unresolvable"
+  | "audience"
+  | "issuer"
+  | "expired"
+  | "signature"
+  | "invalid-claims"
+  | "mcp-credential"
+  | "missing-subject"
+  | "org-binding"
+  | "org-lookup-failed"
+  | "undetermined";
+
+type SecretCheck =
+  | { payload: jose.JWTPayload }
+  | { cause: A2ATokenFailureCause };
+
+async function checkAgainstSecret(
+  token: string,
+  secret: string,
+  options: jose.JWTVerifyOptions,
+): Promise<SecretCheck> {
+  try {
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode(secret),
+      options,
+    );
+    return { payload };
+  } catch (error) {
+    const { code, claim } = error as { code?: unknown; claim?: unknown };
+    if (code === "ERR_JWT_EXPIRED") return { cause: "expired" };
+    if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") {
+      return { cause: "signature" };
+    }
+    if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+      if (claim === "aud") return { cause: "audience" };
+      if (claim === "iss") return { cause: "issuer" };
+    }
+    return { cause: "invalid-claims" };
+  }
+}
+
+async function diagnoseVerifiedPayload(
+  payload: jose.JWTPayload,
+): Promise<A2ATokenFailureCause> {
+  if (isMcpCredential(payload)) return "mcp-credential";
+  if (typeof payload.sub !== "string" || !payload.sub.trim()) {
+    return "missing-subject";
+  }
+  try {
+    const organization = await verifyA2AOrganizationIdentity(payload);
+    return organization === null ? "org-binding" : "undetermined";
+  } catch {
+    // coercion-ok: an unreadable organization registry is the typed "org-lookup-failed" cause.
+    return "org-lookup-failed";
+  }
+}
+
+/**
+ * Names why a token that `verifyA2AToken` resolved no identity for was
+ * refused. `verifyA2AToken` collapses a wrong audience, a wrong secret and an
+ * unbound organization into one empty identity; this re-checks the same inputs,
+ * against the deploy secret and then the organization's, to tell them apart.
+ * Diagnostic only: it never grants anything, and its answer must not be used as
+ * an authorization result.
+ */
+export async function diagnoseA2ATokenFailure(
+  token: string,
+  event?: any,
+): Promise<A2ATokenFailureCause> {
+  let claims: jose.JWTPayload;
+  try {
+    claims = jose.decodeJwt(token);
+  } catch {
+    // coercion-ok: an undecodable token is the typed "malformed" cause.
+    return "malformed";
+  }
+  const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+
+  const options: jose.JWTVerifyOptions = {};
+  if (typeof claims.aud !== "undefined") {
+    const audience = expectedJwtAudience(event);
+    if (!audience) return "audience-unresolvable";
+    options.audience = audience;
+  }
+  if (typeof claims.iss === "string" && claims.iss.length > 0) {
+    options.issuer = claims.iss;
+  }
+
+  // The verifier goes on to the organization's own secret when the deploy secret
+  // is unset or does not verify the token, so neither is the final answer yet.
+  let deployCause: A2ATokenFailureCause = "secret-missing";
+  if (secret) {
+    const deploy = await checkAgainstSecret(token, secret, options);
+    if ("payload" in deploy) return diagnoseVerifiedPayload(deploy.payload);
+    deployCause = deploy.cause;
+  }
+
+  const orgDomain =
+    typeof claims.org_domain === "string" ? claims.org_domain.trim() : "";
+  if (
+    (deployCause !== "signature" && deployCause !== "secret-missing") ||
+    !orgDomain
+  ) {
+    return deployCause;
+  }
+
+  let organization: A2AOrganizationCredential | null;
+  try {
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+  } catch {
+    // coercion-ok: an unreadable organization registry is the typed "org-lookup-failed" cause.
+    return "org-lookup-failed";
+  }
+  if (!organization) return deployCause;
+
+  const orgCheck = await checkAgainstSecret(
+    token,
+    organization.secret,
+    options,
+  );
+  if ("cause" in orgCheck) return orgCheck.cause;
+  return organizationPrincipalClaims(orgCheck.payload, organization)
+    ? "undetermined"
+    : "org-binding";
 }
 
 async function verifyA2ATokenInternal(
@@ -357,6 +524,11 @@ async function verifyA2ATokenInternal(
           if (!claims) {
             return { payload: { email: null, orgDomain: null } };
           }
+          warnUserAssertionDemotedOnce(
+            organization.orgId,
+            payload,
+            "user assertion demoted: org secret equals deploy secret",
+          );
           return {
             payload: {
               email: null,
@@ -427,6 +599,11 @@ async function verifyA2ATokenInternal(
   const claims = organizationPrincipalClaims(payload, organization);
   if (!claims) return { payload: { email: null, orgDomain: null } };
 
+  warnUserAssertionDemotedOnce(
+    organization.orgId,
+    payload,
+    "user token verified only with org secret",
+  );
   return {
     payload: {
       email: null,
@@ -560,9 +737,11 @@ export function mountA2A(
         );
         setResponseHeader(event, "referrer-policy", "no-referrer");
         const expired = approval.expiresAt <= Date.now();
-        const active = approval.status === "pending" && !expired;
+        const pending = approval.status === "pending" && !expired;
+        const active = pending || approval.status === "processing";
         const displayStatus = expired ? "expired" : approval.status;
-        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1><p>This action is paused until you approve it. Approval can be used once.</p><h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${active ? "Approve and run" : esc(displayStatus)}</button><span id="status">${active ? "" : esc(approval.result ?? displayStatus)}</span><script>document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';}catch(e){document.getElementById('status').textContent='Could not run the action.'}}</script></main></body></html>`;
+        // guard:allow-raw-color — this standalone approval page has no app theme stylesheet to consume.
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1>${pending ? "<p>This action is paused until you approve it. Approval can be used once.</p>" : ""}<h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${pending ? "Approve and run" : esc(displayStatus)}</button><span id="status">${pending || approval.status === "processing" ? "" : esc(approval.result ?? displayStatus)}</span><script>const approvalPending=${pending};document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';if(r.status===409)this.disabled=false;}catch(e){document.getElementById('status').textContent='Could not run the action.';if(!approvalPending)this.disabled=false;}}</script></main></body></html>`;
       }
 
       if (getMethod(event) !== "POST") {
@@ -578,45 +757,95 @@ export function mountA2A(
         return { error: "Approval execution is not configured" };
       }
 
-      const approval = await claimA2AApproval(
+      const existing = await getA2AApprovalForOwner(
         approvalId,
         session.email,
         session.orgId ?? null,
       );
-      if (!approval) {
-        const current = await getA2AApprovalForOwner(
-          approvalId,
-          session.email,
-          session.orgId ?? null,
-        );
-        setResponseStatus(event, current ? 409 : 404);
-        return {
-          error: current
-            ? `Approval is ${current.status} and cannot be run again`
-            : "Approval not found",
-        };
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Approval not found" };
       }
 
-      const { runWithRequestContext } =
-        await import("../server/request-context.js");
-      let execution: { status: "completed" | "failed"; output: string };
+      let fence: ExecutionFence;
       try {
-        execution = await runWithRequestContext(
-          { userEmail: session.email, orgId: session.orgId ?? undefined },
-          () => config.executeApproval!(approval),
+        fence = await claimTaskExecutionLease(
+          a2aTaskLeaseThreadId(existing.taskId),
+          existing.taskId,
+          `a2a-approval:${randomUUID()}`,
         );
       } catch (error) {
-        execution = {
-          status: "failed",
-          output:
-            error instanceof Error
-              ? error.message
-              : "Approval execution failed",
-        };
+        if (!(error instanceof TurnExecutionLeaseBusyError)) throw error;
+        setResponseStatus(event, 409);
+        return { error: "Approval is already processing" };
       }
-      await settleA2AApproval(approval.id, execution.status, execution.output);
-      if (execution.status === "failed") setResponseStatus(event, 500);
-      return execution;
+
+      const controller = new AbortController();
+      let renewing = false;
+      const renewTimer = setInterval(
+        () => {
+          if (renewing) return;
+          renewing = true;
+          void renewTaskExecutionLease(fence)
+            .catch(() => controller.abort())
+            .finally(() => {
+              renewing = false;
+            });
+        },
+        Math.max(1_000, Math.floor(TURN_EXECUTION_LEASE_MS / 3)),
+      );
+
+      try {
+        const approval = await withExecutionFence(fence, () =>
+          claimA2AApproval(approvalId, session.email, session.orgId ?? null),
+        );
+        if (!approval) {
+          const current = await getA2AApprovalForOwner(
+            approvalId,
+            session.email,
+            session.orgId ?? null,
+          );
+          setResponseStatus(event, current ? 409 : 404);
+          return {
+            error: current
+              ? `Approval is ${current.status} and cannot be run again`
+              : "Approval not found",
+          };
+        }
+
+        const { runWithRequestContext } =
+          await import("../server/request-context.js");
+        let execution: import("./types.js").A2AActionExecutionResult;
+        try {
+          execution = await runWithRequestContext(
+            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            () =>
+              withExecutionFence(fence, () =>
+                config.executeApproval!(approval, {
+                  signal: controller.signal,
+                  threadId: fence.threadId,
+                  turnId: fence.turnId,
+                }),
+              ),
+          );
+        } catch (error) {
+          execution = {
+            status: "failed",
+            output:
+              error instanceof Error
+                ? error.message
+                : "Approval execution failed",
+          };
+        }
+        await withExecutionFence(fence, () =>
+          settleA2AApproval(approval.id, execution.status, execution.output),
+        );
+        if (execution.status === "failed") setResponseStatus(event, 500);
+        return execution;
+      } finally {
+        clearInterval(renewTimer);
+        await releaseTurnExecutionLease(fence).catch(() => {});
+      }
     }),
   );
 

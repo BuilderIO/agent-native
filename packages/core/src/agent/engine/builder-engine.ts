@@ -70,6 +70,7 @@ import {
   finalizeStreamedToolInputs,
   observeStreamedToolInput,
 } from "./translate-anthropic.js";
+import { startModelDispatch } from "./types.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -377,22 +378,36 @@ class BuilderEngine implements AgentEngine {
       gatewayTimeoutMs,
     );
     try {
+      const dispatch = await startModelDispatch(opts, () => {
+        try {
+          return fetch(gatewayUrl.toString(), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+              ...(spaceId && !oauthAccess
+                ? { "x-builder-api-key": spaceId }
+                : {}),
+              ...getBuilderGatewayRequestHeaders(),
+              ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
+            },
+            body: payload,
+            signal: gatewayAbort.signal,
+          }).then(
+            (response) => ({ status: "fulfilled" as const, response }),
+            (error: unknown) => ({ status: "rejected" as const, error }),
+          );
+        } catch (error) {
+          return Promise.resolve({ status: "rejected" as const, error });
+        }
+      });
+      if (!dispatch.started) return;
+
       let response: Response;
       try {
-        response = await fetch(gatewayUrl.toString(), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader,
-            ...(spaceId && !oauthAccess
-              ? { "x-builder-api-key": spaceId }
-              : {}),
-            ...getBuilderGatewayRequestHeaders(),
-            ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
-          },
-          body: payload,
-          signal: gatewayAbort.signal,
-        });
+        const result = await dispatch.value;
+        if (result.status === "rejected") throw result.error;
+        response = result.response;
       } catch (err) {
         const timedOut = gatewayAbort.didTimeout();
         if (gatewayAbort.didTimeout()) {
@@ -519,8 +534,16 @@ const TRANSIENT_UPSTREAM_PATTERN =
 function isTransientGatewayFailure(
   rawMessage: string,
   status?: number,
+  structuredCode?: string,
 ): boolean {
   if (status !== undefined && RETRYABLE_GATEWAY_STATUSES.has(status)) {
+    return true;
+  }
+  if (
+    structuredCode &&
+    /^[a-z\d_.-]{1,64}$/i.test(structuredCode) &&
+    TRANSIENT_UPSTREAM_PATTERN.test(structuredCode)
+  ) {
     return true;
   }
   if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
@@ -961,17 +984,16 @@ async function* parseJsonlStream(
             yield stop({
               error: errMsg,
               errorCode: errCode,
+              providerRetryable: false,
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
             });
           } else if (reason === "error") {
             const explicitErrMsg = event.error || event.message || event.detail;
-            const errMsg =
-              explicitErrMsg ??
-              `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
+            const errMsg = explicitErrMsg ?? "Gateway error (no detail)";
             const gatewayErrCode = canonicalizeBuilderGatewayErrorCode(
               event.errorCode ?? event.code,
               String(errMsg),
@@ -1006,6 +1028,9 @@ async function* parseJsonlStream(
                       (!explicitErrMsg
                         ? "builder_gateway_error"
                         : classifyTerminalErrorCode(String(errMsg))));
+            const isInvalidRequest =
+              gatewayErrCode === "invalid_request" ||
+              gatewayErrCode === "invalid_request_error";
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
@@ -1027,7 +1052,7 @@ async function* parseJsonlStream(
                 requestId: gatewayRequestId,
                 model,
                 gatewayUrl: captureContext.gatewayUrl,
-                rawEvent: event,
+                errorCode: gatewayErrCode,
               });
             }
             yield stop({
@@ -1039,9 +1064,16 @@ async function* parseJsonlStream(
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
               ...(isBareRejection ? { statusCode: 403 } : {}),
-              ...(isBareRejection || isTransientGatewayFailure(String(errMsg))
-                ? { providerRetryable: true }
-                : {}),
+              ...(isInvalidRequest
+                ? { providerRetryable: false }
+                : isBareRejection ||
+                    isTransientGatewayFailure(
+                      String(errMsg),
+                      undefined,
+                      gatewayErrCode,
+                    )
+                  ? { providerRetryable: true }
+                  : {}),
               ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
           } else if (
@@ -1433,6 +1465,7 @@ function captureBuilderGatewayTransportError(
 ): void {
   captureError(err, {
     route: "/_agent-native/agent-chat",
+    errorMessagePolicy: "omit",
     tags: {
       source: "builder-engine",
       phase: context.phase,
@@ -1466,8 +1499,12 @@ function captureBuilderGatewayNoDetailError(context: {
   requestId?: string;
   model: string;
   gatewayUrl?: URL;
-  rawEvent: unknown;
+  errorCode?: string;
 }): void {
+  const providerErrorCode =
+    context.errorCode && /^[a-z\d_.-]{1,64}$/i.test(context.errorCode)
+      ? context.errorCode
+      : undefined;
   const err = new Error(
     context.requestId
       ? `Builder gateway stop reason=error with no detail (requestId=${context.requestId})`
@@ -1476,6 +1513,7 @@ function captureBuilderGatewayNoDetailError(context: {
   err.name = "BuilderGatewayNoDetailError";
   captureError(err, {
     route: "/_agent-native/agent-chat",
+    errorMessagePolicy: "omit",
     tags: {
       source: "builder-engine",
       phase: "stream",
@@ -1486,7 +1524,6 @@ function captureBuilderGatewayNoDetailError(context: {
     extra: {
       gatewayOrigin: context.gatewayUrl?.origin,
       gatewayPath: context.gatewayUrl?.pathname,
-      rawEvent: context.rawEvent,
     },
     contexts: {
       builderGateway: {
@@ -1496,6 +1533,7 @@ function captureBuilderGatewayNoDetailError(context: {
         gatewayPath: context.gatewayUrl?.pathname,
         requestId: context.requestId,
         errorCode: "builder_gateway_error",
+        ...(providerErrorCode ? { providerErrorCode } : {}),
       },
     },
   });

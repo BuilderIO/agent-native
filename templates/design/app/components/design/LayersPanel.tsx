@@ -5,32 +5,22 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCircle,
-  IconClipboard,
   IconCode,
   IconComponents,
-  IconCopy,
   IconEye,
   IconEyeOff,
   IconFile,
-  IconFlipHorizontal,
-  IconFlipVertical,
-  IconFrame,
   IconLayoutColumns,
-  IconLayersSubtract,
-  IconLayersUnion,
   IconLayoutGrid,
   IconLayoutRows,
   IconLine,
   IconListTree,
   IconLock,
   IconLockOpen,
-  IconPencil,
   IconPhoto,
   IconPlus,
   IconSearch,
   IconSquare,
-  IconStackBack,
-  IconStackFront,
   IconStar,
   IconTriangle,
   IconTypography,
@@ -55,17 +45,22 @@ import {
   type RefObject,
 } from "react";
 
+import {
+  CanvasMenuItem,
+  MENU_CONTENT_CLASS,
+} from "@/components/design/context-menu-item";
+import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -74,6 +69,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
+import { isFlowDisplay } from "@/pages/design-editor/live-layer-move-layout";
 
 export type LayersPanelNodeType =
   | "file"
@@ -111,6 +107,7 @@ export interface LayersPanelNode {
     justifyContent?: string;
     isFlexContainer?: boolean;
     isGridContainer?: boolean;
+    parentDisplay?: string;
   };
   children?: LayersPanelNode[];
   /** Has layers that are only built once the row is expanded. */
@@ -182,14 +179,18 @@ export interface LayersPanelLabels {
   show: string;
   rename: string;
   copy: string;
-  pasteToReplace: string;
-  group: string;
-  ungroup: string;
-  frameSelection: string;
   bringToFront: string;
   sendToBack: string;
   flipHorizontal: string;
   flipVertical: string;
+  copyLink: string;
+  arrange: string;
+  transform: string;
+  menuRename: string;
+  menuHide: string;
+  menuShow: string;
+  menuLock: string;
+  menuUnlock: string;
 }
 
 export interface LayersPanelProps {
@@ -225,13 +226,10 @@ export interface LayersPanelProps {
   boardElements?: LayersPanelNode[];
   hoveredLayerId?: string | null;
   onCopyLayer?: (ids: string[]) => void;
+  onCopyLink?: (nodeId: string) => void;
   onPasteHere?: (targetId: string) => void;
-  onPasteToReplace?: (ids: string[]) => void;
   onDuplicateLayer?: (ids: string[]) => void;
   onDeleteLayer?: (ids: string[]) => void;
-  onGroupSelection?: (ids: string[]) => void;
-  onFrameSelection?: (ids: string[]) => void;
-  onUngroupSelection?: (ids: string[]) => void;
   onReorderLayer?: (
     ids: string[],
     direction: "front" | "forward" | "backward" | "back",
@@ -252,6 +250,7 @@ export interface FlatLayerRow {
   ancestorIds: string[];
   hasChildren: boolean;
   canAcceptChildren: boolean;
+  siblingsInLayoutOrder: boolean;
 }
 
 const CONTAINER_TYPES = new Set<LayersPanelNodeType | undefined>([
@@ -288,21 +287,57 @@ function canUseActiveDragStateForDrop(
 export { canUseActiveDragStateForDrop };
 export type { LayersPanelMoveIntent };
 
-let activeIconToggleDrag: { kind: "hidden" | "locked"; value: boolean } | null =
-  null;
+let activeIconToggleDrag: {
+  kind: "hidden" | "locked";
+  value: boolean;
+  row: HTMLElement;
+  appliedIds: Set<string>;
+  clear: () => void;
+} | null = null;
 
-function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
-  activeIconToggleDrag = { kind, value };
-  const clear = () => {
-    activeIconToggleDrag = null;
-    window.removeEventListener("mouseup", clear);
-    window.removeEventListener("blur", clear);
-    window.removeEventListener("pointercancel", clear);
-  };
-  window.addEventListener("mouseup", clear, { once: true });
-  window.addEventListener("blur", clear, { once: true });
-  window.addEventListener("pointercancel", clear, { once: true });
+function clearIconToggleDrag(row?: HTMLElement | null): void {
+  const drag = activeIconToggleDrag;
+  if (!drag || (row !== undefined && drag.row !== row)) return;
+
+  activeIconToggleDrag = null;
+  drag.row.draggable = drag.row.dataset.layerRowDraggable === "true";
+  window.removeEventListener("mouseup", drag.clear, true);
+  window.removeEventListener("pointerup", drag.clear, true);
+  window.removeEventListener("pointercancel", drag.clear, true);
+  window.removeEventListener("lostpointercapture", drag.clear, true);
+  window.removeEventListener("blur", drag.clear, true);
 }
+
+function beginIconToggleDrag(
+  kind: "hidden" | "locked",
+  value: boolean,
+  nodeId: string,
+  button: HTMLButtonElement,
+): void {
+  const row = button.closest<HTMLElement>('[role="treeitem"]');
+  if (!row) return;
+
+  clearIconToggleDrag();
+  row.draggable = false;
+  const clear = () => clearIconToggleDrag(row);
+  activeIconToggleDrag = {
+    kind,
+    value,
+    row,
+    appliedIds: new Set([nodeId]),
+    clear,
+  };
+  window.addEventListener("mouseup", clear, true);
+  window.addEventListener("pointerup", clear, true);
+  window.addEventListener("pointercancel", clear, true);
+  window.addEventListener("lostpointercapture", clear, true);
+  window.addEventListener("blur", clear, true);
+}
+
+// Row height, left inset and type size; the Tokens panel lays its rows out with
+// the same geometry so the two trees read as one list.
+export const LAYER_ROW_GEOMETRY_CLASS =
+  "flex h-[var(--design-row-height)] items-center pl-2.5 pr-[var(--design-baseline-half)] text-[11px]";
 
 export function layerRowIndentCount(depth: number): number {
   return Math.max(1, depth + 1);
@@ -340,14 +375,18 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     show: t("layersPanel.show"),
     rename: t("layersPanel.rename"),
     copy: t("layersPanel.copy"),
-    pasteToReplace: t("layersPanel.pasteToReplace"),
-    group: t("layersPanel.group"),
-    ungroup: t("layersPanel.ungroup"),
-    frameSelection: t("layersPanel.frameSelection"),
     bringToFront: t("layersPanel.bringToFront"),
     sendToBack: t("layersPanel.sendToBack"),
     flipHorizontal: t("layersPanel.flipHorizontal"),
     flipVertical: t("layersPanel.flipVertical"),
+    copyLink: t("layersPanel.copyLink"),
+    arrange: t("layersPanel.arrange"),
+    transform: t("layersPanel.transform"),
+    menuRename: t("layersPanel.menuRename"),
+    menuHide: t("layersPanel.menuHide"),
+    menuShow: t("layersPanel.menuShow"),
+    menuLock: t("layersPanel.menuLock"),
+    menuUnlock: t("layersPanel.menuUnlock"),
   };
 }
 
@@ -455,6 +494,22 @@ function filterNode(
   return null;
 }
 
+// As in Figma: auto-layout children list in layout order, everything else
+// lists topmost (last DOM child) first.
+function siblingsListInLayoutOrder(siblings: readonly LayersPanelNode[]) {
+  return (
+    siblings.length > 0 &&
+    siblings.every((node) => isFlowDisplay(node.layout?.parentDisplay))
+  );
+}
+
+function childrenListInLayoutOrder(node: LayersPanelNode): boolean {
+  return (
+    Boolean(node.layout?.isFlexContainer || node.layout?.isGridContainer) ||
+    siblingsListInLayoutOrder(node.children ?? [])
+  );
+}
+
 export function flattenRows(
   nodes: LayersPanelNode[],
   expandedIds: ReadonlySet<string>,
@@ -463,13 +518,26 @@ export function flattenRows(
   parentKey = "root",
   ancestorIds: string[] = [],
   rows: FlatLayerRow[] = [],
+  siblingsInLayoutOrder = siblingsListInLayoutOrder(nodes),
 ) {
-  const displayOrder = [...nodes].reverse();
-  displayOrder.forEach((node, index) => {
+  const displayOrder = siblingsInLayoutOrder ? nodes : [...nodes].reverse();
+  const siblingCounts = new Map<string, number>();
+  for (const node of nodes) {
+    siblingCounts.set(node.id, (siblingCounts.get(node.id) ?? 0) + 1);
+  }
+  const duplicateSiblingIndexes = new Map<string, number>();
+  displayOrder.forEach((node) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0 || node.childrenPending === true;
     const canAcceptChildren = CONTAINER_TYPES.has(node.type);
-    const rowKey = `${parentKey}/${node.id}:${index}`;
+    const duplicateIndex =
+      siblingCounts.get(node.id) === 1
+        ? null
+        : (duplicateSiblingIndexes.get(node.id) ?? 0) + 1;
+    if (duplicateIndex !== null) {
+      duplicateSiblingIndexes.set(node.id, duplicateIndex);
+    }
+    const rowKey = `${parentKey}/${node.id}${duplicateIndex ? `#${duplicateIndex}` : ""}`;
     rows.push({
       node,
       rowKey,
@@ -477,6 +545,7 @@ export function flattenRows(
       ancestorIds,
       hasChildren,
       canAcceptChildren,
+      siblingsInLayoutOrder,
     });
     if (hasChildren && (forceExpanded || expandedIds.has(node.id))) {
       flattenRows(
@@ -487,6 +556,7 @@ export function flattenRows(
         rowKey,
         [...ancestorIds, node.id],
         rows,
+        childrenListInLayoutOrder(node),
       );
     }
   });
@@ -503,7 +573,13 @@ export function mapPanelPlacementToDomPlacement(
 
 export function mapPanelMoveIntentToDomIntent(
   intent: LayersPanelMoveIntent,
+  targetRow: Pick<FlatLayerRow, "node" | "siblingsInLayoutOrder">,
 ): LayersPanelMoveIntent {
+  const receiverInLayoutOrder =
+    intent.placement === "inside"
+      ? childrenListInLayoutOrder(targetRow.node)
+      : targetRow.siblingsInLayoutOrder;
+  if (receiverInLayoutOrder) return intent;
   return {
     ...intent,
     draggedIds: [...intent.draggedIds].reverse(),
@@ -842,6 +918,11 @@ function layerCanShowBadge(node: LayersPanelNode) {
   );
 }
 
+// autoFocus would scroll the Layers tree to the input.
+function focusRenameInput(input: HTMLInputElement | null) {
+  input?.focus({ preventScroll: true });
+}
+
 function clampScreenSectionHeight(nextHeight: number, panelHeight: number) {
   const maxHeight = panelHeight > 0 ? panelHeight * 0.3 : nextHeight;
   const minHeight = Math.min(96, maxHeight);
@@ -879,13 +960,10 @@ function LayersPanelImpl(
     boardElements,
     hoveredLayerId,
     onCopyLayer,
+    onCopyLink,
     onPasteHere,
-    onPasteToReplace,
     onDuplicateLayer,
     onDeleteLayer,
-    onGroupSelection,
-    onFrameSelection,
-    onUngroupSelection,
     onReorderLayer,
     onFlipHorizontal,
     onFlipVertical,
@@ -969,6 +1047,10 @@ function LayersPanelImpl(
         .map((node) => node.id),
     [visibleRows],
   );
+  const selectableVisibleIdsRef = useRef(selectableVisibleIds);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  selectableVisibleIdsRef.current = selectableVisibleIds;
+  onSelectionChangeRef.current = onSelectionChange;
 
   visibleRowsRef.current = visibleRows;
   rootsRef.current = roots;
@@ -1048,29 +1130,34 @@ function LayersPanelImpl(
         range: options.range,
         currentSelectedIds,
         anchor: lastSelectionAnchorRef.current,
-        selectableVisibleIds,
+        selectableVisibleIds: selectableVisibleIdsRef.current,
         visibleRows: visibleRowsRef.current,
-        anchorFallbackSelectedIds: selectedIds,
+        anchorFallbackSelectedIds: selectedIdsRef.current,
       });
       lastSelectionAnchorRef.current = nextAnchor;
       lastPanelSelectionSignatureRef.current = nextIds.join("\0");
-      onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
+      onSelectionChangeRef.current(nextIds, {
+        id,
+        selectedIds: nextIds,
+        ...options,
+      });
     },
-    [onSelectionChange, selectableVisibleIds, selectedIds],
+    [],
   );
 
-  const commitRename = useCallback(
-    (id: string) => {
-      const nextName = renameDraft.trim();
-      if (nextName) {
-        onRename?.(id, nextName);
-      }
-      setRenamingId(null);
-      setRenameDraft("");
-      renameOriginalNameRef.current = "";
-    },
-    [onRename, renameDraft],
-  );
+  const renameDraftRef = useRef(renameDraft);
+  const onRenameRef = useRef(onRename);
+  renameDraftRef.current = renameDraft;
+  onRenameRef.current = onRename;
+  const commitRename = useCallback((id: string) => {
+    const nextName = renameDraftRef.current.trim();
+    if (nextName) {
+      onRenameRef.current?.(id, nextName);
+    }
+    setRenamingId(null);
+    setRenameDraft("");
+    renameOriginalNameRef.current = "";
+  }, []);
 
   const pendingRenameFocusIdRef = useRef<string | null>(null);
 
@@ -1100,6 +1187,15 @@ function LayersPanelImpl(
     setSearchOpen(true);
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, []);
+
+  const toggleSearch = useCallback(() => {
+    if (searchOpen || searchQuery.trim()) {
+      setSearchOpen(false);
+      if (searchQuery) onSearchQueryChange("");
+      return;
+    }
+    focusSearch();
+  }, [focusSearch, onSearchQueryChange, searchOpen, searchQuery]);
 
   const beginRename = useCallback(
     (layerId: string): boolean => {
@@ -1353,7 +1449,7 @@ function LayersPanelImpl(
         ref={layersPanelRef}
         data-layers-panel
         className={cn(
-          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-row-height:24px] [--design-section-height:28px]",
+          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-section-height:28px]",
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
           className,
         )}
@@ -1483,7 +1579,7 @@ function LayersPanelImpl(
             <IconTooltipButton
               label={labels.searchPlaceholder}
               dataAction="search"
-              onClick={focusSearch}
+              onClick={toggleSearch}
             >
               <IconSearch
                 className="!size-[var(--design-icon-size)]"
@@ -1507,23 +1603,13 @@ function LayersPanelImpl(
         </div>
 
         {shouldShowSearch ? (
-          <div className="shrink-0 p-1.5">
-            <div className="relative">
-              <IconSearch className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={(event) => onSearchQueryChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape" && !searchQuery.trim()) {
-                    setSearchOpen(false);
-                  }
-                }}
-                placeholder={labels.searchPlaceholder}
-                className="h-6 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-6 text-[11px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-              />
-            </div>
-          </div>
+          <LeftPanelSearchField
+            ref={searchInputRef}
+            value={searchQuery}
+            placeholder={labels.searchPlaceholder}
+            onValueChange={onSearchQueryChange}
+            onEscapeWhenEmpty={() => setSearchOpen(false)}
+          />
         ) : null}
 
         <div
@@ -1535,7 +1621,7 @@ function LayersPanelImpl(
         >
           {visibleRows.length ? (
             <div
-              className="w-max min-w-full px-1.5"
+              className="w-full min-w-0 px-1.5"
               role="tree"
               aria-label={labels.title}
             >
@@ -1599,10 +1685,7 @@ function LayersPanelImpl(
                     visibleRowsRef={visibleRowsRef}
                     rootsRef={rootsRef}
                     onCopyLayer={onCopyLayer}
-                    onPasteToReplace={onPasteToReplace}
-                    onGroupSelection={onGroupSelection}
-                    onFrameSelection={onFrameSelection}
-                    onUngroupSelection={onUngroupSelection}
+                    onCopyLink={onCopyLink}
                     onReorderLayer={onReorderLayer}
                     onFlipHorizontal={onFlipHorizontal}
                     onFlipVertical={onFlipVertical}
@@ -1670,10 +1753,7 @@ interface LayerRowProps {
   visibleRowsRef: RefObject<FlatLayerRow[]>;
   rootsRef: RefObject<LayersPanelNode[]>;
   onCopyLayer?: (ids: string[]) => void;
-  onPasteToReplace?: (ids: string[]) => void;
-  onGroupSelection?: (ids: string[]) => void;
-  onFrameSelection?: (ids: string[]) => void;
-  onUngroupSelection?: (ids: string[]) => void;
+  onCopyLink?: (nodeId: string) => void;
   onReorderLayer?: (
     ids: string[],
     direction: "front" | "forward" | "backward" | "back",
@@ -1682,17 +1762,19 @@ interface LayerRowProps {
   onFlipVertical?: (ids: string[]) => void;
 }
 
-function LayerRowIndentSlots({
+export function LayerRowIndentSlots({
   count,
   control,
+  fit = false,
 }: {
   count: number;
   control?: ReactNode;
+  fit?: boolean;
 }) {
   return (
     <span
       data-layer-row-indents
-      className="flex h-full shrink-0"
+      className={cn("flex h-full", fit ? "min-w-0" : "shrink-0")}
       aria-hidden={control ? undefined : true}
     >
       {Array.from({ length: count }, (_, index) => (
@@ -1700,8 +1782,10 @@ function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full shrink-0 items-center justify-center",
-            index === count - 1 ? "w-5" : "w-3",
+            "flex h-full w-6 items-center",
+            fit ? "min-w-0 shrink" : "shrink-0",
+            fit && index === count - 1 && "min-w-4",
+            index === count - 1 ? "justify-start" : "justify-center",
           )}
         >
           {index === count - 1 ? control : null}
@@ -1722,11 +1806,11 @@ function LayerDropIndicator({
     <span
       data-layer-drop-indicator={placement}
       className={cn(
-        "pointer-events-none absolute left-0 right-2 z-10 flex h-px",
+        "pointer-events-none absolute left-2.5 right-2 z-10 flex h-px",
         placement === "before" ? "top-0" : "bottom-0",
       )}
     >
-      <LayerRowIndentSlots count={depth} />
+      <LayerRowIndentSlots count={depth} fit />
       <span className="h-px min-w-0 flex-1 bg-[var(--design-editor-accent-color)]" />
     </span>
   );
@@ -1764,10 +1848,7 @@ const LayerRow = memo(function LayerRow({
   visibleRowsRef,
   rootsRef,
   onCopyLayer,
-  onPasteToReplace,
-  onGroupSelection,
-  onFrameSelection,
-  onUngroupSelection,
+  onCopyLink,
   onReorderLayer,
   onFlipHorizontal,
   onFlipVertical,
@@ -1793,6 +1874,16 @@ const LayerRow = memo(function LayerRow({
   const activeDrop = activeDropPlacement;
   const renameCancelledRef = useRef(false);
   const preventContextMenuFocusRestoreRef = useRef(false);
+  const rowElementRef = useRef<HTMLDivElement | null>(null);
+  const setRowElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      const previous = rowElementRef.current;
+      if (!element && previous) clearIconToggleDrag(previous);
+      rowElementRef.current = element;
+      registerRowElement(row.rowKey, element);
+    },
+    [registerRowElement, row.rowKey],
+  );
   const springLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SPRING_LOAD_DELAY_MS = 600;
   const clearSpringLoadTimer = () => {
@@ -1833,6 +1924,36 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
+  const applyIconToggleDrag = (row: HTMLElement, clientX: number) => {
+    const toggleDrag = activeIconToggleDrag;
+    if (!toggleDrag || toggleDrag.appliedIds.has(node.id)) return;
+    const toggleButton = row.querySelector<HTMLButtonElement>(
+      `[data-layer-toggle="${toggleDrag.kind}"]`,
+    );
+    if (!toggleButton) return;
+    const bounds = toggleButton.getBoundingClientRect();
+    if (bounds.width <= 0 || clientX < bounds.left || clientX > bounds.right)
+      return;
+    toggleDrag.appliedIds.add(node.id);
+    if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
+      onToggleLocked?.(node.id, toggleDrag.value);
+    } else if (
+      toggleDrag?.kind === "hidden" &&
+      node.hidden !== toggleDrag.value
+    ) {
+      onToggleHidden?.(node.id, toggleDrag.value);
+    }
+  };
+
+  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
+    onHoverLayer?.(node.id);
+    applyIconToggleDrag(event.currentTarget, event.clientX);
+  };
+
+  const handleRowMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    applyIconToggleDrag(event.currentTarget, event.clientX);
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       if (event.key === "Enter" && isSelected) return;
@@ -1871,7 +1992,7 @@ const LayerRow = memo(function LayerRow({
   };
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
-    if (!draggable) {
+    if (!draggable || activeIconToggleDrag) {
       event.preventDefault();
       return;
     }
@@ -1945,7 +2066,7 @@ const LayerRow = memo(function LayerRow({
       ),
       duplicate: event.altKey,
     } satisfies LayersPanelMoveIntent;
-    const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+    const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent, row);
     if (canMoveLayer && !canMoveLayer(moveIntent)) {
       clearStaleIndicatorForThisRow();
       return;
@@ -2026,7 +2147,7 @@ const LayerRow = memo(function LayerRow({
               ),
               duplicate: event.altKey,
             } satisfies LayersPanelMoveIntent);
-      const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+      const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent, row);
       if (!canMoveLayer || canMoveLayer(moveIntent)) {
         onMoveLayer(moveIntent);
       }
@@ -2043,16 +2164,9 @@ const LayerRow = memo(function LayerRow({
       visibleRows: visibleRowsRef.current,
     });
 
-  const canUngroupThisRow = Boolean(onUngroupSelection && canAcceptChildren);
+  const hasTransformActions = Boolean(onFlipHorizontal || onFlipVertical);
   const hasEditActions = Boolean(
-    onCopyLayer ||
-    onPasteToReplace ||
-    onGroupSelection ||
-    onFrameSelection ||
-    canUngroupThisRow ||
-    onReorderLayer ||
-    onFlipHorizontal ||
-    onFlipVertical,
+    onCopyLayer || onCopyLink || onReorderLayer || hasTransformActions,
   );
 
   const showContextMenu =
@@ -2066,12 +2180,13 @@ const LayerRow = memo(function LayerRow({
     <ContextMenu>
       <ContextMenuTrigger asChild disabled={!showContextMenu}>
         <div
-          ref={(element) => registerRowElement(row.rowKey, element)}
+          ref={setRowElement}
           role="treeitem"
+          data-layer-row-draggable={draggable ? "true" : "false"}
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative w-max min-w-full"
+          className="relative w-full min-w-0"
           onClick={(event) => {
             if ((event.target as Element).closest("button, input")) return;
             handlePointerSelect(event);
@@ -2095,7 +2210,8 @@ const LayerRow = memo(function LayerRow({
             onDropIndicatorChange(null);
             clearSpringLoadTimer();
           }}
-          onMouseEnter={() => onHoverLayer?.(node.id)}
+          onMouseEnter={handleRowMouseEnter}
+          onMouseMove={handleRowMouseMove}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
@@ -2118,7 +2234,8 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pr-[var(--design-baseline-half)] text-[11px] bg-[var(--design-editor-panel-bg)]",
+              "group w-full min-w-0 [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
+              LAYER_ROW_GEOMETRY_CLASS,
               !isSelected && !isInSelectedSubtree && "rounded-[4px]",
               isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
               isSelectionBlockStart &&
@@ -2151,6 +2268,7 @@ const LayerRow = memo(function LayerRow({
           >
             <LayerRowIndentSlots
               count={layerRowIndentCount(depth)}
+              fit
               control={
                 hasChildren ? (
                   <Button
@@ -2160,7 +2278,7 @@ const LayerRow = memo(function LayerRow({
                     data-layer-row-chevron={
                       isExpanded ? "expanded" : "collapsed"
                     }
-                    className="size-5 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                     aria-label={isExpanded ? labels.collapse : labels.expand}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -2172,13 +2290,10 @@ const LayerRow = memo(function LayerRow({
                     }}
                   >
                     {isExpanded ? (
-                      <IconChevronDown
-                        className="!size-2.5"
-                        strokeWidth={1.8}
-                      />
+                      <IconChevronDown className="!size-3" strokeWidth={1.8} />
                     ) : (
                       <IconChevronRight
-                        className="!size-2.5 rtl:-scale-x-100"
+                        className="!size-3 rtl:-scale-x-100"
                         strokeWidth={1.8}
                       />
                     )}
@@ -2193,7 +2308,7 @@ const LayerRow = memo(function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-[var(--design-baseline-unit)] rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-[44px] flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}
@@ -2214,7 +2329,7 @@ const LayerRow = memo(function LayerRow({
               {isRenaming ? (
                 <input
                   data-layer-row-name
-                  autoFocus
+                  ref={focusRenameInput}
                   value={renameDraft}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => onRenameDraftChange(event.target.value)}
@@ -2289,28 +2404,25 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.locked ? labels.unlock : labels.lock}
+                        data-layer-toggle="locked"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextLocked = !node.locked;
                           onToggleLocked?.(node.id, nextLocked);
-                          beginIconToggleDrag("locked", nextLocked);
+                          beginIconToggleDrag(
+                            "locked",
+                            nextLocked,
+                            node.id,
+                            event.currentTarget,
+                          );
                         }}
                         onClick={(event) => {
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleLocked?.(node.id, !node.locked);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "locked" &&
-                            node.locked !== activeIconToggleDrag.value
-                          ) {
-                            onToggleLocked?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.locked ? (
@@ -2339,28 +2451,25 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.hidden ? labels.show : labels.hide}
+                        data-layer-toggle="hidden"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextHidden = !node.hidden;
                           onToggleHidden?.(node.id, nextHidden);
-                          beginIconToggleDrag("hidden", nextHidden);
+                          beginIconToggleDrag(
+                            "hidden",
+                            nextHidden,
+                            node.id,
+                            event.currentTarget,
+                          );
                         }}
                         onClick={(event) => {
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleHidden?.(node.id, !node.hidden);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "hidden" &&
-                            node.hidden !== activeIconToggleDrag.value
-                          ) {
-                            onToggleHidden?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.hidden ? (
@@ -2382,198 +2491,106 @@ const LayerRow = memo(function LayerRow({
       </ContextMenuTrigger>
       {showContextMenu ? (
         <ContextMenuContent
-          className="z-[300] min-w-[200px] text-[12px]"
+          className={cn("z-[300]", MENU_CONTENT_CLASS)}
           onCloseAutoFocus={(event) => {
             if (!preventContextMenuFocusRestoreRef.current) return;
             event.preventDefault();
             preventContextMenuFocusRestoreRef.current = false;
           }}
         >
-          {/* LIVE-VERIFIED Figma layer-row menu order: Copy, Paste to
-              replace — Bring to front, Send to back — Group selection,
-              (Ungroup, container rows only), Frame selection, Rename —
-              Show/Hide, Lock/Unlock — Flip horizontal, Flip vertical. Real
-              Figma has no Duplicate/Delete/Paste-here on this menu (those
-              are keyboard-only there — see ⌘D/Delete). Each item only
-              renders when its callback prop is provided, so the menu
-              degrades gracefully before every callback is wired up from the
-              caller. */}
           {onCopyLayer ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <CanvasMenuItem
+              label={labels.copy}
+              shortcut={shortcut("$mod+c")}
               onSelect={() => onCopyLayer(getContextMenuTargetIdsForRow())}
-            >
-              <IconCopy className="size-3.5 text-muted-foreground" />
-              {labels.copy}
-              <ContextMenuShortcut>{shortcut("$mod+c")}</ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
-          {onPasteToReplace ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onPasteToReplace(getContextMenuTargetIdsForRow())}
-            >
-              <IconClipboard className="size-3.5 text-muted-foreground" />
-              {labels.pasteToReplace}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+r")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
-          ) : null}
-
-          {(onCopyLayer || onPasteToReplace) && onReorderLayer ? (
-            <ContextMenuSeparator />
-          ) : null}
-
-          {onReorderLayer ? (
-            <>
-              <ContextMenuItem
-                className="gap-2 text-[12px]"
-                onSelect={() =>
-                  onReorderLayer(getContextMenuTargetIdsForRow(), "front")
-                }
-              >
-                <IconStackFront className="size-3.5 text-muted-foreground" />
-                {labels.bringToFront}
-                <ContextMenuShortcut>{shortcut("]")}</ContextMenuShortcut>
-              </ContextMenuItem>
-              <ContextMenuItem
-                className="gap-2 text-[12px]"
-                onSelect={() =>
-                  onReorderLayer(getContextMenuTargetIdsForRow(), "back")
-                }
-              >
-                <IconStackBack className="size-3.5 text-muted-foreground" />
-                {labels.sendToBack}
-                <ContextMenuShortcut>{shortcut("[")}</ContextMenuShortcut>
-              </ContextMenuItem>
-            </>
-          ) : null}
-
-          {onReorderLayer &&
-          (onGroupSelection ||
-            canUngroupThisRow ||
-            onFrameSelection ||
-            onRename) ? (
-            <ContextMenuSeparator />
-          ) : null}
-
-          {onGroupSelection ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onGroupSelection(getContextMenuTargetIdsForRow())}
-            >
-              <IconLayersUnion className="size-3.5 text-muted-foreground" />
-              {labels.group}
-              <ContextMenuShortcut>{shortcut("$mod+g")}</ContextMenuShortcut>
-            </ContextMenuItem>
-          ) : null}
-          {onFrameSelection ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onFrameSelection(getContextMenuTargetIdsForRow())}
-            >
-              <IconFrame className="size-3.5 text-muted-foreground" />
-              {labels.frameSelection}
-              <ContextMenuShortcut>
-                {shortcut("$mod+alt+g")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
+          {onCopyLink ? (
+            <CanvasMenuItem
+              label={labels.copyLink}
+              onSelect={() => onCopyLink(node.id)}
+            />
           ) : null}
           {onRename && node.renamable !== false ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <CanvasMenuItem
+              label={labels.menuRename}
+              shortcut={shortcut("$mod+r")}
               onSelect={() => {
                 preventContextMenuFocusRestoreRef.current = true;
                 onStartRename(node);
               }}
-            >
-              <IconPencil className="size-3.5 text-muted-foreground" />
-              {labels.rename}
-              <ContextMenuShortcut>{shortcut("$mod+r")}</ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
 
-          {/* Real Figma only shows Ungroup on a container row — a plain row
-              never gets it, even when the callback is wired up. */}
-          {canUngroupThisRow ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() =>
-                onUngroupSelection?.(getContextMenuTargetIdsForRow())
-              }
-            >
-              <IconLayersSubtract className="size-3.5 text-muted-foreground" />
-              {labels.ungroup}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+g")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
-          ) : null}
-
-          {(onGroupSelection ||
-            canUngroupThisRow ||
-            onFrameSelection ||
+          {(onCopyLayer ||
+            onCopyLink ||
             (onRename && node.renamable !== false)) &&
           (lockable || hideable) ? (
             <ContextMenuSeparator />
           ) : null}
           {hideable ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <CanvasMenuItem
+              label={node.hidden ? labels.menuShow : labels.menuHide}
+              shortcut={shortcut("$mod+shift+h")}
               onSelect={() => onToggleHidden?.(node.id, !node.hidden)}
-            >
-              {node.hidden ? (
-                <IconEye className="size-3.5 text-muted-foreground" />
-              ) : (
-                <IconEyeOff className="size-3.5 text-muted-foreground" />
-              )}
-              {node.hidden ? labels.show : labels.hide}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+h")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
           {lockable ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <CanvasMenuItem
+              label={node.locked ? labels.menuUnlock : labels.menuLock}
+              shortcut={shortcut("$mod+shift+l")}
               onSelect={() => onToggleLocked?.(node.id, !node.locked)}
-            >
-              {node.locked ? (
-                <IconLockOpen className="size-3.5 text-muted-foreground" />
-              ) : (
-                <IconLock className="size-3.5 text-muted-foreground" />
-              )}
-              {node.locked ? labels.unlock : labels.lock}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+l")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
 
-          {(lockable || hideable) && (onFlipHorizontal || onFlipVertical) ? (
+          {(lockable || hideable) && (onReorderLayer || hasTransformActions) ? (
             <ContextMenuSeparator />
           ) : null}
-
-          {onFlipHorizontal ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onFlipHorizontal(getContextMenuTargetIdsForRow())}
-            >
-              <IconFlipHorizontal className="size-3.5 text-muted-foreground" />
-              {labels.flipHorizontal}
-              <ContextMenuShortcut>{shortcut("shift+h")}</ContextMenuShortcut>
-            </ContextMenuItem>
+          {onReorderLayer ? (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>{labels.arrange}</ContextMenuSubTrigger>
+              <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
+                <CanvasMenuItem
+                  label={labels.bringToFront}
+                  shortcut={shortcut("]")}
+                  onSelect={() =>
+                    onReorderLayer(getContextMenuTargetIdsForRow(), "front")
+                  }
+                />
+                <CanvasMenuItem
+                  label={labels.sendToBack}
+                  shortcut={shortcut("[")}
+                  onSelect={() =>
+                    onReorderLayer(getContextMenuTargetIdsForRow(), "back")
+                  }
+                />
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           ) : null}
-          {onFlipVertical ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onFlipVertical(getContextMenuTargetIdsForRow())}
-            >
-              <IconFlipVertical className="size-3.5 text-muted-foreground" />
-              {labels.flipVertical}
-              <ContextMenuShortcut>{shortcut("shift+v")}</ContextMenuShortcut>
-            </ContextMenuItem>
+          {hasTransformActions ? (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>{labels.transform}</ContextMenuSubTrigger>
+              <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
+                {onFlipHorizontal ? (
+                  <CanvasMenuItem
+                    label={labels.flipHorizontal}
+                    shortcut={shortcut("shift+h")}
+                    onSelect={() =>
+                      onFlipHorizontal(getContextMenuTargetIdsForRow())
+                    }
+                  />
+                ) : null}
+                {onFlipVertical ? (
+                  <CanvasMenuItem
+                    label={labels.flipVertical}
+                    shortcut={shortcut("shift+v")}
+                    onSelect={() =>
+                      onFlipVertical(getContextMenuTargetIdsForRow())
+                    }
+                  />
+                ) : null}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           ) : null}
         </ContextMenuContent>
       ) : null}

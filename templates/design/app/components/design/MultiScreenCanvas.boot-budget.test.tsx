@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import { act, useEffect } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, type ReactNode, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,9 +22,17 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 const LARGE_BOARD_SCREEN_COUNT = OVERVIEW_LIVE_SCREEN_BUDGET + 1;
 
+let root: Root;
+let queryClient: QueryClient;
+
+function renderWithQueryClient(children: ReactNode) {
+  root.render(
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+  );
+}
+
 describe("MultiScreenCanvas live boot budget", () => {
   let container: HTMLDivElement;
-  let root: Root;
   const liveScreenIds = () =>
     [...container.querySelectorAll("[data-live-screen]")].map((node) =>
       node.getAttribute("data-live-screen"),
@@ -52,6 +61,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       toJSON: () => ({}),
     });
     root = createRoot(container);
+    queryClient = new QueryClient();
   });
 
   afterEach(async () => {
@@ -74,17 +84,19 @@ describe("MultiScreenCanvas live boot budget", () => {
     const renderCalls: string[] = [];
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           screenSnapshotsById={Object.fromEntries(
             screens.map((screen) => [screen.id, { html: "<p>snapshot</p>" }]),
           )}
@@ -134,17 +146,19 @@ describe("MultiScreenCanvas live boot budget", () => {
     const startById = new Map<string, () => void>();
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           screenSnapshotsById={Object.fromEntries(
             screens.map((screen) => [screen.id, { html: "<p>snapshot</p>" }]),
           )}
@@ -191,17 +205,19 @@ describe("MultiScreenCanvas live boot budget", () => {
     const readyById = new Map<string, () => void>();
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen, _metadata, _geometry, options) => {
             if (options?.onBootReady) {
               readyById.set(screen.id, options.onBootReady);
@@ -232,18 +248,20 @@ describe("MultiScreenCanvas live boot budget", () => {
     const renderCalls: string[] = [];
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => {
             renderCalls.push(screen.id);
             return <div data-live-screen={screen.id} />;
@@ -271,20 +289,22 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId="inline-1"
-        activeTool="move"
+        creation={{ activeTool: "move" }}
         tweakValues={tweakValues}
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         metadataById={{ "inline-2": { heightMode: "hug" } }}
         renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
         onPick={() => {}}
       />
     );
-    await act(async () => root.render(render({ "--accent": "red" })));
+    await act(async () => renderWithQueryClient(render({ "--accent": "red" })));
 
     const staticPreview = (id: string) =>
       container.querySelector<HTMLIFrameElement>(
@@ -315,7 +335,9 @@ describe("MultiScreenCanvas live boot budget", () => {
       { type: "tweak-values", values: { "--accent": "red" } },
       "*",
     );
-    await act(async () => root.render(render({ "--accent": "blue" })));
+    await act(async () =>
+      renderWithQueryClient(render({ "--accent": "blue" })),
+    );
     expect(post).toHaveBeenLastCalledWith(
       { type: "tweak-values", values: { "--accent": "blue" } },
       "*",
@@ -330,13 +352,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId={activeId}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen, _metadata, _geometry, options) => {
           if (options?.onBootReady) {
             readyById.set(screen.id, options.onBootReady);
@@ -350,7 +374,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       container.querySelector<HTMLIFrameElement>(
         'iframe[data-screen-static-preview][data-screen-iframe-id="inline-2"]',
       );
-    await act(async () => root.render(render("inline-1")));
+    await act(async () => renderWithQueryClient(render("inline-1")));
     await vi.waitFor(() => expect(staticPreview()).not.toBeNull());
     const preview = staticPreview()!;
     await act(async () => {
@@ -358,7 +382,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
-    await act(async () => root.render(render("inline-2")));
+    await act(async () => renderWithQueryClient(render("inline-2")));
     await vi.waitFor(() => expect(liveScreenIds()).toContain("inline-2"));
     expect(staticPreview()).toBe(preview);
     expect(preview.className).toContain("z-[1]");
@@ -376,13 +400,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId={activeId}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen, _metadata, _geometry, options) => {
           if (options?.onBootReady) {
             readyById.set(screen.id, options.onBootReady);
@@ -396,7 +422,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       container.querySelector<HTMLIFrameElement>(
         'iframe[data-screen-static-preview][data-screen-iframe-id="inline-2"]',
       );
-    await act(async () => root.render(render("inline-1")));
+    await act(async () => renderWithQueryClient(render("inline-1")));
     await vi.waitFor(() => expect(staticPreview()).not.toBeNull());
     const preview = staticPreview()!;
     await act(async () => {
@@ -405,7 +431,7 @@ describe("MultiScreenCanvas live boot budget", () => {
     });
 
     vi.useFakeTimers();
-    await act(async () => root.render(render("inline-2")));
+    await act(async () => renderWithQueryClient(render("inline-2")));
     await vi.waitFor(() => expect(liveScreenIds()).toContain("inline-2"));
     await act(async () => {
       vi.advanceTimersByTime(9_000);
@@ -425,13 +451,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId={activeId}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
         onPick={() => {}}
       />
@@ -443,7 +471,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       "inline-4",
       "inline-5",
     ]) {
-      await act(async () => root.render(render(id)));
+      await act(async () => renderWithQueryClient(render(id)));
       await vi.waitFor(() => expect(liveScreenIds()).toContain(id));
     }
 
@@ -462,14 +490,16 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={45}
         activeId={activeId}
-        selectedScreenIds={[activeId]}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 430, y: 0, width: 390, height: 844 },
-          ]),
-        )}
+        selection={{ selectedScreenIds: [activeId] }}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 430, y: 0, width: 390, height: 844 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen) => (
           <TrackedEditor id={screen.id} mounts={mounts} unmounts={unmounts} />
         )}
@@ -477,7 +507,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       />
     );
 
-    await act(async () => root.render(render("inline-0")));
+    await act(async () => renderWithQueryClient(render("inline-0")));
     await vi.waitFor(() => {
       expect(liveScreenIds()).toHaveLength(4);
     });
@@ -485,8 +515,8 @@ describe("MultiScreenCanvas live boot budget", () => {
       container.querySelector("iframe[data-screen-static-preview]"),
     ).toBeNull();
 
-    await act(async () => root.render(render("inline-1")));
-    await act(async () => root.render(render("inline-2")));
+    await act(async () => renderWithQueryClient(render("inline-1")));
+    await act(async () => renderWithQueryClient(render("inline-2")));
     expect(liveScreenIds()).toHaveLength(4);
     expect(unmounts).toEqual([]);
     expect(new Set(mounts)).toEqual(new Set(screens.map((s) => s.id)));
@@ -497,19 +527,21 @@ describe("MultiScreenCanvas live boot budget", () => {
     const readyById = new Map<string, () => void>();
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
           activeId="inline-1"
           interactMode
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen, _metadata, _geometry, options) => {
             if (options?.onBootReady) {
               readyById.set(screen.id, options.onBootReady);
@@ -538,19 +570,24 @@ describe("MultiScreenCanvas live boot budget", () => {
     const onLayerMarqueeSelectionChange = vi.fn();
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          selectedScreenIds={["inline-0"]}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          selection={{
+            selectedScreenIds: ["inline-0"],
+            onLayerMarqueeSelectionChange,
+          }}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           metadataById={Object.fromEntries(
             screens.map((screen) => [screen.id, { width: 1440, height: 900 }]),
           )}
@@ -566,7 +603,6 @@ describe("MultiScreenCanvas live boot budget", () => {
             );
           }}
           onPick={() => {}}
-          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
         />,
       );
     });
@@ -656,18 +692,20 @@ describe("MultiScreenCanvas live boot budget", () => {
       });
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
           onPick={() => {}}
         />,
@@ -713,18 +751,20 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={zoom}
         activeId="inline-0"
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            {
-              x: (index % 6) * 320,
-              y: Math.floor(index / 6) * 220,
-              width: 300,
-              height: 200,
-            },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              {
+                x: (index % 6) * 320,
+                y: Math.floor(index / 6) * 220,
+                width: 300,
+                height: 200,
+              },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen, _metadata, _geometry, options) => {
           if (options?.onBootReady) {
             readyById.set(screen.id, options.onBootReady);
@@ -737,7 +777,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       />
     );
 
-    await act(async () => root.render(render(100)));
+    await act(async () => renderWithQueryClient(render(100)));
     for (let round = 0; round < LARGE_BOARD_SCREEN_COUNT; round += 1) {
       const pending = [...readyById.values()];
       readyById.clear();
@@ -750,7 +790,7 @@ describe("MultiScreenCanvas live boot budget", () => {
       OVERVIEW_IFRAME_ADMISSIONS_PER_FRAME * 2,
     );
 
-    await act(async () => root.render(render(50)));
+    await act(async () => renderWithQueryClient(render(50)));
     expect(liveScreenIds()).toEqual(editors);
     expect(unmounts).toEqual([]);
 
@@ -787,18 +827,20 @@ describe("MultiScreenCanvas live boot budget", () => {
     const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
           activeId="inline-0"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
           onPick={() => {}}
         />,
@@ -836,17 +878,19 @@ describe("MultiScreenCanvas live boot budget", () => {
     const screens = inlineScreens(3);
 
     await act(async () => {
-      root.render(
+      renderWithQueryClient(
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           onPick={() => {}}
         />,
       );

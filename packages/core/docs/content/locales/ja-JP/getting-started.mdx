@@ -14,11 +14,13 @@ Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築
 
 このガイドでは、チャットUIを備えたエージェントを作成し、付属の`hello`アクションをエージェントとUIから呼び出します。
 
+AIエージェントにセットアップを任せたい場合は、[AIエージェントでアプリを作成する](/docs/create-with-an-agent)を参照してください。
+
 ## 前提条件
 
 - [Node.js](https://nodejs.org) 22.22以降
 - [pnpm](https://pnpm.io)がインストールされ、`PATH`から実行できること
-- エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
+- セットアップ中は任意。エージェントの実行には必要です: Builder.io、Anthropic/OpenAI のキー、またはローカル Ollama
 
 ## エージェントを作成する
 
@@ -57,15 +59,15 @@ Welcome画面で**Continue as local dev**を選択します。ローカル開発
 
 </Callout>
 
-## LLMを接続する
+## LLMを接続する（任意） {#connect-an-llm}
 
-次にLLMを接続します。無料クレジットを使うには**Builder.io を使う**を選択します。あるいは、**Custom keys**を選択してプロバイダーを選び、必要な接続情報を入力します。
+任意: **Use Builder.io** で接続するか、**Custom keys** でキーを追加するか、ローカル開発用のプロバイダーキーを `.env` に設定してください。セルフホスト型のデプロイでは、サーバー側のキーをアプリ全体のフォールバックとして使用できます。詳しくは[LLM プロバイダーキー](/docs/environment-variables#llm-provider-keys)を参照してください。
 
 ## エージェントからアクションを実行する
 
 アクションは、React UIがコードから呼び出せ、エージェントがツールとして使える型付き関数です。Chatテンプレートにはシンプルな`hello`アクションが含まれているため、自分で書く前にこのパターンを試せます。
 
-エージェントパネルで次のように依頼します。
+**はじめに**ページのプロンプトで次のように依頼します。
 
 > Call the hello action for Alex.
 

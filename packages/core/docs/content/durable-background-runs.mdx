@@ -26,6 +26,37 @@ Durable background runs move that long turn onto a **separate Netlify
 background function** with a **15-minute** budget. The turn runs to completion
 server-side in one invocation; the UI just streams the result.
 
+## Agents that survive any host {#survive-any-host}
+
+An agent run does not live in the function that started it. Each run is a row
+in your database with a heartbeat, plus an event log of everything the agent
+streamed. That one design choice is what lets agents run on ephemeral hosts:
+
+- **A turn can outgrow its function.** When a function nears its time limit
+  (the ~40s budget of a hosted request, or the 15-minute budget of a Netlify
+  background function), the turn stops at a safe point and continues in a new
+  invocation from the saved conversation. A tool-call journal records what
+  already ran, so continuing never repeats a write. See
+  [Durable resume](/docs/durable-resume).
+- **The browser can lose its connection.** A reconnecting chat, or one being
+  served by a different function than the one doing the work, streams from the
+  run's event log, so the reply picks up where it left off.
+- **A function can die without warning.** Its heartbeat stops, the run is
+  reclaimed after a short stale window, and it is either recovered or ended
+  with a clear, retryable error instead of staying "running".
+
+All it needs is a PostgreSQL database. The same agent code runs on every
+supported target: Node.js, Docker, Vercel, Netlify, AWS Lambda, and Cloudflare.
+Hosts with longer function budgets simply need fewer continuations; on Netlify
+that is the background function described below.
+
+This is why hosting agents here is unusually cheap and portable. There is no
+always-on agent server, queue, or per-user sandbox, so you pay for compute only
+while an agent is working. Agent code does not change between hosts, so you can
+switch providers without a rewrite. And because the agent and the UI share the
+same actions and database, the deployment that hosts your agents can host the
+rest of your app too.
+
 ## Two functions, not one {#two-functions}
 
 A deployed app has exactly two server functions, and almost every request hits

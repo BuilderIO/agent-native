@@ -13,11 +13,30 @@ import { z } from "zod";
 import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
-import { defineAction } from "../action.js";
+import {
+  AgentActionStopError,
+  AgentConnectionRequiredError,
+  defineAction,
+} from "../action.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
-import { createMCPServerForRequest } from "./build-server.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
+import {
+  isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
+} from "../shared/embed-auth.js";
+import listResourceShares from "../sharing/actions/list-resource-shares.js";
+import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
+import shareResource from "../sharing/actions/share-resource.js";
+import unshareResource from "../sharing/actions/unshare-resource.js";
+import {
+  createMCPServerForRequest,
+  selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
+} from "./build-server.js";
 import * as mcpBuildServer from "./build-server.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
@@ -36,6 +55,22 @@ const actionChangeMocks = vi.hoisted(() => ({
 vi.mock("../server/action-change-marker-write.js", () => ({
   writeActionChangeMarker: actionChangeMocks.writeMarker,
 }));
+
+const auditMocks = vi.hoisted(() => ({
+  record: vi.fn(async (_input: unknown) => {}),
+}));
+
+// Observed, and still recorded: the audit rows below come from the real
+// recorder.
+vi.mock("../audit/record.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../audit/record.js")>();
+  auditMocks.record.mockImplementation((input) =>
+    actual.recordActionAudit(
+      input as Parameters<typeof actual.recordActionAudit>[0],
+    ),
+  );
+  return { ...actual, recordActionAudit: auditMocks.record };
+});
 
 const approvalStoreMocks = vi.hoisted(() => {
   const grants = new Map<string, any>();
@@ -62,6 +97,15 @@ const approvalStoreMocks = vi.hoisted(() => {
     }),
   };
 });
+
+const auditInserts = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+
+vi.mock("../audit/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../audit/store.js")>()),
+  insertAuditEvent: async (event: Record<string, unknown>) => {
+    auditInserts.push(event);
+  },
+}));
 
 vi.mock("./approval-store.js", () => ({
   createMcpApprovalGrant: approvalStoreMocks.create,
@@ -154,9 +198,11 @@ vi.mock("./builtin-tools.js", () => ({
 }));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
+const lookupOrgByDomainMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  lookupOrgByDomain: (...args: any[]) => lookupOrgByDomainMock(...args),
   resolveA2AOrganizationMetadataById: (
     ...args: Parameters<typeof resolveA2AOrganizationMetadataByIdMock>
   ) => resolveA2AOrganizationMetadataByIdMock(...args),
@@ -165,34 +211,60 @@ vi.mock("../org/context.js", () => ({
   ) => resolveOrgIdForEmailMock(...args),
 }));
 
-const embedSessionMocks = vi.hoisted(() => ({
-  createEmbedSessionTicket: vi.fn(async ({ targetPath }) => ({
-    ticket: "minted-picker-ticket",
-    ticketHash: "minted-picker-ticket-hash",
-    expiresAt: 1735689600000,
-    targetPath,
-  })),
-  normalizeEmbedTargetPath: vi.fn(
-    (raw: string | undefined | null, requestOrigin?: string) => {
-      const value = String(raw ?? "").trim();
-      if (!value) return null;
-      try {
-        const url = value.startsWith("/")
-          ? new URL(value, requestOrigin ?? "https://mail.agent-native.com")
-          : new URL(value);
-        if (requestOrigin && url.origin !== new URL(requestOrigin).origin) {
+const embedSessionMocks = vi.hoisted(() => {
+  const renewalTickets = new Map<string, Record<string, unknown>>();
+  return {
+    renewalTickets,
+    createEmbedSessionTicket: vi.fn(async (input: Record<string, any>) => {
+      const ticket = "minted-picker-ticket";
+      renewalTickets.set(ticket, {
+        ownerEmail: input.ownerEmail,
+        ...(input.orgId ? { orgId: input.orgId } : {}),
+        targetPath: input.targetPath,
+        scope: input.scope,
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + 60_000,
+        renewalExpiresAtMs:
+          input.renewalExpiresAtMs ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
+      });
+      return {
+        ticket,
+        ticketHash: "minted-picker-ticket-hash",
+        expiresAt: 1735689600000,
+        targetPath: input.targetPath,
+      };
+    }),
+    readMcpDirectoryWidgetRenewalTicket: vi.fn(async (ticket: string) => {
+      const stored = renewalTickets.get(ticket);
+      return stored?.scope ? stored : null;
+    }),
+    renewMcpDirectoryWidgetSession: vi.fn(async () => Date.now() + 60_000),
+    normalizeEmbedTargetPath: vi.fn(
+      (raw: string | undefined | null, requestOrigin?: string) => {
+        const value = String(raw ?? "").trim();
+        if (!value) return null;
+        try {
+          const url = value.startsWith("/")
+            ? new URL(value, requestOrigin ?? "https://mail.agent-native.com")
+            : new URL(value);
+          if (requestOrigin && url.origin !== new URL(requestOrigin).origin) {
+            return null;
+          }
+          return `${url.pathname}${url.search}${url.hash}`;
+        } catch {
           return null;
         }
-        return `${url.pathname}${url.search}${url.hash}`;
-      } catch {
-        return null;
-      }
-    },
-  ),
-}));
+      },
+    ),
+  };
+});
 
 vi.mock("../server/embed-session.js", () => ({
   createEmbedSessionTicket: embedSessionMocks.createEmbedSessionTicket,
+  readMcpDirectoryWidgetRenewalTicket:
+    embedSessionMocks.readMcpDirectoryWidgetRenewalTicket,
+  renewMcpDirectoryWidgetSession:
+    embedSessionMocks.renewMcpDirectoryWidgetSession,
   normalizeEmbedTargetPath: embedSessionMocks.normalizeEmbedTargetPath,
 }));
 
@@ -200,6 +272,47 @@ vi.mock("../server/embed-route.js", () => ({
   buildEmbedStartPath: (ticket: string) =>
     `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`,
 }));
+
+// Keep real capability builders except when testing scope construction failures.
+const capabilityScopeOverride = vi.hoisted(() => ({
+  writeUnmintable: false,
+  readUnmintable: false,
+  readCapabilityInputs: vi.fn(),
+  readCapabilityResults: vi.fn(),
+  writeCapabilityInputs: vi.fn(),
+  writeCapabilityResults: vi.fn(),
+}));
+vi.mock("../shared/embed-auth.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../shared/embed-auth.js")>();
+  return {
+    ...actual,
+    createMcpDirectoryWidgetReadCapability: (
+      input: Parameters<
+        typeof actual.createMcpDirectoryWidgetReadCapability
+      >[0],
+    ) => {
+      capabilityScopeOverride.readCapabilityInputs(input);
+      const scope = capabilityScopeOverride.readUnmintable
+        ? undefined
+        : actual.createMcpDirectoryWidgetReadCapability(input);
+      capabilityScopeOverride.readCapabilityResults(scope);
+      return scope;
+    },
+    createMcpDirectoryWidgetWriteCapability: (
+      input: Parameters<
+        typeof actual.createMcpDirectoryWidgetWriteCapability
+      >[0],
+    ) => {
+      capabilityScopeOverride.writeCapabilityInputs(input);
+      const scope = capabilityScopeOverride.writeUnmintable
+        ? undefined
+        : actual.createMcpDirectoryWidgetWriteCapability(input);
+      capabilityScopeOverride.writeCapabilityResults(scope);
+      return scope;
+    },
+  };
+});
 
 const mockOAuthClients = vi.hoisted(() => new Map<string, any>());
 
@@ -228,6 +341,7 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
 });
 
 const { handleMcpRequest } = await import("./server.js");
+const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
   method?: string;
@@ -331,6 +445,30 @@ vi.mock("../server/h3-helpers.js", () => ({
 vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: () => ({ use: () => {} }),
 }));
+
+// Framework actions the runtime merges into every app that a directory
+// profile binds to widget grants, so they have no file under actions/.
+const sharedDirectoryActionsByApp: Record<string, Record<string, unknown>> = {
+  content: {
+    "list-resource-suggestions": listResourceSuggestions,
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
+  design: {
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
+  slides: {
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
+};
 
 const config = {
   name: "agent-native-mail",
@@ -612,6 +750,7 @@ async function mcpAppsAuthHeaders(
     scope?: string;
     resource?: string;
     issuer?: string;
+    grantCreatedAtMs?: number | null;
   } = {},
 ) {
   process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
@@ -623,8 +762,111 @@ async function mcpAppsAuthHeaders(
     resource:
       options.resource ?? "https://mail.agent-native.com/_agent-native/mcp",
     issuer: options.issuer ?? "https://mail.agent-native.com",
+    // `null` signs the token the way builds before grant times did.
+    grantCreatedAtMs:
+      options.grantCreatedAtMs === null
+        ? undefined
+        : (options.grantCreatedAtMs ?? Date.now()),
   });
   return { authorization: `Bearer ${token}` };
+}
+
+const directoryWidgetTemplates = [
+  {
+    appId: "slides",
+    profile: slidesDirectoryProfile,
+    toolName: "create-deck",
+    result: { id: "deck-1" },
+  },
+  {
+    appId: "design",
+    profile: designDirectoryProfile,
+    toolName: "create-design",
+    result: { designId: "design-1" },
+  },
+  {
+    appId: "content",
+    profile: contentDirectoryProfile,
+    toolName: "create-document",
+    result: { id: "page-1", spaceId: "space-1" },
+  },
+] as const;
+
+/**
+ * One real template directory profile and its real widget metadata, with only
+ * the widget-bearing tool's `run` stubbed.
+ */
+async function directoryWidgetTemplateConfig(
+  template: (typeof directoryWidgetTemplates)[number],
+  authorizeWidgetWrite: () => Promise<boolean> = async () => true,
+) {
+  const { appId, profile, toolName, result } = template;
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../../",
+  );
+  const sharedActions = sharedDirectoryActionsByApp[appId] ?? {};
+  const actionNames = [
+    ...new Set([
+      ...profile.connectorCatalog,
+      ...Object.keys(profile.widgetReadActionArguments ?? {}),
+      ...Object.keys(profile.widgetWriteActionArguments ?? {}),
+    ]),
+  ];
+  const modules = Object.fromEntries(
+    await Promise.all(
+      actionNames.map(async (name) => [
+        name,
+        Object.hasOwn(sharedActions, name)
+          ? sharedActions[name]
+          : await import(
+              pathToFileURL(
+                path.join(
+                  repoRoot,
+                  "templates",
+                  appId,
+                  "actions",
+                  `${name}.ts`,
+                ),
+              ).href + `?widgetTicket=${Date.now()}`
+            ),
+      ]),
+    ),
+  );
+  const loadedActions = loadActionsFromStaticRegistry(modules);
+  const actions = {
+    ...loadedActions,
+    // The stub enforces no input schema, so it declares none to prepare a
+    // call against.
+    [toolName]: {
+      ...loadedActions[toolName],
+      schema: undefined,
+      run: async () => result,
+    },
+  };
+  const directoryProfile = { ...profile, authorizeWidgetWrite };
+  return {
+    host: `${appId}.agent-native.com`,
+    config: {
+      ...config,
+      name: `agent-native-${appId}`,
+      appId,
+      catalogMode: "directory" as const,
+      widgetDomain: profile.widgetDomain,
+      actions,
+      productionActions: actions,
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile,
+        loadedActions,
+      ),
+      widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+        directoryProfile,
+        loadedActions,
+      ),
+      builtinCrossAppTools: false,
+      directoryProfile,
+    },
+  };
 }
 
 async function mcpAppsFullCatalogHeaders(
@@ -653,6 +895,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
     approvalStoreMocks.grants.clear();
+    embedSessionMocks.renewalTickets.clear();
     resolveOrgIdForEmailMock.mockReset();
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByIdMock.mockReset();
@@ -660,6 +903,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       async (orgId: string) =>
         orgId === "org_123" ? { orgId, orgDomain: null } : null,
     );
+    lookupOrgByDomainMock.mockReset();
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
@@ -864,20 +1109,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           ...new Set([
             ...profile.connectorCatalog,
             ...Object.keys(profile.widgetReadActionArguments ?? {}),
+            ...Object.keys(profile.widgetWriteActionArguments ?? {}),
           ]),
         ];
-        const sharedActions =
-          appId === "content"
-            ? { "list-resource-suggestions": listResourceSuggestions }
-            : {};
+        const sharedActions = sharedDirectoryActionsByApp[appId] ?? {};
         const modules = Object.fromEntries(
           await Promise.all(
             actionNames.map(async (name) => {
               if (Object.hasOwn(sharedActions, name)) {
-                return [
-                  name,
-                  sharedActions[name as keyof typeof sharedActions],
-                ];
+                return [name, sharedActions[name]];
               }
               const actionUrl =
                 pathToFileURL(path.join(projectRoot, "actions", `${name}.ts`))
@@ -906,11 +1146,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           instructions: profile.instructions,
           actions,
           productionActions: actions,
-          widgetReadActions: Object.fromEntries(
-            (profile.widgetReadPrivateActions ?? []).map((name) => [
-              name,
-              loadedActions[name],
-            ]),
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            profile,
+            loadedActions,
+          ),
+          widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+            profile,
+            loadedActions,
           ),
           builtinCrossAppTools: false,
           directoryProfile: profile,
@@ -1189,7 +1431,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           expect(widgetTools.map((tool: any) => tool.name).sort()).toEqual(
             expectedWidgetToolNames[appId],
           );
-          expect(linkedUris).toEqual([`ui://${appId}/shell-v68`]);
+          expect(linkedUris).toEqual([`ui://${appId}/shell-v69`]);
           for (const tool of widgetTools) {
             const uri = tool._meta.ui.resourceUri;
             expect(Object.keys(tool._meta).sort()).toEqual([
@@ -2127,6 +2369,1219 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
+  it("anchors directory widget grants at the original OAuth grant time", async () => {
+    const createDesign = defineAction({
+      description: "Create one editable design.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://design/shell-v69",
+          title: "Design",
+          html: "<!doctype html><html><body>Design</body></html>",
+        },
+      },
+      run: async () => ({ designId: "design-1" }),
+    });
+    const updateFile = defineAction({
+      description: "Update one file within a design.",
+      schema: z.object({ id: z.string(), content: z.string() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "design",
+      directoryProfile: {
+        connectorCatalog: ["create-design"],
+        widgetDomain: "https://design.agent-native.com",
+        authorizeWidgetWrite: vi.fn(async () => true),
+        widgetTargets: {
+          "create-design": (_args: unknown, result: unknown) => {
+            const designId = (result as { designId?: unknown }).designId;
+            return typeof designId === "string"
+              ? {
+                  targetPath: `/design/${encodeURIComponent(designId)}`,
+                  resourceIds: { designId },
+                  writeActions: ["update-file"],
+                }
+              : null;
+          },
+        },
+        widgetWriteActionArguments: {
+          "update-file": {
+            id: {
+              type: "actionSchemaResourceBound" as const,
+              resourceKey: "designId",
+            },
+            content: { type: "actionSchema" as const },
+          },
+        },
+      },
+      widgetDomain: "https://design.agent-native.com",
+      actions: { "create-design": createDesign },
+      widgetWriteActions: { "update-file": updateFile },
+    };
+    const grantCreatedAtMs = Date.now() - 120_000;
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://design.agent-native.com",
+      grantCreatedAtMs,
+    });
+    const credential = jose.decodeJwt(
+      headers.authorization.slice("Bearer ".length),
+    );
+    const credentialIssuedAtMs = credential.grant_created_at_ms as number;
+    expect(credentialIssuedAtMs).toBe(grantCreatedAtMs);
+    expect((credential.iat as number) * 1000).toBeGreaterThan(
+      credentialIssuedAtMs,
+    );
+
+    const created = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 141,
+        method: "tools/call",
+        params: { name: "create-design", arguments: {} },
+      },
+      {
+        headers: { ...headers, host: "design.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(created.result.isError).not.toBe(true);
+    expect(created.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+    });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        revocationAnchorCreatedAtMs: credentialIssuedAtMs,
+        ttlSeconds: 5 * 60,
+      }),
+    );
+    const scope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const { getMcpDirectoryWidgetWriteCapabilityGrant } =
+      await import("../shared/embed-auth.js");
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(scope, {
+        appId: "design",
+        resourceUri: "ui://design/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toEqual({
+      resourceIds: { designId: "design-1" },
+      actionNames: ["update-file"],
+    });
+
+    const getDesign = defineAction({
+      description: "Read one design.",
+      schema: z.object({ id: z.string() }),
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ designId: "design-1" }),
+    });
+    const authorizeDeniedWrite = vi.fn(async () => false);
+    const deniedConfig = {
+      ...directoryConfig,
+      directoryProfile: {
+        ...directoryConfig.directoryProfile,
+        authorizeWidgetWrite: authorizeDeniedWrite,
+        widgetReadActionArguments: { "get-design": { id: "designId" } },
+        widgetReadAuthenticatedActions: ["get-design"],
+      },
+      actions: { "create-design": createDesign, "get-design": getDesign },
+    };
+    const denied = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 142,
+        method: "tools/call",
+        params: { name: "create-design", arguments: {} },
+      },
+      {
+        headers: { ...headers, host: "design.agent-native.com" },
+        config: deniedConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(denied.result.isError).not.toBe(true);
+    expect(authorizeDeniedWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "create-design",
+        args: {},
+        result: { designId: "design-1" },
+        target: expect.objectContaining({
+          resourceIds: { designId: "design-1" },
+          writeActions: ["update-file"],
+        }),
+        identity: expect.objectContaining({ userEmail: "oauth@example.com" }),
+      }),
+    );
+    const deniedScope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const {
+      getMcpDirectoryWidgetWriteCapabilityGrant: getDeniedWriteGrant,
+      isMcpDirectoryWidgetReadCapabilityScope,
+    } = await import("../shared/embed-auth.js");
+    expect(isMcpDirectoryWidgetReadCapabilityScope(deniedScope)).toBe(true);
+    expect(
+      getDeniedWriteGrant(deniedScope, {
+        appId: "design",
+        resourceUri: "ui://design/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("mints the Slides share grant only for authorized deck editors and keeps others read-only", async () => {
+    const entryAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const createDeck = defineAction({
+      description: "Create one editable deck.",
+      parameters: {},
+      mcpAnnotations: entryAnnotations,
+      mcpApp: {
+        resource: {
+          uri: "ui://slides/shell-v69",
+          title: "Slides",
+          html: "<!doctype html><html><body>Slides</body></html>",
+        },
+      },
+      run: async () => ({ id: "deck-a" }),
+    });
+    const getDeck = defineAction({
+      description: "Read one deck.",
+      schema: z.object({ id: z.string(), deckId: z.string().optional() }),
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: { ...entryAnnotations, readOnlyHint: true },
+      run: async () => ({ id: "deck-a" }),
+    });
+    const patchDeck = defineAction({
+      description: "Patch one deck.",
+      schema: z.object({
+        deckId: z.string(),
+        operations: z.array(z.unknown()),
+        clientWrite: z.unknown().optional(),
+      }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: entryAnnotations,
+      run: async () => ({ ok: true }),
+    });
+    const shareActions = loadActionsFromStaticRegistry(
+      sharedDirectoryActionsByApp.slides!,
+    );
+    const authorizeWidgetWrite = vi.fn(async () => true);
+    const directoryProfile = {
+      connectorCatalog: ["create-deck", "get-deck"],
+      widgetDomain: "https://slides.agent-native.com",
+      authorizeWidgetWrite,
+      widgetTargets: {
+        "create-deck": slidesDirectoryProfile.widgetTargets["create-deck"],
+      },
+      widgetReadActionArguments:
+        slidesDirectoryProfile.widgetReadActionArguments,
+      widgetReadOnlyActions: slidesDirectoryProfile.widgetReadOnlyActions,
+      widgetReadAuthenticatedActions:
+        slidesDirectoryProfile.widgetReadAuthenticatedActions,
+      widgetWriteActionArguments:
+        slidesDirectoryProfile.widgetWriteActionArguments,
+    };
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "slides",
+      directoryProfile,
+      widgetDomain: "https://slides.agent-native.com",
+      actions: { "create-deck": createDeck, "get-deck": getDeck },
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile,
+        shareActions,
+      ),
+      widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+        directoryProfile,
+        { ...shareActions, "patch-deck": patchDeck },
+      ),
+    };
+    const mintScope = async () => {
+      const headers = await mcpAppsAuthHeaders({
+        resource: `https://slides.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        issuer: "https://slides.agent-native.com",
+      });
+      const created = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 150,
+          method: "tools/call",
+          params: { name: "create-deck", arguments: {} },
+        },
+        {
+          headers: { ...headers, host: "slides.agent-native.com" },
+          config: directoryConfig,
+          routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        },
+      );
+      expect(created.result.isError).not.toBe(true);
+      return embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+        ?.scope as string;
+    };
+    const embedAuth = await import("../shared/embed-auth.js");
+    const caller = {
+      appId: "slides",
+      resourceUri: "ui://slides/shell-v69",
+      userEmail: "oauth@example.com",
+    };
+    const normalizeShare = (scope: string, resourceId: string) =>
+      embedAuth.normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+        ...caller,
+        actionName: "share-resource",
+        args: {
+          resourceType: "deck",
+          resourceId,
+          principalType: "user",
+          principalId: "teammate@example.com",
+        },
+        allowedArgumentNames: Object.keys(
+          slidesDirectoryProfile.widgetWriteActionArguments["share-resource"],
+        ),
+      });
+    const normalizeList = (scope: string, resourceId: string) =>
+      embedAuth.normalizeMcpDirectoryWidgetReadActionArguments(scope, {
+        ...caller,
+        actionName: "list-resource-shares",
+        args: { resourceType: "deck", resourceId },
+        allowedArgumentNames: Object.keys(
+          slidesDirectoryProfile.widgetReadActionArguments[
+            "list-resource-shares"
+          ],
+        ),
+      });
+
+    const editorScope = await mintScope();
+    expect(authorizeWidgetWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: expect.objectContaining({
+          resourceIds: { deckId: "deck-a", resourceType: "deck" },
+          writeActions: [
+            "patch-deck",
+            "share-resource",
+            "unshare-resource",
+            "set-resource-visibility",
+          ],
+        }),
+      }),
+    );
+    expect(
+      embedAuth.isMcpDirectoryWidgetWriteCapabilityScope(editorScope),
+    ).toBe(true);
+    expect(
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(editorScope, caller),
+    ).toEqual({
+      resourceIds: { deckId: "deck-a", resourceType: "deck" },
+      actionNames: [
+        "patch-deck",
+        "set-resource-visibility",
+        "share-resource",
+        "unshare-resource",
+      ],
+    });
+    expect(editorScope.length).toBeLessThanOrEqual(
+      embedAuth.MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH - 1024,
+    );
+    expect(normalizeShare(editorScope, "deck-a")).toBeDefined();
+    expect(normalizeShare(editorScope, "deck-b")).toBeUndefined();
+    expect(normalizeList(editorScope, "deck-a")).toBeDefined();
+    expect(normalizeList(editorScope, "deck-b")).toBeUndefined();
+
+    // A viewer or commenter: authorizeWidgetWrite (editor access) says no.
+    authorizeWidgetWrite.mockResolvedValue(false);
+    const viewerScope = await mintScope();
+    expect(embedAuth.isMcpDirectoryWidgetReadCapabilityScope(viewerScope)).toBe(
+      true,
+    );
+    expect(
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(viewerScope, caller),
+    ).toBeUndefined();
+    expect(normalizeShare(viewerScope, "deck-a")).toBeUndefined();
+    expect(normalizeList(viewerScope, "deck-a")).toBeDefined();
+    expect(normalizeList(viewerScope, "deck-b")).toBeUndefined();
+  });
+
+  describe.each(directoryWidgetTemplates)(
+    "$appId directory widget session ticket",
+    (template) => {
+      const callCreate = async (headers: Record<string, string>) => {
+        const { host, config: templateConfig } =
+          await directoryWidgetTemplateConfig(template);
+        return callWeb(
+          {
+            jsonrpc: "2.0",
+            id: 301,
+            method: "tools/call",
+            params: { name: template.toolName, arguments: {} },
+          },
+          {
+            headers: { ...headers, host },
+            config: templateConfig,
+            routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+          },
+        );
+      };
+      const resource = `https://${template.appId}.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`;
+      const issuer = `https://${template.appId}.agent-native.com`;
+
+      const mintedScope = () =>
+        embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+          ?.scope as string;
+
+      it("carries a write grant for a current OAuth token", async () => {
+        const created = await callCreate(
+          await mcpAppsAuthHeaders({ resource, issuer }),
+        );
+
+        expect(created.result.isError).not.toBe(true);
+        expect(created.result._meta["agent-native/widgetSource"]).toMatchObject(
+          {
+            toolName: template.toolName,
+            sourceTicket: "minted-picker-ticket",
+          },
+        );
+        expect(isMcpDirectoryWidgetWriteCapabilityScope(mintedScope())).toBe(
+          true,
+        );
+      });
+
+      it("degrades to a read-only ticket when the write grant cannot be minted", async () => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        try {
+          embedSessionMocks.createEmbedSessionTicket.mockRejectedValueOnce(
+            new Error("write grant rejected"),
+          );
+
+          const created = await callCreate(
+            await mcpAppsAuthHeaders({ resource, issuer }),
+          );
+
+          expect(created.result.isError).not.toBe(true);
+          expect(
+            created.result._meta["agent-native/widgetSource"],
+          ).toMatchObject({
+            toolName: template.toolName,
+            sourceTicket: "minted-picker-ticket",
+          });
+          expect(
+            embedSessionMocks.createEmbedSessionTicket,
+          ).toHaveBeenCalledTimes(2);
+          expect(isMcpDirectoryWidgetReadCapabilityScope(mintedScope())).toBe(
+            true,
+          );
+          expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining(
+              "read-only widget session instead: Error: write grant rejected",
+            ),
+          );
+        } finally {
+          consoleError.mockRestore();
+        }
+      });
+
+      it("is issued for an OAuth token signed before grant times existed", async () => {
+        const headers = await mcpAppsAuthHeaders({
+          resource,
+          issuer,
+          grantCreatedAtMs: null,
+        });
+        const credential = jose.decodeJwt(
+          headers.authorization.slice("Bearer ".length),
+        );
+        expect(credential.grant_created_at_ms).toBeUndefined();
+
+        const created = await callCreate(headers);
+
+        expect(created.result.isError).not.toBe(true);
+        expect(created.result._meta["agent-native/widgetSource"]).toMatchObject(
+          {
+            toolName: template.toolName,
+            sourceTicket: "minted-picker-ticket",
+          },
+        );
+        expect(
+          embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+            ?.revocationAnchorCreatedAtMs,
+        ).toBe((credential.iat as number) * 1000);
+      });
+    },
+  );
+
+  describe("a widget scope that cannot be minted", () => {
+    const issuer = "https://content.agent-native.com";
+    const resource = `${issuer}${MCP_DIRECTORY_ROUTE_PREFIX}`;
+    const callCreate = async (
+      template: (typeof directoryWidgetTemplates)[number],
+    ) => {
+      const { host, config: templateConfig } =
+        await directoryWidgetTemplateConfig(template);
+      return callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 302,
+          method: "tools/call",
+          params: { name: template.toolName, arguments: {} },
+        },
+        {
+          headers: {
+            ...(await mcpAppsAuthHeaders({ resource, issuer })),
+            host,
+          },
+          config: templateConfig,
+          routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        },
+      );
+    };
+    const contentTemplate = directoryWidgetTemplates.find(
+      (template) => template.appId === "content",
+    )!;
+
+    afterEach(() => {
+      capabilityScopeOverride.writeUnmintable = false;
+      capabilityScopeOverride.readUnmintable = false;
+      capabilityScopeOverride.readCapabilityInputs.mockClear();
+      capabilityScopeOverride.readCapabilityResults.mockClear();
+      capabilityScopeOverride.writeCapabilityInputs.mockClear();
+      capabilityScopeOverride.writeCapabilityResults.mockClear();
+    });
+
+    it("degrades to a read-only ticket when the write scope itself is unmintable", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        capabilityScopeOverride.writeUnmintable = true;
+        embedSessionMocks.createEmbedSessionTicket.mockClear();
+
+        const created = await callCreate(contentTemplate);
+
+        expect(created.result.isError).not.toBe(true);
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).toHaveBeenCalledTimes(1);
+        const scope =
+          embedSessionMocks.createEmbedSessionTicket.mock.calls[0]?.[0]?.scope;
+        expect(isMcpDirectoryWidgetReadCapabilityScope(scope)).toBe(true);
+        expect(created.result._meta["agent-native/widgetSource"]).toMatchObject(
+          { sourceTicket: "minted-picker-ticket" },
+        );
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringMatching(/read-only widget session.*scoped capability/),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("returns the tool result without a ticket instead of failing after the action ran", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        capabilityScopeOverride.writeUnmintable = true;
+        capabilityScopeOverride.readUnmintable = true;
+        capabilityScopeOverride.readCapabilityInputs.mockClear();
+        capabilityScopeOverride.readCapabilityResults.mockClear();
+        capabilityScopeOverride.writeCapabilityInputs.mockClear();
+        capabilityScopeOverride.writeCapabilityResults.mockClear();
+        embedSessionMocks.createEmbedSessionTicket.mockClear();
+
+        const created = await callCreate(contentTemplate);
+
+        expect(created.result.isError).not.toBe(true);
+        expect(
+          capabilityScopeOverride.writeCapabilityInputs,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          capabilityScopeOverride.writeCapabilityInputs.mock.calls[0]?.[0],
+        ).toMatchObject({
+          appId: "content",
+          resourceUri: "ui://content/shell-v69",
+          resourceIds: {
+            documentId: "page-1",
+            resourceType: "document",
+            spaceId: "space-1",
+          },
+        });
+        expect(
+          capabilityScopeOverride.writeCapabilityResults,
+        ).toHaveBeenCalledWith(undefined);
+        expect(
+          capabilityScopeOverride.readCapabilityInputs,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          capabilityScopeOverride.readCapabilityInputs.mock.calls[0]?.[0],
+        ).toMatchObject({
+          appId: "content",
+          resourceUri: "ui://content/shell-v69",
+          resourceIds: {
+            documentId: "page-1",
+            resourceType: "document",
+            spaceId: "space-1",
+          },
+          actionArguments: expect.objectContaining({
+            "get-document": { id: "page-1" },
+            "get-content-navigation-context": { id: "page-1" },
+          }),
+        });
+        expect(
+          capabilityScopeOverride.readCapabilityResults,
+        ).toHaveBeenCalledWith(undefined);
+        expect(created.result.structuredContent).toMatchObject(
+          contentTemplate.result,
+        );
+        expect(created.result.content[0].text).toBe(
+          "create-document completed for page-1.",
+        );
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).not.toHaveBeenCalled();
+        expect(JSON.stringify(created.result)).not.toContain(
+          "minted-picker-ticket",
+        );
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining("without a session ticket"),
+          expect.anything(),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
+
+  it("issues Content database row write grants for resource-bound actions", async () => {
+    const createDatabase = defineAction({
+      description: "Create one Content database.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/database/shell-v1",
+          title: "Database",
+          html: "<!doctype html><html><body>Database</body></html>",
+        },
+      },
+      run: async () => ({
+        database: {
+          id: "database-1",
+          documentId: "database-page-1",
+          spaceId: "space-1",
+        },
+      }),
+    });
+    const addDatabaseItem = defineAction({
+      description: "Add one database row.",
+      schema: z.object({ target: z.unknown() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ created: true }),
+    });
+    const updateDatabaseItem = defineAction({
+      description: "Update one database row.",
+      schema: z.object({ target: z.unknown() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "content",
+      directoryProfile: {
+        connectorCatalog: ["create-content-database"],
+        widgetDomain: "https://content.agent-native.com",
+        authorizeWidgetWrite: async () => true,
+        widgetTargets: {
+          "create-content-database": (_args: unknown, result: unknown) => {
+            const database = (result as { database?: Record<string, unknown> })
+              .database;
+            return database?.id && database.documentId
+              ? {
+                  targetPath: `/page/${database.documentId}`,
+                  resourceIds: {
+                    databaseId: String(database.id),
+                    documentId: String(database.documentId),
+                  },
+                  writeActions: ["add-database-item", "update-database-item"],
+                }
+              : null;
+          },
+        },
+        widgetWriteActionArguments: {
+          "add-database-item":
+            contentDirectoryProfile.widgetWriteActionArguments[
+              "add-database-item"
+            ],
+          "update-database-item":
+            contentDirectoryProfile.widgetWriteActionArguments[
+              "update-database-item"
+            ],
+        },
+      },
+      actions: { "create-content-database": createDatabase },
+      widgetWriteActions: {
+        "add-database-item": addDatabaseItem,
+        "update-database-item": updateDatabaseItem,
+      },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://content.agent-native.com",
+    });
+
+    const created = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 149,
+        method: "tools/call",
+        params: { name: "create-content-database", arguments: {} },
+      },
+      {
+        headers: { ...headers, host: "content.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(created.result.isError).not.toBe(true);
+    const scope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const { getMcpDirectoryWidgetWriteCapabilityGrant } =
+      await import("../shared/embed-auth.js");
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(scope, {
+        appId: "content",
+        resourceUri: "ui://content/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toEqual({
+      resourceIds: {
+        databaseId: "database-1",
+        documentId: "database-page-1",
+      },
+      actionNames: ["add-database-item", "update-database-item"],
+    });
+  });
+
+  it("mints Content document share grants only for editors holding the write scope", async () => {
+    const annotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const createDocument = defineAction({
+      description: "Create one Content document.",
+      parameters: {},
+      mcpAnnotations: annotations,
+      mcpApp: {
+        resource: {
+          uri: "ui://content/shell-v69",
+          title: "Open document",
+          html: "<!doctype html><html><body>Document</body></html>",
+        },
+      },
+      run: async () => ({ id: "page-1", spaceId: "space-1" }),
+    });
+    const updateDocument = defineAction({
+      description: "Update one Content document.",
+      schema: z.object({
+        id: z.string().optional(),
+        title: z.string().optional(),
+      }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: annotations,
+      run: async () => ({ updated: true }),
+    });
+    const getDocument = defineAction({
+      description: "Read one Content document.",
+      schema: z.object({ id: z.string() }),
+      http: { method: "GET" },
+      run: async () => ({ id: "page-1" }),
+    });
+    const registered = {
+      "create-document": createDocument,
+      "update-document": updateDocument,
+      "get-document": getDocument,
+      "list-resource-shares": listResourceShares,
+      "share-resource": shareResource,
+      "unshare-resource": unshareResource,
+      "set-resource-visibility": setResourceVisibility,
+    };
+    const pick = <T extends Record<string, unknown>>(
+      source: T,
+      names: string[],
+    ) =>
+      Object.fromEntries(
+        names
+          .filter((name) => name in source)
+          .map((name) => [name, source[name]]),
+      );
+    const shareWriteNames = [
+      "update-document",
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
+    ];
+    const authorizeWidgetWrite = vi.fn(async () => true);
+    const directoryProfile = {
+      connectorCatalog: ["create-document"],
+      widgetDomain: "https://content.agent-native.com",
+      authorizeWidgetWrite,
+      widgetTargets: {
+        "create-document":
+          contentDirectoryProfile.widgetTargets["create-document"],
+      },
+      widgetReadActionArguments: pick(
+        contentDirectoryProfile.widgetReadActionArguments,
+        ["get-document", "list-resource-shares"],
+      ) as Record<string, Record<string, string>>,
+      widgetReadAuthenticatedActions: ["get-document", "list-resource-shares"],
+      widgetReadActionWriteGates: pick(
+        contentDirectoryProfile.widgetReadActionWriteGates,
+        ["list-resource-shares"],
+      ) as Record<string, string>,
+      widgetWriteActionArguments: pick(
+        contentDirectoryProfile.widgetWriteActionArguments,
+        shareWriteNames,
+      ) as Record<string, Record<string, any>>,
+    };
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "content",
+      directoryProfile,
+      widgetDomain: "https://content.agent-native.com",
+      actions: { "create-document": createDocument },
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile,
+        registered,
+      ),
+      widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+        directoryProfile,
+        registered,
+      ),
+    };
+    const embedAuth = await import("../shared/embed-auth.js");
+    const widget = {
+      appId: "content",
+      resourceUri: "ui://content/shell-v69",
+      userEmail: "oauth@example.com",
+    };
+    const create = async (
+      id: number,
+      scope?: string,
+      callConfig: typeof directoryConfig = directoryConfig,
+    ) => {
+      const headers = await mcpAppsAuthHeaders({
+        resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        issuer: "https://content.agent-native.com",
+        ...(scope ? { scope } : {}),
+      });
+      return callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name: "create-document", arguments: {} },
+        },
+        {
+          headers: { ...headers, host: "content.agent-native.com" },
+          config: callConfig,
+          routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        },
+      );
+    };
+    const open = async (
+      id: number,
+      scope?: string,
+      callConfig?: typeof directoryConfig,
+    ) => {
+      const created = await create(id, scope, callConfig);
+      expect(created.result.isError).not.toBe(true);
+      return embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0];
+    };
+    const body = (name: string, resourceId = "page-1") =>
+      name === "share-resource"
+        ? {
+            resourceType: "document",
+            resourceId,
+            principalType: "user",
+            principalId: "teammate@example.com",
+            role: "viewer",
+            notify: false,
+          }
+        : name === "unshare-resource"
+          ? {
+              resourceType: "document",
+              resourceId,
+              principalType: "user",
+              principalId: "teammate@example.com",
+            }
+          : { resourceType: "document", resourceId, visibility: "org" };
+    const normalizeShare = (
+      scope: string | undefined,
+      name: string,
+      args: Record<string, unknown>,
+    ) =>
+      embedAuth.normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+        actionName: name,
+        ...widget,
+        args,
+        allowedArgumentNames: Object.keys(
+          directoryProfile.widgetWriteActionArguments[name]!,
+        ),
+      });
+    const shareNames = [
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
+    ];
+
+    const editorTicket = await open(160);
+    expect(authorizeWidgetWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "create-document",
+        target: expect.objectContaining({
+          resourceIds: {
+            documentId: "page-1",
+            resourceType: "document",
+            spaceId: "space-1",
+          },
+          writeActions: shareWriteNames,
+        }),
+      }),
+    );
+    expect(editorTicket).toMatchObject({ ttlSeconds: 5 * 60 });
+    const editorScope = editorTicket?.scope as string;
+    expect(
+      embedAuth.isMcpDirectoryWidgetWriteCapabilityScope(editorScope),
+    ).toBe(true);
+    expect(
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(editorScope, widget),
+    ).toEqual({
+      resourceIds: {
+        documentId: "page-1",
+        resourceType: "document",
+        spaceId: "space-1",
+      },
+      actionNames: [...shareWriteNames].sort(),
+    });
+    const expiresAt =
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityExpiresAt(editorScope);
+    expect(expiresAt).toBeGreaterThan(Date.now());
+    expect(expiresAt).toBeLessThanOrEqual(
+      Date.now() + embedAuth.MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+    );
+    for (const name of shareNames) {
+      expect(normalizeShare(editorScope, name, body(name)), name).toEqual(
+        body(name),
+      );
+      expect(
+        normalizeShare(editorScope, name, body(name, "page-2")),
+        name,
+      ).toBeUndefined();
+    }
+    expect(
+      embedAuth.allowsMcpDirectoryWidgetReadAction(editorScope, {
+        actionName: "list-resource-shares",
+        ...widget,
+        args: { resourceType: "document", resourceId: "page-1" },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(true);
+
+    const expectReadOnlyTicket = (ticket: any) => {
+      const scope = ticket?.scope as string;
+      expect(embedAuth.isMcpDirectoryWidgetReadCapabilityScope(scope)).toBe(
+        true,
+      );
+      expect(
+        embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(scope, widget),
+      ).toBeUndefined();
+      for (const name of [...shareNames, "update-document"]) {
+        expect(
+          embedAuth.normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+            actionName: name,
+            ...widget,
+            args: name === "update-document" ? { id: "page-1" } : body(name),
+            allowedArgumentNames: Object.keys(
+              directoryProfile.widgetWriteActionArguments[name]!,
+            ),
+          }),
+          name,
+        ).toBeUndefined();
+      }
+      // A read-only ticket never lists who has access.
+      for (const resourceId of ["page-1", "page-2"]) {
+        expect(
+          embedAuth.allowsMcpDirectoryWidgetReadAction(scope, {
+            actionName: "list-resource-shares",
+            ...widget,
+            args: { resourceType: "document", resourceId },
+            allowedArgumentNames: ["resourceType", "resourceId"],
+          }),
+        ).toBe(false);
+      }
+    };
+
+    authorizeWidgetWrite.mockClear();
+    authorizeWidgetWrite.mockResolvedValueOnce(false);
+    expectReadOnlyTicket(await open(161));
+    expect(authorizeWidgetWrite).toHaveBeenCalledOnce();
+
+    // Every mutation needs mcp:write, so a read-only OAuth grant cannot open
+    // the widget at all: the write tool is not even visible to it, and no
+    // ticket is minted.
+    embedSessionMocks.createEmbedSessionTicket.mockClear();
+    authorizeWidgetWrite.mockClear();
+    const readOnlyGrant = await create(162, "mcp:read mcp:apps");
+    expect(readOnlyGrant.result.isError).toBe(true);
+    expect(JSON.stringify(readOnlyGrant)).toContain(
+      "Unknown tool: create-document",
+    );
+    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(authorizeWidgetWrite).not.toHaveBeenCalled();
+
+    // Without mcp:read the mint skips list-resource-shares (read visibility is
+    // checked per action) but keeps the share mutations beside update-document.
+    const writeOnlyScope = (await open(163, "mcp:write mcp:apps"))
+      ?.scope as string;
+    expect(
+      embedAuth
+        .getMcpDirectoryWidgetWriteCapabilityGrant(writeOnlyScope, widget)
+        ?.actionNames.sort(),
+    ).toEqual([...shareWriteNames].sort());
+    expect(
+      embedAuth.allowsMcpDirectoryWidgetReadAction(writeOnlyScope, {
+        actionName: "list-resource-shares",
+        ...widget,
+        args: { resourceType: "document", resourceId: "page-1" },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(false);
+
+    // A write ticket for a target that cannot share, as the database widget's
+    // is, lists no collaborators either.
+    const realTarget = contentDirectoryProfile.widgetTargets["create-document"];
+    const noShareConfig = {
+      ...directoryConfig,
+      directoryProfile: {
+        ...directoryProfile,
+        widgetTargets: {
+          "create-document": (
+            args: Record<string, unknown>,
+            result: unknown,
+          ) => ({
+            ...realTarget(args, result)!,
+            writeActions: ["update-document"],
+          }),
+        },
+      },
+    };
+    const noShareScope = (await open(164, undefined, noShareConfig))
+      ?.scope as string;
+    expect(
+      embedAuth
+        .getMcpDirectoryWidgetWriteCapabilityGrant(noShareScope, widget)
+        ?.actionNames.sort(),
+    ).toEqual(["update-document"]);
+    expect(
+      embedAuth.allowsMcpDirectoryWidgetReadAction(noShareScope, {
+        actionName: "list-resource-shares",
+        ...widget,
+        args: { resourceType: "document", resourceId: "page-1" },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns directory action results without a widget when OAuth has neither a grant time nor an issued-at", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resource = `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`;
+    const issuer = "https://design.agent-native.com";
+    const token = await new jose.SignJWT({
+      typ: "agent-native-mcp-oauth",
+      credential_version: 2,
+      sub: "oauth@example.com",
+      scope: "mcp:read mcp:write mcp:apps",
+      client_id: "client-123",
+      resource,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(issuer)
+      .setAudience(resource)
+      .setJti("missing-issued-at")
+      .setExpirationTime("30d")
+      .sign(
+        new TextEncoder().encode("oauth-secret-at-least-32-characters-long"),
+      );
+    expect(jose.decodeJwt(token).iat).toBeUndefined();
+    expect(jose.decodeJwt(token).grant_created_at_ms).toBeUndefined();
+
+    const createDesignRun = vi.fn(async () => ({ designId: "design-42" }));
+    const createDesign = defineAction({
+      description: "Create one editable design.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://design/shell-v69",
+          title: "Design",
+          html: "<!doctype html><html><body>Design</body></html>",
+        },
+        structuredContent: true,
+      },
+      run: createDesignRun,
+    });
+    const updateFile = defineAction({
+      description: "Update one file within a design.",
+      schema: z.object({ id: z.string(), content: z.string() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "design",
+      directoryProfile: {
+        connectorCatalog: ["create-design"],
+        widgetDomain: "https://design.agent-native.com",
+        widgetTargets: {
+          "create-design": (_args: unknown, result: unknown) => {
+            const designId = (result as { designId?: unknown }).designId;
+            return typeof designId === "string"
+              ? {
+                  targetPath: `/design/${encodeURIComponent(designId)}`,
+                  resourceIds: { designId },
+                  writeActions: ["update-file"],
+                }
+              : null;
+          },
+        },
+        widgetWriteActionArguments: {
+          "update-file": {
+            id: {
+              type: "actionSchemaResourceBound" as const,
+              resourceKey: "designId",
+            },
+            content: { type: "actionSchema" as const },
+          },
+        },
+      },
+      widgetDomain: "https://design.agent-native.com",
+      actions: { "create-design": createDesign },
+      widgetWriteActions: { "update-file": updateFile },
+    };
+
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 147, method: "tools/list", params: {} },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          host: "design.agent-native.com",
+        },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(
+      listed.result.tools.map((tool: { name: string }) => tool.name),
+    ).toContain("create-design");
+
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 148,
+        method: "tools/call",
+        params: {
+          name: "create-design",
+          arguments: {},
+        },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          host: "design.agent-native.com",
+        },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(createDesignRun).toHaveBeenCalledOnce();
+    expect(called.result.isError).not.toBe(true);
+    expect(called.result.structuredContent).toMatchObject({
+      designId: "design-42",
+    });
+    expect(called.result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "create-design returned no widget session ticket: the credential carries no issue time",
+      ),
+    );
+    consoleWarn.mockRestore();
+  });
+
   it("renews a scoped directory widget ticket after a saved-chat reload without embed metadata", async () => {
     const createDocument = defineAction({
       description: "Create one editable document.",
@@ -2158,6 +3613,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       run: async (args: Record<string, unknown>) => ({ id: args.id }),
     });
+    const updateDocument = defineAction({
+      description: "Update one workspace document title.",
+      schema: z.object({ id: z.string(), title: z.string() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
+    });
     const directoryConfig = {
       ...config,
       catalogMode: "directory" as const,
@@ -2165,6 +3632,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       directoryProfile: {
         connectorCatalog: ["create-document", "get-document"],
         widgetDomain: "https://mail.agent-native.com",
+        authorizeWidgetWrite: async () => true,
         widgetTargets: {
           "create-document": (_args: unknown, result: unknown) => {
             const record = result as { id?: unknown };
@@ -2172,6 +3640,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
               ? {
                   targetPath: `/page/${encodeURIComponent(record.id)}`,
                   resourceIds: { documentId: record.id },
+                  writeActions: ["update-document"],
                 }
               : null;
           },
@@ -2179,12 +3648,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         widgetReadActionArguments: {
           "get-document": { id: "documentId" },
         },
+        widgetWriteActionArguments: {
+          "update-document": {
+            id: "documentId",
+            title: { type: "actionSchema" as const },
+          },
+        },
       },
       widgetDomain: "https://mail.agent-native.com",
       actions: {
         "create-document": createDocument,
         "get-document": getDocument,
       },
+      widgetWriteActions: { "update-document": updateDocument },
     };
     const headers = await mcpAppsAuthHeaders({
       resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
@@ -2219,22 +3695,90 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
     expect(originalCall.result.isError).not.toBe(true);
-    expect(originalCall.result._meta["agent-native/widgetSource"]).toEqual({
+    expect(
+      originalCall.result._meta["agent-native/widgetSource"],
+    ).toMatchObject({
       toolName: "create-document",
+      sourceTicket: "minted-picker-ticket",
     });
     expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
     });
+    expect(
+      embedSessionMocks.createEmbedSessionTicket.mock.calls[0]?.[0]?.scope,
+    ).toContain("capability:mcp-directory-widget-write:");
 
     const savedMetadata = { ...originalCall.result._meta };
     delete savedMetadata["agent-native/embedStart"];
-    delete savedMetadata["agent-native/widgetSource"];
     expect(savedMetadata).not.toHaveProperty("agent-native/embedStart");
-    expect(savedMetadata).not.toHaveProperty("agent-native/widgetSource");
+    const sourceTicket =
+      savedMetadata["agent-native/widgetSource"].sourceTicket;
+    expect(sourceTicket).toBe("minted-picker-ticket");
+
+    const forgedRenewal = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 144,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: {
+            sourceTicket: "forged-ticket",
+            toolOutput: { id: "different-document" },
+          },
+        },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(forgedRenewal.result.isError).toBe(true);
+
+    const originalTicket = embedSessionMocks.renewalTickets.get(sourceTicket);
+    expect(originalTicket).toBeDefined();
+    const scopePrefix = "capability:mcp-directory-widget-write:";
+    const scopeJson = (scope: string) =>
+      Buffer.from(scope.slice(scopePrefix.length), "base64url").toString(
+        "utf8",
+      );
+    expect(scopeJson(originalTicket.scope)).toContain("shell-v69");
+    originalTicket.scope =
+      scopePrefix +
+      Buffer.from(
+        scopeJson(originalTicket.scope).replace("shell-v69", "shell-v68"),
+      ).toString("base64url");
+    embedSessionMocks.renewalTickets.set(sourceTicket, originalTicket);
+    originalTicket.renewalExpiresAtMs = Date.now() + 60 * 1000;
+    embedSessionMocks.renewalTickets.set("foreign-user-ticket", {
+      ...originalTicket,
+      ownerEmail: "another@example.com",
+    });
+    const foreignUserRenewal = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 145,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket: "foreign-user-ticket" },
+        },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(foreignUserRenewal.result.isError).toBe(true);
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(1);
+
     const reloadArguments = {
+      sourceTicket,
+      sourceTool: "create-document",
       toolInput: {},
-      toolOutput: originalCall.result.structuredContent,
-      chrome: "full",
+      toolOutput: { id: "different-document" },
     };
     const reopened = await callWeb(
       {
@@ -2261,9 +3805,146 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ownerEmail: "oauth@example.com",
         orgId: undefined,
         targetPath: "/page/doc-1?__an_mcp_chat_bridge=1",
-        scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
+        scope: expect.stringContaining(
+          "capability:mcp-directory-widget-write:",
+        ),
+        ttlSeconds: expect.any(Number),
+        renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
+        revocationAnchorCreatedAtMs: originalTicket.createdAtMs,
       },
     );
+    const writeScope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const {
+      getMcpDirectoryWidgetWriteCapabilityExpiresAt,
+      getMcpDirectoryWidgetWriteCapabilityGrant,
+      isMcpDirectoryWidgetReadCapabilityScope,
+      isMcpDirectoryWidgetWriteCapabilityScope,
+    } = await import("../shared/embed-auth.js");
+    expect(isMcpDirectoryWidgetWriteCapabilityScope(writeScope)).toBe(true);
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(writeScope, {
+        appId: "mail",
+        resourceUri: "ui://mail/shell-v68",
+        userEmail: "oauth@example.com",
+      }),
+    ).toBeUndefined();
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(writeScope, {
+        appId: "mail",
+        resourceUri: "ui://mail/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toEqual({
+      resourceIds: { documentId: "doc-1" },
+      actionNames: ["update-document"],
+    });
+    const expiresAt = getMcpDirectoryWidgetWriteCapabilityExpiresAt(writeScope);
+    expect(expiresAt).toBeGreaterThan(Date.now());
+    expect(expiresAt).toBeLessThanOrEqual(originalTicket.renewalExpiresAtMs);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
+    expect(
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+        ?.ttlSeconds,
+    ).toBeLessThanOrEqual(60);
+
+    embedSessionMocks.renewalTickets.set(sourceTicket, originalTicket);
+    const inPlaceRenewed = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 147,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket, renewInPlace: true },
+        },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(inPlaceRenewed.result.isError).not.toBe(true);
+    expect(inPlaceRenewed.result.structuredContent).toMatchObject({
+      renewed: true,
+      expiresAt: expect.any(Number),
+    });
+    expect(inPlaceRenewed.result.structuredContent).not.toHaveProperty(
+      "startUrl",
+    );
+    expect(
+      embedSessionMocks.renewMcpDirectoryWidgetSession,
+    ).toHaveBeenLastCalledWith({
+      sourceTicket,
+      ownerEmail: "oauth@example.com",
+      orgId: undefined,
+      expectedScope: originalTicket.scope,
+      renewedScope: expect.any(String),
+    });
+    expect(
+      scopeJson(
+        embedSessionMocks.renewMcpDirectoryWidgetSession.mock.lastCall?.[0]
+          .renewedScope,
+      ),
+    ).toContain("shell-v69");
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(2);
+
+    const readOnlyHeaders = await mcpAppsAuthHeaders({
+      scope: "mcp:read mcp:apps",
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const readOnlyReopened = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 148,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket },
+        },
+      },
+      {
+        headers: readOnlyHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(readOnlyReopened.result.isError).not.toBe(true);
+    const readOnlyScope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    expect(isMcpDirectoryWidgetReadCapabilityScope(readOnlyScope)).toBe(true);
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(readOnlyScope, {
+        appId: "mail",
+        resourceUri: "ui://mail/create-document/shell-v65",
+        userEmail: "oauth@example.com",
+      }),
+    ).toBeUndefined();
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(3);
+
+    const noReadHeaders = await mcpAppsAuthHeaders({
+      scope: "mcp:write mcp:apps",
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const noReadRenewal = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 149,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket },
+        },
+      },
+      {
+        headers: noReadHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(noReadRenewal.result.isError).toBe(true);
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(3);
   });
 
   it("does not publish directory widgets or embed tickets to non-user principals", async () => {
@@ -2415,7 +4096,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       mcpApp: {
         resource: {
-          uri: "ui://design/shell-v68",
+          uri: "ui://design/shell-v69",
           title: "Design",
           html: "<!doctype html><html><body>Design</body></html>",
         },
@@ -2465,6 +4146,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
       issuer: "https://design.agent-native.com",
     });
+    const credentialIssuedAtMs = jose.decodeJwt(
+      headers.authorization.slice("Bearer ".length),
+    ).grant_created_at_ms as number;
     const requestHeaders = { ...headers, host: "design.agent-native.com" };
     const listed = await callWeb(
       { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
@@ -2496,12 +4180,23 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(originalCall.result.isError).not.toBe(true);
-    expect(originalCall.result._meta["agent-native/widgetSource"]).toEqual({
+    expect(
+      originalCall.result._meta["agent-native/widgetSource"],
+    ).toMatchObject({
       toolName: "get-design-snapshot",
+      sourceTicket: "minted-picker-ticket",
     });
     expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
     });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        revocationAnchorCreatedAtMs: credentialIssuedAtMs,
+      }),
+    );
+    const originalTicket = {
+      ...embedSessionMocks.renewalTickets.get("minted-picker-ticket"),
+    };
 
     const savedMetadata = { ...originalCall.result._meta };
     delete savedMetadata["agent-native/embedStart"];
@@ -2514,10 +4209,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: {
           name: "create_embed_session",
           arguments: {
-            sourceTool: savedMetadata["agent-native/widgetSource"].toolName,
-            toolInput: { designId: "design-42" },
-            toolOutput: originalCall.result.structuredContent,
-            chrome: "full",
+            sourceTicket:
+              savedMetadata["agent-native/widgetSource"].sourceTicket,
           },
         },
       },
@@ -2540,6 +4233,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         orgId: undefined,
         targetPath: "/design/design-42?__an_mcp_chat_bridge=1",
         scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
+        ttlSeconds: 900,
+        renewalExpiresAtMs: expect.any(Number),
+        revocationAnchorCreatedAtMs: originalTicket.createdAtMs,
       },
     );
     const { allowsMcpDirectoryWidgetReadAction } =
@@ -2550,7 +4246,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewalCapability, {
         actionName: "get-design",
         appId: "design",
-        resourceUri: "ui://design/shell-v68",
+        resourceUri: "ui://design/shell-v69",
         args: { id: "design-42" },
         allowedArgumentNames: ["id"],
       }),
@@ -2640,22 +4336,25 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       listed.result.tools.map((tool: any) => [tool.name, tool]),
     );
     expect(tools["create-design"]._meta.ui.resourceUri).toBe(
-      "ui://mail/shell-v68",
+      "ui://mail/shell-v69",
     );
     expect(tools["create-design"]._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/shell-v68",
+      "ui://mail/shell-v69",
     );
     expect(tools["create-design"].outputSchema).toBeDefined();
     expect(tools["get-design-snapshot"]._meta).toBeUndefined();
     expect(tools["get-design-snapshot"].outputSchema).toBeUndefined();
+    expect(tools.create_embed_session.inputSchema.required).toEqual([
+      "sourceTicket",
+    ]);
     expect(
-      tools.create_embed_session.inputSchema.properties.sourceTool.enum,
-    ).toEqual(["create-design"]);
+      Object.keys(tools.create_embed_session.inputSchema.properties),
+    ).toEqual(["sourceTicket", "renewInPlace"]);
 
     const resources = await rpc(171, "resources/list", {});
     expect(
       resources.result.resources.map((resource: any) => resource.uri),
-    ).toEqual(["ui://mail/shell-v68"]);
+    ).toEqual(["ui://mail/shell-v69"]);
 
     const snapshotCall = await rpc(172, "tools/call", {
       name: "get-design-snapshot",
@@ -2676,23 +4375,22 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       arguments: {},
     });
     expect(createCall.result.isError).not.toBe(true);
-    expect(createCall.result._meta["agent-native/widgetSource"]).toEqual({
+    expect(createCall.result._meta["agent-native/widgetSource"]).toMatchObject({
       toolName: "create-design",
+      sourceTicket: "minted-picker-ticket",
     });
     expect(createCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
     });
     expect(createCall.result._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/shell-v68",
+      "ui://mail/shell-v69",
     );
     expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(1);
 
     const renewedFromRead = await rpc(174, "tools/call", {
       name: "create_embed_session",
       arguments: {
-        sourceTool: "get-design-snapshot",
-        toolInput: { designId: "design-1" },
-        toolOutput: snapshotCall.result.structuredContent,
+        sourceTicket: "unissued-ticket",
       },
     });
     expect(renewedFromRead.result.isError).toBe(true);
@@ -2710,7 +4408,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       mcpApp: {
         resource: {
-          uri: "ui://content/shell-v68",
+          uri: "ui://content/shell-v69",
           title: "Open database",
           html: "<!doctype html><html><body>Content</body></html>",
         },
@@ -2729,7 +4427,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       mcpApp: {
         resource: {
-          uri: "ui://content/shell-v68",
+          uri: "ui://content/shell-v69",
           title: "Open document",
           html: "<!doctype html><html><body>Content</body></html>",
         },
@@ -2917,6 +4615,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(originalCall.result.isError).not.toBe(true);
     expect(originalCall.result._meta["agent-native/embedStart"]).toBeDefined();
+    const sourceTicket =
+      originalCall.result._meta["agent-native/widgetSource"].sourceTicket;
+    expect(sourceTicket).toBe("minted-picker-ticket");
 
     const reopened = await callWeb(
       {
@@ -2926,10 +4627,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: {
           name: "create_embed_session",
           arguments: {
-            sourceTool: "create-content-database",
-            toolInput: {},
-            toolOutput: originalCall.result.structuredContent,
-            chrome: "full",
+            sourceTicket,
           },
         },
       },
@@ -2958,7 +4656,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "list-comments",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { documentId: "document-7" },
         allowedArgumentNames: ["documentId"],
       }),
@@ -2967,7 +4665,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "list-comments",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { documentId: "another-document" },
         allowedArgumentNames: ["documentId"],
       }),
@@ -2976,7 +4674,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "get-content-database-personal-view",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "database-7" },
         allowedArgumentNames: ["databaseId"],
       }),
@@ -2985,7 +4683,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "get-content-database-personal-view",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "another-database" },
         allowedArgumentNames: ["databaseId"],
       }),
@@ -2994,7 +4692,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: baseArgs,
         allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),
@@ -3003,7 +4701,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { ...baseArgs, documentId: "another-document" },
         allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),
@@ -3199,7 +4897,155 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("executes an approval-gated action only after one exact accepted retry", async () => {
+  it("records an approved admin write with its MCP client, OAuth client and approval", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          "restrict-personal-keys": {
+            tool: {
+              description: "Restrict personal API keys",
+              parameters: { type: "object" as const, properties: {} },
+            },
+            needsApproval: true,
+            run: async (_args: unknown, ctx: any) => {
+              await recordOrgAdminAuditEvent({
+                action: "restrict-personal-keys",
+                targetType: "provider-key-policy",
+                summary: "Restricted personal API keys",
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId,
+                attribution: auditAttribution(ctx),
+              });
+              return { ok: true };
+            },
+          },
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: await mcpAppsAuthHeaders(),
+      },
+    );
+    try {
+      const first = (await client.callTool(
+        { name: "restrict-personal-keys", arguments: {} } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.resultType).toBe("input_required");
+
+      const approved = await client.callTool({
+        name: "restrict-personal-keys",
+        arguments: {},
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(
+        auditInserts.filter((row) => row.action === "restrict-personal-keys"),
+      ).toEqual([
+        expect.objectContaining({
+          caller: "mcp",
+          actorKind: "agent",
+          actorEmail: "oauth@example.com",
+          reportedClientName: "agent-native-server-spec",
+          reportedClientVersion: "1.0.0",
+          oauthClientId: "client-123",
+          approval: "mcp-client-accepted",
+        }),
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("records an accepted elicitation on the accepted action's row, not on a child it calls", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const settingRow = (action: string, ctx: any) =>
+      recordOrgAdminAuditEvent({
+        action,
+        targetType: "setting",
+        summary: "Changed a setting",
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId,
+        attribution: auditAttribution(ctx),
+      });
+    const child = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        await settingRow("child-write", ctx);
+        return "child done";
+      },
+    });
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          "parent-write": {
+            tool: {
+              description: "Parent write",
+              parameters: { type: "object" as const, properties: {} },
+            },
+            needsApproval: true,
+            run: async (_args: unknown, ctx: any) => {
+              await child.run({}, ctx);
+              await settingRow("parent-write", ctx);
+              return { ok: true };
+            },
+          },
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: await mcpAppsAuthHeaders(),
+      },
+    );
+    try {
+      const first = (await client.callTool(
+        { name: "parent-write", arguments: {} } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.resultType).toBe("input_required");
+
+      const approved = await client.callTool({
+        name: "parent-write",
+        arguments: {},
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(
+        auditInserts
+          .filter((row) => row.targetType === "setting")
+          .map((row) => [row.action, row.approval]),
+      ).toEqual([
+        ["child-write", null],
+        ["parent-write", "mcp-client-accepted"],
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("executes a conditional approval-gated action only after one exact accepted retry", async () => {
     const run = vi.fn(async () => ({ ok: true }));
     const approvalConfig = {
       ...config,
@@ -3209,11 +5055,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             description: "Publish a draft",
             parameters: {
               type: "object" as const,
-              properties: { draftId: { type: "string" } },
+              properties: {
+                draftId: { type: "string" },
+                allowLockedLayers: { type: "boolean" },
+              },
               required: ["draftId"],
             },
           },
-          needsApproval: true,
+          needsApproval: (args: { allowLockedLayers?: boolean }) =>
+            args.allowLockedLayers === true,
           run,
         },
       },
@@ -3227,7 +5077,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const first = (await client.callTool(
         {
           name: "publish-draft",
-          arguments: { draftId: "draft-1" },
+          arguments: { draftId: "draft-1", allowLockedLayers: true },
           inputResponses: {
             actionApproval: {
               action: "accept",
@@ -3251,7 +5101,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
       const approved = await client.callTool({
         name: "publish-draft",
-        arguments: { draftId: "draft-1" },
+        arguments: { draftId: "draft-1", allowLockedLayers: true },
         requestState: first.requestState,
         inputResponses: {
           actionApproval: {
@@ -3262,11 +5112,23 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith(
+        { draftId: "draft-1", allowLockedLayers: true },
+        expect.objectContaining({
+          caller: "mcp",
+          userEmail: "oauth@example.com",
+          mcpClient: {
+            name: "agent-native-server-spec",
+            version: "1.0.0",
+            oauthClientId: "client-123",
+          },
+        }),
+      );
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
         name: "publish-draft",
-        arguments: { draftId: "draft-1" },
+        arguments: { draftId: "draft-1", allowLockedLayers: true },
         requestState: first.requestState,
         inputResponses: {
           actionApproval: {
@@ -3278,6 +5140,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(replay.isError).toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("asks approval for the arguments that run, defaults applied, and runs them once", async () => {
+    const received: unknown[] = [];
+    const seen: unknown[] = [];
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": defineAction({
+          description: "Publish a draft",
+          schema: z.object({
+            draftId: z.string(),
+            allowLockedLayers: z.boolean().default(true),
+          }),
+          needsApproval: (args) => {
+            seen.push(args);
+            return args.allowLockedLayers === true;
+          },
+          run: async (args) => {
+            received.push(args);
+            return { ok: true };
+          },
+        }),
+      },
+    };
+    const { client } = await createModernClient(approvalConfig as any, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const first = (await client.callTool(
+        { name: "publish-draft", arguments: { draftId: "draft-1" } } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first).toMatchObject({ resultType: "input_required" });
+      expect(seen).toEqual([{ draftId: "draft-1", allowLockedLayers: true }]);
+      expect(received).toEqual([]);
+
+      const approved = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(received).toEqual([
+        { draftId: "draft-1", allowLockedLayers: true },
+      ]);
     } finally {
       await client.close();
     }
@@ -3524,6 +5443,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(ordinary.isError).not.toBe(true);
       expect(ordinaryRun).toHaveBeenCalledTimes(1);
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          mcpClient: expect.objectContaining({ oauthClientId: "client-123" }),
+        }),
+      );
 
       await expect(
         client.callTool({ name: "throwing", arguments: {} }),
@@ -3570,7 +5495,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it.each([false, true])(
-    "discovers composed object inputs through the SDK (full catalog: %s)",
+    "advertises composed object inputs as flat object roots through the SDK (full catalog: %s)",
     async (fullCatalog) => {
       const actions = {
         "union-input": defineAction({
@@ -3603,44 +5528,822 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
       try {
         const result = await client.listTools();
-        for (const [name, action] of Object.entries(actions)) {
-          const tool = result.tools.find((tool) => tool.name === name);
-          expect(tool?.inputSchema).toEqual({
-            ...action.tool.parameters,
-            type: "object",
-          });
+        const inputSchema = (name: string) =>
+          result.tools.find((tool) => tool.name === name)?.inputSchema;
+        // Zod input objects are open, so a key one branch declares can hold
+        // any value in the other branch; the declared type stays as a hint.
+        const anyValue = { $ref: "#/$defs/JsonValue" };
+        expect(inputSchema("union-input")).toMatchObject({
+          type: "object",
+          properties: {
+            phase: {
+              anyOf: [{ enum: ["validate"] }, { enum: ["verify"] }],
+            },
+            plan: { anyOf: [{ type: "object" }, anyValue] },
+            digest: { anyOf: [{ type: "string" }, anyValue] },
+          },
+          required: ["phase"],
+          $defs: { JsonValue: { anyOf: expect.any(Array) } },
+        });
+        expect(inputSchema("union-input")?.description).toContain(
+          'phase="validate": requires plan',
+        );
+        expect(inputSchema("intersection-input")).toMatchObject({
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id", "value"],
+        });
+        for (const tool of result.tools) {
+          expect(tool.inputSchema.type).toBe("object");
+          for (const keyword of ["anyOf", "oneOf", "allOf"]) {
+            expect(tool.inputSchema).not.toHaveProperty(keyword);
+          }
         }
-        expect(
-          result.tools.every((tool) => tool.inputSchema.type === "object"),
-        ).toBe(true);
       } finally {
         await client.close();
       }
     },
   );
 
-  it("reports the tool whose input contract cannot be advertised as an object", async () => {
-    const actions = {
-      "unsupported-input": {
-        tool: {
-          description: "Unsupported input",
-          parameters: { type: "string" },
+  describe("an action whose input schema cannot be advertised", () => {
+    const listNotes = {
+      tool: {
+        description: "List notes",
+        parameters: {
+          type: "object",
+          properties: { q: { type: "string" } },
         },
-        run: async () => ({ ok: true }),
       },
+      run: async () => ({ ok: true }),
     };
-    const { client } = await createModernClient({
-      ...config,
-      actions,
-      productionActions: actions,
-    });
-    try {
-      await expect(client.listTools()).rejects.toThrow(
-        /unsupported-input.*object-only/,
+    const pickNote = {
+      tool: {
+        description: "Pick a note",
+        parameters: {
+          type: "object",
+          properties: { kind: { enum: [] } },
+        },
+      },
+      run: async () => ({ ok: true }),
+    };
+    const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
+    const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+    // `text` as a JSON Pointer segment, encoded `times` times.
+    const encodePointer = (text: string, times: number) =>
+      Array.from({ length: times }).reduce<string>(
+        (encoded) => encoded.replaceAll("~", "~0").replaceAll("/", "~1"),
+        text,
       );
-    } finally {
-      await client.close();
+    // A Standard Schema whose emitter throws `failure`.
+    const throwingSchema = (failure: unknown) =>
+      ({
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: (value: unknown) => ({ value }),
+          jsonSchema: {
+            input: () => {
+              throw failure;
+            },
+          },
+        },
+      }) as never;
+
+    it("is left out of tools/list, and logged and captured once", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const provider = vi.fn(() => "evt_unusable_mcp_tool");
+      const unregister = registerErrorCaptureProvider(
+        "mcp-unusable-tool-schema-test",
+        provider,
+      );
+      const actions = { "list-notes": listNotes, "pick-note": pickNote };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      const message =
+        'Action "pick-note" is left out of the MCP tool list: its input schema declares an empty enum, so it accepts no value at /properties/kind.';
+      try {
+        const first = (await client.listTools()).tools.map(({ name }) => name);
+        const second = (await client.listTools()).tools.map(({ name }) => name);
+
+        expect(first).toContain("list-notes");
+        expect(first).not.toContain("pick-note");
+        expect(second).toEqual(first);
+        expect(
+          consoleError.mock.calls.filter(([line]) =>
+            String(line).includes('"pick-note"'),
+          ),
+        ).toEqual([[`[mcp] ${message}`]]);
+        expect(provider).toHaveBeenCalledOnce();
+        expect(provider).toHaveBeenCalledWith(
+          expect.objectContaining({ message }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "mcp",
+              failureClass: "unusable-tool-schema",
+            }),
+            extra: expect.objectContaining({
+              action: "pick-note",
+              path: "/properties/kind",
+              reason: "declares an empty enum, so it accepts no value",
+            }),
+          }),
+        );
+      } finally {
+        await client.close();
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it.each([
+      ["a key", "key-start", { [start]: { enum: [] } }],
+      [
+        "an escaped $ref",
+        "ref-start",
+        { item: { $ref: `#/$defs/${start.replaceAll("/", "~1")}` } },
+      ],
+      [
+        "the path, with its ticket in the reason,",
+        "path-start",
+        { [start]: { $ref: `#/$defs/${ticket}` } },
+      ],
+      [
+        "the reason, with its ticket in the path,",
+        "reason-start",
+        { [ticket]: { $ref: start } },
+      ],
+      // The `~` of each pointer `~1` is escaped, so only a decoded layer
+      // shows `~1`, and `embed` and `start` keep its digit between them.
+      ...[
+        ["percent", "%7E"],
+        ["HTML", "&#126;"],
+        ["JavaScript", "\\u007e"],
+        ["twice percent", "%257E"],
+      ].map(([escaping, tilde]): [string, string, object] => [
+        `a $ref whose pointer escapes its ~ as ${escaping},`,
+        `${escaping.replace(" ", "-").toLowerCase()}-pointer-start`,
+        {
+          [ticket]: {
+            $ref: `#/$defs/${start.replaceAll("/", "~1").replaceAll("~", tilde)}`,
+          },
+        },
+      ]),
+      // A pointer's route is read after its `~1` is decoded, so the shared
+      // reader resolves its dot segments and folds its compatibility forms.
+      ...[
+        ["a dot segment", "dot-segment", "embed/x/../start"],
+        [
+          "an escaped dot segment",
+          "escaped-dot-segment",
+          "embed/x/%2e%2e/start",
+        ],
+        ["full-width letters", "full-width", "ｅｍｂｅｄ/ｓｔａｒｔ"],
+        ["a compatibility letter", "compatibility", "em𝕓ed/start"],
+      ].map(([form, slug, route]): [string, string, object] => [
+        `a $ref whose pointer spells its route with ${form},`,
+        `${slug}-pointer-start`,
+        {
+          [ticket]: {
+            $ref: `#/$defs/${start.replace("embed/start", route).replaceAll("/", "~1")}`,
+          },
+        },
+      ]),
+      // A key that holds a pointer is encoded again, so a route is read only
+      // after every encoding is decoded, up to the 8 rounds read
+      // (MAX_DECODE_ROUNDS); one encoded past them is hidden unread.
+      [
+        "a $ref whose pointer is encoded twice,",
+        "twice-encoded-pointer-start",
+        { [ticket]: { $ref: `#/$defs/${encodePointer(start, 2)}` } },
+      ],
+      [
+        "a $ref whose pointer is encoded twice and escapes its ~ as percent,",
+        "twice-encoded-percent-pointer-start",
+        {
+          [ticket]: {
+            $ref: `#/$defs/${encodePointer(start, 2).replaceAll("~", "%7E")}`,
+          },
+        },
+      ],
+      [
+        "a $ref whose pointer is encoded past the rounds read,",
+        "over-encoded-pointer-start",
+        { [ticket]: { $ref: `#/$defs/${encodePointer(start, 9)}` } },
+      ],
+    ])(
+      "hides the reason and path it reports when %s names a start URL",
+      async (_, name, properties) => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const seen: unknown[] = [];
+        const unregister = registerErrorCaptureProvider(
+          "mcp-unusable-tool-schema-redaction-test",
+          (error, context) => {
+            seen.push({
+              message: (error as Error).message,
+              cause: String((error as Error).cause),
+              context,
+            });
+            return "evt_unusable_mcp_tool_redaction";
+          },
+        );
+        const actions = {
+          "list-notes": listNotes,
+          [name]: {
+            tool: {
+              description: "Start",
+              parameters: { type: "object", properties },
+            },
+            run: async () => ({ ok: true }),
+          },
+        };
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        const message = `Action "${name}" is left out of the MCP tool list: its input schema [hidden embed URL] at [hidden embed URL].`;
+        try {
+          const tools = (await client.listTools()).tools.map(
+            ({ name }) => name,
+          );
+
+          expect(tools).toEqual(["list-notes"]);
+          const logged = consoleError.mock.calls.filter(([line]) =>
+            String(line).includes(`"${name}"`),
+          );
+          expect(logged).toEqual([[`[mcp] ${message}`]]);
+          expect(seen).toMatchObject([
+            {
+              message,
+              cause: "undefined",
+              context: {
+                extra: {
+                  action: name,
+                  path: "[hidden embed URL]",
+                  reason: "[hidden embed URL]",
+                },
+              },
+            },
+          ]);
+          expect(JSON.stringify([logged, seen])).not.toContain(ticket);
+        } finally {
+          await client.close();
+          unregister();
+          consoleError.mockRestore();
+        }
+      },
+    );
+
+    it("is left out when converting its schema throws an error it cannot read", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const unreadable = Object.defineProperty(
+        new Error("Unreadable schema"),
+        "message",
+        {
+          get() {
+            throw new Error(start);
+          },
+        },
+      );
+      const probe = defineAction({
+        description: "Probe",
+        readOnly: true,
+        parameters: {},
+        run: async () => {
+          (probe.tool as { parameters: unknown }).parameters = new Proxy(
+            { type: "object", properties: {} },
+            {
+              getPrototypeOf() {
+                throw unreadable;
+              },
+            },
+          );
+          return { ok: true };
+        },
+      });
+      const actions = { "list-notes": listNotes, probe };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      try {
+        const first = await client.callTool({ name: "probe", arguments: {} });
+        const second = await client.callTool({
+          name: "probe",
+          arguments: {},
+        });
+
+        expect(first.isError).toBeFalsy();
+        expect(second).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "Unknown tool: probe" }],
+        });
+        expect(consoleError.mock.calls).toContainEqual([
+          '[mcp] Action "probe" is left out of the MCP tool list: its input schema could not be read: its error could not be read at /.',
+        ]);
+        expect(
+          JSON.stringify([first, second, consoleError.mock.calls]),
+        ).not.toContain(ticket);
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    it.each([
+      {
+        name: "is not an object",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: { type: "string" },
+          },
+        }),
+        reason: "is not an object schema at /",
+      },
+      {
+        name: "reads a value through a getter",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: {
+                  get enum() {
+                    return ["x"];
+                  },
+                },
+              },
+            },
+          },
+        }),
+        reason: "is read through a getter at /properties/x/enum",
+      },
+      {
+        name: "cannot be read",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: new Proxy(
+                  {},
+                  {
+                    ownKeys: () => {
+                      throw new Error("schema read failed");
+                    },
+                  },
+                ),
+              },
+            },
+          },
+        }),
+        reason: "could not be read: schema read failed at /properties/x",
+      },
+      ...[
+        {
+          name: "declares a const its enum does not list",
+          input: {
+            type: "object",
+            properties: { x: { const: "x", enum: [1] } },
+          },
+          reason:
+            "declares a const its enum does not list, so it accepts no value at /properties/x",
+        },
+        {
+          name: "references a missing definition from a not",
+          input: {
+            type: "object",
+            properties: {
+              x: { type: "string", not: { $ref: "#/$defs/Missing" } },
+            },
+          },
+          reason:
+            'references "#/$defs/Missing", which does not resolve at /properties/x/not',
+        },
+      ].map(({ name, input, reason }) => ({
+        name: `was defined with a schema that ${name}`,
+        // Stripping drops the non-string enum and the not, so only
+        // defineAction sees the source schema that accepts nothing.
+        entry: () =>
+          defineAction({
+            description: "Unsupported input",
+            schema: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: { input: () => structuredClone(input) },
+              },
+            } as never,
+            run: async () => ({ ok: true }),
+          }),
+        reason,
+      })),
+      ...[
+        {
+          name: "a number for its reason",
+          malform: (failure: any) => (failure.reason = 123),
+          reason: "123 at /safe",
+        },
+        {
+          name: "a number for its path",
+          malform: (failure: any) => (failure.path = 123),
+          reason: "not usable at 123",
+        },
+        {
+          name: "a reason whose replace method throws",
+          malform: (failure: any) =>
+            (failure.reason = {
+              replace() {
+                throw new Error(start);
+              },
+            }),
+          reason: "[not text] at /safe",
+        },
+      ].map(({ name, malform, reason }) => ({
+        name: `was defined with a verdict that has ${name}`,
+        entry: () => {
+          const failure = new UnusableSchemaError("/safe", "not usable");
+          malform(failure);
+          return defineAction({
+            description: "Unsupported input",
+            schema: throwingSchema(failure),
+            run: async () => ({ ok: true }),
+          });
+        },
+        reason,
+      })),
+    ])(
+      "is left out, reported and unknown to tools/call when its schema $name",
+      async ({ entry, reason }) => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = loadActionsFromStaticRegistry({
+          "list-notes": listNotes,
+          "unsupported-input": { ...entry(), run },
+        });
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        try {
+          const names = (await client.listTools()).tools.map(
+            ({ name }) => name,
+          );
+          const called = await client.callTool({
+            name: "unsupported-input",
+            arguments: { x: "x" },
+          });
+
+          expect(names).toContain("list-notes");
+          expect(names).not.toContain("unsupported-input");
+          expect(called).toMatchObject({
+            isError: true,
+            content: [
+              { type: "text", text: "Unknown tool: unsupported-input" },
+            ],
+          });
+          expect(run).not.toHaveBeenCalled();
+          expect(consoleError.mock.calls).toContainEqual([
+            `[mcp] Action "unsupported-input" is left out of the MCP tool list: its input schema ${reason}.`,
+          ]);
+          expect(
+            JSON.stringify([called, consoleError.mock.calls]),
+          ).not.toContain(ticket);
+        } finally {
+          await client.close();
+          consoleError.mockRestore();
+        }
+      },
+    );
+
+    async function clientWithToneNote() {
+      const run = vi.fn(async () => ({ ok: true }));
+      const actions = {
+        "list-notes": listNotes,
+        "tone-note": {
+          tool: {
+            description: "Set a note's tone",
+            parameters: {
+              type: "object",
+              properties: { tone: { anyOf: [] } },
+            },
+          },
+          run,
+        },
+      };
+      const { client } = await createModernClient({
+        ...config,
+        keyToolNames: ["list-notes", "tone-note"],
+        actions,
+        productionActions: actions,
+      });
+      return { client, run };
     }
+
+    it("is not named by the instructions", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client } = await clientWithToneNote();
+      try {
+        expect(client.getInstructions()).toContain(
+          "Key tools for this app: list-notes. Call tool-search",
+        );
+        expect(client.getInstructions()).not.toContain("tone-note");
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("is answered as an unknown tool by tools/call", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client, run } = await clientWithToneNote();
+      try {
+        const called = await client.callTool({
+          name: "tone-note",
+          arguments: { tone: "warm" },
+        });
+
+        expect(called).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "Unknown tool: tone-note" }],
+        });
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    describe("whose schema object changes in place", () => {
+      // Each HTTP request builds its own server, so each list and call below
+      // is decided by a server built after the change before it.
+      async function clientWithEcho(kind: string[]) {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: kind } },
+        };
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = {
+          "list-notes": listNotes,
+          echo: { tool: { description: "Echo", parameters }, run },
+        };
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        const listed = async () =>
+          (await client.listTools()).tools.find(({ name }) => name === "echo");
+        const call = () =>
+          client.callTool({ name: "echo", arguments: { kind: "fixed" } });
+        return { client, parameters, run, listed, call };
+      }
+
+      let consoleError: ReturnType<typeof vi.spyOn>;
+      beforeEach(() => {
+        consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      });
+      afterEach(() => consoleError.mockRestore());
+
+      it("is advertised and called once a refused schema is repaired", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho(
+          [],
+        );
+        try {
+          expect(await listed()).toBeUndefined();
+          parameters.properties.kind.enum.push("fixed");
+
+          expect((await listed())?.inputSchema.properties).toEqual({
+            kind: { type: "string", enum: ["fixed"] },
+          });
+          expect((await call()).isError).not.toBe(true);
+          expect(run).toHaveBeenCalledOnce();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it("is left out of the list and the call once an accepted schema breaks", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho([
+          "fixed",
+        ]);
+        try {
+          expect(await listed()).toBeDefined();
+          parameters.properties.kind.enum.length = 0;
+
+          expect(await listed()).toBeUndefined();
+          expect(await call()).toMatchObject({
+            isError: true,
+            content: [{ type: "text", text: "Unknown tool: echo" }],
+          });
+          expect(run).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it.each([
+        { kind: ["fixed"], advertised: true },
+        { kind: [], advertised: false },
+      ])(
+        "keeps its verdict while it is unchanged: advertised $advertised",
+        async ({ kind, advertised }) => {
+          const { client, run, listed, call } = await clientWithEcho(kind);
+          try {
+            for (let request = 0; request < 2; request++) {
+              expect(Boolean(await listed())).toBe(advertised);
+            }
+            await call();
+            expect(run).toHaveBeenCalledTimes(advertised ? 1 : 0);
+          } finally {
+            await client.close();
+          }
+        },
+      );
+
+      it("is judged when its request first reads it, and keeps that verdict for the request", async () => {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: ["fixed"] } },
+        };
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = {
+          echo: { tool: { description: "Echo", parameters }, run },
+        };
+        // One server answers every message below, as it does one request.
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        parameters.properties.kind.enum.length = 0;
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          const listed = async () =>
+            (await client.listTools()).tools.find(
+              ({ name }) => name === "echo",
+            );
+          expect(await listed()).toBeUndefined();
+          parameters.properties.kind.enum.push("fixed");
+
+          expect(await listed()).toBeUndefined();
+          expect(
+            await client.callTool({
+              name: "echo",
+              arguments: { kind: "fixed" },
+            }),
+          ).toMatchObject({
+            isError: true,
+            content: [{ type: "text", text: "Unknown tool: echo" }],
+          });
+          expect(run).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it.each([
+        {
+          name: "an enum whose own keys method lists no index",
+          kind: () => {
+            const values: string[] = ["fixed"];
+            Object.defineProperty(values, "keys", {
+              value: function* () {},
+            });
+            return {
+              kind: { enum: values },
+              change: () => {
+                values[0] = "other";
+              },
+            };
+          },
+          before: { type: "string", enum: ["fixed"] },
+          after: { type: "string", enum: ["other"] },
+        },
+        {
+          name: "a class instance given a plain prototype",
+          kind: () => {
+            class Kind {
+              type = "string";
+            }
+            const kind = new Kind();
+            return {
+              kind,
+              change: () => {
+                Object.setPrototypeOf(kind, Object.prototype);
+              },
+            };
+          },
+          before: undefined,
+          after: { type: "string" },
+        },
+      ])(
+        "is converted again by the next request after $name changes",
+        async ({ kind: build, before, after }) => {
+          const { kind, change } = build();
+          const actions = {
+            echo: {
+              tool: {
+                description: "Echo",
+                parameters: { type: "object", properties: { kind } },
+              },
+              run: async () => ({ ok: true }),
+            },
+          };
+          const { client } = await createModernClient({
+            ...config,
+            actions,
+            productionActions: actions,
+          });
+          const listed = async () =>
+            (await client.listTools()).tools.find(({ name }) => name === "echo")
+              ?.inputSchema.properties?.kind;
+          try {
+            expect(await listed()).toEqual(before);
+            change();
+            expect(await listed()).toEqual(after);
+          } finally {
+            await client.close();
+          }
+        },
+      );
+    });
+
+    it("leaves out an action whose parameters cannot be read, and lists the rest", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const actions = {
+        "list-notes": listNotes,
+        "pick-note": pickNote,
+        "read-note": {
+          tool: {
+            description: "Read a note",
+            get parameters(): never {
+              throw new Error("parameters exploded");
+            },
+          },
+          run: async () => ({ ok: true }),
+        },
+      };
+      const listTools = async () => {
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          return await client.listTools();
+        } finally {
+          await client.close();
+        }
+      };
+      try {
+        const names = (await listTools()).tools.map(({ name }) => name);
+
+        expect(names).toContain("list-notes");
+        expect(names).not.toContain("read-note");
+        expect(consoleError.mock.calls).toContainEqual([
+          '[mcp] Action "read-note" is left out of the MCP tool list: its input schema could not be converted: parameters exploded at /.',
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
   });
 
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {
@@ -4200,6 +6903,54 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(uncoded.result.isError).toBe(true);
     expect(uncoded.result.content[0].text).toBe("Error: No such note");
+  });
+
+  it("gives an external agent the details a fail() attached, as text and structured content", async () => {
+    const { fail } = await import("../action.js");
+    const failingConfig = {
+      ...compactSurfaceConfig,
+      actions: {
+        ...compactSurfaceConfig.actions,
+        "import-transcript": {
+          tool: { description: "Import a transcript" },
+          run: async () => {
+            fail("A transcript import is already running", {
+              errorCode: "import_in_progress",
+              statusCode: 409,
+              details: { importId: "imp_1", apiKey: "SENSITIVE_VALUE" },
+            });
+          },
+        },
+      },
+    };
+
+    const response = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 262,
+        method: "tools/call",
+        params: { name: "import-transcript", arguments: {} },
+      },
+      { headers: await mcpAppsFullCatalogHeaders(), config: failingConfig },
+    );
+
+    expect(response.result.isError).toBe(true);
+    expect(response.result.content).toEqual([
+      {
+        type: "text",
+        text:
+          "Error: A transcript import is already running (errorCode: import_in_progress)\n" +
+          'Error details: {"importId":"imp_1","apiKey":"[REDACTED]"}',
+      },
+    ]);
+    expect(response.result.structuredContent).toEqual({
+      error: {
+        message: "A transcript import is already running",
+        errorCode: "import_in_progress",
+        details: { importId: "imp_1", apiKey: "[REDACTED]" },
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("SENSITIVE_VALUE");
   });
 
   it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
@@ -5196,8 +7947,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }),
       );
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('"broken-review"'),
-        resourceFailure,
+        expect.stringContaining(
+          `"broken-review" because its metadata could not be resolved: Error: ${resourceFailure.message}`,
+        ),
       );
       expect(warn).toHaveBeenCalledTimes(warnCallsBeforeRead);
     } finally {
@@ -5804,7 +8556,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("does not publish action changes for read-only or errored direct MCP calls", async () => {
+  it("publishes action changes for a direct MCP write that ran, not for a read or an upstream failure", async () => {
     actionChangeMocks.writeMarker.mockClear();
 
     const readOnly = await callWeb(
@@ -5854,6 +8606,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(errored.error).toBeUndefined();
     expect(errored.result.isError).toBe(true);
+    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
 
     const emptyEmbedConfig = {
       ...config,
@@ -5884,9 +8637,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
 
+    // Flagged so the host mounts no empty widget, but the write ran, so it
+    // says so and is published.
     expect(emptyEmbed.error).toBeUndefined();
     expect(emptyEmbed.result.isError).toBe(true);
-    expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+    expect(emptyEmbed.result.content[0].text).toBe(
+      "empty-embed-update completed; its change was saved, but it produced no widget content.",
+    );
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
   });
 
   it("does not publish action changes for unknown, forbidden, or per-call read-only tools", async () => {
@@ -5964,6 +8722,84 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
   });
 
+  it("keeps read-only actions that can write away from a read-scoped token", async () => {
+    const tool = (description: string) => ({
+      description,
+      parameters: { type: "object" as const, properties: {} },
+    });
+    const readScopeConfig = {
+      ...config,
+      actions: {
+        "get-thing": {
+          tool: tool("Read a thing"),
+          readOnly: true,
+          run: async () => ({ value: "current" }),
+        },
+        // Built the way a dev server registers a discovered file.
+        "fetch-thing": filesystemActionEntry({
+          tool: tool("Fetch or send a thing"),
+          readOnly: true,
+          planMode: {
+            effect: (args: { method?: string }) =>
+              args.method === "POST" ? "write" : "read",
+          },
+          run: async () => ({ sent: true }),
+        }),
+        "script-thing": {
+          tool: tool("Run a script that may write"),
+          readOnly: true,
+          mcpAnnotations: {
+            readOnlyHint: false,
+            destructiveHint: true,
+            openWorldHint: true,
+          },
+          run: async () => ({ ran: true }),
+        },
+      },
+    };
+    const readHeaders = await mcpAppsFullCatalogHeaders({ scope: "mcp:read" });
+
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 309, method: "tools/list", params: {} },
+      { headers: readHeaders, config: readScopeConfig },
+    );
+    const names = listed.result.tools.map((listedTool: any) => listedTool.name);
+    expect(names).toContain("get-thing");
+    expect(names).not.toContain("fetch-thing");
+    expect(names).not.toContain("script-thing");
+
+    for (const [id, name] of [
+      [310, "fetch-thing"],
+      [311, "script-thing"],
+    ] as const) {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: { method: "GET" } },
+        },
+        { headers: readHeaders, config: readScopeConfig },
+      );
+      expect(out.result.isError, name).toBe(true);
+      expect(out.result.content[0].text, name).toContain("OAuth scope");
+    }
+
+    const writeListed = await callWeb(
+      { jsonrpc: "2.0", id: 312, method: "tools/list", params: {} },
+      {
+        headers: await mcpAppsFullCatalogHeaders({
+          scope: "mcp:read mcp:write",
+        }),
+        config: readScopeConfig,
+      },
+    );
+    const fetchThing = writeListed.result.tools.find(
+      (listedTool: any) => listedTool.name === "fetch-thing",
+    );
+    expect(fetchThing.annotations.readOnlyHint).toBe(false);
+  });
+
   it("keeps a successful MCP mutation successful when refresh publication fails", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     actionChangeMocks.writeMarker.mockImplementationOnce(() => {
@@ -5999,8 +8835,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.isError).not.toBe(true);
     expect(warning).toHaveBeenCalledWith(
-      "Could not write the action-change marker after an MCP tool call",
-      expect.any(Error),
+      "Could not write the action-change marker after an MCP tool call: Error: refresh unavailable",
     );
     warning.mockRestore();
   });
@@ -6615,7 +9450,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).toContain("[hidden embed URL]");
   });
 
-  it("surfaces app-only-visibility tool results via structuredContent so the embed iframe can read them", async () => {
+  it("hands an app-only tool's start URL to the embed iframe in _meta, not structuredContent", async () => {
     const embedConfig = {
       ...config,
       actions: {
@@ -6647,12 +9482,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.structuredContent).toMatchObject({
-      startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
+    expect(out.result.structuredContent).toEqual({
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
-    expect(out.result.content[0].text).not.toContain("embed-session-ticket");
+    expect(out.result._meta["agent-native/embedStart"]).toEqual({
+      startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
+      expiresAt: 1735689600,
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "embed-session-ticket",
+    );
   });
 
   it("preserves complete mutation receipts while sanitizing model-visible structured results", async () => {
@@ -6697,6 +9537,94 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
+
+  it.each([
+    { label: "cleared description", description: "" },
+    { label: "long description", description: "Sync history. ".repeat(400) },
+  ])(
+    "returns database rows over the SDK after oversized view metadata ($label)",
+    async ({ description }) => {
+      const propertyIds = Array.from({ length: 60 }, (_, i) => `property-${i}`);
+      const database = {
+        id: "collection-fixture",
+        documentId: "collection-page-fixture",
+        title: "Task board",
+        description,
+        viewConfig: {
+          views: Array.from({ length: 4 }, (_, i) => ({
+            id: `view-${i}`,
+            columnWidths: Object.fromEntries(
+              propertyIds.map((id) => [id, 180]),
+            ),
+            propertyOrderIds: propertyIds,
+            tableColumnOrderIds: propertyIds,
+            hiddenPropertyIds: propertyIds.slice(2),
+          })),
+        },
+      };
+      expect(JSON.stringify(database.viewConfig).length).toBeGreaterThan(2000);
+      const items = [1, 2, 3].map((rank) => ({
+        id: `membership-${rank}`,
+        document: { id: `page-${rank}`, title: `Task ${rank}` },
+        properties: [
+          { definition: { id: "rank", name: "Rank" }, value: rank },
+          { definition: { id: "status", name: "Status" }, value: "todo" },
+        ],
+      }));
+      const payloads = {
+        "get-content-database": {
+          database,
+          properties: [
+            { id: "rank", name: "Rank" },
+            { id: "status", name: "Status" },
+          ],
+          items,
+          pagination: {
+            limit: 3,
+            offset: 0,
+            totalItems: 6,
+            returnedItems: 3,
+            hasMore: true,
+          },
+        },
+        "describe-content-database": {
+          database,
+          properties: [
+            { id: "rank", name: "Rank" },
+            { id: "status", name: "Status" },
+          ],
+        },
+        "get-document": {
+          database,
+          content: "Page body after collection metadata.",
+        },
+      };
+      const actions = Object.fromEntries(
+        Object.entries(payloads).map(([name, payload]) => [
+          name,
+          {
+            tool: { description: name },
+            http: { method: "GET" as const },
+            readOnly: true,
+            run: async () => payload,
+          },
+        ]),
+      );
+      const { client } = await createModernClient({ ...config, actions });
+      try {
+        for (const [name, payload] of Object.entries(payloads)) {
+          const result = await client.callTool({ name, arguments: {} });
+          expect(result.isError).not.toBe(true);
+          const block = result.content[0];
+          if (block.type !== "text") throw new Error("Expected query text");
+          expect(JSON.parse(block.text)).toEqual(payload);
+          expect(result.structuredContent).toEqual(payload);
+        }
+      } finally {
+        await client.close();
+      }
+    },
+  );
 
   it("surfaces sanitized structured payloads for model-visible read-only tools", async () => {
     const readConfig = {
@@ -7162,6 +10090,31 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+    expect(res).toMatchObject({ reason: "invalid" });
+    expect((res as any).message).toMatch(
+      /^This bearer token could not be verified: /,
+    );
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'error="invalid_token", error_description="This bearer token could not be verified: ',
+    );
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'Reconnect at https://mail.agent-native.com/mcp/connect."',
+    );
+  });
+
+  it("challenges a request without a bearer token without naming an error", async () => {
+    process.env.ACCESS_TOKEN = "secret-token";
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+      headers: { authorization: "" },
+    });
+    const res = await handleMcpRequest(event, config as any);
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).not.toContain(
+      "error=",
+    );
+    expect(res).not.toHaveProperty("reason");
   });
 
   it("answers 503 without an auth challenge when the token's org membership cannot be checked", async () => {
@@ -7194,14 +10147,85 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
       membershipOverride.answer = "not-member";
       const removed = request();
-      await handleMcpRequest(removed, config as any);
+      const refused = await handleMcpRequest(removed, config as any);
       expect(removed._status).toBe(401);
-      expect(removed._responseHeaders?.["www-authenticate"]).toBeTruthy();
+      expect(removed._responseHeaders?.["www-authenticate"]).toContain(
+        "error_description=\"This token's account is no longer a member of the organization it was issued for.",
+      );
+      expect(refused).toMatchObject({ reason: "not-member" });
     } finally {
       membershipOverride.answer = null;
       delete process.env.BETTER_AUTH_SECRET;
     }
   });
+
+  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgDomain: "example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    lookupOrgByDomainMock.mockRejectedValueOnce(
+      new Error("database connection failed"),
+    );
+
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const result = await handleMcpRequest(event, config as any);
+
+    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(event._status).toBe(503);
+    expect(event._responseHeaders?.["retry-after"]).toBe("5");
+    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+    expect(result).toMatchObject({ error: "Service Unavailable" });
+  });
+
+  it.each([
+    ["unknown", { status: "not-found" }],
+    ["ambiguous", { status: "ambiguous" }],
+  ] as const)(
+    "refuses an %s signed org domain as unauthorized instead of returning 500",
+    async (_label, resolution) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockResolvedValueOnce(resolution);
+
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
+
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(401);
+      expect(event._responseHeaders?.["www-authenticate"]).toContain(
+        'error="invalid_token"',
+      );
+      expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error: "Unauthorized",
+        reason: "invalid",
+      });
+    },
+  );
 
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {
     process.env.ACCESS_TOKEN = "secret-token";
@@ -7378,6 +10402,786 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  describe("output contracts", () => {
+    // As long as a real ticket, so it is hidden wherever it repeats.
+    const ECHOED_TICKET = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
+    const readTitle = defineAction({
+      description: "Read a title.",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    const saveRow = defineAction({
+      description: "Save a row.",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    const outputContractConfig = {
+      ...config,
+      actions: {
+        "check-and-save": defineAction({
+          description: "Check a row, saving it on the way.",
+          schema: z.object({}),
+          outputSchema: z.object({ ok: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          readOnly: true,
+          run: async (_args, ctx) => {
+            await saveRow.run({}, ctx);
+            return { ok: false } as any;
+          },
+        }),
+        "assign-and-connect": defineAction({
+          description: "Assign an owner; checking the result needs Slack.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentConnectionRequiredError(
+              `Connect Slack to message ${value.owner}`,
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "mail",
+                source: { id: "slack-workspace", label: "Slack" },
+              },
+            );
+          }),
+          run: async () => ({ owner: "kai@example.com" }),
+        }),
+        "warn-read": defineAction({
+          description: "Read with an unaudited output schema.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string() }),
+          readOnly: true,
+          run: async () => ({ id: "w1" }),
+        }),
+        "list-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({}),
+          outputSchema: z.array(z.object({ id: z.string() })),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => [{ id: "r1" }, { id: "r2" }],
+        }),
+        "rename-row": defineAction({
+          description: "Rename a row.",
+          schema: z.object({ id: z.string() }),
+          outputSchema: z.object({ id: z.string(), title: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          link: ({ result }: any) => ({
+            label: "Open row",
+            view: "row",
+            url: `/_agent-native/open?view=row&id=${result.id}`,
+          }),
+          run: async ({ id }) => ({ id, title: "Renamed" }),
+        }),
+        "count-rows": defineAction({
+          description: "Count rows.",
+          schema: z.object({}),
+          outputSchema: z.object({ count: z.number() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ count: "erin@example.com" }) as any,
+        }),
+        "publish-draft": defineAction({
+          description: "Publish a draft unless asked to preview.",
+          schema: z.object({ apply: z.boolean().default(true) }),
+          outputSchema: z.object({ published: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          planMode: { effect: (args) => (args.apply ? "write" : "read") },
+          run: async (args) => {
+            args.apply = false;
+            return { published: "gina@example.com" } as any;
+          },
+        }),
+        "flip-and-misreport": {
+          ...defineAction({
+            description: "Apply, rewrite the arguments, and misreport.",
+            schema: z.object({ apply: z.boolean().default(true) }),
+            outputSchema: z.object({ ok: z.boolean() }),
+            outputErrorStrategy: "strict",
+            planMode: { effect: (args) => (args.apply ? "write" : "read") },
+            run: async (args) => {
+              args.apply = false;
+              return { ok: true };
+            },
+          }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { ok: { type: "string" } },
+              required: ["ok"],
+            },
+          },
+        },
+        "rename-title": defineAction({
+          description: "Rename a title.",
+          schema: z.object({ title: z.string() }),
+          run: async () => ({ ok: true }),
+        }),
+        "rename-and-read": defineAction({
+          description: "Rename a row, then read its title back.",
+          schema: z.object({}),
+          run: async (_args, ctx) => readTitle.run({}, ctx),
+        }),
+        "assign-and-stop": defineAction({
+          description: "Assign an owner; checking the result stops the call.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentActionStopError(`${value.owner} is suspended`, {
+              details: { owner: value.owner },
+            });
+          }),
+          run: async () => ({ owner: "jo@example.com" }),
+        }),
+        "stamp-row": defineAction({
+          description: "Stamp a row with a value that serializes once.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => {
+            let serialized = 0;
+            return {
+              at: {
+                toJSON: () => {
+                  if (serialized++ > 0) {
+                    throw new Error("helen@example.com second toJSON");
+                  }
+                  return "2026-10-06";
+                },
+              },
+            };
+          },
+        }),
+        "stamp-broken": defineAction({
+          description: "Stamp a row with a value that cannot serialize.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => ({
+            at: {
+              toJSON: () => {
+                throw new Error("ivy@example.com cannot serialize");
+              },
+            },
+          }),
+        }),
+        "start-embed-echo": defineAction({
+          description: "Start an embedded session, repeating its ticket.",
+          schema: z.object({}),
+          outputSchema: z.object({
+            id: z.string(),
+            startUrl: z.string(),
+            note: z.string(),
+          }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "e2",
+            startUrl: `https://app.example.test/_agent-native/embed/start?ticket=${ECHOED_TICKET}`,
+            note: ECHOED_TICKET,
+          }),
+        }),
+        "stamp-escaped": defineAction({
+          description: "Stamp a row with a value escaped past the embed check.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => {
+            let at = "https://example.com/docs";
+            for (let layer = 0; layer < 9; layer += 1) {
+              at = encodeURIComponent(at);
+            }
+            return { at };
+          },
+        }),
+        "start-embed": defineAction({
+          description: "Start an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string(), startUrl: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "e1",
+            startUrl:
+              "https://app.example.test/_agent-native/embed/start?ticket=t9",
+          }),
+        }),
+        "open-session": defineAction({
+          description: "Open an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({
+            id: z.string(),
+            embedTicket: z.string(),
+            panes: z.array(
+              z.object({ label: z.string(), embedTicket: z.string() }),
+            ),
+          }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "s1",
+            embedTicket: "ticket-1",
+            panes: [{ label: "Main", embedTicket: "ticket-2" }],
+          }),
+        }),
+        "clear-filters": defineAction({
+          description: "Clear filters.",
+          schema: z.object({}),
+          outputSchema: z.object({}),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({}),
+        }),
+        "capture-screen": defineAction({
+          description: "Capture the screen.",
+          schema: z.object({}),
+          outputSchema: z.object({ _agentImages: z.array(z.unknown()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ _agentImages: [] }),
+        }),
+        "list-links": defineAction({
+          description: "List links.",
+          schema: z.object({}),
+          outputSchema: z.object({ links: z.array(z.url()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            links: [
+              "https://app.example.test/_agent-native/embed/start?ticket=t3",
+              "https://example.com/docs",
+            ],
+          }),
+        }),
+        "assign-owner": {
+          tool: {
+            description: "Assign an owner.",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          run: async () => ({ owner: "frank@example.com" }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { owner: { type: "number" } },
+              required: ["owner"],
+            },
+          },
+        },
+      },
+    };
+
+    beforeEach(() => {
+      actionChangeMocks.writeMarker.mockClear();
+    });
+
+    it("advertises outputSchema only for actions that opted in", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        const byName = new Map(tools.map((tool) => [tool.name, tool]));
+        expect(byName.get("warn-read")?.outputSchema).toBeUndefined();
+        expect(byName.get("list-rows")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: { items: { type: "array" } },
+          required: ["items"],
+        });
+        expect(byName.get("rename-row")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            openLink: { type: "object" },
+            url: { type: "string" },
+          },
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("returns structuredContent that the client validates against the advertised contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const list = await client.callTool({
+          name: "list-rows",
+          arguments: {},
+        });
+        expect(list.isError).toBeFalsy();
+        expect(list.structuredContent).toEqual({
+          items: [{ id: "r1" }, { id: "r2" }],
+        });
+
+        const rename = await client.callTool({
+          name: "rename-row",
+          arguments: { id: "row-7" },
+        });
+        expect(rename.isError).toBeFalsy();
+        expect(rename.structuredContent).toMatchObject({
+          id: "row-7",
+          title: "Renamed",
+          openLink: { label: "Open row" },
+        });
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a read's broken output as changing nothing, without its values", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "count-rows",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("count: invalid_type");
+        expect(text).toContain("changed nothing");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("erin@example.com");
+        expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a write's broken MCP response as committed and still refreshes other sessions", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-owner",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("owner: type");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("frank@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("classifies the effect from the arguments the call ran with, defaults applied", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "publish-draft",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("gina@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("accepts results whose embed credentials and URLs the transport redacts", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const session = await client.callTool({
+          name: "open-session",
+          arguments: {},
+        });
+        expect(session.isError).toBeFalsy();
+        expect(session.structuredContent).toEqual({
+          id: "s1",
+          panes: [{ label: "Main" }],
+        });
+
+        const links = await client.callTool({
+          name: "list-links",
+          arguments: {},
+        });
+        expect(links.isError).toBeFalsy();
+        expect(links.structuredContent).toEqual({
+          links: ["[hidden embed URL]", "https://example.com/docs"],
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps the classification taken before run when run rewrites its arguments", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "flip-and-misreport",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("ok: type");
+        expect(text).toContain("do not retry");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a write whose nested read broke its output contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-and-read",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("title: invalid_type");
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain('"rename-and-read" returned');
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a read whose nested write ran before its result broke its contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "check-and-save",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("changed nothing");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps a connection request's routing, not its message, when raised while checking a result", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-connect",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain('provider "slack"');
+        expect(text).toContain('reason "grant"');
+        expect(text).toContain('app "mail"');
+        expect(text).toContain('source "slack-workspace"');
+        expect(text).toContain("do not retry");
+        expect(JSON.stringify(result)).not.toContain("kai@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("sanitizes a stop raised while checking a write's result and still refreshes", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-stop",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("jo@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("audits and tracks a call whose arguments fail validation", async () => {
+      const events: Array<{ name: string; properties: any }> = [];
+      const { registerTrackingProvider, unregisterTrackingProvider } =
+        await import("../tracking/registry.js");
+      registerTrackingProvider({
+        name: "output-contract-spec",
+        track: (event) => {
+          events.push(event as any);
+        },
+      });
+      auditMocks.record.mockClear();
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-title",
+          arguments: { title: 5 },
+        });
+        expect(result.isError).toBe(true);
+        expect(auditMocks.record).toHaveBeenCalledTimes(1);
+        expect(auditMocks.record.mock.calls[0]![0]).toMatchObject({
+          status: "error",
+          args: { title: 5 },
+          ctx: { actionName: "rename-title", caller: "mcp" },
+          attribution: {
+            caller: "mcp",
+            mcpClient: { name: "agent-native-server-spec" },
+          },
+          error: expect.objectContaining({
+            message: expect.stringMatching(/^Invalid action parameters/),
+          }),
+        });
+        expect(
+          events
+            .filter((event) => event.properties?.action_name === "rename-title")
+            .map((event) => event.properties.status),
+        ).toEqual(["started", "failed"]);
+      } finally {
+        unregisterTrackingProvider("output-contract-spec");
+        await client.close();
+      }
+    });
+
+    it("serializes a contracted result once for both the check and the text", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "stamp-row",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({ at: "2026-10-06" });
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).not.toContain("helen@example.com");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("types a contracted result that cannot serialize, keeping its effect", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "stamp-broken",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("(root): not_serializable");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("ivy@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("types a contracted write the embed check cannot read, keeping its effect", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "stamp-escaped",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("(root): transform_failed");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("masks a required embed URL field in place instead of deleting it", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        expect(
+          tools.find((tool) => tool.name === "start-embed")?.outputSchema
+            ?.required,
+        ).toEqual(["id", "startUrl"]);
+        const result = await client.callTool({
+          name: "start-embed",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({
+          id: "e1",
+          startUrl: "[hidden embed URL]",
+        });
+        expect(JSON.stringify(result.content)).not.toContain("ticket=t9");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("hides a ticket a contracted result repeats beside its start URL", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "start-embed-echo",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({
+          id: "e2",
+          startUrl: "[hidden embed URL]",
+          note: "[hidden embed ticket]",
+        });
+        expect(JSON.stringify(result)).not.toContain(ECHOED_TICKET);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps an empty result as {} instead of the status placeholder", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        for (const name of ["clear-filters", "capture-screen"]) {
+          const result = await client.callTool({ name, arguments: {} });
+          expect(result.isError).toBeFalsy();
+          expect(result.structuredContent).toEqual({});
+        }
+      } finally {
+        await client.close();
+      }
+    });
+  });
+
+  it("returns a read-only tools/call result whole and tells a text-only host when a mutating result was cut", async () => {
+    const payload = { rows: "x".repeat(5000) };
+    const fullLength = JSON.stringify(payload).length;
+    const incomplete = `[Truncated: showing the first 2000 of ${fullLength} characters. This result is incomplete.`;
+    const truncationConfig = {
+      ...config,
+      actions: {
+        "paged-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({
+            cursor: z.string().optional(),
+            limit: z.number().optional(),
+          }),
+          readOnly: true,
+          run: async () => payload,
+        }),
+        "replace-rows": defineAction({
+          description: "Replace rows.",
+          schema: z.object({
+            fields: z.array(z.string()).optional(),
+            cursor: z.string().optional(),
+          }),
+          run: async () => payload,
+        }),
+      },
+    };
+    const callText = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: truncationConfig,
+        },
+      );
+      return out.result.content[0].text as string;
+    };
+
+    const paged = await callText("paged-rows", 301);
+    expect(paged).toBe(JSON.stringify(payload));
+    const mutating = await callText("replace-rows", 303);
+    expect(mutating).toContain(`${incomplete}]`);
+    expect(mutating).not.toContain("structuredContent");
+    expect(mutating).not.toContain("get the rest");
+  });
+
+  it("names paging inputs when an MCP App tool's text is cut, but not for a GET action that opts out of read-only", async () => {
+    const rows = "x".repeat(5000);
+    const incomplete = `[Truncated: showing the first 2000 of ${rows.length} characters. This result is incomplete.`;
+    const appResource = (name: string) => ({
+      resource: {
+        uri: `ui://mail/${name}`,
+        title: name,
+        description: "Rows inline.",
+        html: "<!doctype html><html><body>Rows</body></html>",
+      },
+    });
+    const pagedSchema = z.object({ cursor: z.string().optional() });
+    const appConfig = {
+      ...config,
+      actions: {
+        "app-rows": defineAction({
+          description: "List rows.",
+          schema: pagedSchema,
+          readOnly: true,
+          mcpApp: appResource("app-rows"),
+          run: async () => rows,
+        }),
+        "app-get-rows": defineAction({
+          description: "Fetch rows.",
+          schema: pagedSchema,
+          http: { method: "GET" },
+          readOnly: false,
+          mcpApp: appResource("app-get-rows"),
+          run: async () => rows,
+        }),
+      },
+    };
+    const callApp = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: {
+            ...(await mcpAppsFullCatalogHeaders()),
+            "x-agent-native-mcp-inline-apps": "1",
+          },
+          config: appConfig,
+        },
+      );
+      return out.result;
+    };
+
+    const readOnly = await callApp("app-rows", 311);
+    expect(readOnly.structuredContent).toBeDefined();
+    expect(readOnly.content[0].text).toContain(
+      `${incomplete} This tool pages with cursor.]`,
+    );
+    const getOnly = await callApp("app-get-rows", 312);
+    expect(getOnly.structuredContent).toBeDefined();
+    expect(getOnly.content[0].text).toContain(`${incomplete}]`);
+  });
+
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
     const event = makeWebEvent({ method: "POST", path: "/connect" });
     const res = await handleMcpRequest(event, config as any);
@@ -7417,6 +11221,46 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event._handled).toBeUndefined();
     expect((res as Response).status).toBe(200);
     expect(event.node.res.headersSent).toBe(false);
+  });
+
+  it("returns the same protocol envelope through H3 and the Fetch adapter", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 77,
+      method: "tools/list",
+      params: {},
+    };
+    const event = makeWebEvent({ method: "POST", body: rpc });
+    const h3Response = (await handleMcpRequest(
+      event,
+      config as any,
+    )) as Response;
+    const fetchRequest = new Request("https://mail.agent-native.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(rpc),
+    });
+    const fetchResponse = await handleMcpFetchRequest(
+      fetchRequest,
+      config as any,
+      {
+        requestMeta: {
+          origin: "https://mail.agent-native.com",
+          transport: "http",
+          fullSurface: true,
+        },
+        parsedBody: rpc,
+      },
+    );
+
+    expect(fetchResponse.status).toBe(h3Response.status);
+    expect(fetchResponse.headers.get("content-type")).toBe(
+      h3Response.headers.get("content-type"),
+    );
+    expect(await fetchResponse.text()).toBe(await h3Response.text());
   });
 });
 

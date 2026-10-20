@@ -62,6 +62,7 @@ import {
   readLiteralJsxPropsAtAnchor,
   type LocalJsxSourceAnchor,
 } from "../shared/local-jsx-visual-edit.js";
+import { pruneDeletedNativeEffects } from "../shared/native-effect-pruning.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
@@ -453,6 +454,8 @@ async function persistLinkedComponentEdit(args: {
     | { kind: "resetOverrides" }
     | ComponentStructureEdit;
   expectedFiles: Array<{ fileId: string; versionHash: string }>;
+  currentContent?: string;
+  revision?: string;
 }): Promise<Record<string, unknown>> {
   const workspace = await resolveSourceWorkspace(args.designId, {
     includeContent: true,
@@ -491,6 +494,68 @@ async function persistLinkedComponentEdit(args: {
   const liveFiles = await Promise.all(
     files.map(async (file) => ({ file, ...(await readLiveSourceFile(file)) })),
   );
+  const documents: ComponentSourceDocument[] = liveFiles.map(
+    ({ file, content }) => ({
+      source: {
+        kind: "design-file",
+        designId: args.designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content,
+    }),
+  );
+  if (
+    args.edit.kind === "attribute" &&
+    args.edit.attribute.startsWith(COMPONENT_PROP_PREFIX)
+  ) {
+    const currentContent = args.currentContent;
+    const targetPropertyEdit = applyComponentPropertyEdit({
+      documents:
+        currentContent !== undefined
+          ? documents.map((document) =>
+              document.source.fileId === args.fileId
+                ? { ...document, content: currentContent }
+                : document,
+            )
+          : documents,
+      target: { fileId: args.fileId, nodeId: args.nodeId },
+      edit: args.edit,
+    });
+    if (targetPropertyEdit.status === "not-linked") {
+      const targetFile = liveFiles.find(({ file }) => file.id === args.fileId);
+      const canReconcileTargetContent = Boolean(
+        args.currentContent !== undefined &&
+        args.revision &&
+        targetFile?.file.updatedAt === args.revision &&
+        expected.get(args.fileId) === sourceContentHash(args.currentContent),
+      );
+      if (
+        liveFiles.some(
+          ({ file, versionHash }) =>
+            expected.get(file.id) !== versionHash &&
+            !(file.id === args.fileId && canReconcileTargetContent),
+        )
+      ) {
+        return {
+          designId: args.designId,
+          nodeId: args.nodeId,
+          persisted: false,
+          conflict: true,
+          error:
+            "A source file changed since this component edit was prepared. Refresh the design and retry.",
+        };
+      }
+      return {
+        designId: args.designId,
+        nodeId: args.nodeId,
+        persisted: false,
+        transformStatus: targetPropertyEdit.status,
+        error: `Linked component edit failed: ${targetPropertyEdit.status}.`,
+      };
+    }
+  }
+
   if (
     liveFiles.some(
       ({ file, versionHash }) => expected.get(file.id) !== versionHash,
@@ -506,17 +571,6 @@ async function persistLinkedComponentEdit(args: {
     };
   }
 
-  const documents: ComponentSourceDocument[] = liveFiles.map(
-    ({ file, content }) => ({
-      source: {
-        kind: "design-file",
-        designId: args.designId,
-        fileId: file.id,
-        filename: file.filename,
-      },
-      content,
-    }),
-  );
   let transformed: ComponentStructureTransformResult | null = null;
   let selection: LinkedComponentSelection | undefined;
   if (args.edit.kind === "resetOverrides") {
@@ -711,6 +765,15 @@ async function persistLinkedComponentEdit(args: {
     };
   }
 
+  if (args.edit.kind === "structure") {
+    transformed = {
+      ...transformed,
+      changes: transformed.changes.map((change) => ({
+        ...change,
+        after: pruneDeletedNativeEffects(change.before, change.after),
+      })),
+    };
+  }
   const updated = new Map(
     transformed.changes.map((change) => [change.fileId, change.after]),
   );
@@ -964,6 +1027,15 @@ export default defineAction({
           connectionId: localSource.connectionId,
           path: localSource.path,
         });
+        if (typeof live.content !== "string") {
+          fail(
+            "The localhost bridge did not return source content; no component prop edit was applied.",
+            {
+              errorCode: "localhost_source_content_unavailable",
+              statusCode: 502,
+            },
+          );
+        }
         if (
           localSource.expectedVersionHash &&
           live.versionHash !== localSource.expectedVersionHash
@@ -1191,13 +1263,27 @@ export default defineAction({
             : edit.kind === "structure"
               ? (edit as ComponentStructureEdit)
               : { kind: "resetOverrides" };
-      return persistLinkedComponentEdit({
+      const linkedResult = await persistLinkedComponentEdit({
         designId,
         nodeId,
         fileId,
         edit: linkedEdit,
         expectedFiles: source.expectedFiles,
+        ...(source.currentContent !== undefined
+          ? { currentContent: source.currentContent }
+          : {}),
+        ...(source.revision !== undefined ? { revision: source.revision } : {}),
       });
+      if (
+        !isLinkedComponentAttributeEdit ||
+        linkedResult.transformStatus !== "not-linked"
+      ) {
+        return linkedResult;
+      }
+      // The linked transformer checked the current workspace and exact source
+      // versions. For an unlinked component root, continue through the normal
+      // inline source CAS path below instead of treating the prefix as proof of
+      // a component link.
     }
 
     const conditions = [

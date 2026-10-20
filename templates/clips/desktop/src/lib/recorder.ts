@@ -6,9 +6,15 @@ import {
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
 import { classifyUploadResponseError } from "../../../shared/recording-core";
+import { desktopRecoveryCopy } from "../i18n/en-US";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
+import {
+  loadCameraCutoutPreference,
+  subscribeCameraCutoutPreference,
+} from "./camera-cutout-preference";
+import { setTakeClipLimitMs } from "./clip-duration-limit";
 import { finalizeAfterDurableBackup } from "./finalization-guard";
 import {
   createLocalRecordingFolderName,
@@ -37,7 +43,11 @@ import {
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
-import { RECORDER_DISCARD_EVENT } from "./recorder-events";
+import { RECORDER_MIC_TRACK_ENDED_EVENT } from "./recorder-events";
+import {
+  RECORDER_DISCARD_EVENT,
+  recorderStopTargetsRecording,
+} from "./recorder-events";
 import {
   buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
@@ -149,6 +159,16 @@ function startBrowserMicLevelEmitter(stream: MediaStream): () => void {
 
   let stopped = false;
   let frame = 0;
+  let trackEnded = false;
+  const microphoneTracks = stream.getAudioTracks();
+  const handleTrackEnded = () => {
+    if (stopped || trackEnded) return;
+    trackEnded = true;
+    emit(RECORDER_MIC_TRACK_ENDED_EVENT, {}).catch(() => {});
+  };
+  microphoneTracks.forEach((track) =>
+    track.addEventListener("ended", handleTrackEnded),
+  );
   const tick = () => {
     if (stopped) return;
     analyser.getByteTimeDomainData(data);
@@ -167,6 +187,9 @@ function startBrowserMicLevelEmitter(stream: MediaStream): () => void {
 
   return () => {
     stopped = true;
+    microphoneTracks.forEach((track) =>
+      track.removeEventListener("ended", handleTrackEnded),
+    );
     window.cancelAnimationFrame(frame);
     source.disconnect();
     analyser.disconnect();
@@ -232,14 +255,25 @@ export interface StartParams {
   cameraOn: boolean;
   systemAudioOn?: boolean;
   voiceCleanupEnabled?: boolean;
+  lookbackEnabled?: boolean;
   signal?: AbortSignal;
   localRecordingMode?: LocalRecordingMode;
   preAcquiredCameraStream?: MediaStream | null;
   preAcquiredDisplayStream?: MediaStream | null;
   preAcquiredAudioStream?: MediaStream | null;
-  preAcquiredCaptureSuspension?: RewindCaptureSuspensionLease | null;
   pendingTranscriptionTeardown?: Promise<void> | null;
-  onCaptureStartRequested?: (recordingId: string | null) => void;
+  countdownAttemptId?: string;
+  onCaptureIdentityAvailable?: (captureIdentity: string) => void;
+  onCaptureStartAttempted?: (recordingId: string | null) => void;
+  onCaptureStartRequested?: (
+    recordingId: string | null,
+    captureIdentity?: string | null,
+  ) => void;
+  onCaptureStartFailed?: (recordingId: string) => void;
+  onStartupAbortStop?: (
+    recordingId: string,
+    stopPromise: Promise<RecorderStopResult>,
+  ) => void;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -252,49 +286,144 @@ export interface RewindClipOrigin {
   rememberedAt: string;
 }
 
+const inMemoryRewindClipOrigins = new Map<string, RewindClipOrigin>();
+const forgottenRewindClipOrigins = new Set<string>();
+
 function readRewindClipOrigins(): Record<string, RewindClipOrigin> {
+  const origins: Record<string, RewindClipOrigin> = {};
+  let serialized: string | null;
   try {
-    const parsed = JSON.parse(
-      localStorage.getItem(REWIND_CLIP_ORIGINS_KEY) || "{}",
+    serialized = localStorage.getItem(REWIND_CLIP_ORIGINS_KEY);
+  } catch (error) {
+    throw new Error(
+      `Earlier screen-time capture details could not be read: ${error instanceof Error ? error.message : String(error)}`,
     );
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized || "{}");
+  } catch (error) {
+    throw new Error(
+      `Earlier screen-time capture details are unreadable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    for (const [recordingId, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const origin = value as RewindClipOrigin;
+      if (
+        typeof origin.startedAt !== "string" ||
+        typeof origin.rememberedAt !== "string" ||
+        !Number.isFinite(Date.parse(origin.rememberedAt)) ||
+        typeof origin.includeMicrophone !== "boolean" ||
+        typeof origin.includeSystemAudio !== "boolean"
+      ) {
+        continue;
+      }
+      origins[recordingId] = origin;
+    }
+  } else {
+    throw new Error("Earlier screen-time capture details are unreadable.");
+  }
+  for (const [recordingId, origin] of inMemoryRewindClipOrigins) {
+    if (!forgottenRewindClipOrigins.has(recordingId)) {
+      origins[recordingId] = origin;
+    }
+  }
+  for (const recordingId of forgottenRewindClipOrigins)
+    delete origins[recordingId];
+  return origins;
 }
 
 function writeRewindClipOrigins(
   origins: Record<string, RewindClipOrigin>,
-): void {
+): boolean {
   try {
     localStorage.setItem(REWIND_CLIP_ORIGINS_KEY, JSON.stringify(origins));
-  } catch {
-    // Losing optional retrospective metadata must never cancel a live Clip.
+    for (const recordingId of Object.keys(origins))
+      inMemoryRewindClipOrigins.delete(recordingId);
+    forgottenRewindClipOrigins.clear();
+    return true;
+  } catch (error) {
+    console.warn("Could not save earlier screen-time capture details:", error);
+    return false;
   }
 }
 
-function rememberRewindClipOrigin(origin: RewindClipOrigin): void {
-  const origins = readRewindClipOrigins();
+export function rememberRewindClipOrigin(origin: RewindClipOrigin): void {
+  let origins: Record<string, RewindClipOrigin>;
+  try {
+    origins = readRewindClipOrigins();
+  } catch (error) {
+    console.warn(
+      "Could not read saved earlier screen-time details; keeping the new capture details in memory.",
+      error,
+    );
+    origins = Object.fromEntries(
+      [...inMemoryRewindClipOrigins].filter(
+        ([recordingId]) => !forgottenRewindClipOrigins.has(recordingId),
+      ),
+    );
+  }
   origins[origin.recordingId] = origin;
-  const newest = Object.values(origins)
-    .sort((left, right) => right.rememberedAt.localeCompare(left.rememberedAt))
-    .slice(0, 50);
-  writeRewindClipOrigins(
-    Object.fromEntries(newest.map((entry) => [entry.recordingId, entry])),
-  );
+  if (!writeRewindClipOrigins(origins))
+    inMemoryRewindClipOrigins.set(origin.recordingId, origin);
+  forgottenRewindClipOrigins.delete(origin.recordingId);
 }
 
 export function getRewindClipOrigin(
   recordingId: string,
 ): RewindClipOrigin | null {
+  if (forgottenRewindClipOrigins.has(recordingId)) return null;
+  const savedInMemory = inMemoryRewindClipOrigins.get(recordingId);
+  if (savedInMemory) return savedInMemory;
   return readRewindClipOrigins()[recordingId] ?? null;
 }
 
 export function forgetRewindClipOrigin(recordingId: string): void {
-  const origins = readRewindClipOrigins();
+  let origins: Record<string, RewindClipOrigin>;
+  try {
+    origins = readRewindClipOrigins();
+  } catch (error) {
+    console.warn(
+      "Could not read saved earlier screen-time details while clearing a capture.",
+      error,
+    );
+    inMemoryRewindClipOrigins.delete(recordingId);
+    forgottenRewindClipOrigins.add(recordingId);
+    return;
+  }
   if (!origins[recordingId]) return;
   delete origins[recordingId];
-  writeRewindClipOrigins(origins);
+  inMemoryRewindClipOrigins.delete(recordingId);
+  forgottenRewindClipOrigins.add(recordingId);
+  if (writeRewindClipOrigins(origins))
+    forgottenRewindClipOrigins.delete(recordingId);
+}
+
+export function forgetRewindClipOriginIfNoRequest(
+  recordingId: string | null,
+  seconds: number,
+): void {
+  if (recordingId && !(seconds > 0)) forgetRewindClipOrigin(recordingId);
+}
+
+function rememberRewindClipOriginForStart(
+  recordingId: string,
+  params: StartParams,
+): void {
+  if (!params.lookbackEnabled) return;
+  const startedAt = new Date().toISOString();
+  rememberRewindClipOrigin({
+    recordingId,
+    startedAt,
+    includeMicrophone: params.micOn,
+    includeSystemAudio: shouldRequestSystemAudio(
+      params.mode !== "camera",
+      params.systemAudioOn,
+    ),
+    rememberedAt: startedAt,
+  });
 }
 
 export const RESTART_CAPTURE_ENDED_MESSAGE =
@@ -1064,7 +1193,9 @@ async function postBackupChunk(
       new Error(
         responseError.isHtml
           ? `Chunk upload returned an HTML error response (${res.status}).`
-          : `Upload retry failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+          : responseError.errorCode === "video_storage_status_unavailable"
+            ? desktopRecoveryCopy.storageStatusUnavailable
+            : `Upload retry failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
       ),
       {
         status: responseError.status,
@@ -1787,6 +1918,7 @@ async function createServerRecording(
           method: "POST",
           headers: buildCreateRecordingRequestHeaders(options?.authToken),
           credentials: "include",
+          signal: options?.signal,
           body: JSON.stringify(
             buildCreateRecordingRequestBody(hasCamera, hasAudio, titleContext, {
               ...options,
@@ -1815,9 +1947,14 @@ async function createServerRecording(
         );
       }
       const data = (await res.json()) as {
-        result?: { id: string; uploadMode?: string };
+        result?: {
+          id: string;
+          uploadMode?: string;
+          maxClipDurationMs?: number | null;
+        };
         id?: string;
         uploadMode?: string;
+        maxClipDurationMs?: number | null;
       };
       const result = data.result ?? data;
       if (!result.id) {
@@ -1825,6 +1962,7 @@ async function createServerRecording(
       }
       const uploadMode: UploadMode =
         result.uploadMode === "streaming" ? "streaming" : "buffered";
+      setTakeClipLimitMs(result.maxClipDurationMs);
       return { id: result.id, uploadMode };
     } catch (err) {
       await abortCreatedRecording(
@@ -1854,6 +1992,7 @@ export async function createPrivateAgentRewindRecording(
   hasAudio: boolean,
   startedAt: string,
   authToken?: string,
+  signal?: AbortSignal,
 ): Promise<{ id: string; uploadMode: UploadMode }> {
   return createServerRecording(
     serverUrl,
@@ -1871,6 +2010,7 @@ export async function createPrivateAgentRewindRecording(
       streamingUploadClient: "desktop-native",
       visibility: "private",
       authToken,
+      signal,
     },
   );
 }
@@ -1898,6 +2038,7 @@ async function captureTitleForRecording(params: {
 }
 
 const COUNTDOWN_EVENT_TIMEOUT_MS = 5000;
+const COUNTDOWN_PRESENTED_TIMEOUT_MS = 5000;
 const COUNTDOWN_SHOW_TIMEOUT_MS = 10_000;
 
 function wait(ms: number): Promise<void> {
@@ -2552,8 +2693,12 @@ export async function pickFullscreenRecordingDisplay(): Promise<void> {
   }
 }
 
-async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
+async function prepareCountdownEventWaiter(
+  signal: AbortSignal | undefined,
+  attemptId: string,
+): Promise<{
   event: Promise<string>;
+  presented: Promise<void>;
   cleanup: () => void;
   startTimeout: () => void;
 }> {
@@ -2564,7 +2709,17 @@ async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
     rejectEvent = reject;
   });
   void event.catch(() => {});
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let resolvePresented!: () => void;
+  let rejectPresented!: (error: Error) => void;
+  const presented = new Promise<void>((resolve, reject) => {
+    resolvePresented = resolve;
+    rejectPresented = reject;
+  });
+  void presented.catch(() => {});
+  let completionTimer: ReturnType<typeof setTimeout> | null = null;
+  let presentationTimer: ReturnType<typeof setTimeout> | null = null;
+  let timeoutStarted = false;
+  let isPresented = false;
   const unlistens: UnlistenFn[] = [];
   let done = false;
   const onKeyDown = (keyboardEvent: KeyboardEvent) => {
@@ -2574,6 +2729,7 @@ async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
     keyboardEvent.preventDefault();
     const cancelled = keyboardEvent.key === "Escape";
     void emit(cancelled ? "clips:countdown-cancel" : "clips:countdown-done", {
+      attemptId,
       cause: cancelled ? "escape" : "return",
     });
   };
@@ -2582,9 +2738,13 @@ async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
   const cleanup = () => {
     window.removeEventListener("keydown", onKeyDown);
     signal?.removeEventListener("abort", onAbort);
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
+    if (completionTimer) {
+      clearTimeout(completionTimer);
+      completionTimer = null;
+    }
+    if (presentationTimer) {
+      clearTimeout(presentationTimer);
+      presentationTimer = null;
     }
     for (const unlisten of unlistens.splice(0)) {
       try {
@@ -2594,13 +2754,35 @@ async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
       }
     }
   };
+  const startCompletionTimeout = () => {
+    if (done || !timeoutStarted || completionTimer !== null) return;
+    completionTimer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      rejectEvent(new Error("timeout waiting for clips:countdown-done"));
+    }, COUNTDOWN_EVENT_TIMEOUT_MS);
+  };
+  const markPresented = () => {
+    if (done || isPresented) return;
+    isPresented = true;
+    if (presentationTimer !== null) {
+      clearTimeout(presentationTimer);
+      presentationTimer = null;
+    }
+    resolvePresented();
+    startCompletionTimeout();
+  };
   const finish = (kind: "done" | "cancel", cause = "unknown") => {
     if (done) return;
     done = true;
     cleanup();
     if (kind === "cancel") {
-      rejectEvent(new CountdownCancelledError());
+      const error = new CountdownCancelledError();
+      rejectPresented(error);
+      rejectEvent(error);
     } else {
+      resolvePresented();
       resolveEvent(cause);
     }
   };
@@ -2611,32 +2793,54 @@ async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
     signal?.addEventListener("abort", onAbort, { once: true });
   }
 
-  const [doneUnlisten, cancelUnlisten] = await Promise.all([
-    listen<{ cause?: string }>("clips:countdown-done", (event) =>
-      finish("done", event.payload?.cause),
+  const [doneUnlisten, cancelUnlisten, presentedUnlisten] = await Promise.all([
+    listen<{ attemptId?: string; cause?: string }>(
+      "clips:countdown-done",
+      (event) => {
+        if (event.payload?.attemptId === attemptId)
+          finish("done", event.payload.cause);
+      },
     ),
-    listen<{ cause?: string }>("clips:countdown-cancel", (event) =>
-      finish("cancel", event.payload?.cause),
+    listen<{ attemptId?: string; cause?: string }>(
+      "clips:countdown-cancel",
+      (event) => {
+        if (event.payload?.attemptId === attemptId)
+          finish("cancel", event.payload.cause);
+      },
     ),
+    listen<{ attemptId?: string }>("clips:countdown-presented", (event) => {
+      if (event.payload?.attemptId === attemptId) markPresented();
+    }),
   ]);
   if (done) {
     doneUnlisten();
     cancelUnlisten();
+    presentedUnlisten();
   } else {
-    unlistens.push(doneUnlisten, cancelUnlisten);
+    unlistens.push(doneUnlisten, cancelUnlisten, presentedUnlisten);
   }
 
   return {
     event,
+    presented,
     cleanup,
     startTimeout() {
-      if (done || timer !== null) return;
-      timer = setTimeout(() => {
+      if (done || timeoutStarted) return;
+      timeoutStarted = true;
+      if (isPresented) {
+        startCompletionTimeout();
+        return;
+      }
+      presentationTimer = setTimeout(() => {
         if (done) return;
         done = true;
         cleanup();
-        rejectEvent(new Error("timeout waiting for clips:countdown-done"));
-      }, COUNTDOWN_EVENT_TIMEOUT_MS);
+        const error = new Error(
+          "timeout waiting for clips:countdown-presented",
+        );
+        rejectPresented(error);
+        rejectEvent(error);
+      }, COUNTDOWN_PRESENTED_TIMEOUT_MS);
     },
   };
 }
@@ -2663,25 +2867,32 @@ async function showRegionRecordBorder(region: RegionCaptureRect | null) {
 async function runRecordingCountdown(
   wantsScreen: boolean,
   signal?: AbortSignal,
+  callbacks?: { onPresented?: () => void; onShown?: () => void },
+  attemptId: string = crypto.randomUUID(),
 ) {
-  const countdown = await prepareCountdownEventWaiter(signal);
+  const countdown = await prepareCountdownEventWaiter(signal, attemptId);
   throwIfRecordingStartAborted(signal);
   await showRegionGuidesForRecording(wantsScreen);
   let countdownGeneration: number;
   try {
     countdownGeneration = await guardRecordingStart(
-      invoke<number>("show_countdown"),
+      invoke<number>("show_countdown", { attemptId }),
       {
         signal,
         timeoutMs: COUNTDOWN_SHOW_TIMEOUT_MS,
         onLateResolve(generation) {
-          void invoke("finish_countdown_shortcuts", { generation }).catch(
-            () => {},
-          );
-          void invoke("hide_recording_chrome").catch(() => {});
+          void invoke("dismiss_countdown_for_generation", {
+            generation,
+          }).catch((error) => {
+            console.warn(
+              "[clips-recorder] late countdown cleanup failed:",
+              error,
+            );
+          });
         },
       },
     );
+    callbacks?.onShown?.();
     countdown.startTimeout();
     await invoke("toolbar_set_visible", { visible: true }).catch(() => {});
   } catch (err) {
@@ -2690,6 +2901,8 @@ async function runRecordingCountdown(
     throw err;
   }
   try {
+    await countdown.presented;
+    callbacks?.onPresented?.();
     const cause = await countdown.event;
     console.log(`[rewind-latency] countdown completion cause=${cause}`);
   } catch (err) {
@@ -2720,11 +2933,12 @@ function showFinalizingFeedback() {
   // window is no longer shown here.
 }
 
-function emitRecorderSession(
+export function emitRecorderSession(
   serverUrl: string | null,
   recordingId: string | null,
   localOnly: boolean,
   microphoneEnabled: boolean,
+  lookbackEnabled = false,
 ) {
   const viewUrl =
     serverUrl && recordingId
@@ -2735,6 +2949,7 @@ function emitRecorderSession(
     recordingId,
     localOnly,
     microphoneEnabled,
+    lookbackEnabled: !localOnly && lookbackEnabled,
   }).catch(() => {});
 }
 
@@ -2913,6 +3128,43 @@ export function recorderWithCaptureSuspension(
   return handle;
 }
 
+function recorderWithRewindOriginLifecycle(
+  handle: RecorderHandle,
+  recordingId: string | null,
+): RecorderHandle {
+  if (!recordingId) return handle;
+
+  const stop = handle.stop.bind(handle);
+  const cancel = handle.cancel.bind(handle);
+  const discardForRestart = handle.discardForRestart.bind(handle);
+  let stopStarted = false;
+  let cancelPromise: Promise<void> | null = null;
+  let discardPromise: Promise<RestartHandoff> | null = null;
+
+  handle.stop = async () => {
+    stopStarted = true;
+    return stop();
+  };
+  handle.cancel = async () => {
+    if (cancelPromise) return cancelPromise;
+    cancelPromise = (async () => {
+      await cancel();
+      if (!stopStarted) forgetRewindClipOrigin(recordingId);
+    })();
+    return cancelPromise;
+  };
+  handle.discardForRestart = async () => {
+    if (discardPromise) return discardPromise;
+    discardPromise = (async () => {
+      const handoff = await discardForRestart();
+      forgetRewindClipOrigin(recordingId);
+      return handoff;
+    })();
+    return discardPromise;
+  };
+  return handle;
+}
+
 async function tryStartRewindFullscreenRecording(
   params: StartParams,
   wantsCamera: boolean,
@@ -3047,7 +3299,12 @@ async function tryStartRewindFullscreenRecording(
       },
       async countdown() {
         try {
-          await runRecordingCountdown(true, countdownSignal);
+          await runRecordingCountdown(
+            true,
+            countdownSignal,
+            undefined,
+            params.countdownAttemptId,
+          );
           console.log("[rewind-latency] countdown completed");
         } catch (err) {
           countdownFailed = true;
@@ -3064,10 +3321,17 @@ async function tryStartRewindFullscreenRecording(
       async activate(preparedRecording) {
         throwIfRecordingStartAborted(params.signal);
         const activationStarted = performance.now();
+        params.onCaptureStartAttempted?.(
+          localOnly ? null : preparedRecording.id || null,
+        );
         const startPromise =
           invoke<RewindClipBackendStatus>("rewind_clip_start");
-        params.onCaptureStartRequested?.(preparedRecording.id || null);
         await guardRecordingStart(startPromise, { signal: params.signal });
+        if (localOnly) {
+          params.onCaptureStartRequested?.(null, preparedRecording.id || null);
+        } else {
+          params.onCaptureStartRequested?.(preparedRecording.id || null);
+        }
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
@@ -3081,16 +3345,6 @@ async function tryStartRewindFullscreenRecording(
       },
     });
     id = recording.id;
-    const originalStartedAt = new Date().toISOString();
-    if (!localOnly) {
-      rememberRewindClipOrigin({
-        recordingId: id,
-        startedAt: originalStartedAt,
-        includeMicrophone: includeMic,
-        includeSystemAudio,
-        rememberedAt: originalStartedAt,
-      });
-    }
   } catch (err) {
     transcriptionAborted = true;
     await (transcriptionCapture as TranscriptionCapture | null)
@@ -3384,7 +3638,8 @@ async function tryStartRewindFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       ),
     ),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       void handle.stop().catch((error) => {
         console.error("[clips-recorder] Rewind handle.stop() threw:", error);
       });
@@ -3403,6 +3658,7 @@ async function tryStartRewindFullscreenRecording(
         id || null,
         localOnly,
         params.micOn,
+        params.lookbackEnabled === true,
       );
       emitState();
     }),
@@ -3415,6 +3671,7 @@ async function tryStartRewindFullscreenRecording(
     id || null,
     localOnly,
     params.micOn,
+    params.lookbackEnabled === true,
   );
   emitState();
   return handle;
@@ -3429,6 +3686,7 @@ async function startNativeFullscreenRecording(
   console.log("[clips-recorder] using native macOS capture");
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
+  const includeCameraOverlay = wantsCamera && localRecordingMode !== "separate";
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
   const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   let id = "";
@@ -3440,6 +3698,9 @@ async function startNativeFullscreenRecording(
   let captureRegion: RegionCaptureRect | null = null;
   let transcriptionCapture: TranscriptionCapture | null = null;
   let countdownPromise: Promise<void> | null = null;
+  const captureSuspensionCleanup: {
+    release: (() => Promise<void>) | null;
+  } = { release: null };
   const countdownController = new AbortController();
   const countdownSignal = params.signal
     ? AbortSignal.any([params.signal, countdownController.signal])
@@ -3538,8 +3799,13 @@ async function startNativeFullscreenRecording(
       bubbleCaptureExcluded = true;
     }
 
-    countdownPromise = runRecordingCountdown(true, countdownSignal);
-    void countdownPromise.catch(() => {
+    countdownPromise = runRecordingCountdown(
+      true,
+      countdownSignal,
+      undefined,
+      params.countdownAttemptId,
+    );
+    void countdownPromise.catch((error) => {
       startupFailed = true;
     });
     console.log(
@@ -3547,21 +3813,49 @@ async function startNativeFullscreenRecording(
         ? "[clips-recorder] preparing native local recording"
         : "[clips-recorder] preparing native recording",
     );
-    const captureAudioParams = {
+    const captureParams = {
       includeAudio: wantsAudio,
       captureSystemAudio: wantsSystemAudio,
+      includeCameraOverlay,
       micDeviceId: params.micId || null,
       micDeviceLabel,
       captureRegion,
     };
     const warmMic = async (recordingId: string) => {
       assertStartupActive();
+      params.onCaptureIdentityAvailable?.(recordingId);
+      const activeCountdown = countdownPromise;
+      if (!activeCountdown) {
+        throw new Error("Native recording countdown was not started");
+      }
+      await activeCountdown;
+      await audioCue.playBeforeCapture();
+      assertStartupActive();
+      const captureSuspension = await guardRecordingStart(
+        acquireRewindCaptureSuspension({
+          requiresScreen: true,
+          requiresMicrophone: wantsAudio,
+        }),
+        {
+          signal: params.signal,
+          onLateResolve: (lease) => {
+            void captureSuspensionReleaser(lease)().catch((err) =>
+              console.error(
+                "[clips-recorder] late Rewind suspension cleanup failed:",
+                err,
+              ),
+            );
+          },
+        },
+      );
+      captureSuspensionCleanup.release =
+        captureSuspensionReleaser(captureSuspension);
       // An IPC timeout does not stop native work. Fail the startup on timeout;
       // never let begin race a warm invoke that is still creating its stream.
       await guardRecordingStart(
         invoke("native_fullscreen_recording_warm", {
           recordingId,
-          ...captureAudioParams,
+          ...captureParams,
         }),
         { signal: params.signal },
       );
@@ -3651,18 +3945,18 @@ async function startNativeFullscreenRecording(
     }
 
     await countdownPromise;
-    await audioCue.playBeforeCapture();
     assertStartupActive();
     const beginStartedAt = Date.now();
+    params.onCaptureStartAttempted?.(localOnly ? null : id || null);
     const beginPromise = invoke("native_fullscreen_recording_begin", {
       recordingId: id,
-      ...captureAudioParams,
+      ...captureParams,
       localOnly,
       hasCamera: wantsCamera,
     });
-    params.onCaptureStartRequested?.(localOnly ? null : id || null);
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();
+    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );
@@ -3682,6 +3976,7 @@ async function startNativeFullscreenRecording(
       id || null,
       localOnly,
       params.micOn,
+      params.lookbackEnabled === true,
     );
     emit("clips:recorder-state", {
       paused: false,
@@ -3692,7 +3987,9 @@ async function startNativeFullscreenRecording(
     startupFailed = true;
     if (countdownPromise) {
       countdownController.abort();
-      await emit("clips:countdown-cancel").catch(() => {});
+      await emit("clips:countdown-cancel", {
+        attemptId: params.countdownAttemptId,
+      }).catch(() => {});
       await countdownPromise.catch(() => {});
     }
     await localCameraExport?.cancel().catch(() => {});
@@ -3726,6 +4023,14 @@ async function startNativeFullscreenRecording(
         params.authToken,
       );
     }
+    await captureSuspensionCleanup
+      .release?.()
+      .catch((releaseError) =>
+        console.error(
+          "[clips-recorder] Rewind suspension release after startup failure failed:",
+          releaseError,
+        ),
+      );
     throw err;
   }
 
@@ -4135,7 +4440,8 @@ async function startNativeFullscreenRecording(
         !(pauseQueue?.getDesiredPaused() ?? pausedAt !== null),
       );
     }),
-    listen("clips:recorder-stop", () => {
+    listen("clips:recorder-stop", (event) => {
+      if (!recorderStopTargetsRecording(event.payload, id)) return;
       console.log("[clips-recorder] native stop event received");
       handle.stop().catch((err) => {
         console.error("[clips-recorder] native handle.stop() threw:", err);
@@ -4154,6 +4460,7 @@ async function startNativeFullscreenRecording(
         id || null,
         localOnly,
         params.micOn,
+        params.lookbackEnabled === true,
       );
       emitState();
     }),
@@ -4168,6 +4475,7 @@ async function startNativeFullscreenRecording(
     id || null,
     localOnly,
     params.micOn,
+    params.lookbackEnabled === true,
   );
   emitState();
 
@@ -4182,7 +4490,9 @@ async function startNativeFullscreenRecording(
     }
   }
 
-  return handle;
+  return captureSuspensionCleanup.release
+    ? recorderWithCaptureSuspension(handle, captureSuspensionCleanup.release)
+    : handle;
 }
 
 function createSyntheticScreenStream(): {
@@ -4273,35 +4583,88 @@ export async function startRecording(
   params: StartParams,
   preparedAudioCue?: AudioCue,
 ): Promise<RecorderHandle> {
+  const countdownAttemptId = params.countdownAttemptId ?? crypto.randomUUID();
+  const recordingParams = { ...params, countdownAttemptId };
   const audioCue = preparedAudioCue ?? createAudioCue();
   const startController = new AbortController();
+  let requestedRecordingId: string | null = null;
+  let startupAbortStop: {
+    recordingId: string;
+    promise: Promise<RecorderStopResult>;
+  } | null = null;
   const cancelStartup = () => {
     startController.abort();
-    void emit("clips:countdown-cancel").catch(() => {});
+    void emit("clips:countdown-cancel", {
+      attemptId: countdownAttemptId,
+    }).catch(() => {});
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
     void invoke("hide_recording_chrome").catch(() => {});
   };
+  const cleanupFailedCaptureStart = (recordingId: string) => {
+    try {
+      params.onCaptureStartFailed?.(recordingId);
+    } catch (cleanupError) {
+      console.error(
+        "[clips-recorder] failed to clear context after startup failure:",
+        cleanupError,
+      );
+    } finally {
+      forgetRewindClipOrigin(recordingId);
+    }
+  };
   const startPromise = startRecordingInner(
     {
-      ...params,
+      ...recordingParams,
       signal: startController.signal,
+      onCaptureStartAttempted: (recordingId) => {
+        requestedRecordingId = recordingId;
+      },
+      onCaptureStartRequested: (recordingId, captureIdentity) => {
+        requestedRecordingId = recordingId;
+        if (recordingId) rememberRewindClipOriginForStart(recordingId, params);
+        if (captureIdentity === undefined) {
+          params.onCaptureStartRequested?.(recordingId);
+        } else {
+          params.onCaptureStartRequested?.(recordingId, captureIdentity);
+        }
+      },
+      onStartupAbortStop: (recordingId, promise) => {
+        startupAbortStop = { recordingId, promise };
+        params.onStartupAbortStop?.(recordingId, promise);
+      },
     },
     audioCue,
   );
   try {
-    return await guardRecordingStart(startPromise, {
-      signal: params.signal,
+    const started = await guardRecordingStart(startPromise, {
+      signal: recordingParams.signal,
       timeoutMs: RECORDING_START_TIMEOUT_MS,
       onCancel: cancelStartup,
       // Capture has already begun when a start resolves this late: keep what
       // it recorded. Only a confirmed discard deletes a recording.
       onLateResolve: (handle) => {
         void handle.stop().catch((err) => {
+          if (requestedRecordingId) {
+            cleanupFailedCaptureStart(requestedRecordingId);
+          }
           console.warn("[clips-recorder] late start cleanup failed:", err);
         });
       },
     });
+    return recorderWithRewindOriginLifecycle(started, requestedRecordingId);
   } catch (err) {
+    void startPromise.catch(async () => {
+      const recordingId = requestedRecordingId;
+      if (!recordingId) return;
+      if (startupAbortStop?.recordingId === recordingId) {
+        const retained = await startupAbortStop.promise.then(
+          (result) => result.recordingId === recordingId,
+          () => false,
+        );
+        if (retained) return;
+      }
+      cleanupFailedCaptureStart(recordingId);
+    });
     audioCue.cleanup();
     await boundedCleanup(invoke("hide_recording_chrome"));
     const e = err as { name?: string; message?: string } | null;
@@ -4391,31 +4754,12 @@ async function startRecordingInner(
         )
       : null;
     if (rewindRecorder) return rewindRecorder;
-    const suspension =
-      params.preAcquiredCaptureSuspension ??
-      (nativeFullscreenCapture || nativeWindowCapture
-        ? await acquireRewindCaptureSuspension({
-            requiresScreen: true,
-            requiresMicrophone: wantsAudio,
-          })
-        : null);
-    const releaseSuspension = suspension
-      ? captureSuspensionReleaser(suspension)
-      : null;
-    try {
-      const recorder = await startNativeFullscreenRecording(
-        params,
-        wantsCamera,
-        wantsAudio,
-        audioCue,
-      );
-      return releaseSuspension
-        ? recorderWithCaptureSuspension(recorder, releaseSuspension)
-        : recorder;
-    } catch (err) {
-      await releaseSuspension?.();
-      throw err;
-    }
+    return startNativeFullscreenRecording(
+      params,
+      wantsCamera,
+      wantsAudio,
+      audioCue,
+    );
   }
 
   // 1. Acquire streams BEFORE the countdown so recording can start without a
@@ -4712,6 +5056,8 @@ async function startRecordingInner(
             bubbleSizeRatio: bubbleSizeRatioForName(
               await invoke<string>("load_bubble_size").catch(() => "small"),
             ),
+            cutout: loadCameraCutoutPreference(),
+            subscribeCutout: subscribeCameraCutoutPreference,
           })
         : null;
     if (recordedScreenCameraStream) {
@@ -4796,11 +5142,14 @@ async function startRecordingInner(
             emitState(true);
           }
         }),
-        listen("clips:recorder-stop", () => {
+        listen("clips:recorder-stop", (event) => {
+          if (!recorderStopTargetsRecording(event.payload, id)) return;
           console.log("[clips-recorder] local stop event received");
           if (startedAt === 0) {
             cancelRequestedDuringStartup = true;
-            void emit("clips:countdown-cancel").catch(() => {});
+            void emit("clips:countdown-cancel", {
+              attemptId: params.countdownAttemptId,
+            }).catch(() => {});
             return;
           }
           handle.stop().catch((err) => {
@@ -4936,7 +5285,12 @@ async function startRecordingInner(
       };
 
       try {
-        await runRecordingCountdown(wantsScreen, params.signal);
+        await runRecordingCountdown(
+          wantsScreen,
+          params.signal,
+          undefined,
+          params.countdownAttemptId,
+        );
         if (cancelRequestedDuringStartup) {
           throw new RecordingStartCancelledError();
         }
@@ -5236,11 +5590,14 @@ async function startRecordingInner(
           }
         }
       }),
-      listen("clips:recorder-stop", () => {
+      listen("clips:recorder-stop", (event) => {
+        if (!recorderStopTargetsRecording(event.payload, id)) return;
         console.log("[clips-recorder] stop event received");
         if (!handle) {
           cancelRequestedDuringStartup = true;
-          void emit("clips:countdown-cancel").catch(() => {});
+          void emit("clips:countdown-cancel", {
+            attemptId: params.countdownAttemptId,
+          }).catch(() => {});
           return;
         }
         const stopPromise = handle.stop();
@@ -5277,7 +5634,13 @@ async function startRecordingInner(
         emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
           () => {},
         );
-        emitRecorderSession(params.serverUrl, id, false, params.micOn);
+        emitRecorderSession(
+          params.serverUrl,
+          id,
+          false,
+          params.micOn,
+          params.lookbackEnabled === true,
+        );
         emitState(pausedAt != null);
       }),
     ]);
@@ -5285,7 +5648,12 @@ async function startRecordingInner(
     emit("clips:toolbar-sync").catch(() => {});
 
     try {
-      await runRecordingCountdown(wantsScreen, params.signal);
+      await runRecordingCountdown(
+        wantsScreen,
+        params.signal,
+        undefined,
+        params.countdownAttemptId,
+      );
       if (cancelRequestedDuringStartup) {
         throw new RecordingStartCancelledError();
       }
@@ -5323,7 +5691,13 @@ async function startRecordingInner(
     startedAt = Date.now();
     tickHandle = setInterval(() => emitState(pausedAt != null), 500);
     emit("clips:toolbar-enabled", true).catch(() => {});
-    emitRecorderSession(params.serverUrl, id, false, params.micOn);
+    emitRecorderSession(
+      params.serverUrl,
+      id,
+      false,
+      params.micOn,
+      params.lookbackEnabled === true,
+    );
     emitState(false);
 
     const performStop = async (): Promise<RecorderStopResult> => {
@@ -5576,7 +5950,10 @@ async function startRecordingInner(
                   new Error(
                     responseError.isHtml
                       ? `Chunk upload returned an HTML error response (${finalRes.status}).`
-                      : `Finalize failed (${finalRes.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+                      : responseError.errorCode ===
+                          "video_storage_status_unavailable"
+                        ? desktopRecoveryCopy.storageStatusUnavailable
+                        : `Finalize failed (${finalRes.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
                   ),
                   {
                     status: responseError.status,
@@ -5739,7 +6116,11 @@ async function startRecordingInner(
     // Capture has begun by now, so an aborted startup (a timeout, a closed
     // window) stops and keeps the take. Only a confirmed discard deletes it.
     const cancelOnStartupAbort = () => {
-      void handle?.stop().catch((err) => {
+      const stopPromise = handle?.stop();
+      if (stopPromise) {
+        params.onStartupAbortStop?.(id, stopPromise);
+      }
+      void stopPromise?.catch((err) => {
         console.error("[clips-recorder] startup cancellation failed:", err);
       });
     };

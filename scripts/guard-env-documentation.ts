@@ -15,7 +15,8 @@ const PUBLIC_DOCUMENTATION_PATH = path.join(
   "packages/core/docs/content/environment-variables.mdx",
 );
 
-const PUBLIC_EXACT_KEYS = new Set([
+// The public guide highlights common settings and links to the complete inventory.
+const PUBLIC_CURATED_KEYS = new Set([
   "ACCESS_TOKEN",
   "ACCESS_TOKENS",
   "A2A_SECRET",
@@ -95,6 +96,12 @@ const TEST_FILE_PATTERN = /\.(?:spec|test)\.[tj]sx?$|\/__tests__\//;
 const files = repositoryFiles();
 const inventoryPatterns = readDocumentedPatterns(INVENTORY_DOCUMENTATION_PATH);
 const publicPatterns = readDocumentedPatterns(PUBLIC_DOCUMENTATION_PATH);
+const publicInventoryLinked = readFileSync(
+  PUBLIC_DOCUMENTATION_PATH,
+  "utf8",
+).includes(
+  "https://github.com/BuilderIO/agent-native/blob/main/docs/environment-variables.md#authentication-provider-and-integration-variables",
+);
 const references = new Map<string, Set<string>>();
 
 for (const relativePath of files) {
@@ -189,7 +196,11 @@ const missingInventory = [...references.keys()]
 
 const missingPublic = [...references.keys()]
   .filter((key) => isPublicHardCodedKey(key))
-  .filter((key) => !isDocumented(key, publicPatterns))
+  .filter(
+    (key) =>
+      !isDocumented(key, publicPatterns) &&
+      !(publicInventoryLinked && isDocumented(key, inventoryPatterns)),
+  )
   .map((key) => ({ docPath: PUBLIC_DOCUMENTATION_PATH, key }));
 
 const publicWildcardPatterns = [...publicPatterns].filter((pattern) =>
@@ -323,7 +334,7 @@ function readDocumentedPatterns(docPath: string): Set<string> {
 }
 
 function isPublicHardCodedKey(key: string): boolean {
-  return PUBLIC_EXACT_KEYS.has(key);
+  return PUBLIC_CURATED_KEYS.has(key);
 }
 
 function isDocumented(key: string, patterns: Set<string>): boolean {

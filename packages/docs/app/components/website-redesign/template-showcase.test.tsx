@@ -9,11 +9,11 @@ import { docsI18nCatalog } from "../../i18n";
 import { TemplateShowcase } from "./template-showcase";
 
 const EXPECTED_APP_HREFS = [
-  "/apps/clips/",
   "/apps/design/",
   "/apps/slides/",
   "/apps/analytics/",
   "/apps/calendar/",
+  "/apps/clips/",
   "/apps/mail/",
   "/apps/assets/",
   "/apps/content/",
@@ -94,9 +94,14 @@ describe("TemplateShowcase", () => {
     expect(
       within(card).getByRole("heading", { name: "Build from scratch" }),
     ).toBeTruthy();
-    expect(
-      within(card).getByRole("button", { name: "Build online" }),
-    ).toBeTruthy();
+    const buildOnline = within(card).getByRole("link", {
+      name: "Build online",
+    });
+    const buildOnlineUrl = new URL(buildOnline.getAttribute("href") ?? "");
+    expect(buildOnlineUrl.searchParams.get("initialPrompt")).toBe(
+      "Create a new Agent-Native app.",
+    );
+    expect(buildOnlineUrl.searchParams.get("useFusion")).toBe("true");
     expect(
       within(card).getByRole("link", { name: "Read the docs" }),
     ).toBeTruthy();

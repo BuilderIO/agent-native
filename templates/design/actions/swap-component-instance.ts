@@ -1,5 +1,5 @@
 /**
- * swap-component-instance — Figma's "Swap instance".
+ * swap-component-instance — replace a selected instance with another component.
  *
  * DESIGN NOTE — mapping onto this codebase's data model: there is no
  * separate component "definition"/template anywhere here (see
@@ -8,9 +8,8 @@
  * `data-agent-native-component="Name"` annotation. "Swap to component B"
  * therefore means: find an existing instance of B somewhere in the design
  * (any screen), copy ITS current markup in as a replacement for the selected
- * instance of A, and carry over whichever `data-agent-native-prop-*`
- * overrides the selected instance had that B's own instances also declare
- * (Figma's "preserve same-named overrides").
+ * instance of A, and carry over `data-agent-native-prop-*` overrides that are
+ * shared by both components.
  *
  * Scope decisions, deliberately conservative:
  * - Requires at least one existing instance of the target component
@@ -54,6 +53,7 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
+import { CssSyntaxError, parse as parseCss } from "postcss";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -194,6 +194,73 @@ export function mergeComponentSwapOverrides(
   return { markup, overriddenProps, droppedProps, defaultedProps };
 }
 
+const INSTANCE_PLACEMENT_PROPERTIES = [
+  "position",
+  "inset",
+  "left",
+  "top",
+  "right",
+  "bottom",
+] as const;
+
+function codePointText(codePoint: number, reference: string): string {
+  return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+    ? String.fromCodePoint(codePoint)
+    : reference;
+}
+
+function decodeAttributeText(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (reference, hex: string) =>
+      codePointText(Number.parseInt(hex, 16), reference),
+    )
+    .replace(/&#([0-9]+);/g, (reference, decimal: string) =>
+      codePointText(Number.parseInt(decimal, 10), reference),
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+export function keepInstancePlacement(
+  markup: string,
+  instanceStyle: CodeLayerNode["style"],
+): string {
+  const openTag = markup.slice(0, findOpenTagEnd(markup));
+  const authoredStyle = decodeAttributeText(
+    /\sstyle\s*=\s*(["'])([\s\S]*?)\1/i.exec(openTag)?.[2] ?? "",
+  );
+  const placement = INSTANCE_PLACEMENT_PROPERTIES.flatMap((property) => {
+    const value = instanceStyle[property];
+    return value ? [`${property}:${value}`] : [];
+  });
+  const rest: string[] = [];
+  let authoredDeclarations: ReturnType<typeof parseCss>;
+  try {
+    authoredDeclarations = parseCss(authoredStyle);
+  } catch (error) {
+    if (!(error instanceof CssSyntaxError)) throw error;
+    fail(
+      `The replacement component's inline style is malformed: ${error.reason}. Fix its style attribute and retry the swap.`,
+      { errorCode: "invalid_inline_style", statusCode: 422 },
+    );
+  }
+  authoredDeclarations.walkDecls((declaration) => {
+    if (
+      !(INSTANCE_PLACEMENT_PROPERTIES as readonly string[]).includes(
+        declaration.prop.toLowerCase(),
+      )
+    ) {
+      rest.push(declaration.toString());
+    }
+  });
+  const style = [...placement, ...rest].join(";");
+  if (style === authoredStyle) return markup;
+  return setAttributeOnMarkup(markup, "style", style);
+}
+
 async function persistEdit(file: {
   id: string;
   designId: string;
@@ -231,7 +298,7 @@ async function persistEdit(file: {
 export default defineAction({
   description:
     "Swap a component instance for a different component from elsewhere in " +
-    "the design (Figma's Swap instance). Replaces the selected instance's " +
+    "the design. Replaces the selected instance's " +
     "markup with a copy of another existing instance of targetComponentName, " +
     "carrying over data-agent-native-prop-* overrides whose prop name exists " +
     "on both components. x-data (Alpine state) is not merged — the swapped-in " +
@@ -486,7 +553,7 @@ export default defineAction({
 
     const patchedContent =
       html.slice(0, node.source.start) +
-      mergedMarkup +
+      keepInstancePlacement(mergedMarkup, node.style) +
       html.slice(node.source.end);
 
     if (patchedContent === html) {

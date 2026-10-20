@@ -21,8 +21,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import { getDbExec, isConnectionError, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
-
-let _initPromise: Promise<void> | undefined;
+import { defineStore } from "../db/store-registry.js";
 
 export const MCP_CONNECT_SCOPE = "mcp-connect";
 
@@ -38,67 +37,81 @@ export const MAX_SERVICE_TOKEN_TTL_DAYS = 3_650;
 export const DEVICE_START_MAX = 20;
 export const DEVICE_START_WINDOW_MS = 60_000;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createTokensSql = `
-        CREATE TABLE IF NOT EXISTS mcp_connect_tokens (
-          id TEXT PRIMARY KEY,
-          jti TEXT UNIQUE NOT NULL,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          label TEXT,
-          kind TEXT NOT NULL DEFAULT 'personal',
-          service_name TEXT,
-          created_by TEXT,
-          created_at BIGINT,
-          last_used_at BIGINT,
-          revoked_at BIGINT
-        )
-      `;
-      const createDeviceCodesSql = `
-        CREATE TABLE IF NOT EXISTS mcp_device_codes (
-          device_code TEXT PRIMARY KEY,
-          user_code TEXT NOT NULL,
-          owner_email TEXT,
-          org_id TEXT,
-          status TEXT NOT NULL DEFAULT 'pending',
-          token_jti TEXT,
-          catalog_scope TEXT,
-          created_at BIGINT,
-          expires_at BIGINT,
-          consumed_at BIGINT
-        )
-      `;
+export const mcpConnectStore = defineStore({
+  id: "mcp_connect",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createTokensSql = `
+          CREATE TABLE IF NOT EXISTS mcp_connect_tokens (
+            id TEXT PRIMARY KEY,
+            jti TEXT UNIQUE NOT NULL,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            label TEXT,
+            kind TEXT NOT NULL DEFAULT 'personal',
+            service_name TEXT,
+            created_by TEXT,
+            created_at BIGINT,
+            last_used_at BIGINT,
+            revoked_at BIGINT
+          )
+        `;
+        const createDeviceCodesSql = `
+          CREATE TABLE IF NOT EXISTS mcp_device_codes (
+            device_code TEXT PRIMARY KEY,
+            user_code TEXT NOT NULL,
+            owner_email TEXT,
+            org_id TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            token_jti TEXT,
+            catalog_scope TEXT,
+            created_at BIGINT,
+            expires_at BIGINT,
+            consumed_at BIGINT
+          )
+        `;
 
-      await ensureTableExists("mcp_connect_tokens", createTokensSql);
-      await ensureColumnExists(
-        "mcp_connect_tokens",
-        "kind",
-        `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'personal'`,
-      );
-      await ensureColumnExists(
-        "mcp_connect_tokens",
-        "service_name",
-        `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS service_name TEXT`,
-      );
-      await ensureColumnExists(
-        "mcp_connect_tokens",
-        "created_by",
-        `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
-      );
-      await ensureTableExists("mcp_device_codes", createDeviceCodesSql);
-      await ensureColumnExists(
-        "mcp_device_codes",
-        "catalog_scope",
-        `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS catalog_scope TEXT`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureTableExists("mcp_connect_tokens", createTokensSql);
+        await ensureColumnExists(
+          "mcp_connect_tokens",
+          "kind",
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'personal'`,
+        );
+        await ensureColumnExists(
+          "mcp_connect_tokens",
+          "service_name",
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS service_name TEXT`,
+        );
+        await ensureColumnExists(
+          "mcp_connect_tokens",
+          "created_by",
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
+        );
+        await ensureTableExists("mcp_device_codes", createDeviceCodesSql);
+        await ensureColumnExists(
+          "mcp_device_codes",
+          "catalog_scope",
+          `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS catalog_scope TEXT`,
+        );
+        await ensureColumnExists(
+          "mcp_device_codes",
+          "client",
+          `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS client TEXT`,
+        );
+        await ensureColumnExists(
+          "mcp_device_codes",
+          "purpose",
+          `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS purpose TEXT`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return mcpConnectStore.ready();
 }
 
 export async function ensureConnectTables(): Promise<void> {
@@ -187,28 +200,6 @@ export async function recordMintedToken(
   return id;
 }
 
-/**
- * Returns true when the given `jti` corresponds to a token that has been
- * revoked. Fails OPEN on a store/DB error: a transient Neon WS drop must not
- * lock every connected agent out. Signature verification is unaffected — this
- * is only the post-verify revoke check (see `verifyAuth` in build-server.ts).
- */
-/**
- * Throws when the revocation state can't be read. Answering "not revoked"
- * instead would let a transient read failure admit a revoked token.
- */
-export async function isJtiRevoked(jti: string): Promise<boolean> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
-    args: [jti],
-  });
-  if (rows.length === 0) return false;
-  const revokedAt = rows[0].revoked_at ?? rows[0].revokedAt;
-  return revokedAt != null;
-}
-
 export type StoredConnectTokenIdentity = Pick<
   MintedTokenRow,
   "kind" | "ownerEmail" | "orgId"
@@ -216,9 +207,15 @@ export type StoredConnectTokenIdentity = Pick<
 
 export type ConnectTokenOrgLookup =
   | ({ status: "found" } & StoredConnectTokenIdentity)
+  | { status: "revoked" }
   | { status: "missing" }
   | { status: "unavailable" };
 
+/**
+ * A connect token's standing, read in one query. `unavailable` covers a read
+ * failure and a malformed row: answering `missing` or `found` instead would
+ * admit a revoked token, or refuse a live one, on a transient error.
+ */
 export async function lookupConnectTokenOrg(
   jti: string,
 ): Promise<ConnectTokenOrgLookup> {
@@ -226,10 +223,13 @@ export async function lookupConnectTokenOrg(
     await ensureTable();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = ?`,
+      sql: `SELECT org_id, owner_email, kind, revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
       args: [jti],
     });
     if (rows.length === 0) return { status: "missing" };
+    if ((rows[0].revoked_at ?? rows[0].revokedAt) != null) {
+      return { status: "revoked" };
+    }
     const rawOrgId = rows[0].org_id ?? rows[0].orgId;
     const ownerEmail = rows[0].owner_email ?? rows[0].ownerEmail;
     const kind = rows[0].kind;
@@ -250,7 +250,8 @@ export async function lookupConnectTokenOrg(
           ? rawOrgId.trim()
           : null,
     };
-  } catch {
+  } catch (error) {
+    console.error("[mcp] Connect-token lookup failed:", error);
     return { status: "unavailable" };
   }
 }
@@ -303,8 +304,8 @@ export async function listOrgServiceTokens(
 /**
  * Revoke an org service token by id, scoped to `orgId` AND `kind = 'service'`
  * so a caller can never revoke another org's token (or someone's personal
- * token) through this path. Uses the same `revoked_at` gate `isJtiRevoked`
- * checks, so revocation takes effect on the next request like personal
+ * token) through this path. Uses the same `revoked_at` gate
+ * `lookupConnectTokenOrg` checks, so revocation takes effect on the next request like personal
  * tokens. Idempotent; returns true when a row actually transitioned.
  */
 export async function revokeOrgServiceToken(
@@ -381,6 +382,8 @@ export interface DeviceCodeRow {
   status: "pending" | "approved" | "minting" | "consumed" | "expired";
   tokenJti: string | null;
   catalogScope: "full" | null;
+  client?: string | null;
+  purpose?: "agent" | "credential" | null;
   createdAt: number | null;
   expiresAt: number | null;
   consumedAt: number | null;
@@ -404,6 +407,7 @@ function generateDeviceCode(): string {
 
 export async function createDeviceCode(
   catalogScope: "full" | null = null,
+  connection: { client?: string; purpose?: "agent" | "credential" } = {},
 ): Promise<DeviceCodeRow> {
   await ensureTable();
   const client = getDbExec();
@@ -428,7 +432,7 @@ export async function createDeviceCode(
   const userCode = generateUserCode();
   const expiresAt = now + DEVICE_CODE_TTL_MS;
   await client.execute({
-    sql: `INSERT INTO mcp_device_codes (device_code, user_code, owner_email, org_id, status, token_jti, catalog_scope, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_device_codes (device_code, user_code, owner_email, org_id, status, token_jti, catalog_scope, created_at, expires_at, consumed_at, client, purpose) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       deviceCode,
       userCode,
@@ -440,6 +444,8 @@ export async function createDeviceCode(
       now,
       expiresAt,
       null,
+      connection.client ?? null,
+      connection.purpose ?? null,
     ],
   });
   return {
@@ -450,6 +456,8 @@ export async function createDeviceCode(
     status: "pending",
     tokenJti: null,
     catalogScope,
+    client: connection.client ?? null,
+    purpose: connection.purpose ?? null,
     createdAt: now,
     expiresAt,
     consumedAt: null,
@@ -466,6 +474,8 @@ function mapDeviceRow(r: any): DeviceCodeRow {
     tokenJti: (r.token_jti ?? r.tokenJti ?? null) as string | null,
     catalogScope:
       (r.catalog_scope ?? r.catalogScope) === "full" ? "full" : null,
+    client: r.client ?? null,
+    purpose: r.purpose ?? null,
     createdAt: numOrNull(r.created_at ?? r.createdAt),
     expiresAt: numOrNull(r.expires_at ?? r.expiresAt),
     consumedAt: numOrNull(r.consumed_at ?? r.consumedAt),

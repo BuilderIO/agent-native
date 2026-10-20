@@ -9,9 +9,11 @@
  *   - Gated to org owners/admins (see service-token-access.ts).
  *   - The token value appears ONLY in this action's response — it is never
  *     stored (only its `jti`) and never logged.
- *   - Not callable by the sandboxed agent tool loop (`toolCallable: false`):
- *     minting a long-lived credential must be an explicit human/HTTP/CLI act,
- *     never a prompt-injection target.
+ *   - Not an agent or MCP tool (`agentTool: false`), and not callable from
+ *     extensions or run-code (`toolCallable: false`): minting a long-lived
+ *     credential must be an explicit human/HTTP/CLI act, never a
+ *     prompt-injection target. `toolCallable: false` alone does not keep it
+ *     out of the agent's tool list.
  *   - Revocable via `revoke-org-service-token` — same `revoked_at` gate the
  *     personal-token revocation path uses.
  *
@@ -31,10 +33,12 @@ import {
   type ServicePrincipalPolicy,
   type ServicePrincipalPolicyInput,
 } from "../../org/service-principal-policy.js";
-import { getAppProductionUrl } from "../../server/app-url.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../../server/credential-membership-unavailable.js";
 import { getRequestContext } from "../../server/request-context.js";
-import { mintOrgServiceToken } from "../connect-route.js";
+import {
+  mintOrgServiceToken,
+  OrgServiceTokenAppUrlError,
+} from "../connect-route.js";
 import {
   MAX_SERVICE_TOKEN_TTL_DAYS,
   revokeOrgServiceToken,
@@ -79,6 +83,7 @@ export default defineAction({
     allowedActions: allowedActionsSchema.nullable().optional(),
   }),
   requiresAuth: true,
+  agentTool: false,
   toolCallable: false,
   audit: orgAdminAudit({
     targetType: "service-principal",
@@ -127,16 +132,6 @@ export default defineAction({
       policyInput.allowedActions = normalizeAllowedActions(args.allowedActions);
     }
 
-    const appUrl = (
-      getRequestContext()?.requestOrigin || getAppProductionUrl()
-    ).replace(/\/+$/, "");
-    if (!appUrl && !process.env.A2A_SECRET?.trim()) {
-      throw new ServiceTokenError(
-        "Could not determine the app URL needed to mint a token. Set APP_URL on the deployment.",
-        500,
-      );
-    }
-
     let minted: Awaited<ReturnType<typeof mintOrgServiceToken>>;
     try {
       minted = await mintOrgServiceToken({
@@ -144,9 +139,12 @@ export default defineAction({
         orgId: caller.orgId,
         createdBy: caller.email,
         ttlDays: args.ttlDays,
-        appUrl,
+        appUrl: getRequestContext()?.requestOrigin?.replace(/\/+$/, ""),
       });
     } catch (error) {
+      if (error instanceof OrgServiceTokenAppUrlError) {
+        throw new ServiceTokenError(error.message, 500);
+      }
       if (!(error instanceof McpCredentialIssuanceError)) throw error;
       throw error.reason === "not-member"
         ? new ServiceTokenError(SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE, 403)

@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type { AwarenessEntry } from "./awareness.js";
 
 const ROW_TTL_MS = 30_000;
@@ -8,13 +9,13 @@ const WRITE_THROTTLE_MS = 2_000;
 
 const PURGE_INTERVAL_MS = 30_000;
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = `
+export const collabAwarenessStore = defineStore({
+  id: "collab_awareness",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS _collab_awareness (
           doc_id TEXT NOT NULL,
           client_id BIGINT NOT NULL,
@@ -23,17 +24,14 @@ export async function ensureTable(): Promise<void> {
           PRIMARY KEY (doc_id, client_id)
         )
       `;
-      {
         await ensureTableExists("_collab_awareness", createSql);
-        return;
-      }
-      await client.execute(createSql);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return collabAwarenessStore.ready();
 }
 
 const _lastWrites = new Map<string, { state: string; writtenAt: number }>();
@@ -148,5 +146,5 @@ async function maybePurge(docId: string, now: number): Promise<void> {
 export function _resetAwarenessStoreForTests(): void {
   _lastWrites.clear();
   _lastPurges.clear();
-  _initPromise = undefined;
+  collabAwarenessStore.reset();
 }

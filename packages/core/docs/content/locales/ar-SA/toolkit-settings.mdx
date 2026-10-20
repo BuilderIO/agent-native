@@ -84,7 +84,7 @@ export default function SettingsRoute() {
 تبدأ صفحة التطبيق عادةً بعنصر `extraTabs` الذي يصبح صفحة مستقلة ضمن مجموعة التطبيق. لمزيد من التحكم، سجّل `SettingsPageDefinition` (`id` و`group` و`order` و`label` و`icon` و`component`، واختياريًا `visible` و`subpages` و`searchEntries`) باستخدام `registerSettingsPages` على مستوى الوحدة. يحل التعريف الذي يحمل المعرّف نفسه محل الصفحة الموجودة؛ وبهذه الطريقة يستبدل التطبيق إحدى صفحات الحزمة الأساسية بنسخته. يستخدم Dispatch هذه الطريقة لإضافة عمود أدوار التطبيق إلى صفحة الأعضاء:
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
@@ -185,6 +185,8 @@ buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limi
 ميزة استخدام خطة ChatGPT ضمن Labs معطّلة افتراضيًا؛ فعّلها من الإعدادات → Labs.
 
 لا يحتاج مستخدمو التطبيقات المحلية مفتوحة المصدر إلى موافقة الشركاء أو إلى إعداد معرّف عميل مسبقًا. تصدر OpenAI معرّف العميل عند أول تسجيل دخول، ويعيد التطبيق استخدامه لحساب ChatGPT نفسه.
+
+يتطلب الوصول إلى خطة ChatGPT حسابًا شخصيًا. في التطوير المحلي، اضبط `access.autoCreateDefaultOrg: false` قبل تسجيل الدخول لأول مرة حتى لا ينشئ التطبيق مؤسسة افتراضية للحساب. إذا كان الحساب عضوًا في مؤسسة بالفعل، فاستخدم حسابًا شخصيًا للوصول إلى خطة ChatGPT.
 
 يتطلب تدفق الخدمة الذاتية من OpenAI استدعاء OAuth عبر HTTP على `127.0.0.1`، وهو عنوان loopback على جهاز المستخدم. لذلك لا تعمل التطبيقات المستضافة عن بُعد، بما فيها المواقع على `*.agent-native.com`، كما أن `localhost` ليس بديلًا مقبولًا عن `127.0.0.1`. تخص موافقة الشركاء مشغّل التطبيق المستضاف، لا كل مستخدم؛ ويمكن للمشغّل طلبها من OpenAI عبر [نموذج إبداء الاهتمام](https://openai.com/form/sign-in-with-chatgpt-interest).
 

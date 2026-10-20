@@ -320,9 +320,13 @@ function installAcceptanceTransportFixture(): void {
       lifecycleAnchor,
       `${lifecycleAnchor}\n  const { controller } = useAgentKit();\n  useEffect(() => registerAcceptanceClientDiagnostics(controller, threadId, hasActiveAgentRuns), [controller, threadId]);`,
     );
-    source =
-      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";\nimport { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";\n' +
-      source;
+    const acceptanceImports = [
+      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";',
+      'import { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";',
+    ].filter((statement) => !source.includes(statement));
+    if (acceptanceImports.length > 0) {
+      source = `${acceptanceImports.join("\n")}\n${source}`;
+    }
     fs.writeFileSync(chatSurfacePath, source);
   }
   if (source.includes("instrumentAgentKitAcceptanceTransport(")) return;
@@ -481,7 +485,11 @@ function logTail(logs: string[], maxLines = 120): string {
 }
 
 function hasChatMigrations(logs: string[]): boolean {
-  return logTail(logs).includes("Applied migration v1007");
+  const output = logs.join("");
+  return (
+    output.includes("Installed schema snapshot") ||
+    output.includes('migration(s) to store "org"')
+  );
 }
 
 function hasAuthLockFailure(logs: string[]): boolean {
@@ -1340,11 +1348,21 @@ async function waitForAuthenticatedShell(
   await gotoCommitted(page, `${baseUrl}/home`);
 
   await waitForViteDepsQuiet(running.viteReload, serverLogs);
+  await page.getByRole("heading", { name: "Get started" }).waitFor({
+    state: "visible",
+    timeout: shellTimeoutMs,
+  });
+  const newChatButton = page.getByRole("button", {
+    name: "New Chat",
+    exact: true,
+  });
+  await newChatButton.waitFor({ state: "visible", timeout: shellTimeoutMs });
+  await newChatButton.click();
   const durableThreadPath = await waitForDurableChatRoute(page, shellTimeoutMs);
   assert.match(
     durableThreadPath,
     durableChatPathPattern,
-    "authenticated Chat home should hand off to a durable Chat thread",
+    "opening a new chat from Getting Started should navigate to a durable Chat thread",
   );
   network.allowInitialHomeWarmupErrors = false;
 
@@ -1767,9 +1785,14 @@ async function handleLoopbackCompletion(
       toolNames.includes("accept-agentkit-release"),
       "generated app must expose the approval fixture action",
     );
-    const result = toolResults.find(
+    const approvalResults = toolResults.filter(
       (item) => item.tool_call_id === approvalToolCallId,
     );
+    assert.ok(
+      approvalResults.length <= 1,
+      "approved action result must appear once in the continuation request",
+    );
+    const [result] = approvalResults;
     if (!result) {
       await streamToolCallResponse(response, requestNumber, {
         id: approvalToolCallId,
@@ -3050,11 +3073,6 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   await approval.getByRole("button", { name: "Approve" }).click();
-  await page
-    .locator(".agentkit-message-content strong")
-    .filter({ hasText: "Approval continuation completed." })
-    .last()
-    .waitFor({ state: "visible" });
   await approval.waitFor({ state: "detached" });
   const releaseCardMatches = page.getByText("Release accepted", {
     exact: true,
@@ -3108,6 +3126,9 @@ async function assertAgentKitChatAcceptance(
       ),
     "completed activity rollups must stay collapsed while the card is visible",
   );
+  await page
+    .getByText("Approval continuation completed.", { exact: true })
+    .waitFor({ state: "visible" });
   await assertViewportContract(page, "narrow dark action widget", {
     dark: true,
   });
@@ -3229,10 +3250,6 @@ async function assertAgentKitChatAcceptance(
   }
   await queue.waitFor({ state: "hidden" });
   await assertComposerFocused(page);
-  await waitForLoopbackState(
-    "approval action continuation",
-    () => provider.approvalActionResults.length === 1,
-  );
   await waitForLoopbackState(
     "automatic queue promotion",
     () => provider.queuedPromptSeen,
@@ -3424,11 +3441,6 @@ async function assertAgentKitChatAcceptance(
     .filter({ hasText: "Hello, AgentKit Browser!" })
     .waitFor({ state: "visible" });
   await page
-    .locator(".agentkit-message-content strong")
-    .filter({ hasText: "Approval continuation completed." })
-    .last()
-    .waitFor({ state: "visible" });
-  await page
     .getByText("Queued follow-up completed through the production queue.", {
       exact: true,
     })
@@ -3565,7 +3577,19 @@ async function runBrowserSmoke(
     "acceptance must exercise tools, rich streaming, suggestions, approval, queue promotion, steering, and recovery",
   );
   assert.equal(provider.helloActionResults.length, 1);
+  assert.deepEqual(
+    provider.requests
+      .filter((request) => request.prompt === approvalPrompt)
+      .map(
+        (request) =>
+          request.toolResultIds.filter((id) => id === approvalToolCallId)
+            .length,
+      ),
+    [0, 1],
+    "the model must receive one direct approval result on continuation",
+  );
   assert.equal(provider.approvalActionResults.length, 1);
+  assert.match(provider.approvalActionResults[0]!, /agentkit-acceptance/u);
   assert.equal(provider.widgetRunCompleted, true);
   assert.deepEqual(
     provider.widgetToolCallIds,
@@ -4037,6 +4061,12 @@ async function main(): Promise<void> {
           })
           .catch(() => [] as string[])
       : [];
+    await page
+      ?.screenshot({
+        path: path.join(repoRoot, ".tmp/action-cards-gallery/failure.png"),
+        fullPage: true,
+      })
+      .catch(() => undefined);
     const historyBlock =
       historyDiagnostics.length > 0
         ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`

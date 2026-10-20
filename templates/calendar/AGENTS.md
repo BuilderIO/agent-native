@@ -14,11 +14,23 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Use actions for events, availability, booking links, settings, navigation, Google Calendar, and sharing. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver. Do not bypass app access checks.
 - Use `connect-google-calendar` to connect/reconnect and return its link. Never fetch `/_agent-native/google/auth-url` from the agent backend; it requires the signed-in browser session.
 - `get-settings` / `update-settings` store Calendar's own `timezone`, `weekStart`, `defaultEventDuration`, and fallback booking copy. Settings tabs are `calendars` (Google Calendar/Zoom), `booking`, and `rules`. Owner-private invitation prompts live in `eventRules.accept`, `.decline`, and `.hide`; `get-event-rules-status` reports whether a durable recurring sweep runs.
+- `update-calendar-visual-preferences` stores view-only preferences, including `allDayMaxHeight` (48–320 px, default 88) for the draggable all-day section in the week-style calendar.
 - For multi-event requests use one batch action (`delete-events` or `update-events`); preview destructive batches with `dryRun`. Singular actions are for one event. Use runtime date context for today/tomorrow/yesterday.
 - Preserve `accountEmail` on every Google event write. For multiple accounts, pass the chosen account to `create-event`, then the returned `accountEmail` to `update-event`, `delete-event`, and `rsvp-event`. For a move, pass the original `accountEmail` and destination `targetAccountEmail`.
 - `list-events` preserves account/source coverage and `coverageComplete`; partial failure is not an empty calendar. Use `list-google-calendars` for available calendars and pass opaque `sourceKey`s to `list-events`. Shared calendars are view-only and do not affect booking availability.
 - Distinguish an empty calendar from missing auth, reauth, or fetch failure. Treat working locations and full-day out-of-office as native status events. Use provider API actions for exact endpoints/filters or relationship history; stage large scans with `stageAs` and analyze via `query-staged-dataset`.
 - Use framework sharing actions. Keep scheduling answers concrete: dates, time zones, conflicts, and assumptions. See `event-management` for extensions, attendee adornments, RSVP scope, and multi-account details; `availability-booking` for booking controls and peer working-hours/time-zone hard filters.
+
+## Direct MCP actions
+
+| Action | Purpose |
+| --- | --- |
+| `list-events` | Read a schedule with account and source coverage |
+| `create-event` | Create on an owned Google account's primary calendar |
+| `update-event` | Edit an event using its id and accountEmail |
+| `respond-to-event` | RSVP; scope=single (default) answers one occurrence, scope=all answers the series |
+
+MCP writes use the authenticated caller's connected accounts. `respond-to-event` shares the in-app `rsvp-event` implementation; supply an occurrence id from `list-events` for a single-instance response.
 
 ## Application state
 

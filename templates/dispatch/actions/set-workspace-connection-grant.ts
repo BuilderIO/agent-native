@@ -39,6 +39,11 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Grant or revoke one workspace app's access to a shared workspace integration connection.",
   chatUI: {
@@ -167,7 +172,7 @@ export default defineAction({
           args.accessMode ||
           connection.provider
         ).slice(0, 500),
-        url: "/integrations",
+        url: "/settings/integrations",
       },
     };
   },

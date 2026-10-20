@@ -795,6 +795,7 @@ export default {
     detailCount_many: "{{count}} detalhes",
   },
   calendarView: {
+    resizeAllDaySection: "Redimensionar a seção de eventos de dia inteiro",
     addWorkingLocation: "Adicionar local de trabalho",
     addTitleBeforeCreate: "Adicione um título antes de criar o evento",
     calendarSettingsLoading:
@@ -988,6 +989,8 @@ export default {
     occurrences: "ocorrências",
     reviewInvite: "Revise o convite",
     reviewProposedTime: "Revisar horário proposto",
+    newTimeProposedBy: "Novo horário sugerido por {{name}}",
+    reviewTimeProposals: "Revisar propostas de horário",
     responseAwaitingCount: "{{count}} aguardando",
     responseMaybeCount: "{{count}} talvez",
     responseNoCount: "{{count}} não",

@@ -84,7 +84,7 @@ Establece `visible: false` en un área de la aplicación mientras el lab que la 
 Una página de la aplicación suele empezar como un elemento de `extraTabs`, que se convierte en una página propia del grupo de la aplicación. Para tener más control, registra en el ámbito del módulo una `SettingsPageDefinition` (`id`, `group`, `order`, `label`, `icon`, `component` y, de forma opcional, `visible`, `subpages` y `searchEntries`) con `registerSettingsPages`. Una definición con el mismo ID que una página existente la reemplaza; así puede una aplicación sustituir una página de Core por su propia variante. Dispatch añade de esta forma su columna de roles de aplicación a Miembros:
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
@@ -185,6 +185,8 @@ Agent-Native usa el flujo oficial para compartir tokens de Sign in with ChatGPT 
 La opción de Labs para usar el plan de ChatGPT está desactivada de forma predeterminada. Actívala en **Ajustes → Labs**.
 
 Los usuarios locales de código abierto no necesitan aprobación de socio ni un ID de cliente preconfigurado. OpenAI emite el ID de cliente en el primer inicio de sesión y la app lo reutiliza en los siguientes inicios de sesión de esa misma cuenta de ChatGPT.
+
+El acceso al plan de ChatGPT requiere una cuenta personal. En el desarrollo local, establece `access.autoCreateDefaultOrg: false` antes del primer inicio de sesión para que la aplicación no cree una organización predeterminada para esa cuenta. Si la cuenta ya pertenece a una organización, usa una cuenta personal para acceder al plan de ChatGPT.
 
 El flujo de autoservicio de OpenAI requiere una devolución de llamada OAuth HTTP en `127.0.0.1`, una dirección de bucle local en el equipo del usuario. Por eso no se admiten las aplicaciones alojadas, incluidos los sitios alojados de `*.agent-native.com`; `localhost` no es un sustituto válido de `127.0.0.1`. La aprobación de socio corresponde al operador de la aplicación alojada, no a cada usuario, y puede solicitarse mediante su [formulario de interés](https://openai.com/form/sign-in-with-chatgpt-interest).
 

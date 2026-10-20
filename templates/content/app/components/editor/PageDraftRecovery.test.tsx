@@ -53,6 +53,7 @@ vi.mock("@/hooks/use-documents", () => ({
   useUpdatePreviewDocumentDraft: () => ({ mutateAsync: state.remove }),
 }));
 vi.mock("./page-draft-journal", () => ({
+  liveDraftWriterIds: async () => new Set<string>(),
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
   sweepLegacyRetainedPageDraftMarkers: () => undefined,
@@ -94,6 +95,7 @@ describe("Page draft recovery", () => {
     id: "page",
     title: "Saved",
     content: "Saved body",
+    canEdit: true,
     updatedAt: "v2",
     revision: "saved-body-revision",
   } as Document;

@@ -235,11 +235,6 @@ templates/clips/app/i18n/es-ES|captureInstall.description|Use Chrome when you ne
 templates/clips/app/i18n/es-ES|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/es-ES|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/es-ES|captureInstall.title|Choose your recorder
-templates/clips/app/i18n/es-ES|chapters.addHere|Add here
-templates/clips/app/i18n/es-ES|chapters.duplicateAtPoint|A chapter already exists at this point
-templates/clips/app/i18n/es-ES|chapters.empty|No chapters yet.
-templates/clips/app/i18n/es-ES|chapters.remove|Remove chapter
-templates/clips/app/i18n/es-ES|chapters.saveFailed|Failed to save chapters
 templates/clips/app/i18n/es-ES|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
 templates/clips/app/i18n/es-ES|dictateRoute.browserDictation|Browser dictation
 templates/clips/app/i18n/es-ES|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here
@@ -355,7 +350,6 @@ templates/clips/app/i18n/es-ES|preRecord.defaultMicrophone|Default microphone
 templates/clips/app/i18n/es-ES|preRecord.enumerateFailed|Could not enumerate devices
 templates/clips/app/i18n/es-ES|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
 templates/clips/app/i18n/es-ES|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
-templates/clips/app/i18n/es-ES|preRecord.importLoom|Import Loom
 templates/clips/app/i18n/es-ES|preRecord.importing|Importing...
 templates/clips/app/i18n/es-ES|preRecord.includeAudioAria|Include audio in this recording
 templates/clips/app/i18n/es-ES|preRecord.includeCameraAria|Include camera in this recording
@@ -410,11 +404,6 @@ templates/clips/app/i18n/pt-BR|captureInstall.description|Use Chrome when you ne
 templates/clips/app/i18n/pt-BR|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.title|Choose your recorder
-templates/clips/app/i18n/pt-BR|chapters.addHere|Add here
-templates/clips/app/i18n/pt-BR|chapters.duplicateAtPoint|A chapter already exists at this point
-templates/clips/app/i18n/pt-BR|chapters.empty|No chapters yet.
-templates/clips/app/i18n/pt-BR|chapters.remove|Remove chapter
-templates/clips/app/i18n/pt-BR|chapters.saveFailed|Failed to save chapters
 templates/clips/app/i18n/pt-BR|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
 templates/clips/app/i18n/pt-BR|dictateRoute.browserDictation|Browser dictation
 templates/clips/app/i18n/pt-BR|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here
@@ -530,7 +519,6 @@ templates/clips/app/i18n/pt-BR|preRecord.defaultMicrophone|Default microphone
 templates/clips/app/i18n/pt-BR|preRecord.enumerateFailed|Could not enumerate devices
 templates/clips/app/i18n/pt-BR|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
 templates/clips/app/i18n/pt-BR|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
-templates/clips/app/i18n/pt-BR|preRecord.importLoom|Import Loom
 templates/clips/app/i18n/pt-BR|preRecord.importing|Importing...
 templates/clips/app/i18n/pt-BR|preRecord.includeAudioAria|Include audio in this recording
 templates/clips/app/i18n/pt-BR|preRecord.includeCameraAria|Include camera in this recording
@@ -597,13 +585,11 @@ templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/ar-SA|designEditor.tokens.add|Add token
 templates/design/app/i18n/ar-SA|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/ar-SA|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ar-SA|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ar-SA|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ar-SA|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ar-SA|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/de-DE|designEditor.askAgent|Ask agent
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -622,13 +608,11 @@ templates/design/app/i18n/de-DE|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/de-DE|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/de-DE|designEditor.tokens.add|Add token
 templates/design/app/i18n/de-DE|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/de-DE|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/de-DE|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/de-DE|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/de-DE|designEditor.tokens.newToken|New token
-templates/design/app/i18n/de-DE|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/es-ES|designEditor.askAgent|Ask agent
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -647,13 +631,11 @@ templates/design/app/i18n/es-ES|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/es-ES|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/es-ES|designEditor.tokens.add|Add token
 templates/design/app/i18n/es-ES|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/es-ES|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/es-ES|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/es-ES|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/es-ES|designEditor.tokens.newToken|New token
-templates/design/app/i18n/es-ES|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/fr-FR|designEditor.askAgent|Ask agent
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -672,13 +654,11 @@ templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/fr-FR|designEditor.tokens.add|Add token
 templates/design/app/i18n/fr-FR|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/fr-FR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/fr-FR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/fr-FR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/fr-FR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/fr-FR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/hi-IN|designEditor.askAgent|Ask agent
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -697,13 +677,11 @@ templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/hi-IN|designEditor.tokens.add|Add token
 templates/design/app/i18n/hi-IN|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/hi-IN|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/hi-IN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/hi-IN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/hi-IN|designEditor.tokens.newToken|New token
-templates/design/app/i18n/hi-IN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ja-JP|designEditor.askAgent|Ask agent
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -722,13 +700,11 @@ templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/ja-JP|designEditor.tokens.add|Add token
 templates/design/app/i18n/ja-JP|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/ja-JP|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ja-JP|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ja-JP|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ja-JP|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ja-JP|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ko-KR|designEditor.askAgent|Ask agent
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -747,13 +723,11 @@ templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/ko-KR|designEditor.tokens.add|Add token
 templates/design/app/i18n/ko-KR|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/ko-KR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/ko-KR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/ko-KR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ko-KR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/ko-KR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/pt-BR|designEditor.askAgent|Ask agent
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -772,13 +746,11 @@ templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/pt-BR|designEditor.tokens.add|Add token
 templates/design/app/i18n/pt-BR|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/pt-BR|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/pt-BR|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/pt-BR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/pt-BR|designEditor.tokens.newToken|New token
-templates/design/app/i18n/pt-BR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-CN|designEditor.askAgent|Ask agent
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
@@ -797,13 +769,11 @@ templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUseFig|Upload .fig 
 templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreated|Component created
-templates/design/app/i18n/zh-CN|designEditor.tokens.add|Add token
 templates/design/app/i18n/zh-CN|designEditor.tokens.applying|Applying…
 templates/design/app/i18n/zh-CN|designEditor.tokens.cssVar|CSS variable
 templates/design/app/i18n/zh-CN|designEditor.tokens.emptyHint|Add design tokens to reuse colors, spacing, and more.
 templates/design/app/i18n/zh-CN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/zh-CN|designEditor.tokens.newToken|New token
-templates/design/app/i18n/zh-CN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
 templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.

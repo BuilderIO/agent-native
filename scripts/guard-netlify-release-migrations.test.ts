@@ -8,7 +8,7 @@ import {
   findNetlifyReleaseMigrationIssues,
   validateBetaPrebuiltReleaseEnvironment,
   validateBetaSchemaOwnerRuntimeContract,
-  validateFrameworkOnlyReleaseScript,
+  validateStarterReleaseScript,
   validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
@@ -101,7 +101,7 @@ describe("Netlify release migration guard", () => {
     );
   });
 
-  it("requires all beta-only runtime flags in the reusable build lane", () => {
+  it("keeps beta keep-warm opt-in while requiring beta runtime flags", () => {
     const source = `if [[ "$TARGET" == "beta" ]]; then
   if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
     export AGENT_NATIVE_RELEASE_MIGRATIONS=1
@@ -109,12 +109,20 @@ describe("Netlify release migration guard", () => {
   else
     export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
   fi
-  export AGENT_NATIVE_ENABLE_KEEP_WARM=1
   export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
   export AGENT_NATIVE_HOSTED_HARNESS=true
 fi
 if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
     assert.deepEqual(validateBetaPrebuiltReleaseEnvironment(source), []);
+    assert.notDeepEqual(
+      validateBetaPrebuiltReleaseEnvironment(
+        source.replace(
+          "export AGENT_NATIVE_HOSTED_HARNESS=true",
+          "export AGENT_NATIVE_ENABLE_KEEP_WARM=1\n  export AGENT_NATIVE_HOSTED_HARNESS=true",
+        ),
+      ),
+      [],
+    );
     assert.notDeepEqual(
       validateBetaPrebuiltReleaseEnvironment(
         source.replace("export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1", ""),
@@ -152,17 +160,21 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
     assert.deepEqual(validateManagedDrizzleMigrationOwnership(), []);
   });
 
-  it("rejects any release entrypoint beyond the framework migration", () => {
+  it("accepts only the starter release entrypoint", () => {
     const frameworkOnly = `
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
 import { loadEnv } from "@agent-native/core/scripts";
-import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+import {
+  runAppReleaseMigrations,
+  runFrameworkReleaseMigrations,
+} from "@agent-native/core/server";
 
 loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
+    await runAppReleaseMigrations();
   });
 }
 
@@ -173,21 +185,27 @@ try {
 }
 `;
     assert.deepEqual(
-      validateFrameworkOnlyReleaseScript(
-        frameworkOnly,
+      validateStarterReleaseScript(frameworkOnly, "migrate-production.ts"),
+      [],
+    );
+    // A framework-only script leaves a starter app's own tables uncreated on a
+    // release-owned deploy, which skips them at boot.
+    assert.notDeepEqual(
+      validateStarterReleaseScript(
+        frameworkOnly.replace("    await runAppReleaseMigrations();\n", ""),
         "migrate-production.ts",
       ),
       [],
     );
     assert.notDeepEqual(
-      validateFrameworkOnlyReleaseScript(
+      validateStarterReleaseScript(
         `import { runMigrations } from "../server/plugins/db.ts";\n${frameworkOnly}`,
         "migrate-production.ts",
       ),
       [],
     );
     assert.notDeepEqual(
-      validateFrameworkOnlyReleaseScript(
+      validateStarterReleaseScript(
         `${frameworkOnly}\nasync function runAppMigrations() { await main(); }`,
         "migrate-production.ts",
       ),

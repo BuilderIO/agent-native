@@ -3,6 +3,30 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-19
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-14
+
+### Fixed
+
+- Gong questions go to Analytics instead of the chat scanning every call and stalling.
+
+## 2026-10-13
+
+### Fixed
+
+- Preserve integration permissions when reconnecting or editing a connection.
+
+## 2026-10-08
+
+### Removed
+
+- Removed the deprecated standalone integrations page; legacy links now open the Settings integrations tab.
+
 ## 2026-10-06
 
 ### Fixed

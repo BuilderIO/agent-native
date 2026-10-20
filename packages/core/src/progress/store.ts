@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec, isUniqueViolation, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { recordChange } from "../server/poll.js";
 import type {
   AgentRun,
@@ -14,8 +15,6 @@ import type {
 function bumpPoll(owner: string): void {
   recordChange({ source: "runs", type: "change", key: owner });
 }
-
-let _initPromise: Promise<void> | undefined;
 
 export const DEFAULT_PROGRESS_RUN_STALE_MS = 5 * 60 * 1000;
 
@@ -33,38 +32,38 @@ function resolveProgressRunStaleMs(): number {
   return DEFAULT_PROGRESS_RUN_STALE_MS;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS progress_runs (
-          id TEXT PRIMARY KEY,
-          owner TEXT NOT NULL,
-          title TEXT NOT NULL,
-          step TEXT,
-          percent BIGINT,
-          status TEXT NOT NULL DEFAULT 'running',
-          metadata TEXT,
-          started_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL,
-          completed_at BIGINT
-        )
-      `;
-
-      {
+export const progressStore = defineStore({
+  id: "progress",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS progress_runs (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            title TEXT NOT NULL,
+            step TEXT,
+            percent BIGINT,
+            status TEXT NOT NULL DEFAULT 'running',
+            metadata TEXT,
+            started_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            completed_at BIGINT
+          )
+        `;
         await ensureTableExists("progress_runs", createSql);
         await ensureIndexExists(
           "idx_progress_runs_owner_status",
           `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status ON progress_runs (owner, status, started_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return progressStore.ready();
 }
 
 function parseRow(row: Record<string, unknown>): AgentRun {

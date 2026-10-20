@@ -1,5 +1,205 @@
 # @agent-native/dispatch
 
+## 0.40.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.210.2
+
+## 0.40.27
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d65df24: Bind hosted workspace registry tokens to mounted paths and use the configured path during receiver validation.
+- Updated dependencies [de17c2f]
+- Updated dependencies [3a73a99]
+- Updated dependencies
+  - @agent-native/toolkit@0.210.1
+
+## 0.40.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+- Updated dependencies [6c7c90e]
+- Updated dependencies [7028ea5]
+- Updated dependencies [7ade653]
+- Updated dependencies [4c34d33]
+- Updated dependencies
+- Updated dependencies [108b9d9]
+- Updated dependencies [ca67d21]
+- Updated dependencies [79545c9]
+- Updated dependencies [ff3a8dd]
+- Updated dependencies [0cfbd4d]
+- Updated dependencies [ed34578]
+- Updated dependencies [7337569]
+- Updated dependencies [7028ea5]
+- Updated dependencies [41e43db]
+  - @agent-native/toolkit@0.210.0
+
+## 0.40.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ce4eca0]
+- Updated dependencies
+- Updated dependencies [95aa388]
+- Updated dependencies [36fc751]
+- Updated dependencies [f99e655]
+- Updated dependencies [f99e655]
+- Updated dependencies [95aa388]
+  - @agent-native/toolkit@0.209.2
+
+## 0.40.24
+
+### Patch Changes
+
+- 2743662: Use the shared app permission policy for organization owner and admin access to Dispatch administration. Dispatch now requires `@agent-native/core` 0.206.0 or later, the first release with that policy.
+- Release all public npm packages with a patch version bump.
+- 517fade: Say why a workspace app answers 503 "Workspace app access is temporarily unavailable". The 503 body now carries a `code` (and, when a Dispatch registry reply arrived, `upstreamStatus`, `audience`, and `detail`), and each cause is logged once per instance. A new `checkWorkspaceAppAccess` returns the cause; `isWorkspaceAppAccessAllowed` keeps its `true` / `false` / `"unavailable"` contract. Dispatch logs why it refused a registry token (server-side only; the 401 stays a fixed refusal), using the new `diagnoseA2ATokenFailure` from `@agent-native/core/a2a`.
+- Updated dependencies [e90b90a]
+- Updated dependencies [5b201d1]
+- Updated dependencies [ce01559]
+- Updated dependencies
+- Updated dependencies [c139e35]
+- Updated dependencies [c139e35]
+- Updated dependencies [e5a64ae]
+- Updated dependencies [e6e1f56]
+- Updated dependencies [73da788]
+  - @agent-native/toolkit@0.209.1
+
+## 0.40.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 3ab5193: Drop the caller-supplied `size` from Builder upload attachments and measure it on the server, reject invalid attachments up front with an `invalid_attachment` error, and teach the turn-into-app browser-host guide to attach Project instructions and knowledge files verbatim, so a bad or missing attachment no longer reads as a temporary Builder outage or a silent drop.
+- 3b9d3cd: Show how long each tool call took in Thread Debug.
+- Updated dependencies [fadfb1b]
+- Updated dependencies [7407dca]
+- Updated dependencies [980bd9f]
+- Updated dependencies [7407dca]
+- Updated dependencies
+- Updated dependencies [d6a3ea3]
+  - @agent-native/toolkit@0.209.0
+
+## 0.40.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9cb95d8]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [4434457]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [cde733c]
+  - @agent-native/toolkit@0.208.0
+
+## 0.40.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+- Updated dependencies [e913bfb]
+- Updated dependencies [1c4a192]
+- Updated dependencies [4452c7f]
+  - @agent-native/toolkit@0.207.1
+
+## 0.40.20
+
+### Patch Changes
+
+- 5f419fe: Preserve Agent Teams parent context when opening runs from Dispatch navigation.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [3d09f9f]
+- Updated dependencies [128f43e]
+- Updated dependencies [dfcc0de]
+- Updated dependencies [eae7aa3]
+- Updated dependencies [43d0aa8]
+- Updated dependencies [a9c8414]
+- Updated dependencies [19cd58b]
+- Updated dependencies [aa34418]
+- Updated dependencies [18384b3]
+- Updated dependencies [ccddd3a]
+- Updated dependencies [2f52659]
+- Updated dependencies [5debd13]
+- Updated dependencies
+- Updated dependencies [e818cf9]
+- Updated dependencies [e818cf9]
+- Updated dependencies [ecfe037]
+- Updated dependencies [d7da131]
+- Updated dependencies [d44b119]
+- Updated dependencies [cdc66e3]
+- Updated dependencies [f8930b5]
+- Updated dependencies [d7da131]
+- Updated dependencies [d4854b8]
+- Updated dependencies [3451273]
+- Updated dependencies [70bf54c]
+  - @agent-native/toolkit@0.207.0
+
+## 0.40.19
+
+### Patch Changes
+
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- a19c641: Send the Dispatch origin to embedded workspace apps so their chat controls can open the host sidebar.
+- df48a4e: Bind cross-app embed-session tokens to the active organization ID while preserving the authenticated user identity.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e88f35c]
+- Updated dependencies [80e66f8]
+- Updated dependencies [58b7507]
+- Updated dependencies [58b7507]
+- Updated dependencies [0889356]
+- Updated dependencies [3f0fe0f]
+- Updated dependencies [e174642]
+- Updated dependencies [d6f1e18]
+- Updated dependencies
+- Updated dependencies [792ba44]
+- Updated dependencies [8f0ffa5]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [be0d784]
+- Updated dependencies [68deb1e]
+- Updated dependencies [af7acb9]
+- Updated dependencies [217260d]
+- Updated dependencies [6e9fccf]
+  - @agent-native/toolkit@0.206.0
+
+## 0.40.18
+
+### Patch Changes
+
+- 1b1d976: Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.
+- Release all public npm packages with a patch version bump.
+- 401bc5e: Require an organization on the request before creating or materializing a workspace app record, so `workspace_apps` rows are no longer inserted with a null `org_id`. Orgless listing stays read-only, and existing null-org rows are left untouched.
+- 5a3890a: Thread Debug search now matches an exact thread ID, the ID of the app object a thread was opened on (a deck, design, clip, document, and so on), or the thread's source URL, so pasting any of those pulls up the matching threads and their runs.
+- 06bda81: Removed Sentry auth token from sync script
+- Updated dependencies [b7e32e4]
+- Updated dependencies [ab41d2b]
+- Updated dependencies [de66ff4]
+- Updated dependencies [947f911]
+- Updated dependencies [4fe4088]
+- Updated dependencies [cbc151c]
+- Updated dependencies [3dc0aeb]
+- Updated dependencies [9236359]
+- Updated dependencies [1b1d976]
+- Updated dependencies
+- Updated dependencies [f325447]
+- Updated dependencies [cc79bd1]
+- Updated dependencies [8418b84]
+- Updated dependencies [004f2a9]
+- Updated dependencies [701c672]
+- Updated dependencies [ae5aed6]
+  - @agent-native/toolkit@0.205.0
+
 ## 0.40.17
 
 ### Patch Changes
@@ -1095,82 +1295,5 @@
 - d3702a5: Report the embedded workspace app to the Dispatch agent as structured context. `/apps/<id>` now resolves to a `workspace-app` navigation view that keeps the app id and in-app path instead of collapsing to the apps list, and `view-screen` emits an `embeddedApp` block for both that route and chat-first mode, where the route stays on `/chat` and the open app is named only by `chat-first-pane` state. An app that is open but cannot be identified reports `status: "unknown"` rather than a default or an omitted field.
 - d3702a5: Share the canonical localized authentication copy with native sign-in surfaces
   and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.21
-
-### Patch Changes
-
-- ed0666b: Report the embedded workspace app to the Dispatch agent as structured context. `/apps/<id>` now resolves to a `workspace-app` navigation view that keeps the app id and in-app path instead of collapsing to the apps list, and `view-screen` emits an `embeddedApp` block for both that route and chat-first mode, where the route stays on `/chat` and the open app is named only by `chat-first-pane` state. An app that is open but cannot be identified reports `status: "unknown"` rather than a default or an omitted field.
-- ed0666b: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.20
-
-### Patch Changes
-
-- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.19
-
-### Patch Changes
-
-- 94fc4d8: Keep feature-flag definitions off the server HMAC barrel so Vite client graphs do not crash.
-- b676db8: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.18
-
-### Patch Changes
-
-- 436340b: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.27.17
-
-### Patch Changes
-
-- Updated dependencies [95ea873]
-  - @agent-native/toolkit@0.16.4
-
-## 0.27.16
-
-### Patch Changes
-
-- 3850b75: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 3850b75: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.15
-
-### Patch Changes
-
-- bc5f350: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- bc5f350: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.14
-
-### Patch Changes
-
-- 6e56b98: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 6e56b98: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.13
-
-### Patch Changes
-
-- 6bdf1f7: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 6bdf1f7: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.12
-
-### Patch Changes
-
-- febb983: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-
-## 0.27.11
-
-### Patch Changes
-
-- 802f708: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,5 +1,192 @@
 # @agent-native/scheduling
 
+## 0.2.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.210.2
+
+## 0.2.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [de17c2f]
+- Updated dependencies [3a73a99]
+- Updated dependencies
+  - @agent-native/toolkit@0.210.1
+
+## 0.2.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+- Updated dependencies [6c7c90e]
+- Updated dependencies [7028ea5]
+- Updated dependencies [7ade653]
+- Updated dependencies [4c34d33]
+- Updated dependencies
+- Updated dependencies [108b9d9]
+- Updated dependencies [ca67d21]
+- Updated dependencies [79545c9]
+- Updated dependencies [ff3a8dd]
+- Updated dependencies [0cfbd4d]
+- Updated dependencies [ed34578]
+- Updated dependencies [7337569]
+- Updated dependencies [7028ea5]
+- Updated dependencies [41e43db]
+  - @agent-native/toolkit@0.210.0
+
+## 0.2.30
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ce4eca0]
+- Updated dependencies
+- Updated dependencies [95aa388]
+- Updated dependencies [36fc751]
+- Updated dependencies [f99e655]
+- Updated dependencies [f99e655]
+- Updated dependencies [95aa388]
+  - @agent-native/toolkit@0.209.2
+
+## 0.2.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e90b90a]
+- Updated dependencies [5b201d1]
+- Updated dependencies [ce01559]
+- Updated dependencies
+- Updated dependencies [c139e35]
+- Updated dependencies [c139e35]
+- Updated dependencies [e5a64ae]
+- Updated dependencies [e6e1f56]
+- Updated dependencies [73da788]
+  - @agent-native/toolkit@0.209.1
+
+## 0.2.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [fadfb1b]
+- Updated dependencies [7407dca]
+- Updated dependencies [980bd9f]
+- Updated dependencies [7407dca]
+- Updated dependencies
+- Updated dependencies [d6a3ea3]
+  - @agent-native/toolkit@0.209.0
+
+## 0.2.27
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9cb95d8]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [4434457]
+- Updated dependencies [0fb4de3]
+- Updated dependencies [cde733c]
+  - @agent-native/toolkit@0.208.0
+
+## 0.2.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+- Updated dependencies [e913bfb]
+- Updated dependencies [1c4a192]
+- Updated dependencies [4452c7f]
+  - @agent-native/toolkit@0.207.1
+
+## 0.2.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [3d09f9f]
+- Updated dependencies [128f43e]
+- Updated dependencies [dfcc0de]
+- Updated dependencies [eae7aa3]
+- Updated dependencies [43d0aa8]
+- Updated dependencies [a9c8414]
+- Updated dependencies [19cd58b]
+- Updated dependencies [aa34418]
+- Updated dependencies [18384b3]
+- Updated dependencies [ccddd3a]
+- Updated dependencies [2f52659]
+- Updated dependencies [5debd13]
+- Updated dependencies
+- Updated dependencies [e818cf9]
+- Updated dependencies [e818cf9]
+- Updated dependencies [ecfe037]
+- Updated dependencies [d7da131]
+- Updated dependencies [d44b119]
+- Updated dependencies [cdc66e3]
+- Updated dependencies [f8930b5]
+- Updated dependencies [d7da131]
+- Updated dependencies [d4854b8]
+- Updated dependencies [3451273]
+- Updated dependencies [70bf54c]
+  - @agent-native/toolkit@0.207.0
+
+## 0.2.24
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e88f35c]
+- Updated dependencies [80e66f8]
+- Updated dependencies [58b7507]
+- Updated dependencies [58b7507]
+- Updated dependencies [0889356]
+- Updated dependencies [3f0fe0f]
+- Updated dependencies [e174642]
+- Updated dependencies [d6f1e18]
+- Updated dependencies
+- Updated dependencies [792ba44]
+- Updated dependencies [8f0ffa5]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [be0d784]
+- Updated dependencies [68deb1e]
+- Updated dependencies [af7acb9]
+- Updated dependencies [217260d]
+- Updated dependencies [6e9fccf]
+  - @agent-native/toolkit@0.206.0
+
+## 0.2.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [b7e32e4]
+- Updated dependencies [ab41d2b]
+- Updated dependencies [de66ff4]
+- Updated dependencies [947f911]
+- Updated dependencies [4fe4088]
+- Updated dependencies [cbc151c]
+- Updated dependencies [3dc0aeb]
+- Updated dependencies [9236359]
+- Updated dependencies [1b1d976]
+- Updated dependencies
+- Updated dependencies [f325447]
+- Updated dependencies [cc79bd1]
+- Updated dependencies [8418b84]
+- Updated dependencies [004f2a9]
+- Updated dependencies [701c672]
+- Updated dependencies [ae5aed6]
+  - @agent-native/toolkit@0.205.0
+
 ## 0.2.22
 
 ### Patch Changes
@@ -921,80 +1108,4 @@
 
 - 966838d: Update scheduling package docs after removing the legacy scheduling template.
 
-## 0.1.9
-
-### Patch Changes
-
-- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
-- a56d93d: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
-  SSRF-safe URL fetch paths.
-
-## 0.1.8
-
-### Patch Changes
-
-- 853ab71: Internal cleanup: remove unused imports and variables (no behavior change).
-
-## 0.1.7
-
-### Patch Changes
-
-- d4013f0: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
-- d4013f0: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
-  SSRF-safe URL fetch paths.
-
-## 0.1.6
-
-### Patch Changes
-
-- c3852e0: Beta-readiness best-practices audit fixes:
-  - **core / sharing:** `mergeCoreSharingActions` now preserves
-    `toolCallable`/`publicAgent`/`link`/`mcpApp` (via `preserveActionFlags`),
-    restoring the H5 tools-bridge `403` guard on share/unshare/set-visibility that
-    was silently dropped during registry merge.
-  - **core / HTTP actions:** stop echoing raw `error.message` on uncategorized 500s
-    (return a generic message, log detail server-side); validation and explicit
-    user-facing errors still pass through.
-  - **core / auth:** remove the legacy hardcoded fallback secret literal from the
-    production `BETTER_AUTH_SECRET` error message. (The `better-auth` security
-    version bump is deferred to a dedicated follow-up: `1.6.12` pulls
-    `kysely@0.29` which drops exports `better-auth` bundles, breaking the template
-    build — it needs a kysely-compatibility fix + an auth smoke-test.)
-  - **core / dev:** register `client/transcription/use-live-transcription` in the
-    Vite source-alias map so monorepo dev edits resolve from source, not stale
-    `dist`.
-  - **core:** add `engines.node >=22`; correct the `AuthSession.orgId` doc comment
-    (orgs are framework-managed, not the Better Auth organization plugin).
-  - **scheduling:** remove the leftover manual `release` script (publishing goes
-    through changesets/CI).
-  - **shared-app-config:** clarify that the template-catalog `icon` field is an
-    internal icon-alias key resolved by the desktop sidebar `ICON_MAP`, not a raw
-    `@tabler/icons-react` export name.
-
-## 0.1.5
-
-### Patch Changes
-
-- 79a0eb9: Align local Drizzle peer resolution with the framework's Postgres driver version.
-
-## 0.1.4
-
-### Patch Changes
-
-- 97ca0db: Fix "Cannot read properties of null (reading 'value')" crash in `BookingLinkCreateDialog` when typing into the slug input. React nulls `e.currentTarget` once the synthetic event finishes synchronous propagation; reading it inside the `setForm` updater closure happened after that point. Capture the value before calling `setForm`.
-
-## 0.1.3
-
-### Patch Changes
-
-- Updated dependencies [bcb2069]
-- Updated dependencies [e375642]
-  - @agent-native/core@0.8.0
-
-## 0.1.2
-
-### Patch Changes
-
-- 4e3631b: Add `publishConfig.provenance: true` so `pnpm publish` (called by `changeset publish` from the auto-publish workflow) requests an OIDC token from GitHub Actions and publishes via npm trusted publisher. Without this, `pnpm publish` looked for token-based auth and failed with `ENEEDAUTH`.
-- Updated dependencies [4e3631b]
-  - @agent-native/core@0.7.85
+For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

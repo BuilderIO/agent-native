@@ -13,6 +13,7 @@ import {
   getSession,
   type AuthSession,
 } from "./auth.js";
+import { respondBearerCredentialRefused } from "./bearer-credential-refusal.js";
 import {
   isCredentialMembershipUnavailable,
   respondCredentialMembershipUnavailable,
@@ -86,6 +87,8 @@ async function handleUpload(event: H3Event): Promise<unknown> {
     return respondCredentialMembershipUnavailable(event);
   }
   if (!session?.email) {
+    const refused = respondBearerCredentialRefused(event);
+    if (refused) return refused;
     setResponseStatus(event, 401);
     return { error: "Authentication required" };
   }

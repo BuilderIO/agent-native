@@ -14,6 +14,10 @@ import {
   hasCapability,
 } from "../shared/design-source-capabilities.js";
 import {
+  DESIGN_TOKEN_TYPES,
+  readTokenTypes,
+} from "../shared/design-token-types.js";
+import {
   isSafeCssTokenValue,
   isSafeCssVarName,
   resolveTweaksToCssVars,
@@ -39,6 +43,14 @@ const tokenEditSchema = z.object({
       'Token value may not contain ";", "{", "}", "<", ">", CSS comments, or control characters.',
     )
     .describe("New value for the token"),
+  type: z
+    .enum(DESIGN_TOKEN_TYPES)
+    .optional()
+    .describe(
+      "Token type, saved in designs.data.tokenTypes so the token keeps it " +
+        "instead of a guess from its name. Pass it when creating a token; " +
+        "omit it when only changing a value.",
+    ),
 });
 
 function designDeepLink(designId: string): string {
@@ -74,6 +86,8 @@ export default defineAction({
     "Tier-A (inline/Alpine): routes the edit through the same mechanism as " +
     "apply-tweaks — merges the value into designs.data.tweakSelections so the " +
     "tuned token survives reload and is visible in the Tokens panel. " +
+    "Pass `type` on new tokens to save it in designs.data.tokenTypes; " +
+    "otherwise the type is guessed from the name. " +
     "Source file write-back (Tier-B, real apps) is gated behind a capability " +
     "check and currently returns a 'planned' advisory — no file is written.",
   schema: z.object({
@@ -81,7 +95,7 @@ export default defineAction({
     edits: z
       .array(tokenEditSchema)
       .min(1)
-      .describe("One or more { cssVar, value } edits to persist"),
+      .describe("One or more { cssVar, value, type? } edits to persist"),
     sourceRef: z
       .string()
       .optional()
@@ -103,21 +117,26 @@ export default defineAction({
       mutate: (prevData, { updatedAt }) => {
         const tweaks = readTweaks(prevData);
         const newSelections = { ...readSelections(prevData) };
-        for (const { cssVar, value } of edits) {
+        const tokenTypes = readTokenTypes(prevData);
+        for (const { cssVar, value, type } of edits) {
           newSelections[selectionKeyForCssVar(tweaks, cssVar)] = value;
+          if (type) tokenTypes[cssVar] = type;
         }
         return {
           ...prevData,
           tweakSelections: newSelections,
+          tokenTypes,
           tweaksAppliedAt: updatedAt,
         };
       },
       isApplied: (data) => {
         const tweaks = readTweaks(data);
         const selections = readSelections(data);
+        const tokenTypes = readTokenTypes(data);
         return edits.every(
-          ({ cssVar, value }) =>
-            selections[selectionKeyForCssVar(tweaks, cssVar)] === value,
+          ({ cssVar, value, type }) =>
+            selections[selectionKeyForCssVar(tweaks, cssVar)] === value &&
+            (!type || tokenTypes[cssVar] === type),
         );
       },
     });

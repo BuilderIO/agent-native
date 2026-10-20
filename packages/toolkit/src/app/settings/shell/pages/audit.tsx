@@ -31,10 +31,11 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconHistory, IconSettings, IconSparkles } from "@tabler/icons-react";
+import { IconHistory, IconSettings } from "@tabler/icons-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { AgentMark } from "../../../shared/AgentMark.js";
 import { SettingsGroup } from "../../SettingsRow.js";
 
 export const AUDIT_PAGE_SIZE = 25;
@@ -86,6 +87,19 @@ function actorLabel(event: AuditEvent, t: Translate): string {
   return event.actorEmail;
 }
 
+function approvalLabel(approval: string, t: Translate): string {
+  if (approval === "agent-chat") {
+    return t("agentChat.settings.audit.approvalAgentChat");
+  }
+  if (approval === "a2a-review") {
+    return t("agentChat.settings.audit.approvalA2AReview");
+  }
+  if (approval === "mcp-client-accepted") {
+    return t("agentChat.settings.audit.approvalMcpClient");
+  }
+  return approval;
+}
+
 function initials(email: string): string {
   const local = email.split("@", 1)[0] ?? email;
   const letters = local
@@ -99,10 +113,13 @@ function initials(email: string): string {
 
 function ActorMark({ event }: { event: AuditEvent }) {
   if (event.actorKind === "agent" || event.actorKind === "system") {
-    const Icon = event.actorKind === "agent" ? IconSparkles : IconSettings;
     return (
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
-        <Icon className="size-4" aria-hidden="true" />
+        {event.actorKind === "agent" ? (
+          <AgentMark className="size-4" />
+        ) : (
+          <IconSettings className="size-4" aria-hidden="true" />
+        )}
       </span>
     );
   }
@@ -236,6 +253,12 @@ function AuditEventDialog({
   );
   const input = detail.data?.event?.input ?? null;
   const prettyInput = input ? prettyJson(input) : null;
+  const reportedClient = [
+    event?.reportedClientName,
+    event?.reportedClientVersion,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -263,6 +286,25 @@ function AuditEventDialog({
               {event.actorKind === "agent" && event.actorEmail ? (
                 <DetailField label={t("agentChat.settings.audit.onBehalfOf")}>
                   {event.actorEmail}
+                </DetailField>
+              ) : null}
+              {reportedClient ? (
+                <DetailField
+                  label={t("agentChat.settings.audit.reportedClient")}
+                >
+                  {reportedClient}
+                </DetailField>
+              ) : null}
+              {event.oauthClientId ? (
+                <DetailField label={t("agentChat.settings.audit.oauthClient")}>
+                  <code className="font-mono text-[13px]">
+                    {event.oauthClientId}
+                  </code>
+                </DetailField>
+              ) : null}
+              {event.approval ? (
+                <DetailField label={t("agentChat.settings.audit.approval")}>
+                  {approvalLabel(event.approval, t)}
                 </DetailField>
               ) : null}
               {event.app ? (

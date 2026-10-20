@@ -1,10 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  parseCssColor,
-  rgbaToCss,
-  rgbaToHex,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
   readGradientFillOpacity,
@@ -15,8 +10,16 @@ import {
   IconLayoutGrid,
   IconMinus,
   IconPlus,
+  IconWaveSine,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
@@ -24,11 +27,44 @@ import {
   ScrubInput,
   imageFillToBackgroundStyles,
   type DesignPaintType,
+  type ImageFillValue,
 } from "../inspector";
-import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
+import {
+  FillFieldFace,
+  FillFieldSwatch,
+} from "../inspector/color-picker-fill-field";
+import type { RenderNestedColorPicker } from "../inspector/color-picker-nested";
+import {
+  findToken,
+  parseVarReference,
+  resolveVarColor,
+  tokenVarCss,
+} from "../inspector/color-picker-tokens";
+import { inferPaintType } from "../inspector/DesignColorPicker";
+import {
+  fillFieldEditText,
+  fillPaintName,
+  GRADIENT_NAMES,
+  readFillField,
+  showsChevron,
+  showsOpacity,
+} from "../inspector/fill-field-reading";
+import {
+  findFillShader,
+  type GlslShaderPanelContext,
+} from "../inspector/GlslShaderPanel";
+import { InspectorControlPopoverContent } from "../inspector/InspectorControlPopover";
+import { nativeCatalogDefinitionKey } from "../inspector/native-catalog-display";
+import {
+  NativeShaderPanel,
+  persistNativeShaderEdit,
+  selectedNativeInstances,
+} from "../inspector/NativeShaderPanel";
+import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
-import { selectionColorValues } from "./document-colors";
-import { isTextElement, isVectorShapeElement } from "./element-classification";
+import { useDesignColorTokenSource } from "./design-color-tokens";
+import { paletteColorValue, selectionColorValues } from "./document-colors";
+import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
@@ -36,11 +72,12 @@ import {
   addFillLayerPatch,
   buildSolidFillLayer,
   buildGradientLayer,
-  gradientLabel,
+  fillLayerIndex,
   isLayerHiddenBySize,
   joinCssLayers,
   parseGradientLayer,
   parseSolidFillLayer,
+  parseTokenSolidFillLayer,
   reorderFillLayerArrays,
   removeBaseFillPatch,
   removeFillLayerAtIndex,
@@ -62,14 +99,16 @@ import {
   cssColorOrFallback,
   swatchStyle,
 } from "./position-helpers";
-import { isMixedValue } from "./selection-helpers";
+import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type { CapturedStyleTarget } from "./style-change-types";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
+  StyleChangeMeta,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
+import { buildTextContrast, type TextContrastContext } from "./text-contrast";
 
 const TEXT_GRADIENT_PAINT_TYPES: DesignPaintType[] = [
   "linear",
@@ -91,6 +130,7 @@ const EXISTING_LAYER_PAINT_TYPES: DesignPaintType[] = [
   "angular",
   "diamond",
   "image",
+  "shader",
 ];
 
 let layerKeyCounter = 0;
@@ -161,26 +201,43 @@ export function FillProperties({
   onStylesChange,
   documentColorPalette = [],
   glslShaderContext,
+  onRemoveShaderFill,
   motionKeyframeContext,
   breakpointOverrideContext,
   hideAddFill = false,
   cancelOpacityGestureOnHistoryUndo = false,
+  allowDesignHistoryHotkeys = false,
   onAddFill,
   capturedStyleTargets,
+  readSubtreeColorStyles,
+  uploadScopeKey,
+  contrastContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   documentColorPalette?: string[];
   glslShaderContext?: GlslShaderPanelContext;
+  /**
+   * Takes the element's shader off, with the fallback color it was painted
+   * over. The fill row's remove button calls it instead of clearing the color
+   * when the fill is a shader: clearing the color leaves the shader running.
+   */
+  onRemoveShaderFill?: () => void;
+  /** Where the selected text layer is, so the picker can measure its contrast. */
+  contrastContext?: TextContrastContext;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   hideAddFill?: boolean;
   cancelOpacityGestureOnHistoryUndo?: boolean;
+  allowDesignHistoryHotkeys?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
+  uploadScopeKey?: string;
 }) {
   const t = useT();
+  const tokenSource = useDesignColorTokenSource();
   const commitImageFillPatch = (
     patch: Record<string, string>,
     meta?: Parameters<StyleChangeHandler>[2],
@@ -196,7 +253,114 @@ export function FillProperties({
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
   const isTextFillElement = shouldUseTextFill(element, styles);
-  const isVectorFillElement = isVectorShapeElement(element);
+  const textContrast = useMemo(
+    () =>
+      isTextFillElement && contrastContext
+        ? buildTextContrast({ context: contrastContext, styles, t })
+        : undefined,
+    // `styles` is rebuilt each render; the size and weight are what it reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isTextFillElement, contrastContext, styles.fontSize, styles.fontWeight, t],
+  );
+  const isVectorFillElement = isVectorShapeSelection(element);
+  const fillShader = useMemo(
+    () =>
+      isVectorFillElement || isTextFillElement
+        ? null
+        : findFillShader(glslShaderContext),
+    [glslShaderContext, isTextFillElement, isVectorFillElement],
+  );
+  const isNativeVectorFillElement =
+    isVectorFillElement &&
+    element.tagName.toLowerCase() === "svg" &&
+    Boolean(glslShaderContext?.fileId) &&
+    !glslShaderContext?.editSource;
+  const nativeFill = useMemo(
+    () =>
+      (isVectorFillElement && !isNativeVectorFillElement) || isTextFillElement
+        ? { instances: [], definitions: [], errors: [] }
+        : selectedNativeInstances(
+            glslShaderContext?.content,
+            glslShaderContext?.nodeId,
+            "fill",
+            glslShaderContext?.selector,
+          ),
+    [
+      glslShaderContext?.content,
+      glslShaderContext?.nodeId,
+      glslShaderContext?.selector,
+      isTextFillElement,
+      isVectorFillElement,
+      isNativeVectorFillElement,
+    ],
+  );
+  const nativeFillInstances = nativeFill.instances;
+  const nativeFillRows = [...nativeFillInstances].reverse();
+  const [nativeAddOpen, setNativeAddOpen] = useState(false);
+  const [nativeControlsOpenId, setNativeControlsOpenId] = useState<
+    string | null
+  >(null);
+  const [nativeBusyId, setNativeBusyId] = useState<string | null>(null);
+  const editNativeFill = async (
+    instanceId: string,
+    operation: Parameters<typeof persistNativeShaderEdit>[1],
+  ) => {
+    if (!glslShaderContext) return;
+    setNativeBusyId(instanceId);
+    try {
+      await persistNativeShaderEdit(glslShaderContext, operation);
+      if (operation.kind === "remove") setNativeControlsOpenId(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editPanel.shaders.saveFailed"),
+      );
+    } finally {
+      setNativeBusyId(null);
+    }
+  };
+  const reorderNativeFills = (from: number, to: number) => {
+    const reordered = [...nativeFillRows];
+    const [moved] = reordered.splice(from, 1);
+    if (!moved) return;
+    reordered.splice(to, 0, moved);
+    const canonical = reordered.reverse();
+    const nextIndex = canonical.findIndex(
+      (instance) => instance.id === moved.id,
+    );
+    void editNativeFill(moved.id, {
+      kind: "reorder",
+      instanceId: moved.id,
+      beforeInstanceId: canonical[nextIndex + 1]?.id ?? null,
+    });
+  };
+  const nativeFillDrag = useRowDragReorder(
+    nativeFillRows.length,
+    reorderNativeFills,
+  );
+  const renderNativeColorPicker: RenderNestedColorPicker = (request) => (
+    <DesignColorPicker
+      open
+      anchorElement={request.anchor}
+      onOpenChange={(open) => {
+        if (!open) request.onClose();
+      }}
+      value={request.css}
+      paintType={
+        request.supportedPaintTypes ? inferPaintType(request.css, 100) : "solid"
+      }
+      supportedPaintTypes={request.supportedPaintTypes ?? ["solid"]}
+      maxGradientStops={request.maxGradientStops}
+      showReverseStops={request.showReverseStops}
+      onChange={request.onChange}
+      onChangeComplete={request.onCommit}
+      side="left"
+      restoreOnEscape
+      opaqueSrgb={request.opaqueSrgb}
+      disabled={request.disabled}
+    />
+  );
   const fillProperty = isTextFillElement
     ? "color"
     : isVectorFillElement
@@ -237,10 +401,14 @@ export function FillProperties({
     index: number;
     previousLayerCount: number;
   } | null>(null);
+  const pickerHandoffRef = useRef<{ from: string; to: string } | null>(null);
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
-      ? element.inlineStyles?.["--an-vector-fill-gradient"] || styles.fill || ""
+      ? element.inlineStyles?.["--an-vector-fill-gradient"] ||
+        styles["--an-vector-fill-gradient"] ||
+        styles.fill ||
+        ""
       : styles.backgroundColor || "";
   const authoredFillValue = isVectorFillElement
     ? (element.inlineStyles?.["--an-vector-fill-gradient"] ??
@@ -249,8 +417,11 @@ export function FillProperties({
   const storedPaint = readGradientFillOpacity([
     { color: authoredFillValue ?? renderedFillValue },
   ]);
-  const isHidden = storedPaint.opacity === 0;
-  const fillValue = isHidden ? storedPaint.stops[0]!.color : renderedFillValue;
+  const cssFillHidden = storedPaint.opacity === 0;
+  const isHidden = cssFillHidden;
+  const fillValue = cssFillHidden
+    ? storedPaint.stops[0]!.color
+    : renderedFillValue;
   const backgroundLayers = isVectorFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
@@ -269,11 +440,12 @@ export function FillProperties({
   );
   const fillIsMixed =
     isMixedValue(fillValue) ||
-    isMixedValue(styles.backgroundImage) ||
-    isMixedValue(styles.backgroundSize) ||
-    isMixedValue(styles.backgroundRepeat) ||
-    isMixedValue(styles.backgroundPosition) ||
-    (isTextFillElement && isMixedValue(styles.backgroundClip));
+    (!isVectorFillElement &&
+      (isMixedValue(styles.backgroundImage) ||
+        isMixedValue(styles.backgroundSize) ||
+        isMixedValue(styles.backgroundRepeat) ||
+        isMixedValue(styles.backgroundPosition) ||
+        (isTextFillElement && isMixedValue(styles.backgroundClip))));
   const hasBackgroundLayer =
     !isVectorFillElement && backgroundLayers.length > 0;
   const authoredFill = authoredFillValue?.trim().toLowerCase();
@@ -287,7 +459,35 @@ export function FillProperties({
   const hasBaseFill = isOpenPenPath
     ? hasAuthoredFill
     : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
-  const hasVisibleFill = hasBaseFill || hasBackgroundLayer;
+  const hasVisibleFill =
+    hasBaseFill || hasBackgroundLayer || nativeFillInstances.length > 0;
+  // Legacy Shader conversion replaces its CSS paint layer. Keep it out of
+  // the sibling picker when native Fill instances already occupy their own slots.
+  const layerShaderContext = useMemo(
+    () =>
+      glslShaderContext &&
+      !isTextFillElement &&
+      !isVectorFillElement &&
+      !hasBaseFill &&
+      nativeFillInstances.length === 0 &&
+      backgroundLayers.length === 1
+        ? {
+            ...glslShaderContext,
+            replacesBackgroundLayers: true,
+            onFillShaderApplied: () =>
+              setOpenFillPickerKey(`${fillStashKey}:base`),
+          }
+        : undefined,
+    [
+      glslShaderContext,
+      isTextFillElement,
+      isVectorFillElement,
+      hasBaseFill,
+      nativeFillInstances.length,
+      backgroundLayers.length,
+      fillStashKey,
+    ],
+  );
   const pendingConversion = pendingConvertedLayerRef.current;
   if (
     pendingConversion?.elementKey === fillStashKey &&
@@ -317,6 +517,94 @@ export function FillProperties({
     };
   }
   const layerKeys = layerKeysRef.current.keys;
+  // The base picker stays open until the converted layer's row exists, so an
+  // Escape before the save lands closes it instead of being lost.
+  useEffect(() => {
+    const handoff = pickerHandoffRef.current;
+    if (!handoff) return;
+    if (!layerKeys.some((key) => `${fillStashKey}:${key}` === handoff.to)) {
+      return;
+    }
+    pickerHandoffRef.current = null;
+    setOpenFillPickerKey((current) =>
+      current === handoff.from ? handoff.to : current,
+    );
+  });
+  const imageFillUploadScopeKey = JSON.stringify([
+    uploadScopeKey ?? null,
+    fillStashKey,
+    fillProperty,
+    (capturedStyleTargets ?? []).map((target) => [
+      target.fileId,
+      target.layerId,
+      elementStableKey(target.elementInfo),
+    ]),
+  ]);
+  const imageFillUploadTargetKey = (layerKey: string) =>
+    JSON.stringify([imageFillUploadScopeKey, layerKey]);
+  const imageFillUploadTargetKeyForSelection = (selectedFillId: string) => {
+    const layerIndex = fillLayerIndex(selectedFillId);
+    const layerKey =
+      layerIndex === null
+        ? "base"
+        : (layerKeysRef.current.keys[layerIndex] ?? `index:${layerIndex}`);
+    return imageFillUploadTargetKey(layerKey);
+  };
+  const imageFillUploadContext = {
+    scopeKey: imageFillUploadScopeKey,
+    layerKeys: [...layerKeys],
+    backgroundLayers,
+    backgroundSizeLayers,
+    backgroundRepeatLayers,
+    backgroundPositionLayers,
+    onStyleChange,
+    onStylesChange,
+    capturedStyleTargets,
+  };
+  const latestImageFillUploadContextRef = useRef(imageFillUploadContext);
+  latestImageFillUploadContextRef.current = imageFillUploadContext;
+  const createImageFillUploadChange = (
+    layerKey: string,
+    capturedLayerIndex: number,
+  ) => {
+    const capturedContext = imageFillUploadContext;
+    return (value: ImageFillValue, meta?: StyleChangeMeta) => {
+      const latestContext = latestImageFillUploadContextRef.current;
+      const latestLayerIndex = latestContext.layerKeys.indexOf(layerKey);
+      if (
+        latestContext.scopeKey === capturedContext.scopeKey &&
+        latestLayerIndex < 0
+      ) {
+        return;
+      }
+      const useLatestContext =
+        latestContext.scopeKey === capturedContext.scopeKey &&
+        latestLayerIndex >= 0;
+      const context = useLatestContext ? latestContext : capturedContext;
+      const layerIndex = useLatestContext
+        ? latestLayerIndex
+        : capturedLayerIndex;
+      const patch = setImageFillLayerPatch(
+        {
+          backgroundImage: context.backgroundLayers,
+          backgroundSize: context.backgroundSizeLayers,
+          backgroundRepeat: context.backgroundRepeatLayers,
+          backgroundPosition: context.backgroundPositionLayers,
+        },
+        layerIndex,
+        imageFillToBackgroundStyles(value),
+      );
+      const commitMeta = context.capturedStyleTargets
+        ? { ...meta, capturedStyleTargets: context.capturedStyleTargets }
+        : meta;
+      commitStylePatch(
+        patch,
+        context.onStyleChange,
+        context.onStylesChange,
+        commitMeta,
+      );
+    };
+  };
 
   const handleFillVisibilityToggle = () => {
     onStyleChange(
@@ -355,15 +643,33 @@ export function FillProperties({
     reorderFillLayers,
   );
 
+  // The picker keeps the swatches it opened with, so the subtree is read once
+  // per opening instead of on every selection update while it is open.
+  const subtreeColorsAtOpenRef = useRef<{
+    pickerKey: string | null;
+    read?: SubtreeColorStylesRead;
+  }>({ pickerKey: null });
+  if (subtreeColorsAtOpenRef.current.pickerKey !== openFillPickerKey) {
+    subtreeColorsAtOpenRef.current = {
+      pickerKey: openFillPickerKey,
+      read:
+        openFillPickerKey === `${fillStashKey}:base` &&
+        element.styleSnapshotReadOnDemand
+          ? readSubtreeColorStyles?.(element)
+          : undefined,
+    };
+  }
+  const subtreeColorsAtOpen = subtreeColorsAtOpenRef.current.read;
   const selectionHexes = useMemo(
     () =>
-      selectionColorValues(element)
-        .map((c) => {
-          const parsed = parseCssColor(c.value);
-          return parsed ? rgbaToHex(parsed) : null;
-        })
+      selectionColorValues(
+        element,
+        [],
+        subtreeColorsAtOpen ? () => subtreeColorsAtOpen : undefined,
+      )
+        .map((c) => paletteColorValue(c.value))
         .filter((h): h is string => Boolean(h)),
-    [element],
+    [element, subtreeColorsAtOpen],
   );
   const seenHex = new Set<string>();
   const documentColors = [...selectionHexes, ...documentColorPalette].filter(
@@ -401,6 +707,10 @@ export function FillProperties({
   };
 
   const addFill = () => {
+    if (nativeFillInstances.length > 0 && glslShaderContext && !onAddFill) {
+      setNativeAddOpen(true);
+      return;
+    }
     if (onAddFill) {
       const added = onAddFill();
       if (added === "base") {
@@ -418,6 +728,14 @@ export function FillProperties({
       return;
     }
     if (fillIsMixed) {
+      if (isVectorFillElement) {
+        commitStylePatch(
+          { fill: DEFAULT_SHAPE_FILL },
+          onStyleChange,
+          onStylesChange,
+        );
+        return;
+      }
       const replacement: Record<string, string> = isTextFillElement
         ? {
             color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
@@ -485,12 +803,33 @@ export function FillProperties({
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
           {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
-            <SectionIconButton
-              label={t("editPanel.labels.addFill")}
-              onClick={addFill}
-            >
-              <IconPlus className="size-3.5" />
-            </SectionIconButton>
+            <Popover open={nativeAddOpen} onOpenChange={setNativeAddOpen}>
+              <PopoverAnchor asChild>
+                <span className="inline-flex">
+                  <SectionIconButton
+                    label={t("editPanel.labels.addFill")}
+                    onClick={addFill}
+                  >
+                    <IconPlus className="size-3.5" />
+                  </SectionIconButton>
+                </span>
+              </PopoverAnchor>
+              {nativeFillInstances.length > 0 && glslShaderContext ? (
+                <InspectorControlPopoverContent
+                  title={t("editPanel.shaders.shader")}
+                  icon={<IconWaveSine className="size-4" />}
+                  onClose={() => setNativeAddOpen(false)}
+                  bodyClassName="max-h-[70vh] overflow-y-auto p-0"
+                >
+                  <NativeShaderPanel
+                    context={glslShaderContext}
+                    placement="fill"
+                    catalogOnly
+                    onChanged={() => setNativeAddOpen(false)}
+                  />
+                </InspectorControlPopoverContent>
+              ) : null}
+            </Popover>
           ) : null}
         </>
       }
@@ -505,11 +844,133 @@ export function FillProperties({
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : hasVisibleFill ? (
         <div className="space-y-2">
+          {nativeFillRows.map((instance, index) => {
+            const definition = nativeFill.definitions.find(
+              (item) =>
+                item.id === instance.definitionId &&
+                item.version === instance.definitionVersion,
+            );
+            const definitionKey =
+              definition && nativeCatalogDefinitionKey(definition);
+            const title = definition
+              ? definitionKey
+                ? t(definitionKey)
+                : definition.name
+              : t("editPanel.shaders.shader");
+            const busy = nativeBusyId === instance.id;
+            return (
+              <Popover
+                key={instance.id}
+                open={nativeControlsOpenId === instance.id}
+                onOpenChange={(open) =>
+                  setNativeControlsOpenId(open ? instance.id : null)
+                }
+              >
+                <InspectorPaintRow
+                  draggable={nativeFillRows.length > 1}
+                  data-native-fill-id={instance.id}
+                  {...nativeFillDrag.getRowProps(index)}
+                >
+                  {nativeFillRows.length > 1 ? (
+                    <InspectorGridCell span={1}>
+                      <RowDragHandle
+                        label={t("editPanel.labels.reorderLayer")}
+                        dropIndicator={
+                          nativeFillDrag.dragIndex != null &&
+                          nativeFillDrag.overIndex === index
+                            ? nativeFillDrag.overIndex >
+                              nativeFillDrag.dragIndex
+                              ? "after"
+                              : "before"
+                            : null
+                        }
+                        {...nativeFillDrag.getHandleProps(index)}
+                      />
+                    </InspectorGridCell>
+                  ) : null}
+                  <InspectorGridCell span={nativeFillRows.length > 1 ? 19 : 20}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                      >
+                        <IconWaveSine className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                          {title}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {instance.enabled
+                            ? Math.round(instance.opacity * 100)
+                            : 0}
+                          %
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                  </InspectorGridCell>
+                  <InspectorGridCell span={4} className="flex justify-center">
+                    <SectionIconButton
+                      label={
+                        instance.enabled
+                          ? t("editPanel.labels.hideLayer")
+                          : t("editPanel.labels.showLayer")
+                      }
+                      disabled={busy}
+                      onClick={() =>
+                        void editNativeFill(instance.id, {
+                          kind: "set-instance",
+                          instanceId: instance.id,
+                          enabled: !instance.enabled,
+                        })
+                      }
+                    >
+                      {instance.enabled ? (
+                        <IconEye className="size-3.5" />
+                      ) : (
+                        <IconEyeOff className="size-3.5" />
+                      )}
+                    </SectionIconButton>
+                  </InspectorGridCell>
+                  <InspectorGridCell span={4} className="flex justify-center">
+                    <SectionIconButton
+                      label={t("editPanel.labels.removeLayer")}
+                      disabled={busy}
+                      onClick={() =>
+                        void editNativeFill(instance.id, {
+                          kind: "remove",
+                          instanceId: instance.id,
+                        })
+                      }
+                    >
+                      <IconMinus className="size-3.5" />
+                    </SectionIconButton>
+                  </InspectorGridCell>
+                </InspectorPaintRow>
+                <InspectorControlPopoverContent
+                  title={title}
+                  icon={<IconWaveSine className="size-4" />}
+                  onClose={() => setNativeControlsOpenId(null)}
+                  className="w-[min(320px,calc(100vw-2rem))]"
+                  bodyClassName="max-h-[70vh] overflow-y-auto p-0"
+                >
+                  {glslShaderContext ? (
+                    <NativeShaderPanel
+                      context={glslShaderContext}
+                      placement="fill"
+                      instanceId={instance.id}
+                      showCatalog={false}
+                      showRemoveButton={false}
+                      renderColorPicker={renderNativeColorPicker}
+                    />
+                  ) : null}
+                </InspectorControlPopoverContent>
+              </Popover>
+            );
+          })}
           {hasBaseFill ? (
             <InspectorPaintRow>
               <InspectorGridCell span={20}>
@@ -530,6 +991,7 @@ export function FillProperties({
                       : undefined
                   }
                   {...baseFillLayerProps}
+                  allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
                   open={openFillPickerKey === `${fillStashKey}:base`}
                   onOpenChange={(open) =>
                     setFillPickerOpen(`${fillStashKey}:base`, open)
@@ -565,9 +1027,10 @@ export function FillProperties({
                               index: backgroundLayers.length,
                               previousLayerCount: backgroundLayers.length,
                             };
-                            setOpenFillPickerKey(
-                              `${fillStashKey}:${convertedLayerKey}`,
-                            );
+                            pickerHandoffRef.current = {
+                              from: `${fillStashKey}:base`,
+                              to: `${fillStashKey}:${convertedLayerKey}`,
+                            };
                             commitStylePatch(
                               patch,
                               onStyleChange,
@@ -580,14 +1043,22 @@ export function FillProperties({
                       ? undefined
                       : commitImageFillPatch
                   }
+                  imageFillUploadTargetKeyForSelection={
+                    imageFillUploadTargetKeyForSelection
+                  }
                   supportedPaintTypes={
                     isVectorFillElement
-                      ? ["solid", "linear", "radial"]
+                      ? isNativeVectorFillElement
+                        ? ["solid", "linear", "radial", "shader"]
+                        : ["solid", "linear", "radial"]
                       : isTextFillElement
                         ? TEXT_BASE_PAINT_TYPES
                         : undefined
                   }
                   documentColors={documentColors}
+                  contrast={textContrast}
+                  bindTokens={!isVectorFillElement}
+                  boundToken={parseVarReference(authoredFillValue ?? "")?.name}
                   pickerKey={[
                     element.sourceId ??
                       element.id ??
@@ -596,9 +1067,15 @@ export function FillProperties({
                     fillProperty,
                   ].join(":")}
                   glslShaderContext={
-                    isVectorFillElement || isTextFillElement
+                    (isVectorFillElement && !isNativeVectorFillElement) ||
+                    isTextFillElement ||
+                    nativeFillInstances.length > 0
                       ? undefined
                       : glslShaderContext
+                  }
+                  fillShader={fillShader}
+                  authoredValue={
+                    authoredFillValue ? storedPaint.stops[0]!.color : undefined
                   }
                 />
               </InspectorGridCell>
@@ -622,13 +1099,17 @@ export function FillProperties({
               <InspectorGridCell span={4} className="flex justify-center">
                 <SectionIconButton
                   label={t("editPanel.labels.removeLayer")}
-                  onClick={() =>
+                  onClick={() => {
+                    if (fillShader && onRemoveShaderFill) {
+                      onRemoveShaderFill();
+                      return;
+                    }
                     commitStylePatch(
-                      removeBaseFillPatch(fillProperty),
+                      removeBaseFillPatch(fillProperty, element.inlineStyles),
                       onStyleChange,
                       onStylesChange,
-                    )
-                  }
+                    );
+                  }}
                 >
                   <IconMinus className="size-3.5" />
                 </SectionIconButton>
@@ -648,7 +1129,17 @@ export function FillProperties({
           ) : null}
           {!isVectorFillElement
             ? backgroundLayers.map((layer, index) => {
-                const solidFillColor = parseSolidFillLayer(layer);
+                // A solid layer bound to a token reads as that token: the
+                // swatch and field show the color it resolves to.
+                const tokenLayerCss = parseTokenSolidFillLayer(layer);
+                const solidFillColor =
+                  parseSolidFillLayer(layer) ?? tokenLayerCss;
+                const layerTokenResolution = tokenLayerCss
+                  ? resolveVarColor(tokenLayerCss, tokenSource?.tokens)
+                  : null;
+                const layerTokenVar = tokenLayerCss
+                  ? parseVarReference(tokenLayerCss)?.name
+                  : undefined;
                 const gradient = solidFillColor
                   ? null
                   : parseGradientLayer(layer);
@@ -658,18 +1149,48 @@ export function FillProperties({
                 const opacity = gradient
                   ? (gradient.opacity ?? 100)
                   : solidFillColor
-                    ? Math.round((parseCssColor(solidFillColor)?.a ?? 1) * 100)
+                    ? Math.round(
+                        (parseCssColor(
+                          layerTokenResolution?.kind === "color"
+                            ? layerTokenResolution.css
+                            : solidFillColor,
+                        )?.a ?? 1) * 100,
+                      )
                     : 100;
-                const solidFillHex = solidFillColor
-                  ? rgbaToHex(parseCssColor(solidFillColor)!)
-                  : null;
-                const label = solidFillHex
-                  ? solidFillHex
-                  : gradient
-                    ? `${gradientLabel(gradient.type)} ${index + 1}`
-                    : `${"Image" /* i18n-ignore design inspector paint row */} ${
-                        index + 1
-                      }`;
+                // The field reads a fill in its own notation: a wide color as
+                // written, a gradient or image by its name.
+                const layerReading = layerTokenVar
+                  ? readFillField({
+                      paint: "solid",
+                      value:
+                        layerTokenResolution?.kind === "color"
+                          ? layerTokenResolution.css
+                          : "",
+                      token: {
+                        name:
+                          findToken(tokenSource?.tokens, layerTokenVar)?.name ??
+                          layerTokenVar,
+                        unresolved: layerTokenResolution?.kind !== "color",
+                      },
+                    })
+                  : solidFillColor
+                    ? readFillField({ paint: "solid", value: solidFillColor })
+                    : readFillField({
+                        paint: gradient ? "gradient" : "image",
+                        value: layer,
+                        paintName: fillPaintName(
+                          gradient ? gradient.type : "image",
+                          GRADIENT_NAMES,
+                        ),
+                      });
+                const layerOpacity = hidden ? 0 : opacity;
+                const label =
+                  fillFieldEditText(layerReading) ??
+                  (layerReading.kind === "paint"
+                    ? layerReading.text
+                    : layerReading.kind === "token"
+                      ? layerReading.name
+                      : "");
                 const replaceLayer = (
                   nextLayer: string,
                   meta?: Parameters<StyleChangeHandler>[2],
@@ -678,7 +1199,9 @@ export function FillProperties({
                   nextLayers[index] = nextLayer;
                   commitBackgroundImageChange(joinCssLayers(nextLayers), meta);
                 };
-                const removeLayer = () => {
+                // A text layer has no solid layer to bind: its token becomes the
+                // text color, as Solid does for a text fill.
+                const removeLayer = (replacementColor?: string) => {
                   const patch: Record<string, string> = removeFillLayerAtIndex(
                     {
                       backgroundImage: backgroundLayers,
@@ -696,7 +1219,9 @@ export function FillProperties({
                       Boolean(parseGradientLayer(remainingLayer)),
                     );
                     patch.backgroundClip = hasGradient ? "text" : "border-box";
-                    if (
+                    if (replacementColor) {
+                      patch.color = replacementColor;
+                    } else if (
                       !hasGradient &&
                       remainingLayers.length === 0 &&
                       gradient &&
@@ -778,7 +1303,7 @@ export function FillProperties({
                     draggable
                     {...fillDrag.getRowProps(index)}
                   >
-                    <InspectorGridCell span={3}>
+                    <InspectorGridCell span={1}>
                       <RowDragHandle
                         label={t("editPanel.labels.reorderLayer")}
                         dropIndicator={
@@ -810,6 +1335,7 @@ export function FillProperties({
                           touched or the fill type was switched. */}
                       <DesignColorPicker
                         key={`${layerKey}:${openFillPickerKey === pickerKey}`}
+                        uploadTargetKey={imageFillUploadTargetKey(layerKey)}
                         open={openFillPickerKey === pickerKey}
                         onOpenChange={(open) => {
                           setFillPickerOpen(pickerKey, open);
@@ -826,23 +1352,54 @@ export function FillProperties({
                         trigger={
                           <button
                             type="button"
-                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 pl-8 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                            title={
+                              layerReading.kind === "wide"
+                                ? (solidFillColor ?? undefined)
+                                : undefined
+                            }
+                            className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                           >
-                            <span
-                              className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
-                              style={swatchStyle(layer)}
+                            <FillFieldFace
+                              reading={layerReading}
+                              swatch={
+                                <FillFieldSwatch
+                                  style={swatchStyle(
+                                    layerTokenResolution?.kind === "color"
+                                      ? layerTokenResolution.css
+                                      : layer,
+                                  )}
+                                  unresolved={
+                                    layerTokenVar !== undefined &&
+                                    layerTokenResolution?.kind !== "color"
+                                  }
+                                />
+                              }
+                              // A gradient's opacity is the field beside the
+                              // row, which leaves no room for the chevron.
+                              chevron={!gradient && showsChevron(layerReading)}
+                              opacity={
+                                gradient ||
+                                !showsOpacity(layerReading, layerOpacity)
+                                  ? null
+                                  : layerOpacity
+                              }
+                              mixedLabel=""
                             />
-                            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                              {label}
-                            </span>
-                            {!gradient && (
-                              <span className="shrink-0 tabular-nums text-muted-foreground">
-                                {hidden ? 0 : opacity}%
-                              </span>
-                            )}
                           </button>
                         }
                         className="min-w-0 flex-1"
+                        tokens={tokenSource?.tokens}
+                        onRequestTokens={tokenSource?.request}
+                        boundToken={layerTokenVar}
+                        onPickToken={
+                          tokenSource
+                            ? (token) => {
+                                const css = tokenVarCss(token.cssVar);
+                                if (isTextFillElement) removeLayer(css);
+                                else replaceLayer(buildSolidFillLayer(css));
+                              }
+                            : undefined
+                        }
                         value={solidFillColor ?? layer}
                         onPaintTypeChange={(type) => {
                           if (type === "solid") {
@@ -858,16 +1415,14 @@ export function FillProperties({
                               : null;
                             const solidColor = solidFillColor
                               ? solidFillColor
-                              : firstStopColor
-                                ? rgbaToCss(
-                                    withColorOpacity(
-                                      firstStopColor,
-                                      ((firstStop?.opacity ??
-                                        firstStopColor.a * 100) *
-                                        (gradient?.opacity ?? 100)) /
-                                        100,
-                                    ),
-                                  )
+                              : firstStopColor && firstStop
+                                ? (withCssColorOpacity(
+                                    firstStop.color,
+                                    ((firstStop.opacity ??
+                                      firstStopColor.a * 100) *
+                                      (gradient?.opacity ?? 100)) /
+                                      100,
+                                  ) ?? firstStop.color)
                                 : cssColorOrFallback(
                                     undefined,
                                     "#000000", // guard:allow-raw-color — a missing paint restores the concrete canvas fallback.
@@ -936,20 +1491,7 @@ export function FillProperties({
                         onImageFillChange={
                           isTextFillElement
                             ? undefined
-                            : (value) =>
-                                commitImageFillPatch(
-                                  setImageFillLayerPatch(
-                                    {
-                                      backgroundImage: backgroundLayers,
-                                      backgroundSize: backgroundSizeLayers,
-                                      backgroundRepeat: backgroundRepeatLayers,
-                                      backgroundPosition:
-                                        backgroundPositionLayers,
-                                    },
-                                    index,
-                                    imageFillToBackgroundStyles(value),
-                                  ),
-                                )
+                            : createImageFillUploadChange(layerKey, index)
                         }
                         paintType={
                           solidFillColor ? "solid" : (gradient?.type ?? "image")
@@ -959,6 +1501,7 @@ export function FillProperties({
                             ? TEXT_GRADIENT_PAINT_TYPES
                             : EXISTING_LAYER_PAINT_TYPES
                         }
+                        glslShaderContext={layerShaderContext}
                         backgroundImage={layer}
                         backgroundSize={backgroundSizeLayers[index]}
                         backgroundRepeat={backgroundRepeatLayers[index]}
@@ -1036,7 +1579,7 @@ export function FillProperties({
                     <InspectorGridCell span={4} className="flex justify-center">
                       <SectionIconButton
                         label={t("editPanel.labels.removeLayer")}
-                        onClick={removeLayer}
+                        onClick={() => removeLayer()}
                       >
                         <IconMinus className="size-3.5" />
                       </SectionIconButton>

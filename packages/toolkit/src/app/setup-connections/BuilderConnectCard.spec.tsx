@@ -157,6 +157,8 @@ describe("BuilderConnectCard", () => {
     expect(container.querySelector("[data-semantic-action]")).not.toBeNull();
     expect(container.querySelector("[data-semantic-status]")).not.toBeNull();
     expect(container.querySelector("[data-semantic-surface]")).not.toBeNull();
+    expect(mocks.semanticActionProps).not.toHaveProperty("leadingIcon");
+    expect(container.querySelector("[data-semantic-action] svg")).toBeNull();
     expect(mocks.semanticSurfaceProps).toMatchObject({
       as: "section",
       elevation: "low",

@@ -138,6 +138,11 @@ import {
 } from "./context.js";
 import { AgentStreamingText } from "./streaming-text.js";
 
+// AgentKit React installs without @agent-native/core, so it repeats core's
+// replay markers. Its specs assert core's attribute names.
+const SESSION_REPLAY_MASK_PROPS = { "data-an-mask": "" } as const;
+const SESSION_REPLAY_BLOCK_PROPS = { "data-an-block": "" } as const;
+
 export interface AgentKitErrorBoundaryProps {
   children: ReactNode;
   resetKey?: string | number;
@@ -592,11 +597,21 @@ function resolveObjectLabel(
   );
 }
 
+// A delegated participant's id is its call id; the app it runs is its origin,
+// and that is what a source reference names.
 function sourceObjectUnlessRepresented(
   source: AgentObjectReference | undefined,
+  thread: AgentThreadState,
   displayedAgentIds: readonly (string | undefined)[],
 ): AgentObjectReference | undefined {
-  if (source?.kind === "agent" && displayedAgentIds.includes(source.id)) {
+  if (
+    source?.kind === "agent" &&
+    displayedAgentIds.some(
+      (id) =>
+        id !== undefined &&
+        (id === source.id || thread.agents[id]?.origin?.id === source.id),
+    )
+  ) {
     return undefined;
   }
   return source;
@@ -882,7 +897,7 @@ export function AgentInteractionItem({
   );
   const object =
     interaction.object ??
-    sourceObjectUnlessRepresented(interaction.source, [
+    sourceObjectUnlessRepresented(interaction.source, thread, [
       interaction.agentId,
       interaction.targetAgentId,
     ]);
@@ -897,30 +912,36 @@ export function AgentInteractionItem({
       data-kind={interaction.kind}
       data-scope={interaction.scope}
     >
-      {interactionIcon(interaction.kind)}
-      {agent && AgentRenderer ? (
-        <AgentRenderer value={agent} threadId={threadId} />
-      ) : (
-        <AgentIdentityChip
-          id={interaction.agentId}
-          name={agentName}
-          fallbackName={labels.assistant}
-        />
-      )}
-      <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
-      {target && TargetRenderer ? (
-        <TargetRenderer value={target} threadId={threadId} />
-      ) : interaction.targetAgentId ? (
-        <AgentIdentityChip
-          id={interaction.targetAgentId}
-          name={targetName}
-          fallbackName={labels.assistant}
-        />
-      ) : null}
-      {object ? (
-        <ObjectRenderer value={object} threadId={threadId} />
-      ) : detail ? (
-        <span className="agentkit-agent-interaction-detail" title={detail}>
+      <span className="agentkit-agent-interaction-head">
+        {interactionIcon(interaction.kind)}
+        {agent && AgentRenderer ? (
+          <AgentRenderer value={agent} threadId={threadId} />
+        ) : (
+          <AgentIdentityChip
+            id={interaction.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
+        )}
+        <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
+        {target && TargetRenderer ? (
+          <TargetRenderer value={target} threadId={threadId} />
+        ) : interaction.targetAgentId ? (
+          <AgentIdentityChip
+            id={interaction.targetAgentId}
+            name={targetName}
+            fallbackName={labels.assistant}
+          />
+        ) : null}
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      </span>
+      {detail && (!object || interaction.kind === "failed") ? (
+        <span
+          {...(interaction.kind === "failed"
+            ? SESSION_REPLAY_MASK_PROPS
+            : { title: detail })}
+          className="agentkit-agent-interaction-detail"
+        >
           {detail}
         </span>
       ) : null}
@@ -963,7 +984,7 @@ export function AgentActivityItem({
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const object =
     activity.object ??
-    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   const detail = tool ? "" : readableText(activity.detail);
   return (
     <div
@@ -987,7 +1008,13 @@ export function AgentActivityItem({
         </span>
         {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
         {detail ? (
-          <span className="agentkit-activity-detail" title={detail}>
+          // Replays mask text but record attributes, so failure text gets no title.
+          <span
+            {...(activity.status === "failed"
+              ? SESSION_REPLAY_MASK_PROPS
+              : { title: detail })}
+            className="agentkit-activity-detail"
+          >
             {detail}
           </span>
         ) : null}
@@ -1008,7 +1035,11 @@ export function AgentActivityItem({
         ) : null}
       </div>
       {open ? (
-        <div className="agentkit-activity-summary">
+        // Summary parts can render links, and replays keep their attributes.
+        <div
+          {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
+          className="agentkit-activity-summary"
+        >
           {activity.summary?.map((part, index) => {
             const safePart =
               part.type === "text"
@@ -1129,7 +1160,7 @@ function RepeatedActivityCluster({
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const object =
     activity.object ??
-    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   return (
     <details
       className="agentkit-activity-cluster"
@@ -2086,7 +2117,7 @@ export function AgentTaskItem({
   const detail = readableText(task.detail);
   const object =
     task.object ??
-    sourceObjectUnlessRepresented(task.source, [task.assignedAgentId]);
+    sourceObjectUnlessRepresented(task.source, thread, [task.assignedAgentId]);
   const showAgent =
     task.assignedAgentId &&
     title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
@@ -2331,7 +2362,11 @@ export function AgentApprovalPrompt({
         )}
       </div>
       {resolution.error ? (
-        <p className="agentkit-command-error" role="alert">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {resolution.error.message}
         </p>
       ) : null}
@@ -2452,7 +2487,7 @@ export function AgentConnectionRequestCard({
       {resolution.error ? (
         <div className="agentkit-command-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{resolution.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{resolution.error.message}</span>
         </div>
       ) : null}
     </Surface>
@@ -2501,7 +2536,11 @@ function AgentWidgetActionButton({
         {action.label}
       </ActionButton>
       {invocation.error ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {invocation.error.message}
         </span>
       ) : null}
@@ -2827,7 +2866,10 @@ export function AgentMessagePartView({
           <span>{part.name}</span>
         </a>
       ) : (
-        <span className="agentkit-file">
+        <span
+          className="agentkit-file"
+          title={part.omitted ? labels.attachmentNotSaved : undefined}
+        >
           <IconFile aria-hidden="true" className="agentkit-icon" />
           <span>{part.name}</span>
         </span>
@@ -3003,6 +3045,10 @@ async function forkAndResubmitMessage({
   if (previousMessage === null) {
     throw new Error(messageUnavailable);
   }
+  const engine = metadata?.engine ?? options?.metadata?.engine;
+  await controller.assertAiSetupReady({
+    engine: typeof engine === "string" ? engine : undefined,
+  });
   const forkedThread = await controller.forkThread(
     threadId,
     previousMessage?.id,
@@ -3234,7 +3280,7 @@ export function AgentMessageActions({
       text: messageText(previousUserMessage),
       attachments: previousUserMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       ),
       options: messageRunOptions(previousUserMessage),
       metadata: previousUserMessage.metadata,
@@ -3695,6 +3741,7 @@ export function AgentMessageActions({
               onPress={() => void copyAction.execute().catch(() => undefined)}
             />
             {editContext?.enabled &&
+            message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
               <IconButton
@@ -3724,7 +3771,11 @@ export function AgentMessageActions({
         </>
       )}
       {actionError ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {actionError.message}
         </span>
       ) : null}
@@ -3880,7 +3931,7 @@ export function AgentRunFailure({
       <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
-        <span>{error.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
         {canContinue ? (
           <div className="agentkit-error-actions">
             <ActionButton
@@ -3919,7 +3970,7 @@ export function AgentConnectionErrorView({
       role="alert"
     >
       <strong>{labels.error}</strong>
-      <span>{error.message}</span>
+      <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
       {error.retryable ? (
         <div className="agentkit-error-actions">
           <ActionButton
@@ -3933,7 +3984,9 @@ export function AgentConnectionErrorView({
         </div>
       ) : null}
       {recoveryError ? (
-        <span className="agentkit-command-error">{recoveryError.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS} className="agentkit-command-error">
+          {recoveryError.message}
+        </span>
       ) : null}
     </div>
   );
@@ -3951,6 +4004,7 @@ export interface AgentKitComposerProps extends Omit<
     | "voiceEnabled"
     | "autoFocus"
     | "disabled"
+    | "isReferenceTarget"
     | "submissionDisabled"
     | "onDisabledClick"
     | "initialText"
@@ -3973,7 +4027,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
-    | "requireAgentEngine"
+    | "showMissingApiKeySetup"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -3987,7 +4041,6 @@ export interface AgentKitComposerProps extends Omit<
     | "inlineTextAttachments"
     | "extraActionButton"
     | "onSubmit"
-    | "onBeforeSubmit"
     | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
@@ -3999,6 +4052,8 @@ export interface AgentKitComposerProps extends Omit<
 > {
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
+  requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
@@ -4040,6 +4095,7 @@ export function AgentKitComposer({
   onModeChange,
   toolbarSlot,
   disabled,
+  isReferenceTarget,
   submissionDisabled,
   onDisabledClick,
   placeholder,
@@ -4062,7 +4118,8 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
-  requireAgentEngine,
+  requireAgentEngine = false,
+  showMissingApiKeySetup,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -4072,7 +4129,6 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
-  onBeforeSubmit,
   onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -4266,6 +4322,11 @@ export function AgentKitComposer({
       options.onLocalSubmit?.();
     };
     if (!editingMessage && onSubmitOverride) {
+      const readinessEngine = options.engine ?? selectedEngine;
+      await controller.assertAiSetupReady({
+        engine:
+          typeof readinessEngine === "string" ? readinessEngine : undefined,
+      });
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,
@@ -4324,6 +4385,10 @@ export function AgentKitComposer({
       if (previousMessage === null) {
         throw new Error(labels.messageUnavailable);
       }
+      const selectedEngine = metadata.engine ?? runOptions.metadata?.engine;
+      await controller.assertAiSetupReady({
+        engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
+      });
       const forkedThread = await controller.forkThread(
         threadId,
         previousMessage?.id,
@@ -4335,7 +4400,7 @@ export function AgentKitComposer({
         : [];
       const previousAttachments = editingMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       );
       const draft = createAgentKitComposerSubmission({
         threadId: forkedThread.id,
@@ -4420,14 +4485,13 @@ export function AgentKitComposer({
       queuedWhileRunActive: activeAtSubmit,
     });
   };
-  const prepareHostSubmit = async () => {
+  const prepareHostSubmit = () => {
     if (disabled) {
       onDisabledClick?.();
       return false;
     }
     if (submissionDisabled) return false;
-    if (editingMessage) return true;
-    return !onBeforeSubmit || (await onBeforeSubmit());
+    return true;
   };
   const steerQueued: AgentKitQueueRenderProps["onSteer"] =
     !disabled && !submissionDisabled
@@ -4608,6 +4672,7 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
+        isReferenceTarget={isReferenceTarget}
         submissionDisabled={submissionBlocked}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
@@ -4635,6 +4700,7 @@ export function AgentKitComposer({
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
         requireAgentEngine={requireAgentEngine}
+        showMissingApiKeySetup={showMissingApiKeySetup}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
@@ -4642,7 +4708,6 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         sendButtonDisabled={submissionPending}
-        onBeforeSubmit={onBeforeSubmit}
         onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately
@@ -4691,13 +4756,13 @@ export function AgentKitComposer({
       {command.error ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{command.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{command.error.message}</span>
         </div>
       ) : null}
       {attachmentError ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{attachmentError}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{attachmentError}</span>
         </div>
       ) : null}
     </div>
@@ -4817,6 +4882,41 @@ export function AgentKitChat({
     composerProps?.attachmentsEnabled !== false;
   const hasFiles = (event: ReactDragEvent<HTMLElement>) =>
     Array.from(event.dataTransfer.types).includes("Files");
+  const attachDroppedFiles = (files: File[]) => {
+    if (!files.length) return;
+    window.dispatchEvent(
+      new CustomEvent("agentkit:attach-files", {
+        detail: { threadId, files },
+      }),
+    );
+  };
+  const observeFileDrop = (nativeEvent: DragEvent, files: File[]) => {
+    const eventPath = nativeEvent.composedPath();
+    const lastPathTarget = eventPath.at(-1);
+    let pending = true;
+    const finishDrop = (dropEvent: Event) => {
+      if (!pending) return;
+      const reachedEnd = dropEvent.currentTarget === lastPathTarget;
+      if (
+        !dropEvent.defaultPrevented &&
+        !dropEvent.cancelBubble &&
+        !reachedEnd
+      ) {
+        return;
+      }
+      pending = false;
+      for (const target of eventPath) {
+        target.removeEventListener("drop", finishDrop);
+      }
+      if (dropEvent.defaultPrevented) return;
+      dropEvent.preventDefault();
+      attachDroppedFiles(files);
+    };
+    // Observe each path target so a stopped event can still be claimed there.
+    for (const target of eventPath) {
+      target.addEventListener("drop", finishDrop);
+    }
+  };
   const handleFileDragEnter = (event: ReactDragEvent<HTMLElement>) => {
     if (!canDropFiles || event.defaultPrevented || !hasFiles(event)) return;
     if (
@@ -4846,20 +4946,21 @@ export function AgentKitChat({
     fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
     setFileDragActive(fileDragDepthRef.current > 0);
   };
-  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
+  const handleFileDropCapture = (event: ReactDragEvent<HTMLElement>) => {
     if (!canDropFiles || !hasFiles(event)) return;
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
     if (event.defaultPrevented) return;
-    event.preventDefault();
-    event.stopPropagation();
     const files = Array.from(event.dataTransfer.files);
     if (!files.length) return;
-    window.dispatchEvent(
-      new CustomEvent("agentkit:attach-files", {
-        detail: { threadId, files },
-      }),
-    );
+    observeFileDrop(event.nativeEvent, files);
+  };
+  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
+    if (!canDropFiles || !hasFiles(event)) return;
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    event.stopPropagation();
+    attachDroppedFiles(Array.from(event.dataTransfer.files));
   };
 
   const clearTranscriptScrollbarTimeout = useCallback(() => {
@@ -5428,6 +5529,7 @@ export function AgentKitChat({
         onDragEnter={handleFileDragEnter}
         onDragOver={handleFileDragOver}
         onDragLeave={handleFileDragLeave}
+        onDropCapture={handleFileDropCapture}
         onDrop={handleFileDrop}
       >
         {fileDragActive ? (

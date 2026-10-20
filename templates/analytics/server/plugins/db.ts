@@ -13,7 +13,16 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
+import {
+  CONTENT_METRICS_MIGRATION_SQL,
+  CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+} from "../lib/content-metrics/migration.js";
+import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
+import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
+import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -31,7 +40,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
-const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
+const ANALYTICS_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
 
 function getAnalyticsMigrationDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
@@ -53,41 +62,68 @@ async function ensureAnalyticsDashboardCreatedByColumn(): Promise<void> {
   return;
 }
 
-async function repairAnalyticsEventCursorIndexes(): Promise<
-  void | typeof MIGRATION_DEFERRED
-> {
-  const repairIndexes = [
-    {
-      name: "analytics_events_org_received_id_non_http_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
-        ON analytics_events (org_id, received_at, id)
-        WHERE event_name IS DISTINCT FROM 'http.response'`,
-    },
-    {
-      name: "analytics_events_owner_received_id_non_http_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
-        ON analytics_events (owner_email, received_at, id)
-        WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
-    },
-    {
-      name: "analytics_event_daily_rollups_org_event_date_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
-        ON analytics_event_daily_rollups (org_id, event_date)`,
-    },
-    {
-      name: "analytics_user_days_org_event_date_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
-        ON analytics_user_days (org_id, event_date)`,
-    },
-  ];
+type AnalyticsIndexRepair = { name: string; createSql: string };
 
+const ANALYTICS_INDEX_REPAIRS: AnalyticsIndexRepair[] = [
+  {
+    name: "analytics_events_org_received_id_non_http_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+      ON analytics_events (org_id, received_at, id)
+      WHERE event_name IS DISTINCT FROM 'http.response'`,
+  },
+  {
+    name: "analytics_events_owner_received_id_non_http_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+      ON analytics_events (owner_email, received_at, id)
+      WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+  },
+  {
+    name: "analytics_event_daily_rollups_org_event_date_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
+      ON analytics_event_daily_rollups (org_id, event_date)`,
+  },
+  {
+    name: "analytics_user_days_org_event_date_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
+      ON analytics_user_days (org_id, event_date)`,
+  },
+  {
+    name: "session_recordings_client_started_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_idx
+      ON session_recordings (client_recording_id, started_at)`,
+  },
+];
+
+const SESSION_RECORDING_CLIENT_STARTED_AT_INDEX: AnalyticsIndexRepair = {
+  name: "session_recordings_client_started_at_idx",
+  createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_at_idx
+    ON session_recordings (client_recording_id, client_started_at)`,
+};
+
+async function repairNamedAnalyticsIndexes(
+  repairIndexes: readonly AnalyticsIndexRepair[],
+): Promise<void | typeof MIGRATION_DEFERRED> {
   const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
   const query = (sql: string) =>
     exec.execute({
       sql,
-      timeoutMs: ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS,
+      timeoutMs: ANALYTICS_INDEX_REPAIR_TIMEOUT_MS,
       maxAttempts: 1,
     });
+
+  const readReadyIndexes = async () => {
+    const { rows } = await query(`
+      SELECT c.relname, i.indisvalid, i.indisready
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
+    `);
+    return new Set(
+      rows
+        .filter((row) => row.indisvalid === true && row.indisready === true)
+        .map((row) => String(row.relname)),
+    );
+  };
 
   try {
     const lockResult = await query(
@@ -95,19 +131,8 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
     );
     if (lockResult.rows[0]?.acquired !== true) return deferMigration();
 
-    let lockHeld = true;
     try {
-      const { rows } = await query(`
-      SELECT c.relname, i.indisvalid, i.indisready
-      FROM pg_class c
-      JOIN pg_index i ON i.indexrelid = c.oid
-      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
-    `);
-      const readyIndexes = new Set(
-        rows
-          .filter((row) => row.indisvalid === true && row.indisready === true)
-          .map((row) => String(row.relname)),
-      );
+      const readyIndexes = await readReadyIndexes();
       const expectedIndexes = repairIndexes.map(({ name }) => name);
       if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
 
@@ -116,17 +141,33 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
         await query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
         await query(createSql);
       }
-    } finally {
-      if (lockHeld) {
-        await query(
-          `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
-        );
-        lockHeld = false;
+      const repairedIndexes = await readReadyIndexes();
+      if (!expectedIndexes.every((name) => repairedIndexes.has(name))) {
+        throw new Error("Analytics index repair did not create every index");
       }
+    } finally {
+      await query(
+        `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
+      );
     }
   } finally {
     await exec.close?.();
   }
+}
+
+async function repairAnalyticsIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
+  return repairNamedAnalyticsIndexes(ANALYTICS_INDEX_REPAIRS);
+}
+
+async function repairAnalyticsReplayLinkIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
+  return repairNamedAnalyticsIndexes([
+    ...ANALYTICS_INDEX_REPAIRS,
+    SESSION_RECORDING_CLIENT_STARTED_AT_INDEX,
+  ]);
 }
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1378,7 +1419,7 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 145,
       name: "analytics-events-backfill-filtered-cursor-index-direct-repair",
-      run: repairAnalyticsEventCursorIndexes,
+      run: repairAnalyticsIndexes,
       sql: {
         postgres: "SELECT 1",
       },
@@ -1386,7 +1427,7 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 146,
       name: "analytics-events-purge-inventory-index-direct-repair",
-      run: repairAnalyticsEventCursorIndexes,
+      run: repairAnalyticsIndexes,
       sql: {
         postgres: "SELECT 1",
       },
@@ -1721,6 +1762,91 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "bigquery-cache-forced-refresh-kind",
       sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_forced BOOLEAN NOT NULL DEFAULT FALSE`,
     },
+    {
+      version: 161,
+      name: "session-recording-session-associations",
+      sql: `CREATE TABLE IF NOT EXISTS session_recording_session_associations (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL REFERENCES session_recordings(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS session_recording_session_associations_recording_session_idx
+      ON session_recording_session_associations (recording_id, session_id);
+    CREATE INDEX IF NOT EXISTS session_recording_session_associations_session_recording_idx
+      ON session_recording_session_associations (session_id, recording_id)`,
+    },
+    {
+      version: 162,
+      name: "session-recordings-client-started-index",
+      run: repairAnalyticsIndexes,
+      sql: { postgres: "SELECT 1" },
+    },
+    {
+      version: 163,
+      name: "session-recordings-client-started-at",
+      sql: "ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS client_started_at TEXT",
+    },
+    {
+      version: 164,
+      name: "session-recordings-client-started-at-index",
+      run: repairAnalyticsReplayLinkIndexes,
+      sql: { postgres: "SELECT 1" },
+    },
+    {
+      version: 165,
+      name: "dashboard-github-sync-state",
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS github_sync_state TEXT`,
+    },
+    {
+      version: 166,
+      name: "dashboard-folder-github-sync",
+      sql: `ALTER TABLE dashboard_folders ADD COLUMN IF NOT EXISTS github_sync TEXT`,
+    },
+    {
+      version: 167,
+      name: "source-index-runs-table",
+      sql: SOURCE_INDEX_RUNS_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 168,
+      name: "dashboard-report-slack-webhook",
+      sql: `ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS slack_webhook_url TEXT`,
+    },
+    {
+      version: 169,
+      name: "analytics-bi-migration-external-dashboards",
+      sql: EXTERNAL_DASHBOARD_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 170,
+      name: "dashboard-revisions-change-summary",
+      sql: `ALTER TABLE dashboard_revisions ADD COLUMN IF NOT EXISTS change_summary TEXT`,
+    },
+    {
+      version: 171,
+      name: "analytics-key-date-sets",
+      sql: KEY_DATES_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 172,
+      name: "analytics-data-notes",
+      sql: DATA_NOTES_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 176,
+      name: "analytics-builtin-dashboard-checks",
+      sql: BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 180,
+      name: "analytics-content-metrics-tables",
+      sql: CONTENT_METRICS_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 181,
+      name: "analytics-content-coverage-config",
+      sql: CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1736,31 +1862,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
  * swallowed so it can never fail boot.
  */
 export default async (nitroApp: any): Promise<void> => {
-  const isScheduledRollupRuntime =
+  const isScheduledSchemaRuntime =
     (
       globalThis as typeof globalThis & {
         __AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__?: boolean;
+        __AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__?: boolean;
       }
-    ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true;
-  if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {
+    ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true ||
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true;
+  if (isInBackgroundFunctionRuntime() && !isScheduledSchemaRuntime) {
     // Most durable workers execute signed internal routes against a schema
     // owned by the regular server. A second migration runner only adds a Neon
-    // pool probe to every worker cold start. The scheduled rollup worker is
-    // the exception because it can be the first post-deploy invocation.
+    // pool probe to every worker cold start. The scheduled collection workers are
+    // the exceptions because either can be the first post-deploy invocation.
     console.info(
       "[db] Skipping Analytics migrations in durable background runtime",
     );
     return;
   }
   const isProductionServerless = isProductionServerlessRuntime();
-  if (isProductionServerless && !isScheduledRollupRuntime) {
+  if (isProductionServerless && !isScheduledSchemaRuntime) {
     console.info(
       "[db] Skipping Analytics migrations in production serverless runtime",
     );
     return;
   }
   const runSchemaWork = async () => {
-    // guard:allow-boot-data-work — local servers and the scheduled rollup worker own schema setup
+    // guard:allow-boot-data-work — local servers and the scheduled collection workers own schema setup
     await runAnalyticsMigrations(nitroApp);
     try {
       const summary = await ensureAdditiveColumns({
@@ -1781,7 +1913,7 @@ export default async (nitroApp: any): Promise<void> => {
     }
   };
   if (isProductionServerless) {
-    // guard:allow-boot-data-work — the scheduled rollup may be the first post-deploy schema caller
+    // guard:allow-boot-data-work — the scheduled collection worker may be the first post-deploy schema caller
     await withMigrationRuntime(() =>
       withMigrationExecutionRuntime(runSchemaWork),
     );

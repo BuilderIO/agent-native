@@ -31,6 +31,26 @@ export function captureYjsUndoStackTop(
   return stack?.[stack.length - 1];
 }
 
+export function captureYjsUndoHistoryUpdate<T>(
+  undoManager: Y.UndoManager | null | undefined,
+  run: () => T,
+): { result: T; recorded: boolean } {
+  if (!undoManager) return { result: run(), recorded: false };
+
+  let recorded = false;
+  const markRecorded = () => {
+    recorded = true;
+  };
+  undoManager.on("stack-item-added", markRecorded);
+  undoManager.on("stack-item-updated", markRecorded);
+  try {
+    return { result: run(), recorded };
+  } finally {
+    undoManager.off("stack-item-added", markRecorded);
+    undoManager.off("stack-item-updated", markRecorded);
+  }
+}
+
 export function stampYjsUndoSelection(
   undoManager: Y.UndoManager | null | undefined,
   previousTop: YjsUndoStackTop,
@@ -54,12 +74,13 @@ export const YJS_REDO_SELECTION_META_KEY = "design-editor-selection-after";
 
 export function stampYjsUndoSelectionAfter(
   undoManager: Y.UndoManager | null | undefined,
-  previousTop: YjsUndoStackTop,
+  recorded: boolean,
   snapshot: YjsUndoSelectionSnapshot,
 ): void {
+  if (!recorded) return;
   const stack = undoManager?.undoStack;
   const top = stack?.[stack.length - 1];
-  if (!top || top === previousTop) return;
+  if (!top) return;
   top.meta.set(YJS_REDO_SELECTION_META_KEY, snapshot);
 }
 
@@ -244,15 +265,41 @@ export function insertFileCreationHistoryEntry(
 
 export interface FileDeletionHistorySnapshot {
   id: string;
+  restoreClaimId?: string;
+  restoreSourceFileId?: string;
   filename: string;
   content: string;
   fileType: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
+  fileOrderIndex?: number;
   geometry?: CanvasFrameGeometry;
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
   variantMemberships?: FileDeletionVariantMembershipSnapshot[];
+}
+
+export function insertAtFileOrderIndex<T>(
+  files: readonly T[],
+  file: T,
+  index?: number,
+): T[] {
+  if (index === undefined) return [...files, file];
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new Error("Invalid file order index");
+  }
+  const insertionIndex = Math.min(index, files.length);
+  return [
+    ...files.slice(0, insertionIndex),
+    file,
+    ...files.slice(insertionIndex),
+  ];
+}
+
+export interface FileDeletionRestoreClaim {
+  claimId: string;
+  sourceFileId: string;
+  targetFileId: string;
 }
 
 export interface FileDeletionVariantMembershipSnapshot {
@@ -568,6 +615,7 @@ export interface ContentHistoryChange {
   };
   isCheckpoint?: boolean;
   selectionBefore?: YjsUndoSelectionSnapshot;
+  selectionAfter?: YjsUndoSelectionSnapshot;
 }
 
 export interface ContentHistoryGroup {
@@ -590,6 +638,26 @@ export function captureContentUndoStackTop(
   return stack[stack.length - 1];
 }
 
+export function stampLocalContentHistorySelectionAfter(
+  stack: ContentHistoryChange[],
+  previousTop: ContentHistoryChange | undefined,
+  snapshot: YjsUndoSelectionSnapshot,
+): void {
+  const top = stack[stack.length - 1];
+  if (!top || top === previousTop) return;
+  top.selectionAfter = snapshot;
+}
+
+export function stampLocalContentHistorySelectionBefore(
+  stack: ContentHistoryChange[],
+  previousTop: ContentHistoryChange | undefined,
+  snapshot: YjsUndoSelectionSnapshot,
+): void {
+  const top = stack[stack.length - 1];
+  if (!top || top === previousTop || top.selectionBefore) return;
+  top.selectionBefore = snapshot;
+}
+
 export function stampContentHistorySelectionAfter(
   stack: readonly ContentHistoryEntry[],
   afterMap: ContentHistorySelectionAfterMap,
@@ -598,12 +666,20 @@ export function stampContentHistorySelectionAfter(
 ): void {
   const top = stack[stack.length - 1];
   if (!top || top === previousTop) return;
+  stampContentHistorySelectionAfterEntry(afterMap, top, after);
+}
+
+export function stampContentHistorySelectionAfterEntry(
+  afterMap: ContentHistorySelectionAfterMap,
+  entry: ContentHistoryEntry,
+  after: GeometryHistorySelection,
+): void {
   afterMap.set(
-    top,
+    entry,
     captureHistorySelectionSources(after, {
       ...after.sourceContentByFileId,
       ...Object.fromEntries(
-        getContentHistoryChanges(top).map((change) => [
+        getContentHistoryChanges(entry).map((change) => [
           change.fileId,
           change.after,
         ]),
@@ -624,6 +700,12 @@ export interface PendingTextCreationFinalization {
   historyHandled: boolean;
   confirm: () => void;
 }
+
+export const NOT_A_TEXT_CREATION: PendingTextCreationFinalization = {
+  isCreationCommit: false,
+  historyHandled: false,
+  confirm: () => {},
+};
 
 export function finalizeTextCreationHistory(
   stack: readonly ContentHistoryEntry[],
@@ -749,7 +831,10 @@ export function mergeLocalContentHistoryFallback(
     !last.isCheckpoint &&
     !change.isCheckpoint
   ) {
-    return [...stack.slice(0, -1), { ...last, after: change.after }];
+    const merged = { ...last, after: change.after };
+    if (change.selectionAfter === undefined) delete merged.selectionAfter;
+    else merged.selectionAfter = change.selectionAfter;
+    return [...stack.slice(0, -1), merged];
   }
   return [...stack.slice(-(MAX_DESIGN_UNDO_STACK - 1)), change];
 }

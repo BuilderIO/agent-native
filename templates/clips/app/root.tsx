@@ -31,6 +31,7 @@ import {
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+import { toast } from "sonner";
 
 import { BugReportDialog } from "@/components/bug-report/bug-report-dialog";
 import { ClipsCommandMenu } from "@/components/clips-command-menu";
@@ -47,7 +48,11 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
+import {
+  buildClipsExtensionBaseUrl,
+  fetchClipsExtensionSession,
+  type ClipsExtensionSession,
+} from "@/lib/extension-auth";
 import {
   isLegacyRecordingPath,
   isRecordingSharePath,
@@ -238,17 +243,24 @@ function ClipsExtensionAuthBridge() {
         }
       ).chrome?.runtime;
 
-      const response = await fetch(appPath("/_agent-native/auth/session"), {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const session = (await response.json().catch(() => null)) as {
-        email?: string;
-        token?: string;
-      } | null;
-      if (cancelled || !response.ok || !session?.email || !session.token) {
+      let session: ClipsExtensionSession | null;
+      try {
+        session = await fetchClipsExtensionSession(
+          () =>
+            fetch(appPath("/_agent-native/auth/session"), {
+              credentials: "include",
+              cache: "no-store",
+            }),
+          () => !cancelled,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Could not complete Clips extension sign-in.", error);
+          toast.error(t("recordingPage.tryAgainMoment"));
+        }
         return;
       }
+      if (cancelled || !session) return;
 
       const message = {
         source: "clips-auth-bridge",

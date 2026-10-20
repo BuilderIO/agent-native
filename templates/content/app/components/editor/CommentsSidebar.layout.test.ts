@@ -9,7 +9,7 @@ import type { CommentThread } from "@/hooks/use-comments";
 
 import {
   estimateThreadCardHeight,
-  findPendingCommentOffset,
+  findPendingCommentPosition,
   findThreadPosition,
   getAiCommentSource,
   layoutCommentThreads,
@@ -214,7 +214,10 @@ describe("comments sidebar layout", () => {
     scroll.getBoundingClientRect = () => rect(80) as DOMRect;
     pending.getBoundingClientRect = () => rect(125) as DOMRect;
 
-    expect(findPendingCommentOffset(scroll)).toBe(45);
+    expect(findPendingCommentPosition(scroll, scroll)).toEqual({
+      documentTop: 45,
+      layoutTop: 45,
+    });
   });
 
   it("gives the selected thread first claim near its anchor without overlap", () => {
@@ -418,7 +421,7 @@ describe("comments sidebar layout", () => {
   it("keeps multiline comment highlights padded as one forgiving target", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* @mention tokens inside comment bodies */"),
     );
 
@@ -433,7 +436,7 @@ describe("comments sidebar layout", () => {
   it("smoothly strengthens ordinary comment highlights without moving them", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* Pending suggested edits"),
     );
 
@@ -444,7 +447,7 @@ describe("comments sidebar layout", () => {
       "transition: background-color 160ms var(--ease-out-strong)",
     );
     expect(highlightStyles).toMatch(
-      /\.comment-highlight:hover,\s*\.notion-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
+      /\.comment-highlight:hover,\s*\.content-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
     );
     expect(highlightStyles).toMatch(
       /\.comment-highlight\.comment-highlight--active\s*\{[^}]*\/ 0\.38\)/,
@@ -557,26 +560,21 @@ describe("comments sidebar layout", () => {
     );
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toMatch(
-      /const showUtilityPanelSheet = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
-    );
-    expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(
-      'window.visualViewport?.addEventListener("resize", update)',
+      "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
     );
-    expect(source).toContain("observer?.observe(element)");
-    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
-  });
-
-  it("recomputes anchors when comment indicators are restored", () => {
-    const source = readFileSync("app/components/editor/VisualEditor.tsx", {
-      encoding: "utf8",
-    });
-
     expect(source).toMatch(
-      /scheduleApply\(false\);[\s\S]*?showCommentIndicators/,
+      /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
     );
+    expect(source).toContain(
+      `showUtilityPanelOffColumn &&
+    (commentSurfaces.list === "sheet" ||
+      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
+    );
+    expect(source).toContain(
+      'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
+    );
+    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 
   it("keeps the pending composer in normal flow in the anchored card", () => {

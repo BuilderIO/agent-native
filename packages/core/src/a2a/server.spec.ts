@@ -22,6 +22,22 @@ const claimApprovalMock = vi.hoisted(() => vi.fn());
 const settleApprovalMock = vi.hoisted(() => vi.fn());
 const recordServicePrincipalDenialMock = vi.hoisted(() => vi.fn());
 const processA2ATaskFromQueueMock = vi.hoisted(() => vi.fn());
+const runLeaseMocks = vi.hoisted(() => ({
+  claimTaskExecutionLease: vi.fn(
+    async (threadId: string, turnId: string, runId: string) => ({
+      threadId,
+      turnId,
+      runId,
+      generation: "1",
+    }),
+  ),
+  renewTaskExecutionLease: vi.fn(async () => undefined),
+  releaseTurnExecutionLease: vi.fn(async () => undefined),
+  withExecutionFence: vi.fn(async (_fence: unknown, work: () => unknown) =>
+    work(),
+  ),
+  TurnExecutionLeaseBusyError: class TurnExecutionLeaseBusyError extends Error {},
+}));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -79,7 +95,20 @@ vi.mock("../server/request-context.js", () => ({
   runWithRequestContext: (_context: unknown, fn: () => unknown) => fn(),
 }));
 
+vi.mock("../agent/execution-fence.js", () => ({
+  withExecutionFence: runLeaseMocks.withExecutionFence,
+}));
+
+vi.mock("../agent/run-store.js", () => ({
+  TURN_EXECUTION_LEASE_MS: 15_000,
+  TurnExecutionLeaseBusyError: runLeaseMocks.TurnExecutionLeaseBusyError,
+  claimTaskExecutionLease: runLeaseMocks.claimTaskExecutionLease,
+  renewTaskExecutionLease: runLeaseMocks.renewTaskExecutionLease,
+  releaseTurnExecutionLease: runLeaseMocks.releaseTurnExecutionLease,
+}));
+
 vi.mock("./task-store.js", () => ({
+  a2aTaskLeaseThreadId: (taskId: string) => `a2a-task:${taskId}`,
   getA2AApprovalForOwner: getApprovalMock,
   claimA2AApproval: claimApprovalMock,
   settleA2AApproval: settleApprovalMock,
@@ -114,6 +143,23 @@ describe("mountA2A auth", () => {
     claimApprovalMock.mockReset();
     settleApprovalMock.mockReset();
     processA2ATaskFromQueueMock.mockReset().mockResolvedValue(undefined);
+    runLeaseMocks.claimTaskExecutionLease
+      .mockReset()
+      .mockImplementation(async (threadId, turnId, runId) => ({
+        threadId,
+        turnId,
+        runId,
+        generation: "1",
+      }));
+    runLeaseMocks.renewTaskExecutionLease
+      .mockReset()
+      .mockResolvedValue(undefined);
+    runLeaseMocks.releaseTurnExecutionLease
+      .mockReset()
+      .mockResolvedValue(undefined);
+    runLeaseMocks.withExecutionFence
+      .mockReset()
+      .mockImplementation(async (_fence, work) => work());
     process.env = { ...originalEnv, NODE_ENV: "production" };
   });
 
@@ -443,6 +489,35 @@ describe("mountA2A auth", () => {
     );
   });
 
+  it("makes an interrupted processing approval available for safe recovery", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    getApprovalMock.mockResolvedValue({
+      id: "approval-1",
+      taskId: "task-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      tool: "send-email",
+      input: { to: "recipient@example.com" },
+      status: "processing",
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    });
+    const handler = await mountedA2AApprovalHandler(config);
+    const response = await handler({
+      method: "GET",
+      path: "/approval-1",
+      context: {},
+    });
+
+    expect(response).toContain('<button id="approve" >processing</button>');
+    expect(response).not.toContain(
+      "This action is paused until you approve it.",
+    );
+  });
+
   it("claims and executes an approval once from a same-origin owner session", async () => {
     const approval = {
       id: "approval-1",
@@ -462,6 +537,7 @@ describe("mountA2A auth", () => {
       orgId: "org-1",
     });
     claimApprovalMock.mockResolvedValue(approval);
+    getApprovalMock.mockResolvedValue(approval);
     const executeApproval = vi.fn(async () => ({
       status: "completed" as const,
       output: "Email sent",
@@ -488,12 +564,20 @@ describe("mountA2A auth", () => {
       "owner@example.com",
       "org-1",
     );
-    expect(executeApproval).toHaveBeenCalledWith(approval);
+    expect(executeApproval).toHaveBeenCalledWith(
+      approval,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        threadId: "a2a-task:task-1",
+        turnId: "task-1",
+      }),
+    );
     expect(settleApprovalMock).toHaveBeenCalledWith(
       "approval-1",
       "completed",
       "Email sent",
     );
+    expect(runLeaseMocks.releaseTurnExecutionLease).toHaveBeenCalledTimes(1);
   });
 
   it("allows legacy apiKeyEnv bearer auth even when A2A_SECRET is configured", async () => {
@@ -568,6 +652,169 @@ describe("mountA2A auth", () => {
     expect(event.context.__a2aVerifiedEmail).toBeUndefined();
     expect(event.context.__a2aIdentityAssurance).toBe("organization");
     expect(event.context.__a2aVerifiedOrgId).toBe("org-builder");
+  });
+
+  it("preserves user identity when a user token carries org_id without org_domain", async () => {
+    process.env.A2A_SECRET = "same-secret";
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      org_id: "org-builder",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("same-secret"));
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice+qa@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+    });
+    expect(resolveA2AOrganizationMetadataByIdMock).toHaveBeenCalledWith(
+      "org-builder",
+    );
+    expect(
+      resolveA2AOrganizationCredentialsByDomainMock,
+    ).not.toHaveBeenCalled();
+  });
+
+  describe("user assertion demotion warning", () => {
+    const sign = (claims: jose.JWTPayload, secret: string) =>
+      new jose.SignJWT(claims)
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode(secret));
+    const demotionWarnings = (warn: { mock: { calls: unknown[][] } }) =>
+      warn.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes("orgId="));
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it("warns once per org when the org secret equals the deployment secret", async () => {
+      process.env.A2A_SECRET = "same-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-collide",
+        orgDomain: "builder.io",
+        secret: "same-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await sign(
+        { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+        "same-secret",
+      );
+
+      await verifyA2AToken(token);
+      await verifyA2AToken(token);
+
+      const warnings = demotionWarnings(warn);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("orgId=org-collide");
+      expect(warnings[0]).toContain("org secret equals deploy secret");
+      expect(warnings[0]).not.toContain("same-secret");
+      expect(warnings[0]).not.toContain("alice+qa@builder.io");
+    });
+
+    it("warns when a user token verifies only with the org secret", async () => {
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-org-secret",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await sign(
+        { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+        "org-a2a-secret",
+      );
+
+      await verifyA2AToken(token);
+      await verifyA2AToken(token);
+
+      const warnings = demotionWarnings(warn);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("orgId=org-org-secret");
+      expect(warnings[0]).toContain("user token verified only with org secret");
+      expect(warnings[0]).not.toContain("org-a2a-secret");
+      expect(warnings[0]).not.toContain("alice+qa@builder.io");
+    });
+
+    it("warns separately for each affected org", async () => {
+      process.env.A2A_SECRET = "same-secret";
+      const { verifyA2AToken } = await import("./server.js");
+      for (const orgId of ["org-one", "org-two"]) {
+        resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+          orgId,
+          orgDomain: "builder.io",
+          secret: "same-secret",
+        });
+        await verifyA2AToken(
+          await sign(
+            { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+            "same-secret",
+          ),
+        );
+      }
+
+      expect(demotionWarnings(warn)).toEqual([
+        expect.stringContaining("orgId=org-one"),
+        expect.stringContaining("orgId=org-two"),
+      ]);
+    });
+
+    it("warns again for the same org when the cause changes", async () => {
+      const claims = { sub: "alice+qa@builder.io", org_domain: "builder.io" };
+      const { verifyA2AToken } = await import("./server.js");
+
+      process.env.A2A_SECRET = "same-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-cause-change",
+        orgDomain: "builder.io",
+        secret: "same-secret",
+      });
+      await verifyA2AToken(await sign(claims, "same-secret"));
+
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-cause-change",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      await verifyA2AToken(await sign(claims, "org-a2a-secret"));
+
+      expect(demotionWarnings(warn)).toEqual([
+        expect.stringContaining("org secret equals deploy secret"),
+        expect.stringContaining("user token verified only with org secret"),
+      ]);
+    });
+
+    it("stays quiet for an organization token that never asserted a user", async () => {
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-plain",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+
+      await verifyA2AToken(
+        await sign({ org_domain: "builder.io" }, "org-a2a-secret"),
+      );
+
+      expect(demotionWarnings(warn)).toEqual([]);
+    });
   });
 
   it("does not treat an explicitly verified org secret as proof of its subject", async () => {
@@ -1407,6 +1654,40 @@ describe("verifyA2AToken (exported)", () => {
     });
     await expect(verifyA2AToken(originToken)).resolves.toEqual({
       email: null,
+      orgDomain: null,
+    });
+  });
+
+  it("uses the configured Vite base path when validating a mounted receiver", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example";
+    delete process.env.APP_BASE_PATH;
+    process.env.VITE_APP_BASE_PATH = "/dispatch";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/dispatch",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+  });
+
+  it("preserves the app URL path when no receiver base path is configured", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example/workspace";
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/workspace",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
       orgDomain: null,
     });
   });

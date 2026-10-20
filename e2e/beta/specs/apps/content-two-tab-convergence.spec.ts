@@ -87,7 +87,7 @@ async function runOnBeta(
       tabs,
       reader,
       id,
-      scenario.markers.all,
+      scenario.markers,
     );
     scenario.notes.buildAtEnd = await deployedBuild(reader, id);
     scenario.notes.realtime = working.map((tab) => ({

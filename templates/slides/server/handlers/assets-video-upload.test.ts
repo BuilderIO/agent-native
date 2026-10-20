@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertBodySize = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
+const mockReadRawBody = vi.hoisted(() => vi.fn());
 const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 
@@ -29,6 +30,7 @@ vi.mock("h3", () => ({
   getRouterParam: vi.fn(),
   readMultipartFormData: (...args: unknown[]) =>
     mockReadMultipartFormData(...args),
+  readRawBody: (...args: unknown[]) => mockReadRawBody(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
 
@@ -50,6 +52,8 @@ describe("asset upload request size limit", () => {
     mockAssertBodySize.mockResolvedValue(undefined);
     mockReadMultipartFormData.mockReset();
     mockReadMultipartFormData.mockResolvedValue([]);
+    mockReadRawBody.mockReset();
+    mockReadRawBody.mockResolvedValue(new Uint8Array([1]));
     mockResolveSlidesRequestAuth.mockReset();
     mockResolveSlidesRequestAuth.mockResolvedValue({
       ok: true,
@@ -64,7 +68,13 @@ describe("asset upload request size limit", () => {
   ] as const)(
     "limits the %s request before parsing multipart data",
     async (_kind, handler, limit) => {
-      const event = {};
+      const event = {
+        req: new Request("https://slides.example.test/api/assets/upload", {
+          method: "POST",
+          headers: { "content-type": "multipart/form-data; boundary=test" },
+          body: "--test--\r\n",
+        }),
+      };
 
       await handler(event as never);
 
@@ -76,19 +86,68 @@ describe("asset upload request size limit", () => {
     },
   );
 
+  it.each([
+    ["image", uploadAsset],
+    ["video", uploadVideoAssetHandler],
+  ] as const)(
+    "rejects non-multipart %s requests before reading the body",
+    async (_kind, handler) => {
+      const event = {
+        req: new Request("https://slides.example.test/api/assets/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+      };
+
+      await handler(event as never);
+
+      expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
+      expect(mockReadRawBody).not.toHaveBeenCalled();
+      expect(mockReadMultipartFormData).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not parse multipart data when the request exceeds its limit", async () => {
     mockAssertBodySize.mockRejectedValueOnce(
       Object.assign(new Error("too large"), { statusCode: 413 }),
     );
-    const event = {};
+    const event = {
+      req: new Request("https://slides.example.test/api/assets/upload", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=test" },
+        body: "--test--\r\n",
+      }),
+    };
 
-    await expect(uploadVideoAssetHandler(event as never)).rejects.toMatchObject(
-      {
-        statusCode: 413,
-      },
-    );
+    await expect(uploadVideoAssetHandler(event as never)).resolves.toEqual({
+      error: "too large",
+    });
 
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 413);
+    expect(mockReadRawBody).not.toHaveBeenCalled();
     expect(mockReadMultipartFormData).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["image", uploadAsset],
+    ["video", uploadVideoAssetHandler],
+  ] as const)("rejects an empty %s multipart body", async (_kind, handler) => {
+    mockReadRawBody.mockResolvedValueOnce(new Uint8Array(0));
+    const event = {
+      req: new Request("https://slides.example.test/api/assets/upload", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=test" },
+      }),
+    };
+
+    const result = await handler(event as never);
+
+    expect(result).toEqual({
+      error: _kind === "image" ? "No file uploaded" : "No video uploaded",
+    });
+    expect(mockReadMultipartFormData).not.toHaveBeenCalled();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
   });
 
   it("does not read an unauthenticated request body", async () => {
@@ -104,5 +163,41 @@ describe("asset upload request size limit", () => {
     expect(mockAssertBodySize).not.toHaveBeenCalled();
     expect(mockReadMultipartFormData).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 401);
+  });
+
+  it("preserves server errors from unexpected multipart body-read failures", async () => {
+    mockReadRawBody.mockRejectedValueOnce(new Error("socket failed"));
+    const event = {
+      req: new Request("https://slides.example.test/api/assets/upload", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=test" },
+        body: "--test--\r\n",
+      }),
+    };
+
+    await expect(uploadVideoAssetHandler(event as never)).resolves.toEqual({
+      error: "Video upload failed",
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 500);
+  });
+
+  it("preserves unexpected multipart parser TypeErrors as server errors", async () => {
+    mockReadMultipartFormData.mockRejectedValueOnce(
+      new TypeError("unexpected parser failure"),
+    );
+    const event = {
+      req: new Request("https://slides.example.test/api/assets/upload", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=test" },
+        body: "--test--\r\n",
+      }),
+    };
+
+    await expect(uploadVideoAssetHandler(event as never)).resolves.toEqual({
+      error: "Video upload failed",
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 500);
   });
 });

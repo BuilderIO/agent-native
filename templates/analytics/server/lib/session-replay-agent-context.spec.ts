@@ -473,6 +473,14 @@ describe("session replay agent context links", () => {
     });
 
     expect(context.timeline.markers).toHaveLength(200);
+    expect(context.timeline).toMatchObject({
+      markerCount: 200,
+      totalMarkerCount: 255,
+      markerTruncated: true,
+      omittedMarkerCount: 55,
+      eventsTruncated: false,
+      truncated: true,
+    });
     expect(
       context.timeline.markers.filter(
         (marker) => marker.kind === "console-error",
@@ -480,6 +488,67 @@ describe("session replay agent context links", () => {
     ).toHaveLength(5);
     const offsets = context.timeline.markers.map((marker) => marker.offsetMs);
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+
+    mockGetSessionReplayEvents.mockResolvedValueOnce({
+      recording: makeRecording(),
+      chunks: [{ seq: 0, checksum: "abc", byteLength: 1, events }],
+      eventCount: events.length,
+      truncated: false,
+      unavailableChunks: 0,
+    });
+    const timeline = await getSessionReplayTimeline("sr_1", {
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(timeline).toMatchObject({
+      markerCount: 200,
+      totalMarkerCount: 255,
+      markerTruncated: true,
+      omittedMarkerCount: 55,
+      eventsTruncated: false,
+      truncated: true,
+    });
+  });
+
+  it("marks aggregate timelines incomplete when replay chunks are unavailable", async () => {
+    const event = clickEvent(1_000);
+    const response = {
+      recording: makeRecording(),
+      chunks: [
+        {
+          seq: 0,
+          checksum: "abc",
+          byteLength: 1,
+          eventCount: 1,
+          events: [event],
+        },
+      ],
+      eventCount: 1,
+      truncated: false,
+      unavailableChunks: 1,
+    };
+    mockGetSessionReplayEvents.mockResolvedValueOnce(response);
+    mockGetSessionReplayTokenizedEvents.mockResolvedValueOnce(response);
+
+    const timeline = await getSessionReplayTimeline("sr_1", {
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    const context = await buildSessionReplayAgentContext({
+      recordingId: "sr_1",
+      token: "signed-token",
+    });
+
+    expect(timeline).toMatchObject({
+      eventsTruncated: false,
+      unavailableChunks: 1,
+      truncated: true,
+    });
+    expect(context.timeline).toMatchObject({
+      eventsTruncated: false,
+      unavailableChunks: 1,
+      truncated: true,
+    });
   });
 
   it("bounds top-level diagnostics to 50 entries and points at the diagnostics API", async () => {

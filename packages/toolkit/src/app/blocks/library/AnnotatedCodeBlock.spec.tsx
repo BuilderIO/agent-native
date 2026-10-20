@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { AnnotatedCodeData } from "@agent-native/core/blocks/server";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -107,6 +108,20 @@ describe("AnnotatedCodeBlock annotations", () => {
 
     expect(container.textContent).toContain("src/example.ts");
     expect(container.textContent).not.toContain("typescript");
+  });
+
+  it("renders a legacy annotated-code block without code", () => {
+    act(() => {
+      root.render(
+        <AnnotatedCodeRead
+          blockId="code-legacy"
+          ctx={{}}
+          data={{} as unknown as AnnotatedCodeData}
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-code-surface]")).not.toBeNull();
   });
 
   it("mutes the directory and emphasizes the filename in the header", () => {

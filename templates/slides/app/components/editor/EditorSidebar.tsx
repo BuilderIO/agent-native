@@ -15,7 +15,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
-import { IconEyeOff } from "@tabler/icons-react";
+import { IconEyeOff, IconPlus, IconPresentation } from "@tabler/icons-react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -39,7 +39,10 @@ import {
 } from "@/components/ui/tooltip";
 import { defaultSlideContent, type Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
-import { DeferredAddSlidePopover } from "@/lib/deferred-editor-surfaces";
+import {
+  DeferredAddSlidePopover,
+  preloadAddSlidePopover,
+} from "@/lib/deferred-editor-surfaces";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -47,8 +50,6 @@ import type { DesignSystemData } from "../../../shared/api";
 import { isSlideTextEditingTarget } from "./slide-text-targets";
 
 interface EditorSidebarProps {
-  /** Thumbnails only, for a narrow host pane. */
-  compact?: boolean;
   slides: Slide[];
   activeSlideId: string;
   deckId: string;
@@ -62,6 +63,8 @@ interface EditorSidebarProps {
   designSystem?: DesignSystemData;
   generatingSlide?: { index: number };
   generatingSlideSelected?: boolean;
+  onAddSlide?: () => void;
+  addSlideGenerating?: boolean;
   onSelectGeneratingSlide?: () => void;
   describeSlideId: string | null;
   onCloseDescribe: () => void;
@@ -281,6 +284,7 @@ function PresenceAvatarTip({
 function SortableSlideThumb({
   slide,
   index,
+  slideCount,
   isActive,
   isSelected,
   selectedSlideIds = [],
@@ -305,11 +309,10 @@ function SortableSlideThumb({
   onDuplicateSlide,
   onToggleSkipSlide,
   altDragSlideId,
-  compact = false,
 }: {
-  compact?: boolean;
   slide: Slide;
   index: number;
+  slideCount: number;
   isActive: boolean;
   isSelected: boolean;
   selectedSlideIds?: string[];
@@ -424,16 +427,14 @@ function SortableSlideThumb({
             aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
             aria-current={isActive ? "true" : undefined}
             data-slide-thumbnail-id={slide.id}
-            className={`w-full text-left flex items-start gap-1.5 ${compact ? "p-1" : "p-1.5"} rounded-lg transition-[background-color,box-shadow] duration-150 ${
+            className={`w-full text-left flex items-start gap-1.5 p-1.5 rounded-lg transition-[background-color,box-shadow] duration-150 ${
               isSelected ? "bg-accent" : isActive ? "bg-accent/60" : ""
             } ${
               readOnly ? "" : "cursor-grab active:cursor-grabbing"
             } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1`}
           >
             {/* Index and slide presence share the fixed rail so presence does not resize the row. */}
-            <div
-              className={`relative flex-shrink-0 w-4 self-stretch ${compact ? "hidden" : ""}`}
-            >
+            <div className="relative flex-shrink-0 w-4 self-stretch">
               <span className="block text-center text-[10px] font-medium leading-5 text-muted-foreground/70">
                 {index + 1}
               </span>
@@ -486,15 +487,11 @@ function SortableSlideThumb({
               >
                 <SlideRenderer
                   slide={slide}
+                  slidePosition={{ number: index + 1, count: slideCount }}
                   aspectRatio={aspectRatio}
                   designSystem={designSystem}
                   onOverflowChange={onOverflowChange}
                 />
-                {compact && (
-                  <span className="pointer-events-none absolute start-0.5 top-0.5 z-10 rounded bg-background/80 px-1 text-[9px] font-medium leading-4 text-foreground">
-                    {index + 1}
-                  </span>
-                )}
                 {showGeneratingShimmer && (
                   <div
                     aria-hidden="true"
@@ -612,7 +609,6 @@ function GeneratingSlideSkeleton({
 }
 
 export default function EditorSidebar({
-  compact = false,
   slides,
   activeSlideId,
   selectedSlideIds = [],
@@ -627,6 +623,8 @@ export default function EditorSidebar({
   generatingSlide,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
+  onAddSlide,
+  addSlideGenerating,
   describeSlideId,
   onCloseDescribe,
   onAddSlideGeneratingChange,
@@ -920,9 +918,30 @@ export default function EditorSidebar({
   }, [activeSlideId, navigateToSlide]);
 
   return (
-    <div
-      className={`flex h-full min-h-0 flex-shrink-0 flex-col bg-background ${compact ? "w-24" : "w-48 sm:w-52"}`}
-    >
+    <div className="flex h-full min-h-0 w-full flex-shrink-0 flex-col bg-background">
+      <div className="flex h-7 flex-shrink-0 items-center justify-between px-2">
+        <h2 className="text-[11px] font-semibold leading-none">
+          {t("editorSidebar.slidesHeading")}
+        </h2>
+        {onAddSlide && !readOnly && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("editorSidebar.newSlide")}
+                disabled={addSlideGenerating}
+                onPointerEnter={preloadAddSlidePopover}
+                onFocus={preloadAddSlidePopover}
+                onClick={onAddSlide}
+                className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                <IconPlus className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorSidebar.newSlide")}</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       <div
         className="relative min-h-0 flex-1"
         data-slides-thumbnail-scroll={
@@ -930,7 +949,7 @@ export default function EditorSidebar({
         }
       >
         <div
-          className={`h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain ${compact ? "p-1" : "p-2"}`}
+          className="h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2"
           onScroll={(event) => {
             setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
           }}
@@ -942,9 +961,9 @@ export default function EditorSidebar({
             {slides.map((slide, index) => (
               <SortableSlideThumb
                 key={slide.id}
-                compact={compact}
                 slide={slide}
                 index={index}
+                slideCount={slides.length}
                 isActive={slide.id === activeSlideId}
                 isSelected={selectedSlideIds.includes(slide.id)}
                 selectedSlideIds={selectedSlideIds}
@@ -986,6 +1005,19 @@ export default function EditorSidebar({
               />
             ))}
           </SortableContext>
+          {slides.length === 0 && !generatingSlide && (
+            <div className="flex flex-col items-center gap-2 p-8 text-center">
+              <span className="flex size-6 items-center justify-center rounded-sm bg-muted">
+                <IconPresentation className="size-3 text-foreground" />
+              </span>
+              <div className="space-y-1 text-xs leading-4">
+                <p className="font-medium">{t("editorSidebar.emptyTitle")}</p>
+                <p className="text-muted-foreground">
+                  {t("editorSidebar.emptyDescription")}
+                </p>
+              </div>
+            </div>
+          )}
           {generatingSlide && (
             <GeneratingSlideSkeleton
               index={generatingSlide.index}

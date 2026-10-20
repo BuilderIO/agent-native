@@ -1,15 +1,19 @@
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_ORIGINAL_HASH_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_RELOAD_AT_KEY,
   STALE_CHUNK_RELOAD_COOLDOWN_MS,
 } from "../shared/route-chunk-recovery-bootstrap.js";
+import { recordNav } from "./recorder.js";
 
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
 const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
+const recoveryStates = new WeakMap<Window, RouteChunkRecoveryState>();
 
 /**
  * Fired on `window` the first time a stale chunk could not be recovered by a
@@ -69,6 +73,17 @@ export function rememberIntendedNavigation(
 ): void {
   state.intendedHref = href;
   state.intendedAt = now;
+}
+
+/** Preserve router-driven targets whose route module fails before history commits. */
+export function rememberRouteChunkRecoveryNavigation(
+  href: string,
+  win: Window | undefined = typeof window === "undefined" ? undefined : window,
+): void {
+  if (!win) return;
+  const state = recoveryStates.get(win);
+  const sameOrigin = sameOriginHref(win, href);
+  if (state && sameOrigin) rememberIntendedNavigation(state, sameOrigin);
 }
 
 export function getFreshIntendedNavigation(
@@ -139,23 +154,46 @@ function withChunkRecoveryCacheBuster(
   now = Date.now(),
 ): string {
   const url = new URL(href, win.location.href);
-  url.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, CHUNK_RECOVERY_QUERY_VALUE);
-  url.searchParams.set(
-    CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
-    `${now.toString(36)}-${Math.random().toString(36).slice(2)}`,
-  );
+  if (
+    !url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) &&
+    !url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`)
+  ) {
+    const trailingSlash = url.pathname.endsWith("/") ? "/" : "";
+    const routePath = trailingSlash
+      ? url.pathname.slice(0, -trailingSlash.length)
+      : url.pathname;
+    url.pathname =
+      (routePath === "/" ? "" : routePath) +
+      CHUNK_RECOVERY_PATH_SUFFIX +
+      trailingSlash;
+  }
+  const originalHash = url.hash;
+  const recoveryHash = new URLSearchParams();
+  recoveryHash.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, now.toString(36));
+  recoveryHash.set(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM, originalHash);
+  url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
+  url.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  url.hash = recoveryHash.toString();
   return url.href;
 }
 
 function readRecoveryAttemptAt(win: Window): number {
   const url = new URL(win.location.href);
+  const recoveryHash = new URLSearchParams(url.hash.slice(1));
+  const hashTimestamp = recoveryHash.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  const isLegacyRecovery =
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) ===
+    CHUNK_RECOVERY_QUERY_VALUE;
   if (
-    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) !==
-    CHUNK_RECOVERY_QUERY_VALUE
+    !url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) &&
+    !url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`) &&
+    hashTimestamp === null &&
+    !isLegacyRecovery
   ) {
     return 0;
   }
   const timestamp =
+    hashTimestamp ??
     url.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)?.split("-", 1)[0] ??
     "";
   if (!/^[0-9a-z]+$/i.test(timestamp)) return 0;
@@ -165,19 +203,33 @@ function readRecoveryAttemptAt(win: Window): number {
 
 function clearChunkRecoveryCacheBuster(win: Window): void {
   const url = new URL(win.location.href);
-  if (
-    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) !==
-    CHUNK_RECOVERY_QUERY_VALUE
-  ) {
+  const isRecoveryPath =
+    url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) ||
+    url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`);
+  const isLegacyRecovery =
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) ===
+    CHUNK_RECOVERY_QUERY_VALUE;
+  const recoveryHash = new URLSearchParams(url.hash.slice(1));
+  const hasRecoveryHash = recoveryHash.has(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  if (!isRecoveryPath && !isLegacyRecovery && !hasRecoveryHash) {
     return;
   }
-  // Keep the fixed marker as a cooldown when session storage is unavailable.
   const recoveryStartedAt = readRecoveryAttemptAt(win);
-  if (markStaleChunkReload(win, recoveryStartedAt || Date.now()) !== true) {
-    return;
+  markStaleChunkReload(win, recoveryStartedAt || Date.now());
+  if (isRecoveryPath) {
+    const suffixWithTrailingSlash = `${CHUNK_RECOVERY_PATH_SUFFIX}/`;
+    if (url.pathname.endsWith(suffixWithTrailingSlash)) {
+      const path = url.pathname.slice(0, -suffixWithTrailingSlash.length);
+      url.pathname = path ? `${path}/` : "/";
+    } else {
+      const path = url.pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
+      url.pathname = path || "/";
+    }
   }
   url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
   url.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  const originalHash = recoveryHash.get(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM);
+  if (hasRecoveryHash && originalHash !== null) url.hash = originalHash;
   win.history.replaceState(
     win.history.state,
     "",
@@ -401,7 +453,9 @@ function patchHistoryMethod(
       const href = sameOriginHref(win, String(args[2]));
       if (href) rememberIntendedNavigation(state, href);
     }
-    return original.apply(this, args);
+    const result = original.apply(this, args);
+    recordNav();
+    return result;
   };
 }
 
@@ -458,6 +512,7 @@ export function installRouteChunkRecovery(
   clearChunkRecoveryCacheBuster(win);
 
   const state = createRouteChunkRecoveryState();
+  recoveryStates.set(win, state);
 
   win.document.addEventListener(
     "click",

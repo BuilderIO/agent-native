@@ -15,10 +15,14 @@ export {
   getAppConfig,
   resolveAppHomePath,
   resetAppConfigForTests,
+  resolveClipsHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsHostedStorageConfig,
+  type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
+export { platformWaitUntil } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
 export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
@@ -93,6 +97,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
   COOKIE_NAME,
@@ -134,6 +139,7 @@ export {
 export {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthUserIdForEmail,
   hasGoogleAuthIdentity,
   setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
@@ -193,6 +199,7 @@ export {
   type JevContextCredentials,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export { approvalKeyWithArguments } from "../agent/approval-key.js";
 export {
   isJevEnabled,
   requestJevThroughBuilder,
@@ -245,6 +252,10 @@ export {
 } from "./better-auth-migrations.js";
 export { runFrameworkReleaseMigrations } from "./release-migrations.js";
 export {
+  runAppReleaseMigrations,
+  type AppReleaseMigrationResult,
+} from "./app-release-migrations.js";
+export {
   initServerSentry,
   isServerSentryEnabled,
   setSentryUserForRequest,
@@ -285,6 +296,16 @@ export {
   loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export type {
+  AgentChatAdditionalActionsDetails,
+  AgentChatAdditionalActionsExternalSurface,
+  AgentChatAdditionalActionsSurface,
+  ResolveAgentChatAdditionalActions,
+} from "./agent-chat/additional-actions.js";
+export {
+  buildFrameworkPrompts,
+  generateActionsPrompt,
+} from "./agent-chat/framework-prompts.js";
 export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
 export {
   AGENT_CHAT_STREAM_PATH,
@@ -489,6 +510,7 @@ export {
 } from "./action-routes.js";
 export {
   AGENT_RUN_OWNER_CONTEXT_KEY,
+  readBrowserSessionIdHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -624,6 +646,8 @@ export {
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
   resolveBuilderAuthHeader,
+  registerDelegatedBuilderCredentials,
+  type DelegatedBuilderCredentials,
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
@@ -700,6 +724,11 @@ export {
   type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
 export {
+  createFusionAgentFeed,
+  fusionStepToAgentChatEvents,
+  type FusionAgentFeedSummary,
+} from "./fusion-agent-feed.js";
+export {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
   type BuilderOAuthPermissionScope,
@@ -760,6 +789,7 @@ export {
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
+  normalizeBuilderAgentAttachments,
   runBuilderAgent,
   type BuilderAgentAttachment,
   type BuilderAgentUploadAttachment,
@@ -839,6 +869,7 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,
   type ScheduledTriggerAvailability,

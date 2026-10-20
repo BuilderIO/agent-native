@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
+import {
+  MAX_SESSION_REPLAY_CAPTURE_BYTES,
+  MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
+  MAX_SESSION_REPLAY_CAPTURE_EVENTS,
+} from "@shared/session-replay-capture";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,14 +13,19 @@ import {
   buildReplayMarkers,
   buildReplayViewportTimeline,
   collapsePageChangeMarkers,
+  contiguousReplayChunkPrefix,
   fetchSessionReplayPlayback,
+  fetchReplayChunks,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
+  replayChunkMatchesManifestRange,
+  replayManifestSupportsStreaming,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
   replayActionName,
   replayAvailabilityErrorKey,
+  replayOffsetAfterTimestamp,
   replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
@@ -53,6 +64,10 @@ describe("session replay event normalization", () => {
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 10, 110)).toBe(true);
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, 110)).toBe(false);
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, NaN)).toBe(false);
+  });
+
+  it("seeks past a timestamp so rrweb applies events at that point before pausing", () => {
+    expect(replayOffsetAfterTimestamp(60_000)).toBe(60_001);
   });
 
   it("keeps the high-contrast replay cursor visible while playing", () => {
@@ -879,6 +894,361 @@ describe("session replay Dev Tools badge", () => {
 });
 
 describe("session replay chunk loading", () => {
+  it("loads equal-timestamp chunks through the target and accepts the scoped chunk query", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const chunkFixtures = [500, 1_000, 1_000, 1_500, 2_000].map(
+      (offsetMs, seq) =>
+        replayCaptureChunkFixture(
+          seq,
+          [{ type: 3, timestamp: startedAt + offsetMs }],
+          replayChunkPath(seq, "agent-token"),
+        ),
+    );
+    const manifest = captureManifest(
+      chunkFixtures.map(({ manifest }) => manifest),
+    );
+    const requested: number[] = [];
+    const requestedChunkUrls: string[] = [];
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://analytics.example.test",
+        pathname: "/sessions/sr_1",
+        search: "?agent_access=agent-token",
+      },
+    });
+    vi.stubGlobal("location", {
+      origin: "https://analytics.example.test",
+      pathname: "/sessions/sr_1",
+      search: "?agent_access=agent-token",
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      const seq = Number(/\/chunks\/(\d+)/.exec(url)?.[1]);
+      requested.push(seq);
+      requestedChunkUrls.push(url);
+      return chunkFixtures[seq]!.response();
+    }) as typeof fetch;
+
+    const playback = await fetchSessionReplayPlayback("sr_1", {
+      agentAccessToken: "agent-token",
+      captureThroughOffsetMs: 1_000,
+    });
+
+    expect(requested).toEqual([0, 1, 2, 3]);
+    expect(playback.chunks.map((chunk) => chunk.seq)).toEqual([0, 1, 2, 3]);
+    expect(
+      requestedChunkUrls.every((url) => {
+        const params = new URL(url, "https://analytics.example.test")
+          .searchParams;
+        return (
+          params.size === 1 && params.get("agent_access") === "agent-token"
+        );
+      }),
+    ).toBe(true);
+    expect(playback.loadedChunks).toBe(4);
+    expect(playback.isComplete).toBe(false);
+    expect(playback.truncated).toBe(true);
+  });
+
+  it.each(["agent_access=wrong-token", "agent_access=agent-token&extra=value"])(
+    "rejects unrelated or mismatched chunk query parameters: %s",
+    async (query) => {
+      const startedAt = Date.parse(recordingSummary().startedAt);
+      const fixture = replayCaptureChunkFixture(
+        0,
+        [{ type: 3, timestamp: startedAt + 1_000 }],
+        `${replayChunkPath(0)}?${query}`,
+      );
+      const manifest = captureManifest([fixture.manifest]);
+      const requestedChunks: string[] = [];
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/manifest")) return jsonResponse(manifest);
+        requestedChunks.push(url);
+        return fixture.response();
+      }) as typeof fetch;
+      vi.stubGlobal("window", {
+        location: { origin: "https://analytics.example.test" },
+      });
+      vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+      await expect(
+        fetchSessionReplayPlayback("sr_1", {
+          agentAccessToken: "agent-token",
+          captureThroughOffsetMs: 1,
+        }),
+      ).rejects.toThrow("replay_capture_manifest_invalid");
+      expect(requestedChunks).toHaveLength(0);
+    },
+  );
+
+  it("rejects malformed metadata in an unneeded manifest suffix", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const first = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+      { type: 3, timestamp: startedAt + 11 },
+    ]);
+    const malformedSuffix = {
+      ...replayChunkManifest(1, replayChunkPath(1)),
+      checksum: "not-a-sha256-checksum",
+      eventCount: 0,
+    };
+    const manifest = captureManifest([first.manifest, malformedSuffix]);
+    let chunkRequests = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      chunkRequests += 1;
+      return first.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", {
+        captureThroughOffsetMs: 10,
+      }),
+    ).rejects.toThrow("replay_capture_manifest_invalid");
+    expect(chunkRequests).toBe(0);
+  });
+
+  it("applies cumulative limits to the loaded prefix, not the full recording", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const first = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+      { type: 3, timestamp: startedAt + 11 },
+    ]);
+    const suffix = Array.from(
+      { length: MAX_SESSION_REPLAY_CAPTURE_CHUNKS },
+      (_, index) => {
+        const seq = index + 1;
+        return {
+          ...replayChunkManifest(seq, replayChunkPath(seq)),
+          checksum: "a".repeat(64),
+          byteLength: seq <= 6 ? 11 * 1024 * 1024 : 50,
+          eventCount: seq === 1 ? MAX_SESSION_REPLAY_CAPTURE_EVENTS : 0,
+        };
+      },
+    );
+    const manifest = captureManifest([first.manifest, ...suffix]);
+    expect(manifest.recording.chunkCount).toBeGreaterThan(
+      MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
+    );
+    expect(manifest.recording.eventCount).toBeGreaterThan(
+      MAX_SESSION_REPLAY_CAPTURE_EVENTS,
+    );
+    expect(manifest.recording.totalBytes).toBeGreaterThan(
+      MAX_SESSION_REPLAY_CAPTURE_BYTES,
+    );
+    const requested: number[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      requested.push(Number(/\/chunks\/(\d+)/.exec(url)?.[1]));
+      return first.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    const playback = await fetchSessionReplayPlayback("sr_1", {
+      captureThroughOffsetMs: 10,
+    });
+
+    expect(requested).toEqual([0]);
+    expect(playback.chunks.map((chunk) => chunk.seq)).toEqual([0]);
+    expect(playback.loadedBytes).toBe(first.manifest.byteLength);
+  });
+
+  it("enforces the chunk limit when the requested prefix itself is too long", async () => {
+    const body = "[]";
+    const checksum = createHash("sha256").update(body).digest("hex");
+    const chunks = Array.from(
+      { length: MAX_SESSION_REPLAY_CAPTURE_CHUNKS + 1 },
+      (_, seq) => ({
+        ...replayChunkManifest(seq, replayChunkPath(seq)),
+        checksum,
+        byteLength: Buffer.byteLength(body),
+        eventCount: 0,
+      }),
+    );
+    const manifest = captureManifest(chunks);
+    const requested: number[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      const seq = Number(/\/chunks\/(\d+)/.exec(url)?.[1]);
+      requested.push(seq);
+      return new Response(body, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Replay-Seq": String(seq),
+          "X-Session-Replay-Checksum": checksum,
+        },
+      });
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", {
+        captureThroughOffsetMs: 1,
+      }),
+    ).rejects.toThrow("replay_capture_chunk_limit_exceeded");
+    expect(requested).toHaveLength(MAX_SESSION_REPLAY_CAPTURE_CHUNKS);
+  });
+
+  it("fails before fetching when the needed prefix exceeds the event limit", async () => {
+    const fixture = replayCaptureChunkFixture(0, []);
+    const oversizedChunk = {
+      ...fixture.manifest,
+      eventCount: MAX_SESSION_REPLAY_CAPTURE_EVENTS + 1,
+    };
+    const manifest = captureManifest([oversizedChunk]);
+    let chunkRequests = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      chunkRequests += 1;
+      return fixture.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow("replay_capture_limit_exceeded");
+    expect(chunkRequests).toBe(0);
+  });
+
+  it.each([
+    [
+      "sequence header",
+      { "X-Session-Replay-Seq": "1" },
+      "replay_capture_chunk_header_mismatch",
+    ],
+    [
+      "checksum header",
+      { "X-Session-Replay-Checksum": "f".repeat(64) },
+      "replay_capture_chunk_header_mismatch",
+    ],
+  ])("rejects a mismatched %s", async (_label, headerOverrides, error) => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const fixture = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+    ]);
+    const manifest = captureManifest([fixture.manifest]);
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      return fixture.response(headerOverrides as Record<string, string>);
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow(error);
+  });
+
+  it.each([
+    ["body length", "size"],
+    ["body checksum", "checksum"],
+  ])("rejects mismatched chunk %s", async (_label, mismatch) => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const fixture = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+    ]);
+    const manifest = captureManifest([fixture.manifest]);
+    const replacementTimestamp = String(startedAt + 2);
+    const tamperedBody =
+      mismatch === "size"
+        ? `${fixture.body} `
+        : fixture.body.replace(String(startedAt + 1), replacementTimestamp);
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      return new Response(tamperedBody, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Replay-Seq": "0",
+          "X-Session-Replay-Checksum": fixture.manifest.checksum,
+        },
+      });
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow(
+      mismatch === "size"
+        ? "replay_capture_chunk_size_mismatch"
+        : "replay_capture_chunk_checksum_mismatch",
+    );
+  });
+
+  it.each(["3", 7, -1, 3.5, null])(
+    "rejects malformed replay event type %s",
+    async (type) => {
+      const startedAt = Date.parse(recordingSummary().startedAt);
+      const fixture = replayCaptureChunkFixture(0, [
+        { type, timestamp: startedAt + 1 },
+      ]);
+      const manifest = captureManifest([fixture.manifest]);
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/manifest")) return jsonResponse(manifest);
+        return fixture.response();
+      }) as typeof fetch;
+      vi.stubGlobal("window", {
+        location: { origin: "https://analytics.example.test" },
+      });
+      vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+      await expect(
+        fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+      ).rejects.toThrow("replay_capture_event_invalid");
+    },
+  );
+
+  it("fails when full-manifest declared totals do not match its chunks", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const fixture = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+    ]);
+    const manifest = captureManifest([fixture.manifest]);
+    manifest.recording.totalBytes += 1;
+    let chunkRequests = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      chunkRequests += 1;
+      return fixture.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow("replay_capture_manifest_incomplete");
+    expect(chunkRequests).toBe(0);
+  });
+
   it("keeps copied agent access tokens on manifest and chunk fetches", async () => {
     vi.stubGlobal("window", {
       location: {
@@ -1009,6 +1379,77 @@ describe("session replay chunk loading", () => {
     ]);
   });
 
+  it("isolates the first chunk so the replay can start before later batches", () => {
+    const chunks = Array.from({ length: 45 }, (_, index) =>
+      replayChunkManifest(index, replayChunkPath(index)),
+    );
+
+    expect(
+      partitionReplayChunkBatches(chunks, { prioritizeFirstChunk: true }).map(
+        (batch) => batch.map((chunk) => chunk.seq),
+      ),
+    ).toEqual([
+      [0],
+      Array.from({ length: 20 }, (_, index) => index + 1),
+      Array.from({ length: 20 }, (_, index) => index + 21),
+      [41, 42, 43, 44],
+    ]);
+  });
+
+  it("streams only when ordered manifest ranges and chunk events agree", () => {
+    const ranges = [
+      {
+        ...replayChunkManifest(0, replayChunkPath(0)),
+        eventCount: 2,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:10.000Z",
+      },
+      {
+        ...replayChunkManifest(1, replayChunkPath(1)),
+        eventCount: 2,
+        startedAt: "2026-01-01T00:00:10.001Z",
+        endedAt: "2026-01-01T00:00:20.000Z",
+      },
+    ];
+    const firstChunk = replayChunkEvents(0, [
+      { type: 4, timestamp: Date.parse(ranges[0]!.startedAt) },
+      { type: 2, timestamp: Date.parse(ranges[0]!.endedAt) },
+    ]);
+
+    expect(replayManifestSupportsStreaming(ranges)).toBe(true);
+    expect(replayChunkMatchesManifestRange(firstChunk, ranges[0]!)).toBe(true);
+    expect(
+      replayChunkMatchesManifestRange(
+        { ...firstChunk, unavailable: true },
+        ranges[0]!,
+      ),
+    ).toBe(false);
+    expect(
+      replayManifestSupportsStreaming([
+        ranges[0]!,
+        { ...ranges[1]!, startedAt: "2026-01-01T00:00:09.000Z" },
+      ]),
+    ).toBe(false);
+    expect(
+      replayChunkMatchesManifestRange(
+        replayChunkEvents(0, [
+          { type: 4, timestamp: Date.parse(ranges[0]!.startedAt) },
+          { type: 2, timestamp: Date.parse(ranges[0]!.endedAt) + 1 },
+        ]),
+        ranges[0]!,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not expose a later completed chunk before the missing prefix", () => {
+    const first = replayChunkEvents(0, [{ seq: 0 }]);
+    const third = replayChunkEvents(2, [{ seq: 2 }]);
+
+    expect(contiguousReplayChunkPrefix([first, undefined, third])).toEqual([
+      first,
+    ]);
+  });
+
   it("loads chunk batches three at a time and restores manifest order", async () => {
     const manifestChunks = Array.from({ length: 45 }, (_, index) =>
       replayChunkManifest(index, replayChunkPath(index)),
@@ -1047,6 +1488,60 @@ describe("session replay chunk loading", () => {
     expect(batchRequests).toBe(3);
     expect(maxActiveBatches).toBe(3);
     expect(playback.chunks.map((chunk) => chunk.seq)).toEqual(
+      manifestChunks.map((chunk) => chunk.seq),
+    );
+  });
+
+  it("delivers the first chunk before waiting on the other concurrent batches", async () => {
+    const manifestChunks = Array.from({ length: 45 }, (_, index) =>
+      replayChunkManifest(index, replayChunkPath(index)),
+    );
+    let releaseRemaining!: () => void;
+    const remaining = new Promise<void>((resolve) => {
+      releaseRemaining = resolve;
+    });
+    let bootstrapped!: () => void;
+    const firstChunkDelivered = new Promise<void>((resolve) => {
+      bootstrapped = resolve;
+    });
+    const deliveries: number[][] = [];
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://analytics.example.test",
+        pathname: "/sessions/sr_1",
+        search: "",
+      },
+    });
+    vi.stubGlobal("location", {
+      origin: "https://analytics.example.test",
+      pathname: "/sessions/sr_1",
+      search: "",
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "https://analytics.example.test");
+      const seqs = url.searchParams.get("seqs")!.split(",").map(Number);
+      if (seqs[0] !== 0) await remaining;
+      return jsonResponse({
+        chunks: seqs.map((seq) => replayChunkEvents(seq, [{ seq }])),
+      });
+    }) as typeof fetch;
+
+    const load = fetchReplayChunks(
+      manifestChunks,
+      {},
+      (batch) => {
+        const seqs = batch.map((chunk) => chunk.seq);
+        deliveries.push(seqs);
+        if (seqs.includes(0)) bootstrapped();
+      },
+      { prioritizeFirstChunk: true },
+    );
+
+    await firstChunkDelivered;
+    expect(deliveries).toEqual([[0]]);
+    releaseRemaining();
+    const chunks = await load;
+    expect(chunks.map((chunk) => chunk.seq)).toEqual(
       manifestChunks.map((chunk) => chunk.seq),
     );
   });
@@ -1123,7 +1618,7 @@ function recordingSummary() {
 function replayChunkManifest(seq: number, bytesPath: string) {
   return {
     seq,
-    checksum: `checksum_${seq}`,
+    checksum: createHash("sha256").update(`chunk-${seq}`).digest("hex"),
     byteLength: 50,
     eventCount: 1,
     startedAt: "2026-01-01T00:00:00.000Z",
@@ -1132,16 +1627,60 @@ function replayChunkManifest(seq: number, bytesPath: string) {
   };
 }
 
-function replayChunkPath(seq: number): string {
-  return `/api/session-replay/recordings/sr_1/chunks/${seq}`;
+function replayChunkPath(seq: number, agentAccessToken?: string): string {
+  const path = `/api/session-replay/recordings/sr_1/chunks/${seq}`;
+  return agentAccessToken
+    ? `${path}?agent_access=${encodeURIComponent(agentAccessToken)}`
+    : path;
 }
 
 function replayChunkEvents(seq: number, events: unknown[]) {
   return {
     seq,
-    checksum: `checksum_${seq}`,
+    checksum: createHash("sha256").update(JSON.stringify(events)).digest("hex"),
     byteLength: 50,
     eventCount: events.length,
     events,
+  };
+}
+
+function replayCaptureChunkFixture(
+  seq: number,
+  events: unknown[],
+  bytesPath = replayChunkPath(seq),
+) {
+  const body = JSON.stringify(events);
+  const checksum = createHash("sha256").update(body, "utf8").digest("hex");
+  const manifest = {
+    ...replayChunkManifest(seq, bytesPath),
+    checksum,
+    byteLength: Buffer.byteLength(body, "utf8"),
+    eventCount: events.length,
+  };
+  return {
+    manifest,
+    body,
+    response(headerOverrides: Record<string, string> = {}) {
+      return new Response(body, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Replay-Seq": String(seq),
+          "X-Session-Replay-Checksum": checksum,
+          ...headerOverrides,
+        },
+      });
+    },
+  };
+}
+
+function captureManifest(chunks: ReturnType<typeof replayChunkManifest>[]) {
+  return {
+    recording: {
+      ...recordingSummary(),
+      chunkCount: chunks.length,
+      eventCount: chunks.reduce((sum, chunk) => sum + chunk.eventCount, 0),
+      totalBytes: chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0),
+    },
+    chunks,
   };
 }

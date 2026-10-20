@@ -19,3 +19,18 @@ Importa el editor desde `@agent-native/toolkit/editor`. Las rutas antiguas de Co
 - [Resumen de Toolkit](/docs/agent-native-toolkit)
 - [Plantilla Design](/docs/template-design)
 - [Colaboración en tiempo real](/docs/real-time-collaboration)
+
+Core mantiene el esquema y el contrato de ejecución de Blocks; Toolkit exporta la UI cliente reutilizable.
+
+## Interacciones y anotaciones del lienzo
+
+Toolkit ofrece ayudantes sin interfaz para gestos y atajos, además de DrawOverlay para dibujar e incluir instrucciones y CanvasCommentPins para comentarios anclados que se pueden enviar al agente. La app mantiene el modelo, el renderizado, la persistencia y el contexto.
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>Seleccionar</span><span class='wf-pill'>Dibujar</span><span class='wf-pill'>Comentar</span><div style='flex:1'></div><span class='wf-muted'>Controles del lienzo</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>Página de campaña</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>Nota dibujada</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>Comentarios</strong><div class='wf-box'>1 &nbsp; Mueve este titular encima de la imagen.</div><div class='wf-box'>2 &nbsp; Aumenta el contraste de esta etiqueta.</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> Enviar comentarios</button></aside></div>"
+    }
+  />
+</WireframeBlock>

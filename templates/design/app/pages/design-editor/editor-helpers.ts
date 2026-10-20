@@ -1,6 +1,7 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { resolveSourceEquivalentSelector } from "@shared/source-equivalent-selector";
 
 import type { ElementInfo } from "@/components/design/types";
 import { designSelectionStateKeysForTab } from "@/hooks/use-navigation-state";
@@ -8,7 +9,11 @@ import type {
   PostAuthDesignIntent,
   RuntimeLayerSnapshot,
 } from "@/pages/design-editor/command-types";
-import { measurePositionCoordinateContext } from "@/pages/design-editor/position-coordinate-context";
+import {
+  measureAbsoluteSiblingVisualOrigin,
+  measurePositionCoordinateContext,
+  positionCoordinateRenderOffsetForWindow,
+} from "@/pages/design-editor/position-coordinate-context";
 
 export function designSelectionStateKeys(): string[] {
   return designSelectionStateKeysForTab(getBrowserTabId());
@@ -171,15 +176,21 @@ export function reloadRunningAppPreviewFrames(): void {
 export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
+  options?: {
+    measureAbsoluteSiblingVisualOrigin?: boolean;
+    previewIframe?: HTMLIFrameElement;
+  },
 ): ElementInfo {
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
-  const owning = screenId
-    ? document.querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
-      )
-    : null;
+  const owning =
+    options?.previewIframe ??
+    (screenId
+      ? document.querySelector<HTMLIFrameElement>(
+          `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+        )
+      : null);
   if (screenId && !owning) return info;
   const frames = owning
     ? [owning]
@@ -191,7 +202,10 @@ export function withMeasuredGeometry(
   for (const frame of frames) {
     let node: Element | null = null;
     try {
-      node = frame.contentDocument?.querySelector(selector) ?? null;
+      const frameDocument = frame.contentDocument;
+      node = frameDocument
+        ? resolveSourceEquivalentSelector(frameDocument, selector)
+        : null;
     } catch {
       node = null;
     }
@@ -230,7 +244,13 @@ export function withMeasuredGeometry(
         };
       }
     }
-    if (box.width <= 0 && box.height <= 0) continue;
+    if (
+      !options?.measureAbsoluteSiblingVisualOrigin &&
+      box.width <= 0 &&
+      box.height <= 0
+    ) {
+      continue;
+    }
     const parent =
       node.getAttribute("data-an-primitive") === "boolean-operand"
         ? (node.closest('svg[data-an-primitive="boolean"]') ??
@@ -238,9 +258,18 @@ export function withMeasuredGeometry(
         : node.parentElement;
     const parentBox = parent?.getBoundingClientRect();
     const view = frame.contentWindow;
-    const positionCoordinateContext = view
-      ? measurePositionCoordinateContext(node, view)
-      : undefined;
+    const renderOffset = view
+      ? positionCoordinateRenderOffsetForWindow(view)
+      : null;
+    const positionCoordinateContext =
+      view && renderOffset
+        ? measurePositionCoordinateContext(node, view, renderOffset)
+        : undefined;
+    const absoluteSiblingVisualOrigin =
+      options?.measureAbsoluteSiblingVisualOrigin && view && renderOffset
+        ? measureAbsoluteSiblingVisualOrigin(node, view, renderOffset)
+        : undefined;
+    if (!positionCoordinateContext && !absoluteSiblingVisualOrigin) return info;
     const scrollX = view?.scrollX ?? 0;
     const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
@@ -261,6 +290,7 @@ export function withMeasuredGeometry(
           }
         : undefined,
       ...(positionCoordinateContext ?? {}),
+      ...(absoluteSiblingVisualOrigin ? { absoluteSiblingVisualOrigin } : {}),
       computedStyles: computed
         ? {
             color: computed.color,

@@ -1,14 +1,15 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
 
-import { designFrame, enterDirectMode, gotoEditor } from "./helpers";
+import {
+  designFrame,
+  enterDirectMode,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 const ALIGN_HTML = `<!doctype html>
 <html>
@@ -151,6 +152,15 @@ const TRANSFORMED_POSITION_HTML = `<!doctype html>
   </body>
 </html>`;
 
+const BOARD_ORIGIN_POSITION_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Board origin position</title></head>
+  <body style="margin:0;position:relative;width:8192px;height:8192px;overflow:visible">
+    <div data-agent-native-node-id="board-origin-probe" data-agent-native-layer-name="Origin probe" data-an-primitive="rectangle"
+         style="position:absolute;left:0;top:0;width:120px;height:90px;background:#fca5a5"></div>
+  </body>
+</html>`;
+
 const BOUNDS_WIDTH = 780;
 const BOUNDS_HEIGHT = 580;
 const CHIP_WIDTH = 120;
@@ -164,6 +174,27 @@ const ALIGN_LABELS = [
   "Align vertical centers",
   "Align bottom",
 ] as const;
+
+type PositionHydrationProbeWindow = Window & {
+  __positionHydrationRequests?: string[];
+  __positionHydrationResponses?: {
+    sourceId?: string;
+    boundingRect?: { x: number; y: number; width: number; height: number };
+    positionReferenceRect?: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+    positionContainingBlockOrigin?: { x: number; y: number };
+    positionContainingBlockTransform?: {
+      a: number;
+      b: number;
+      c: number;
+      d: number;
+    };
+  }[];
+};
 
 async function postAction(
   request: APIRequestContext,
@@ -191,12 +222,14 @@ async function openEditPanel(page: Page, designId: string) {
 }
 
 async function leaveResponsivePreview(page: Page) {
-  const exitPreview = page
-    .getByRole("button", { name: "Exit responsive preview" })
-    .first();
-  if (await exitPreview.isVisible().catch(() => false)) {
-    await exitPreview.click();
-    await expect(exitPreview).toBeHidden();
+  const previewControls = page.locator(
+    "[data-design-top-bar] [data-design-interact-route]",
+  );
+  if ((await previewControls.count()) > 0) {
+    await page
+      .locator('[data-design-top-bar] [data-design-mode="edit"]')
+      .click();
+    await expect(previewControls).toHaveCount(0);
   }
 }
 
@@ -268,6 +301,109 @@ async function expectOffset(
     .toEqual(expected);
 }
 
+/** Waits for saves, then checks the node's saved offset and that no other saved node changed. */
+async function expectSavedOffset(
+  app: App,
+  designId: string,
+  before: Awaited<ReturnType<App["savedNodes"]>>,
+  nodeId: string,
+  expected: { left: string; top: string },
+) {
+  await app.settled();
+  const after = await app.savedNodes(designId);
+  const { left, top } = styleOf(after.get(nodeId));
+  expect({ left, top }, `saved offset of ${nodeId}`).toEqual(expected);
+  expectOnlyChanged(before, after, [nodeId]);
+}
+
+function boardPreviewFrame(page: Page) {
+  return page
+    .locator(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
+    )
+    .first();
+}
+
+async function persistedBoardAuthoredOffset(
+  page: Page,
+  request: APIRequestContext,
+  baseURL: string,
+  designId: string,
+  nodeId: string,
+) {
+  const response = await request.get(
+    `${baseURL.replace(/\/$/, "")}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const design = await response.json();
+  const html = (design.files ?? []).find(
+    (file: { filename?: string }) => file.filename === "__board__.html",
+  )?.content;
+  if (typeof html !== "string") {
+    throw new Error("get-design did not return persisted __board__.html");
+  }
+  return page.evaluate(
+    ({ source, id }) => {
+      const parsed = new DOMParser().parseFromString(source, "text/html");
+      const element = parsed.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      if (!element) throw new Error(`persisted board is missing ${id}`);
+      return {
+        left: element.style.left,
+        top: element.style.top,
+        contentOffsetMetadataCount: parsed.querySelectorAll(
+          "[data-agent-native-content-offset], [data-agent-native-content-offset-x], [data-agent-native-content-offset-y]",
+        ).length,
+      };
+    },
+    { source: html, id: nodeId },
+  );
+}
+
+async function boardPositionState(page: Page) {
+  return boardPreviewFrame(page)
+    .contentFrame()
+    .locator('[data-agent-native-node-id="board-origin-probe"]')
+    .evaluate((element) => {
+      const html = element as HTMLElement;
+      const hostDocument = html.ownerDocument.defaultView?.parent.document;
+      const offsetStyle = html.ownerDocument.querySelector(
+        "style[data-agent-native-content-offset]",
+      );
+      const inputValue = (label: string) =>
+        hostDocument?.querySelector<HTMLInputElement>(
+          `input[aria-label="${label}"]`,
+        )?.value ?? null;
+      const offsetValue = (axis: "x" | "y") => {
+        const raw = offsetStyle?.getAttribute(
+          `data-agent-native-content-offset-${axis}`,
+        );
+        return raw === null || raw === undefined ? null : Number(raw);
+      };
+      return {
+        authored: { left: html.style.left, top: html.style.top },
+        translate: getComputedStyle(html).getPropertyValue("translate"),
+        contentOffset: { x: offsetValue("x"), y: offsetValue("y") },
+        inspector: {
+          x: inputValue("X-position"),
+          y: inputValue("Y-position"),
+        },
+      };
+    });
+}
+
+function expectNonzeroBoardOffset(
+  offset: Awaited<ReturnType<typeof boardPositionState>>["contentOffset"],
+) {
+  expect(Number.isFinite(offset.x) && offset.x !== 0).toBe(true);
+  expect(Number.isFinite(offset.y) && offset.y !== 0).toBe(true);
+}
+
 async function seedDesign(
   request: APIRequestContext,
   baseURL: string,
@@ -289,15 +425,250 @@ async function seedDesign(
   return designId;
 }
 
-test("Left and Right alignment controls move to their named edges", async ({
+test("board Position reads authored origin and persists edits after reload", async ({
   page,
   request,
   baseURL,
 }) => {
-  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  const actionBaseURL = requireBaseURL(baseURL);
+  const created = await postAction(request, actionBaseURL, "create-design", {
+    title: `Board origin position ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+  const board = await postAction(request, actionBaseURL, "create-file", {
+    designId,
+    filename: "__board__.html",
+    content: BOARD_ORIGIN_POSITION_HTML,
+    fileType: "html",
+  });
+  const boardFileId: string | undefined = board?.id ?? board?.data?.id;
+  if (!boardFileId) throw new Error("create-file returned no board id");
+  await postAction(request, actionBaseURL, "update-design", {
+    id: designId,
+    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
+  });
+
+  await gotoEditor(page, designId);
+  await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible();
+  await expect(boardPreviewFrame(page)).toBeVisible();
+  await expandAllLayers(page);
+
+  const node = boardPreviewFrame(page)
+    .contentFrame()
+    .locator('[data-agent-native-node-id="board-origin-probe"]');
+  await expect(node).toBeAttached();
+  await selectLayer(page, "Origin probe");
+
+  const x = page.getByRole("textbox", { name: "X-position" });
+  const y = page.getByRole("textbox", { name: "Y-position" });
+  const selectedRows = page.locator('[role="treeitem"][aria-selected="true"]');
+  await expect(selectedRows).toHaveCount(1);
+  await expect(selectedRows).toContainText("Origin probe");
+  await expect(x).toHaveValue("0px");
+  await expect(y).toHaveValue("0px");
+  const layersState = await boardPositionState(page);
+  expect(layersState.authored).toEqual({ left: "0px", top: "0px" });
+  expectNonzeroBoardOffset(layersState.contentOffset);
+  expect(layersState.translate).toBe(
+    `${layersState.contentOffset.x}px ${layersState.contentOffset.y}px`,
+  );
+  expect(layersState.inspector).toEqual({ x: "0px", y: "0px" });
+
+  await page.keyboard.press("Shift+2");
+  await page.keyboard.press("Escape");
+  await expect(selectedRows).toHaveCount(0);
+  const box = await node.boundingBox();
+  if (!box) throw new Error("board origin object has no rendered bounds");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(selectedRows).toHaveCount(1);
+  await expect(selectedRows).toContainText("Origin probe");
+  await expect(x).toHaveValue("0px");
+  await expect(y).toHaveValue("0px");
+  const canvasState = await boardPositionState(page);
+  expect(canvasState.authored).toEqual({ left: "0px", top: "0px" });
+  expectNonzeroBoardOffset(canvasState.contentOffset);
+  expect(canvasState.translate).toBe(
+    `${canvasState.contentOffset.x}px ${canvasState.contentOffset.y}px`,
+  );
+  expect(canvasState.inspector).toEqual({ x: "0px", y: "0px" });
+
+  await x.fill("24");
+  await x.press("Enter");
+  await y.fill("24");
+  await y.press("Enter");
+  await expect
+    .poll(() =>
+      persistedBoardAuthoredOffset(
+        page,
+        request,
+        actionBaseURL,
+        designId,
+        "board-origin-probe",
+      ),
+    )
+    .toEqual({
+      left: "24px",
+      top: "24px",
+      contentOffsetMetadataCount: 0,
+    });
+
+  await page.reload();
+  await gotoEditor(page, designId);
+  await expandAllLayers(page);
+  await selectLayer(page, "Origin probe");
+  await expect(x).toHaveValue("24px");
+  await expect(y).toHaveValue("24px");
+});
+
+test("layer hydration requests a complete measurement when board offset metadata is unreadable", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const actionBaseURL = requireBaseURL(baseURL);
+  const created = await postAction(request, actionBaseURL, "create-design", {
+    title: `Board offset hydration ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+  const board = await postAction(request, actionBaseURL, "create-file", {
+    designId,
+    filename: "__board__.html",
+    content: BOARD_ORIGIN_POSITION_HTML,
+    fileType: "html",
+  });
+  const boardFileId: string | undefined = board?.id ?? board?.data?.id;
+  if (!boardFileId) throw new Error("create-file returned no board id");
+  await postAction(request, actionBaseURL, "update-design", {
+    id: designId,
+    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
+  });
+
+  await gotoEditor(page, designId);
+  await expect(boardPreviewFrame(page)).toBeVisible();
+  await expandAllLayers(page);
+  const boardFrame = boardPreviewFrame(page).contentFrame();
+  const offsetStyle = boardFrame.locator(
+    "style[data-agent-native-content-offset]",
+  );
+  await expect(offsetStyle).toBeAttached();
+  await offsetStyle.evaluate((style) => {
+    style.setAttribute("data-agent-native-content-offset-x", "unreadable");
+    style.textContent =
+      "body > [data-agent-native-node-id]{translate:calc(20px + 13px) 17px;}";
+  });
+
+  await page.evaluate(() => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
+    );
+    const childWindow = iframe?.contentWindow;
+    if (!iframe || !childWindow) {
+      throw new Error("Board preview frame is unavailable");
+    }
+    const originalPostMessage = childWindow.postMessage.bind(childWindow);
+    const probeWindow = window as PositionHydrationProbeWindow;
+    probeWindow.__positionHydrationRequests = [];
+    probeWindow.__positionHydrationResponses = [];
+    window.addEventListener("message", (event) => {
+      if (
+        event.source === childWindow &&
+        event.data?.type === "agent-native:selection-measured" &&
+        event.data.payload?.sourceId === "board-origin-probe"
+      ) {
+        probeWindow.__positionHydrationResponses?.push(event.data.payload);
+      }
+    });
+    Object.defineProperty(childWindow, "postMessage", {
+      configurable: true,
+      value: (
+        message: unknown,
+        targetOrigin: string | WindowPostMessageOptions = "*",
+        transfer?: Transferable[],
+      ) => {
+        const data =
+          message && typeof message === "object"
+            ? (message as { type?: unknown; selector?: unknown })
+            : {};
+        if (
+          data.type === "agent-native:measure-selection" &&
+          typeof data.selector === "string" &&
+          data.selector.includes("board-origin-probe")
+        ) {
+          probeWindow.__positionHydrationRequests?.push(data.selector);
+          const marker = iframe.contentDocument?.querySelector(
+            "style[data-agent-native-content-offset]",
+          );
+          if (!marker) throw new Error("Board offset marker is unavailable");
+          marker.setAttribute("data-agent-native-content-offset-x", "33");
+          marker.setAttribute("data-agent-native-content-offset-y", "17");
+          marker.textContent =
+            "body > [data-agent-native-node-id]{translate:33px 17px;}";
+        }
+        if (typeof targetOrigin === "string") {
+          originalPostMessage(message, targetOrigin, transfer);
+        } else {
+          originalPostMessage(message, targetOrigin);
+        }
+      },
+    });
+  });
+
+  await selectLayer(page, "Origin probe");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as PositionHydrationProbeWindow).__positionHydrationRequests
+            ?.length ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const responses = (window as PositionHydrationProbeWindow)
+          .__positionHydrationResponses;
+        const measured = responses?.[responses.length - 1];
+        return (
+          measured?.boundingRect?.x === 33 &&
+          measured.boundingRect.y === 17 &&
+          measured.positionReferenceRect?.x === 33 &&
+          measured.positionReferenceRect.y === 17 &&
+          measured.positionContainingBlockOrigin?.x === 33 &&
+          measured.positionContainingBlockOrigin.y === 17 &&
+          measured.positionContainingBlockTransform?.a === 1 &&
+          measured.positionContainingBlockTransform.b === 0 &&
+          measured.positionContainingBlockTransform.c === 0 &&
+          measured.positionContainingBlockTransform.d === 1
+        );
+      }),
+    )
+    .toBe(true);
+
+  await expect(page.getByRole("textbox", { name: "X-position" })).toHaveValue(
+    "0px",
+  );
+  await expect(page.getByRole("textbox", { name: "Y-position" })).toHaveValue(
+    "0px",
+  );
+});
+
+test("Left and Right alignment controls move to their named edges", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(ALIGN_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Chip");
   await expectOffset(page, "Chip", { left: 300, top: 250 });
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align right").click();
   await expectOffset(page, "Chip", {
@@ -307,17 +678,22 @@ test("Left and Right alignment controls move to their named edges", async ({
 
   await alignButton(page, "Align left").click();
   await expectOffset(page, "Chip", { left: 0, top: 250 });
+  await expectSavedOffset(app, designId, before, "align-chip", {
+    left: "0px",
+    top: "250px",
+  });
 });
 
 test("Top and Bottom alignment controls move to their named edges", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  const designId = await app.seed(ALIGN_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Chip");
   await expectOffset(page, "Chip", { left: 300, top: 250 });
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align bottom").click();
   await expectOffset(page, "Chip", {
@@ -327,21 +703,30 @@ test("Top and Bottom alignment controls move to their named edges", async ({
 
   await alignButton(page, "Align top").click();
   await expectOffset(page, "Chip", { left: 300, top: 0 });
+  await expectSavedOffset(app, designId, before, "align-chip", {
+    left: "300px",
+    top: "0px",
+  });
 });
 
 test("aligning one axis leaves a percentage offset on the other axis put", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  const designId = await app.seed(ALIGN_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Percent");
   const half = BOUNDS_WIDTH / 2;
   await expectOffset(page, "Percent", { left: half, top: 100 });
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align top").click();
   await expectOffset(page, "Percent", { left: half, top: 0 });
+  await expectSavedOffset(app, designId, before, "align-percent-chip", {
+    left: "50%",
+    top: "0px",
+  });
 });
 
 test("a lone top-level frame has nothing to align against", async ({
@@ -505,7 +890,6 @@ test("canvas and Layers selection show parent-relative position after iframe scr
   );
 });
 
-// oracle: none — verifies CSS fixed-position viewport coordinates, not Figma parity.
 test("fixed Position stays viewport-relative after iframe scroll and reload", async ({
   page,
   request,
@@ -565,8 +949,7 @@ test("fixed Position stays viewport-relative after iframe scroll and reload", as
   );
 });
 
-// oracle: fig.canvas.position-relative-to-frame — Position skips Groups and
-// resets at the nearest Frame.
+// Position skips Groups and resets at the nearest Frame.
 test("Position stays Frame-relative through Groups and resets at nested Frames", async ({
   page,
   request,
@@ -657,7 +1040,6 @@ test("Position edits use the CSS containing block through static wrappers and bo
     .toEqual({ x: 120, y: 140 });
 });
 
-// oracle: none — plain HTML wrappers have no Figma node equivalent.
 test("Position stays Frame-relative through a positioned plain wrapper", async ({
   page,
   request,
@@ -775,18 +1157,12 @@ test("Position edits invert own and static-containing-block transforms and persi
     .toEqual({ x: 170, y: 50 });
 });
 
-// oracle: fig.inspector.align-left-within-group, fig.inspector.align-center-within-group —
-// alignment uses Group bounds; Position remains Frame-relative.
+// Alignment uses Group bounds; Position remains Frame-relative.
 test("Align uses a Group's bounds while Position stays Frame-relative", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(
-    request,
-    requireBaseURL(baseURL),
-    GROUP_POSITION_HTML,
-  );
+  const designId = await app.seed(GROUP_POSITION_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Group child");
 
@@ -794,6 +1170,8 @@ test("Align uses a Group's bounds while Position stays Frame-relative", async ({
   const y = page.getByRole("textbox", { name: "Y-position" });
   await expect(x).toHaveValue("100px");
   await expect(y).toHaveValue("100px");
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align left").click();
   await expectOffset(page, "Group child", { left: 0, top: 80 });
@@ -807,6 +1185,10 @@ test("Align uses a Group's bounds while Position stays Frame-relative", async ({
   await expectOffset(page, "Group child", { left: 40, top: 80 });
   await expect(x).toHaveValue("60px");
   await expect(y).toHaveValue("100px");
+  await expectSavedOffset(app, designId, before, "group-child", {
+    left: "40px",
+    top: "80px",
+  });
 });
 
 const TRANSFORM_HTML = `<!doctype html>
@@ -859,17 +1241,14 @@ async function authoredOffset(page: Page, layerName: string) {
 }
 
 test("a scaled parent does not scale the offsets that get committed", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(
-    request,
-    requireBaseURL(baseURL),
-    TRANSFORM_HTML,
-  );
+  const designId = await app.seed(TRANSFORM_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Inner");
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align right").click();
   await expect
@@ -880,25 +1259,30 @@ test("a scaled parent does not scale the offsets that get committed", async ({
   await expect
     .poll(() => authoredOffset(page, "Inner"), { timeout: 10_000 })
     .toEqual({ left: "680px", top: "540px" });
+  await expectSavedOffset(app, designId, before, "inner", {
+    left: "680px",
+    top: "540px",
+  });
 });
 
 test("a transformed node aligns by its layout box, not its painted box", async ({
+  app,
   page,
-  request,
-  baseURL,
 }) => {
-  const designId = await seedDesign(
-    request,
-    requireBaseURL(baseURL),
-    TRANSFORM_HTML,
-  );
+  const designId = await app.seed(TRANSFORM_HTML);
   await openEditPanel(page, designId);
   await selectLayer(page, "Shifted");
+  await app.settled();
+  const before = await app.savedNodes(designId);
 
   await alignButton(page, "Align right").click();
   await expect
     .poll(() => authoredOffset(page, "Shifted"), { timeout: 10_000 })
     .toEqual({ left: "680px", top: "300px" });
+  await expectSavedOffset(app, designId, before, "shifted", {
+    left: "680px",
+    top: "300px",
+  });
 });
 
 test("a static parent is not the containing block, so alignment refuses", async ({

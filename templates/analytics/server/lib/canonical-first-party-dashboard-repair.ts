@@ -13,6 +13,8 @@ import {
   PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
   PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
   PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
+  PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL,
+  scopeFirstPartyPanelSql,
   SIGNUPS_OVER_TIME_SQL,
   buildFirstPartyDashboardFilters,
   type ExactFirstPartyPanelReplacement,
@@ -21,6 +23,11 @@ import {
 
 export const FIRST_PARTY_BIGQUERY_DASHBOARD_ID =
   "agent-native-templates-first-party-bigquery-v2";
+
+export const FIRST_PARTY_BIGQUERY_DASHBOARD_IDS = [
+  FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  "agent-native-templates-first-party-bigquery-v3",
+];
 
 const BIGQUERY_SESSION_STATUS_EVENT_FILTER =
   "event_name IN ('session status', 'session_status')";
@@ -34,7 +41,7 @@ const BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER = `(
   OR (event_name = 'core_action_started' AND JSON_VALUE(properties, '$.action_name') = 'chat_submit')
 ) AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL`;
 
-export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
+export const PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
   SELECT
     event_date,
     user_key AS visitor_key,
@@ -93,8 +100,69 @@ SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
 
+export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
+  SELECT
+    event_date,
+    user_key AS visitor_key,
+    COALESCE(
+      NULLIF(template, ''),
+      NULLIF(JSON_VALUE(properties, '$.templateId'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''),
+      NULLIF(app, ''),
+      NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''),
+      'unknown'
+    ) AS template
+  FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw_query_range\`(
+    CASE
+      WHEN '{{timeRange}}' IN ('', 'all') THEN DATE '1970-01-01'
+      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)
+      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 13 DAY)
+      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 36 DAY)
+      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
+      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 186 DAY)
+      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 371 DAY)
+      ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
+    END,
+    IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
+  )
+  WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
+    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}
+    AND ('{{emailFilter}}' IN ('', 'all')
+      OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(user_id, '')) NOT LIKE '%@builder.io')
+      OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(user_id, '')) LIKE '%@builder.io'))
+    AND ('{{appFilter}}' IN ('', 'all')
+      OR LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) = LOWER('{{appFilter}}'))
+    AND LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
+), date_spine AS (
+  SELECT date
+  FROM UNNEST(GENERATE_DATE_ARRAY(
+    CASE
+      WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}')
+      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)
+      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 89 DAY)
+      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 179 DAY)
+      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 364 DAY)
+      WHEN '{{timeRange}}' IN ('', 'all') THEN COALESCE((SELECT MIN(event_date) FROM base), CURRENT_DATE())
+      ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+    END,
+    IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
+  )) AS date
+), wau AS (
+  SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors
+  FROM date_spine d
+  JOIN base b
+    ON b.event_date BETWEEN DATE_SUB(d.date, INTERVAL 6 DAY) AND d.date
+  GROUP BY d.date, b.template
+)
+SELECT date, template, visitors
+FROM wau
+ORDER BY date, template`;
+
 export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)\n",
     "",
   )
@@ -405,13 +473,13 @@ export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL =
     );
 
 const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "WHEN '{{timeRange}}' = '7d'",
     "WHEN '{{timeRange}}' = '{{timeRange}}'",
   );
 
 const LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     `    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}`,
     "    AND event_name = 'session status'\n    AND signed_in = 'true'\n    AND NULLIF(user_key, '') IS NOT NULL",
   );
@@ -435,6 +503,7 @@ function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
 
 function isLegacyFirstPartyBigQueryWauSql(sql: string): boolean {
   return [
+    PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
     LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
     PRE_CUSTOM_LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
@@ -635,6 +704,16 @@ function repairFingerprintedPanelQueries(
 const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   [
     {
+      id: "onboarding-setup-choice",
+      legacySql: [
+        buildPanel("onboarding-setup-choice")!.sql.replace(
+          "'Use Builder.io' AS method_label",
+          "'Create Builder.io account' AS method_label",
+        ),
+      ],
+      sql: buildPanel("onboarding-setup-choice")!.sql,
+    },
+    {
       id: "signups-over-time",
       legacySql: [
         LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
@@ -663,6 +742,16 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
       sql: NEW_VS_RECURRING_USERS_SQL,
       legacyDescription: LEGACY_NEW_VS_RECURRING_USERS_DESCRIPTION,
       description: NEW_VS_RECURRING_USERS_DESCRIPTION,
+    },
+    {
+      id: "sessions-by-app",
+      legacySql: [
+        PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL,
+        removeCustomDateRangeClauses(
+          scopeFirstPartyPanelSql(PRE_TEMPLATE_KEY_SESSIONS_BY_APP_SQL),
+        ),
+      ],
+      sql: buildPanel("sessions-by-app")!.sql,
     },
   ];
 
@@ -787,6 +876,84 @@ function appendPanelsIntroducedWithRetentionSplit(
   };
 }
 
+/**
+ * Panels added to saved first-party dashboards (canonical and BigQuery) after
+ * they were created. Each id is
+ * recorded in the saved config's `introducedPanels` once delivered (or found
+ * already present), so a panel the owner later deletes is not added back.
+ */
+export const PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS = [
+  "onboarding-ab-section",
+  "onboarding-ab-comparison",
+  "onboarding-ab-connected-trend",
+];
+
+/** New panels land after the last of these, else at the end. */
+const BIGQUERY_INTRODUCED_PANEL_ANCHORS = [
+  "onboarding-setup-choice",
+  "onboarding-step-dropoff",
+  "signup-method-conversion",
+  ...PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
+];
+
+function introducedBigQueryDashboardPanel(id: string): unknown {
+  // The section header is layout only, so it has no catalog metric.
+  if (id !== "onboarding-ab-section") return buildPanel(id);
+  const seedPanels = loadDashboardSeed(FIRST_PARTY_DASHBOARD_ID)?.panels;
+  return Array.isArray(seedPanels)
+    ? seedPanels.find((panel) => (panel as { id?: unknown })?.id === id)
+    : undefined;
+}
+
+function appendPanelsIntroducedToBigQueryDashboards(result: {
+  config: Record<string, unknown>;
+  changed: boolean;
+}): { config: Record<string, unknown>; changed: boolean } {
+  const { config } = result;
+  if (!Array.isArray(config.panels)) return result;
+  const panelId = (panel: unknown) => (panel as { id?: unknown } | null)?.id;
+  const recorded = new Set(
+    Array.isArray(config.introducedPanels)
+      ? config.introducedPanels.filter((id) => typeof id === "string")
+      : [],
+  );
+  const present = new Set(config.panels.map(panelId));
+  const additions: unknown[] = [];
+  const newlyRecorded: string[] = [];
+  for (const id of PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS) {
+    if (recorded.has(id)) continue;
+    if (!present.has(id)) {
+      const panel = introducedBigQueryDashboardPanel(id);
+      // Left unrecorded so a later deploy that ships the panel still delivers it.
+      if (!panel) continue;
+      additions.push(panel);
+    }
+    newlyRecorded.push(id);
+  }
+  if (newlyRecorded.length === 0) return result;
+  const panels = [...config.panels];
+  const anchorIndex = panels.reduce<number>(
+    (last, panel, index) =>
+      BIGQUERY_INTRODUCED_PANEL_ANCHORS.includes(panelId(panel) as string)
+        ? index
+        : last,
+    -1,
+  );
+  panels.splice(
+    anchorIndex < 0 ? panels.length : anchorIndex + 1,
+    0,
+    ...additions,
+  );
+  return {
+    config: {
+      ...config,
+      panels,
+      introducedPanels: [...recorded, ...newlyRecorded],
+    },
+    changed: true,
+  };
+}
+
 export function repairKnownFirstPartyDashboardQueries(
   dashboardId: string,
   config: Record<string, unknown>,
@@ -804,14 +971,30 @@ export function repairKnownFirstPartyDashboardQueries(
     const defaultsRepaired = repairFirstPartyBigQueryDashboardFilterDefaults(
       repaired.config,
     );
-    return {
+    return appendPanelsIntroducedToBigQueryDashboards({
       ...defaultsRepaired,
       changed:
         historical.changed || repaired.changed || defaultsRepaired.changed,
-    };
+    });
+  }
+  if (FIRST_PARTY_BIGQUERY_DASHBOARD_IDS.includes(dashboardId)) {
+    return appendPanelsIntroducedToBigQueryDashboards(
+      repairFingerprintedPanelQueries(config, [
+        {
+          id: "wau-over-time",
+          source: "bigquery",
+          sha256: fingerprintPanelSql(
+            PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
+          ),
+          sql: FIRST_PARTY_BIGQUERY_WAU_SQL,
+        },
+      ]),
+    );
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
-    return repairCanonicalFirstPartyDashboardQueries(config);
+    return appendPanelsIntroducedToBigQueryDashboards(
+      repairCanonicalFirstPartyDashboardQueries(config),
+    );
   }
   return { config, changed: false };
 }

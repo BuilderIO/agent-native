@@ -1,3 +1,6 @@
+import { parse, type DefaultTreeAdapterTypes } from "parse5";
+
+import { nativeShaderRuntimeBridgeScript } from "../.generated/bridge/native-shader-runtime.generated";
 import { shaderRuntimeBridgeScript } from "../.generated/bridge/shader-runtime.generated";
 
 export type GlslUniformType = "float" | "vec2" | "color";
@@ -100,7 +103,7 @@ const GLSL_TYPE_FOR_UNIFORM: Record<GlslUniformType, string> = {
 };
 
 const SAFE_COLOR_RE =
-  /^(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgba?\([\d.,\s%/]*\)|hsla?\([\d.,\s%/deg]*\)|oklch\([\d.,\s%/deg]*\)|[a-zA-Z]{3,25})$/;
+  /^(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgba?\([\d.,\s%/]*\)|hsla?\([\d.,\s%/deg]*\)|oklch\([\d.,\s%/deg]*\)|color\(\s*(?:display-p3|srgb)\s[\d.\s%/+-]*\)|[a-zA-Z]{3,25})$/;
 
 export function isSafeShaderFallbackColor(value: string): boolean {
   const trimmed = value.trim();
@@ -386,9 +389,15 @@ const SHADER_BLOCK_RE = new RegExp(
   "gi",
 );
 
+// Either quote style: the skill documents the overrides in single quotes, since
+// their JSON holds double quotes, and the runtime reads them through the DOM.
 function readAttrFrom(attrs: string, name: string): string | null {
-  const match = new RegExp(name + '\\s*=\\s*"([^"]*)"', "i").exec(attrs);
-  return match ? unescapeAttr(match[1]) : null;
+  const match = new RegExp(
+    name + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')",
+    "i",
+  ).exec(attrs);
+  const raw = match ? (match[1] ?? match[2]) : undefined;
+  return raw === undefined ? null : unescapeAttr(raw);
 }
 
 export function listShadersInHtml(html: string): GlslShaderDef[] {
@@ -468,6 +477,108 @@ export function removeShaderFromHtml(html: string, id: string): string {
 
 export const SHADER_RUNTIME_SOURCE: string = shaderRuntimeBridgeScript;
 
+export const NATIVE_SHADER_RUNTIME_SOURCE: string =
+  nativeShaderRuntimeBridgeScript;
+const NATIVE_RUNTIME_ATTR = "data-agent-native-native-shader-runtime";
+
+type LocatedHtmlNode = DefaultTreeAdapterTypes.Node;
+type RuntimeScript = {
+  native: boolean;
+  start: number;
+  end: number;
+  verified: boolean;
+};
+
+function isGeneratedShaderRuntime(source: string, native: boolean): boolean {
+  const body = source.trim();
+  if (
+    body ===
+    (native ? NATIVE_SHADER_RUNTIME_SOURCE : SHADER_RUNTIME_SOURCE).trim()
+  )
+    return true;
+  return native
+    ? body.startsWith(
+        '"use strict";\n(() => {\n  var __defProp = Object.defineProperty;',
+      ) &&
+        body.includes("nativeBuiltinExecutionMetadata") &&
+        body.includes("window.__anNativeShaders = runtime;") &&
+        body.endsWith("else runtime.start();\n})();")
+    : body.startsWith(
+        '"use strict";\n(() => {\n  // app/components/design/bridge/shader-runtime.bridge.ts',
+      ) &&
+        body.includes("W.__anShaders = {") &&
+        body.endsWith("})();\n})();");
+}
+
+function inspectRuntimeScripts(html: string): RuntimeScript[] {
+  if (
+    !html.includes(NATIVE_RUNTIME_ATTR) &&
+    !html.includes(SHADER_RUNTIME_ATTR)
+  )
+    return [];
+  const scripts: RuntimeScript[] = [];
+  const visit = (node: LocatedHtmlNode): void => {
+    if (node.nodeName === "script") {
+      const script = node as DefaultTreeAdapterTypes.Element;
+      const native = script.attrs.some(
+        (attribute) => attribute.name === NATIVE_RUNTIME_ATTR,
+      );
+      const legacy = script.attrs.some(
+        (attribute) => attribute.name === SHADER_RUNTIME_ATTR,
+      );
+      const location = script.sourceCodeLocation;
+      const version = script.attrs.find(
+        (attribute) => attribute.name === "data-runtime-version",
+      )?.value;
+      if ((native || legacy) && location?.startTag && location.endTag) {
+        const body = html.slice(
+          location.startTag.endOffset,
+          location.endTag.startOffset,
+        );
+        scripts.push({
+          native,
+          start: location.startOffset,
+          end: location.endOffset,
+          verified:
+            ((native && version === "2") || (legacy && version === "1")) &&
+            isGeneratedShaderRuntime(body, native),
+        });
+      }
+    }
+    if ("childNodes" in node) node.childNodes.forEach(visit);
+  };
+  visit(parse(html, { sourceCodeLocationInfo: true }));
+  return scripts;
+}
+
+/** Removes only parsed, marked runtime scripts with a verified generated body. */
+export function stripGeneratedShaderRuntimes(html: string): string {
+  const spans = inspectRuntimeScripts(html).filter((script) => script.verified);
+  let compact = html;
+  for (const span of spans.reverse())
+    compact = compact.slice(0, span.start) + compact.slice(span.end);
+  return compact;
+}
+
+export function ensureNativeShaderRuntime(html: string): string {
+  const tag = `<script ${NATIVE_RUNTIME_ATTR} data-runtime-version="2">\n${NATIVE_SHADER_RUNTIME_SOURCE}\n</script>`;
+  const scripts = inspectRuntimeScripts(html).filter((script) => script.native);
+  if (scripts.length > 1 || scripts.some((script) => !script.verified))
+    throw new Error("Native shader runtime marker has unrecognized content");
+  const existing = scripts[0];
+  if (existing) {
+    if (html.slice(existing.start, existing.end) === tag) return html;
+    return html.slice(0, existing.start) + tag + html.slice(existing.end);
+  }
+  const bodyClose = html.toLowerCase().lastIndexOf("</body>");
+  if (bodyClose !== -1)
+    return html.slice(0, bodyClose) + tag + "\n" + html.slice(bodyClose);
+  const htmlClose = html.toLowerCase().lastIndexOf("</html>");
+  if (htmlClose !== -1)
+    return html.slice(0, htmlClose) + tag + "\n" + html.slice(htmlClose);
+  return html + "\n" + tag + "\n";
+}
+
 export function buildShaderRuntimeScriptTag(): string {
   return (
     `<script ${SHADER_RUNTIME_ATTR} data-runtime-version="${SHADER_RUNTIME_VERSION}">\n` +
@@ -477,7 +588,9 @@ export function buildShaderRuntimeScriptTag(): string {
 }
 
 const RUNTIME_BLOCK_RE = new RegExp(
-  "<script\\s+" + SHADER_RUNTIME_ATTR + "[^>]*>[\\s\\S]*?<\\/script\\s*>",
+  "<script\\b[^>]*\\b" +
+    SHADER_RUNTIME_ATTR +
+    "\\b[^>]*>[\\s\\S]*?<\\/script\\s*>",
   "i",
 );
 
@@ -503,6 +616,17 @@ export function ensureShaderRuntime(html: string): string {
   return html + "\n" + tag + "\n";
 }
 
+/**
+ * The framework's runtime in place of any other that carries its marker, and
+ * nothing added to a document that has none. The agent cannot run the apply
+ * helper from chat, so it hand-writes a runtime of its own under the marker; it
+ * mounts first, and its opaque canvas paints over the one the pane's knobs
+ * drive, so no knob moves what the user sees.
+ */
+export function replaceForeignShaderRuntime(html: string): string {
+  return html.includes(SHADER_RUNTIME_ATTR) ? ensureShaderRuntime(html) : html;
+}
+
 export function htmlHasShaderReferences(html: string): boolean {
   return (
     html.includes(SHADER_FILL_ATTR + '="') ||
@@ -510,6 +634,24 @@ export function htmlHasShaderReferences(html: string): boolean {
   );
 }
 
+/** Takes the embedded runtime out, with the line it sat on. */
+function removeShaderRuntime(html: string): string {
+  const existing = RUNTIME_BLOCK_RE.exec(html);
+  if (!existing) return html;
+  let start = existing.index;
+  while (start > 0 && (html[start - 1] === " " || html[start - 1] === "\t")) {
+    start--;
+  }
+  let end = existing.index + existing[0].length;
+  if (html[end] === "\r") end++;
+  if (html[end] === "\n") end++;
+  return html.slice(0, start) + html.slice(end);
+}
+
+/**
+ * Drops the definitions nothing references. Once nothing references a shader
+ * the embedded runtime goes too: it is only there to run them.
+ */
 export function pruneUnusedShaders(html: string): string {
   let out = html;
   for (const def of listShadersInHtml(html)) {
@@ -519,7 +661,7 @@ export function pruneUnusedShaders(html: string): string {
       out = removeShaderFromHtml(out, def.id);
     }
   }
-  return out;
+  return htmlHasShaderReferences(out) ? out : removeShaderRuntime(out);
 }
 
 function findTagBounds(
@@ -600,6 +742,26 @@ function upsertStyleProperty(
     escapeAttr(next) +
     styleMatch[3] +
     tagText.slice(styleMatch.index + styleMatch[0].length)
+  );
+}
+
+function removeStyleProperty(tagText: string, property: string): string {
+  const styleRe = /(\sstyle\s*=\s*")([^"]*)(")/i;
+  const styleMatch = styleRe.exec(tagText);
+  if (!styleMatch) return tagText;
+  const kept = unescapeAttr(styleMatch[2])
+    .split(";")
+    .map((part) => part.trim())
+    .filter(
+      (part) =>
+        part.length > 0 &&
+        !new RegExp("^" + escapeRegExp(property) + "\\s*:", "i").test(part),
+    );
+  const before = tagText.slice(0, styleMatch.index);
+  const after = tagText.slice(styleMatch.index + styleMatch[0].length);
+  if (kept.length === 0) return before + after;
+  return (
+    before + styleMatch[1] + escapeAttr(kept.join("; ")) + styleMatch[3] + after
   );
 }
 
@@ -775,6 +937,29 @@ export interface ApplyShaderOptions {
   def: GlslShaderDef;
   values?: Record<string, GlslUniformValue>;
   fallbackColor?: string;
+  /**
+   * A fill shader replaces the element's gradient and image layers: the
+   * fallback `background` covers them, and left in the style they would still
+   * be listed as fills behind it. Set when the shader takes over from a layer.
+   */
+  clearBackgroundLayers?: boolean;
+}
+
+const BACKGROUND_LAYER_PROPERTIES = [
+  "background-image",
+  "background-size",
+  "background-repeat",
+  "background-position",
+];
+
+function clearNodeBackgroundLayers(html: string, nodeId: string): string {
+  const located = locateNodeTag(html, nodeId);
+  if (!located) return html;
+  const tagText = BACKGROUND_LAYER_PROPERTIES.reduce(
+    removeStyleProperty,
+    located.tagText,
+  );
+  return html.slice(0, located.start) + tagText + html.slice(located.end);
 }
 
 export function applyShaderToHtml(
@@ -797,9 +982,13 @@ export function applyShaderToHtml(
   if (annotated.errors.length > 0) {
     return { html, changed: false, errors: annotated.errors };
   }
+  const nextHtml =
+    options.clearBackgroundLayers && options.def.mode === "fill"
+      ? clearNodeBackgroundLayers(annotated.html, options.nodeId)
+      : annotated.html;
   return {
-    html: annotated.html,
-    changed: annotated.html !== html,
+    html: nextHtml,
+    changed: nextHtml !== html,
     errors: [],
   };
 }
@@ -813,6 +1002,53 @@ export function removeShaderFromNode(
   if (cleared.errors.length > 0) return cleared;
   const pruned = pruneUnusedShaders(cleared.html);
   return { html: pruned, changed: pruned !== html, errors: [] };
+}
+
+/**
+ * Removes a node's fill, not just its shader: the shader, the static
+ * `background` that applying it wrote as the no-JS fallback, and any
+ * `background-color` that fallback was covering. `removeShaderFromNode` keeps
+ * the fallback so the element falls back to a solid color; this is for a fill
+ * that is taken away altogether. Gradient and image layers are other fills and
+ * stay.
+ */
+export function removeShaderFill(
+  html: string,
+  nodeId: string,
+): HtmlTransformResult {
+  const removed = removeShaderFromNode(html, nodeId, "fill");
+  if (removed.errors.length > 0) return removed;
+  const located = locateNodeTag(removed.html, nodeId);
+  if (!located) return removed;
+  const tagText = ["background", "background-color"].reduce(
+    removeStyleProperty,
+    located.tagText,
+  );
+  const nextHtml =
+    removed.html.slice(0, located.start) +
+    tagText +
+    removed.html.slice(located.end);
+  return { html: nextHtml, changed: nextHtml !== html, errors: [] };
+}
+
+/**
+ * A knob's name in the pane: the label its manifest declares, else its uniform
+ * name read as words (`u_glow_amount`, `uGlowAmount` -> "Glow amount"). Agent
+ * written manifests are not always labeled, and a hand-written one is not run
+ * through `validateShaderDef`.
+ */
+export function shaderUniformLabel(
+  name: string,
+  uniform: GlslUniformDef,
+): string {
+  if (uniform.label) return uniform.label;
+  const words = name
+    .replace(/^u(?=[_A-Z])/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_+/g, " ")
+    .trim()
+    .toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : name;
 }
 
 export function defaultUniformValues(

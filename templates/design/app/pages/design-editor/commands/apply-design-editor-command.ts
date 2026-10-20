@@ -1,14 +1,20 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { findSelectableInteractDevicePreset } from "@shared/interact-device-presets";
+import {
+  normalizeInteractThemeMode,
+  type InteractThemeMode,
+} from "@shared/preview-color-scheme";
+import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
-import type { InspectorTab } from "@/components/design/EditPanel";
 import {
-  getScreenPreviewViewport,
+  getResponsiveScreenCullGeometry,
   resolveFrameGeometrySync,
 } from "@/components/design/multi-screen/frame-geometry";
 import type { ElementInfo } from "@/components/design/types";
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
+  clearOverviewInteractTarget,
   getCreatedScreenNavigationPlan,
   type CreatedScreenNavigationPlan,
 } from "@/pages/design-editor/created-screen-navigation";
@@ -17,16 +23,15 @@ import {
   clampZoom,
   shouldDeferOverviewZoomCommand,
 } from "@/pages/design-editor/overview-camera";
-import {
-  DEFAULT_INTERACT_DEVICE_PRESET,
-  resolveInteractDeviceForScreen,
-} from "@/pages/design-editor/responsive-interact";
 import { findDesignFileByScreenTarget } from "@/pages/design-editor/screen-command-utils";
 import {
+  commandRequestsAnnotate,
   getDesignToolActivationState,
   isSingleScreenAnnotationTool,
   normalizeDesignLeftPanel,
   normalizeDesignTool,
+  resolveAvailableTool,
+  type AnnotateLabStatus,
 } from "@/pages/design-editor/tool-state";
 import type {
   DesignFile,
@@ -34,16 +39,15 @@ import type {
   DesignTool,
   EditorMode,
 } from "@/pages/design-editor/types";
-import { FOCUSED_SCREEN_ZOOM } from "@/pages/design-editor/types";
 
 export interface ApplyDesignEditorCommandArgs {
+  annotateLab: AnnotateLabStatus;
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   files: DesignFile[];
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
-  setActiveInspectorTab: Dispatch<SetStateAction<InspectorTab>>;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setDrawMode: Dispatch<SetStateAction<boolean>>;
@@ -51,9 +55,12 @@ export interface ApplyDesignEditorCommandArgs {
   setInteractDeviceSize: Dispatch<
     SetStateAction<{ width: number; height: number }>
   >;
+  setInteractTheme: Dispatch<SetStateAction<InteractThemeMode>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
+  setOverviewInteractScreenId?: Dispatch<SetStateAction<string | null>>;
+  overviewInteractScreenIdRef?: RefObject<string | null>;
   setScreenZoom: Dispatch<SetStateAction<number>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
@@ -66,27 +73,34 @@ export interface ApplyDesignEditorCommandArgs {
   ) => void;
   overviewDataReady?: boolean;
   viewModeRef: RefObject<"single" | "overview">;
-  requestCameraFit?: (camera: CreatedScreenNavigationPlan["camera"]) => void;
+  requestCameraFit?: (
+    camera: CreatedScreenNavigationPlan["camera"],
+    zoomRequest?: { screenId: string; displayZoom: number },
+  ) => void;
+  /** False frames the named screen without selecting it. Defaults to true. */
+  selectTargetScreen?: boolean;
 }
 
 export function runApplyDesignEditorCommand(
   {
+    annotateLab,
     canEditDesign,
     canvasFrameGeometryById,
     files,
     id,
     overviewScreens,
     setActiveFileId,
-    setActiveInspectorTab,
     setActiveLeftPanel,
     setActiveTool,
     setDrawMode,
     setInteractDeviceName,
     setInteractDeviceSize,
+    setInteractTheme,
     setMode,
     setOverviewSelectedScreenIds,
     setPinMode,
-    setScreenZoom,
+    setOverviewInteractScreenId,
+    overviewInteractScreenIdRef,
     setSelectedElement,
     setSelectedLayerIdsState,
     setViewMode,
@@ -96,12 +110,13 @@ export function runApplyDesignEditorCommand(
     overviewDataReady = true,
     viewModeRef,
     requestCameraFit,
+    selectTargetScreen = true,
   }: ApplyDesignEditorCommandArgs,
   command: DesignEditorCommand | Record<string, unknown>,
 ) {
   if (!id || command.designId !== id) return true;
   const commandRecord = command as Record<string, unknown>;
-  const editorView =
+  const requestedEditorView =
     command.editorView === "overview" || command.editorView === "single"
       ? command.editorView
       : command.viewMode === "overview" || command.viewMode === "single"
@@ -127,28 +142,36 @@ export function runApplyDesignEditorCommand(
           : null;
   const targetFile = findDesignFileByScreenTarget(files, target);
   if (target && !targetFile) return false;
+  // A restored URL or agent request for Annotate/Draw waits for the Labs answer
+  // rather than being downgraded while the lab is still unknown.
+  if (annotateLab === "loading" && commandRequestsAnnotate(command)) {
+    return false;
+  }
+
+  const editorView =
+    requestedEditorView === "single"
+      ? targetFile && !commandRequestsAnnotate(command)
+        ? "single"
+        : "overview"
+      : targetFile
+        ? "overview"
+        : requestedEditorView;
 
   const targetView = editorView ?? viewModeRef.current;
 
-  const inspectorTab =
-    command.inspectorTab === "design" ||
-    command.inspectorTab === "comments" ||
-    command.inspectorTab === "tweaks" ||
-    command.inspectorTab === "code"
-      ? command.inspectorTab
-      : command.inspector === "design" ||
-          command.inspector === "comments" ||
-          command.inspector === "tweaks" ||
-          command.inspector === "code"
-        ? command.inspector
-        : undefined;
-  if (inspectorTab) setActiveInspectorTab(inspectorTab);
   const leftPanel =
     normalizeDesignLeftPanel(command.leftPanel) ??
-    normalizeDesignLeftPanel(command.panel) ??
-    normalizeDesignLeftPanel(command.inspectorTab) ??
-    normalizeDesignLeftPanel(command.inspector);
+    normalizeDesignLeftPanel(command.panel);
   if (leftPanel) setActiveLeftPanel(leftPanel);
+
+  // A command that names no theme leaves the user's choice alone; one that
+  // names something unrecognised reads as the default, System.
+  if (commandRecord.interactTheme != null) {
+    setInteractTheme(normalizeInteractThemeMode(commandRecord.interactTheme));
+  }
+  const requestedInteractDevice = findSelectableInteractDevicePreset(
+    commandRecord.interactDevice,
+  );
 
   const commandTool = normalizeDesignTool(command.tool);
   const effectiveCommandTool =
@@ -159,9 +182,13 @@ export function runApplyDesignEditorCommand(
       : commandTool;
   const applyCommandTool = (fallback: DesignTool) => {
     if (!canEditDesign) return;
-    const nextTool = effectiveCommandTool ?? fallback;
+    const nextTool = resolveAvailableTool(
+      effectiveCommandTool ?? fallback,
+      annotateLab,
+    );
     const activation = getDesignToolActivationState(nextTool);
     setActiveTool(nextTool);
+    if (nextTool === "comment") setActiveLeftPanel("threads");
     setMode(activation.mode);
     setDrawMode(activation.drawMode);
     setPinMode(activation.pinMode);
@@ -169,14 +196,14 @@ export function runApplyDesignEditorCommand(
 
   if (targetFile) {
     setActiveFileId(targetFile.id);
-    if (targetView === "overview") {
+    if (targetView === "overview" && (selectTargetScreen || selectionId)) {
       if (pendingOverviewScreenSelectionRef) {
         pendingOverviewScreenSelectionRef.current = targetFile.id;
       }
       setOverviewSelectedScreenIds([targetFile.id]);
+      setSelectedLayerIdsState([selectionId ?? targetFile.id]);
     }
-  }
-  if (selectionId) {
+  } else if (selectionId) {
     setSelectedLayerIdsState([selectionId]);
   }
 
@@ -196,19 +223,30 @@ export function runApplyDesignEditorCommand(
   ) {
     return false;
   }
-  if (commandZoom !== null) {
+  const targetScreen =
+    targetView === "overview" && targetFile
+      ? overviewScreens.find((screen) => screen.id === targetFile.id)
+      : undefined;
+  const shouldFitTargetScreen = Boolean(targetScreen && requestCameraFit);
+  if (commandZoom !== null && !shouldFitTargetScreen) {
     setZoomForView(targetView, commandZoom);
   }
 
   if (editorView === "overview") {
     viewModeRef.current = "overview";
     if (!selectionId) setSelectedElement(null);
+    if (setOverviewInteractScreenId && overviewInteractScreenIdRef) {
+      clearOverviewInteractTarget({
+        setOverviewInteractScreenId,
+        overviewInteractScreenIdRef,
+      });
+    }
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
     applyCommandTool("move");
     setViewMode("overview");
-    const targetScreen = targetFile
-      ? overviewScreens.find((screen) => screen.id === targetFile.id)
-      : undefined;
-    if (targetScreen && requestCameraFit && commandZoom === null) {
+    if (targetScreen && requestCameraFit) {
       const geometry = resolveFrameGeometrySync({
         screens: overviewScreens.map((screen) => ({
           id: screen.id,
@@ -231,75 +269,51 @@ export function runApplyDesignEditorCommand(
       ) {
         return false;
       }
+      // The screen's breakpoint frames sit beside it; frame them together.
+      const group = getResponsiveScreenCullGeometry(
+        {
+          id: targetScreen.id,
+          metadata: {
+            width: targetScreen.width ?? 1280,
+            height: targetScreen.height ?? 2560,
+          },
+          breakpointWidths: targetScreen.breakpointWidths,
+        },
+        geometry,
+        (widthPx) =>
+          getResponsiveBreakpointHeightPx(
+            { breakpointHeights: targetScreen.breakpointHeights },
+            widthPx,
+          ),
+      );
       requestCameraFit(
         getCreatedScreenNavigationPlan({
           screenId: targetScreen.id,
           geometry: {
-            x: geometry.x as number,
-            y: geometry.y as number,
-            width: geometry.width as number,
-            height: geometry.height as number,
+            x: group.x,
+            y: group.y,
+            width: group.width,
+            height: group.height,
           },
         }).camera,
+        commandZoom !== null
+          ? { screenId: targetScreen.id, displayZoom: commandZoom }
+          : undefined,
       );
     }
   } else if (editorView === "single") {
     viewModeRef.current = "single";
-    if (!selectionId) setSelectedElement(null);
-    const targetScreen = targetFile
-      ? overviewScreens.find((screen) => screen.id === targetFile.id)
-      : undefined;
-    const targetMetadataSize = targetScreen
-      ? {
-          width: targetScreen.width ?? DEFAULT_INTERACT_DEVICE_PRESET.width,
-          height: targetScreen.height ?? DEFAULT_INTERACT_DEVICE_PRESET.height,
-        }
-      : undefined;
-    const targetViewport =
-      targetFile && targetMetadataSize
-        ? getScreenPreviewViewport(targetMetadataSize, {
-            width:
-              canvasFrameGeometryById[targetFile.id]?.width ??
-              targetMetadataSize.width,
-            height:
-              canvasFrameGeometryById[targetFile.id]?.height ??
-              targetMetadataSize.height,
-          })
-        : undefined;
-    const interactDevice = resolveInteractDeviceForScreen(
-      targetViewport
-        ? {
-            width: targetViewport.viewportWidth,
-            height: targetViewport.viewportHeight,
-          }
-        : undefined,
-    );
-    setInteractDeviceName(interactDevice.name);
-    setInteractDeviceSize({
-      width: interactDevice.width,
-      height: interactDevice.height,
-    });
-    setActiveTool("move");
+    setMode("edit");
     setDrawMode(false);
     setPinMode(false);
-    const requestedMode =
-      command.mode === "edit" ||
-      command.mode === "annotate" ||
-      command.mode === "interact"
-        ? command.mode
-        : "interact";
-    setMode(requestedMode);
-    if (commandZoom === null) {
-      setScreenZoom(FOCUSED_SCREEN_ZOOM);
-    }
+    setSelectedElement(null);
+    applyCommandTool("move");
     setViewMode("single");
   } else if (effectiveCommandTool) {
     applyCommandTool("move");
   }
 
-  if (editorView === "single") {
-    setExplicitOverviewScreenSelection?.([]);
-  } else if (targetView === "overview") {
+  if (targetView === "overview") {
     if (selectionId) {
       const normalizedSelectionId = selectionId.replace(/^code:/, "");
       const selectedScreen = files.find(
@@ -308,9 +322,18 @@ export function runApplyDesignEditorCommand(
       setExplicitOverviewScreenSelection?.(
         selectedScreen ? [selectedScreen.id] : [],
       );
-    } else if (targetFile) {
+    } else if (targetFile && selectTargetScreen) {
       setExplicitOverviewScreenSelection?.([targetFile.id]);
     }
+  }
+
+  // An explicit device wins over the one derived from the screen above.
+  if (requestedInteractDevice) {
+    setInteractDeviceName(requestedInteractDevice.name);
+    setInteractDeviceSize({
+      width: requestedInteractDevice.width,
+      height: requestedInteractDevice.height,
+    });
   }
 
   return true;

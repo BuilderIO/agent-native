@@ -3,6 +3,32 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-19
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Improved
+
+- Search surfaces cached inbox matches sooner and uses fewer Gmail reads.
+
+## 2026-10-14
+
+### Fixed
+
+- Inbox previews show apostrophes, quotes and ampersands as text instead of HTML codes.
+- Allowing automations to send no longer lets them delete mail or change Gmail settings without approval.
+- Automations that add a Gmail label no longer wait for send approval that never arrives.
+
+## 2026-10-09
+
+### Improved
+
+- Chats open on their own shareable URL at /chat/<id>, and /chat always starts a blank chat.
+
 ## 2026-10-06
 
 ### Fixed

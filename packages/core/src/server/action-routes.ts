@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createError,
   defineEventHandler,
@@ -13,18 +12,24 @@ import {
 import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
+import { actionChangeResource } from "../action-call-classification.js";
 import {
-  actionCallEmitsChange,
-  actionChangeResource,
-} from "../action-call-classification.js";
-import {
+  actionCallIntent,
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
-  validateActionArgs,
+  failedCallEmitsChange,
+  recordInvalidActionCall,
+  preparedCallArguments,
+  ranCallEmitsChange,
+  runPreparedActionCall,
 } from "../action.js";
-import type { ActionRunContext } from "../action.js";
+import type {
+  ActionCaller,
+  ActionExecutionOutcome,
+  ActionRunContext,
+} from "../action.js";
 import {
   LLM_CREDENTIAL_KEYS,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -35,9 +40,24 @@ import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import {
+  hasOrgScopeResolutionUnavailable,
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
+  resolveOrgScopeForEmail,
 } from "../org/context.js";
+import {
+  isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailableBody,
+} from "../org/workspace-app-access-outcome.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
+import {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "../shared/action-browser-persist.js";
+import {
+  ACTION_CHANGE_MARKER_FAILED,
+  ACTION_CHANGE_MARKER_HEADER,
+} from "../shared/action-change-marker-header.js";
 import {
   LLM_PROVIDER_MISSING_ERROR_CODE,
   LLM_PROVIDER_MISSING_STATUS,
@@ -50,9 +70,16 @@ import {
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
   allowsMcpDirectoryWidgetReadAction,
+  getMcpDirectoryWidgetReadCapabilityResourceIds,
+  getMcpDirectoryWidgetWriteCapabilityGrant,
+  isExpiredMcpDirectoryWidgetWriteCapability,
+  isMcpDirectoryWidgetCapabilityScope,
   isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
   normalizeMcpDirectoryWidgetReadActionArguments,
+  normalizeMcpDirectoryWidgetWriteActionArguments,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
@@ -64,12 +91,14 @@ import {
   countCredentialState,
 } from "../tracking/failure-counters.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
-import { notifyActionChange } from "./action-change.js";
+import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
+import { notifyActionChangeForResponse } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
   readBrowserTabIdHeader,
   readAnalyticsClientPlatformHeader,
   readSyntheticTrafficHeader,
+  resolveAgentRunOrgId,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -80,6 +109,8 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
+  hasExplicitEmbedSessionCredential,
+  isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
   type ResolvedEmbedSession,
@@ -120,7 +151,10 @@ function currentBuildId(): string {
 
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
+import { isDirectLoopbackRequest } from "./loopback.js";
 import {
+  getVerifiedMcpCredentialFromEvent,
+  getVerifiedServiceIdentityFromEvent,
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
   hasExplicitPersonalOrgScope,
@@ -128,9 +162,10 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 
-const ROUTE_PREFIX = "/_agent-native/actions";
+const ROUTE_PREFIX = ACTION_ROUTE_PREFIX;
 const WEBMCP_ACTION_ROUTE_PREFIX = "/_agent-native/webmcp/actions";
 const MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES = 32 * 1024;
+const MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES = 1024 * 1024;
 const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
 const EMBED_ACTION_QUERY_PARAMS = new Set([
   EMBED_TARGET_QUERY_PARAM,
@@ -287,7 +322,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -346,6 +381,11 @@ export interface MountActionRoutesOptions {
   >;
   mcpDirectoryWidgetReadOnlyActions?: readonly string[];
   mcpDirectoryWidgetReadPublicActions?: readonly string[];
+  mcpDirectoryWidgetWriteActionArguments?: Record<string, readonly string[]>;
+  mcpDirectoryWidgetWriteActionSchemaArguments?: Record<
+    string,
+    readonly string[]
+  >;
   mcpDirectoryWidgetAppId?: string;
   mcpDirectoryWidgetResourceUri?: string;
   getOwnerContextFromEvent?: (
@@ -561,20 +601,68 @@ function allowsWebMcpCapabilityResource(
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
-  try {
-    return resolvedEmbedCapabilityScope(
-      await resolveEmbedSessionFromRequest(event),
-    );
-  } catch {
-    // Invalid or unavailable embed auth must fail closed as no capability.
-    return undefined;
+  const session = await resolveEmbedSessionFromRequest(event);
+  if (!session && hasExplicitEmbedSessionCredential(event)) {
+    if (await isExpiredMcpDirectoryWidgetSessionRequest(event)) {
+      setResponseHeader(
+        event,
+        MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
+        "1",
+      );
+    }
+    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
+  return resolvedEmbedCapabilityScope(session);
 }
 
 function resolveRequestEmbedSession(
   event: any,
 ): Promise<ResolvedEmbedSession | null> {
   return resolveEmbedSessionFromRequest(event);
+}
+
+/**
+ * Widget-scoped action routes are auth-public, so the global guard never runs
+ * the workspace app access check for them; the handler runs it for the
+ * session-authenticated callers it resolves itself.
+ */
+async function denyWithoutWorkspaceAppAccess(
+  event: any,
+  name: string,
+  ownerContext: AgentRunOwnerContext,
+  resolvedCaller: ActionRouteResolvedCaller | null,
+  resolveOrgId: MountActionRoutesInternalOptions["resolveOrgId"],
+): Promise<{
+  status: 403 | 503;
+  body: { error: string } & Record<string, unknown>;
+} | null> {
+  const workspaceOrgId = resolvedCaller
+    ? resolvedCaller.orgId === null
+      ? undefined
+      : (normalizeOrgId(resolvedCaller.orgId) ??
+        (resolvedCaller.owner && !resolvedCaller.anonymous
+          ? await storedActiveOrgId(resolvedCaller.owner)
+          : undefined))
+    : await resolveAgentRunOrgId({ event, ownerContext, resolveOrgId });
+  const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+    path: `/_agent-native/actions/${name}`,
+    method: getMethod(event),
+    email: ownerContext.owner,
+    orgId: workspaceOrgId,
+  });
+  if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
+    return {
+      status: 503,
+      body: workspaceAppAccessUnavailableBody(workspaceAppAccess),
+    };
+  }
+  if (workspaceAppAccess === false) {
+    return {
+      status: 403,
+      body: { error: "You do not have access to this workspace app." },
+    };
+  }
+  return null;
 }
 
 function mountActionRoutesInternal(
@@ -584,6 +672,16 @@ function mountActionRoutesInternal(
 ) {
   const mounted: string[] = [];
   const app = getH3App(nitroApp);
+  // One layer for every action (see registerMiddlewareGroup): a separate
+  // layer per action makes unmatched requests recurse through all of them.
+  const routeEntries: Array<{
+    path: string;
+    handler: ReturnType<typeof defineEventHandler>;
+  }> = [];
+
+  if (!options?.caller && !options?.forcePost && !options?.routePrefix) {
+    bindActionBatch({ fetch: (request) => nitroApp.fetch(request), actions });
+  }
 
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.http === false && !options?.includeAgentOnly) continue;
@@ -607,7 +705,9 @@ function mountActionRoutesInternal(
       (Array.isArray(entry.capabilityScopes) &&
         entry.capabilityScopes.length) ||
       (!options?.caller &&
-        options?.mcpDirectoryWidgetReadActionArguments?.[name] !== undefined)
+        (options?.mcpDirectoryWidgetReadActionArguments?.[name] !== undefined ||
+          options?.mcpDirectoryWidgetWriteActionArguments?.[name] !==
+            undefined))
     ) {
       registerAuthPublicPaths([routePath], app);
     }
@@ -619,9 +719,9 @@ function mountActionRoutesInternal(
       registerAuthPublicPaths([routePath], app);
     }
 
-    app.use(
-      routePath,
-      defineEventHandler(async (event) => {
+    routeEntries.push({
+      path: routePath,
+      handler: defineEventHandler(async (event) => {
         const requestAuthenticationStartedAtMs = Date.now();
         setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
@@ -633,10 +733,19 @@ function mountActionRoutesInternal(
         }
 
         setResponseHeader(event, "Cache-Control", "no-store");
+        // The browser decides what to persist from this header, not from
+        // Cache-Control, which is `no-store` on every action response.
+        if (effectiveMethod === "GET" && entry.persistInBrowser !== false) {
+          setResponseHeader(
+            event,
+            ACTION_BROWSER_PERSIST_HEADER,
+            ACTION_BROWSER_PERSIST_ALLOW,
+          );
+        }
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
+          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${ACTION_BROWSER_PERSIST_HEADER},${ACTION_CHANGE_MARKER_HEADER},${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
         );
 
         const isFrontendMutation =
@@ -688,17 +797,36 @@ function mountActionRoutesInternal(
         let userName: string | undefined;
         let authUserId: string | undefined;
         const authCapability = await resolveRequestAuthCapability(event);
-        const directoryWidgetReadCapability =
-          isMcpDirectoryWidgetReadCapabilityScope(authCapability);
-        const embedSession = directoryWidgetReadCapability
+        const directoryWidgetWriteCapability =
+          isMcpDirectoryWidgetWriteCapabilityScope(authCapability);
+        const directoryWidgetCapability =
+          isMcpDirectoryWidgetCapabilityScope(authCapability);
+        const embedSession = directoryWidgetCapability
           ? await resolveRequestEmbedSession(event)
           : null;
+        const directoryWidgetWriteGrant =
+          directoryWidgetWriteCapability && embedSession
+            ? getMcpDirectoryWidgetWriteCapabilityGrant(authCapability, {
+                appId: options?.mcpDirectoryWidgetAppId ?? options?.appId ?? "",
+                resourceUri: options?.mcpDirectoryWidgetResourceUri ?? "",
+                userEmail: embedSession.email,
+                orgId: embedSession.orgId,
+              })
+            : undefined;
+        const directoryWidgetResourceIds =
+          directoryWidgetWriteGrant?.resourceIds ??
+          (directoryWidgetCapability && embedSession
+            ? getMcpDirectoryWidgetReadCapabilityResourceIds(authCapability, {
+                appId: options?.mcpDirectoryWidgetAppId ?? options?.appId ?? "",
+                resourceUri: options?.mcpDirectoryWidgetResourceUri ?? "",
+              })
+            : undefined);
         const directoryWidgetReadRequest =
           isFrontendActionRequest(event) ||
           (options?.caller === "webmcp" &&
             options.routePrefix === WEBMCP_ACTION_ROUTE_PREFIX);
         const directoryWidgetReadAllowed =
-          directoryWidgetReadCapability &&
+          directoryWidgetCapability &&
           embedSession !== null &&
           directoryWidgetReadRequest &&
           entry.http !== false &&
@@ -715,22 +843,43 @@ function mountActionRoutesInternal(
             actionName: name,
             appId: options.mcpDirectoryWidgetAppId ?? options.appId,
             resourceUri: options.mcpDirectoryWidgetResourceUri,
+            userEmail: embedSession?.email,
+            orgId: embedSession?.orgId,
             allowedArgumentNames:
               options.mcpDirectoryWidgetReadActionArguments[name],
             requireArgumentMatch: false,
           });
+        const directoryWidgetWriteAllowed =
+          directoryWidgetWriteCapability &&
+          embedSession !== null &&
+          isFrontendActionRequest(event) &&
+          entry.http !== false &&
+          entry.http?.method !== "GET" &&
+          entry.readOnly !== true &&
+          entry.requiresAuth !== false &&
+          options?.mcpDirectoryWidgetWriteActionArguments?.[name] !== undefined;
+        let directoryWidgetWriteResourceIds: Record<string, string> | undefined;
         const directoryWidgetReadRoute =
           options?.mcpDirectoryWidgetReadActionArguments?.[name] !==
             undefined &&
           options?.mcpDirectoryWidgetReadPublicActions?.includes(name) !== true;
-        if (directoryWidgetReadCapability && !directoryWidgetReadAllowed) {
+        const directoryWidgetWriteRoute =
+          options?.mcpDirectoryWidgetWriteActionArguments?.[name] !== undefined;
+        if (
+          directoryWidgetCapability &&
+          !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed
+        ) {
           setResponseStatus(event, 403);
           return {
             error:
               "This widget capability only permits its scoped data routes.",
           };
         }
-        if (directoryWidgetReadAllowed && embedSession) {
+        if (
+          (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
+          embedSession
+        ) {
           userEmail = embedSession.email;
           if (embedSession.orgId == null) markExplicitPersonalOrgScope(event);
         }
@@ -753,10 +902,12 @@ function mountActionRoutesInternal(
         const capabilityAllowed =
           (options?.caller === "webmcp" || isFrontendActionRequest(event)) &&
           (allowsWebMcpCapability(entry, authCapability) ||
-            directoryWidgetReadAllowed);
+            directoryWidgetReadAllowed ||
+            directoryWidgetWriteAllowed);
         if (
           options?.allowDelegatedCaller !== false &&
-          !directoryWidgetReadAllowed
+          !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed
         ) {
           let caller: ActionRouteResolvedCaller | null;
           try {
@@ -811,17 +962,83 @@ function mountActionRoutesInternal(
               authUserId = ownerContext.authUserId;
               ownerContextResolved = true;
               directoryWidgetReadAuthenticatedFallback = true;
+              const denied = await denyWithoutWorkspaceAppAccess(
+                event,
+                name,
+                ownerContext,
+                null,
+                options?.resolveOrgId,
+              );
+              if (denied) {
+                setResponseStatus(event, denied.status);
+                return denied.body;
+              }
             } catch (error) {
               if (!isAuthResolutionFailure(error)) throw error;
               setResponseStatus(event, 401);
               return { error: "Unauthorized" };
             }
+          } else {
+            const denied = await denyWithoutWorkspaceAppAccess(
+              event,
+              name,
+              resolvedCaller,
+              resolvedCaller,
+              options?.resolveOrgId,
+            );
+            if (denied) {
+              setResponseStatus(event, denied.status);
+              return denied.body;
+            }
+          }
+        }
+        if (directoryWidgetWriteRoute && !directoryWidgetWriteAllowed) {
+          let ownerContext: AgentRunOwnerContext;
+          if (resolvedCaller) {
+            if (resolvedCaller.anonymous) {
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            ownerContext = resolvedCaller;
+          } else {
+            if (!options?.getOwnerContextFromEvent) {
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            try {
+              ownerContext = await options.getOwnerContextFromEvent(event);
+            } catch (error) {
+              if (!isAuthResolutionFailure(error)) throw error;
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            if (ownerContext.anonymous) {
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            userEmail = ownerContext.owner;
+            userName = ownerContext.name;
+            authUserId = ownerContext.authUserId;
+            ownerContextResolved = true;
+          }
+
+          const denied = await denyWithoutWorkspaceAppAccess(
+            event,
+            name,
+            ownerContext,
+            resolvedCaller,
+            options?.resolveOrgId,
+          );
+          if (denied) {
+            setResponseStatus(event, denied.status);
+            return denied.body;
           }
         }
         if (
           !resolvedCaller &&
           !ownerContextResolved &&
           !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed &&
           options?.caller === "webmcp" &&
           options?.getOwnerContextFromEvent
         ) {
@@ -860,6 +1077,7 @@ function mountActionRoutesInternal(
           !resolvedCaller &&
           !ownerContextResolved &&
           !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed &&
           options?.getOwnerFromEvent
         ) {
           try {
@@ -887,6 +1105,7 @@ function mountActionRoutesInternal(
           !resolvedCaller &&
           !directoryWidgetReadAuthenticatedFallback &&
           !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed &&
           options?.getAuthUserIdFromEvent
         ) {
           try {
@@ -905,10 +1124,18 @@ function mountActionRoutesInternal(
         // getSession-backed) is deliberately NOT consulted — a request can
         // carry both a valid A2A bearer and an unrelated same-origin browser
         // cookie, and the cookie user's org must not become the org the
-        // token caller's actions execute under. Non-adapter callers keep the
-        // original resolveOrgId-only behavior.
+        // token caller's actions execute under. Cookie callers fall back to
+        // confirmed membership scope when resolveOrgId has no org.
         let orgId: string | undefined;
-        if (directoryWidgetReadAllowed && embedSession) {
+        let orgScope: "personal" | undefined = hasExplicitPersonalOrgScope(
+          event,
+        )
+          ? "personal"
+          : undefined;
+        if (
+          (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
+          embedSession
+        ) {
           orgId = normalizeOrgId(embedSession.orgId);
         } else if (resolvedCaller) {
           orgId = normalizeOrgId(resolvedCaller.orgId);
@@ -926,10 +1153,43 @@ function mountActionRoutesInternal(
             : undefined;
           if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
             orgId = await storedActiveOrgId(userEmail);
+            if (!orgId) {
+              try {
+                const scope = await resolveOrgScopeForEmail(userEmail);
+                if (scope.status === "organization") {
+                  orgId = normalizeOrgId(scope.orgId);
+                } else if (
+                  scope.status === "personal" &&
+                  !hasOrgScopeResolutionUnavailable(event)
+                ) {
+                  orgScope = "personal";
+                }
+              } catch (error) {
+                if (!isFirstBootMissingOrgTableError(error)) throw error;
+              }
+            }
           }
         }
-        const frontendCaller =
-          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        // A verified MCP credential names the source; the frontend header is
+        // only the client's claim.
+        const verifiedMcpCredential = getVerifiedMcpCredentialFromEvent(event);
+        const mcpCredential =
+          !resolvedCaller &&
+          verifiedMcpCredential &&
+          verifiedMcpCredential.userEmail.toLowerCase() ===
+            userEmail?.trim().toLowerCase()
+            ? verifiedMcpCredential
+            : undefined;
+        const requestCaller: ActionCaller =
+          options?.caller ??
+          (resolvedCaller
+            ? "a2a"
+            : mcpCredential
+              ? "mcp"
+              : isFrontendActionRequest(event)
+                ? "frontend"
+                : "http");
+        const frontendCaller = requestCaller === "frontend";
         if (
           entry.uiOnly === true &&
           (!frontendCaller ||
@@ -959,10 +1219,18 @@ function mountActionRoutesInternal(
         const identitySessionToken = userEmail
           ? getRequestIdentitySessionToken(event, userEmail)
           : undefined;
+        const verifiedServiceIdentity =
+          getVerifiedServiceIdentityFromEvent(event);
 
         return runWithRequestContext(
           {
             userEmail,
+            ...(verifiedServiceIdentity &&
+            verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
+              userEmail?.trim().toLowerCase() &&
+            verifiedServiceIdentity.orgId === orgId
+              ? { verifiedServiceIdentity }
+              : {}),
             ...(identityAuthenticatedAtMs !== undefined
               ? { identityAuthenticatedAtMs }
               : {}),
@@ -970,9 +1238,7 @@ function mountActionRoutesInternal(
             ...(authUserId ? { authUserId } : {}),
             userName,
             orgId,
-            ...(hasExplicitPersonalOrgScope(event)
-              ? { orgScope: "personal" as const }
-              : {}),
+            ...(orgScope ? { orgScope } : {}),
             authCapability,
             timezone,
             browserSessionId,
@@ -992,6 +1258,7 @@ function mountActionRoutesInternal(
             federationMembershipValidated:
               isFederationMembershipValidatedForEvent(event, userEmail, orgId),
             isLoopbackRequest: isLoopbackRequest(event),
+            isDirectLoopbackRequest: isDirectLoopbackRequest(event),
           },
           async () => {
             if (typeof entry.maxBodyBytes === "number" && method !== "GET") {
@@ -1052,6 +1319,35 @@ function mountActionRoutesInternal(
               paramsError = "Request body must be a valid JSON object.";
             }
 
+            let runContext: ActionRunContext | undefined;
+            const execution: ActionExecutionOutcome = { refused: false };
+            const publishActionChange = async (
+              callArgs: unknown,
+              result: unknown,
+            ) => {
+              if (runContext?.caller === "mcp-widget") return;
+              const markerLanded = await notifyActionChangeForResponse({
+                actionName: name,
+                ...actionChangeResource(entry, callArgs, result),
+                ...(userEmail ? { owner: userEmail } : {}),
+                ...(getHeader(event, "x-request-source")
+                  ? {
+                      requestSource: getHeader(
+                        event,
+                        "x-request-source",
+                      ) as string,
+                    }
+                  : {}),
+              });
+              if (!markerLanded) {
+                setResponseHeader(
+                  event,
+                  ACTION_CHANGE_MARKER_HEADER,
+                  ACTION_CHANGE_MARKER_FAILED,
+                );
+              }
+            };
+
             try {
               if (paramsError) {
                 throw new ActionContractError(paramsError, {
@@ -1068,6 +1364,8 @@ function mountActionRoutesInternal(
                       appId: options.mcpDirectoryWidgetAppId ?? options.appId,
                       resourceUri: options.mcpDirectoryWidgetResourceUri,
                       args: params,
+                      userEmail: embedSession?.email,
+                      orgId: embedSession?.orgId,
                       allowedArgumentNames:
                         options.mcpDirectoryWidgetReadActionArguments?.[name],
                     },
@@ -1077,6 +1375,56 @@ function mountActionRoutesInternal(
                     statusCode: 403,
                     statusMessage:
                       "This widget capability is scoped to a different app resource.",
+                  });
+                }
+                params = normalizedArgs;
+              }
+              if (directoryWidgetWriteAllowed) {
+                const normalizedArgs =
+                  normalizeMcpDirectoryWidgetWriteActionArguments(
+                    authCapability,
+                    {
+                      actionName: name,
+                      appId: options.mcpDirectoryWidgetAppId ?? options.appId,
+                      resourceUri: options.mcpDirectoryWidgetResourceUri,
+                      userEmail: embedSession?.email,
+                      orgId: embedSession?.orgId,
+                      args: params,
+                      allowedArgumentNames:
+                        options.mcpDirectoryWidgetWriteActionArguments?.[name],
+                    },
+                  );
+                directoryWidgetWriteResourceIds =
+                  getMcpDirectoryWidgetWriteCapabilityGrant(authCapability, {
+                    appId:
+                      options.mcpDirectoryWidgetAppId ?? options.appId ?? "",
+                    resourceUri: options.mcpDirectoryWidgetResourceUri ?? "",
+                    userEmail: embedSession?.email ?? "",
+                    orgId: embedSession?.orgId,
+                  })?.resourceIds;
+                if (!normalizedArgs || !directoryWidgetWriteResourceIds) {
+                  const expired = isExpiredMcpDirectoryWidgetWriteCapability(
+                    authCapability,
+                    {
+                      appId:
+                        options.mcpDirectoryWidgetAppId ?? options.appId ?? "",
+                      resourceUri: options.mcpDirectoryWidgetResourceUri ?? "",
+                      userEmail: embedSession?.email ?? "",
+                      orgId: embedSession?.orgId,
+                    },
+                  );
+                  if (expired) {
+                    setResponseHeader(
+                      event,
+                      MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
+                      "1",
+                    );
+                  }
+                  throw createError({
+                    statusCode: expired ? 401 : 403,
+                    statusMessage: expired
+                      ? "Unauthorized"
+                      : "This widget write capability is scoped to a different user, app resource, or action.",
                   });
                 }
                 params = normalizedArgs;
@@ -1093,13 +1441,10 @@ function mountActionRoutesInternal(
               }
               const caller = directoryWidgetReadAllowed
                 ? "mcp-widget"
-                : (options?.caller ??
-                  (resolvedCaller
-                    ? "a2a"
-                    : isFrontendActionRequest(event)
-                      ? "frontend"
-                      : "http"));
-              const runContext: ActionRunContext = {
+                : directoryWidgetWriteAllowed
+                  ? "mcp-widget-write"
+                  : requestCaller;
+              runContext = {
                 userEmail,
                 orgId: orgId ?? null,
                 appId: options?.appId,
@@ -1108,8 +1453,34 @@ function mountActionRoutesInternal(
                 ...(directoryWidgetReadAllowed
                   ? { mcpDirectoryWidgetReadOnly: true as const }
                   : {}),
+                ...(directoryWidgetResourceIds &&
+                (directoryWidgetWriteAllowed || directoryWidgetReadAllowed)
+                  ? {
+                      mcpDirectoryWidgetResourceIds: directoryWidgetResourceIds,
+                    }
+                  : {}),
+                ...(directoryWidgetWriteGrant &&
+                (directoryWidgetWriteAllowed || directoryWidgetReadAllowed)
+                  ? {
+                      mcpDirectoryWidgetWrite: {
+                        appId:
+                          options?.mcpDirectoryWidgetAppId ??
+                          options?.appId ??
+                          "",
+                        resourceIds: directoryWidgetWriteGrant.resourceIds,
+                        actionNames: directoryWidgetWriteGrant.actionNames,
+                      },
+                    }
+                  : {}),
                 ...(event.req?.signal ? { signal: event.req.signal } : {}),
                 actionName: name,
+                ...(caller === "mcp" && mcpCredential?.oauthClientId
+                  ? {
+                      mcpClient: {
+                        oauthClientId: mcpCredential.oauthClientId,
+                      },
+                    }
+                  : {}),
                 ...(resolvedCaller?.delegationJti
                   ? {
                       networkProtocol: "a2a" as const,
@@ -1118,58 +1489,28 @@ function mountActionRoutesInternal(
                     }
                   : {}),
               };
-              if (caller === "webmcp" && entry.needsApproval !== undefined) {
-                if (
-                  entry.schema &&
-                  typeof entry.schema === "object" &&
-                  "~standard" in entry.schema
-                ) {
-                  params = await validateActionArgs(
-                    entry.schema as StandardSchemaV1,
-                    params,
-                    entry.tool.parameters,
-                    runContext,
-                  );
-                }
-                let mustApprove = false;
-                try {
-                  mustApprove =
-                    typeof entry.needsApproval === "function"
-                      ? Boolean(
-                          await entry.needsApproval(params, {
-                            userEmail,
-                            orgId: orgId ?? null,
-                            appId: options?.appId,
-                            caller,
-                          }),
-                        )
-                      : entry.needsApproval === true;
-                } catch {
-                  mustApprove = true;
-                }
-                if (mustApprove) {
-                  throw new ActionContractError(
-                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
-                    { errorCode: "approval_required", statusCode: 409 },
-                  );
-                }
-              } else if (
-                directoryWidgetReadAllowed &&
-                (options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
-                  ?.length ?? 0) > 0
-              ) {
-                const oversizedSchemaArgument =
-                  options?.mcpDirectoryWidgetReadActionSchemaArguments?.[
-                    name
-                  ]?.find((argumentName) => {
+              const widgetSchemaArguments = directoryWidgetReadAllowed
+                ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
+                : directoryWidgetWriteAllowed
+                  ? options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
+                      name
+                    ]
+                  : undefined;
+              if ((widgetSchemaArguments?.length ?? 0) > 0) {
+                const maxSchemaArgumentBytes = directoryWidgetWriteAllowed
+                  ? MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES
+                  : MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES;
+                const oversizedSchemaArgument = widgetSchemaArguments?.find(
+                  (argumentName) => {
                     if (!Object.hasOwn(params, argumentName)) return false;
                     const serialized = JSON.stringify(params[argumentName]);
                     return (
                       typeof serialized !== "string" ||
                       new TextEncoder().encode(serialized).byteLength >
-                        MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES
+                        maxSchemaArgumentBytes
                     );
-                  });
+                  },
+                );
                 if (oversizedSchemaArgument) {
                   throw new ActionContractError(
                     "MCP directory widget query arguments exceed the supported size.",
@@ -1185,39 +1526,76 @@ function mountActionRoutesInternal(
                   !("~standard" in entry.schema)
                 ) {
                   throw new Error(
-                    `MCP directory widget read action "${name}" requires an input schema.`,
+                    `MCP directory widget action "${name}" requires an input schema.`,
                   );
                 }
-                params = await validateActionArgs(
-                  entry.schema as StandardSchemaV1,
-                  params,
-                  entry.tool.parameters,
-                  runContext,
-                );
               }
-              const result = await entry.run(params, runContext);
-
-              if (
-                caller !== "mcp-widget" &&
-                actionCallEmitsChange(entry, params, method === "GET")
-              ) {
+              // One preparation: approval decides on, and the run executes,
+              // the arguments the action runs with, defaults applied. An
+              // invalid call is recorded as the action's own validation
+              // failure, with no path to its handler.
+              const prepared = await actionCallIntent(entry, params);
+              if (!prepared.valid) {
+                await recordInvalidActionCall(
+                  entry,
+                  params,
+                  runContext,
+                  prepared.error,
+                );
+                throw prepared.error;
+              }
+              // Each reader below gets its own copy of the prepared
+              // arguments; this one is for a failure's change marker.
+              params = preparedCallArguments(prepared) as Record<string, any>;
+              if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                let mustApprove = false;
                 try {
-                  await notifyActionChange({
-                    actionName: name,
-                    ...actionChangeResource(entry, params, result),
-                    ...(userEmail ? { owner: userEmail } : {}),
-                    ...(getHeader(event, "x-request-source")
-                      ? {
-                          requestSource: getHeader(
-                            event,
-                            "x-request-source",
-                          ) as string,
-                        }
-                      : {}),
-                  });
+                  mustApprove =
+                    typeof entry.needsApproval === "function"
+                      ? Boolean(
+                          await entry.needsApproval(
+                            preparedCallArguments(prepared),
+                            {
+                              userEmail,
+                              orgId: orgId ?? null,
+                              appId: options?.appId,
+                              caller,
+                            },
+                          ),
+                        )
+                      : entry.needsApproval === true;
                 } catch {
-                  // ignore
+                  mustApprove = true;
                 }
+                if (mustApprove) {
+                  throw new ActionContractError(
+                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
+                    { errorCode: "approval_required", statusCode: 409 },
+                  );
+                }
+              }
+              const result = await runPreparedActionCall(
+                entry,
+                prepared,
+                runContext,
+                execution,
+              );
+
+              // The change follows what ran in the call, with the arguments
+              // it ran with, defaults applied.
+              const call = execution.record;
+              if (
+                ranCallEmitsChange(
+                  entry,
+                  execution,
+                  preparedCallArguments(prepared),
+                  method === "GET",
+                )
+              ) {
+                await publishActionChange(
+                  call ? call.args : preparedCallArguments(prepared),
+                  result,
+                );
               }
 
               if (typeof result === "string") {
@@ -1231,6 +1609,14 @@ function mountActionRoutesInternal(
 
               return result;
             } catch (err: any) {
+              // Once a write entered its handler, in the call or one nested
+              // in it, other sessions refresh however the call then failed.
+              if (failedCallEmitsChange(entry, err, execution)) {
+                await publishActionChange(
+                  execution.record?.args ?? params,
+                  undefined,
+                );
+              }
               const msg = err?.message ?? String(err);
               const isValidationError = msg.startsWith(
                 "Invalid action parameters",
@@ -1248,13 +1634,7 @@ function mountActionRoutesInternal(
                   : (explicitStatus ?? (markedExpected ? 409 : 500));
               setResponseStatus(event, status);
 
-              const failureCaller =
-                options?.caller ??
-                (resolvedCaller
-                  ? "a2a"
-                  : isFrontendActionRequest(event)
-                    ? "frontend"
-                    : "http");
+              const failureCaller = requestCaller;
               countActionFailure({
                 action: name,
                 status,
@@ -1368,9 +1748,15 @@ function mountActionRoutesInternal(
           },
         );
       }),
-    );
+    });
 
     mounted.push(`${method} ${routePath}`);
+  }
+
+  if (app.useGroup) {
+    app.useGroup(routeEntries);
+  } else {
+    for (const entry of routeEntries) app.use(entry.path, entry.handler);
   }
 
   if (mounted.length > 0 && process.env.DEBUG)

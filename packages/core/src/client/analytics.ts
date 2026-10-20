@@ -12,6 +12,7 @@ import {
   PAGE_LOAD_PAGEVIEW_PROPERTY,
   isWaitedActionResponse,
   SLOW_ACTION_RESPONSE_MS,
+  TRACKING_EVENT_ALIAS_ID_PROPERTY,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
 } from "../shared/analytics-events.js";
@@ -19,7 +20,10 @@ import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
-import { hasAttributionSource } from "../shared/attribution-source.js";
+import {
+  hasAttributionSource,
+  type AttributionTouch,
+} from "../shared/attribution-source.js";
 import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   classifyErrorNoise,
@@ -42,6 +46,7 @@ import {
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
 import { clientFailureContext } from "./failure-report.js";
+import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 export {
   clearAnalyticsSessionId,
@@ -56,6 +61,11 @@ import {
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
+import {
+  buildRecorderReport,
+  recorderSentryEnabled,
+  type RecorderEvent,
+} from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import type {
   SessionReplayOptions,
@@ -106,6 +116,7 @@ declare global {
       workspaceGatewayUrl?: string;
       workspaceOAuthOrigin?: string;
       workspaceRuntime?: boolean;
+      workspaceAppPath?: string;
       workspaceAppMountPaths?: string[];
       sentryDsn?: string;
       sentryEnvironment?: string;
@@ -238,6 +249,7 @@ const AGENT_CHAT_TRACKING_STATE_KEY = Symbol.for(
 );
 const AGENT_CHAT_LIFECYCLE_DEDUPE_TTL_MS = 10 * 60 * 1_000;
 const MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS = 1_000;
+const PAGEVIEW_STARTUP_WAIT_MS = 250;
 
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
 const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -584,19 +596,20 @@ function setTrackingIdentityFromSession(data: unknown): void {
 }
 
 function refreshTrackingAuthSession(): Promise<void> {
-  if (typeof window === "undefined" || typeof fetch !== "function") {
+  if (typeof window === "undefined") {
     _trackingIdentityResolved = true;
     return Promise.resolve();
   }
+  if (typeof fetch !== "function") return Promise.resolve();
   if (_trackingSessionRefresh) return _trackingSessionRefresh;
   _trackingSessionRefresh = fetchAuthSessionStatus()
     .then((result) => {
       if (result.state === "available") {
         setTrackingIdentityFromSession(result.value);
+        _trackingIdentityResolved = true;
       }
     })
     .finally(() => {
-      _trackingIdentityResolved = true;
       _trackingSessionRefresh = null;
     });
   return _trackingSessionRefresh;
@@ -643,6 +656,15 @@ export function getAnalyticsIdentityKey(): string | undefined {
   return getTrackingUserId() || getOrCreateAnonymousId();
 }
 
+export async function resolveAnalyticsIdentityKey(): Promise<
+  string | undefined
+> {
+  if (!_trackingIdentityResolved) {
+    await (_trackingSessionRefresh ?? refreshTrackingAuthSession());
+  }
+  return _trackingIdentityResolved ? getAnalyticsIdentityKey() : undefined;
+}
+
 function getOrCreateAnonymousId(): string | undefined {
   return getOrCreateAnalyticsAnonymousId();
 }
@@ -684,7 +706,9 @@ function scrubReferrerHost(referrer: string | undefined): string {
   }
 }
 
-function buildFirstTouchAttribution(): FirstTouchAttribution {
+function buildFirstTouchAttribution(
+  landingPathname: string,
+): FirstTouchAttribution {
   const attribution: FirstTouchAttribution = {};
   let params: URLSearchParams | null = null;
   try {
@@ -698,7 +722,7 @@ function buildFirstTouchAttribution(): FirstTouchAttribution {
       if (value) attribution[field] = value;
     }
   }
-  const landingPath = truncateFirstTouchField(window.location.pathname);
+  const landingPath = truncateFirstTouchField(landingPathname);
   if (landingPath) attribution.landing_path = landingPath;
   const landingReferrer =
     typeof document !== "undefined" ? scrubReferrerHost(document.referrer) : "";
@@ -829,12 +853,16 @@ function backfillAttributionCookie(
  * from replaces it. Without that, an untagged first visit would hide every
  * tagged visit after it.
  */
-function captureFirstTouchAttribution(): void {
+function captureFirstTouchAttribution(
+  options: CaptureAttributionOptions = {},
+): void {
   if (_firstTouchCaptured) return;
   _firstTouchCaptured = true;
   if (typeof window === "undefined") return;
   try {
-    const current = buildFirstTouchAttribution();
+    const current = buildFirstTouchAttribution(
+      options.landingPath ?? window.location.pathname,
+    );
     const existing = getFirstTouchAttribution();
     if (
       existing &&
@@ -907,37 +935,89 @@ function readForwardedLastTouch(): LastTouchAttribution | null {
   return hasAttributionSource(forwarded) ? forwarded : null;
 }
 
-function readStoredAttribution<T>(storageKey: string): T | null {
-  if (typeof window === "undefined") return null;
+function parseAttribution<T>(raw: string | null): T | null {
+  if (!raw) return null;
   try {
-    const raw = safeStorageGet(storageKey);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    return parsed as T;
+    // Every field is a string; a corrupted non-string one would make source
+    // detection throw, so it is dropped like any unreadable value.
+    const touch: Record<string, string> = {};
+    for (const [field, value] of Object.entries(parsed)) {
+      if (typeof value === "string") touch[field] = value;
+    }
+    return touch as T;
   } catch {
+    // coercion-ok: an unparseable value holds no touch; the caller tries the
+    // next source.
     return null;
   }
 }
 
+function readAttributionCookieValue<T>(cookieName: string): T | null {
+  const cookie = readAttributionCookie(cookieName);
+  if (!cookie) return null;
+  try {
+    return parseAttribution<T>(decodeURIComponent(cookie));
+  } catch {
+    // coercion-ok: a malformed cookie encoding holds no touch.
+    return null;
+  }
+}
+
+/**
+ * The stored touch, unless only its cookie says where the visitor came from:
+ * storage can be blocked, cleared, or hold an unreadable or empty value. The
+ * cookie is what signup reads, so a source that survives only there still
+ * counts, and capture must not overwrite it as if this were a first visit.
+ */
+function readStoredAttribution<T extends AttributionTouch>(
+  storageKey: string,
+  cookieName: string,
+): T | null {
+  if (typeof window === "undefined") return null;
+  const stored = parseAttribution<T>(safeStorageGet(storageKey));
+  if (hasAttributionSource(stored)) return stored;
+  const cookie = readAttributionCookieValue<T>(cookieName);
+  return hasAttributionSource(cookie) ? cookie : (stored ?? cookie);
+}
+
 export function getFirstTouchAttribution(): FirstTouchAttribution | null {
-  return readStoredAttribution<FirstTouchAttribution>(FIRST_TOUCH_STORAGE_KEY);
+  return readStoredAttribution<FirstTouchAttribution>(
+    FIRST_TOUCH_STORAGE_KEY,
+    FIRST_TOUCH_COOKIE_NAME,
+  );
 }
 
 export function getLastTouchAttribution(): LastTouchAttribution | null {
-  return readStoredAttribution<LastTouchAttribution>(LAST_TOUCH_STORAGE_KEY);
+  return readStoredAttribution<LastTouchAttribution>(
+    LAST_TOUCH_STORAGE_KEY,
+    LAST_TOUCH_COOKIE_NAME,
+  );
+}
+
+export interface CaptureAttributionOptions {
+  /**
+   * The app path this visit entered, when the page isn't it. The sign-in page
+   * stands in front of the path the visitor asked for, and `landing_path`
+   * must name that path, not the sign-in page.
+   */
+  landingPath?: string;
 }
 
 /**
  * Store the visitor's first and last touch now instead of in
- * `configureTracking()`, for a page that reads them before tracking starts.
- * It runs once per page load, so tracking's own capture is then a no-op.
+ * `configureTracking()`, for a page that reads them before tracking starts,
+ * or that never starts tracking, like the sign-in page. It runs once per page
+ * load, so tracking's own capture is then a no-op.
  */
-export function captureAttribution(): void {
+export function captureAttribution(
+  options: CaptureAttributionOptions = {},
+): void {
   if (isSyntheticBrowserTraffic()) return;
-  captureFirstTouchAttribution();
+  captureFirstTouchAttribution(options);
 }
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
@@ -991,6 +1071,23 @@ function ensureAmplitude(): boolean {
       _amplitudeLoadPromise = null;
     });
   return false;
+}
+
+/**
+ * True when browser events reach the Agent-Native analytics sink that the
+ * first-party dashboards read: a public key is configured and the host is not
+ * local. `getAnalyticsAnonymousId()` returns an id regardless, so experiments
+ * must check this before assigning an arm they could never measure.
+ */
+export function isAgentNativeAnalyticsConfigured(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isLocalAnalyticsHostname(window.location.hostname)) return false;
+  return Boolean(
+    _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+  );
 }
 
 function hasBrowserTrackingDestination(): boolean {
@@ -1049,6 +1146,57 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     tags,
     firstPartyHosts: firstPartyHosts(),
   }).drop;
+}
+
+// Sentry keeps 100 breadcrumbs by default; the attachment carries the whole report.
+const SENTRY_RECORDER_BREADCRUMBS = 100;
+
+function recorderBreadcrumb(recorded: RecorderEvent): Sentry.Breadcrumb {
+  const { t: _t, at, type, name, data: _data, ...outcome } = recorded;
+  return {
+    category: `recorder.${type}`,
+    message: [
+      name,
+      outcome.ok === undefined ? undefined : outcome.ok ? "ok" : "failed",
+      outcome.status,
+      outcome.errorCode,
+      outcome.ms === undefined ? undefined : `${outcome.ms}ms`,
+    ]
+      .filter((part) => part !== undefined)
+      .join(" "),
+    level:
+      type === "error" || (type === "toast" && name === "error")
+        ? "error"
+        : type === "toast" || outcome.ok === false
+          ? "warning"
+          : "info",
+    timestamp: at / 1000,
+    data: outcome,
+  };
+}
+
+function addRecorderContext(
+  event: Sentry.ErrorEvent,
+  hint: Sentry.EventHint,
+): void {
+  if (!recorderSentryEnabled()) return;
+  const report = buildRecorderReport("error");
+  if (report.events.length > 0) {
+    event.breadcrumbs = [
+      ...(event.breadcrumbs ?? []),
+      ...report.events
+        .slice(-SENTRY_RECORDER_BREADCRUMBS)
+        .map(recorderBreadcrumb),
+    ].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  }
+  hint.attachments = [
+    ...(hint.attachments ?? []),
+    {
+      filename: "recorder.json",
+      data: JSON.stringify(report),
+      contentType: "application/json",
+    },
+  ];
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string {
@@ -1143,7 +1291,7 @@ function ensureSentry(loadWithoutDsn = false): void {
         dsn,
         environment: resolveClientDeploymentEnvironment(),
         release: resolveClientRelease(),
-        beforeSend(event) {
+        beforeSend(event, hint = {}) {
           if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
             ...event.tags,
@@ -1171,6 +1319,7 @@ function ensureSentry(loadWithoutDsn = false): void {
               }
             }
           }
+          addRecorderContext(event, hint);
           return event;
         },
       });
@@ -1432,10 +1581,6 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     if (options.authSessionRefresh !== false) {
       installTrackingAuthSessionRefresh();
     }
-    if (options.pageviewTracking !== false) {
-      installPageviewTracking();
-      if (options.webVitals !== false) installWebVitalsTracking();
-    }
     maybeInstallSessionReplay(
       options.sessionReplay,
       {
@@ -1444,6 +1589,10 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
       },
       _trackingContentCaptureEnabled,
     );
+    if (options.pageviewTracking !== false) {
+      installPageviewTracking();
+      if (options.webVitals !== false) installWebVitalsTracking();
+    }
     maybeInstallErrorCapture(options.errorCapture);
   }
 }
@@ -1702,17 +1851,24 @@ function configuredSessionReplayOptions(
   tracking: { endpoint?: string; publicKey?: string } = {},
 ): SessionReplayOptions | null {
   const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const runtimeConfig =
+    typeof window === "undefined" ? undefined : window.__AGENT_NATIVE_CONFIG__;
   const publicKey =
     tracking.publicKey ||
     _agentNativeAnalyticsPublicKey ||
+    runtimeConfig?.agentNativeAnalyticsPublicKey ||
     env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   const trackingEndpoint =
     tracking.endpoint ||
     _agentNativeAnalyticsEndpoint ||
+    runtimeConfig?.agentNativeAnalyticsEndpoint ||
     env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     (publicKey ? AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT : undefined);
   const endpoint = trackingEndpoint
-    ? replayEndpointFromTrackingEndpoint(trackingEndpoint)
+    ? (replayEndpointFromAnalyticsEndpoint(
+        trackingEndpoint,
+        typeof document === "undefined" ? undefined : document.baseURI,
+      ) ?? undefined)
     : undefined;
   const withTrackingDefaults = (
     options: SessionReplayOptions,
@@ -1797,32 +1953,6 @@ function replayExtraPropertiesWithDefaults(
       isQaTrackingIdentity(identity) ? null : identity,
     );
   };
-}
-
-function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    if (url.pathname.endsWith("/api/analytics/track")) {
-      url.pathname = url.pathname.replace(
-        /\/api\/analytics\/track$/,
-        "/api/analytics/replay",
-      );
-      return url.toString();
-    }
-    if (url.pathname.endsWith("/track")) {
-      url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
-      return url.toString();
-    }
-  } catch {
-    // Fall through to relative-path handling below.
-  }
-  if (value.endsWith("/api/analytics/track")) {
-    return value.replace(/\/api\/analytics\/track$/, "/api/analytics/replay");
-  }
-  if (value.endsWith("/track")) {
-    return value.replace(/\/track$/, "/api/analytics/replay");
-  }
-  return undefined;
 }
 
 function maybeInstallSessionReplay(
@@ -2060,25 +2190,28 @@ function sessionReplayTrackingProperties(): Record<string, unknown> {
   };
 }
 
-function pageviewKey(): string {
-  return window.location.href;
-}
+type PageviewSnapshot = {
+  key: string;
+  pathname: string;
+  hostname: string;
+  properties: Record<string, unknown>;
+};
 
-function pageviewProperties(reason: string): Record<string, unknown> {
+function snapshotPageview(reason: string): PageviewSnapshot {
+  const { href, origin, pathname, hostname, search } = window.location;
+  const contentCaptureEnabled = _trackingContentCaptureEnabled;
   const properties: Record<string, unknown> = {
-    url: !_trackingContentCaptureEnabled
-      ? window.location.origin + window.location.pathname
-      : scrubUrl(window.location.href),
-    path: window.location.pathname,
-    hostname: window.location.hostname,
+    url: !contentCaptureEnabled ? origin + pathname : scrubUrl(href),
+    path: pathname,
+    hostname,
     navigation_type: reason,
     [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
     [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
-  if (_trackingContentCaptureEnabled && window.location.search) {
-    properties.search = scrubUrl(window.location.search);
+  if (contentCaptureEnabled && search) {
+    properties.search = scrubUrl(search);
   }
-  if (_trackingContentCaptureEnabled && typeof document !== "undefined") {
+  if (contentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
       properties.referrer = scrubUrl(document.referrer);
     }
@@ -2086,7 +2219,7 @@ function pageviewProperties(reason: string): Record<string, unknown> {
       properties.title = document.title;
     }
   }
-  return properties;
+  return { key: href, pathname, hostname, properties };
 }
 
 function readAppEntryKeys(): string[] {
@@ -2134,7 +2267,7 @@ function rememberLastAppEntry(appName: string, now: number): number | null {
 
 let _appEntryAuthRetry: Promise<void> | null = null;
 
-function waitForTrackingIdentityBeforeAppEntry(): boolean {
+function waitForTrackingIdentityBeforeAppEntry(entryPath: string): boolean {
   const pending = _trackingSessionRefresh;
   if (!pending || _trackingIdentityResolved) return false;
   if (!_appEntryAuthRetry) {
@@ -2142,17 +2275,18 @@ function waitForTrackingIdentityBeforeAppEntry(): boolean {
       .catch(() => {})
       .then(() => {
         _appEntryAuthRetry = null;
-        emitAppEntered();
+        emitAppEntered(entryPath);
       });
   }
   return true;
 }
 
-function emitAppEntered(): void {
+function emitAppEntered(entryPath?: string): void {
   if (typeof window === "undefined" || !_getDefaultProps) return;
-  if (waitForTrackingIdentityBeforeAppEntry()) return;
+  const scheduledEntryPath = entryPath ?? window.location.pathname;
+  if (waitForTrackingIdentityBeforeAppEntry(scheduledEntryPath)) return;
   const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
-    entry_path: window.location.pathname,
+    entry_path: scheduledEntryPath,
   });
   const appName = normalizeTrackingDimension(
     properties.app_name ?? properties.app,
@@ -2169,7 +2303,7 @@ function emitAppEntered(): void {
   const attribution = getFirstTouchAttribution();
   trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     app_name: appName,
-    entry_path: window.location.pathname,
+    entry_path: scheduledEntryPath,
     ...(attribution?.ref ? { source: attribution.ref } : {}),
     ...(attribution?.landing_referrer
       ? { referrer: attribution.landing_referrer }
@@ -2186,26 +2320,27 @@ function emitAppEntered(): void {
   }
 }
 
-function emitPageview(reason: string): void {
+function emitPageview(snapshot: PageviewSnapshot): void {
   if (typeof window === "undefined") return;
-  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+  if (isLocalAnalyticsHostname(snapshot.hostname)) return;
   const state = getPageviewTrackingState();
-  const key = pageviewKey();
-  if (state.lastPageviewKey === key) return;
-  state.lastPageviewKey = key;
-  trackEvent("pageview", pageviewProperties(reason));
-  emitAppEntered();
+  if (state.lastPageviewKey === snapshot.key) return;
+  state.lastPageviewKey = snapshot.key;
+  trackEvent("pageview", snapshot.properties);
+  emitAppEntered(snapshot.pathname);
 }
 
 function schedulePageview(reason: string): void {
   if (!_trackingContentCaptureEnabled) {
     void stopSessionReplay("local-plan-privacy");
   }
-  const run = () => emitPageview(reason);
+  const snapshot = snapshotPageview(reason);
+  const run = () => emitPageview(snapshot);
   const deferredBootRefresh =
     _llmConnectionBootRefresh && !_llmConnectionStatus
       ? _llmConnectionBootRefresh
       : null;
+  const replayStart = _sessionReplayStartPromise;
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
     pendingStartupContext.push(_llmConnectionRefresh);
@@ -2214,17 +2349,30 @@ function schedulePageview(reason: string): void {
     pendingStartupContext.push(_trackingSessionRefresh);
   }
   if (deferredBootRefresh !== null) {
-    if (pendingStartupContext.length > 0) {
+    if (pendingStartupContext.length > 0 || replayStart) {
       const timeout = new Promise<void>((resolve) =>
-        window.setTimeout(resolve, 250),
+        window.setTimeout(resolve, PAGEVIEW_STARTUP_WAIT_MS),
       );
+      const startupContext = [
+        ...pendingStartupContext,
+        ...(replayStart ? [replayStart.then(() => undefined)] : []),
+      ];
       void Promise.all([
         deferredBootRefresh,
-        Promise.race([Promise.allSettled(pendingStartupContext), timeout]),
+        Promise.race([Promise.allSettled(startupContext), timeout]),
       ]).finally(run);
       return;
     }
     void deferredBootRefresh.finally(run);
+    return;
+  }
+  if (replayStart) {
+    const timeout = new Promise<void>((resolve) =>
+      window.setTimeout(resolve, PAGEVIEW_STARTUP_WAIT_MS),
+    );
+    void Promise.race([replayStart.then(() => undefined), timeout]).finally(
+      run,
+    );
     return;
   }
   if (typeof queueMicrotask === "function") {
@@ -2348,15 +2496,27 @@ function sendAgentNativeAnalytics(
   }
 }
 
+function createTrackingAliasId(): string | undefined {
+  return typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : undefined;
+}
+
 function emitBrowserTrackingEvent(
   name: string,
   props: Record<string, unknown>,
   options: {
     gtagProperties?: Record<string, unknown>;
+    agentNativeProperties?: Record<string, unknown>;
     sendGtag?: boolean;
   } = {},
 ): void {
-  const { gtagProperties = props, sendGtag = true } = options;
+  const {
+    agentNativeProperties = props,
+    gtagProperties = props,
+    sendGtag = true,
+  } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
   if (sendGtag) {
     const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
@@ -2372,7 +2532,9 @@ function emitBrowserTrackingEvent(
   const authUserId = getTrackingAuthUserId();
   sendAgentNativeAnalytics(
     name,
-    authUserId ? { ...props, auth_user_id: authUserId } : props,
+    authUserId
+      ? { ...agentNativeProperties, auth_user_id: authUserId }
+      : agentNativeProperties,
   );
 }
 
@@ -2424,13 +2586,23 @@ function trackBrowserEvent(
   ensureSentry();
   const props = resolveProps(name, params);
   const canonical = canonicalTrackingEvent(name, props);
+  const aliasId = canonical ? createTrackingAliasId() : undefined;
   const gtagNameMatchesCanonical =
     canonical !== null && name.replace(/\s+/g, "_") === canonical.name;
   emitBrowserTrackingEvent(name, props, {
+    agentNativeProperties: aliasId
+      ? { ...props, [TRACKING_EVENT_ALIAS_ID_PROPERTY]: aliasId }
+      : props,
     gtagProperties: gtagNameMatchesCanonical ? canonical.properties : props,
   });
   if (canonical) {
     emitBrowserTrackingEvent(canonical.name, canonical.properties, {
+      agentNativeProperties: aliasId
+        ? {
+            ...canonical.properties,
+            [TRACKING_EVENT_ALIAS_ID_PROPERTY]: aliasId,
+          }
+        : canonical.properties,
       sendGtag: !gtagNameMatchesCanonical,
     });
   }

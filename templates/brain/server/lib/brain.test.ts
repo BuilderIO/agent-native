@@ -15,6 +15,9 @@ const requestString = (value: unknown) =>
         ? value.url
         : testString(value);
 
+const APPROVED_ZOOM_ID = 22222222222;
+const approvedZoom = { meetingIds: [String(APPROVED_ZOOM_ID)] };
+
 type Condition =
   | { op: "and"; conditions: Condition[] }
   | { op: "or"; conditions: Condition[] }
@@ -203,6 +206,18 @@ const mocks = vi.hoisted(() => {
       "createdAt",
       "updatedAt",
     ]),
+    brainZoomAuditEvents: table("brainZoomAuditEvents", [
+      "id",
+      "orgId",
+      "sourceId",
+      "actorEmail",
+      "event",
+      "decision",
+      "meetingId",
+      "meetingUuid",
+      "detailJson",
+      "createdAt",
+    ]),
   };
 
   const rows = {
@@ -216,7 +231,10 @@ const mocks = vi.hoisted(() => {
     audienceMembers: [] as Row[],
     captureAudiences: [] as Row[],
     sensitivityEvents: [] as Row[],
+    zoomAuditEvents: [] as Row[],
   };
+  const orgRoles = new Map<string, string>();
+  const queryStats = { latestRunLateralJoins: 0 };
 
   const insertControls = {
     error: null as Error | null,
@@ -228,6 +246,11 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
+      if (sql.includes("FROM org_members")) {
+        const [orgId, email] = args as string[];
+        const role = orgRoles.get(`${orgId}:${email.toLowerCase()}`);
+        return { rows: role ? [{ role }] : [], rowsAffected: 0 };
+      }
       if (sql.includes("WHERE id = $3 AND capture_id = $4")) {
         const [status, updatedAt, id, captureId, leaseToken] = args;
         const row = rows.ingestQueue.find(
@@ -296,6 +319,7 @@ const mocks = vi.hoisted(() => {
     if (tableRef === schema.brainCaptureAudiences) return rows.captureAudiences;
     if (tableRef === schema.brainSensitivityEvents)
       return rows.sensitivityEvents;
+    if (tableRef === schema.brainZoomAuditEvents) return rows.zoomAuditEvents;
     return [];
   };
 
@@ -368,7 +392,8 @@ const mocks = vi.hoisted(() => {
     return row[condition.col.name] === condition.val;
   };
 
-  const select = vi.fn((selection?: Row) => {
+  const select = vi.fn((selection?: Row, distinctOnColumn?: Column) => {
+    let hasLatestRunLateralJoin = false;
     const isCountSelection = Object.values(selection ?? {}).some(
       (value) =>
         typeof value === "object" &&
@@ -377,8 +402,64 @@ const mocks = vi.hoisted(() => {
           String((value as { op?: unknown }).op),
         ),
     );
-    const selectedRows = (values: Row[]) =>
-      isCountSelection ? [{ value: values.length }] : values;
+    const selectedRows = (values: Row[]) => {
+      if (hasLatestRunLateralJoin) {
+        return values.map((source) => {
+          const latest = [...rows.syncRuns]
+            .filter((run) => run.sourceId === source.id)
+            .sort((a, b) =>
+              String(b.startedAt).localeCompare(String(a.startedAt)),
+            )[0];
+          return {
+            sourceId: source.id,
+            id: latest?.id ?? null,
+            status: latest?.status ?? null,
+            statsJson: latest?.statsJson ?? null,
+            error: latest?.error ?? null,
+            startedAt: latest?.startedAt ?? null,
+            completedAt: latest?.completedAt ?? null,
+          };
+        });
+      }
+      if (distinctOnColumn) {
+        const seen = new Set<unknown>();
+        values = [...values]
+          .sort((a, b) =>
+            String(b.startedAt).localeCompare(String(a.startedAt)),
+          )
+          .filter((row) => {
+            const value = row[distinctOnColumn.name];
+            if (seen.has(value)) return false;
+            seen.add(value);
+            return true;
+          });
+      }
+      const sourceIdColumn = selection?.sourceId as Column | undefined;
+      if (isCountSelection && sourceIdColumn?.table === "brainRawCaptures") {
+        const counts = new Map<string, Set<string>>();
+        for (const row of values) {
+          const sourceId = String(row.sourceId);
+          const captureIds = counts.get(sourceId) ?? new Set<string>();
+          captureIds.add(String(row.id));
+          counts.set(sourceId, captureIds);
+        }
+        return Array.from(counts, ([sourceId, captureIds]) => ({
+          sourceId,
+          value: captureIds.size,
+        }));
+      }
+      return isCountSelection ? [{ value: values.length }] : values;
+    };
+    const queryResult = (values: Row[]) => ({
+      then: (
+        onFulfilled: (rows: Row[]) => unknown,
+        onRejected?: (reason: unknown) => unknown,
+      ) => Promise.resolve(selectedRows(values)).then(onFulfilled, onRejected),
+      as: (alias: string) =>
+        Object.fromEntries(
+          Object.keys(selection ?? {}).map((name) => [name, col(alias, name)]),
+        ),
+    });
 
     return {
       from: vi.fn((tableRef: Row) => {
@@ -396,13 +477,19 @@ const mocks = vi.hoisted(() => {
               ),
             ),
             orderBy: vi.fn(() => ({
-              limit: vi.fn(async (limit: number) =>
-                selectedRows(
+              limit: vi.fn((limit: number) =>
+                queryResult(
                   tableRows(tableRef)
                     .filter((row) => matches(row, condition))
                     .slice(0, limit),
                 ),
               ),
+              then: (
+                onFulfilled: (rows: Row[]) => unknown,
+                onRejected?: (reason: unknown) => unknown,
+              ) => filteredRows().then(onFulfilled, onRejected),
+            })),
+            groupBy: vi.fn(() => ({
               then: (
                 onFulfilled: (rows: Row[]) => unknown,
                 onRejected?: (reason: unknown) => unknown,
@@ -430,11 +517,17 @@ const mocks = vi.hoisted(() => {
           selectedRows(tableRows(tableRef).slice(0, limit)),
         );
         const innerJoin = vi.fn();
+        const leftJoinLateral = vi.fn(() => {
+          hasLatestRunLateralJoin = true;
+          queryStats.latestRunLateralJoins += 1;
+          return joined;
+        });
         const joined = {
           where,
           orderBy,
           limit,
           innerJoin,
+          leftJoinLateral,
         };
         innerJoin.mockReturnValue(joined);
         return joined;
@@ -516,6 +609,8 @@ const mocks = vi.hoisted(() => {
   const dbBase = {
     select,
     selectDistinct: select,
+    selectDistinctOn: (columns: Column[], fields: Row) =>
+      select(fields, columns[0]),
     insert,
     update,
     delete: deleteRows,
@@ -530,10 +625,12 @@ const mocks = vi.hoisted(() => {
     schema,
     db,
     rows,
+    queryStats,
     insertControls,
     queueClaimRowsAffected,
     audienceHook,
     dbExec,
+    orgRoles,
     track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
@@ -600,6 +697,7 @@ vi.mock("@agent-native/core/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
+  groupBy: (col: Column) => ({ op: "groupBy", col }),
   asc: (column: Column) => ({ op: "asc", column }),
   count: () => ({ op: "count" }),
   countDistinct: () => ({ op: "countDistinct" }),
@@ -714,6 +812,15 @@ vi.mock("./audiences.js", () => ({
     kind: "org",
   })),
   listAccessibleAudienceIds: vi.fn(async () => ["aud_org"]),
+  listAccessibleAudienceIdsBySource: vi.fn(
+    async (sourceIds: string[]) =>
+      new Map(
+        sourceIds.map((sourceId) => [
+          sourceId,
+          [sourceId === "source-2" ? "aud_second" : "aud_org"],
+        ]),
+      ),
+  ),
 }));
 
 vi.mock("./ingest-queue.js", () => ({
@@ -796,7 +903,10 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import { ensureCaptureAudience } from "./audiences.js";
+import {
+  ensureCaptureAudience,
+  listAccessibleAudienceIdsBySource,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -836,6 +946,9 @@ function resetMocks() {
   mocks.track.mockReset();
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
+  mocks.orgRoles.clear();
+  mocks.queryStats.latestRunLateralJoins = 0;
+  mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
     id: "aud_org",
     sourceId: "source-1",
@@ -1092,6 +1205,69 @@ describe("Brain knowledge quality gates", () => {
     expect(result.sources).toEqual([
       expect.objectContaining({ id: "source-1", recordCount: 1 }),
     ]);
+  });
+
+  it("batches record counts and latest runs across listed sources", async () => {
+    seedSource();
+    seedSource({ id: "source-2", title: "Second source" });
+    seedCapture({ id: "capture-1", sourceId: "source-1" });
+    seedCapture({ id: "capture-2", sourceId: "source-2" });
+    mocks.rows.captureAudiences.find(
+      (row) => row.captureId === "capture-2",
+    )!.audienceId = "aud_second";
+    seedCapture({ id: "capture-3", sourceId: "source-2" });
+    mocks.rows.syncRuns.push(
+      {
+        id: "run-1-old",
+        sourceId: "source-1",
+        status: "error",
+        statsJson: "{}",
+        error: "older run",
+        startedAt: "2026-05-15T09:00:00.000Z",
+        completedAt: "2026-05-15T09:01:00.000Z",
+      },
+      {
+        id: "run-1",
+        sourceId: "source-1",
+        status: "success",
+        statsJson: '{"capturesCreated":1}',
+        error: null,
+        startedAt: "2026-05-15T10:00:00.000Z",
+        completedAt: "2026-05-15T10:01:00.000Z",
+      },
+      {
+        id: "run-2",
+        sourceId: "source-2",
+        status: "success",
+        statsJson: '{"capturesCreated":2}',
+        error: null,
+        startedAt: "2026-05-15T11:00:00.000Z",
+        completedAt: "2026-05-15T11:01:00.000Z",
+      },
+    );
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledTimes(1);
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledWith([
+      "source-1",
+      "source-2",
+    ]);
+    expect(mocks.queryStats.latestRunLateralJoins).toBe(1);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "source-1",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-1" }),
+        }),
+        expect.objectContaining({
+          id: "source-2",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-2" }),
+        }),
+      ]),
+    );
   });
 
   it("includes canonical health for sources in the source listing", async () => {
@@ -4225,6 +4401,43 @@ describe("Brain connector smoke coverage", () => {
     expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
   });
 
+  it.each(["token request", "recording list"])(
+    "persists the Zoom %s timeout in source health and run history",
+    async (step) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(requestString(input));
+          if (step === "recording list" && url.pathname === "/oauth/token") {
+            return Response.json({ access_token: "private-token" });
+          }
+          throw new DOMException("private request details", "TimeoutError");
+        }),
+      );
+      const source = seedSource({
+        id: "zoom-timeout-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+      });
+
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({ status: "error", capturesCreated: 0 });
+      expect(result.message).toMatch(
+        new RegExp(
+          `^Zoom ${step} timed out after \\d+ ms \\(limit 30000 ms\\)\\.$`,
+        ),
+      );
+      expect(
+        mocks.rows.sources.find((row) => row.id === source.id)?.lastError,
+      ).toBe(result.message);
+      expect(mocks.rows.syncRuns[0]).toMatchObject({
+        status: "error",
+        error: result.message,
+      });
+    },
+  );
+
   it("imports Zoom transcripts from the account-wide recording list", async () => {
     const requestedPaths: string[] = [];
     vi.stubGlobal(
@@ -4240,7 +4453,7 @@ describe("Brain connector smoke coverage", () => {
             meetings: [
               {
                 uuid: "meeting-uuid-1",
-                id: 123,
+                id: APPROVED_ZOOM_ID,
                 topic: "Atlas planning",
                 start_time: "2026-05-14T15:00:00Z",
                 share_url: "https://zoom.us/rec/share/abc",
@@ -4273,7 +4486,9 @@ describe("Brain connector smoke coverage", () => {
     const source = seedSource({
       id: "zoom-account-source",
       provider: "zoom",
-      configJson: JSON.stringify({ zoom: { lookbackDays: 7 } }),
+      configJson: JSON.stringify({
+        zoom: { ...approvedZoom, lookbackDays: 7 },
+      }),
     });
 
     const result = await runConnectorSync(source as never);
@@ -4339,7 +4554,7 @@ describe("Brain connector smoke coverage", () => {
       id: "zoom-detail-lookup-source",
       provider: "zoom",
       configJson: JSON.stringify({
-        zoom: { meetingTopics: ["Marketing Standup"] },
+        zoom: { meetingIds: ["831 2455 1552"] },
       }),
     });
 
@@ -4387,7 +4602,7 @@ describe("Brain connector smoke coverage", () => {
       id: "zoom-file-cap-source",
       provider: "zoom",
       configJson: JSON.stringify({
-        zoom: { meetingTopics: ["Marketing Standup"] },
+        zoom: { meetingIds: ["83124551552"] },
       }),
     });
 
@@ -4400,7 +4615,114 @@ describe("Brain connector smoke coverage", () => {
     expect(matched.filesOmitted).toBe(2);
   });
 
-  it("imports only Zoom meetings matching the source meeting filter", async () => {
+  it("never calls the Zoom summary API, even with a saved includeSummaries", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        paths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-no-summary-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { ...approvedZoom, includeSummaries: true },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("success");
+    expect(paths).not.toContain("/v2/meetings/meeting_summaries");
+  });
+
+  it("reads nothing from Zoom when no meeting series is approved", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const source = seedSource({
+      id: "zoom-unapproved-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+      cursorJson: JSON.stringify({ from: "2026-05-01" }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: "error", capturesCreated: 0 });
+    expect(source.lastError).toContain("no approved meeting series");
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      from: "2026-05-01",
+    });
+  });
+
+  it("ignores a recording lookup that returns an unapproved meeting", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        paths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        const transcript = {
+          id: "t",
+          file_type: "TRANSCRIPT",
+          status: "completed",
+        };
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "approved-uuid",
+                id: APPROVED_ZOOM_ID,
+                start_time: "2026-05-14T15:00:00Z",
+                recording_files: [transcript],
+              },
+            ],
+          });
+        }
+        if (url.pathname === "/v2/meetings/approved-uuid/recordings") {
+          return Response.json({
+            uuid: "approved-uuid",
+            id: 99999999999,
+            start_time: "2026-05-14T15:00:00Z",
+            recording_files: [
+              {
+                ...transcript,
+                download_url: "https://zoom.us/rec/download/t",
+              },
+            ],
+          });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-mismatched-detail-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
+    expect(paths).not.toContain("/rec/download/t");
+  });
+
+  it("downloads only approved Zoom meeting series, never title matches", async () => {
     const downloads: string[] = [];
     const recording = (uuid: string, id: number, topic: string) => ({
       uuid,
@@ -4426,9 +4748,9 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/v2/accounts/me/recordings") {
           return Response.json({
             meetings: [
-              recording("by-id", 12345678901, "Pod 2 Monday Sync"),
-              recording("by-topic", 222, "marketing standup"),
-              recording("other", 333, "Unrelated 1:1"),
+              recording("by-id", 12345678901, "Marketing Standup"),
+              recording("same-title", 44444444444, "Marketing Standup"),
+              recording("other", 33333333333, "Unrelated 1:1"),
             ],
           });
         }
@@ -4461,13 +4783,92 @@ describe("Brain connector smoke coverage", () => {
 
     expect(result).toMatchObject({
       status: "success",
-      capturesCreated: 2,
-      stats: { meetingsSeen: 3, meetingsSkippedByFilter: 1 },
+      capturesCreated: 1,
+      stats: { meetingsSeen: 3, meetingsSkippedByFilter: 2 },
     });
-    expect(downloads.sort()).toEqual([
-      "/rec/download/by-id",
-      "/rec/download/by-topic",
+    expect(downloads).toEqual(["/rec/download/by-id"]);
+    const stats = result.stats as Record<string, unknown>;
+    expect(stats.skippedMeetings).toBeUndefined();
+    expect(stats.matchedMeetings).toEqual([
+      expect.objectContaining({ id: "12345678901" }),
     ]);
+    expect(mocks.rows.zoomAuditEvents).toEqual([
+      expect.objectContaining({
+        sourceId: "zoom-filtered-source",
+        event: "occurrence-allowed",
+        decision: "allow",
+        meetingId: "12345678901",
+        meetingUuid: "by-id",
+      }),
+      expect.objectContaining({ event: "sync-finished", decision: null }),
+    ]);
+    const auditText = JSON.stringify(mocks.rows.zoomAuditEvents);
+    expect(auditText).not.toContain("44444444444");
+    expect(auditText).not.toContain("33333333333");
+    expect(auditText).not.toContain("Atlas");
+  });
+
+  it("refuses to sync Zoom when the source owner is not a Brain admin", async () => {
+    const fetchMock = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.orgRoles.set("org-1:owner@example.test", "member");
+    const source = seedSource({
+      id: "zoom-member-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "error" });
+    expect(result.message).toContain("not a Brain admin");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.rows.zoomAuditEvents).toEqual([
+      expect.objectContaining({
+        event: "sync-refused",
+        decision: "deny",
+        detailJson: JSON.stringify({ reason: "owner-not-brain-admin" }),
+      }),
+    ]);
+  });
+
+  it("keeps a successful Zoom sync when the completion audit cannot be written", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        return Response.json({ meetings: [] });
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const insert = mocks.db.insert;
+    mocks.db.insert = ((tableRef: Row) =>
+      tableRef === mocks.schema.brainZoomAuditEvents
+        ? {
+            values: () => {
+              throw new Error("audit store down");
+            },
+          }
+        : insert(tableRef)) as never;
+    const source = seedSource({
+      id: "zoom-audit-down-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    try {
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({ status: "success" });
+      expect(source).toMatchObject({ status: "active", lastError: null });
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      mocks.db.insert = insert;
+      warn.mockRestore();
+    }
   });
 
   it("rewinds the Zoom window when the meeting filter changes", async () => {
@@ -4495,7 +4896,7 @@ describe("Brain connector smoke coverage", () => {
       id: "zoom-filter-change-source",
       provider: "zoom",
       configJson: JSON.stringify({
-        zoom: { lookbackDays: 10, meetingTopics: ["Marketing Standup"] },
+        zoom: { ...approvedZoom, lookbackDays: 10 },
       }),
       cursorJson: JSON.stringify({ from: yesterday }),
     });
@@ -4507,7 +4908,7 @@ describe("Brain connector smoke coverage", () => {
 
     expect(first).toMatchObject({ stats: { filterChanged: true } });
     expect(second).toMatchObject({ stats: { filterChanged: false } });
-    expect(savedCursor.filterKey).toContain("marketing standup");
+    expect(savedCursor.filterKey).toContain(String(APPROVED_ZOOM_ID));
     expect(listFromDates).toEqual([lookbackStart, yesterday]);
   });
 
@@ -4535,10 +4936,12 @@ describe("Brain connector smoke coverage", () => {
     const source = seedSource({
       id: "zoom-lookback-change-source",
       provider: "zoom",
-      configJson: JSON.stringify({ zoom: { lookbackDays: 20 } }),
+      configJson: JSON.stringify({
+        zoom: { ...approvedZoom, lookbackDays: 20 },
+      }),
       cursorJson: JSON.stringify({
         from: yesterday,
-        filterKey: null,
+        filterKey: JSON.stringify(approvedZoom.meetingIds),
         lookbackDays: 7,
       }),
     });
@@ -4555,7 +4958,7 @@ describe("Brain connector smoke coverage", () => {
   it("dedupes account-wide Zoom recordings across query chunks", async () => {
     const meetings = Array.from({ length: 1_001 }, (_, index) => ({
       uuid: `meeting-${index}`,
-      id: index,
+      id: 10_000_000_000 + index,
       topic: `Meeting ${index}`,
       start_time: "2026-05-14T15:00:00Z",
       recording_files: [],
@@ -4576,7 +4979,12 @@ describe("Brain connector smoke coverage", () => {
     const source = seedSource({
       id: "zoom-chunked-source",
       provider: "zoom",
-      configJson: JSON.stringify({ zoom: { lookbackDays: 7 } }),
+      configJson: JSON.stringify({
+        zoom: {
+          meetingIds: meetings.map((meeting) => String(meeting.id)),
+          lookbackDays: 7,
+        },
+      }),
     });
     seedCapture({
       id: "zoom-already-imported",

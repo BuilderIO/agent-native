@@ -38,7 +38,10 @@ vi.mock("./observational-memory/index.js", () => ({
 vi.mock("../server/agents-bundle.js", () => ({
   loadAgentsBundle: vi.fn(async () => ({})),
   getRuntimeSkillsForUser: vi.fn(async () => [
-    { meta: { name: "slide-editing" } },
+    {
+      meta: { name: "slide-editing" },
+      content: "Check the layout only after all edits.",
+    },
   ]),
   skillDocsSlug: (name: string) =>
     `skill-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
@@ -49,8 +52,17 @@ const {
   MAX_IDENTICAL_TOOL_CALLS,
   AGENT_INTERNAL_CONTINUE_PROMPT,
 } = await import("./production-agent.js");
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
+import {
+  buildAssistantMessage,
+  threadDataToEngineMessages,
+  upsertAssistantMessage,
+} from "./thread-data-builder.js";
+import { classifyToolCallJournal } from "./tool-call-journal.js";
+import { buildTurnResumeContext } from "./turn-resume-context.js";
+import type { AgentChatEvent } from "./types.js";
 
 function makeWriteAction(): ActionEntry {
   return {
@@ -136,12 +148,190 @@ function completedLedger(
   ];
 }
 
+/** A write that recorded its committed effect for these exact arguments. */
+function committedLedger(
+  tool: string,
+  input: Record<string, string>,
+  result: string,
+  artifacts?: unknown[],
+): unknown[] {
+  return [
+    { type: "tool_start", tool, input },
+    {
+      type: "tool_done",
+      tool,
+      result,
+      completedSideEffect: true,
+      argumentsHash: actionArgumentsHash(input),
+      ...(artifacts ? { artifacts } : {}),
+    },
+  ];
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   currentTurnEventsMock.mockResolvedValue([]);
 });
 
 describe("tool-call journal hard-block", () => {
+  it.each([false, true])(
+    "checks fresh state after an unknown write with an explicit result=%s",
+    async (explicitResult) => {
+      const ledger: AgentChatEvent[] = [
+        { type: "tool_start", id: "old-check", tool: "check-email", input: {} },
+        {
+          type: "tool_done",
+          id: "old-check",
+          tool: "check-email",
+          result: "No receipt found",
+        },
+        {
+          type: "tool_start",
+          id: "uncertain-send",
+          tool: "send-email",
+          input: { body: "Refund confirmed" },
+        },
+        ...(explicitResult
+          ? [
+              {
+                type: "tool_done" as const,
+                id: "uncertain-send",
+                tool: "send-email",
+                result: "Connection reset after sending",
+                isError: true,
+                outcomeUnknown: true as const,
+              },
+            ]
+          : []),
+      ];
+      const resumed = buildTurnResumeContext({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Confirm the refund by email." }],
+          },
+        ],
+        events: ledger,
+        journal: classifyToolCallJournal(ledger),
+      });
+      const checkEmail = {
+        ...makeWriteAction(),
+        readOnly: true,
+        run: vi.fn(async () => "Receipt found"),
+      };
+      const sendEmail = makeWriteAction();
+      let step = 0;
+      const engine: AgentEngine = {
+        ...singleToolEngine("check-email", {}),
+        async *stream(): AsyncIterable<EngineEvent> {
+          step++;
+          if (step <= 2) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: `retry-${step}`,
+                  name: step === 1 ? "check-email" : "send-email",
+                  input: step === 1 ? {} : { body: "Refund confirmed" },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const events: AgentChatEvent[] = [];
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          ...resumed.messages,
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: { "check-email": checkEmail, "send-email": sendEmail },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+      expect(checkEmail.run).toHaveBeenCalledOnce();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "check-email",
+          result: "Receipt found",
+        }),
+      );
+      expect(sendEmail.run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    },
+  );
+
+  it.each([true, false])(
+    "preserves an interrupted history outcome for readOnly=%s",
+    async (readOnly) => {
+      const action = { ...makeWriteAction(), readOnly };
+      const prior = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "prior-call",
+              tool: "test-action",
+              input: { id: "1" },
+            },
+          },
+        ],
+        "interrupted-run",
+      );
+      const replay = threadDataToEngineMessages(
+        upsertAssistantMessage({}, prior!),
+        { includeToolCalls: true },
+      );
+      const events: any[] = [];
+      await runAgentLoop({
+        engine: singleToolEngine("test-action", { id: "1" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Run the action." }],
+          },
+          ...replay,
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: { "test-action": action },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+      expect(action.run).toHaveBeenCalledTimes(readOnly ? 1 : 0);
+      if (!readOnly)
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "write_tool_outcome_unknown",
+          }),
+        );
+    },
+  );
+
   it("carries loaded skill pages into internal continuation prompts", async () => {
     const skillPage =
       "# Skill: slide-editing\nCheck the layout only after all edits.";
@@ -267,7 +457,7 @@ describe("tool-call journal hard-block", () => {
       { kind: "image", id: "asset-journal", url: "/asset/asset-journal" },
     ];
     currentTurnEventsMock.mockResolvedValue(
-      completedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT, artifacts),
+      committedLedger("send-email", { to: "a@b.com" }, PRIOR_RESULT, artifacts),
     );
 
     const action = makeWriteAction();
@@ -298,7 +488,7 @@ describe("tool-call journal hard-block", () => {
   });
 
   it("does not count a completed journal replay toward the repeated-call stop", async () => {
-    const priorWrite = completedLedger(
+    const priorWrite = committedLedger(
       "create-workspace-resource",
       { resourceId: "same" },
       "resource created",
@@ -365,7 +555,7 @@ describe("tool-call journal hard-block", () => {
 
   it("executes normally when a journaled call has a DIFFERENT input", async () => {
     currentTurnEventsMock.mockResolvedValue(
-      completedLedger("send-email", { to: "someone-else@b.com" }, "old"),
+      committedLedger("send-email", { to: "someone-else@b.com" }, "old"),
     );
 
     const action = makeWriteAction();
@@ -492,7 +682,7 @@ describe("tool-call journal hard-block", () => {
   it("does not replay a journaled read that a later write in the same turn invalidated", async () => {
     currentTurnEventsMock.mockResolvedValue([
       ...completedLedger("get-data", { id: "1" }, "stale-read"),
-      ...completedLedger("save-thing", { id: "9" }, "saved"),
+      ...committedLedger("save-thing", { id: "9" }, "saved"),
     ]);
 
     const readAction: ActionEntry = {

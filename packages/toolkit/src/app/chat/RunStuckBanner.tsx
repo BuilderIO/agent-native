@@ -33,6 +33,9 @@ export type RunReconcileOutcome = "settled" | "still_running";
 
 const RECONCILE_RETRY_MS = 30_000;
 const AUTO_RETRY_CLAIM_TTL_MS = 5 * 60 * 1000;
+// A user's Cancel or Retry outlives the short retry lease: a stuck run stays
+// stuck for as long as it takes someone to reload the page.
+const USER_ACTION_CLAIM_TTL_MS = 6 * 60 * 60 * 1000;
 const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 
 /**
@@ -42,6 +45,14 @@ const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 const reportedStuckRunIds = new Set<string>();
 
 type BusyState = { type: "none" } | { type: "cancel" | "retry"; runId: string };
+
+// Only the click that set busy for `runId` may clear it.
+const releaseBusy =
+  (runId: string) =>
+  (current: BusyState): BusyState =>
+    current.type !== "none" && current.runId === runId
+      ? { type: "none" }
+      : current;
 
 type MaybeLockManager = {
   request<T>(
@@ -100,6 +111,32 @@ function markAutoRetryClaim(key: string, ownerId: string) {
   }
 }
 
+/**
+ * A run the user cancelled or retried must stay out of auto-retry across a
+ * reload too: the claim every owner checks is the one place that survives it, so
+ * the click takes the claim for itself. Best effort, like the claim itself.
+ */
+function markUserActedOnRun(
+  threadId: string | null | undefined,
+  runId: string,
+) {
+  if (!threadId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      autoRetryClaimKey(threadId, runId),
+      JSON.stringify({
+        ownerId: "user-action",
+        expiresAt: Date.now() + USER_ACTION_CLAIM_TTL_MS,
+      }),
+    );
+  } catch (error) {
+    console.warn(
+      "[agent-chat] could not persist the stuck-run user action; it only holds until reload:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 async function claimAutoRetryAttempt(
   threadId: string | null | undefined,
   runId: string,
@@ -152,6 +189,9 @@ export function RunStuckBanner({
   const [busy, setBusy] = useState<BusyState>({ type: "none" });
   const [autoRetriedRunId, setAutoRetriedRunId] = useState<string | null>(null);
   const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
+  // A run the user already acted on is never auto-retried: a failed Cancel frees
+  // `busy` again, and an auto-retry gated on other state must not then resume it.
+  const userActedRunIdsRef = useRef<Set<string>>(new Set());
   const generatedOwnerIdRef = useRef<string | null>(null);
   if (!generatedOwnerIdRef.current) {
     generatedOwnerIdRef.current = createAutoRetryOwnerId();
@@ -274,7 +314,8 @@ export function RunStuckBanner({
       !isStuck ||
       !state.runId ||
       busy.type !== "none" ||
-      autoRetriedRunIdsRef.current.has(state.runId)
+      autoRetriedRunIdsRef.current.has(state.runId) ||
+      userActedRunIdsRef.current.has(state.runId)
     ) {
       return;
     }
@@ -282,7 +323,7 @@ export function RunStuckBanner({
     const runId = state.runId;
     void claimAutoRetryAttempt(threadId, runId, ownerId).then((claimed) => {
       autoRetriedRunIdsRef.current.add(runId);
-      if (!claimed) return;
+      if (!claimed || userActedRunIdsRef.current.has(runId)) return;
       setBusy({ type: "retry", runId });
       setAutoRetriedRunId(runId);
       trackEvent("agent_chat_stuck_auto_retry", {
@@ -291,11 +332,7 @@ export function RunStuckBanner({
         stuckSinceMs: state.stuckSinceMs ?? null,
       });
       void abortRun(runId, "auto_stuck_retry").then((aborted) => {
-        setBusy((current) =>
-          current.type !== "none" && current.runId === runId
-            ? { type: "none" }
-            : current,
-        );
+        setBusy(releaseBusy(runId));
         if (aborted) onRetry?.(aborted);
       });
     });
@@ -357,13 +394,19 @@ export function RunStuckBanner({
   const handleCancel = async () => {
     if (!state.runId || busy.type !== "none") return;
     const runId = state.runId;
+    userActedRunIdsRef.current.add(runId);
+    markUserActedOnRun(threadId, runId);
     setBusy({ type: "cancel", runId });
     trackEvent("agent_chat_stuck_cancel", {
       runId,
       threadId: threadId ?? null,
       stuckSinceMs: state.stuckSinceMs ?? null,
     });
-    await abortRun(runId, "user_stuck_cancel");
+    // A replaced run clears busy through the state effect; a failed abort never
+    // replaces it, so the buttons would stay disabled for the same stuck run.
+    if (!(await abortRun(runId, "user_stuck_cancel"))) {
+      setBusy(releaseBusy(runId));
+    }
   };
 
   const handleRetry = async () => {
@@ -376,6 +419,8 @@ export function RunStuckBanner({
       return;
     }
     const runId = state.runId;
+    userActedRunIdsRef.current.add(runId);
+    markUserActedOnRun(threadId, runId);
     setBusy({ type: "retry", runId });
     trackEvent("agent_chat_stuck_retry", {
       runId,
@@ -384,6 +429,7 @@ export function RunStuckBanner({
     });
     const aborted = await abortRun(runId, "user_stuck_retry");
     if (aborted) onRetry?.(aborted);
+    else setBusy(releaseBusy(runId));
   };
 
   const busyType = busy.type;

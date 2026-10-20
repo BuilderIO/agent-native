@@ -6,6 +6,7 @@ import {
   appApiPath,
   appBasePath,
   appPath,
+  appPathFromLocalRoute,
   frameworkRoutePrefix,
   isFrameworkRoutePath,
   isWorkspaceAppPath,
@@ -46,10 +47,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("uses the live workspace mount when a configured base belongs to another app", () => {
+  it("uses the explicit live workspace mount when a configured base belongs to another app", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
@@ -76,10 +80,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("accepts boolean-style workspace flags from the config layer", () => {
+  it("accepts boolean-style workspace flags with an explicit live mount", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
@@ -87,10 +94,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("uses projected workspace state when only the server flag is configured", () => {
+  it("uses projected workspace state and mount when only the server flag is configured", () => {
     vi.stubGlobal("window", {
       location: { pathname: "/diagrams" },
-      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/diagrams",
+      },
     });
 
     expect(appBasePath()).toBe("/diagrams");
@@ -115,10 +125,13 @@ describe("agentNativePath", () => {
     expect(agentChatStreamingUrl()).toBeUndefined();
   });
 
-  it("uses the live workspace route segment for app API paths under nested routes", () => {
+  it("uses the projected workspace path for app API paths under nested routes", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams/editor" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams/editor" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(appApiPath("local-migration")).toBe("/diagrams/api/local-migration");
@@ -285,6 +298,29 @@ describe("appPath", () => {
     });
 
     expect(appPath("api/local-migration")).toBe("api/local-migration");
+  });
+});
+
+describe("appPathFromLocalRoute", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("always prefixes a local route when its first segment matches the mount", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/_agent-native/auth/reset" },
+    });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe(
+      "/chat/chat/thread-123",
+    );
+  });
+
+  it("leaves local routes unchanged outside a mounted app", () => {
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe("/chat/thread-123");
   });
 });
 

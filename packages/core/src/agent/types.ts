@@ -1,4 +1,7 @@
-import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+import type {
+  AgentSubmissionPayload,
+  AgentSuggestion,
+} from "@agent-native/agentkit/protocol";
 
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
@@ -165,6 +168,12 @@ export function tryNormalizeAgentActionScope(
 export type AgentChatStructuredContentPart =
   | { type: "text"; text: string }
   | {
+      type: "image-reference";
+      url: string;
+      mediaType?: string;
+      name?: string;
+    }
+  | {
       type: "tool-call";
       id?: string;
       toolCallId?: string;
@@ -172,6 +181,8 @@ export type AgentChatStructuredContentPart =
       toolName?: string;
       input?: unknown;
       args?: unknown;
+      approvalKey?: string;
+      approvalAskId?: string;
     }
   | {
       type: "tool-result";
@@ -180,6 +191,8 @@ export type AgentChatStructuredContentPart =
       toolInput?: string;
       content: string;
       isError?: boolean;
+      approvalPause?: boolean;
+      approvalAskId?: string;
     };
 
 export interface AgentChatStructuredMessage {
@@ -282,12 +295,15 @@ export interface AgentChatRequest {
   message: string;
   /** AgentKit's submitted user message ID, used only to reconcile projections. */
   agentKitMessageId?: string;
+  /** Original queue-shaped submit used for idempotent direct/queued admission. */
+  submissionPayload?: AgentSubmissionPayload;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
   queuedMessageClaimId?: string;
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];
+  loadedSkillSlugs?: string[];
   references?: AgentChatReference[];
   threadId?: string;
   parentId?: string | null;
@@ -331,6 +347,12 @@ export interface AgentChatRequest {
         orgId: string | null;
         mode: "default";
       };
+  /**
+   * Names of the request-scoped additional actions the turn started with,
+   * carried across authenticated durable background dispatches so a
+   * continuation keeps the same tool set. Deleted from client requests.
+   */
+  __resolvedAdditionalActionNames?: string[];
   turnId?: string;
   /** Turn metadata the client forwards; read only for the keys it names. */
   metadata?: Record<string, unknown>;
@@ -344,6 +366,7 @@ export interface AgentChatRequest {
   harness?: AgentChatHarnessRequest;
   trackInRunsTray?: boolean;
   approvedToolCalls?: string[];
+  approvedToolCallAskIds?: string[];
   skipPendingSelectionContext?: boolean;
 }
 
@@ -391,17 +414,35 @@ export type AgentChatEvent =
         | "max_tokens"
         | "stop_sequence"
         | "error";
+      errorCode?: string;
     }
-  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
+  | {
+      type: "tool_start";
+      tool: string;
+      id?: string;
+      input: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
+    }
   | {
       type: "tool_done";
       tool: string;
       id?: string;
       input?: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
       result: string;
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      /**
+       * Exact identity of the arguments the call ran with, defaults applied. A
+       * continued turn replays a committed call only for the same identity.
+       */
+      argumentsHash?: string;
+      /** False marks current completed events; absence is reserved for older journals. */
+      approvalPause?: boolean;
+      outcomeUnknown?: true;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
@@ -414,6 +455,12 @@ export type AgentChatEvent =
       tool: string;
       input: Record<string, string>;
       approvalKey: string;
+      /**
+       * Fingerprint of the arguments the call would run with, defaults
+       * applied. A transport that echoes `approvalKey` back without a
+       * server-side approval record binds it with `approvalKeyWithArguments`.
+       */
+      argumentsHash?: string;
       allowPersistentApproval?: false;
       toolCallId?: string;
       askId?: string;

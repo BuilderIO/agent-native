@@ -4,6 +4,12 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
+const mockTrack = vi.fn();
+
+vi.mock("../tracking/registry.js", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
@@ -40,7 +46,11 @@ const { __resetAuditInitForTests, ensureAuditTables } =
 
 const ORG_A = "org-a";
 const ORG_B = "org-b";
-const meta = { actionName: "manage-agent-engine", caller: "frontend" as const };
+const { auditAttribution } = await import("../audit/attribution.js");
+const meta = {
+  actionName: "manage-agent-engine",
+  attribution: auditAttribution({ caller: "frontend" }),
+};
 
 async function addMember(orgId: string, email: string, role: string) {
   await pglite.query(
@@ -60,13 +70,18 @@ async function adminAuthority(orgId: string | undefined, email: string) {
   const authority = await resolveDefaultAgentEngineAuthority({
     userEmail: email,
     orgId,
+    ...(orgId ? {} : { orgScope: "personal" as const }),
   });
   if (!authority.allowed) throw new Error("expected an allowed authority");
   return authority;
 }
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetAuditInitForTests();
   await pglite.exec(`CREATE TABLE settings (
     key TEXT PRIMARY KEY,
@@ -142,19 +157,25 @@ describe("default model scope", () => {
     for (const key of [canonical, legacy, defaultKey]) {
       await putSetting(key, { engine: "old-engine", model: "old-model" });
     }
-    await runWithRequestContext({ userEmail }, async () => {
-      for (const key of [canonical, legacy, defaultKey]) await getSetting(key);
-      await writeDefaultAgentEngineSelection(
-        await adminAuthority(undefined, userEmail),
-        { engine: "anthropic", model: "claude-sonnet-5-5" },
-        meta,
-      );
-      expect(await getSetting(canonical)).toMatchObject({ model: "old-model" });
-      expect(await getSetting(legacy)).toMatchObject({ model: "old-model" });
-      expect(await getSetting(defaultKey)).toMatchObject({
-        model: "claude-sonnet-5-5",
-      });
-    });
+    await runWithRequestContext(
+      { userEmail, orgScope: "personal" },
+      async () => {
+        for (const key of [canonical, legacy, defaultKey])
+          await getSetting(key);
+        await writeDefaultAgentEngineSelection(
+          await adminAuthority(undefined, userEmail),
+          { engine: "anthropic", model: "claude-sonnet-5-5" },
+          meta,
+        );
+        expect(await getSetting(canonical)).toMatchObject({
+          model: "old-model",
+        });
+        expect(await getSetting(legacy)).toMatchObject({ model: "old-model" });
+        expect(await getSetting(defaultKey)).toMatchObject({
+          model: "claude-sonnet-5-5",
+        });
+      },
+    );
     expect(await getSetting(canonical)).toMatchObject({ model: "old-model" });
     expect(await getSetting(legacy)).toMatchObject({ model: "old-model" });
   });
@@ -220,6 +241,15 @@ describe("default model scope", () => {
         orgId: ORG_A,
       }),
     ).resolves.toMatchObject({ allowed: true, scope: "org", orgId: ORG_A });
+  });
+
+  it("denies personal authority when organization scope is unresolved", async () => {
+    await expect(
+      resolveDefaultAgentEngineAuthority({ userEmail: "alice@example.test" }),
+    ).resolves.toMatchObject({
+      allowed: false,
+      reason: "scope-unavailable",
+    });
   });
 
   it("keeps the legacy deployment-wide default until an org saves its own", async () => {
@@ -294,6 +324,7 @@ describe("default model scope", () => {
   it("a signed-in user with no organization keeps their own default", async () => {
     const authority = await resolveDefaultAgentEngineAuthority({
       userEmail: "Solo@Example.test",
+      orgScope: "personal",
     });
     expect(authority).toMatchObject({ allowed: true, scope: "user" });
     if (!authority.allowed) throw new Error("unreachable");
@@ -307,15 +338,92 @@ describe("default model scope", () => {
     expect(
       await readDefaultAgentEngineSettingDetailed({
         userEmail: "solo@example.test",
+        orgScope: "personal",
       }),
     ).toMatchObject({ source: "user", value: { engine: "ai-sdk:google" } });
     expect(
       (
         await readDefaultAgentEngineSettingDetailed({
           userEmail: "other@example.test",
+          orgScope: "personal",
         })
       ).source,
     ).toBe("none");
+  });
+
+  it("tracks default model set and reset after successful writes", async () => {
+    const authority = await adminAuthority(ORG_A, "admin-a@example.test");
+    await writeDefaultAgentEngineSelection(
+      authority,
+      { engine: "ai-sdk:openai", model: "gpt-5.5" },
+      meta,
+    );
+    await clearDefaultAgentEngineSelection(authority, meta);
+
+    expect(mockTrack.mock.calls).toEqual([
+      [
+        "llm_default_model_changed",
+        {
+          engine: "ai-sdk:openai",
+          model: "gpt-5.5",
+          scope: "org",
+          operation: "set",
+        },
+        { userId: "admin-a@example.test" },
+      ],
+      [
+        "llm_default_model_changed",
+        {
+          previous_engine: "ai-sdk:openai",
+          previous_model: "gpt-5.5",
+          scope: "org",
+          operation: "reset",
+        },
+        { userId: "admin-a@example.test" },
+      ],
+    ]);
+  });
+
+  it("does not read personal or legacy defaults for an unresolved scope", async () => {
+    await putSetting("u:solo@example.test:agent-engine", {
+      engine: "anthropic",
+      model: "personal-model",
+    });
+    await putSetting("agent-engine", {
+      engine: "openai",
+      model: "legacy-model",
+    });
+
+    await expect(
+      readDefaultAgentEngineSettingDetailed({ userEmail: "solo@example.test" }),
+    ).rejects.toThrow("Organization scope could not be resolved.");
+    await expect(
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: "solo@example.test",
+        orgScope: "personal",
+      }),
+    ).resolves.toMatchObject({
+      source: "user",
+      value: { engine: "anthropic", model: "personal-model" },
+    });
+    await expect(
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: "solo@example.test",
+        defaultAgentEngineScope: "deployment",
+      }),
+    ).resolves.toMatchObject({
+      source: "legacy",
+      value: { engine: "openai", model: "legacy-model" },
+    });
+    await expect(
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: "admin-a@example.test",
+        orgId: ORG_A,
+      }),
+    ).resolves.toMatchObject({
+      source: "legacy",
+      value: { model: "legacy-model" },
+    });
   });
 
   it("records changes and refused attempts as admin-visible audit events", async () => {
@@ -329,7 +437,10 @@ describe("default model scope", () => {
     await writeDefaultAgentEngineSelection(
       await adminAuthority(ORG_A, "admin-a@example.test"),
       { engine: "ai-sdk:openai", model: "gpt-5.5" },
-      { actionName: "manage-agent-engine", caller: "tool" },
+      {
+        actionName: "manage-agent-engine",
+        attribution: auditAttribution({ caller: "tool" }),
+      },
     );
 
     expect(await auditRows()).toEqual([

@@ -1607,7 +1607,7 @@ function absoluteScreen(rng: Rng, copy: number): Screen {
         style:
           "position:absolute;left:40px;top:40px;width:900px;font-family:Inter,sans-serif;font-size:32px;font-weight:700;color:#1f2937",
       },
-      text(`Figma-style absolute layout ${copy + 1}`),
+      text(`absolute layout ${copy + 1}`),
     ),
     ...groups,
   );

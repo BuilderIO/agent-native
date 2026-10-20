@@ -68,6 +68,9 @@ function credentialGroups(
       return [["GOOGLE_APPLICATION_CREDENTIALS_JSON"]];
     case "oauth-bearer":
       return [[getProviderApiConfig(provider).credentialKeys[0] ?? provider]];
+    case "oauth-client-credentials":
+    case "oauth-bearer-or-client-credentials":
+      return [[auth.clientIdKey, auth.clientSecretKey]];
     case "oauth-bearer-or-api-key-header":
     case "oauth-bearer-or-bearer-key":
       return (auth.fallbackKeys ?? [auth.key]).map((key) => [key]);
@@ -135,7 +138,8 @@ async function isIntegrationAvailable(
   if (
     config.auth.type === "oauth-bearer-or-api-key-header" ||
     config.auth.type === "oauth-bearer-or-bearer-key" ||
-    config.auth.type === "oauth-bearer-or-basic"
+    config.auth.type === "oauth-bearer-or-basic" ||
+    config.auth.type === "oauth-bearer-or-client-credentials"
   ) {
     const connection = await resolveWorkspaceConnectionForApp({
       appId,

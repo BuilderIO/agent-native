@@ -175,6 +175,7 @@ export function ShareRecordingPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
         <JoinedShareControl
+          className="clips-share-control"
           trigger={<PopoverTrigger asChild>{children}</PopoverTrigger>}
           copyLabel={t("recordRoute.copyLinkAction")}
           copiedLabel={t("recordRoute.linkCopied")}
@@ -725,7 +726,10 @@ function AgentTab({
     (needsScopedAgentContext &&
       (createAgentLink.isPending || !agentContextUrl));
   const agentCopyValue = agentLink
-    ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
+    ? t("shareDialog.agentPrompt", {
+        agentContextUrl: agentLink,
+        shareWithAgents: t("shareDialog.shareWithAgents"),
+      })
     : "";
 
   const openAgentDestination = (destination: AgentShareDestination) => {

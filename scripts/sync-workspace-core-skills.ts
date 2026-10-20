@@ -267,6 +267,7 @@ const workspaceSkillExcludes = [
   "concurrent-agents",
   "delegating-work",
   "fix-at-the-boundary",
+  "framework-stores",
   "multi-frontier-desktop",
   "new-branch",
   "ship",
@@ -422,7 +423,9 @@ function checkInSync() {
 function factorySkillFiles(skill) {
   const sourceSkillDir = join(sourceDir, skill);
   const excluded = FACTORY_EXCLUDED_SKILL_FILES[skill] ?? new Set();
-  return listFiles(sourceSkillDir).filter((file) => !excluded.has(file));
+  return listFiles(sourceSkillDir).filter(
+    (file) => !excluded.has(file.split(sep).join("/")),
+  );
 }
 
 function factorySkillContent(skill, file, content) {

@@ -8,8 +8,9 @@ import {
   createSharesTable,
   uniqueIndex,
   index,
+  sql,
 } from "@agent-native/core/db/schema";
-import { boolean } from "drizzle-orm/pg-core";
+import { bigint, boolean, check } from "drizzle-orm/pg-core";
 
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),
@@ -153,6 +154,7 @@ export const recordings = table("recordings", {
   videoFormat: text("video_format", { enum: ["webm", "mp4"] })
     .notNull()
     .default("webm"),
+  storageMode: text("storage_mode", { enum: ["own", "hosted"] }),
   videoSizeBytes: integer("video_size_bytes").notNull().default(0),
   width: integer("width").notNull().default(0),
   height: integer("height").notNull().default(0),
@@ -254,9 +256,45 @@ export const recordingTranscripts = table("recording_transcripts", {
   failureReason: text("failure_reason"),
   failureCode: text("failure_code"),
   retryCount: integer("retry_count").notNull().default(0),
+  // "imported" when the owner or an agent supplied the transcript file.
+  // Automatic transcription never writes over an imported row.
+  source: text("source", { enum: ["imported"] }),
+  // New on every import, even of the same file in the same millisecond, so a
+  // regenerate replaces only the import it started from.
+  importId: text("import_id"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+// A ready transcript that an import, a regenerate, or a restore replaced, kept
+// so an editor can bring it back. Rows follow the recording's access and are
+// removed with it.
+export const recordingTranscriptVersions = table(
+  "recording_transcript_versions",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    language: text("language").notNull(),
+    segmentsJson: text("segments_json").notNull(),
+    fullText: text("full_text").notNull(),
+    status: text("status", {
+      enum: ["pending", "streaming", "ready", "failed"],
+    }).notNull(),
+    source: text("source", { enum: ["imported"] }),
+    importId: text("import_id"),
+    reason: text("reason", {
+      enum: ["import", "regenerate", "automatic", "restore"],
+    }).notNull(),
+    replacedBy: text("replaced_by"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (version) => ({
+    recordingCreatedIndex: index(
+      "recording_transcript_versions_recording_created_idx",
+    ).on(version.recordingId, version.createdAt),
+  }),
+);
 
 export const recordingBrowserDiagnostics = table(
   "recording_browser_diagnostics",
@@ -281,6 +319,8 @@ export const recordingBrowserDiagnostics = table(
     interactionEventsJson: text("interaction_events_json")
       .notNull()
       .default("[]"),
+    appActivitySummaryJson: text("app_activity_summary_json"),
+    appActivityBlobJson: text("app_activity_blob_json"),
     redactionVersion: integer("redaction_version").notNull().default(1),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -586,6 +626,9 @@ export const dictations = table("clips_dictations", {
   startedAt: text("started_at").notNull().default(now()),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  cleanupVersion: bigint("cleanup_version", { mode: "number" })
+    .notNull()
+    .default(0),
   ...ownableColumns(),
 });
 
@@ -624,6 +667,64 @@ export const recordingEvents = table("recording_events", {
   payload: text("payload").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+// Earlier screen time attached to a recording. The window is metadata: the
+// footage lives in `mediaRecordingId`, and the clip's own video is untouched.
+// Access inherits from the recording.
+export const recordingContextItems = table(
+  "recording_context_items",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind").notNull().default("screen_history"),
+    label: text("label"),
+    requestedSeconds: integer("requested_seconds").notNull(),
+    // The window as first requested. It bounds every later trim.
+    originalStartedAt: text("original_started_at").notNull(),
+    originalEndedAt: text("original_ended_at").notNull(),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at").notNull(),
+    status: text("status", {
+      enum: ["pending", "processing", "ready", "failed", "removed"],
+    }).notNull(),
+    mediaRecordingId: text("media_recording_id"),
+    // The footage the current 'processing' claim reserved. 'ready' must name
+    // it, so a worker whose claim was replaced cannot land its footage.
+    pendingMediaRecordingId: text("pending_media_recording_id"),
+    // The desktop device that captured the Clip. NULL (web-requested or
+    // pre-dating device scoping) is claimable by every device.
+    capturedDeviceId: text("captured_device_id"),
+    includeMicrophone: boolean("include_microphone"),
+    includeSystemAudio: boolean("include_system_audio"),
+    durationMs: integer("duration_ms"),
+    width: integer("width"),
+    height: integer("height"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (item) => ({
+    // One non-removed item per recording. The database enforces it, so a
+    // retried or concurrent request cannot create a second active item.
+    recordingContextItemsActiveRecordingUnique: uniqueIndex(
+      "recording_context_items_active_recording_unique_idx",
+    )
+      .on(item.recordingId)
+      .where(sql`${item.status} <> 'removed'`),
+    recordingContextItemsPendingIdx: index(
+      "recording_context_items_pending_idx",
+    )
+      .on(item.createdAt)
+      .where(sql`${item.status} = 'pending'`),
+    // The in-use check looks items up by either footage column.
+    recordingContextItemsMediaRecordingIdx: index(
+      "recording_context_items_media_recording_idx",
+    ).on(item.mediaRecordingId),
+    recordingContextItemsPendingMediaRecordingIdx: index(
+      "recording_context_items_pending_media_recording_idx",
+    ).on(item.pendingMediaRecordingId),
+  }),
+);
 
 export const transactionalEmailJobs = table(
   "clips_transactional_email_jobs",
@@ -684,4 +785,46 @@ export const transactionalEmailConfigs = table(
     id: text("id").primaryKey(),
     configJson: text("config_json").notNull(),
   },
+);
+
+export const hostedClipAllowances = table(
+  "clips_hosted_clip_allowances",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    identityKey: text("identity_key").notNull(),
+    userId: text("user_id").notNull(),
+    status: text("status", {
+      enum: ["reserved", "consumed", "released"],
+    }).notNull(),
+    ipPrefix: text("ip_prefix"),
+    quotaBytes: bigint("quota_bytes", { mode: "number" }).notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    consumedAt: text("consumed_at"),
+    releasedAt: text("released_at"),
+  },
+  (allowance) => ({
+    identityCreatedIndex: index(
+      "clips_hosted_allowances_identity_created_idx",
+    ).on(allowance.identityKey, allowance.createdAt),
+    userCreatedIndex: index("clips_hosted_allowances_user_created_idx").on(
+      allowance.userId,
+      allowance.createdAt,
+    ),
+    ipCreatedIndex: index("clips_hosted_allowances_ip_created_idx").on(
+      allowance.ipPrefix,
+      allowance.createdAt,
+    ),
+    createdIndex: index("clips_hosted_allowances_created_idx").on(
+      allowance.createdAt,
+    ),
+    statusCheck: check(
+      "clips_hosted_allowances_status_check",
+      sql`${allowance.status} IN ('reserved', 'consumed', 'released')`,
+    ),
+    quotaBytesCheck: check(
+      "clips_hosted_allowances_quota_bytes_check",
+      sql`${allowance.quotaBytes} >= 0`,
+    ),
+  }),
 );

@@ -128,6 +128,7 @@ function selectLayer(args: {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
+  const setViewMode = vi.fn();
 
   runLayerSelectionChange(
     {
@@ -151,7 +152,6 @@ function selectLayer(args: {
           : []),
       ],
       getScreenContent: () => content,
-      focusDesignInspectorForSelection: vi.fn(),
       overviewSelectedScreenIds: [],
       pendingOverviewLayerSelectionRef: { current: null },
       pendingOverviewScreenSelectionRef: { current: null },
@@ -168,7 +168,7 @@ function selectLayer(args: {
       setSelectedLayerIdsState: (value) => {
         selectedLayerIds = typeof value === "function" ? value([]) : value;
       },
-      setViewMode: vi.fn(),
+      setViewMode,
       viewModeRef: { current: "single" },
     },
     selectionIds,
@@ -185,6 +185,7 @@ function selectLayer(args: {
     selectedLayerIds,
     node,
     projections: [projection, secondProjection],
+    setViewMode,
     update,
   };
 }
@@ -226,6 +227,13 @@ function readOnlyWriterArgs(
 }
 
 describe("Layers selection source identity", () => {
+  it("keeps the current screen in single view when selecting its source layer", () => {
+    const result = selectLayer({ sourceHTML: RICH_HTML });
+    expect(result.selectedElement?.sourceId).toBe("button-a");
+    expect(result.setViewMode).toHaveBeenCalledWith("single");
+    expect(result.setViewMode).not.toHaveBeenCalledWith("overview");
+  });
+
   it("persists a selected source node id without adding an undo step", () => {
     const result = selectLayer({});
     expect(result.update).toHaveBeenCalledWith("screen-a", expect.any(String), {
@@ -321,6 +329,30 @@ describe("Layers selection source identity", () => {
       portableStyleSnapshot: {
         nodes: [{ styles: { backgroundColor: "rgb(15, 118, 110)" } }],
       },
+    });
+  });
+
+  it("preserves a matching runtime selection whose styles stay in the frame until copy", () => {
+    const node = buildCodeLayerProjection(RICH_HTML, {
+      source: {
+        kind: "design-file",
+        fileId: "screen-a",
+        filename: "index.html",
+      },
+    }).nodes.find((candidate) => candidate.tag === "button");
+    expect(node).toBeDefined();
+    const { portableStyleSnapshot: _snapshot, ...withoutSnapshot } = liveInfo({
+      screenId: "screen-a",
+      nodeId: node!.id,
+    });
+    const result = selectLayer({
+      sourceHTML: RICH_HTML,
+      selectedElement: { ...withoutSnapshot, styleSnapshotReadOnDemand: true },
+    });
+
+    expect(result.selectedElement).toMatchObject({
+      computedStyles: { backgroundColor: "rgb(15, 118, 110)" },
+      styleSnapshotReadOnDemand: true,
     });
   });
 

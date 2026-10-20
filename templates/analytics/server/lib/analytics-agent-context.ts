@@ -8,9 +8,9 @@ import {
 import { getActiveEmbeddingSet } from "@agent-native/creative-context/store";
 
 import {
-  candidateTrustTier,
+  candidateQueryPriority,
   relevanceTerms,
-  searchAnalyticsQueryCatalog,
+  searchAnalyticsDictionaryCatalog,
   searchTerms,
   type AnalyticsQueryCatalogCandidate,
 } from "./analytics-query-catalog";
@@ -47,6 +47,7 @@ export interface AnalyticsPromptReferences {
 }
 
 const CATALOG_TOOL_NAMES = new Set([
+  "find-data",
   "search-analytics-query-catalog",
   "search-dashboard-references",
   "get-sql-dashboard",
@@ -168,8 +169,17 @@ function jsonText(value: unknown): string {
 }
 
 function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
+  const staleSourceIndex =
+    candidate.kind === "data-dictionary" &&
+    candidate.origin === "source-index" &&
+    candidate.sourceIndexStale === true;
   const lines = [
     "Retrieved Analytics reference. Use it to guide metric definitions and query shape; run a live source query before reporting values.",
+    ...(staleSourceIndex
+      ? [
+          `Stale generated metadata (${candidate.sourceIndexAgeDays ?? "unknown age"} days old; refresh threshold ${candidate.sourceIndexStaleAfterDays ?? "unknown"} days). Treat this entry only as a search lead; it does not establish current source existence, scope, grain, joins, or availability. Verify live schema and owner-approved definitions before querying.`,
+        ]
+      : []),
   ];
   if (candidate.kind === "data-dictionary") {
     lines.push(
@@ -191,10 +201,23 @@ function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
           dependencies: candidate.dependencies,
           validDateRange: candidate.validDateRange,
           owner: candidate.owner,
+          grain: candidate.grain,
+          entryType: candidate.entryType,
+          status: candidate.status,
           approved: candidate.approved,
           aiGenerated: candidate.aiGenerated,
+          sourceKind: candidate.sourceKind,
+          semanticModel: candidate.semanticModel,
         },
       ]),
+      candidate.semanticScope
+        ? staleSourceIndex
+          ? `Unverified scope claim from stale source-index metadata: ${candidate.semanticScope}.`
+          : `Subject scope: ${candidate.semanticScope}.`
+        : "",
+      candidate.origin === "source-index"
+        ? `Source metadata freshness timestamp: ${candidate.sourceIndexGeneratedAt ?? "unknown time"}; age: ${candidate.sourceIndexAgeDays ?? "unknown"} days; freshness: ${staleSourceIndex ? "stale" : "within refresh window or unreported"}; source revisions: ${candidate.sourceIndexSources ?? "not recorded"}; source path: ${candidate.sourcePath ?? "not recorded"}; entry revision: ${candidate.sourceRevision ?? "not recorded"}. Static metadata is a search aid, not proof of runtime behavior; verify model grain, lineage, and current live schema before SQL.`
+        : "",
       candidate.source?.toLowerCase().includes("bigquery")
         ? "Source dialect: BigQuery GoogleSQL; use STRING, not TEXT, and avoid ILIKE."
         : "",
@@ -230,6 +253,22 @@ function candidateEmbeddingSummary(
           candidate.definition,
           candidate.source ? `Source: ${candidate.source}` : "",
           candidate.table ? `Table: ${candidate.table}` : "",
+          candidate.entryType ? `Entry type: ${candidate.entryType}` : "",
+          candidate.grain ? `Grain: ${candidate.grain}` : "",
+          candidate.primaryEntity
+            ? `Primary entity: ${candidate.primaryEntity}`
+            : "",
+          candidate.timeDimension
+            ? `Time dimension: ${candidate.timeDimension}`
+            : "",
+          candidate.semanticModel
+            ? `Semantic model: ${candidate.semanticModel}`
+            : "",
+          candidate.columnsUsed ? `Columns: ${candidate.columnsUsed}` : "",
+          candidate.owner ? `Owner: ${candidate.owner}` : "",
+          candidate.semanticScope
+            ? `Subject scope: ${candidate.semanticScope}`
+            : "",
         ]
       : [
           `Dashboard: ${candidate.dashboardTitle}`,
@@ -246,8 +285,18 @@ function candidateEmbeddingSummary(
 
 function candidateName(candidate: AnalyticsQueryCatalogCandidate): string {
   return candidate.kind === "data-dictionary"
-    ? `Data dictionary: ${candidate.metric}`
+    ? `${candidate.origin === "source-index" ? "Source index" : "Data dictionary"}: ${candidate.metric}`
     : `${candidate.dashboardTitle}: ${candidate.panelTitle}`;
+}
+
+function candidateStableKey(candidate: AnalyticsQueryCatalogCandidate): string {
+  return candidate.kind === "data-dictionary"
+    ? `dict:${candidate.origin}:${candidate.id}`
+    : `panel:${candidate.origin}:${candidate.dashboardId}:${candidate.panelId}`;
+}
+
+function compareStableKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function candidateEmbeddingKey(
@@ -390,17 +439,22 @@ async function rankWithEmbeddings(
       candidate,
       similarity: scores[index]!,
       lexicalScore: candidate.score,
+      ...candidateQueryPriority(candidate, request),
+      stableKey: candidateStableKey(candidate),
     }))
-    .sort(
-      (left, right) =>
-        candidateTrustTier(right.candidate) -
-          candidateTrustTier(left.candidate) ||
+    .sort((left, right) => {
+      return (
+        right.rosterSpecificity - left.rosterSpecificity ||
+        right.membershipRowSpecificity - left.membershipRowSpecificity ||
+        right.rankingTier - left.rankingTier ||
+        right.trust - left.trust ||
+        right.activeSubsetSpecificity - left.activeSubsetSpecificity ||
+        right.scope - left.scope ||
         right.similarity - left.similarity ||
         right.lexicalScore - left.lexicalScore ||
-        candidateName(left.candidate).localeCompare(
-          candidateName(right.candidate),
-        ),
-    );
+        compareStableKeys(left.stableKey, right.stableKey)
+      );
+    });
 }
 
 function jevDescription(
@@ -410,7 +464,9 @@ function jevDescription(
 ): string {
   const kind =
     candidate.kind === "data-dictionary"
-      ? "dictionary entry"
+      ? candidate.origin === "source-index"
+        ? "generated source-index entry"
+        : "dictionary entry"
       : "dashboard panel";
   const trust =
     candidate.kind === "data-dictionary"
@@ -422,11 +478,15 @@ function jevDescription(
       : candidate.dashboardCertified
         ? "certified"
         : "not certified";
+  const scope =
+    candidate.kind === "data-dictionary" && candidate.semanticScope
+      ? `; subject scope ${candidate.semanticScope}`
+      : "";
   const similarityText =
     similarity === undefined
       ? ""
       : `; embedding similarity ${similarity.toFixed(3)}`;
-  return `Analytics ${kind}; retrieval rank ${retrievalRank}${similarityText}; ${trust}. ${candidateEmbeddingSummary(candidate)}`.slice(
+  return `Analytics ${kind}; retrieval rank ${retrievalRank}${similarityText}; ${trust}${scope}. ${candidateEmbeddingSummary(candidate)}`.slice(
     0,
     MAX_EMBEDDING_SUMMARY_CHARS,
   );
@@ -436,6 +496,12 @@ type RankedCandidate = {
   candidate: AnalyticsQueryCatalogCandidate;
   similarity?: number;
   lexicalScore?: number;
+  rosterSpecificity?: number;
+  membershipRowSpecificity?: number;
+  rankingTier?: number;
+  trust?: number;
+  activeSubsetSpecificity?: number;
+  scope?: number;
 };
 
 function noPromptReferences(
@@ -526,7 +592,7 @@ export async function retrieveAnalyticsPromptReferences(input: {
   try {
     const search = await beforeDeadline(
       (signal) =>
-        searchAnalyticsQueryCatalog({
+        searchAnalyticsDictionaryCatalog({
           search: request,
           email: input.email,
           orgId: input.orgId,
@@ -543,9 +609,8 @@ export async function retrieveAnalyticsPromptReferences(input: {
     }
     searchResults = search.value.candidates;
     catalogComplete =
-      search.value.dashboardSearchStatus === "available" &&
       search.value.dictionarySearchStatus === "available" &&
-      !search.value.dashboardSearchTruncated &&
+      !search.value.truncated &&
       !search.value.dictionarySearchTruncated;
   } catch (error) {
     console.warn(

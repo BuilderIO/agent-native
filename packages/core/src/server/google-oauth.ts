@@ -14,6 +14,7 @@ import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import {
@@ -407,8 +408,28 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
 
 export type OAuthRedirectUriOptions = {
   allowRootCallback?: boolean;
+  /**
+   * Keep the callback under the app's own mount instead of the shared
+   * workspace root callback. Use for providers that register the redirect
+   * URI per flow (e.g. MCP dynamic client registration): the callback then
+   * lands on the app that started the flow without a root relay, which
+   * cannot recover the app id from an opaque state.
+   */
+  appScopedCallback?: boolean;
   useNetlifyPreviewGoogleOAuthRelay?: boolean;
 };
+
+function usesRootOAuthCallback(
+  pathname: string,
+  options: OAuthRedirectUriOptions,
+): boolean {
+  return (
+    !options.appScopedCallback &&
+    (isWorkspaceOAuthCallbackRelayEnabled() ||
+      options.allowRootCallback === true) &&
+    isFrameworkOAuthCallbackPath(pathname)
+  );
+}
 
 function getDefaultOAuthRedirectUrl(
   event: H3Event,
@@ -416,10 +437,7 @@ function getDefaultOAuthRedirectUrl(
   options: OAuthRedirectUriOptions = {},
 ): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  if (
-    (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
-    isFrameworkOAuthCallbackPath(cleanPath)
-  ) {
+  if (usesRootOAuthCallback(cleanPath, options)) {
     return `${getOrigin(event)}${publicFrameworkPath(cleanPath)}`;
   }
   const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
@@ -488,9 +506,7 @@ export function isAllowedOAuthRedirectUri(
     basePath && isRequestUnderAppBasePath(event)
       ? [
           `${basePath}/_agent-native/`,
-          ...((isWorkspaceOAuthCallbackRelayEnabled() ||
-            options.allowRootCallback) &&
-          isFrameworkOAuthCallbackPath(pathname)
+          ...(usesRootOAuthCallback(pathname, options)
             ? ["/_agent-native/"]
             : []),
         ]
@@ -848,12 +864,14 @@ export async function createOAuthSession(
       setFirstRunOnboardingCookie(event);
     }
     if (shouldTrackSignup && opts.trackSignup) {
+      const signupCookieHeader = getHeader(event, "cookie") ?? null;
       const attribution =
         opts.trackSignup.attribution ??
-        signupAttributionFromCookieHeader(getHeader(event, "cookie") ?? null);
+        signupAttributionFromCookieHeader(signupCookieHeader);
       const anonymousId =
         opts.trackSignup.signupAnonymousId ??
-        readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
+        readAnalyticsAnonymousId(signupCookieHeader);
+      const sessionId = readAnalyticsSessionId(signupCookieHeader);
       const authUserId =
         (await getBetterAuthUserIdForEmail(email)) ??
         opts.trackSignup.canonicalAuthUserId;
@@ -866,6 +884,7 @@ export async function createOAuthSession(
         name: opts.trackSignup.name,
         attribution,
         anonymousId,
+        sessionId,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so
@@ -1017,10 +1036,16 @@ export function oauthCallbackResponse(
   return response;
 }
 
-export function oauthErrorPage(message: string, status = 400): Response {
+export function oauthErrorPage(
+  message: string,
+  status = 400,
+  options?: { backHref?: string; backLabel?: string },
+): Response {
   const safe = escapeHtml(message);
+  const backHref = escapeHtml(options?.backHref ?? "/");
+  const backLabel = escapeHtml(options?.backLabel ?? "Back to login");
   return htmlResponse(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>Connection failed</title></head><body style="background:Canvas;color:CanvasText;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0">${safe}</p><p style="font-size:13px;color:GrayText;margin:0"><a href="${backHref}" style="color:inherit;text-decoration:underline;text-underline-offset:3px">${backLabel}</a></p></body></html>`,
     status,
   );
 }

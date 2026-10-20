@@ -4,6 +4,10 @@ import {
   normalizeAnalyticsAnonymousId,
 } from "../shared/analytics-anonymous-id.js";
 import {
+  ANALYTICS_SESSION_ID_COOKIE_NAME,
+  normalizeAnalyticsSessionId,
+} from "../shared/analytics-session-id.js";
+import {
   isSourceReferrerHost,
   shareLandingSource,
 } from "../shared/attribution-source.js";
@@ -83,6 +87,7 @@ export type SignupOrigin =
 export interface SignupAttributionContext {
   attribution: Record<string, string>;
   anonymousId?: string;
+  sessionId?: string;
 }
 
 export const SIGNUP_ATTRIBUTION_HEADER_NAME =
@@ -231,6 +236,21 @@ export function readAnalyticsAnonymousId(
       parseCookieHeader(cookieHeader)[ANALYTICS_ANONYMOUS_ID_COOKIE_NAME],
     );
   } catch {
+    // coercion-ok: malformed anonymous id cookies are absent analytics context.
+    return undefined;
+  }
+}
+
+export function readAnalyticsSessionId(
+  cookieHeader: string | null | undefined,
+): string | undefined {
+  try {
+    const value =
+      parseCookieHeader(cookieHeader)[ANALYTICS_SESSION_ID_COOKIE_NAME];
+    if (!value) return undefined;
+    return normalizeAnalyticsSessionId(decodeURIComponent(value));
+  } catch {
+    // coercion-ok: malformed session cookie input is absent analytics context.
     return undefined;
   }
 }
@@ -358,12 +378,8 @@ export function signupAttributionFromCookieHeader(
  * Keep this as one boundary helper so every signup entry point carries the
  * same values into Better Auth's user-create hook.
  *
- * Returns `undefined` when the request carried neither cookie. A browser that
- * ran our client script always has `an_ft`, so "no cookies at all" means no
- * browser — a server-side backfill or provisioning call. Reporting that as
- * `referral_source: "direct"` is the coercion that made this metric unusable:
- * it renders "we never saw a visitor" identical to "a visitor arrived with no
- * campaign", and only the second one is direct traffic.
+ * Returns `undefined` when no attribution or anonymous ID identifies a signup
+ * context. A session ID alone cannot establish direct traffic.
  */
 export function signupAttributionContextFromCookieHeader(
   cookieHeader: string | null | undefined,
@@ -371,6 +387,7 @@ export function signupAttributionContextFromCookieHeader(
   const firstTouch = readFirstTouchAttribution(cookieHeader);
   const lastTouch = readLastTouchAttribution(cookieHeader);
   const anonymousId = readAnalyticsAnonymousId(cookieHeader);
+  const sessionId = readAnalyticsSessionId(cookieHeader);
   if (!firstTouch && !lastTouch && !anonymousId) return undefined;
   return {
     attribution: withLastTouchAttribution(
@@ -378,6 +395,7 @@ export function signupAttributionContextFromCookieHeader(
       lastTouch,
     ),
     ...(anonymousId ? { anonymousId } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
 }
 
@@ -419,9 +437,11 @@ export function decodeSignupAttributionContext(
     }
     if (Object.keys(attribution).length === 0) return undefined;
     const anonymousId = normalizeAnalyticsAnonymousId(parsed?.anonymousId);
+    const sessionId = normalizeAnalyticsSessionId(parsed?.sessionId);
     return {
       attribution,
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     };
   } catch (error) {
     void error;

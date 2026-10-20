@@ -125,19 +125,24 @@ describe("Appearance corner radius on boxless text", () => {
     container.remove();
   });
 
-  async function render(cornerRadiusDisabled: boolean) {
+  async function render(
+    cornerRadiusDisabled: boolean,
+    styles: Record<string, string> = { borderRadius: "500px" },
+    onStyleChange = vi.fn(),
+  ) {
     await act(async () => {
       root.render(
         <TooltipProvider>
           <AppearanceProperties
-            element={element({ borderRadius: "500px" })}
-            onStyleChange={vi.fn()}
+            element={element(styles)}
+            onStyleChange={onStyleChange}
             hidden={false}
             cornerRadiusDisabled={cornerRadiusDisabled}
           />
         </TooltipProvider>,
       );
     });
+    return onStyleChange;
   }
 
   const radiusInput = () =>
@@ -149,7 +154,7 @@ describe("Appearance corner radius on boxless text", () => {
       (button) => button.getAttribute("aria-label") === "Independent corners",
     );
 
-  it("disables the radius field and corner toggle like Figma does for text", async () => {
+  it("disables the radius field and corner toggle for text layers", async () => {
     await render(true);
     expect(radiusInput()?.disabled).toBe(true);
     expect(cornersToggle()?.disabled).toBe(true);
@@ -159,5 +164,76 @@ describe("Appearance corner radius on boxless text", () => {
     await render(false);
     expect(radiusInput()?.disabled).toBe(false);
     expect(cornersToggle()?.disabled).toBe(false);
+  });
+
+  it("shows px in the radius field, including zero", async () => {
+    await render(false, { borderRadius: "0px" });
+    expect(radiusInput()?.value).toBe("0px");
+  });
+
+  it("preserves percent radius when a typed value is committed", async () => {
+    const onStyleChange = await render(false, { borderRadius: "50%" });
+    const input = radiusInput();
+    expect(input?.value).toBe("50%");
+    await act(async () => {
+      input!.focus();
+      const setValue = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setValue?.call(input, "25");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(onStyleChange).toHaveBeenCalledWith(
+      "borderRadius",
+      "25%",
+      expect.objectContaining({ phase: "commit" }),
+    );
+  });
+
+  it("keeps each independent corner's CSS unit", async () => {
+    const onStyleChange = await render(false, {
+      borderRadius: "0px",
+      borderTopLeftRadius: "50%",
+      borderTopRightRadius: "20px",
+      borderBottomRightRadius: "10px",
+      borderBottomLeftRadius: "10px",
+    });
+    const topLeft = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Top left"]',
+    );
+    const topRight = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Top right"]',
+    );
+    expect(topLeft?.value).toBe("50%");
+    expect(topRight?.value).toBe("20px");
+    await act(async () => {
+      topLeft!.focus();
+      const setValue = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setValue?.call(topLeft, "30");
+      topLeft!.dispatchEvent(new Event("input", { bubbles: true }));
+      topLeft!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(onStyleChange).toHaveBeenCalledWith(
+      "borderTopLeftRadius",
+      "30%",
+      expect.objectContaining({ phase: "commit" }),
+    );
   });
 });

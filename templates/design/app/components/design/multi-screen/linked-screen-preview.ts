@@ -8,6 +8,7 @@ export type LinkedScreenPreviewReplaceFn = (
   options?: {
     forceFullDocument?: boolean;
     preserveTextEditingSession?: boolean;
+    allowSourceNodeSwap?: boolean;
   },
 ) => boolean;
 
@@ -98,6 +99,7 @@ export function replaceLinkedScreenPreviewContent(
   options?: {
     forceFullDocument?: boolean;
     preserveTextEditingSession?: boolean;
+    allowSourceNodeSwap?: boolean;
   },
 ): boolean {
   if (!screenId) return false;
@@ -132,6 +134,20 @@ export function sendLinkedScreenPreviewStyleChange(
     }
   }
   return sent;
+}
+
+export function sendBreakpointPreviewStyleChange(
+  screenId: string,
+  widthPx: number,
+  selector: string,
+  property: string,
+  value: string,
+  options?: Parameters<LinkedPreviewHandlers["sendStyleChange"]>[3],
+): boolean {
+  const handlers = linkedPreviewHandlersByFrameId.get(
+    getBreakpointIframeId(screenId, widthPx),
+  );
+  return handlers?.sendStyleChange(selector, property, value, options) ?? false;
 }
 
 export function sendLinkedScreenPreviewPendingDelete(

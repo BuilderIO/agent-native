@@ -193,6 +193,21 @@ test.describe("Content page responsive layout", () => {
         for (const width of WIDTHS) {
           await page.setViewportSize({ width, height: HEIGHT });
           await setAgentPanel(page, agentOpen);
+          if (agentOpen && width === 768) {
+            const panel = page
+              .locator('.agent-sidebar-panel[data-agent-sidebar-state="open"]')
+              .first();
+            await expect(panel).toHaveAttribute(
+              "data-agent-sidebar-layout",
+              "overlay",
+            );
+            expect(
+              await page
+                .locator("[data-document-print-scroll]")
+                .evaluate((element) => element.getBoundingClientRect().width),
+              "overlay keeps the page's minimum width",
+            ).toBeGreaterThanOrEqual(560);
+          }
           // Crossing the compact breakpoint remounts the editor.
           await expect(page.locator(EDITOR_TABLE)).toBeVisible();
           const label = `sidebar-${sidebarCollapsed ? "collapsed" : "expanded"} agent-${

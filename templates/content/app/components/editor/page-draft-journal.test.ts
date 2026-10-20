@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
+  holdPageDraftWriter,
   listPageDraftJournal,
+  liveDraftWriterIds,
   PageDraftJournalError,
   syncPageDraftJournalBeforePersistingRecoveryDraft,
   readPageDraftJournal,
@@ -249,6 +251,30 @@ describe("Page draft journal", () => {
     );
   });
 
+  it("does not let a delayed save replace a peer-title recovery snapshot", () => {
+    const current = {
+      ...snapshot,
+      title: "Peer title final",
+      baseTitle: "Peer title final",
+      content: "Local body with recovery marker",
+    };
+    writePageDraftJournal({ scope, snapshot: current });
+
+    expect(
+      writePageDraftJournal({
+        scope,
+        currentTitle: current.title,
+        snapshot: {
+          ...snapshot,
+          title: "Peer title first",
+          baseTitle: "Peer title first",
+          content: "Older local body",
+        },
+      }),
+    ).toBeNull();
+    expect(readPageDraftJournal(scope)?.snapshot).toEqual(current);
+  });
+
   it("does not clear a newer generation after an older save acknowledges", () => {
     writePageDraftJournal({ scope, snapshot });
     writePageDraftJournal({
@@ -417,5 +443,88 @@ describe("Page draft journal", () => {
     expect(() => listPageDraftJournal(scope)).toThrowError(
       PageDraftJournalError,
     );
+  });
+});
+
+describe("Page draft writer locks", () => {
+  // The browser's lock manager as every tab of the origin sees it.
+  const held = new Set<string>();
+  const locks = {
+    request: async (name: string, callback: () => Promise<void>) => {
+      held.add(name);
+      try {
+        await callback();
+      } finally {
+        held.delete(name);
+      }
+    },
+    query: async () => ({ held: [...held].map((name) => ({ name })) }),
+  };
+
+  beforeEach(() => {
+    held.clear();
+    vi.stubGlobal("navigator", { ...navigator, locks });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports a writer live while its editor holds the lock, and gone once released", async () => {
+    const release = holdPageDraftWriter("tab-one");
+    holdPageDraftWriter("tab-two");
+    held.add("an-unrelated-lock");
+    await Promise.resolve();
+
+    expect(await liveDraftWriterIds()).toEqual(new Set(["tab-one", "tab-two"]));
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await liveDraftWriterIds()).toEqual(new Set(["tab-two"]));
+  });
+
+  it("drops a lock released before the browser granted it", async () => {
+    holdPageDraftWriter("tab-one")();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await liveDraftWriterIds()).toEqual(new Set());
+  });
+
+  it("reports a refused lock, and its writer reads as gone", async () => {
+    const refusal = new DOMException("Refused", "SecurityError");
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      locks: { ...locks, request: async () => Promise.reject(refusal) },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      holdPageDraftWriter("tab-one");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(await liveDraftWriterIds()).toEqual(new Set());
+      expect(warn).toHaveBeenCalledWith(expect.any(String), refusal);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("cannot tell which writers are live without Web Locks", async () => {
+    vi.stubGlobal("navigator", { ...navigator, locks: undefined });
+    const release = holdPageDraftWriter("tab-one");
+
+    expect(await liveDraftWriterIds()).toBeNull();
+    expect(release).not.toThrow();
+  });
+
+  it("reads past the writers it is told to skip", () => {
+    writePageDraftJournal({ scope, snapshot });
+    writePageDraftJournal({
+      scope: { ...scope, writerId: "tab-two" },
+      snapshot: { ...snapshot, content: "Other body" },
+    });
+
+    expect(
+      readPageDraftJournal(scope, new Set(["tab-one"]))?.snapshot.content,
+    ).toBe("Other body");
+    expect(
+      readPageDraftJournal(scope, new Set(["tab-one", "tab-two"])),
+    ).toBeNull();
   });
 });

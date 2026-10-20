@@ -1,6 +1,6 @@
 import path from "path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
@@ -23,6 +23,7 @@ import {
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import {
   buildSourceImportMetadata,
   mergeSourceImportMetadata,
@@ -42,12 +43,41 @@ import {
 } from "../shared/deck-title.js";
 import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
 import {
+  normalizeSlideTransition,
+  type SlideTransitionType,
+} from "../shared/slide-transitions.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
+import {
   assertDeckWriteApplied,
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
+
+// Importing into a deck appends slides to it: a content edit, never a
+// creation (the deck's row, and its deck_created, already exist).
+function trackImportedIntoDeck(
+  deckId: string,
+  format: "pptx" | "docx" | "pdf",
+  slidesAdded: number,
+  source: Parameters<typeof trackSlides>[2],
+): void {
+  trackSlides(
+    "deck_edited",
+    {
+      output_id: deckId,
+      output_type: "deck",
+      edit_mode: `import_${format}`,
+      change_kinds: ["add_slide"],
+      slides_changed: slidesAdded,
+    },
+    source,
+  );
+}
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
@@ -80,7 +110,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded file path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded path, hosted reference, exact current attachment name, or a generic reference such as 'the attached document' when exactly one compatible attachment is attached. Format-specific references must match the requested format.",
+      ),
     format: z
       .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])
       .optional()
@@ -108,7 +140,15 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, format, deckId, importIntoDeck, maxChars }, ctx) => {
-    const uploaded = await readUserUploadedFile(filePath, ctx);
+    const expectedExtensions =
+      format === "auto"
+        ? undefined
+        : format === "image"
+          ? [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]
+          : [`.${format}`];
+    const uploaded = await readUserUploadedFile(filePath, ctx, {
+      expectedExtensions,
+    });
     const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
     const fileBuffer = uploaded.data;
     const filename = uploaded.filename;
@@ -207,7 +247,18 @@ export default defineAction({
     if (detectedFormat === "pptx") {
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
-      const presentation = await parsePptx(fileBuffer);
+      let presentation: Awaited<ReturnType<typeof parsePptx>>;
+      try {
+        presentation = await parsePptx(fileBuffer);
+      } catch (error) {
+        if (importIntoDeck && error instanceof InvalidPptxSourceError) {
+          fail(
+            "Slides could not read this PowerPoint file. No slides were written to the deck.",
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+          );
+        }
+        throw error;
+      }
       const fallbackTitle = titleFromPath(filename);
       const title = presentation.title || "";
 
@@ -248,8 +299,9 @@ export default defineAction({
           tablesDegraded,
         });
         if (imagesSkipped > 0) {
-          throw new Error(
+          fail(
             `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
           );
         }
         const aspectRatio =
@@ -270,6 +322,7 @@ export default defineAction({
           fallbackTitle,
           presentation.theme,
         );
+        trackImportedIntoDeck(deckId, "pptx", slides.length, ctx);
         return {
           format: "pptx",
           title: importedTitle,
@@ -337,6 +390,7 @@ export default defineAction({
           doc.text,
           fallbackTitle,
         );
+        trackImportedIntoDeck(deckId, "docx", slides.length, ctx);
         return {
           format: "docx",
           title: importedTitle,
@@ -370,7 +424,7 @@ export default defineAction({
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        return importPdfPagesWithFidelity({
+        const imported = await importPdfPagesWithFidelity({
           fileBuffer,
           title: "",
           deckId,
@@ -378,6 +432,8 @@ export default defineAction({
           canvasFactory,
           fallbackTitle: title,
         });
+        trackImportedIntoDeck(deckId, "pdf", imported.slideCount, ctx);
+        return imported;
       }
 
       const pdf = new PDFParse({
@@ -773,7 +829,7 @@ async function buildPptxSlide(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
     splitByParagraph?: boolean;
   };
   imageSkippedCount: number;
@@ -794,7 +850,9 @@ async function buildPptxSlide(
       content: convertToSlideHtml(slide, uploadedImages.urls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
-      ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.transition
+        ? { transition: normalizeSlideTransition(slide.transition) }
+        : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
     imageSkippedCount: uploadedImages.imageSkippedCount,
@@ -886,7 +944,8 @@ async function appendDeckSlides(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
+    transitionSpeed?: number;
     splitByParagraph?: boolean;
   }>,
   source: string,

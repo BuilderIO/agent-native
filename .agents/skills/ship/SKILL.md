@@ -361,17 +361,29 @@ because the PR is behind, checks are pending, or mergeability is UNKNOWN.
 ### Feedback handoff
 
 If /review-latest-feedback was used, carry its start cursor, grouped reports,
-evidence links, and disposition table into the ship ledger and PR recap.
+evidence links, and disposition table into the ship ledger and PR recap. Carry
+CI run/fingerprint occurrences in the ship task transcript and PR recap, while
+keeping the feedback task transcript as the cross-sweep ledger source. Do not
+create GitHub issues to track automated findings. Beta, Design, production-
+health, signup, and other CI or uptime diagnostics go to `#qa-agent-native` in
+one grouped message per run; link the channel rollup and full run artifact in
+the ship ledger, and do not duplicate the report with another issue or Slack
+message.
 Follow review-latest-feedback for ownership, claims, reporter replies, and the
 exact disposition vocabulary; follow babysit-pr for review comments and merge
-blocking. Shipping does not independently change Slack reactions. Keep the
-feedback workflow's `👀` claim in place; add `✅` only for verified fixes, and
-never remove reactions. Newer thread evidence controls the current disposition.
-Do not send Slack replies or reactions as a routine ship step unless that
-workflow was explicitly requested or already owns the action.
-Start any such Slack feedback reply by thanking the person for sharing the
-issue, then give the status or ask the needed question. This does not widen the
-existing write authorization.
+blocking. Use the connected Slack integration for any Slack work; never use
+computer use, a browser, screenshots, or UI automation to operate Slack.
+Shipping does not independently take ownership of new Slack feedback. For
+feedback already owned by review-latest-feedback, keep all reactions in place:
+never remove or clean them up; add `✅` when accepted scope is complete and
+verified, and `🎫` only for distinct remaining work needing follow-up or an
+owner. Follow that skill's concise reply format: what changed, what remains,
+and for beta app fixes in an open PR, that beta should follow soon after merge.
+Do not send a routine second reply to announce merge or live beta; keep
+publisher status in the ship ledger and correct a material availability
+change. Do not send Slack replies or reactions as a routine ship step unless
+review-latest-feedback was requested or already owns the action. This does not
+widen existing write authorization.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship

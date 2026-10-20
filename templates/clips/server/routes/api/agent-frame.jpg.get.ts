@@ -14,25 +14,24 @@ import {
   defineEventHandler,
   getQuery,
   setResponseHeader,
-  setResponseStatus,
   type H3Event,
 } from "h3";
 
+import {
+  describeFrameFailure,
+  frameFailureStatus,
+  loadAgentFrameAccess,
+  sendFrameJson,
+} from "../../lib/agent-frame-request.js";
 import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
 import {
-  isHeldForRedaction,
-  REDACTION_HOLD_MESSAGE,
-} from "../../lib/pending-redactions.js";
-import {
   CLIPS_AGENT_ACCESS_PARAM,
-  loadPublicAgentAccess,
   loadRecordingMediaFile,
   loadScreenshotImage,
   queryString,
-  RecordingMediaFetchError,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
 import {
@@ -171,7 +170,7 @@ async function extractFrameWithStaleDurationRecovery({
   } catch (error) {
     if (
       !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_VIDEO" ||
+      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
       atMs <= 0
     ) {
       throw error;
@@ -197,7 +196,7 @@ async function extractFrameWithStaleDurationRecovery({
       } catch (candidateError) {
         if (
           !(candidateError instanceof VideoFrameExtractionError) ||
-          candidateError.code !== "NO_VIDEO"
+          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
         ) {
           throw candidateError;
         }
@@ -209,32 +208,10 @@ async function extractFrameWithStaleDurationRecovery({
 
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
-  const id = queryString(query.id);
-  const accessResult = await loadPublicAgentAccess(event, id, {
-    password: queryString(query.password),
-    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]),
-  });
-
-  if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return accessResult.failure.body;
-  }
-
+  const accessResult = await loadAgentFrameAccess(event);
+  if (!accessResult.ok) return accessResult.body;
   const recording = accessResult.access.recording;
 
-  if (
-    isHeldForRedaction(
-      recording.editsJson,
-      accessResult.access.viewerIsOwner ? "owner" : null,
-    )
-  ) {
-    setResponseStatus(event, 409);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
-  }
   // A still image has one frame, the picture itself; there is no video to
   // cut one from.
   if (isImageRecording(recording)) {
@@ -247,23 +224,8 @@ export default defineEventHandler(async (event: H3Event) => {
     } catch (err) {
       // Pass the storage outcome on, as the video path does: a timeout or a
       // missing object is not the same failure to retry as a bad gateway.
-      setResponseStatus(
-        event,
-        err instanceof RecordingMediaFetchError
-          ? err.statusCode
-          : err instanceof Error && /too large/i.test(err.message)
-            ? 413
-            : 502,
-      );
-      setResponseHeader(
-        event,
-        "Content-Type",
-        "application/json; charset=utf-8",
-      );
-      return {
-        error:
-          err instanceof Error ? err.message : "Screenshot could not be loaded",
-      };
+      const status = frameFailureStatus(err);
+      return sendFrameJson(event, status, describeFrameFailure(err, status));
     }
   }
   const durationMs =
@@ -325,25 +287,7 @@ export default defineEventHandler(async (event: H3Event) => {
       await media.cleanup().catch(() => {});
     }
   } catch (err) {
-    const isFrameError = err instanceof VideoFrameExtractionError;
-    setResponseStatus(
-      event,
-      err instanceof RecordingMediaFetchError
-        ? err.statusCode
-        : isFrameError && err.code === "FFMPEG_UNAVAILABLE"
-          ? 503
-          : err instanceof Error && /too large/i.test(err.message)
-            ? 413
-            : 422,
-    );
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      error: isFrameError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : String(err),
-    };
+    const status = frameFailureStatus(err);
+    return sendFrameJson(event, status, describeFrameFailure(err, status));
   }
 });

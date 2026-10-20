@@ -81,6 +81,27 @@ function stylePatchEntries(patch: InlineTextStylePatch) {
   });
 }
 
+// An empty value clears an override on the whole element, but on a partial
+// selection the surrounding spans still apply, so the selection is reset to
+// the neutral value instead.
+const NEUTRAL_INLINE_STYLE: InlineTextStylePatch = {
+  fontWeight: "400",
+  fontStyle: "normal",
+  textDecoration: "none",
+};
+
+export function selectionClearingPatch(
+  patch: InlineTextStylePatch,
+): InlineTextStylePatch {
+  return Object.fromEntries(
+    Object.entries(patch).flatMap(([key, value]) => {
+      if (value !== "") return [[key, value]];
+      const neutral = NEUTRAL_INLINE_STYLE[key as keyof InlineTextStylePatch];
+      return neutral ? [[key, neutral]] : [];
+    }),
+  );
+}
+
 function applyPatch(element: HTMLElement, patch: InlineTextStylePatch) {
   for (const [key, value] of stylePatchEntries(patch)) {
     element.style.setProperty(CSS_PROPERTY_NAMES[key], value);
@@ -363,6 +384,86 @@ function clearOwnDecorationLine(element: HTMLElement, line: string) {
   if (element.style.length === 0) element.removeAttribute("style");
 }
 
+function setInlineTextFormat(
+  editable: HTMLElement,
+  format: InlineTextFormat,
+  texts: Text[],
+  on: boolean,
+) {
+  if (on && texts.every((text) => isFormatActive(text, format, editable)))
+    return;
+  if (format === "code") {
+    if (on) {
+      texts.splice(0, texts.length, ...wrapSelectedCode(editable, texts));
+      return;
+    }
+    for (const text of texts) {
+      const code = text.parentElement?.closest("code");
+      if (!code || !editable.contains(code) || text.parentNode !== code) {
+        if (code && editable.contains(code)) removeCodeFromText(code, text);
+        continue;
+      }
+      const children = Array.from(code.childNodes);
+      const selectedIndex = children.indexOf(text);
+      if (selectedIndex < 0) continue;
+      const replacement = document.createDocumentFragment();
+      const before = children.slice(0, selectedIndex);
+      const after = children.slice(selectedIndex + 1);
+      if (before.length) {
+        const wrapper = code.cloneNode(false) as HTMLElement;
+        wrapper.append(...before);
+        replacement.append(wrapper);
+      }
+      replacement.append(text);
+      if (after.length) {
+        const wrapper = code.cloneNode(false) as HTMLElement;
+        wrapper.append(...after);
+        replacement.append(wrapper);
+      }
+      code.replaceWith(replacement);
+    }
+    return;
+  }
+  if (format === "underline" || format === "strike") {
+    if (!on) {
+      removeDecorationLine(editable, texts, format);
+      return;
+    }
+    for (const text of texts) {
+      setOwnDecorationLine(
+        innermostStyleSpan(text),
+        DECORATION_LINE[format],
+        true,
+      );
+    }
+    return;
+  }
+  const [property, onValue, offValue] = FORMAT_DECLARATION[format];
+  for (const text of texts) {
+    const wasActive = isFormatActive(text, format, editable);
+    const span = innermostStyleSpan(text);
+    if (on && !wasActive) {
+      span.style.setProperty(property, onValue);
+    } else if (!on && wasActive) {
+      span.style.removeProperty(property);
+      if (isFormatActive(text, format, editable)) {
+        span.style.setProperty(property, offValue);
+      }
+    }
+    if (span.style.length === 0) span.removeAttribute("style");
+  }
+}
+
+export function applyInlineTextFormat(
+  editable: HTMLElement,
+  format: InlineTextFormat,
+  selection: Selection | null = window.getSelection(),
+): InlineTextStyleApplication {
+  return styleSelectedText(editable, selection, (texts) =>
+    setInlineTextFormat(editable, format, texts, true),
+  );
+}
+
 const DECORATION_LOOK = [
   "text-decoration-color",
   "text-decoration-style",
@@ -432,61 +533,7 @@ export function toggleInlineTextFormat(
 ): InlineTextStyleApplication {
   return styleSelectedText(editable, selection, (texts) => {
     const on = !texts.every((text) => isFormatActive(text, format, editable));
-    if (format === "code") {
-      if (on) {
-        texts.splice(0, texts.length, ...wrapSelectedCode(editable, texts));
-        return;
-      }
-      for (const text of texts) {
-        const code = text.parentElement?.closest("code");
-        if (!code || !editable.contains(code) || text.parentNode !== code) {
-          if (code && editable.contains(code)) removeCodeFromText(code, text);
-          continue;
-        }
-        const children = Array.from(code.childNodes);
-        const selectedIndex = children.indexOf(text);
-        if (selectedIndex < 0) continue;
-        const replacement = document.createDocumentFragment();
-        const before = children.slice(0, selectedIndex);
-        const after = children.slice(selectedIndex + 1);
-        if (before.length) {
-          const wrapper = code.cloneNode(false) as HTMLElement;
-          wrapper.append(...before);
-          replacement.append(wrapper);
-        }
-        replacement.append(text);
-        if (after.length) {
-          const wrapper = code.cloneNode(false) as HTMLElement;
-          wrapper.append(...after);
-          replacement.append(wrapper);
-        }
-        code.replaceWith(replacement);
-      }
-      return;
-    }
-    if (format === "underline" || format === "strike") {
-      if (!on) {
-        removeDecorationLine(editable, texts, format);
-        return;
-      }
-      for (const text of texts) {
-        setOwnDecorationLine(
-          innermostStyleSpan(text),
-          DECORATION_LINE[format],
-          true,
-        );
-      }
-      return;
-    }
-    const [property, onValue, offValue] = FORMAT_DECLARATION[format];
-    for (const text of texts) {
-      const span = innermostStyleSpan(text);
-      span.style.removeProperty(property);
-      if (isFormatActive(text, format, editable) !== on) {
-        span.style.setProperty(property, on ? onValue : offValue);
-      }
-      if (span.style.length === 0) span.removeAttribute("style");
-    }
+    setInlineTextFormat(editable, format, texts, on);
   });
 }
 
@@ -809,6 +856,9 @@ const SLIDE_CLIPBOARD_LAYOUT_STYLE_PROPERTIES = [
   "z-index",
   "transform",
   "transform-origin",
+  "translate",
+  "rotate",
+  "scale",
 ] as const;
 
 function hasSlideClipboardText(element: Element): boolean {

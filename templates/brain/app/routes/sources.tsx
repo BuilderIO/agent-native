@@ -137,6 +137,7 @@ import {
   invalidZoomMeetingIds,
   zoomFilterLines,
 } from "../../shared/zoom-meeting-filter";
+import { activeConnectionMasksLocalCredentialFailure } from "./source-readiness";
 
 type Provider =
   | "manual"
@@ -157,7 +158,6 @@ interface SourceFormState {
   granolaPageSize: string;
   granolaUpdatedAfter: string;
   zoomMeetingIds: string;
-  zoomMeetingTopics: string;
   zoomLookbackDays: string;
   zoomConfigExtras: Record<string, unknown>;
   githubRepos: string;
@@ -256,7 +256,6 @@ function defaultForm(
     granolaPageSize: "10",
     granolaUpdatedAfter: "",
     zoomMeetingIds: "",
-    zoomMeetingTopics: "",
     zoomLookbackDays: "7",
     zoomConfigExtras: {},
     githubRepos: "",
@@ -283,10 +282,12 @@ function zoomConfigFromSource(config: Record<string, unknown>) {
     !Array.isArray(config.zoom)
       ? (config.zoom as Record<string, unknown>)
       : {};
-  const { meetingIds, meetingTopics, lookbackDays, ...extras } = zoom;
+  const { meetingIds, lookbackDays, ...extras } = zoom;
+  // Title matching and summary import were removed; saving drops their keys.
+  delete extras.meetingTopics;
+  delete extras.includeSummaries;
   return {
     zoomMeetingIds: listValue(meetingIds),
-    zoomMeetingTopics: listValue(meetingTopics),
     zoomLookbackDays:
       typeof lookbackDays === "number" || typeof lookbackDays === "string"
         ? String(lookbackDays)
@@ -386,7 +387,6 @@ function buildConfig(form: SourceFormState) {
     config.zoom = {
       ...form.zoomConfigExtras,
       meetingIds: zoomFilterLines(form.zoomMeetingIds),
-      meetingTopics: zoomFilterLines(form.zoomMeetingTopics),
       lookbackDays: numberValue(form.zoomLookbackDays, 7, 1, 30),
     };
   }
@@ -867,6 +867,16 @@ function credentialPathReadiness(
     };
   }
 
+  if (health.status === "unavailable") {
+    return {
+      label: t("sources.credentialPath"),
+      value: t("sources.workspaceStatus.error"),
+      detail: t("sources.readiness.providerUnknown"),
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+
   const available = availableCredentialDetails(provider)[0];
   if (available?.provenance?.source === "workspace_connection") {
     return {
@@ -921,7 +931,10 @@ function providerConnectionReadiness(
 ): ProviderReadinessItem {
   const workspace = provider.workspaceConnection;
   const health = provider.providerHealth?.status;
-  if (!provider.sourceProviderSupported) {
+  if (
+    !provider.sourceProviderSupported &&
+    provider.rawProviderApi?.available !== true
+  ) {
     return {
       label: t("sources.providerConnection"),
       value: t("sources.providerHealth.metadataOnly"),
@@ -955,8 +968,15 @@ function providerConnectionReadiness(
   if (health === "unhealthy") {
     return {
       label: t("sources.providerConnection"),
-      value: t("sources.readiness.repair"),
-      detail: t("sources.readiness.reauthorizeProviderConnection"),
+      value: provider.usesBrainLocalCredentials
+        ? t("sources.workspaceStatus.error")
+        : t("sources.readiness.repair"),
+      detail:
+        provider.usesBrainLocalCredentials &&
+        provider.credentialHealth?.status === "unavailable"
+          ? t("sources.readiness.providerUnknown")
+          : (provider.providerHealth?.message ??
+            t("sources.readiness.reauthorizeProviderConnection")),
       tone: "attention",
       icon: IconAlertTriangle,
     };
@@ -983,6 +1003,12 @@ function providerConnectionReadiness(
 }
 
 function providerReadinessItems(provider: BrainConnectionProvider, t: BrainT) {
+  if (provider.usesBrainLocalCredentials) {
+    return [
+      providerConnectionReadiness(provider, t),
+      credentialPathReadiness(provider, t),
+    ];
+  }
   return [
     sharedConnectionReadiness(provider, t),
     appGrantReadiness(provider, t),
@@ -996,10 +1022,51 @@ function providerReadinessCallout(
   t: BrainT,
 ): ProviderReadinessItem & { title: string } {
   const workspace = provider.workspaceConnection;
-  if (!provider.sourceProviderSupported) {
+  if (
+    !provider.sourceProviderSupported &&
+    provider.rawProviderApi?.available !== true
+  ) {
     return {
       ...providerConnectionReadiness(provider, t),
       title: t("sources.connectionMetadataOnly"),
+    };
+  }
+  if (
+    !provider.sourceProviderSupported &&
+    provider.rawProviderApi?.available === true &&
+    provider.providerHealth?.status === "ready"
+  ) {
+    return {
+      label: t("sources.readinessLabel"),
+      value: t("sources.providerHealth.ready"),
+      title: t("sources.scopedCredentialsReady"),
+      detail: t("sources.readiness.scopedCredentialRefsConfigured"),
+      tone: "ready",
+      icon: IconCircleCheck,
+    };
+  }
+  if (
+    provider.usesBrainLocalCredentials &&
+    provider.providerHealth?.status === "unhealthy"
+  ) {
+    return {
+      label: t("sources.readinessLabel"),
+      value: t("sources.workspaceStatus.error"),
+      title: providerHealthLabel(provider, t),
+      detail:
+        provider.credentialHealth?.status === "unavailable"
+          ? t("sources.readiness.providerUnknown")
+          : (provider.providerHealth.message ??
+            t("sources.readiness.providerUnknown")),
+      tone: "attention",
+      icon: IconAlertTriangle,
+    };
+  }
+  if (activeConnectionMasksLocalCredentialFailure(provider)) {
+    return {
+      ...providerConnectionReadiness(provider, t),
+      label: t("sources.readinessLabel"),
+      title: t("sources.connectTheProvider"),
     };
   }
   if (workspace?.hasActiveWorkspaceConnection) {
@@ -1022,7 +1089,10 @@ function providerReadinessCallout(
       icon: IconAlertTriangle,
     };
   }
-  if (scopedCredentialCount(provider)) {
+  if (
+    provider.providerHealth?.status === "ready" &&
+    scopedCredentialCount(provider)
+  ) {
     return {
       label: t("sources.readinessLabel"),
       value: t("sources.readiness.local"),
@@ -1166,7 +1236,9 @@ function ProviderCatalog({
             const GrantIcon = grantStateIcon(grantState);
             const credentialRefs = providerWorkspaceCredentialRefs(provider);
             const missingCredentialMessage =
-              provider.credentialHealth?.missingMessages[0] ?? null;
+              provider.credentialHealth?.status === "unavailable"
+                ? t("sources.readiness.providerUnknown")
+                : (provider.credentialHealth?.missingMessages[0] ?? null);
             const credentialBadges = credentialRefs.length
               ? credentialRefs.map((ref, index) => ({
                   key: `${refLabel(ref)}-${index}`,
@@ -1210,17 +1282,21 @@ function ProviderCatalog({
                       <p className="mt-1 text-xs text-muted-foreground">
                         {provider.hasConfiguredSources
                           ? `${provider.configuredSourceCount.toLocaleString()} configured`
-                          : t("sources.noBrainSourcesYet")}
+                          : provider.rawProviderApi?.available
+                            ? provider.description
+                            : t("sources.noBrainSourcesYet")}
                       </p>
                     </div>
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={`${grantStateClass(grantState)} w-fit max-w-full`}
-                  >
-                    <GrantIcon className="me-1 size-3" />
-                    {grantStateLabel(grantState, t)}
-                  </Badge>
+                  {!provider.usesBrainLocalCredentials ? (
+                    <Badge
+                      variant="outline"
+                      className={`${grantStateClass(grantState)} w-fit max-w-full`}
+                    >
+                      <GrantIcon className="me-1 size-3" />
+                      {grantStateLabel(grantState, t)}
+                    </Badge>
+                  ) : null}
                   <Badge
                     variant="outline"
                     className={`${providerHealthClass(provider)} w-fit max-w-full`}
@@ -1230,8 +1306,10 @@ function ProviderCatalog({
                 </div>
 
                 <p className="text-xs leading-5 text-muted-foreground">
-                  {provider.providerHealth?.message ??
-                    grantStateDetail(provider, grantState, t)}
+                  {provider.credentialHealth?.status === "unavailable"
+                    ? t("sources.readiness.providerUnknown")
+                    : (provider.providerHealth?.message ??
+                      grantStateDetail(provider, grantState, t))}
                 </p>
 
                 <div className="rounded-md border border-border bg-muted/25 p-3">
@@ -1366,18 +1444,30 @@ function ProviderCatalog({
                                 className={
                                   detail.available
                                     ? readinessToneClass("ready")
-                                    : readinessToneClass("danger")
+                                    : detail.checked.some(
+                                          (check) => check.status === "error",
+                                        )
+                                      ? readinessToneClass("attention")
+                                      : readinessToneClass("danger")
                                 }
                               >
                                 {detail.available
                                   ? t("sources.readiness.available")
-                                  : t("sources.readiness.missing")}
+                                  : detail.checked.some(
+                                        (check) => check.status === "error",
+                                      )
+                                    ? t("sources.workspaceStatus.error")
+                                    : t("sources.readiness.missing")}
                               </Badge>
                             </div>
                             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                              {detail.provenance
-                                ? provenanceLabel(detail.provenance, t)
-                                : detail.missingMessage}
+                              {detail.checked.some(
+                                (check) => check.status === "error",
+                              )
+                                ? t("sources.readiness.providerUnknown")
+                                : detail.provenance
+                                  ? provenanceLabel(detail.provenance, t)
+                                  : detail.missingMessage}
                             </p>
                           </div>
                         ))}
@@ -1453,11 +1543,11 @@ function ProviderCatalog({
                           );
                         })}
                       </div>
-                    ) : (
+                    ) : !provider.usesBrainLocalCredentials ? (
                       <p className="text-xs leading-5 text-muted-foreground">
                         {t("sources.noSharedWorkspaceConnection")}
                       </p>
-                    )}
+                    ) : null}
                     {!provider.sourceProviderSupported &&
                     provider.rawProviderApi?.available !== true ? (
                       <p className="text-xs leading-5 text-muted-foreground">
@@ -1838,6 +1928,7 @@ function MarkdownImportDialog({
 
 function SourceListItem({
   source,
+  updating,
   syncPending,
   onReview,
   onRotateIngestToken,
@@ -1847,6 +1938,7 @@ function SourceListItem({
   onArchive,
 }: {
   source: BrainSource;
+  updating: boolean;
   syncPending: boolean;
   onReview: () => void;
   onRotateIngestToken?: () => void;
@@ -1882,7 +1974,14 @@ function SourceListItem({
             <h2 className="truncate text-sm font-medium text-foreground sm:text-[0.9375rem]">
               {sourceName(source)}
             </h2>
-            <StatusBadge status={sourceHealth(source)} />
+            {updating ? (
+              <Badge variant="outline" className="gap-1.5" role="status">
+                <IconLoader2 className="size-3 animate-spin" />
+                {t("sources.updatingSource")}
+              </Badge>
+            ) : (
+              <StatusBadge status={sourceHealth(source)} />
+            )}
             <VisibilityBadge visibility={source.visibility} />
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -1949,11 +2048,14 @@ function SourceListItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
+              <DropdownMenuItem
+                disabled={syncPending || updating}
+                onSelect={onSync}
+              >
                 <IconRefresh className="size-4" />
                 {t("sources.syncNow")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onTune}>
+              <DropdownMenuItem disabled={updating} onSelect={onTune}>
                 <IconSettings2 className="size-4" />
                 {t("sources.tuneSource")}
               </DropdownMenuItem>
@@ -2108,9 +2210,12 @@ export default function SourcesRoute() {
       includeArchived: false,
     } as any,
   );
+  // Checking every provider's credentials takes seconds, and a source edit
+  // doesn't change them, so source saves skip refreshing this query.
   const connectionProvidersQuery = useActionQuery<ConnectionProvidersResponse>(
     "list-connection-providers" as any,
     {} as any,
+    { resources: ["brain-connection-provider"] },
   );
   const healthQuery = useActionQuery<BrainHealthResponse>(
     "get-brain-health" as any,
@@ -2124,7 +2229,8 @@ export default function SourcesRoute() {
       status?: "active" | "paused";
       config?: Record<string, unknown>;
     }
-  >("update-source" as any);
+  >("update-source" as any, { resources: ["brain-source"] });
+  const [updatingSourceId, setUpdatingSourceId] = useState<string | null>(null);
   const createSource = useActionMutation<
     CreateSourceResponse,
     {
@@ -2204,10 +2310,24 @@ export default function SourcesRoute() {
     form.provider === "github" ? validateGitHubRepoInput(form.githubRepos) : [];
   const zoomMeetingIdIssues =
     form.provider === "zoom" ? invalidZoomMeetingIds(form.zoomMeetingIds) : [];
+  const zoomMeetingIdsMissing =
+    form.provider === "zoom" &&
+    zoomFilterLines(form.zoomMeetingIds).length === 0;
+  // Undefined until the provider list loads; only a confirmed non-admin locks.
+  const canManageZoom = connectionProvidersQuery.data?.canManageZoom;
+  const zoomSettingsLocked =
+    form.provider === "zoom" && canManageZoom === false;
+  const selectableProviders = providers.filter(
+    (provider) =>
+      provider.value !== "zoom" ||
+      canManageZoom === true ||
+      (!!editingSource && form.provider === "zoom"),
+  );
   const formConfigInvalid =
     slackChannelIssues.length > 0 ||
     githubRepoIssues.length > 0 ||
-    zoomMeetingIdIssues.length > 0;
+    zoomMeetingIdIssues.length > 0 ||
+    zoomMeetingIdsMissing;
   const formMissingCredentialKeys =
     formProviderMetadata?.credentialHealth?.status === "missing"
       ? formProviderMetadata.credentialHealth.missingCredentialKeys
@@ -2316,13 +2436,26 @@ export default function SourcesRoute() {
     if (formConfigInvalid) return;
     const config = buildConfig(form);
     if (editingSource) {
+      const sourceId = editingSource.id;
       await updateSource.mutateAsync({
-        id: editingSource.id,
+        id: sourceId,
         title: form.title.trim() || defaultTitle(form.provider, t),
-        status:
-          form.autoSync || sourceEnabled(editingSource) ? "active" : "paused",
-        config,
+        status: zoomSettingsLocked
+          ? undefined
+          : form.autoSync || sourceEnabled(editingSource)
+            ? "active"
+            : "paused",
+        config: zoomSettingsLocked ? undefined : config,
       });
+      setSetupOpen(false);
+      setUpdatingSourceId(sourceId);
+      try {
+        await sourcesQuery.refetch({ cancelRefetch: false });
+      } finally {
+        setUpdatingSourceId((current) =>
+          current === sourceId ? null : current,
+        );
+      }
     } else {
       const result = await createSource.mutateAsync({
         title: form.title.trim() || defaultTitle(form.provider, t),
@@ -2343,7 +2476,6 @@ export default function SourcesRoute() {
       }
       return;
     }
-    setSetupOpen(false);
   }
 
   async function confirmArchiveSource() {
@@ -2436,6 +2568,7 @@ export default function SourcesRoute() {
               <SourceListItem
                 key={source.id}
                 source={source}
+                updating={updatingSourceId === source.id}
                 syncPending={
                   syncSource.isPending || rotateSourceIngestToken.isPending
                 }
@@ -3011,7 +3144,7 @@ export default function SourcesRoute() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {providers.map((provider) => (
+                  {selectableProviders.map((provider) => (
                     <SelectItem key={provider.value} value={provider.value}>
                       {provider.label}
                     </SelectItem>
@@ -3248,12 +3381,18 @@ export default function SourcesRoute() {
 
             {form.provider === "zoom" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
+                {zoomSettingsLocked ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("sources.zoomAdminOnly")}
+                  </p>
+                ) : null}
                 <div className="grid gap-2">
                   <Label htmlFor="zoom-meeting-ids">
                     {t("sources.zoomMeetingIds")}
                   </Label>
                   <Textarea
                     id="zoom-meeting-ids"
+                    disabled={zoomSettingsLocked}
                     value={form.zoomMeetingIds}
                     onChange={(event) =>
                       updateForm({ zoomMeetingIds: event.target.value })
@@ -3282,22 +3421,6 @@ export default function SourcesRoute() {
                     {t("sources.zoomMeetingIdsDescription")}
                   </p>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="zoom-meeting-topics">
-                    {t("sources.zoomMeetingTopics")}
-                  </Label>
-                  <Textarea
-                    id="zoom-meeting-topics"
-                    value={form.zoomMeetingTopics}
-                    onChange={(event) =>
-                      updateForm({ zoomMeetingTopics: event.target.value })
-                    }
-                    placeholder={"Weekly Sync\nMarketing Standup"}
-                  />
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("sources.zoomMeetingTopicsDescription")}
-                  </p>
-                </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="zoom-lookback-days">
@@ -3305,6 +3428,7 @@ export default function SourcesRoute() {
                     </Label>
                     <Input
                       id="zoom-lookback-days"
+                      disabled={zoomSettingsLocked}
                       type="number"
                       min={1}
                       max={30}
@@ -3320,6 +3444,7 @@ export default function SourcesRoute() {
                     </Label>
                     <Input
                       id="zoom-poll-minutes"
+                      disabled={zoomSettingsLocked}
                       type="number"
                       min={5}
                       max={1440}
@@ -3480,6 +3605,7 @@ export default function SourcesRoute() {
                   </span>
                 </span>
                 <Switch
+                  disabled={zoomSettingsLocked}
                   checked={form.autoSync}
                   onCheckedChange={(autoSync) => updateForm({ autoSync })}
                 />

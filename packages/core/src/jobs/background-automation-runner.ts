@@ -12,15 +12,25 @@ import {
   resolveEngine,
 } from "../agent/engine/index.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
-import type { AgentEngine } from "../agent/engine/types.js";
+import { overlayCompletedExecutionStepOutcomes } from "../agent/engine/tool-call-journal-seed.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import {
+  currentExecutionFence,
+  StaleExecutionFenceError,
+} from "../agent/execution-fence.js";
 import {
   actionsToEngineTools,
   filterInitialEngineTools,
   resolveOwnerEngineApiKey,
   runAgentLoop,
+  appendAgentLoopContinuation,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+import { foldReapedRunIntoThread } from "../agent/reaped-run-thread.js";
+import {
+  AgentLoopAbortedError,
+  runAgentLoopDirectWithSoftTimeout,
+} from "../agent/run-loop-with-resume.js";
 import {
   abortRun,
   resolveBackgroundAutomationSoftTimeoutMs,
@@ -28,15 +38,37 @@ import {
   startRun,
   type ActiveRun,
 } from "../agent/run-manager.js";
-import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
+import {
+  claimBackgroundRun,
+  beginAgentExecutionStep,
+  completeAgentExecutionStep,
+  markAgentExecutionStepDispatched,
+  insertRun,
+  tryClaimRunSlot,
+  releaseBackgroundRunBeforeStart,
+  type AgentExecutionStepIntent,
+} from "../agent/run-store.js";
+import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
+import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
   upsertUserMessage,
+  threadDataToEngineMessages,
+  threadMessageTextForEngine,
 } from "../agent/thread-data-builder.js";
+import {
+  classifyToolCallJournal,
+  buildResumeJournalNote,
+  toolCallInputFingerprint,
+} from "../agent/tool-call-journal.js";
 import { attachToolSearch } from "../agent/tool-search.js";
+import type { AgentChatEvent } from "../agent/types.js";
 import {
   lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
@@ -48,11 +80,13 @@ import {
   updateThreadData,
   withThreadDataLock,
 } from "../chat-threads/store.js";
+import { withDbExec, type DbExec } from "../db/client.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
-  organizationResourceOwner,
+  SHARED_OWNER,
   type Resource,
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
@@ -74,6 +108,7 @@ import {
   automationOwnerKind,
   classifyAutomationFailure,
   CONFIG_INVALID_ERROR_CODE,
+  CONNECTION_REQUIRED_ERROR_CODE,
   MISSING_TOOLS_ERROR_CODE,
   OWNER_MISSING_ERROR_CODE,
   pausedMessage,
@@ -81,23 +116,43 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  AutomationRecoveryStorageError,
+  deliveryNoteForEvents,
+  readAutomationRecoveryEvents,
+  readAutomationRunDeliveryNote,
+  withAutomationRecoveryStorage,
+  type AutomationResume,
+} from "./automation-recovery.js";
+import {
+  automationRunTerminalError,
+  type AutomationTerminalEvent,
+} from "./automation-terminal-error.js";
+import { inspectAutomationWork } from "./automation-work-evidence.js";
+import { effectiveTimezone } from "./cron.js";
+import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   attachAutomationRunThread,
+  AutomationRunHistoryClaimLostError,
   finishAutomationRun,
   startAutomationRun,
+  type StartAutomationRunOptions,
 } from "./run-history.js";
+import { AutomationSchedulerLeaseLostError } from "./scheduler-health.js";
 
 export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
 export class BackgroundAutomationRunError extends Error {
   readonly errorCode: string;
-  constructor(message: string, errorCode: string) {
+  readonly deliveryNote?: string;
+  constructor(message: string, errorCode: string, deliveryNote?: string) {
     super(message);
     this.name = "BackgroundAutomationRunError";
     this.errorCode = errorCode;
+    this.deliveryNote = deliveryNote;
   }
 }
 
@@ -126,9 +181,11 @@ export interface BackgroundAutomationDeps {
 interface AutomationRunRef {
   current: string | null;
   threadId?: string;
+  completionCallbackStarted?: boolean;
 }
 
 export interface BackgroundAutomationRunOptions {
+  resume?: AutomationResume;
   automation: BackgroundAutomationContext;
   ownerEmail: string;
   orgId?: string;
@@ -141,6 +198,7 @@ export interface BackgroundAutomationRunOptions {
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
   historyId?: string;
+  assertCanStart?: () => Promise<void>;
   hardTimeoutMs?: number;
   hardDeadlineAt?: number;
   noProgressTimeoutMs?: number;
@@ -301,6 +359,22 @@ export async function resolveBackgroundAutomationIdentity(
     ) ??
     automation.meta.orgId ??
     undefined;
+  if (
+    !orgId &&
+    automation.resource.owner !== "__shared__" &&
+    !organizationIdFromResourceOwner(automation.resource.owner)
+  ) {
+    const resolved = await resolveAutomationExecutionIdentity(
+      automation.resource.owner,
+      automation.meta,
+    );
+    if (!resolved.ok) return resolved;
+    const validity = await validateAutomationRunIdentity(
+      resolved.identity.userEmail,
+    );
+    if (!validity.ok) return validity;
+    return resolved;
+  }
   const validity = await validateAutomationRunIdentity(userEmail, orgId);
   return validity.ok
     ? {
@@ -308,6 +382,9 @@ export async function resolveBackgroundAutomationIdentity(
         identity: {
           userEmail,
           orgId,
+          ...(!orgId && automation.resource.owner === SHARED_OWNER
+            ? { defaultAgentEngineScope: "deployment" as const }
+            : {}),
           eventOwner: userEmail.toLowerCase(),
         },
       }
@@ -315,10 +392,12 @@ export async function resolveBackgroundAutomationIdentity(
 }
 
 export function isBackgroundAutomationRunActive(
-  meta: Pick<JobFrontmatter, "lastRun" | "lastStatus">,
+  meta: Pick<JobFrontmatter, "lastRun" | "lastStatus" | "lastHistoryId">,
   now = new Date(),
 ): boolean {
   if (meta.lastStatus !== "running") return false;
+  // Exact firing markers remain owned until the scheduler reconciles history.
+  if (meta.lastHistoryId) return true;
   if (!meta.lastRun) return false;
   const startedAt = new Date(meta.lastRun).getTime();
   return (
@@ -420,33 +499,18 @@ async function assertLlmCredentialsUsable(input: {
  * The cause a failed run recorded for itself. Without this, a run that ended
  * on `missing_credentials` surfaced as the generic "ended with status:
  * errored" and the owner never learned why.
+ *
+ * A run that yielded to a connection request is a failed run even though it
+ * ended on a clean `done`: nobody is there to answer the request.
  */
 export function backgroundRunTerminalError(run: {
   events?: readonly {
-    event: {
-      type: string;
-      error?: string;
-      details?: string;
-      errorCode?: string;
-    };
+    event: AutomationTerminalEvent;
   }[];
 }): { message: string; errorCode?: string } | null {
-  const events = run.events ?? [];
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i].event;
-    if (event.type === "missing_api_key") {
-      return {
-        message: LLM_MISSING_CREDENTIALS_MESSAGE,
-        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
-      };
-    }
-    if (event.type === "error") {
-      const message = (event.error || event.details || "").trim();
-      return message ? { message, errorCode: event.errorCode } : null;
-    }
-    if (event.type === "done") return null;
-  }
-  return null;
+  return automationRunTerminalError(
+    (run.events ?? []).map(({ event }) => event),
+  );
 }
 
 /**
@@ -505,36 +569,46 @@ function createRunId(prefix: string): string {
   return `${safePrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export async function startBackgroundAutomationHistory(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+  orgId?: string,
+  appId?: string,
+  options?: StartAutomationRunOptions,
+): Promise<string> {
+  return startAutomationRun(
+    {
+      ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
+      automation: automation.name,
+      path: automation.resource.path,
+      appId,
+      notificationEmail: await notificationEmailFor(
+        automation.name,
+        ownerEmail,
+        automation.meta.createdBy,
+        orgId,
+      ),
+    },
+    options,
+  );
+}
+
 export async function runBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation } = options;
-  assertHardDeadline(options.hardDeadlineAt);
   let historyId: string | null = null;
   if (options.historyId) {
     historyId = options.historyId;
   } else {
     try {
-      const historyOwner = options.orgId
-        ? organizationResourceOwner(options.orgId)
-        : automation.resource.owner === "__shared__"
-          ? options.ownerEmail
-          : automation.resource.owner;
-      historyId = await startAutomationRun({
-        owner: historyOwner,
-        automation: automation.name,
-        path: automation.resource.path,
-        scope: options.orgId ? "organization" : "personal",
-        orgId: options.orgId ?? null,
-        appId: deps.appId,
-        notificationEmail: await notificationEmailFor(
-          automation.name,
-          options.ownerEmail,
-          automation.meta.createdBy,
-          options.orgId,
-        ),
-      });
+      historyId = await startBackgroundAutomationHistory(
+        automation,
+        options.ownerEmail,
+        options.orgId,
+        deps.appId,
+      );
     } catch (err) {
       console.error(
         `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
@@ -544,7 +618,10 @@ export async function runBackgroundAutomation(
   }
 
   let result: BackgroundAutomationRunResult;
-  const runIdRef: AutomationRunRef = { current: null };
+  const runIdRef: AutomationRunRef = {
+    current: options.resume?.previousRunId ?? null,
+    threadId: options.resume?.threadId,
+  };
   try {
     result = await executeBackgroundAutomation(
       options,
@@ -553,14 +630,20 @@ export async function runBackgroundAutomation(
       runIdRef,
     );
   } catch (err) {
-    const failure = classifyAutomationFailure(err);
-    // Same transition the scheduler persists, so the run that pauses the
-    // automation is the one that tells its owner.
-    const transition = applyAutomationFailure(
-      automation.meta,
-      failure,
-      new Date(),
-      { countTowardPause: !options.manual, eventId: options.eventId },
+    if (
+      err instanceof StaleExecutionFenceError ||
+      err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryStorageError ||
+      (err instanceof BackgroundAutomationRunError &&
+        (err.errorCode === "background_automation_claim_lost" ||
+          err.errorCode === "background_automation_history_write_failed"))
+    )
+      throw err;
+    const { failure, transition } = await automationFailureDetails(
+      automation,
+      options,
+      runIdRef,
+      err,
     );
     captureError(err, {
       tags: {
@@ -588,40 +671,106 @@ export async function runBackgroundAutomation(
         ...(runIdRef.threadId ? { threadId: runIdRef.threadId } : {}),
       },
     });
-    await recordRunOutcome(
-      historyId,
-      "error",
-      transition.pause
-        ? pausedMessage(
-            failure.code,
-            transition.consecutiveFailures,
-            failure.message,
-          )
-        : withDeliveryNote(failure.message),
+    if (!runIdRef.completionCallbackStarted) {
+      await recordAutomationFailureOutcome(
+        historyId,
+        automation,
+        options,
+        runIdRef,
+        err,
+        { details: { failure, transition } },
+      );
+    }
+    throw new BackgroundAutomationRunError(
+      failure.message,
       failure.code,
-      // A precondition failure repeats identically until fixed, so only the
-      // run that pauses the automation emails its owner.
-      !(failure.precondition && !transition.pause),
+      failure.deliveryNote,
     );
-    throw err;
   }
+  return result;
+}
+
+async function automationFailureDetails(
+  automation: BackgroundAutomationContext,
+  options: BackgroundAutomationRunOptions,
+  runIdRef: AutomationRunRef,
+  error: unknown,
+): Promise<{
+  failure: AutomationFailure;
+  transition: ReturnType<typeof applyAutomationFailure>;
+}> {
+  const failure = classifyAutomationFailure(error);
+  if (runIdRef.current) {
+    failure.deliveryNote = await readAutomationRunDeliveryNote(
+      runIdRef.current,
+    );
+  }
+  const transition = applyAutomationFailure(
+    automation.meta,
+    failure,
+    new Date(),
+    { countTowardPause: !options.manual, eventId: options.eventId },
+  );
+  return { failure, transition };
+}
+
+async function recordAutomationFailureOutcome(
+  historyId: string | null,
+  automation: BackgroundAutomationContext,
+  options: BackgroundAutomationRunOptions,
+  runIdRef: AutomationRunRef,
+  error: unknown,
+  input?: {
+    details?: Awaited<ReturnType<typeof automationFailureDetails>>;
+  },
+): Promise<void> {
+  const { failure, transition } =
+    input?.details ??
+    (await automationFailureDetails(automation, options, runIdRef, error));
   await recordRunOutcome(
     historyId,
-    result.status,
-    result.status === "skipped" ? result.reason : undefined,
+    runIdRef.current,
+    "error",
+    transition.pause
+      ? pausedMessage(
+          failure.code,
+          transition.consecutiveFailures,
+          failure.message,
+          failure.deliveryNote,
+        )
+      : withDeliveryNote(failure.message, failure.deliveryNote),
+    failure.code,
+    // A precondition failure repeats identically until fixed, so only the
+    // run that pauses the automation emails its owner.
+    !(failure.precondition && !transition.pause),
+    Boolean(options.historyId),
   );
-  return result;
 }
 
 async function recordRunThread(
   historyId: string | null,
   threadId: string,
   runId: string,
+  strict: boolean,
+  expectedRunId?: string,
 ): Promise<void> {
   if (!historyId) return;
   try {
-    await attachAutomationRunThread(historyId, threadId, runId);
+    await attachAutomationRunThread(historyId, threadId, runId, {
+      requirePersisted: strict,
+      ...(expectedRunId !== undefined ? { expectedRunId } : {}),
+    });
   } catch (err) {
+    if (err instanceof AutomationRunHistoryClaimLostError)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        err.errorCode,
+      );
+    if (strict)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        "background_automation_history_write_failed",
+      );
     console.error(
       `[automations] Could not attach thread ${threadId} to run ${historyId}:`,
       err,
@@ -644,20 +793,38 @@ function backgroundAutomationPersistFailure(input: {
     };
   }
   const cutOffReason = backgroundRunCutOffReason(input.run);
-  if (!cutOffReason) return undefined;
-  return {
-    message: `Background automation was cut off before finishing (${cutOffReason})`,
-    errorCode: "background_automation_cut_off",
-  };
+  if (cutOffReason) {
+    return {
+      message: `Background automation was cut off before finishing (${cutOffReason})`,
+      errorCode: "background_automation_cut_off",
+    };
+  }
+  // Decided here, ahead of work confirmation: the failed tool that preceded the
+  // request would otherwise type the run `automation_no_confirmed_work`.
+  const cause = backgroundRunTerminalError(input.run);
+  if (cause?.errorCode === CONNECTION_REQUIRED_ERROR_CODE) {
+    return { message: cause.message, errorCode: cause.errorCode };
+  }
+  return undefined;
 }
 
 async function persistBackgroundAutomationTurn(input: {
   threadId: string;
   threadTitle: string;
   prompt: string;
-  run: ActiveRun;
+  run: Pick<ActiveRun, "runId" | "turnId" | "startedAt" | "events">;
+  persistAssistant?: boolean;
   persistFailure?: { message: string; errorCode: string };
 }): Promise<void> {
+  const fence = currentExecutionFence();
+  if (
+    fence &&
+    (fence.threadId !== input.threadId ||
+      fence.runId !== input.run.runId ||
+      fence.turnId !== input.run.turnId)
+  ) {
+    throw new StaleExecutionFenceError(fence);
+  }
   await withThreadDataLock(input.threadId, async () => {
     const row = await getThread(input.threadId);
     if (!row) {
@@ -682,7 +849,11 @@ async function persistBackgroundAutomationTurn(input: {
 
     repo = upsertUserMessage(
       repo,
-      buildUserMessage({ text: input.prompt, runId: input.run.runId }),
+      buildUserMessage({
+        text: input.prompt,
+        runId: input.run.turnId,
+        turnId: input.run.turnId,
+      }),
     );
     const events = [...(input.run.events ?? [])];
     if (input.persistFailure) {
@@ -696,13 +867,21 @@ async function persistBackgroundAutomationTurn(input: {
         },
       });
     }
-    const assistantMsg = buildAssistantMessage(events, input.run.runId, {
-      suppressInternalContinuation: !input.persistFailure,
-      turnId: input.run.turnId,
-      runDurationMs: Number.isFinite(input.run.startedAt)
-        ? Math.max(0, Date.now() - input.run.startedAt)
-        : undefined,
-    });
+    const assistantMsg =
+      input.persistAssistant === false
+        ? null
+        : await buildAssistantMessageFromRunJournal({
+            threadId: input.threadId,
+            turnId: input.run.turnId,
+            runId: input.run.runId,
+            runEvents: events,
+            options: {
+              suppressInternalContinuation: !input.persistFailure,
+              runDurationMs: Number.isFinite(input.run.startedAt)
+                ? Math.max(0, Date.now() - input.run.startedAt)
+                : undefined,
+            },
+          });
     if (assistantMsg) {
       repo = foldAssistantTurn(repo, assistantMsg, {
         runId: input.run.runId,
@@ -712,37 +891,57 @@ async function persistBackgroundAutomationTurn(input: {
 
     const meta = extractThreadMeta(repo);
     const messages = (repo as { messages?: unknown[] }).messages;
-    await updateThreadData(
+    const updated = await updateThreadData(
       input.threadId,
       JSON.stringify(repo),
       input.threadTitle || row.title,
       meta.preview || row.preview,
       Array.isArray(messages) ? messages.length : 0,
     );
+    if (!updated) {
+      throw new Error(
+        `Background automation thread ${input.threadId} was not updated while saving run ${input.run.runId}.`,
+      );
+    }
   });
 }
 
 async function recordRunOutcome(
   historyId: string | null,
+  expectedRunId: string | null,
   status: "success" | "error" | "skipped",
   error?: string,
   errorCode?: string,
   notify = true,
+  strict = false,
 ): Promise<void> {
   if (!historyId) return;
   try {
-    if (notify) {
-      await finishAutomationRun(historyId, status, error, errorCode);
-    } else {
-      await finishAutomationRun(historyId, status, error, errorCode, {
-        notify: false,
-      });
-    }
+    const writeOptions =
+      notify && !strict
+        ? undefined
+        : {
+            notify,
+            ...(strict ? { requirePersisted: true, expectedRunId } : {}),
+          };
+    await finishAutomationRun(
+      historyId,
+      status,
+      error,
+      errorCode,
+      writeOptions,
+    );
   } catch (err) {
+    if (err instanceof StaleExecutionFenceError) throw err;
     console.error(
       `[automations] Could not record run ${historyId} as ${status}:`,
       err,
     );
+    if (strict)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        "background_automation_history_write_failed",
+      );
   }
 }
 
@@ -753,27 +952,27 @@ async function confirmAutomationWork(
   responseText: string,
   actions: Record<string, ActionEntry>,
   noOpReason: string | undefined,
+  priorEvents: readonly AgentChatEvent[],
 ): Promise<{ status: "success" } | { status: "skipped"; reason: string }> {
-  const events = run.events ?? [];
-  const hasConfirmedAction = events.some(
-    ({ event }) =>
-      event.type === "tool_done" &&
-      !event.isError &&
-      event.completedSideEffect === true &&
-      actions[event.tool]?.confirmsAutomationWork !== false,
+  const evidence = inspectAutomationWork(
+    [...priorEvents, ...(run.events ?? []).map(({ event }) => event)],
+    {
+      noOpReason,
+      confirmsWork: (tool) => actions[tool]?.confirmsAutomationWork !== false,
+    },
   );
-  const lastFailedTool = [...events]
-    .reverse()
-    .find(({ event }) => event.type === "tool_done" && event.isError);
-  if (noOpReason && !hasConfirmedAction && !lastFailedTool) {
-    return { status: "skipped", reason: noOpReason };
-  }
+  if (evidence.status === "skipped") return evidence;
   const { deliveryPlatform, deliveryDestination } = automation.meta;
+  const deliveryResponseText =
+    responseText.trim() ||
+    collectFinalResponseTextFromAgentEvents(priorEvents, {
+      fallbackToPreToolText: false,
+    });
   if (
-    (!noOpReason || hasConfirmedAction) &&
+    (evidence.status === "success" || !evidence.noOpDeclared) &&
     deliveryPlatform &&
     deliveryDestination &&
-    responseText.trim()
+    deliveryResponseText.trim()
   ) {
     const { getDefaultAdapter } =
       await import("../integrations/adapters/index.js");
@@ -784,28 +983,86 @@ async function confirmAutomationWork(
         CONFIG_INVALID_ERROR_CODE,
       );
     }
-    await adapter.sendMessageToTarget(
-      adapter.formatAgentResponse(responseText),
-      {
-        destination: deliveryDestination,
-        threadRef: automation.meta.deliveryThreadRef ?? null,
-        tenantId: automation.meta.deliveryTenantId,
-      },
+    const outgoing = adapter.formatAgentResponse(deliveryResponseText);
+    const target = {
+      destination: deliveryDestination,
+      threadRef: automation.meta.deliveryThreadRef ?? null,
+      tenantId: automation.meta.deliveryTenantId,
+    };
+    const fence = currentExecutionFence();
+    if (
+      !fence ||
+      fence.threadId !== run.threadId ||
+      fence.turnId !== run.turnId ||
+      fence.runId !== run.runId
+    ) {
+      throw new BackgroundAutomationRunError(
+        automationRecoveryMessagesForLocale().unreadable,
+        "background_automation_delivery_journal_unavailable",
+      );
+    }
+    const deliveryIntent: AgentExecutionStepIntent = {
+      ...fence,
+      stepId: "background-automation-delivery",
+      operationId: "background-automation-delivery",
+      toolName: "background-automation-delivery",
+      inputJson: JSON.stringify({
+        platform: deliveryPlatform,
+        target,
+        outgoingFingerprint: toolCallInputFingerprint(outgoing),
+      }),
+      replayPolicy: "never",
+    };
+    const admission = await beginAgentExecutionStep(deliveryIntent);
+    if (admission.status === "completed") {
+      let receipt: unknown;
+      try {
+        receipt = admission.resultJson
+          ? JSON.parse(admission.resultJson)
+          : undefined;
+      } catch {
+        receipt = undefined;
+      }
+      if (
+        !receipt ||
+        typeof receipt !== "object" ||
+        (receipt as { receipt?: { accepted?: unknown } }).receipt?.accepted !==
+          true
+      ) {
+        throw new BackgroundAutomationRunError(
+          automationRecoveryMessagesForLocale().unreadable,
+          "background_automation_delivery_journal_unreadable",
+        );
+      }
+      return { status: "success" };
+    }
+    if (admission.status === "unknown") {
+      throw new BackgroundAutomationRunError(
+        automationRecoveryMessagesForLocale().deliveryUnknown,
+        "background_automation_delivery_unknown",
+      );
+    }
+
+    await markAgentExecutionStepDispatched(deliveryIntent);
+    await adapter.sendMessageToTarget(outgoing, target);
+    await completeAgentExecutionStep(
+      deliveryIntent,
+      JSON.stringify({
+        result: "Automation response delivered.",
+        isError: false,
+        completedSideEffect: true,
+        receipt: { accepted: true },
+      }),
     );
     return { status: "success" };
   }
-  if (hasConfirmedAction) return { status: "success" };
+  if (evidence.status === "success") return evidence;
 
   const messages = await automationOutcomeMessagesForUser(ownerEmail);
-  const detail =
-    lastFailedTool?.event.type === "tool_done"
-      ? lastFailedTool.event.result
-      : undefined;
+  const detail = evidence.failedTool?.result;
   throw new BackgroundAutomationRunError(
     `${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
-    lastFailedTool?.event.type === "tool_done"
-      ? (lastFailedTool.event.errorCode ?? "automation_no_confirmed_work")
-      : "automation_no_confirmed_work",
+    evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
   );
 }
 
@@ -876,7 +1133,12 @@ async function resolveBackgroundAutomationModel(
  * paused for `missing_credentials` as soon as the credential exists.
  */
 export async function checkBackgroundAutomationCredentials(
-  identity: { ownerEmail: string; orgId?: string },
+  identity: {
+    ownerEmail: string;
+    orgId?: string;
+    orgScope?: "personal";
+    defaultAgentEngineScope?: "deployment";
+  },
   deps: BackgroundAutomationDeps,
   automationModel?: string,
 ): Promise<
@@ -885,7 +1147,16 @@ export async function checkBackgroundAutomationCredentials(
 > {
   try {
     const { engine, model } = await runWithRequestContext(
-      { userEmail: identity.ownerEmail, orgId: identity.orgId },
+      {
+        userEmail: identity.ownerEmail,
+        orgId: identity.orgId,
+        ...(identity.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+        ...(identity.defaultAgentEngineScope === "deployment"
+          ? { defaultAgentEngineScope: "deployment" as const }
+          : {}),
+      },
       async () => {
         const engine = await resolveUsableBackgroundEngine(
           identity,
@@ -996,17 +1267,93 @@ async function executeBackgroundAutomation(
       assertHardDeadline(options.hardDeadlineAt);
       const systemPrompt = `${await deps.getSystemPrompt(ownerEmail)}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
-      const thread = await createThread(ownerEmail, {
-        title: threadTitle,
-        orgId: orgId ?? null,
-      });
+      const resume = options.resume;
+      const thread = resume
+        ? await withAutomationRecoveryStorage(() => getThread(resume.threadId))
+        : await createThread(ownerEmail, {
+            title: threadTitle,
+            orgId: orgId ?? null,
+          });
+      if (!thread)
+        throw new Error(
+          `Automation recovery thread ${options.resume?.threadId} was not found`,
+        );
       assertHardDeadline(options.hardDeadlineAt);
       const runId = createRunId(options.runIdPrefix);
-      if (runIdRef) {
-        runIdRef.current = runId;
-        runIdRef.threadId = thread.id;
+      const turnId = options.resume?.turnId ?? runId;
+      const runtimeContext = {
+        now: new Date(),
+        timezone: effectiveTimezone(automation.meta.timezone),
+      };
+      let executionPrompt =
+        prompt + buildCurrentTimeUserContext(runtimeContext);
+      let engineMessages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: executionPrompt }] },
+      ];
+      let priorEvents: AgentChatEvent[] = [];
+      if (options.resume) {
+        const saved = JSON.parse(
+          "threadData" in thread ? thread.threadData || "{}" : "{}",
+        );
+        const original = Array.isArray(saved.messages)
+          ? saved.messages
+              .map((entry: any) => entry.message ?? entry)
+              .find(
+                (message: any) =>
+                  message.role === "user" &&
+                  (message.metadata?.custom?.submittedTurnId === turnId ||
+                    message.metadata?.custom?.submittedRunId === turnId),
+              )
+          : undefined;
+        const originalPrompt = original
+          ? threadMessageTextForEngine(original)
+          : "";
+        if (!originalPrompt.trim())
+          throw new BackgroundAutomationRunError(
+            automationRecoveryMessagesForLocale().missingPrompt,
+            "background_automation_resume_context_missing",
+          );
+        executionPrompt = originalPrompt;
+        const persistedEvents = await readAutomationRecoveryEvents(
+          thread.id,
+          turnId,
+        );
+        const events = await withAutomationRecoveryStorage(() =>
+          overlayCompletedExecutionStepOutcomes(
+            thread.id,
+            turnId,
+            persistedEvents.map(({ event }) => event),
+          ),
+        );
+        priorEvents = events;
+        const partial = buildAssistantMessage(
+          events.map((event, seq) => ({ event, seq })),
+          options.resume.previousRunId,
+          { turnId, suppressInternalContinuation: true },
+        );
+        const resumed = threadDataToEngineMessages(
+          {
+            messages: [
+              buildUserMessage({
+                text: originalPrompt,
+                runId: turnId,
+                turnId,
+              }),
+              ...(partial ? [partial] : []),
+            ],
+          },
+          { includeToolCalls: true },
+        );
+        const journalNote = buildResumeJournalNote(
+          classifyToolCallJournal(events),
+        );
+        appendAgentLoopContinuation(
+          resumed,
+          "run_timeout",
+          journalNote ? { journalNote } : {},
+        );
+        engineMessages = resumed;
       }
-      await recordRunThread(historyId, thread.id, runId);
       assertHardDeadline(options.hardDeadlineAt);
 
       const maxHardTimeoutMs = Math.min(
@@ -1018,22 +1365,123 @@ async function executeBackgroundAutomation(
       const usageRef: {
         current: Awaited<ReturnType<typeof runAgentLoop>> | null;
       } = { current: null };
+      const persistUsage = async () => {
+        const usage = usageRef.current;
+        if (
+          !usage ||
+          (usage.inputTokens <= 0 &&
+            usage.outputTokens <= 0 &&
+            usage.cacheReadTokens <= 0 &&
+            usage.cacheWriteTokens <= 0 &&
+            usage.builderCreditsUsed == null)
+        ) {
+          return;
+        }
+        try {
+          const { recordUsage } = await import("../usage/store.js");
+          await recordUsage({
+            ownerEmail,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+            ...(usage.builderCreditsUsed == null
+              ? {}
+              : { builderCreditsUsed: usage.builderCreditsUsed }),
+            engineName: usage.engineName ?? engine.name,
+            model: usage.model,
+            label: usageLabel,
+            app: deps.appId,
+            refId: options.usageRefId
+              ? `${options.usageRefId}:${runId}`
+              : runId,
+          });
+        } catch (error) {
+          console.error("[automations] Failed to persist run usage:", error);
+        }
+      };
       let responseText = "";
       let outcome:
         | Awaited<ReturnType<typeof confirmAutomationWork>>
         | undefined;
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
+      let hardTimeoutProjectionRequired = false;
+      let hardTimeoutThreadProjectionSaved = false;
+      const completionRunRef: AutomationRunRef = runIdRef ?? {
+        current: runId,
+        threadId: thread.id,
+      };
+      completionRunRef.current = runId;
+      completionRunRef.threadId = thread.id;
 
       assertHardDeadline(options.hardDeadlineAt);
-      await insertRun(runId, thread.id, undefined, {
-        dispatchMode: "background",
-      });
-      const claimedOwnRun = await claimBackgroundRun(runId);
-      if (!claimedOwnRun) {
-        throw new Error(
-          `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
-        );
+      try {
+        await persistBackgroundAutomationTurn({
+          threadId: thread.id,
+          threadTitle,
+          prompt: executionPrompt,
+          run: { runId, turnId, startedAt: Date.now(), events: [] },
+          persistAssistant: false,
+        });
+        const afterInsert = (tx: DbExec) =>
+          withDbExec(tx, async () => {
+            await recordRunThread(
+              historyId,
+              thread.id,
+              runId,
+              Boolean(options.historyId),
+              options.resume?.previousRunId,
+            );
+            if (!(await claimBackgroundRun(runId)))
+              throw new Error(
+                `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
+              );
+          });
+        if (options.resume) {
+          const claim = await tryClaimRunSlot(thread.id, runId, undefined, {
+            turnId,
+            dispatchMode: "background",
+            afterInsert,
+          });
+          if (!claim.claimed)
+            throw new BackgroundAutomationRunError(
+              `Automation recovery could not claim turn ${turnId}`,
+              "background_automation_claim_lost",
+            );
+        } else {
+          await insertRun(runId, thread.id, turnId, {
+            dispatchMode: "background",
+            afterInsert,
+          });
+        }
+      } catch (error) {
+        if (error instanceof BackgroundAutomationRunError) throw error;
+        if (options.resume) throw new AutomationRecoveryStorageError(error);
+        throw error;
+      }
+      if (runIdRef) {
+        runIdRef.current = runId;
+        runIdRef.threadId = thread.id;
+      }
+      try {
+        await options.assertCanStart?.();
+      } catch (error) {
+        if (error instanceof AutomationSchedulerLeaseLostError) {
+          try {
+            await releaseBackgroundRunBeforeStart(
+              runId,
+              error.errorCode,
+              error.message,
+            );
+          } catch (cleanupError) {
+            console.error(
+              "[automations] Could not release the unstarted worker; heartbeat recovery will retry:",
+              cleanupError,
+            );
+          }
+        }
+        throw error;
       }
       const hardTimeoutMs = Math.min(
         maxHardTimeoutMs,
@@ -1043,6 +1491,18 @@ async function executeBackgroundAutomation(
       );
 
       await new Promise<void>((resolve, reject) => {
+        const persistOutcome = async (write: () => Promise<void>) => {
+          try {
+            await write();
+          } catch (error) {
+            if (error instanceof StaleExecutionFenceError && hardTimedOut) {
+              hardTimeoutProjectionRequired = true;
+              return;
+            }
+            reject(error instanceof Error ? error : new Error(String(error)));
+            throw error;
+          }
+        };
         const activeRun = startRun(
           runId,
           thread.id,
@@ -1050,17 +1510,14 @@ async function executeBackgroundAutomation(
             const loopOpts = {
               engine,
               model,
-              systemPrompt,
+              systemPrompt:
+                systemPrompt + buildRuntimeContextPrompt(runtimeContext),
               tools,
               availableTools,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text" as const, text: prompt }],
-                },
-              ],
+              messages: engineMessages,
               actions,
               send,
+              beforeWrite: control.flushEvents,
               signal,
               threadId: thread.id,
               ownerEmail,
@@ -1068,7 +1525,11 @@ async function executeBackgroundAutomation(
               appId: deps.appId,
               actionCaller: options.actionCaller,
               automation: options.actionAutomation,
+              ...(options.resume
+                ? { recoverCompletedExecutionSteps: true }
+                : {}),
               runId,
+              turnId,
               maxIterations: automation.meta.maxIterations,
               maxRunInputTokens: automation.meta.maxRunInputTokens,
               reasoningEffort: normalizeReasoningEffortForRequest(
@@ -1077,13 +1538,24 @@ async function executeBackgroundAutomation(
               ),
               maxOutputTokens: resolveMainChatMaxOutputTokens(model),
             };
-            const execute = (o: typeof loopOpts = loopOpts) =>
-              runAgentLoopDirectWithSoftTimeout(
-                o,
-                softTimeoutMs,
-                { backgroundFunction: true },
-                control,
-              );
+            const execute = async (o: typeof loopOpts = loopOpts) => {
+              try {
+                return await runAgentLoopDirectWithSoftTimeout(
+                  o,
+                  softTimeoutMs,
+                  { backgroundFunction: true },
+                  control,
+                  (usage) => {
+                    usageRef.current = usage;
+                  },
+                );
+              } catch (error) {
+                if (error instanceof AgentLoopAbortedError) {
+                  usageRef.current = error.usage;
+                }
+                throw error;
+              }
+            };
 
             let instrumented = false;
             try {
@@ -1116,6 +1588,7 @@ async function executeBackgroundAutomation(
             usageRef.current = await execute();
           },
           async (run) => {
+            completionRunRef.completionCallbackStarted = true;
             if (hardAbortTimer) {
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
@@ -1139,6 +1612,7 @@ async function executeBackgroundAutomation(
                     responseText,
                     actions,
                     noOpReason,
+                    priorEvents,
                   );
                 } catch (error) {
                   const failure = classifyAutomationFailure(error);
@@ -1151,40 +1625,106 @@ async function executeBackgroundAutomation(
               await persistBackgroundAutomationTurn({
                 threadId: thread.id,
                 threadTitle,
-                prompt,
+                prompt: executionPrompt,
                 run,
                 persistFailure,
               });
+              hardTimeoutThreadProjectionSaved = true;
             } catch (err) {
+              if (err instanceof StaleExecutionFenceError && hardTimedOut) {
+                hardTimeoutProjectionRequired = true;
+                return;
+              }
+              if (!(err instanceof StaleExecutionFenceError)) {
+                try {
+                  await recordAutomationFailureOutcome(
+                    historyId,
+                    automation,
+                    options,
+                    completionRunRef,
+                    err,
+                  );
+                } catch (historyError) {
+                  reject(
+                    historyError instanceof Error
+                      ? historyError
+                      : new Error(String(historyError)),
+                  );
+                  throw historyError;
+                }
+              }
               reject(err instanceof Error ? err : new Error(String(err)));
               throw err;
             }
-            if (hardTimedOut) return;
             if (persistFailure) {
               run.continuationTerminalEvent = {
                 type: "error",
                 error: persistFailure.message,
                 errorCode: persistFailure.errorCode,
               };
-              reject(
-                new BackgroundAutomationRunError(
-                  persistFailure.message,
-                  persistFailure.errorCode,
+              const failureError = new BackgroundAutomationRunError(
+                persistFailure.message,
+                persistFailure.errorCode,
+              );
+              await persistOutcome(() =>
+                recordAutomationFailureOutcome(
+                  historyId,
+                  automation,
+                  options,
+                  completionRunRef,
+                  failureError,
                 ),
               );
+              if (!hardTimedOut) reject(failureError);
               return;
             }
             if (run.status !== "completed") {
               const cause = backgroundRunTerminalError(run);
-              reject(
-                new BackgroundAutomationRunError(
-                  cause?.message ??
-                    `Background automation ended with status: ${run.status} and recorded no error detail`,
-                  cause?.errorCode ?? `background_automation_${run.status}`,
+              const failureError = new BackgroundAutomationRunError(
+                cause?.message ??
+                  `Background automation ended with status: ${run.status} and recorded no error detail`,
+                cause?.errorCode ?? `background_automation_${run.status}`,
+              );
+              await persistOutcome(() =>
+                recordAutomationFailureOutcome(
+                  historyId,
+                  automation,
+                  options,
+                  completionRunRef,
+                  failureError,
                 ),
               );
+              reject(failureError);
               return;
             }
+            if (!outcome) {
+              const failureError = new BackgroundAutomationRunError(
+                messages.noWork,
+                "automation_no_confirmed_work",
+              );
+              await persistOutcome(() =>
+                recordAutomationFailureOutcome(
+                  historyId,
+                  automation,
+                  options,
+                  completionRunRef,
+                  failureError,
+                ),
+              );
+              reject(failureError);
+              return;
+            }
+            await persistOutcome(() =>
+              recordRunOutcome(
+                historyId,
+                completionRunRef.current,
+                outcome!.status,
+                outcome!.status === "skipped" ? outcome!.reason : undefined,
+                undefined,
+                true,
+                Boolean(options.historyId),
+              ),
+            );
             resolve();
           },
           {
@@ -1192,6 +1732,9 @@ async function executeBackgroundAutomation(
             backgroundFunction: true,
             recoverChunkBoundaries: true,
             dispatchMode: "background",
+            turnId,
+            runRowAlreadyInserted: true,
+            executionLease: true,
             noProgressTimeoutMs: options.noProgressTimeoutMs,
             backgroundNoProgressTimeoutMs:
               options.backgroundNoProgressTimeoutMs,
@@ -1199,6 +1742,23 @@ async function executeBackgroundAutomation(
             engineName: engine.name,
             userId: ownerEmail,
           },
+        );
+
+        void activeRun.finalized.then(
+          () => {
+            if (completionRunRef.completionCallbackStarted) return;
+            const failure = backgroundRunTerminalError(activeRun);
+            reject(
+              new BackgroundAutomationRunError(
+                failure?.message ??
+                  `Background automation ended with status: ${activeRun.status} and recorded no error detail`,
+                failure?.errorCode ??
+                  `background_automation_${activeRun.status}`,
+              ),
+            );
+          },
+          (error) =>
+            reject(error instanceof Error ? error : new Error(String(error))),
         );
 
         hardAbortTimer = setTimeout(() => {
@@ -1212,47 +1772,42 @@ async function executeBackgroundAutomation(
           );
           void activeRun.finalized
             .catch(() => {})
-            .then(() => {
+            .then(async () => {
+              if (
+                hardTimeoutProjectionRequired ||
+                !completionRunRef.completionCallbackStarted
+              ) {
+                try {
+                  if (!hardTimeoutThreadProjectionSaved) {
+                    await foldReapedRunIntoThread(runId, {
+                      error: timeoutError.message,
+                      errorCode: timeoutError.errorCode,
+                    });
+                  }
+                  await recordAutomationFailureOutcome(
+                    historyId,
+                    automation,
+                    options,
+                    completionRunRef,
+                    timeoutError,
+                  );
+                } catch (error) {
+                  reject(
+                    error instanceof Error ? error : new Error(String(error)),
+                  );
+                  return;
+                }
+              }
               reject(timeoutError);
             });
         }, hardTimeoutMs);
-      }).finally(() => {
+      }).finally(async () => {
         if (hardAbortTimer) {
           clearTimeout(hardAbortTimer);
           hardAbortTimer = null;
         }
+        await persistUsage();
       });
-
-      const usage = usageRef.current;
-      if (
-        usage &&
-        (usage.inputTokens > 0 ||
-          usage.outputTokens > 0 ||
-          usage.cacheReadTokens > 0 ||
-          usage.cacheWriteTokens > 0 ||
-          usage.builderCreditsUsed != null)
-      ) {
-        try {
-          const { recordUsage } = await import("../usage/store.js");
-          await recordUsage({
-            ownerEmail,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            cacheReadTokens: usage.cacheReadTokens,
-            cacheWriteTokens: usage.cacheWriteTokens,
-            ...(usage.builderCreditsUsed == null
-              ? {}
-              : { builderCreditsUsed: usage.builderCreditsUsed }),
-            engineName: usage.engineName ?? engine.name,
-            model: usage.model,
-            label: usageLabel,
-            app: deps.appId,
-            refId: options.usageRefId ?? runId,
-          });
-        } catch {
-          // Usage attribution must not break an otherwise successful run.
-        }
-      }
 
       if (!outcome) {
         throw new BackgroundAutomationRunError(

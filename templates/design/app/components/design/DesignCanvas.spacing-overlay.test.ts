@@ -92,9 +92,10 @@ describe("DesignCanvas spacing overlay bridge", () => {
 
   it("clicks children inside a selected parent while drags still move the parent", () => {
     expect(source).toContain("containerFirstSelectionTarget(hit)");
-    expect(source).toMatch(
-      /selectTarget\(\s*primaryClickTarget \|\| dragTarget\s*,\s*ev\s*,\s*true\s*\)/,
+    expect(source).toContain(
+      "var nextClickTarget = cycleTarget || primaryClickTarget || dragTarget;",
     );
+    expect(source).toContain("selectTarget(nextClickTarget, ev, true);");
     expect(source).not.toContain("selectTextChild");
     expect(source).toMatch(/selectTarget\(\s*dragTarget\s*,\s*ev\s*\)/);
   });
@@ -116,7 +117,7 @@ describe("DesignCanvas text editing bridge", () => {
 
   it("treats Escape as an unfocus/commit gesture for inline text", () => {
     expect(source).toMatch(
-      /if \(\s*ev\.key === "Escape" \|\|\s*\(ev\.key === "Enter" && metaOrCtrl && !ev\.altKey && !ev\.shiftKey\)\s*\) \{\s*ev\.preventDefault\(\);\s*ev\.stopPropagation\(\);\s*finish\(true\);\s*target\.blur\(\);\s*return;\s*\}/,
+      /var hasTextCommitModifier = ev\.metaKey \|\| ev\.ctrlKey;\s*if\s*\(\s*ev\.key === "Escape" \|\|\s*\(ev\.key === "Enter" &&\s*hasTextCommitModifier/,
     );
   });
 

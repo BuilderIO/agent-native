@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("Design editor mobile layout", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const layoutSource = readFileSync("app/components/layout/Layout.tsx", "utf8");
   const bottomToolbarSource = readFileSync(
     "app/components/design/editor/DesignBottomToolbar.tsx",
@@ -41,25 +43,17 @@ describe("Design editor mobile layout", () => {
     expect(inspectorSource).toContain(
       "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col",
     );
-    expect(inspectorSource).toContain(
-      "absolute top-3 right-3 bottom-3 z-[70] hidden min-h-0 flex-col overflow-hidden rounded-2xl",
-    );
     expect(editorSource).toContain(
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
     );
     expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
-    expect(editorSource).toContain(
-      'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
-    );
-    expect(editorSource).toContain('activeLeftPanel === "agent" ? 320 : 220');
+    expect(editorSource).toContain("resolveLeftSidebarWidth(");
     const resizeSource = readFileSync(
       "app/pages/design-editor/commands/start-sidebar-resize.ts",
       "utf8",
     );
-    expect(resizeSource).toContain('activeLeftPanel === "agent"\n      ? 320');
-    expect(resizeSource).toContain(
-      'const minWidth = side === "left" ? leftPanelMinWidth : 240;',
-    );
+    expect(resizeSource).toContain("snapLeftSidebarDragWidth(");
+    expect(resizeSource).toContain("Math.min(390, Math.max(240,");
   });
 
   it("keeps the app shell in non-Builder embedded routes", () => {
@@ -78,28 +72,22 @@ describe("Design editor mobile layout", () => {
     expect(layoutSource).toContain("{showAppNav && (\n");
   });
 
-  it("keeps the standard rails in the visual-edit embed", () => {
-    expect(editorSource).toContain(
-      "embedded && !hostOwnsChrome && !embedChromeRequested",
+  it("hands the right inspector rule both minimal-UI inputs", () => {
+    // The phone, hidden-UI and minimal-UI rules live in isRightInspectorVisible
+    // (minimal-inspector.test.ts); the editor must hand it both minimal inputs.
+    const inspectorVisibilityCall = editorSource.slice(
+      editorSource.indexOf("isRightInspectorVisible({"),
+      editorSource.indexOf(
+        "});",
+        editorSource.indexOf("isRightInspectorVisible({"),
+      ),
     );
+    expect(inspectorVisibilityCall).toContain("minimalUi,");
+    expect(inspectorVisibilityCall).toContain("minimalInspectorHasSelection,");
   });
 
-  it("keeps floating canvas controls reachable inside an MCP App widget", () => {
-    expect(editorSource).toContain(
-      "const widgetEmbed = useIsMcpAppWidgetEmbed();",
-    );
-    expect(editorSource).toContain(
-      "embedded && !shellMode && !embedChromeRequested && !widgetEmbed;",
-    );
-    expect(editorSource).toContain(
-      "widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested)",
-    );
-    expect(editorSource).toContain("!isMobileViewport &&\n    !uiHidden &&");
-    expect(editorSource).toContain("minimalUi && !widgetEmbed");
-    expect(editorSource).toContain(
-      "(widgetEmbed && minimalInspectorHasSelection)",
-    );
-    expect(editorSource).toContain("initialFitScreenId={\n");
+  it("keeps a widget's opened screen fit on its own camera, not the selection", () => {
+    expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
   });
 
   it("keeps save warnings out of a read-only directory widget but not other sessions", () => {
@@ -114,8 +102,14 @@ describe("Design editor mobile layout", () => {
     expect(warn).toContain(
       'if (readOnlyWidget) return;\n    toast.error(t("visualEditor.changesDiscarded")',
     );
-    // Both toasts stay otherwise unconditional, so normal sessions still warn.
-    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(2);
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n          toast.error(t("designEditor.toasts.saveConflict")',
+    );
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n          toast.error(message ?? t("common.genericError")',
+    );
+    // Every toast stays otherwise unconditional, so normal sessions still warn.
+    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(4);
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {

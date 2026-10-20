@@ -7,6 +7,19 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  countOutcome: outcomeCounter,
+}));
+vi.mock("@agent-native/core/application-state", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("@agent-native/core/application-state")
+    >();
+  return { ...original, writeAppState: vi.fn(original.writeAppState) };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `preview-drafts-${process.pid}-${Date.now()}.pglite`,
@@ -23,6 +36,10 @@ let updateDocument: typeof import("./update-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  const { registerLabs } = await import("@agent-native/core/labs/registry");
+  const { CREATIVE_CONTEXT_LIBRARY_LAB } =
+    await import("@agent-native/creative-context");
+  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -1237,6 +1254,136 @@ describe("private preview document drafts", () => {
     ).toBe("Local recovery");
   });
 
+  it("counts an idempotent inner create replay separately from the winning recovery write", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const createAction = (await import("./create-document.js")).default;
+    const runCreate = createAction.run;
+    let replayError: unknown;
+
+    const createSpy = vi
+      .spyOn(createAction, "run")
+      .mockImplementationOnce(async (args, ctx) => {
+        await runCreate(args, ctx);
+        try {
+          return await runCreate(args, ctx);
+        } catch (error) {
+          replayError = error;
+          throw error;
+        }
+      });
+    const request = {
+      choice: "save_separately" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Local recovery",
+      expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+    };
+    outcomeCounter.mockClear();
+    try {
+      const resolved = await asUser(OWNER, () => resolveDraft.run(request));
+      expect(resolved).toMatchObject({ status: "resolved" });
+      expect(replayError).toBeUndefined();
+
+      const [copy] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, resolved.createdDocumentId!));
+      expect(copy).toMatchObject({
+        ownerEmail: OWNER,
+        title: "Builder row",
+        content: "Local recovery",
+      });
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Server body",
+      );
+      const retry = await asUser(OWNER, () => resolveDraft.run(request));
+      expect(retry).toMatchObject({
+        status: "resolved",
+        createdDocumentId: resolved.createdDocumentId,
+      });
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(outcomeCounter).toHaveBeenCalledTimes(2));
+      expect(
+        outcomeCounter.mock.calls.map(([, dimensions]) => dimensions),
+      ).toEqual([
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "written",
+          origin: "recovery",
+          history_effect: "none",
+        }),
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "replayed",
+          origin: "recovery",
+          history_effect: "none",
+        }),
+      ]);
+    } finally {
+      createSpy.mockRestore();
+    }
+  });
+
+  it("counts a committed recovery create once when a post-save step fails", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const { writeAppState } =
+      await import("@agent-native/core/application-state");
+    const appStateWrite = vi.mocked(writeAppState);
+    appStateWrite.mockRejectedValueOnce(new Error("Post-save refresh failed"));
+    outcomeCounter.mockClear();
+    try {
+      const resolved = await asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "save_separately",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      );
+      expect(resolved).toMatchObject({ status: "resolved" });
+      const [copy] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, resolved.createdDocumentId!));
+      expect(copy).toMatchObject({
+        ownerEmail: OWNER,
+        title: "Builder row",
+        content: "Local recovery",
+      });
+      await vi.waitFor(() => expect(outcomeCounter).toHaveBeenCalledTimes(1));
+      expect(outcomeCounter).toHaveBeenCalledWith(
+        "content_save_outcome_counts",
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "written",
+          origin: "recovery",
+          history_effect: "none",
+        }),
+      );
+    } finally {
+      appStateWrite.mockReset();
+    }
+  });
+
   it("preserves a matching leading H1 in a separate recovery page", async () => {
     const documentId = await createDocument();
     const content = "# Builder row\n\nLocal recovery";
@@ -2002,6 +2149,68 @@ describe("private preview document drafts", () => {
     expect(
       (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
     ).toMatchObject({ title: "Local title", content: "Local body" });
+  });
+
+  async function saveBodyAfterPeerRename(
+    editorTitle: (savedTitle: string) => string,
+  ) {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    const snapshotTitle = editorTitle(before.title);
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Local body"),
+          title: snapshotTitle,
+          editorSessionId: "renamed-tab",
+          editGeneration: 5,
+        },
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        { id: documentId, title: "Renamed in another tab", reuseLabels: [] },
+        { caller: "frontend" } as any,
+      ),
+    );
+    const saveBase = await authoredSaveBase(documentId, "Local body");
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Local body",
+          ...saveBase,
+          browserSaveAttemptId: "body-after-peer-rename",
+          editorSessionId: "renamed-tab",
+          editorEditGeneration: 5,
+          editorSnapshotTitle: snapshotTitle,
+          editorSnapshotTitleBase: before.title,
+          editorSnapshotContent: "Local body",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+    const after = await documentRowForDraftTest(documentId);
+    expect(after).toMatchObject({
+      title: "Renamed in another tab",
+      content: "Local body",
+    });
+    return (await asUser(OWNER, () => getDraft.run({ documentId }))).draft;
+  }
+
+  it("settles a body save whose untouched title a peer renamed", async () => {
+    expect(await saveBodyAfterPeerRename((saved) => saved)).toBeNull();
+  });
+
+  it("keeps the draft of a title the editor edited when a peer renamed it", async () => {
+    expect(await saveBodyAfterPeerRename(() => "Local title")).toMatchObject({
+      title: "Local title",
+      content: "Local body",
+    });
   });
 
   it("settles a retained generation after its rebased candidate is confirmed", async () => {

@@ -1,8 +1,14 @@
-import type { Dispatch, SetStateAction } from "react";
+import { normalizeDesignSourceType } from "@shared/source-mode";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
+import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
 import {
   buildStaticForeignObjectSvg,
   stripNonStaticXmlAttributes,
@@ -16,13 +22,97 @@ import {
 import type { DesignData } from "@/pages/design-editor/types";
 
 export interface DownloadSvgArgs {
+  activeCanvasSourceType?: "inline" | "localhost" | "fusion";
   design: DesignData | null;
   activePreviewFrameId?: string | null;
+  requireContentSizeReport?: boolean;
+  exportScreenId?: string | null;
+  exportScreenSourceType?: string | null;
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
+  pngExportingRef: RefObject<boolean>;
+  prepareScreenForExport?: (screenId: string) => symbol | undefined;
+  releaseScreenFromExport?: (lease: symbol) => void;
   selectedElement: ElementInfo | null;
   setSvgExporting: Dispatch<SetStateAction<boolean>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   triggerBlobDownload: (blob: Blob, filename: string) => void;
+}
+
+const SCREEN_PREVIEW_READY_TIMEOUT_MS = 15_000;
+
+async function waitForSvgExportIframe(args: {
+  activeCanvasSourceType?: DownloadSvgArgs["activeCanvasSourceType"];
+  activePreviewFrameId?: string | null;
+  requireContentSizeReport?: boolean;
+  waitForMount: boolean;
+  exportScreenSourceType?: string | null;
+}): Promise<
+  | { kind: "ready"; iframe: HTMLIFrameElement; doc: Document }
+  | { kind: "unreadable"; iframe: HTMLIFrameElement }
+  | { kind: "timeout" }
+  | null
+> {
+  const deadline =
+    window.performance.now() +
+    (args.waitForMount ? SCREEN_PREVIEW_READY_TIMEOUT_MS : 0);
+  while (true) {
+    const iframe = resolveSvgExportIframe(
+      document.querySelectorAll<HTMLIFrameElement>(
+        "iframe[data-screen-iframe-id], iframe[data-design-preview-iframe]",
+      ),
+      args.activePreviewFrameId,
+    );
+    if (iframe?.isConnected) {
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+      } catch {
+        return { kind: "unreadable", iframe };
+      }
+      if (!doc) return { kind: "unreadable", iframe };
+      if (!doc.documentElement && doc.readyState === "complete") {
+        return { kind: "unreadable", iframe };
+      }
+      const sourceType =
+        normalizeDesignSourceType(
+          iframe.dataset.designSourceType ?? args.exportScreenSourceType,
+        ) ??
+        args.activeCanvasSourceType ??
+        "inline";
+      const isInitialExternalDocument =
+        sourceType !== "inline" && doc.URL === "about:blank";
+      const isInitialInlineDocument =
+        sourceType === "inline" &&
+        doc.URL === "about:blank" &&
+        iframe.hasAttribute("srcdoc");
+      if (
+        !args.waitForMount &&
+        !isInitialExternalDocument &&
+        !isInitialInlineDocument
+      ) {
+        return { kind: "ready", iframe, doc };
+      }
+      const bridgeWindow = doc?.defaultView as
+        | (Window & { __agentNativeContentSizeReport?: boolean })
+        | null;
+      if (
+        !isInitialExternalDocument &&
+        !isInitialInlineDocument &&
+        doc?.readyState === "complete" &&
+        (sourceType !== "inline" ||
+          args.requireContentSizeReport !== true ||
+          bridgeWindow?.__agentNativeContentSizeReport === true)
+      ) {
+        return { kind: "ready", iframe, doc };
+      }
+    }
+    if (window.performance.now() >= deadline) {
+      return iframe?.isConnected ? { kind: "timeout" } : null;
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 16));
+  }
 }
 
 export function resolveSvgExportIframe<
@@ -42,9 +132,17 @@ export function resolveSvgExportIframe<
 
 export async function runDownloadSvg(
   {
+    activeCanvasSourceType,
     activePreviewFrameId,
     design,
+    exportTracking,
+    exportScreenId,
+    exportScreenSourceType,
+    requireContentSizeReport,
     fallbackExportName,
+    pngExportingRef,
+    prepareScreenForExport,
+    releaseScreenFromExport,
     selectedElement,
     setSvgExporting,
     t,
@@ -52,34 +150,62 @@ export async function runDownloadSvg(
   }: DownloadSvgArgs,
   settings?: Partial<ExportSettingsValue>,
 ) {
-  const iframe = resolveSvgExportIframe(
-    document.querySelectorAll<HTMLIFrameElement>(
-      "iframe[data-screen-iframe-id], iframe[data-design-preview-iframe]",
-    ),
-    activePreviewFrameId,
-  );
-  if (!iframe) {
-    toast.error(t("designEditor.toasts.openScreenSvg"));
+  if (pngExportingRef.current) {
+    toast.error(t("designEditor.toasts.exportBusy"));
     return;
   }
-  const doc = iframe?.contentDocument;
-  if (!doc?.documentElement) {
-    toast.error(t("designEditor.toasts.svgExportError"));
-    return;
-  }
-
-  setSvgExporting(true);
+  pngExportingRef.current = true;
+  let preparedScreenLease: symbol | undefined;
   try {
+    setSvgExporting(true);
+    if (exportScreenId && prepareScreenForExport) {
+      preparedScreenLease = prepareScreenForExport(exportScreenId);
+    }
+    const iframe = await waitForSvgExportIframe({
+      activeCanvasSourceType,
+      activePreviewFrameId,
+      requireContentSizeReport,
+      waitForMount: Boolean(exportScreenId),
+      exportScreenSourceType,
+    });
+    if (!iframe) {
+      trackBrowserDesignExported("svg", {
+        ...exportTracking,
+        status: "failed",
+        errorType: "no_preview",
+      });
+      toast.error(t("designEditor.toasts.openScreenSvg"));
+      return;
+    }
+    if (iframe.kind === "timeout") {
+      trackBrowserDesignExported("svg", {
+        ...exportTracking,
+        status: "failed",
+        errorType: "export_error",
+      });
+      toast.error(t("designEditor.toasts.svgExportError"));
+      return;
+    }
+    if (iframe.kind === "unreadable") {
+      trackBrowserDesignExported("svg", {
+        ...exportTracking,
+        status: "failed",
+        errorType: "export_error",
+      });
+      toast.error(t("designEditor.toasts.svgExportError"));
+      return;
+    }
+    const { iframe: previewIframe, doc } = iframe;
     await waitForExportReady(doc);
     const width = Math.max(
       doc.documentElement.scrollWidth,
       doc.body?.scrollWidth ?? 0,
-      iframe?.clientWidth ?? 0,
+      previewIframe.clientWidth,
     );
     const height = Math.max(
       doc.documentElement.scrollHeight,
       doc.body?.scrollHeight ?? 0,
-      iframe?.clientHeight ?? 0,
+      previewIframe.clientHeight,
     );
     const clone = doc.documentElement.cloneNode(true) as HTMLElement;
     clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
@@ -152,7 +278,16 @@ export async function runDownloadSvg(
       fallbackExportName("svg", settings?.suffix),
     );
     toast.success(t("designEditor.toasts.svgDownloaded"));
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("svg", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     console.error("SVG export failed:", error);
     toast.error(
       error instanceof Error
@@ -160,6 +295,14 @@ export async function runDownloadSvg(
         : t("designEditor.toasts.svgExportError"),
     );
   } finally {
-    setSvgExporting(false);
+    try {
+      if (preparedScreenLease) releaseScreenFromExport?.(preparedScreenLease);
+    } finally {
+      try {
+        pngExportingRef.current = false;
+      } finally {
+        setSvgExporting(false);
+      }
+    }
   }
 }

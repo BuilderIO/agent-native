@@ -2,12 +2,12 @@ import type { EventEmitter } from "node:events";
 
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { createEventEmitter } from "../shared/optional-node-builtins.js";
-
-let _initPromise: Promise<void> | undefined;
 
 const _requestSettingsCache = new WeakMap<object, Map<string, string | null>>();
 
@@ -37,30 +37,42 @@ function settingsTable(): string {
   return "public.settings";
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const table = settingsTable();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${table} (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
+export const settingsStore = defineStore({
+  id: "settings",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${settingsTable()} (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
+        await ensureTableExists("settings", createSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("settings", ["updated_at"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "settings_updated_at_idx",
+          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${settingsTable()} (updated_at)`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("settings", createSql);
-      await widenIntColumnsToBigInt("settings", ["updated_at"]);
-      await ensureIndexExists(
-        "settings_updated_at_idx",
-        `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return settingsStore.ready();
 }
 
 export interface StoreReadOptions {
@@ -175,6 +187,7 @@ export async function mutateSetting(
       snapshot.rows.length === 0 ? null : (snapshot.rows[0]?.value as string);
     const current = raw == null ? null : JSON.parse(raw);
     const next = await updater(current);
+    assertNoInlineImageBytes(next, `setting "${key}"`);
     const nextRaw = JSON.stringify(next);
     // An unchanged value is not a write: it would bump updated_at and publish
     // a settings event that makes every open page refetch for nothing.
@@ -208,14 +221,16 @@ export async function putSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
+  assertNoInlineImageBytes(value, `setting "${key}"`);
+  const serialized = JSON.stringify(value);
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
   await client.execute({
     sql: `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
-    args: [key, JSON.stringify(value), Date.now()],
+    args: [key, serialized, Date.now()],
   });
-  requestSettingsCache()?.set(key, JSON.stringify(value));
+  requestSettingsCache()?.set(key, serialized);
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",

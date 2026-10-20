@@ -18,6 +18,33 @@ describe("dashboard-panel-query: first-party source", () => {
     mocks.queryFirstPartyAnalytics.mockReset();
   });
 
+  it.each([false, true])(
+    "returns first-party execution metadata unchanged on cache hit %s",
+    async (cached) => {
+      const response = {
+        rows: [{ count: 1 }],
+        schema: [{ name: "count", type: "INTEGER" }],
+        bytesProcessed: 4096,
+        cached,
+        providerCacheHit: false,
+        fetchedAt: "2026-10-14T12:00:00.000Z",
+        truncated: false,
+      };
+      mocks.queryFirstPartyAnalytics.mockResolvedValueOnce(response);
+      await expect(
+        runDashboardPanelQuery({
+          source: "first-party",
+          query: "SELECT COUNT(*) AS count FROM analytics_events",
+          ctx,
+        }),
+      ).resolves.toEqual(response);
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[0]?.[2]).toEqual({
+        cache: true,
+      });
+    },
+  );
+
   it("uses the report panel timeout for the scoped cached query", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: [{ count: 1 }],

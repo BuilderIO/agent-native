@@ -524,7 +524,7 @@ function createFullEditor(content = "") {
 }
 
 const EMPTY_TOGGLE_BODY_SELECTOR =
-  ".notion-toggle__body-placeholder--empty-node";
+  ".content-toggle__body-placeholder--empty-node";
 
 // React node views render only under a mounted EditorContent; a headless
 // editor gives them an empty placeholder element, so tests that read their DOM
@@ -4146,7 +4146,7 @@ describe("VisualEditor markdown round-tripping", () => {
         "tableCell",
       ]);
       expect(
-        editor.view.dom.querySelectorAll(".notion-table-header-cell"),
+        editor.view.dom.querySelectorAll(".content-table-header-cell"),
       ).toHaveLength(4);
     } finally {
       editor.destroy();
@@ -4506,6 +4506,22 @@ describe("VisualEditor markdown round-tripping", () => {
     ).toBe(false);
   });
 
+  it.each([
+    "",
+    " \n\t ",
+    "<empty-block/>",
+    "<empty-block/>\n<empty-block/>",
+    " \n<empty-block/>\n\t\n<empty-block/> ",
+  ])("does not seed semantically empty SQL content: %s", (content) => {
+    expect(
+      shouldSeedCollaborativeContent({
+        content,
+        currentMarkdown: "",
+        fragmentLength: 0,
+      }),
+    ).toBe(false);
+  });
+
   it("hydrates a zero-child collaborative Toggle without an invalid TextSelection warning", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -4563,7 +4579,7 @@ describe("VisualEditor markdown round-tripping", () => {
         ),
       ).toBe(false);
       expect(
-        container.querySelector<HTMLInputElement>(".notion-toggle__summary")
+        container.querySelector<HTMLInputElement>(".content-toggle__summary")
           ?.value,
       ).toBe("Parent");
     } finally {
@@ -4645,14 +4661,14 @@ describe("VisualEditor markdown round-tripping", () => {
       });
       await vi.waitFor(() => {
         expect(controller).not.toBeNull();
-        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        expect(container.querySelector(".content-editor")?.textContent).toBe(
           "Draft A body",
         );
       });
       onChange.mockClear();
 
       const editorElement =
-        container.querySelector<HTMLElement>(".notion-editor");
+        container.querySelector<HTMLElement>(".content-editor");
       const mountedEditor = (editorElement as HTMLElement & { editor?: Editor })
         .editor;
       expect(mountedEditor).toBeDefined();
@@ -4711,7 +4727,7 @@ describe("VisualEditor markdown round-tripping", () => {
       });
 
       expect(applied).toBe(true);
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Draft A body",
       );
       expect(docToNfm(mountedEditor!.getJSON() as any)).toBe("Draft A body");
@@ -4727,7 +4743,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await act(() => waitForDeferredCallback());
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Draft A body",
       );
       expect(onChange).not.toHaveBeenCalled();
@@ -4744,7 +4760,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await vi.waitFor(() => {
-        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        expect(container.querySelector(".content-editor")?.textContent).toBe(
           "Newer C body",
         );
       });
@@ -4760,7 +4776,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await act(() => waitForDeferredCallback());
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Newer C body",
       );
       expect(onChange).not.toHaveBeenCalled();
@@ -4768,7 +4784,7 @@ describe("VisualEditor markdown round-tripping", () => {
       act(() => {
         controller!.undo();
       });
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Newer C body",
       );
       expect(onChange).not.toHaveBeenCalled();
@@ -4785,7 +4801,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await vi.waitFor(() => {
-        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        expect(container.querySelector(".content-editor")?.textContent).toBe(
           "Older Page B body",
         );
       });
@@ -4872,7 +4888,7 @@ describe("VisualEditor markdown round-tripping", () => {
 
     const editorParagraphs = () =>
       Array.from(
-        container.querySelectorAll<HTMLElement>(".notion-editor > p"),
+        container.querySelectorAll<HTMLElement>(".content-editor > p"),
         (node) => node.textContent,
       );
     const waitForParagraphs = (expected: string[]) =>
@@ -5011,7 +5027,7 @@ describe("VisualEditor markdown round-tripping", () => {
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
       expect(
-        container.querySelector("pre.notion-code-block code")?.textContent,
+        container.querySelector("pre.content-code-block code")?.textContent,
       ).toBe("const answer = 42");
     } finally {
       await act(async () => root.unmount());
@@ -5556,7 +5572,7 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(
         editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
-      const body = editor.view.dom.querySelector(".notion-toggle__content p");
+      const body = editor.view.dom.querySelector(".content-toggle__content p");
       expect(body).not.toBeNull();
       expect(body?.getAttribute("data-placeholder")).toBeNull();
     } finally {
@@ -5587,7 +5603,7 @@ describe("VisualEditor markdown round-tripping", () => {
 
       expect(
         editor.view.dom
-          .querySelector(".notion-toggle__content p")
+          .querySelector(".content-toggle__content p")
           ?.getAttribute("data-placeholder"),
       ).toBe("Press ‘/’ for commands");
     } finally {
@@ -5617,7 +5633,8 @@ describe("VisualEditor markdown round-tripping", () => {
         editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
       expect(
-        editor.view.dom.querySelector(".notion-toggle__content p")?.textContent,
+        editor.view.dom.querySelector(".content-toggle__content p")
+          ?.textContent,
       ).toBe("Body text");
     } finally {
       await dispose();
@@ -5637,7 +5654,7 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      expect(editor.view.dom.querySelector(".notion-toggle__content p")).toBe(
+      expect(editor.view.dom.querySelector(".content-toggle__content p")).toBe(
         null,
       );
       expect(
@@ -5655,7 +5672,8 @@ describe("VisualEditor markdown round-tripping", () => {
         editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
       expect(
-        editor.view.dom.querySelector(".notion-toggle__content p")?.textContent,
+        editor.view.dom.querySelector(".content-toggle__content p")
+          ?.textContent,
       ).toBe("Dropped block");
     } finally {
       await dispose();

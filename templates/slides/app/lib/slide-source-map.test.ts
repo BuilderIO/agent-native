@@ -308,6 +308,30 @@ describe("mergeRenderedEdits", () => {
     expect(out).not.toContain(SOURCE_STAMP_ATTR);
   });
 
+  it("keeps generated crop keyframes inside a newly wrapped image", () => {
+    const source =
+      '<div class="fmd-slide"><img id="pic" src="image.png"></div>';
+    const { root, save } = mount(source);
+    const image = q(root, "#pic");
+    const frame = document.createElement("div");
+    frame.className = "fmd-pptx-image";
+    image.replaceWith(frame);
+    const viewport = document.createElement("div");
+    viewport.className = "fmd-image-crop-viewport";
+    viewport.append(image);
+    frame.append(viewport);
+    const style = document.createElement("style");
+    style.setAttribute("data-fmd-crop-keyframes", "");
+    style.textContent =
+      "@keyframes fmd_crop_test { from { transform: rotate(0deg); } to { transform: rotate(90deg); } }";
+    frame.append(style);
+
+    const output = save().html;
+    expect(output).toContain("@keyframes fmd_crop_test");
+    expect(output).toContain('data-fmd-crop-keyframes=""');
+    expect(output).toContain('class="fmd-pptx-image"');
+  });
+
   it("falls back to canonical markup for a misnested element only", () => {
     const misnested =
       '<div class="fmd-slide"><p class="a">keep  me</p><b><p>x</b>y</p></div>';

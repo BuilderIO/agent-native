@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "此區塊暫時無法使用。",
+  "block.loading": "正在載入區塊。",
   "composer.contextUrlLabel": "網址",
   "composer.contextInvalidUrl": "請輸入有效的 HTTP 或 HTTPS 網址。",
   "composer.contextAttach": "附加",
@@ -38,6 +40,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "排隊中",
   "agent.completed": "已完成",
   "agent.failed": "需要注意",
+  "agent.failureReason.failed": "未能完成",
+  "agent.failureReason.setup": "需要先完成設定",
+  "agent.failureReason.auth": "存取遭拒",
+  "agent.failureReason.timeout": "回應逾時",
+  "agent.failureReason.budget": "已超出時限",
+  "agent.failureReason.response": "沒有可用的結果",
   "agent.closed": "已關閉",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
@@ -80,6 +88,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "回覆必須包含…",
   "observability.promoteMustContainOptional": "回覆中要檢查的選填文字…",
   "observability.promoteMustContainLabel": "在升級後的評估回覆中檢查的文字",
+  "observability.promoteReviewedPromptLabel":
+    "手動審核的提示（不會從正式環境自動複製）",
   "observability.promoteNeedsContains":
     "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.viewDetails": "查看詳細資料",
@@ -120,7 +130,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
   "onboarding.builderActivateDescription":
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
@@ -138,8 +148,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivateTitle": "啟用免費額度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
+  "onboarding.builderActivationChecking": "正在確認是否可以建立新帳戶。",
+  "onboarding.builderActivationUnavailable":
+    "建立帳戶或登入以連線至 Builder.io。",
+  "onboarding.builderActivationUnavailableInMode":
+    "建立帳戶或登入以連線至 Builder.io。",
+  "onboarding.builderActivationCheckFailed":
+    "無法確認此應用程式是否可以建立新帳戶。",
+
   "onboarding.builderActivationDescription":
-    "按一下即可建立或連接 Builder.io 帳戶，取得免費額度。",
+    "建立新帳戶以啟用免費點數，或使用現有帳戶繼續。",
   "onboarding.builderOrgActivationDescription":
     "我們會一鍵建立您的 Builder.io 帳戶，讓您的組織可以使用。",
   "onboarding.builderCreateAndActivate": "建立並啟用",
@@ -147,11 +165,34 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服務條款",
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "使用 Builder.io",
+  "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.creditsTitle": "每月免費試用 60 個 Agent Credits",
+  "onboarding.creditsTitleClips":
+    "免費試用視訊儲存空間，並每月獲得 60 個 Agent Credits",
+  "onboarding.creditsActivate": "啟用免費額度",
+  "onboarding.creditsFinePrint":
+    "這將建立一個免費的 Builder.io 帳戶。繼續表示您同意我們的",
+  "onboarding.creditsMoreInfo": "更多資訊",
+  "onboarding.creditsSubtitle":
+    "從 Builder.io 一鍵取得適用於此應用程式的 LLM、Jev、儲存空間等免費額度。",
+  "onboarding.creditsLearnMore": "瞭解更多",
+  "onboarding.creditsSkip": "跳過",
+  "onboarding.creditsSkipConfirmTitle": "確定要跳過嗎？",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 應用程式需要連接 LLM 才能使用大部分功能。沒有 LLM，大部分功能都無法運作。",
+  "onboarding.creditsSkipGoBack": "返回",
+  "onboarding.creditsSkipAnyway": "仍然跳過",
+  "onboarding.creditsUseCustomKeys": "使用自訂金鑰",
+  "onboarding.creditsAboutLabel": "關於免費額度",
+  "onboarding.creditsActivating": "正在啟用免費額度",
+  "onboarding.creditsActivatingTooltip":
+    "Builder 提供 LLM、Jev、儲存空間等免費額度，無需自備金鑰即可使用此應用程式的 AI 功能。",
+  "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
     "正在建立您的 Builder.io 帳戶並啟用免費額度。",
+  "onboarding.builderCancelPending": "正在檢查連線狀態…",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
   "onboarding.builderReadyWithCodeChanges":
     "AI 點數與雲端程式碼變更已準備就緒。",
@@ -179,6 +220,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
+  "onboarding.capability.webSearch.label": "網頁搜尋",
+  "onboarding.capability.webSearch.keySummary": "網頁搜尋",
+  "onboarding.capability.webSearch.why":
+    "搜尋網頁上的最新公開資訊。Builder 管理的搜尋使用隨附的 Builder AI 點數，因此不需要另外設定搜尋 API 金鑰。",
   "onboarding.capability.systemOne.why":
     "Jev 是一個選用的決策模型，可在代理首次要求模型前協助選擇相關工具與技能。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
@@ -479,7 +524,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
+  "composer.fileTooLarge": "此檔案超過 {{size}} MB 的上傳大小限制。",
+  "composer.sessionExpired": "工作階段已逾期。請重新登入，然後再傳送訊息。",
   "composer.unsupportedFileType": "不支援此檔案類型。",
+  "composer.uploadUnavailable": "目前無法上傳檔案。請稍後再試。",
+  "composer.uploadOffline": "上傳無法連線至伺服器。請檢查網路連線後再試一次。",
+  "composer.submissionNotReady": "聊天尚未準備好傳送。請稍候片刻再傳送。",
+  "composer.submissionScopeChanged": "此聊天在訊息傳送前已變更。請重新傳送。",
+  "composer.attachmentNotSaved": "未隨此聊天儲存",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "深入瞭解",
@@ -607,6 +659,9 @@ const messages: ToolkitAgentChatTranslation = {
     "模型供應商認為此要求格式有誤而予以拒絕，因此未重試。請重試，若問題持續發生，請開始新的對話。",
   "errorMessages.requestTooLarge":
     "此要求超過伺服器大小限制（HTTP 413）。請開始新的聊天，或移除較大的附件或參照後再試一次。",
+  "errorMessages.capabilityUnavailable": "目前無法傳送你的訊息。請稍後再試。",
+  "errorMessages.capabilityUnsupported":
+    "此應用程式目前無法安全地重試已儲存的提示。請先更新應用程式，再試一次。",
   "errorMessages.runInterrupted": "代理在完成前停止了。",
   "errorMessages.runFailed": "代理執行失敗。",
   "errorMessages.runUnverified":
@@ -615,6 +670,8 @@ const messages: ToolkitAgentChatTranslation = {
     "您已登出，因此此對話無法追蹤代理。請重新登入，然後重新載入。",
   "errorMessages.malformedRequestAttachment":
     "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
+  "errorMessages.invalidAttachment":
+    "模型供應商因附件格式或大小不受支援而拒絕了該附件。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的檔案格式，或貼上相關文字，然後重新附加。",
   "errorMessages.noProviderConnected":
     "尚未連線 LLM 供應商。開啟設定 > 代理 > AI 供應商，然後使用 Builder.io（提供免費方案）或新增供應商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",
@@ -882,7 +939,24 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM、聯絡人、公司、交易、工單、客戶分析",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "設定由工作區管理的 HubSpot MCP Auth App 後，任何成員都可以使用 OAuth 和 PKCE 連線個人 HubSpot 帳戶。否則，請在連線前於 HubSpot Developer Platform 建立應用程式；現有的 HubSpot OAuth 連接器仍可供應用程式操作使用。",
+    "工作區擁有者設定 HubSpot MCP Auth App 後，每位成員都可以連結自己的 HubSpot 帳戶。",
+  "mcpIntegrations.hubspot.setupTitle": "設定 HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "工作區擁有者只需設定一次 HubSpot MCP。之後每位成員都可以連結自己的帳戶。",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "需要設定工作區",
+  "mcpIntegrations.hubspot.setupChecking": "正在檢查工作區設定…",
+  "mcpIntegrations.hubspot.setupUnavailable": "無法取得設定狀態",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "無法檢查工作區 OAuth 設定，請重試。",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "建立 HubSpot MCP Auth App，然後在 Agent-Native settings → API keys 中新增用戶端 ID 和密鑰。",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "請工作區擁有者建立 HubSpot MCP Auth App，並在 Agent-Native settings → API keys 中新增用戶端 ID 和密鑰。設定完成後，你可以連結自己的 HubSpot 帳戶。",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "請先加入工作區，再連結 HubSpot MCP。",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials": "新增工作區憑證",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "重新檢查",
+  "mcpIntegrations.hubspot.retrySetupStatus": "重試",
   "mcpIntegrations.catalog.pylon.description": "搜尋及更新 Pylon 支援資料。",
   "mcpIntegrations.catalog.pylon.useCase": "客戶支援、議題、客戶、聯絡人、對話",
   "mcpIntegrations.catalog.pylon.setupNote":
@@ -1075,6 +1149,14 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
+  "errorMessages.invalidAttachmentNamed":
+    "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
+  "recovery.resendVerificationEmail": "重新傳送驗證郵件",
+  "recovery.sendingVerificationEmail": "正在傳送...",
+  "recovery.verificationEmailRequested":
+    "已要求傳送驗證郵件。請檢查收件匣和垃圾郵件資料夾。",
+  "recovery.verificationEmailFailed": "無法要求傳送驗證郵件。請再試一次。",
+  "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
   "recovery.deferredSubmissionFailed":
@@ -1115,6 +1197,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyHint": "新增金鑰以使用您自己的帳戶。",
   "secrets.emptyMore": "另有 {{count}} 個在「新增」下方，或新增任何自訂金鑰",
   "secrets.emptyTitle": "尚無金鑰。",
+  "secrets.figmaTokenMustBeToken":
+    "請貼上 Figma 存取權杖，而不是 Figma 檔案 URL。",
   "secrets.fromEnvironment": "由部署環境提供。",
   "secrets.managedInVault":
     "在工作區 Vault 中管理。此工作區中的每個應用程式都會使用此值。",
@@ -1140,6 +1224,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.attached_other": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.clear": "清除所選內容的上下文",
+  "setup.addKeyInSettings": "在設定中新增金鑰",
+  "setup.addKeyInSettingsDescription": "供你的個人帳戶或組織使用。",
+  "setup.setEnvironmentVariable": "設定環境變數",
+  "setup.setEnvironmentVariableDescription":
+    "此應用程式的所有使用者共用一個供應商金鑰。",
+
   "setup.addOwnKeys": "加入您自己的金鑰",
   "setup.builderCredits":
     "Builder.io 提供免費額度，您也可以使用自己的 API 金鑰。",
@@ -1672,6 +1762,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "透過 {{protocol}} 的代理",
   "settings.audit.allApps": "所有應用程式",
   "settings.audit.app": "應用程式",
+  "settings.audit.approval": "核准",
+  "settings.audit.approvalAgentChat": "已在代理聊天中核准",
+  "settings.audit.approvalA2AReview": "已在代理操作審查頁面核准",
+  "settings.audit.approvalMcpClient": "由 MCP 用戶端接受（未驗證）",
   "settings.audit.changedBy": "變更者",
   "settings.audit.close": "關閉",
   "settings.audit.empty": "此期間沒有變更。",
@@ -1684,9 +1778,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "過去 90 天",
   "settings.audit.loadFailed": "無法載入稽核記錄。",
   "settings.audit.loading": "正在載入稽核記錄",
+  "settings.audit.oauthClient": "OAuth 用戶端",
   "settings.audit.onBehalfOf": "代表",
   "settings.audit.range": "時間範圍",
   "settings.audit.refused": "已拒絕",
+  "settings.audit.reportedClient": "自行回報的用戶端",
   "settings.audit.result": "結果",
   "settings.audit.showMore": "再顯示 {{count}} 筆",
   "settings.audit.succeeded": "成功",
@@ -1934,7 +2030,8 @@ const messages: ToolkitAgentChatTranslation = {
     "這會影響 {{org}} 中所有未連結自己帳戶的人。",
   "settingsShell.builder.disconnectFailed": "無法中斷 Builder.io 的連結。",
   "settingsShell.builder.disconnectTitle": "要中斷 Builder.io 的連結嗎？",
-  "settingsShell.builder.grantsFailed": "無法檢查 Builder.io 連線。",
+  "settingsShell.builder.grantsFailed":
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.builder.setupStartFailed":
     "無法啟動 Builder.io 設定。請重新整理此頁面後再試一次。",
   "settingsShell.builder.setupHostFailed":
@@ -2301,7 +2398,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "模型存取、瀏覽器自動化、檔案儲存和工作區身分。提供免費方案。",
   "settingsShell.integrations.builderStatusFailed":
-    "無法確認 Builder.io 連結。",
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "設計",
   "settingsShell.integrations.category.engineering": "工程",
@@ -2367,6 +2464,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "應用程式預設模型",
   "settingsShell.search.backgroundAgents": "背景代理",
   "settingsShell.search.browserAutomation": "瀏覽器自動化",
+  "settingsShell.search.webSearch": "網頁搜尋",
   "settingsShell.search.connectedAgents": "已連線的代理",
   "settingsShell.search.database": "資料庫",
   "settingsShell.search.defaultModel": "預設模型",
@@ -2443,6 +2541,11 @@ const messages: ToolkitAgentChatTranslation = {
     "可使用部署備援設定。使用您自己的 Builder.io 帳戶即可覆寫。",
   "settingsInfra.builderStorageHint":
     "物件儲存空間會保留上傳檔案，並讓網址在整個對話中重複使用。請使用下方的 Builder.io 或相容 S3 的儲存貯體。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io 已連線，但目前無法儲存上傳的檔案。重新連線以授予上傳權限，或在下方設定儲存貯體。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "無法確認 Builder.io 的上傳權限。請重試或在下方設定儲存貯體。",
+  "settingsInfra.reconnectBuilderUploads": "授予上傳權限",
   "settingsInfra.builderUnknown": "無法檢查 Builder.io 連線。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "連線",
@@ -2485,6 +2588,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyDesignSystem": "讓生成的簡報和設計符合品牌規範。",
   "settingsInfra.whyBackground": "在正式環境中修改程式碼。",
   "settingsInfra.whyBrowser": "讓代理程式在正式環境中使用瀏覽器。",
+  "settingsInfra.whyWebSearch": "尋找最新的公開資訊與官方文件。",
   "settingsInfra.provider": "供應商",
   "settingsInfra.keyOrg": "使用組織的 {{provider}} 金鑰。",
   "settingsInfra.manageKey": "管理金鑰",
@@ -2635,6 +2739,10 @@ const messages: ToolkitAgentChatTranslation = {
     "已在此處中斷連線。在 ChatGPT 中，存取權可能仍然有效。",
   "settingsModel.chatgptLocalOnly":
     "開源應用在本機使用 loopback callback 執行時，無須申請合作夥伴資格即可使用 ChatGPT 方案。託管於 *.agent-native.com 的應用需要營運方核准，並設定託管 callback。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "使用個人帳戶存取 ChatGPT 方案。在本機開發時，請在登入前將 access.autoCreateDefaultOrg 設為 false。",
+  "settingsModel.chatgptScopeUnresolved":
+    "應用程式無法確認你的帳戶範圍。請完成本機設定，然後重新載入設定頁面。",
   "settingsModel.chatgptNoDirectUse":
     "重新連線並允許模型直接存取，才能使用此 ChatGPT 帳戶。",
   "settingsModel.chatgptReconnect": "重新連線",
@@ -2784,6 +2892,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "連接 {{name}}",
   "settingsSubAgents.close": "關閉",
   "observability.insights.rawTrace": "原始追蹤（所有 span 及其輸入與輸出）",
+  "reportProblem.menuItem": "回報問題",
+  "reportProblem.title_other":
+    "要附上應用程式在過去 {{count}} 秒內的操作記錄嗎？",
+  "reportProblem.noEvents": "目前還沒有記錄。",
+  "reportProblem.send": "傳送給代理",
+  "reportProblem.copy": "複製問題回報",
+  "reportProblem.attaching": "正在附加…",
+  "reportProblem.notAttached": "回報未能附加。",
+  "reportProblem.agentMessage":
+    "應用程式出了問題。請根據附上的問題回報說明發生了什麼事。",
 };
 
 export default messages;

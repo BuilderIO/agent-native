@@ -8,8 +8,8 @@ import {
   normalizeDashboardPanelQuery,
 } from "../server/lib/dashboard-panel-query";
 import { resolveAnalyticsPanelSource } from "../server/lib/dashboard-panel-source-resolver";
-import { getDashboard } from "../server/lib/dashboards-store";
 import { exportDashboardPanelToGoogleSheet } from "../server/lib/google-sheets-export";
+import { openDashboard } from "../server/lib/open-dashboard";
 
 type DashboardPanel = {
   id?: unknown;
@@ -44,7 +44,7 @@ function panelFailureMessage(result: unknown): string | null {
 
 export default defineAction({
   description:
-    "Export one accessible Analytics SQL dashboard table panel's underlying query results to a newly created Google Sheet using the connected Google Drive account. Returns the Sheet URL, spreadsheet id, row count, and export metadata. Only chartType=table panels are supported.",
+    "Export one accessible Analytics SQL dashboard table panel's underlying query results to a newly created Google Sheet using the connected Google Sheets account. Returns the Sheet URL, spreadsheet id, row count, and export metadata. Only chartType=table panels are supported.",
   schema: z.object({
     dashboardId: z.string().trim().min(1).describe("The SQL dashboard ID"),
     panelId: z.string().trim().min(1).describe("The table panel ID"),
@@ -61,17 +61,20 @@ export default defineAction({
       );
     }
 
-    const dashboard = await getDashboard(dashboardId, {
+    const opened = await openDashboard(dashboardId, {
       email: context.userEmail,
       orgId: context.orgId ?? null,
     });
-    if (!dashboard || dashboard.kind !== "sql") {
+    const dashboard = opened?.saved;
+    if (!opened || (dashboard && dashboard.kind !== "sql")) {
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
       });
     }
 
-    const panel = asPanels(dashboard.config).find(
+    const config = dashboard ? dashboard.config : opened.builtin.config;
+    const title = dashboard ? dashboard.title : opened.builtin.title;
+    const panel = asPanels(config).find(
       (candidate) => candidate.id === panelId,
     );
     if (!panel) {
@@ -127,8 +130,8 @@ export default defineAction({
     return exportDashboardPanelToGoogleSheet({
       dashboardId,
       dashboardTitle:
-        typeof dashboard.title === "string" && dashboard.title.trim()
-          ? dashboard.title
+        typeof title === "string" && title.trim()
+          ? title
           : "Analytics dashboard",
       panelId,
       panelTitle:

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldInvalidateDesignQueryForSync } from "./design-sync-invalidation";
+import {
+  isContentIndependentDesignQuery,
+  shouldInvalidateDesignQueryForSync,
+} from "./design-sync-invalidation";
 
 const query = (name: string, args: unknown = { designId: "d1" }) => ({
   queryKey: ["action", name, args] as const,
@@ -18,6 +21,13 @@ const yjsUpdate = {
   requestSource: "tab-b",
   resourceType: "design",
   resourceId: "d1",
+};
+const agentUpdate = {
+  source: "action",
+  key: "update-file",
+  resourceType: "design",
+  resourceId: "d1",
+  requestSource: "agent",
 };
 
 const DEPENDS_ON_CONTENT = [
@@ -41,6 +51,91 @@ const UNRELATED = [
 ];
 
 describe("design sync invalidation", () => {
+  const contextHeartbeat = {
+    source: "action",
+    key: "register-native-render-context",
+  };
+  const contextLedger = {
+    source: "app-state",
+    key: "native-render-contexts-v1",
+  };
+
+  it("refreshes export contexts without refetching source for a registration heartbeat", () => {
+    for (const events of [
+      [contextHeartbeat],
+      [contextLedger, contextHeartbeat],
+    ]) {
+      expect(
+        shouldInvalidateDesignQueryForSync(
+          query("get-native-render-contexts"),
+          events,
+        ),
+      ).toBe(true);
+      for (const name of [...DEPENDS_ON_CONTENT, ...UNRELATED, "get-shader"])
+        expect(shouldInvalidateDesignQueryForSync(query(name), events)).toBe(
+          false,
+        );
+    }
+  });
+
+  it("preserves collaborator file invalidation when a heartbeat shares the batch", () => {
+    const events = [contextLedger, contextHeartbeat, fileSave, yjsUpdate];
+    for (const name of [
+      ...DEPENDS_ON_CONTENT,
+      "get-native-render-contexts",
+      "get-shader",
+    ])
+      expect(shouldInvalidateDesignQueryForSync(query(name), events)).toBe(
+        true,
+      );
+    for (const name of UNRELATED)
+      expect(shouldInvalidateDesignQueryForSync(query(name), events)).toBe(
+        false,
+      );
+  });
+
+  it("preserves broad invalidation for unknown, settings and approval changes beside a heartbeat", () => {
+    for (const other of [
+      { source: "action", key: "unknown-write" },
+      { source: "settings", key: "active-org-id" },
+      { source: "action", key: "edit-native-shader" },
+    ]) {
+      for (const name of [
+        ...DEPENDS_ON_CONTENT,
+        ...UNRELATED,
+        "get-native-render-contexts",
+        "get-shader",
+      ])
+        expect(
+          shouldInvalidateDesignQueryForSync(query(name), [
+            contextHeartbeat,
+            contextLedger,
+            other,
+          ]),
+        ).toBe(true);
+    }
+  });
+
+  it("refreshes native shader approvals without a source-content change", () => {
+    expect(
+      shouldInvalidateDesignQueryForSync(
+        query("get-shader", { source: { designId: "d1", fileId: "f1" } }),
+        [
+          {
+            source: "app-state",
+            key: "design-native-effect-approvals:d1",
+            requestSource: "agent",
+          },
+          {
+            source: "action",
+            key: "edit-native-shader",
+            requestSource: "agent",
+          },
+        ],
+      ),
+    ).toBe(true);
+  });
+
   it("refetches what depends on a collaborator's file save and Yjs updates", () => {
     for (const name of DEPENDS_ON_CONTENT) {
       expect(
@@ -50,6 +145,15 @@ describe("design sync invalidation", () => {
         true,
       );
     }
+  });
+
+  it("keeps an open source buffer refetching on agent and same-tab source writes", () => {
+    expect(isContentIndependentDesignQuery("read-source-file")).toBe(false);
+    expect(
+      shouldInvalidateDesignQueryForSync(query("read-source-file"), [
+        agentUpdate,
+      ]),
+    ).toBe(true);
   });
 
   it("leaves unrelated reads alone for a batch of design content only", () => {

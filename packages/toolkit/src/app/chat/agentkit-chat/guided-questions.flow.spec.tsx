@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   askUserQuestion,
+  GUIDED_QUESTIONS_SUBMITTED_EVENT,
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
@@ -58,6 +59,11 @@ function keysFromUrl(url: string): string[] {
     .slice(idx + BATCH_PREFIX.length)
     .split(",")
     .map(decodeURIComponent);
+}
+
+function isApplicationStateRequest(input: RequestInfo | URL): boolean {
+  const url = String(input);
+  return url.includes(STATE_PREFIX) || url.includes(BATCH_PREFIX);
 }
 
 function readResponse(url: string, lookup: (key: string) => string): Response {
@@ -122,7 +128,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     let latest: HookResult | null = null;
     function Harness() {
       latest = useGuidedQuestionFlow({
-        providerStatusChecksEnabled: false,
         ...options,
       });
       return null;
@@ -295,19 +300,33 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   it("refetches on a key-specific DB-sync wakeup without fixed polling", async () => {
     let hasQuestion = false;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      readResponse(String(input), () =>
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (!isApplicationStateRequest(input)) {
+        return new Response(JSON.stringify({ chatEligible: true }), {
+          status: 200,
+        });
+      }
+      return readResponse(String(input), () =>
         hasQuestion ? JSON.stringify(payload) : "",
-      ),
-    );
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
+    const applicationStateReads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        isApplicationStateRequest(input),
+      );
+    const unrelatedFetches = () =>
+      fetchMock.mock.calls
+        .filter(([input]) => !isApplicationStateRequest(input))
+        .map(([input]) => String(input));
 
     const result = await renderFlow({
       stateKey: "guided-questions-refresh",
       queryKey: ["guided-questions-refresh"],
     });
     expect(result.current().questions).toBeNull();
-    const initialReads = fetchMock.mock.calls.length;
+    const initialReads = applicationStateReads().length;
+    const initialUnrelatedFetches = unrelatedFetches();
 
     hasQuestion = true;
     await act(async () => {
@@ -319,7 +338,11 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     }
 
     expect(result.current().questions?.length).toBe(1);
-    expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
+    expect(applicationStateReads()).toHaveLength(initialReads + 1);
+    expect(unrelatedFetches()).toEqual([
+      ...initialUnrelatedFetches,
+      expect.stringContaining("/_agent-native/agent-engine/status"),
+    ]);
   });
 
   it("confirms a question written after the caller's own trigger, without a DB-sync wakeup", async () => {
@@ -341,22 +364,104 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(result.current().questions).toBeNull();
 
     hasQuestion = true;
-    let stillWaiting = false;
+    let questionCheck: unknown;
     await act(async () => {
-      stillWaiting = await result.current().refetchPendingQuestion();
+      questionCheck = await result.current().refetchPendingQuestionStatus();
     });
 
-    expect(stillWaiting).toBe(true);
+    expect(questionCheck).toEqual({ status: "pending" });
     for (let i = 0; i < 20 && !result.current().questions; i += 1) {
       await flush();
     }
     expect(result.current().questions?.length).toBe(1);
   });
 
+  it("preserves application-state read errors when checking for pending questions", async () => {
+    let failReads = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (!isApplicationStateRequest(input)) {
+          return new Response(JSON.stringify({ chatEligible: true }), {
+            status: 200,
+          });
+        }
+        if (failReads) {
+          return new Response("state unavailable", { status: 503 });
+        }
+        return readResponse(String(input), () => "");
+      }),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    expect(result.current().questions).toBeNull();
+
+    failReads = true;
+    let questionCheck: unknown;
+    await act(async () => {
+      questionCheck = await result.current().refetchPendingQuestionStatus();
+    });
+
+    expect(questionCheck).toMatchObject({
+      status: "error",
+      error: expect.anything(),
+    });
+  });
+
+  it("preserves the boolean refetchPendingQuestion contract", async () => {
+    let hasQuestion = false;
+    let failReads = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (failReads && isApplicationStateRequest(input)) {
+          return new Response("state unavailable", { status: 503 });
+        }
+        return readResponse(String(input), () =>
+          hasQuestion ? JSON.stringify(payload) : "",
+        );
+      }),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    let isPending = true;
+    await act(async () => {
+      isPending = await result.current().refetchPendingQuestion();
+    });
+    expect(isPending).toBe(false);
+
+    hasQuestion = true;
+    await act(async () => {
+      isPending = await result.current().refetchPendingQuestion();
+    });
+    expect(isPending).toBe(true);
+
+    failReads = true;
+    await act(async () => {
+      isPending = await result.current().refetchPendingQuestion();
+    });
+    expect(isPending).toBe(true);
+  });
+
   it("keeps active questions visible while a DB-sync refresh is pending", async () => {
     let reads = 0;
     let resolveRefresh: (() => void) | null = null;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (!isApplicationStateRequest(input)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ chatEligible: true }), {
+            status: 200,
+          }),
+        );
+      }
       reads += 1;
       const body = () =>
         readResponse(String(input), () => JSON.stringify(payload));
@@ -378,11 +483,11 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    for (let i = 0; i < 20 && fetchMock.mock.calls.length < 2; i += 1) {
+    for (let i = 0; i < 20 && reads < 2; i += 1) {
       await flush();
     }
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(reads).toBe(2);
     expect(result.current().questions).toEqual(payload.questions);
 
     await act(async () => {
@@ -448,7 +553,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     let latest: HookResult | null = null;
     function Harness() {
       const flow = useGuidedQuestionFlow({
-        providerStatusChecksEnabled: false,
         stateKey: "guided-questions",
         queryKey: ["guided-questions"],
         refetchInterval: false,
@@ -552,6 +656,173 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     );
   });
 
+  it("never announces a skip, a blocked submit, or an unconfirmed fire-and-forget submit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const announced: unknown[] = [];
+    const listener = (event: Event) =>
+      announced.push((event as CustomEvent).detail);
+    window.addEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    try {
+      const result = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+      });
+      await act(async () => {
+        result.current().handleSkip();
+        await Promise.resolve();
+      });
+      expect(announced).toEqual([]);
+
+      const blocked = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions", "blocked"],
+        browserTabId: "tab123",
+        providerStatus: "missing",
+        refetchInterval: false,
+      });
+      await act(async () => {
+        blocked.current().handleSubmit({ q1: "7d" });
+        await Promise.resolve();
+      });
+      expect(announced).toEqual([]);
+
+      const open = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions", "open"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+      });
+      await act(async () => {
+        open.current().handleSubmit({ q1: "7d" });
+        await Promise.resolve();
+      });
+      expect(sendToAgentChatMock).toHaveBeenCalled();
+      expect(announced).toEqual([]);
+    } finally {
+      window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    }
+  });
+
+  it("announces a submit only once the agent chat confirms delivery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const announced: unknown[] = [];
+    const listener = (event: Event) =>
+      announced.push((event as CustomEvent).detail);
+    window.addEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    const onSubmitMessage = vi
+      .fn()
+      .mockResolvedValueOnce({ delivered: false })
+      .mockRejectedValueOnce(new Error("send failed"))
+      .mockResolvedValueOnce({ delivered: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+        onSubmitMessage,
+      });
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await act(async () => {
+          result.current().handleSubmit({ q1: "7d" });
+          await flush();
+        });
+        if (attempt < 2) expect(announced).toEqual([]);
+      }
+      expect(onSubmitMessage).toHaveBeenCalledTimes(3);
+      expect(announced).toEqual([
+        {
+          stateKey: "guided-questions",
+          questions: payload.questions,
+          answers: { q1: "7d" },
+        },
+      ]);
+    } finally {
+      window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    }
+  });
+
+  it("does not announce a submit whose send reports no delivery result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const announced: unknown[] = [];
+    const listener = (event: Event) => announced.push(event);
+    window.addEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    const onSubmitMessage = vi.fn(() => undefined);
+    try {
+      const result = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+        onSubmitMessage,
+      });
+      await act(async () => {
+        result.current().handleSubmit({ q1: "7d" });
+        await flush();
+      });
+      expect(onSubmitMessage).toHaveBeenCalledTimes(1);
+      expect(announced).toEqual([]);
+    } finally {
+      window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    }
+  });
+
+  it("still delivers the answers when an announcement listener throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const dispatch = vi
+      .spyOn(window, "dispatchEvent")
+      .mockImplementation(() => {
+        throw new Error("listener failed");
+      });
+    const onSubmitMessage = vi.fn().mockResolvedValue({ delivered: true });
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      refetchInterval: false,
+      onSubmitMessage,
+    });
+    expect(result.current().questions).toBeTruthy();
+    await act(async () => {
+      result.current().handleSubmit({ q1: "7d" });
+      await flush();
+    });
+    expect(dispatch).toHaveBeenCalled();
+    expect(onSubmitMessage).toHaveBeenCalledTimes(1);
+    expect(result.current().questions).toBeFalsy();
+  });
+
   function appStateFetchMock(store: Map<string, string>) {
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const key = keyFromUrl(String(input));
@@ -584,7 +855,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
-      providerStatusChecksEnabled: true,
       providerStatus: "missing",
       refetchInterval: false,
     });
@@ -611,7 +881,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
-      providerStatusChecksEnabled: true,
       providerStatus: "missing",
       refetchInterval: false,
     });

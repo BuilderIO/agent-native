@@ -6,6 +6,12 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import {
+  OBSERVABILITY_MIGRATIONS,
+  OBSERVABILITY_MIGRATIONS_TABLE,
+} from "./migrations.js";
 import {
   sanitizeToolErrorMessage,
   TOOL_ERROR_CAPTURE_METADATA_KEY,
@@ -157,12 +163,14 @@ function withUserFilter(
   return { where: conditions.join(" AND "), args };
 }
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureObservabilityTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const traceSpansCreateSql = `
+export const observabilityStore = defineStore({
+  id: "observability",
+  after: ["chat_threads"],
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const traceSpansCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_spans (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -186,7 +194,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const traceSummariesCreateSql = `
+        const traceSummariesCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_summaries (
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
@@ -206,7 +214,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const feedbackCreateSql = `
+        const feedbackCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_feedback (
           id TEXT PRIMARY KEY,
           run_id TEXT,
@@ -222,7 +230,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const instructionUpdatesCreateSql = `
+        const instructionUpdatesCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_instruction_updates (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -238,7 +246,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const humanReviewSummariesCreateSql = `
+        const humanReviewSummariesCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_human_review_summaries (
           run_id TEXT PRIMARY KEY,
           org_id TEXT NOT NULL,
@@ -251,7 +259,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const satisfactionScoresCreateSql = `
+        const satisfactionScoresCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_satisfaction_scores (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -265,7 +273,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const evalsCreateSql = `
+        const evalsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_evals (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -280,7 +288,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const evalDatasetsCreateSql = `
+        const evalDatasetsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_eval_datasets (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -293,7 +301,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentsCreateSql = `
+        const experimentsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiments (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -308,7 +316,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentAssignmentsCreateSql = `
+        const experimentAssignmentsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiment_assignments (
           experiment_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -318,7 +326,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentResultsCreateSql = `
+        const experimentResultsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiment_results (
           id TEXT PRIMARY KEY,
           experiment_id TEXT NOT NULL,
@@ -332,7 +340,6 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      {
         await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
         await ensureTableExists(
           "agent_trace_summaries",
@@ -502,14 +509,18 @@ export async function ensureObservabilityTables(): Promise<void> {
           "idx_experiment_results_exp",
           `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+    ...fromMigrationEntries(
+      OBSERVABILITY_MIGRATIONS_TABLE,
+      OBSERVABILITY_MIGRATIONS,
+      { data: [1, 2, 3] },
+    ),
+  ],
+});
+
+export function ensureObservabilityTables(): Promise<void> {
+  return observabilityStore.ready();
 }
 
 export async function insertTraceSpan(span: TraceSpan): Promise<void> {

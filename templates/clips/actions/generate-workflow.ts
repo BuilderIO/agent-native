@@ -12,7 +12,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
-import { WorkflowKindSchema } from "../shared/workflow.js";
+import {
+  isRecentWorkflowGeneration,
+  WorkflowKindSchema,
+} from "../shared/workflow.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 const KIND_PROMPTS = {
@@ -43,16 +46,6 @@ Keep it concise, warm, and professional.`,
 } as const;
 
 const workflowGenerationLocks = new Set<string>();
-
-function isRecentGeneration(state: Record<string, unknown> | null): boolean {
-  if (state?.status !== "generating") return false;
-  const requestedAt = Date.parse(
-    typeof state.requestedAt === "string" ? state.requestedAt : "",
-  );
-  return (
-    !Number.isFinite(requestedAt) || Date.now() - requestedAt < 10 * 60_000
-  );
-}
 
 export default defineAction({
   description:
@@ -98,7 +91,7 @@ export default defineAction({
       const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
       const existing = await readAppState(stateKey);
-      if (isRecentGeneration(existing)) {
+      if (isRecentWorkflowGeneration(existing)) {
         return {
           queued: false,
           duplicate: true,
@@ -165,7 +158,7 @@ export default defineAction({
       ]);
       if (!claimed) {
         const current = await readAppState(stateKey);
-        if (isRecentGeneration(current)) {
+        if (isRecentWorkflowGeneration(current)) {
           return {
             queued: false,
             duplicate: true,

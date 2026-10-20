@@ -1,6 +1,8 @@
 import { createApp, H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
+
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
   resourceGetByPath: vi.fn(),
@@ -26,9 +28,18 @@ const routeHarness = vi.hoisted(() => ({
 }));
 
 const threadStoreMocks = vi.hoisted(() => ({
+  forkThread: vi.fn(),
   mutateThreadQueuedMessages: vi.fn(),
   resolveThreadAccess: vi.fn(),
   updateThreadData: vi.fn(),
+}));
+
+const runStoreMocks = vi.hoisted(() => ({
+  listRunsForThread: vi.fn(),
+}));
+
+const setupGateMocks = vi.hoisted(() => ({
+  requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
 }));
 
 const handlerHarness = vi.hoisted(() => ({
@@ -120,6 +131,7 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
     await importOriginal<typeof import("../chat-threads/store.js")>();
   return {
     ...actual,
+    forkThread: (...args: any[]) => threadStoreMocks.forkThread(...args),
     mutateThreadQueuedMessages: (...args: any[]) =>
       threadStoreMocks.mutateThreadQueuedMessages(...args),
     resolveThreadAccess: (...args: any[]) =>
@@ -128,6 +140,21 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
       threadStoreMocks.updateThreadData(...args),
   };
 });
+
+vi.mock("../agent/run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agent/run-store.js")>();
+  return {
+    ...actual,
+    listRunsForThread: (...args: any[]) =>
+      runStoreMocks.listRunsForThread(...args),
+  };
+});
+
+vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
+  requireAgentChatAiSetup: (...args: unknown[]) =>
+    setupGateMocks.requireAgentChatAiSetup(...args),
+}));
 
 import {
   createAgentChatPlugin,
@@ -269,6 +296,8 @@ beforeEach(() => {
   threadStoreMocks.resolveThreadAccess.mockReset();
   threadStoreMocks.updateThreadData.mockReset();
   threadStoreMocks.updateThreadData.mockResolvedValue(true);
+  runStoreMocks.listRunsForThread.mockReset();
+  runStoreMocks.listRunsForThread.mockResolvedValue([]);
   mocks.getSession.mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
@@ -363,6 +392,89 @@ beforeEach(() => {
   mocks.resourceGet.mockImplementation(async (id) => resourcesById.get(id));
 });
 
+describe("agent chat thread read route", () => {
+  it("returns SQL lifecycle rows only after thread access and scopes them to stored run IDs", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-run-lifecycle-projection";
+    const thread = {
+      id: threadId,
+      scope: null,
+      threadData: JSON.stringify({
+        agentKit: {
+          runs: [
+            { id: "run-projected" },
+            { id: "run-missing-from-sql" },
+            { id: "run-projected" },
+          ],
+        },
+      }),
+      messageCount: 0,
+      title: "Thread",
+      preview: "",
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    runStoreMocks.listRunsForThread.mockResolvedValue([
+      {
+        id: "run-projected",
+        status: "errored",
+        startedAt: 1000,
+        completedAt: 2000,
+        errorCode: "run_timeout",
+        abortReason: null,
+        terminalReason: "run_timeout",
+      },
+    ]);
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}`,
+      { userEmail: "user@example.test", orgId: "org-lifecycle" },
+    );
+
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledWith(
+      "user@example.test",
+      threadId,
+      "viewer",
+      expect.objectContaining({ orgId: expect.any(String) }),
+    );
+    expect(runStoreMocks.listRunsForThread).toHaveBeenCalledWith(threadId, {
+      runIds: ["run-projected", "run-missing-from-sql"],
+    });
+    expect(result.runLifecycles).toEqual({
+      queriedRunIds: ["run-projected", "run-missing-from-sql"],
+      runs: [
+        {
+          id: "run-projected",
+          status: "errored",
+          startedAt: 1000,
+          completedAt: 2000,
+          errorCode: "run_timeout",
+          abortReason: null,
+          terminalReason: "run_timeout",
+        },
+      ],
+    });
+  });
+
+  it("does not query lifecycle rows when the requester cannot read the thread", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-not-readable",
+      { userEmail: "user@example.test" },
+    );
+
+    expect(response.status).toBe(404);
+    expect(runStoreMocks.listRunsForThread).not.toHaveBeenCalled();
+  });
+});
+
 async function mountResourceRoutes(options?: {
   resolveOrgId?: (
     event: unknown,
@@ -398,6 +510,178 @@ async function fetchWithRequestContext(
 }
 
 describe("agent chat queued-message route", () => {
+  it("rejects data URL attachment references before durable queue mutation", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-data-url";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "append",
+            message: {
+              id: "queued-data-url",
+              threadId,
+              text: "Inspect this image",
+              createdAt: new Date().toISOString(),
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "screen.png",
+                  url: "data:image/png;base64,iVBORw==",
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("accepts queued metadata when its submission receipt matches", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-metadata";
+    const message = {
+      id: "queued-metadata",
+      threadId,
+      text: "Continue with this context",
+      createdAt: new Date().toISOString(),
+      metadata: {
+        "x-agent-native": {
+          context: { browserTabId: "tab-queue-metadata", surface: "app" },
+          smartObjects: [{ id: "object-queue-metadata", kind: "document" }],
+        },
+      },
+    };
+    const submissionPayload = {
+      threadId,
+      id: message.id,
+      text: message.text,
+      metadata: message.metadata,
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValue({
+      queuedMessages: [message],
+      message,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: { type: "append", message, submissionPayload },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      expect.objectContaining({
+        type: "append",
+        message,
+        hashInput: submissionPayload,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("requires AI setup before claiming a queued prompt for dispatch", async () => {
+    const h3App = await mountResourceRoutes();
+    const setupRequired = Object.assign(new Error("Connect AI first"), {
+      statusCode: 403,
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    setupGateMocks.requireAgentChatAiSetup.mockRejectedValueOnce(setupRequired);
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-claim-gate",
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-claim-gate/queued",
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "claim",
+            messageId: "queued-claim-gate",
+            claimId: "claim-gate",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(setupGateMocks.requireAgentChatAiSetup).toHaveBeenCalledOnce();
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("preserves confirmed personal scope for queued-message readiness", async () => {
+    const h3App = await mountResourceRoutes();
+    const setupRequired = Object.assign(new Error("Connect AI first"), {
+      statusCode: 403,
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    let setupScope: string | undefined;
+    setupGateMocks.requireAgentChatAiSetup.mockImplementationOnce(async () => {
+      setupScope = getRequestContext()?.orgScope;
+      throw setupRequired;
+    });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-personal-queue-gate",
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-personal-queue-gate/queued",
+      { userEmail: "user@example.test", orgScope: "personal" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "claim",
+            messageId: "queued-personal-claim",
+            claimId: "personal-claim",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(setupScope).toBe("personal");
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
   it("returns a typed conflict when a claimed queue item was removed", async () => {
     const h3App = await mountResourceRoutes();
     const threadId = "thread-claim-race";
@@ -438,6 +722,12 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
       threadId,
       mutation,
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          email: "user@example.test",
+          anonymous: false,
+        }),
+      }),
     );
   });
 });
@@ -473,6 +763,77 @@ describe("agent chat thread save route", () => {
       error: "Invalid threadData JSON",
     });
     expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it("rejects inline image bytes in a client snapshot before saving", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const threadData = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "inline-image-message",
+            role: "user",
+            content: [{ type: "text", text: "Inspect this" }],
+            attachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                data: "data:image/png;base64,INLINE_THREAD_SNAPSHOT_BYTES",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData, messageCount: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+      code: "inline_attachment_data_not_persistable",
+      retryable: false,
+    });
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed error for an invalid fork snapshot", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}/fork`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: { threadData: "{invalid", messageCount: 1 },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+      code: "invalid_thread_data",
+      retryable: false,
+    });
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -621,7 +982,189 @@ describe("agent chat thread save route", () => {
   });
 });
 
+describe("agent chat unsaved thread reads", () => {
+  it("answers a thread nobody has saved yet as typed absent only when the client asks", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const typed = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread",
+      { userEmail: "user@example.test" },
+      { headers: { [AGENT_CHAT_THREAD_ABSENCE_HEADER]: "typed" } },
+    );
+    expect(typed.status).toBe(200);
+    expect(await typed.json()).toEqual({ absent: true });
+
+    const plain = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/unsaved-thread",
+      { userEmail: "user@example.test" },
+    );
+    expect(plain.status).toBe(404);
+  });
+});
+
 describe("agent chat resource route organization scopes", () => {
+  it("prefers the most recently updated resource skill when names repeat", async () => {
+    const h3App = await mountResourceRoutes();
+    const candidates = [
+      {
+        id: "repeat_slash_skill_canonical",
+        path: "skills/repeat-skill/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content: "---\nname: repeat-skill\ndescription: Older\n---\n# Older",
+      },
+      {
+        id: "repeat_slash_skill_suffixed",
+        path: "skills/repeat-skill-2/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content: "---\nname: repeat-skill\ndescription: Newest\n---\n# Newest",
+      },
+    ];
+    for (const candidate of candidates) {
+      resourcesById.set(candidate.id, candidate);
+    }
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" } as any);
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "user@example.test" },
+    );
+    const result = (await response.json()) as {
+      skills: Array<{
+        name: string;
+        description?: string;
+        path: string;
+        source: string;
+      }>;
+    };
+
+    expect(
+      result.skills.filter((skill) => skill.name === "repeat-skill"),
+    ).toEqual([
+      {
+        name: "repeat-skill",
+        description: "Newest",
+        path: "skills/repeat-skill-2/SKILL.md",
+        source: "resource",
+      },
+    ]);
+  });
+
+  it("uses the same owner and recency order as the prompt skill catalog", async () => {
+    const candidates = [
+      {
+        id: "catalog-priority-canonical",
+        path: "skills/catalog-priority/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: catalog-priority\ndescription: Older canonical version.\n---\n# Older",
+      },
+      {
+        id: "catalog-priority-suffixed",
+        path: "skills/catalog-priority-2/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: catalog-priority\ndescription: Newer personal version.\n---\n# Newer personal",
+      },
+      {
+        id: "catalog-priority-organization",
+        path: "skills/organization-copy/SKILL.md",
+        owner: "__organization__:org-1",
+        mimeType: "text/markdown",
+        updatedAt: 3000,
+        content:
+          "---\nname: catalog-priority\ndescription: Newer organization version.\n---\n# Organization",
+      },
+      {
+        id: "catalog-priority-shared",
+        path: "skills/shared-copy/SKILL.md",
+        owner: "__shared__",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: catalog-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+      {
+        id: "organization-priority-organization",
+        path: "skills/organization-priority/SKILL.md",
+        owner: "__organization__:org-1",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: organization-priority\ndescription: Organization version.\n---\n# Organization",
+      },
+      {
+        id: "organization-priority-shared",
+        path: "skills/organization-priority-shared/SKILL.md",
+        owner: "__shared__",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: organization-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+    ];
+    for (const candidate of candidates) {
+      resourcesById.set(candidate.id, candidate);
+    }
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" } as any);
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    const h3App = await mountResourceRoutes({
+      resolveOrgId: () => "org-1",
+    });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "user@example.test", orgId: "org-1" },
+    );
+    const result = (await response.json()) as {
+      skills: Array<{
+        name: string;
+        description?: string;
+        path: string;
+        source: string;
+      }>;
+    };
+
+    expect(
+      result.skills.filter((skill) => skill.name === "catalog-priority"),
+    ).toEqual([
+      {
+        name: "catalog-priority",
+        description: "Newer personal version.",
+        path: "skills/catalog-priority-2/SKILL.md",
+        source: "resource",
+      },
+    ]);
+    expect(
+      result.skills.filter((skill) => skill.name === "organization-priority"),
+    ).toEqual([
+      {
+        name: "organization-priority",
+        description: "Organization version.",
+        path: "skills/organization-priority/SKILL.md",
+        source: "resource",
+      },
+    ]);
+  });
+
   it("keeps Lab-gated bundled skills out of the slash picker for disabled users", async () => {
     const h3App = await mountResourceRoutes();
     const creativeSkill = {
@@ -714,7 +1257,7 @@ describe("agent chat resource route organization scopes", () => {
 
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
-    expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
+    expect(mocks.resourceListAllOwners).not.toHaveBeenCalledWith("jobs/");
     const resourceList = mocks.resourceList.getMockImplementation()!;
     const resourceListContexts: Array<{
       orgId: string | undefined;
@@ -1211,21 +1754,23 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
-    const analyticsPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "analytics",
+    const analyticsPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "analytics"),
     );
-    const mailPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "mail",
+    const mailPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "mail"),
     );
 
     expect(analyticsPrompt).toBe(mailPrompt);
     expect(mocks.resourcePut).not.toHaveBeenCalled();
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics");
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail");
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics", {
+      includePersonalAgents: true,
+    });
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail", {
+      includePersonalAgents: true,
+    });
 
     expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
       "__workspace__",
@@ -1454,7 +1999,7 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<skills-summary>");
     expect(prompt).toContain("Prefer concise updates.");
     expect(prompt).toContain(
-      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for subsequent steps in this turn.',
+      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for the rest of the conversation.',
     );
     expect(prompt).toContain("do not repeat an equivalent docs-search lookup");
     expect(prompt).toContain("Do not use MCP resource reads for these skills.");
@@ -1747,7 +2292,7 @@ describe("compact skills summary and the request registry", () => {
     mocks.getSession.mockResolvedValue({ email: "user@example.test" });
     mocks.loadAgentsBundle.mockResolvedValue(deepReviewBundle);
     const systemPrompt = await runWithRequestContext(
-      { userEmail: "user@example.test" },
+      { userEmail: "user@example.test", orgScope: "personal" },
       () =>
         handler.systemPrompt(
           new H3Event(new Request("https://app.example.test/chat")),

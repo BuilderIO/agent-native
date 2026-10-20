@@ -15,3 +15,18 @@ description: "Core の互換性、テンプレートパターン、Toolkit プ�
 | キャンバス表示   | Toolkit またはアプリの合成。                                                             |
 
 エディターは `@agent-native/toolkit/editor` からインポートします。従来の Core パスは互換性のための再エクスポートとして残ります。スキーマ、コマンド、永続化はアプリに置きます。ブロックは Core に残りますが、Toolkit セクションは再利用可能 UI のカタログなので、ドキュメントはここにまとめます。
+
+Blocksのスキーマと実行時契約はCoreが管理し、Toolkitが再利用可能なクライアントUIを提供します。Context X-RayのエンジンとactionsはCoreが管理し、Toolkit UIはapp/context-xrayから提供されます。.
+
+## キャンバス操作と注釈
+
+Toolkitはジェスチャーやショートカットのヘッドレスヘルパーに加え、描画やテキスト指示用のDrawOverlayと、エージェントに送れるアンカー付きフィードバック用のCanvasCommentPinsを提供します。キャンバスモデル、描画、永続化、エージェントのコンテキストはアプリが管理します。
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>選択</span><span class='wf-pill'>描画</span><span class='wf-pill'>コメント</span><div style='flex:1'></div><span class='wf-muted'>キャンバス操作</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>キャンペーンページ</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>描画メモ</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>フィードバック</strong><div class='wf-box'>1 &nbsp; この見出しを画像の上に移動します。</div><div class='wf-box'>2 &nbsp; このラベルのコントラストを上げます。</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> フィードバックを送信</button></aside></div>"
+    }
+  />
+</WireframeBlock>

@@ -55,11 +55,14 @@ vi.mock("@/pages/design-editor/intake-question-topics", () => ({
   loadIntakeContextFromAppState: vi.fn(),
 }));
 
+import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
+
 import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import {
   SYSTEM_CONTEXT_KEY,
   TEMPLATE_CONTEXT_KEY,
 } from "@/lib/composer-context";
+import { designGenerationDirectives } from "@/pages/design-editor/generation-prompt-directives";
 
 import { runStartRetryGeneration } from "../commands/start-retry-generation.js";
 import { runResumePendingGeneration } from "./resume-pending-generation.js";
@@ -91,6 +94,7 @@ function createArgs(
     files: [],
     generationModelRef: { current: null } as never,
     imageAttachmentUnavailableMessage: "Attach the image again.",
+    invalidCanvasDimensionsMessage: "The requested canvas size is unsupported.",
     id: "design-1",
     markGenerationStale: vi.fn(),
     setGenerationChatTabId: vi.fn(),
@@ -146,6 +150,33 @@ describe("runResumePendingGeneration", () => {
     expect(args.setHasPendingGeneration).toHaveBeenCalledWith(true);
     expect(args.agentSubmit).not.toHaveBeenCalled();
     expect(mocks.formatUploadedFileContext).not.toHaveBeenCalled();
+  });
+
+  it("shows invalid canvas dimensions instead of leaving a blank pending design", async () => {
+    mocks.readPendingGeneration.mockReturnValue({
+      autoGenerate: true,
+      files: [],
+      prompt: "Create an ad at 0x600",
+      skipQuestions: true,
+    });
+    vi.mocked(designGenerationDirectives).mockImplementationOnce(() => {
+      throw new InvalidCanvasDimensionsError("invalid dimensions");
+    });
+    const args = createArgs({
+      creativeContextLabLoading: false,
+      creativeContextEnabled: false,
+    });
+
+    runResumePendingGeneration(args);
+
+    await vi.waitFor(() => {
+      expect(args.setGenerationIssue).toHaveBeenCalledWith(
+        "The requested canvas size is unsupported.",
+      );
+    });
+    expect(mocks.clearPendingGeneration).toHaveBeenCalledWith("design-1");
+    expect(args.setHasPendingGeneration).toHaveBeenCalledWith(false);
+    expect(args.agentSubmit).not.toHaveBeenCalled();
   });
 
   it("clears a pending generation when its image payload cannot be restored", () => {
@@ -210,6 +241,33 @@ describe("runResumePendingGeneration", () => {
       expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
     },
   );
+
+  it("reports invalid canvas dimensions and does not start a retry run", async () => {
+    const args = {
+      ...createArgs(),
+      canEditDesign: true,
+      clearAutoRetryTimer: vi.fn(),
+      setRetryablePrompt: vi.fn(),
+    };
+    vi.mocked(designGenerationDirectives).mockImplementationOnce(() => {
+      throw new InvalidCanvasDimensionsError("invalid dimensions");
+    });
+    const promptState = {
+      prompt: "Create an ad at 0x600",
+      files: [],
+      contextItems: frozenContext,
+      designSystemId: null,
+      model: "selected-model",
+    };
+
+    await runStartRetryGeneration(args, promptState, 2, "manual");
+
+    expect(args.setGenerationIssue).toHaveBeenCalledWith(
+      "The requested canvas size is unsupported.",
+    );
+    expect(args.setHasPendingGeneration).toHaveBeenCalledWith(false);
+    expect(args.agentSubmit).not.toHaveBeenCalled();
+  });
 
   it("retains the same frozen context, attachments and model through retry persistence and submission", async () => {
     const args = {

@@ -11,8 +11,7 @@ function hydratedEditorChromeBridgeScript(): string {
       .replace("__EDITOR_CHROME_SCALE_X__", "1")
       .replace("__EDITOR_CHROME_SCALE_Y__", "1")
       .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
-      // This suite exercises the board's Figma click-through policy. Screen
-      // content intentionally uses direct single-click selection instead.
+      // Use the board surface so the same selected-parent rule is checked there.
       .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
@@ -61,60 +60,72 @@ async function clickSequence(points: [number, number][]) {
   try {
     const page = await browser.newPage();
     await page.setContent(FIXTURE);
-    const selected: string[] = [];
-    await page.exposeFunction("__pushSelected", (id: string) =>
-      selected.push(id),
-    );
     await page.evaluate(() => {
+      (window as any).__selected = [];
       window.addEventListener("message", (e: MessageEvent) => {
         const data = e.data as {
           type?: string;
           payload?: { sourceId?: string };
         };
         if (data?.type === "element-select") {
-          (window as any).__pushSelected(data.payload?.sourceId ?? "");
+          const id = data.payload?.sourceId ?? "";
+          (window as any).__selected.push(id);
+          const selector = `[data-agent-native-node-id="${id}"]`;
+          window.postMessage(
+            {
+              type: "select-element",
+              selector,
+              selectorCandidates: [selector],
+            },
+            "*",
+          );
         }
       });
     });
     await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-    for (const [x, y] of points) {
+    for (const [index, [x, y]] of points.entries()) {
+      if (index > 0) await page.waitForTimeout(600);
       await page.mouse.click(x, y);
-      await page.waitForTimeout(50);
+      await page.waitForFunction(
+        (expectedCount) => (window as any).__selected.length >= expectedCount,
+        index + 1,
+        { timeout: 2_000 },
+      );
     }
-    return selected;
+    return await page.evaluate(() => (window as any).__selected as string[]);
   } finally {
     await browser.close();
   }
 }
 
-describe("click-through onto a generated Frame's children", () => {
-  it("dual-tagged Frame (group-wrapper + data-an-primitive=frame): second click selects the child", async () => {
+describe("plain clicks retain a selected container", () => {
+  it("dual-tagged Frame (group-wrapper + data-an-primitive=frame) stays selected on a child click", async () => {
     const selected = await clickSequence([
-      [96, 90],
+      [42, 42],
       [96, 90],
     ]);
-    expect(selected).toEqual(["frame-a", "kid-a1"]);
+    expect(selected).toEqual(["frame-a", "frame-a"]);
   });
 
-  it("a top-level board Frame's child is selected by the first click, like a Figma artboard", async () => {
+  it("the first click selects a child inside a top-level board Frame", async () => {
     const selected = await clickSequence([[56, 490]]);
     expect(selected).toEqual(["text-d1"]);
   });
 
-  it("plain nested Frame (data-an-primitive=frame only): stays click-through (regression guard)", async () => {
+  it("plain nested Frame (data-an-primitive=frame only) stays selected on a child click", async () => {
     const selected = await clickSequence([
-      [96, 230],
+      [42, 182],
       [96, 230],
     ]);
-    expect(selected).toEqual(["frame-b", "kid-b1"]);
+    expect(selected).toEqual(["frame-b", "frame-b"]);
   });
 
-  it("Group wrapper (data-agent-native-group=true): now also click-throughs, matching the Frame fix", async () => {
+  it("Group wrapper (data-agent-native-group=true) stays selected on a child click", async () => {
     const selected = await clickSequence([
-      [96, 370],
+      [42, 322],
       [96, 370],
     ]);
-    expect(selected).toEqual(["group-c", "kid-c1"]);
+    expect(selected).toEqual(["group-c", "group-c"]);
   });
 });

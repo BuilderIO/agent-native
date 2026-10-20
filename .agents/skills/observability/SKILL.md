@@ -49,11 +49,11 @@ export default defineAppConfig({
     enabled: true,
     capturePrompts: false,
     captureToolArgs: true, // capture action input args
-    captureToolResults: false, // include tool results and the full error text on tool spans and $ai_generation entries
+    captureToolResults: false, // include results and full error text in local tool spans
     evalSampleRate: 0.05, // 5% of runs get LLM-as-judge eval
     inferredSentimentEnabled: false,
     inferredSentimentSampleRate: 0,
-    inferredSentimentModel: "gpt-5-6-luna",
+    inferredSentimentModel: "gpt-6-luna",
   },
 });
 ```
@@ -67,8 +67,9 @@ classify is not observable:
   whether the rest is kept. The span's metadata says which (`__tool_error_detail`:
   `full` | `signature`), and the read path returns it as `errorDetail`
   (`full` | `signature` | `withheld` | `unrecorded`) so "withheld on purpose" is
-  never read as "nothing was recorded". `$ai_*` events and OTel spans still
-  follow the flag.
+  never read as "nothing was recorded". `$ai_*` telemetry omits error text
+  even when capture is enabled. Optional host-owned OTel run spans also use
+  fixed code-derived messages and retain `agent.error_code` / `agent.error_cause`.
 - **A stop that waits on the user is not an error.** An `input_required`
   outcome (question, approval, connection) records the `agent_run` span as
   `status: "paused"` with the reason in `terminal_code`, not `error`. Anything
@@ -110,7 +111,7 @@ true, so nobody has to ask the reporter for an example:
 
 Self-hosted apps default to no inferred sentiment. First-party apps hosted on
 `agent-native.com` automatically classify 100% of eligible user replies with
-`gpt-5-6-luna`; an explicit stored `inferredSentimentEnabled: false` remains an
+`gpt-6-luna`; an explicit stored `inferredSentimentEnabled: false` remains an
 opt-out. Deployment overrides are `AGENT_NATIVE_INFERRED_SENTIMENT=on|off`,
 `AGENT_NATIVE_INFERRED_SENTIMENT_SAMPLE_RATE=0..1`, and
 `AGENT_NATIVE_INFERRED_SENTIMENT_MODEL=<model>`; `off` is always the emergency
@@ -136,11 +137,17 @@ Successful classifications emit a content-free `$ai_sentiment` tracking event:
 No raw message, prompt, or response text is persisted or tracked.
 
 A classification that cannot complete emits `$ai_sentiment_failed` with the same
-identity properties and a coarse `reason`: `engine_unavailable`, `timeout`,
-`parse_failed`, or `empty`. It never carries content, so a drop in
-`$ai_sentiment` is a count to read, not a silence to guess at. The run's own
-engine classifies when it serves the classifier model; otherwise the hosted
-Builder engine does.
+identity properties and a coarse `reason`: `engine_unavailable`,
+`model_unsupported`, `timeout`, `parse_failed`, or `empty`. It never carries
+content, so a drop in `$ai_sentiment` is a count to read, not a silence to
+guess at. The run's own engine classifies when it serves the classifier model;
+otherwise the hosted Builder engine does. `model_unsupported` means the engine
+is up but refuses the configured classifier model: its catalog does not list it
+(the default is typed against the Builder catalog in `model-config.ts`, so a
+retired id fails the build), or the call fails with a model-rejection
+`errorCode` (`builder_model_unauthorized`, `model_not_found`,
+`not_found_error`). It is a configuration error to fix, never an outage to
+retry; any other failed call stays `engine_unavailable`.
 
 ### 2. Feedback
 
@@ -399,6 +406,15 @@ same best-effort fan-out as other tracking events.
   logical turn may span multiple concrete runs.
 
 Constraints that are not visible from the emit site:
+
+- **Run failure telemetry carries identifiers, not error text.** `error_detail`
+  and `error_message` are absent from tracking. `$ai_error.message` is fixed
+  text derived from its `terminal_code`; `cause` comes from the failure taxonomy.
+  Failed tool results in `$ai_output_state` and generation input transcripts are
+  replaced with an omission marker, and the `tools` array retains only its error
+  class. Local `agent_runs.error_detail` and `agent_trace_spans.error_message`
+  remain available to owner-scoped debugging and the Observability UI.
+  Monitoring run/gateway captures use the omission policy documented in tracking.
 
 - **The trace event carries no latency, tokens, or cost under `$ai_*`.** PostHog
   DERIVES those from a trace's children: its trace query sums `$ai_latency` over

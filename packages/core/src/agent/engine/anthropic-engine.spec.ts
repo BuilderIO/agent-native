@@ -665,6 +665,20 @@ describe("createAnthropicEngine", () => {
     expect(requestParams.output_config).toBeUndefined();
   });
 
+  it("uses adaptive thinking for Claude Haiku 5.5", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-haiku-5-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.output_config).toEqual({ effort: "high" });
+    expect(requestParams.temperature).toBeUndefined();
+  });
+
   it("does not enable thinking by default for a non-reasoning model", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-3-5-haiku-20241022",
@@ -725,6 +739,52 @@ describe("createAnthropicEngine", () => {
       budget_tokens: 4_000,
     });
     expect(requestParams.output_config).toBeUndefined();
+  });
+});
+
+describe("createAnthropicEngine model dispatch guard", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  it("does not open the provider stream when the dispatch guard denies it", async () => {
+    const streamSpy = vi.fn();
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: streamSpy };
+      },
+    }));
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const beforeModelDispatch = vi.fn(async <T>(_dispatch: () => T) => ({
+      started: false as const,
+    }));
+    const onModelDispatchStarted = vi.fn();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    try {
+      await collectEvents(
+        freshCreate({ apiKey: "test-key" }).stream({
+          model: ANTHROPIC_DEFAULT_MODEL,
+          systemPrompt: "",
+          messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+          tools: [],
+          abortSignal: new AbortController().signal,
+          beforeModelDispatch,
+          onModelDispatchStarted,
+        }),
+      );
+
+      expect(beforeModelDispatch).toHaveBeenCalledOnce();
+      expect(streamSpy).not.toHaveBeenCalled();
+      expect(onModelDispatchStarted).not.toHaveBeenCalled();
+      expect(clearTimeoutSpy).toHaveBeenCalledOnce();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      vi.doUnmock("@anthropic-ai/sdk");
+    }
   });
 });
 

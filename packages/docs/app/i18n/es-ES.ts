@@ -1,6 +1,89 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const esES = {
+  campaign: {
+    recipes: "Recetas",
+    waysToUse: "Formas de usarlo",
+    recipeWhen: "Cuándo",
+    recipeNextTime: "La próxima vez:",
+    howOften: "Con qué frecuencia",
+    worksWith: "Funciona con:",
+    nextJobs: "Qué hacer después",
+    filterRole: "Rol",
+    filterAll: "Todos",
+    filterEngineering: "Ingeniería",
+    filterProduct: "Producto",
+    filterDesign: "Diseño",
+    filterMarketing: "Marketing",
+    filterRevops: "RevOps",
+    filterSales: "Ventas",
+    filterFounders: "Fundadores",
+    filterFinance: "Finanzas",
+    filterOften: "Con qué frecuencia",
+    filterAny: "Cualquiera",
+    filterDaily: "A diario",
+    filterWeekly: "Cada semana",
+    filterPerProject: "Por proyecto o lanzamiento",
+    filterOccasional: "Ocasionalmente",
+    filterEmpty: "Ningún caso de uso coincide con estos filtros.",
+    filterClear: "Borrar filtros",
+    browseArticles:
+      "O explora los {{articles}} para encontrar plantillas y guías prácticas.",
+    articlesLink: "artículos",
+    whatItReplaces: "Qué reemplaza",
+    whatYouUse: "Qué usas",
+    usedFor: "Para",
+    whereItBreaks: "Dónde falla",
+    updatedDate: "Actualizado el {{date}}",
+    publishedDate: "Publicado el {{date}}",
+    allArticles: "Todos los artículos",
+    useCases: "Casos de uso",
+    useCasesDescription: "Páginas para tareas recurrentes, por app",
+    useCasesTitle:
+      "Trabajo recurrente, realizado con una app Agent-Native y tu agente de IA",
+    useCasesIntro:
+      "Elige el trabajo que haces una y otra vez, o explora los {{articles}} para encontrar plantillas y guías prácticas.",
+    nextEyebrow: "A continuación",
+    frequencyLabel: "Con qué frecuencia: {{text}}",
+    articles: "Artículos",
+    articlesIntro:
+      "Respuestas prácticas sobre el trabajo recurrente con agentes de IA. Para ver páginas que explican una tarea concreta paso a paso, explora los {{useCases}}.",
+    useCasesLink: "casos de uso",
+    articleCount_one: "{{count}} artículo",
+    articleCount_many: "{{count}} de artículos",
+    articleCount_other: "{{count}} artículos",
+    moreOnTopic: "Más sobre {{topic}}",
+    oldWay: "La forma anterior",
+    newWay: "La nueva forma",
+    alternative: "Una alternativa de código abierto a {{names}}",
+    usedBefore: "Usaba antes: {{names}}",
+    faqs: "Preguntas frecuentes",
+    faqTitle: "Respuestas a preguntas frecuentes",
+    goDeeper: "Profundiza",
+    copyPage: "Copiar página",
+    copyLink: "Copiar enlace",
+    copied: "Copiado",
+    copyFailed: "No se pudo copiar. Inténtalo de nuevo.",
+    breadcrumb: "Ruta de navegación",
+    readTime_one: "{{count}} min de lectura",
+    readTime_many: "{{count}} min de lectura",
+    readTime_other: "{{count}} min de lectura",
+    partOf: "Parte de:",
+    relatedResources: "Recursos relacionados",
+    moreArticles: "Más artículos de {{category}}",
+    genericMore: "Más artículos",
+    showMore: "Mostrar más artículos",
+    allTopics: "Todos los temas",
+    topics: {
+      clips:
+        "Grabaciones de pantalla, reuniones y dictado que tu agente de IA puede usar",
+      design: "Prototipos interactivos con tu agente de IA",
+      slides: "Presentaciones acordes con tu marca con tu agente de IA",
+      plans:
+        "Planes visuales y resúmenes para tu agente de programación con IA",
+      analytics: "Preguntas en lenguaje natural, gráficos y paneles",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
@@ -654,6 +737,9 @@ const esES = {
     waitlistUnavailable:
       "Las inscripciones en la lista de espera aún no están disponibles en este entorno. Prueba en su lugar el sitio de documentación alojado.",
     launchBuilder: "Abrir Builder",
+    newAppPrompt: "Crea una nueva app Agent-Native.",
+    customizeTemplatePrompt:
+      "Personaliza la plantilla Agent-Native {{template}} para mi flujo de trabajo.",
   },
   templateCard: {
     pasteIntoTerminal: "Pega en tu terminal.",
@@ -682,7 +768,7 @@ const esES = {
         "Instala planificación visual como skill respaldada por una app. Tu agente de código puede abrir planes estructurados con diagramas, wireframes, prototipos, anotaciones, comentarios y enlaces de revisión.",
     },
     design: {
-      replaces: "Reemplaza o amplía herramientas de prototipado",
+      replaces: "Estudio de diseño de Agent-Native",
       description:
         "Convierte instrucciones en diseños interactivos que siguen tu sistema de diseño mientras el agente perfecciona cada pantalla según tus comentarios.",
     },
@@ -1454,7 +1540,7 @@ const esES = {
       s003: "generar",
       s004: "Refinar",
       s005: "Todas las plantillas",
-      s006: "El estudio de creación de prototipos de código abierto AI HTML",
+      s006: "Espacio de diseño de código abierto",
       s007: "Cree diseños y prototipos interactivos. Refine con herramientas familiares o realice ediciones conversacionales. Exporte a donde quiera.",
       s008: "Diseña algo",
       s009: "como funciona",
@@ -1898,7 +1984,6 @@ const esES = {
       heroDescription:
         "Plans es una herramienta de planificación visual gratuita y de código abierto para revisar el enfoque de tu agente de código, darle comentarios y entender los cambios de código mediante diagramas, wireframes y código anotado.",
       heroCta: "Planifica visualmente",
-      heroSecondaryCta: "Abrir Plans",
       useCasesHeading: "¿Qué puedes hacer con Plans?",
       useCasesBody:
         "Revisa un enfoque de implementación, perfecciona una interfaz o entiende un cambio ya realizado junto a tu agente de código.",
@@ -2196,6 +2281,8 @@ const esES = {
     downloadStarted: "Descarga iniciada",
     downloadAgain: "¿No funcionó? Intenta descargar de nuevo",
     loadError: "No se pudo cargar el instalador de escritorio más reciente.",
+    mountError:
+      "La página de descarga de escritorio no pudo encontrar su ruta en el espacio de trabajo. Pide al administrador del espacio que revise la configuración de la ruta de la aplicación.",
     checkingRelease: "Buscando la versión de escritorio más reciente...",
     retry: "Reintentar",
     unavailable: "Instalador no disponible para esta plataforma",
@@ -2543,6 +2630,7 @@ const esES = {
     advancedRuntime: "Avanzado: extender el runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeros pasos",
+    createWithAgent: "Crear con un agente",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "¿Qué es Agent-Native?",
@@ -2551,6 +2639,7 @@ const esES = {
     keyConcepts: "Conceptos clave",
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Resumen",
+    toolkitFoundations: "Fundamentos",
     toolkitUiPrimitives: "Primitivas de UI",
     customDesignSystem: "Sistemas de diseño personalizados",
     toolkitEditorsCanvases: "Editores y lienzos",
@@ -2563,6 +2652,10 @@ const esES = {
     toolkitCommandNavigation: "Comandos y navegación",
     toolkitResources: "Recursos",
     toolkitAgentUx: "UX del agente",
+    toolkitDashboard: "Panel",
+    toolkitChatHistory: "Historial de chats",
+    toolkitAgentPage: "Página del agente",
+    toolkitNotifications: "Notificaciones",
     toolkitHistory: "Historial",
     toolkitCommentsReview: "Comentarios y revisión",
     toolkitObservability: "Observabilidad",
@@ -2641,6 +2734,7 @@ const esES = {
     auditLog: "Registro de auditoría",
     doctorCodeChecks: "Doctor (verificaciones de código)",
     observability: "Observabilidad",
+    recorder: "Grabador",
     observationalMemory: "Memoria observacional",
     ciEvalGate: "Puerta de evals en CI",
     usingYourAgentOverview: "Visión general",
@@ -2694,7 +2788,9 @@ const esES = {
     blueprintInstaller: "Instalador Blueprint",
     chat: "Chat",
     chatOverview: "Visión general",
-    chatFirstEdits: "Tu primera función",
+    chatFeatures: "Funciones",
+    chatAgent: "Hablar con el Agent",
+    chatIntegrations: "Uso entre apps",
     chatDevelopers: "Guía para desarrolladores",
     calendar: "Calendario",
     calendarOverview: "Visión general",
@@ -2768,6 +2864,6 @@ const esES = {
     docsComponents: "Docs Components",
     formsDevelopers: "Guía para desarrolladores",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default esES;

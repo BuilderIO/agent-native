@@ -78,7 +78,7 @@ describe("cleanup-transcript", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses GPT-5.6 Luna through Builder when the managed path succeeds", async () => {
+  it("uses Luna through Builder when the managed path succeeds", async () => {
     mockBuilderStream.mockImplementation(async function* () {
       yield { type: "text-delta", text: "Cleaned transcript from Luna." };
       yield { type: "stop", reason: "end_turn" };
@@ -95,7 +95,7 @@ describe("cleanup-transcript", () => {
       provider: "builder",
     });
     expect(mockBuilderStream).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "gpt-5-6-luna" }),
+      expect.objectContaining({ model: "gpt-6-luna" }),
     );
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -139,6 +139,29 @@ describe("cleanup-transcript", () => {
         }),
       }),
     );
+  });
+
+  it("sends BYOK requests to Gemini 3.5 Flash-Lite without sampling parameters", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+
+    for (const task of ["cleanup", "title", "summary"] as const) {
+      await cleanupTranscript.run({ transcript: "raw transcript", task });
+    }
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    for (const [url, init] of vi.mocked(fetch).mock.calls) {
+      expect(url).toBe(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      );
+      const body = JSON.parse(
+        typeof init?.body === "string" ? init.body : "",
+      ) as {
+        generationConfig: Record<string, unknown>;
+      };
+      for (const key of ["temperature", "topP", "topK", "top_p", "top_k"]) {
+        expect(body.generationConfig).not.toHaveProperty(key);
+      }
+    }
   });
 
   it("scales cleanup output budgets with transcript length for both providers", async () => {

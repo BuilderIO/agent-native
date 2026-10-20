@@ -12,7 +12,6 @@ Images and PDFs use an upload attachment with a matching base64 data URL:
   contentType: "image/webp" | "image/png" | "image/jpeg" | "image/gif" | "application/pdf",
   name: string,
   dataUrl: "data:<contentType>;base64,<BASE64_CONTENT>",
-  size: number,
   id: string
 }
 ```
@@ -26,12 +25,11 @@ Text and JSON files provide decoded contents instead of a data URL:
   name: string,
   dataUrl: "",
   text: string,
-  size: number,
   id: string
 }
 ```
 
-Set `size` to the UTF-8 byte length of `text`. Use a stable or unique `id` for each attachment.
+Send any other text-based file (Markdown, CSV, source code, plain text) as `text/plain` with its real file name, for example `notes.md`. Use a stable or unique `id` for each attachment. A malformed attachment is rejected with `invalid_attachment` and a message naming the problem; fix that attachment and retry, because an unchanged retry fails the same way.
 
 ## Public URLs
 

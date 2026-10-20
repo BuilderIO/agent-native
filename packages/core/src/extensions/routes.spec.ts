@@ -124,3 +124,98 @@ describe("createExtensionsHandler extension creation capability", () => {
     expect(mocks.createExtension).not.toHaveBeenCalled();
   });
 });
+
+describe("createExtensionsHandler iframe display sources", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { resetAppConfigForTests } = await import("../app-config/index.js");
+    resetAppConfigForTests();
+    mocks.getSession.mockResolvedValue({
+      email: "viewer@example.test",
+      orgId: "org-1",
+    });
+    mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
+  });
+
+  function displaySourcesEvent() {
+    return {
+      method: "GET",
+      url: new URL("http://app.test/iframe/display-sources"),
+      status: 200,
+    };
+  }
+
+  it("serves the configured img-src and media-src for client-rendered frames", async () => {
+    const { defineAppConfig } = await import("../app-config/index.js");
+    defineAppConfig({
+      extensions: {
+        iframeImageSources: ["'self'", "https:"],
+        iframeMediaSources: ["'self'", "blob:"],
+      },
+    });
+
+    const event = displaySourcesEvent();
+    await expect(createExtensionsHandler()(event as never)).resolves.toEqual({
+      imageSources: ["'self'", "https:"],
+      mediaSources: ["'self'", "blob:"],
+    });
+    expect(event.status).toBe(200);
+  });
+
+  it("answers display sources without setting up the extension tables", async () => {
+    const event = displaySourcesEvent();
+    await expect(createExtensionsHandler()(event as never)).resolves.toEqual({
+      imageSources: expect.any(Array),
+      mediaSources: expect.any(Array),
+    });
+    expect(event.status).toBe(200);
+    expect(mocks.ensureExtensionsTables).not.toHaveBeenCalled();
+  });
+
+  it("requires a session like every other extension route", async () => {
+    mocks.getSession.mockResolvedValue(null);
+    const event = displaySourcesEvent();
+
+    await expect(createExtensionsHandler()(event as never)).resolves.toEqual({
+      error: "Authentication required",
+    });
+    expect(event.status).toBe(401);
+  });
+});
+
+describe("createExtensionsHandler proxy response size", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getSession.mockResolvedValue({
+      email: "viewer@example.test",
+      orgId: "org-1",
+    });
+    mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
+    mocks.readBody.mockResolvedValue({
+      url: "https://93.184.216.34/api",
+      method: "GET",
+    });
+  });
+
+  it("returns an explicit gateway error for a truncated upstream body", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("partial body", {
+        status: 200,
+        headers: { "content-length": "2000000" },
+      }),
+    );
+    const event = {
+      method: "POST",
+      url: new URL("http://app.test/proxy"),
+      status: 200,
+    };
+
+    await expect(
+      createExtensionsHandler()(event as never),
+    ).resolves.toMatchObject({
+      error: expect.stringContaining("response too large"),
+    });
+    expect(event.status).toBe(502);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+});

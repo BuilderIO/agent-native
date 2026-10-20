@@ -36,10 +36,12 @@ import {
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import { getUserLabEnabled } from "../../labs/store.js";
 import { defaultModelMessagesForUser } from "../../localization/default-model-messages.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
@@ -106,6 +108,9 @@ export async function resolveDefaultModelEffective(
 ): Promise<
   Extract<SelectDefaultAgentEngineResult, { status: "selected" }>["effective"]
 > {
+  if (!ctx.orgId && ctx.orgScope !== "personal") {
+    throw new Error("Organization scope could not be resolved.");
+  }
   const credentialIdentity = ctx.userEmail
     ? { userEmail: ctx.userEmail, orgId: ctx.orgId }
     : undefined;
@@ -177,6 +182,9 @@ export async function selectDefaultAgentEngine(
   ctx: DefaultAgentEngineContext = {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId(),
+    ...(getRequestContext()?.orgScope === "personal"
+      ? { orgScope: "personal" as const }
+      : {}),
   },
 ): Promise<SelectDefaultAgentEngineResult> {
   registerBuiltinEngines();
@@ -331,10 +339,7 @@ export async function run(
     { ...args, appId: context?.appId ?? args.appId },
     {
       actionName: context?.actionName ?? "manage-agent-engine",
-      caller: context?.caller,
-      threadId: context?.threadId,
-      turnId: context?.turnId,
-      runId: context?.runId,
+      attribution: auditAttribution(context),
     },
   );
 

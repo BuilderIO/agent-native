@@ -214,6 +214,13 @@ export function createPenDraftPrimitive(
   };
 }
 
+export function removeScreenContentOffsetFromPenPath(
+  path: PenPath,
+  offset: Point,
+): PenPath {
+  return translatePenPath(path, -offset.x, -offset.y);
+}
+
 function createDraftId(tool: DraftCreationTool) {
   return `draft-${tool}-${Date.now()}-${Math.random()
     .toString(36)

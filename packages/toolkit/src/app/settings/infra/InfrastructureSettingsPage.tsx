@@ -7,6 +7,7 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { FileStorageStatus } from "@agent-native/core/file-upload/storage-settings";
 import type {
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
 } from "@agent-native/core/onboarding/types";
@@ -40,7 +41,7 @@ import {
   IconServer,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { ServiceKeyDialog } from "../api-keys/ApiKeyDialogs.js";
@@ -148,6 +149,19 @@ const BUILDER_ONLY_SERVICES: Record<
   },
 };
 
+/** Services Builder includes that also have a bring-your-own path. */
+const BUILDER_INCLUDED_SERVICES: Record<
+  WorkspaceBuilderIncludedServiceId,
+  ServiceRowMeta & { rowId: string }
+> = {
+  "web-search": {
+    rowId: "web-search",
+    labelKey: "agentChat.settingsShell.search.webSearch",
+    whyKey: `${K}whyWebSearch`,
+    icon: IconSearch,
+  },
+};
+
 type ServiceKeyDialog =
   | { mode: "add-from-service"; service: ServiceId; provider: AgentProviderId }
   | { mode: "manage"; provider: AgentProviderId };
@@ -184,6 +198,7 @@ function errorMessage(cause: unknown): string {
  */
 export function InfrastructureSettingsPage({ context }: SettingsPageProps) {
   const hasOrg = context.hasOrganization !== false;
+  const queryClient = useQueryClient();
   const infra = useActionQuery<InfrastructureStatus>(
     "get-infrastructure-status" as never,
   );
@@ -200,6 +215,10 @@ export function InfrastructureSettingsPage({ context }: SettingsPageProps) {
   const flow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "settings_infrastructure",
+    onConnected: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-file-storage"],
+      }),
   });
 
   const settled = (query: { data?: unknown; isError: boolean }) =>
@@ -252,6 +271,8 @@ function InfrastructurePageContent({
   const queryClient = useQueryClient();
   const { navigate } = useSettingsShell();
   const [storageOpen, setStorageOpen] = useState(false);
+  const [storageBuilderReconnectPending, setStorageBuilderReconnectPending] =
+    useState(false);
   const [serviceOpen, setServiceOpen] = useState<ServiceId | null>(null);
   const [keyDialog, setKeyDialog] = useState<ServiceKeyDialog | null>(null);
   const [apiKeyDialog, setApiKeyDialog] = useState<ServiceApiKeyDialog | null>(
@@ -269,6 +290,15 @@ function InfrastructurePageContent({
     : flow.configured;
   const builderUnknown = hasOrg && flow.grants === null;
   const tags = infra.data?.setupTags;
+  const storageSourceStatus = storage.data ? storageSource(storage.data) : null;
+  const storageBuilderGrantMissing =
+    storageSourceStatus?.kind === "none" &&
+    builderConnected &&
+    storage.data?.builderUploadConfigured === false;
+  const storageBuilderStatusUnknown =
+    storageSourceStatus?.kind === "none" &&
+    builderConnected &&
+    storage.data?.builderUploadConfigured === null;
 
   // The row changes before the server answers and rolls back on failure. The
   // service dialog awaits the write so a failure stays in the dialog; a write
@@ -473,6 +503,11 @@ function InfrastructurePageContent({
         : source.kind === "builder"
           ? BUILDER_LABEL
           : t(`${K}notSetUp`);
+    const description = storageBuilderGrantMissing
+      ? t(`${K}storageBuilderGrantMissing`)
+      : storageBuilderStatusUnknown
+        ? t(`${K}storageBuilderStatusUnknown`)
+        : rowDescription(text, t(`${K}useUploads`));
     const Icon = preset?.icon;
     return {
       icon:
@@ -484,14 +519,45 @@ function InfrastructurePageContent({
           <IconBox aria-hidden />
         ),
       status: source.kind === "none" ? tag(tags?.storage) : undefined,
-      description: rowDescription(text, t(`${K}useUploads`)),
-      control: (
+      description,
+      control: storageBuilderStatusUnknown ? (
+        <div className="flex flex-wrap gap-2">
+          <RowButton onClick={() => void storage.refetch()}>
+            {t(`${K}retry`)}
+          </RowButton>
+          <RowButton onClick={() => setStorageOpen(true)}>
+            {t(`${K}setUp`)}
+          </RowButton>
+        </div>
+      ) : (
         <RowButton onClick={() => setStorageOpen(true)}>
           {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
         </RowButton>
       ),
     };
   })();
+
+  const storageBuilderReconnectScope =
+    flow.effective === "org" && flow.canConnect.org
+      ? "org"
+      : flow.effective === "personal" && flow.canConnect.personal
+        ? "personal"
+        : hasOrg && flow.canConnect.org
+          ? "org"
+          : flow.canConnect.personal
+            ? "personal"
+            : null;
+  useEffect(() => {
+    if (
+      !storageBuilderReconnectPending ||
+      !storage.data ||
+      storageSource(storage.data).kind !== "builder"
+    ) {
+      return;
+    }
+    setStorageOpen(false);
+    setStorageBuilderReconnectPending(false);
+  }, [storage.data, storageBuilderReconnectPending]);
 
   const serviceRow = (id: WorkspaceProviderServiceId) => {
     const entry = PROVIDER_SERVICES[id];
@@ -523,6 +589,42 @@ function InfrastructurePageContent({
       services.data?.services.find((item) => item.service === serviceOpen)) ||
     null;
   const openServiceMeta = serviceOpen ? PROVIDER_SERVICES[serviceOpen] : null;
+  const builderProvidedServiceRow = (
+    id: string,
+    entry: ServiceRowMeta & { rowId: string },
+    builderOnly: boolean,
+  ) => (
+    <SettingsRow
+      key={id}
+      id={entry.rowId}
+      icon={
+        builderOnly && builderConnected ? (
+          <BrandLogo logoId="builder-cms" />
+        ) : (
+          <entry.icon aria-hidden />
+        )
+      }
+      label={t(entry.labelKey)}
+      status={
+        builderOnly && !builderConnected ? (
+          <Badge variant="outline" data-builder-only="">
+            {t(`${K}builderOnly`)}
+          </Badge>
+        ) : undefined
+      }
+      description={rowDescription(
+        builderOnly && builderConnected
+          ? BUILDER_LABEL
+          : t(`${K}availableWithBuilder`),
+        t(entry.whyKey),
+      )}
+      control={
+        recommendBuilder
+          ? connectBuilder("outline", t("agentChat.setup.connectBuilder"))
+          : undefined
+      }
+    />
+  );
 
   return (
     <div className="flex flex-col gap-8" data-infrastructure-settings="">
@@ -576,43 +678,18 @@ function InfrastructurePageContent({
                 />
               ) : null;
             case "builder-only": {
-              const entry = BUILDER_ONLY_SERVICES[service.id];
-              return (
-                <SettingsRow
-                  key={service.id}
-                  id={entry.rowId}
-                  icon={
-                    builderConnected ? (
-                      <BrandLogo logoId="builder-cms" />
-                    ) : (
-                      <entry.icon aria-hidden />
-                    )
-                  }
-                  label={t(entry.labelKey)}
-                  status={
-                    builderConnected ? undefined : (
-                      <Badge variant="outline" data-builder-only="">
-                        {t(`${K}builderOnly`)}
-                      </Badge>
-                    )
-                  }
-                  description={rowDescription(
-                    builderConnected
-                      ? BUILDER_LABEL
-                      : t(`${K}availableWithBuilder`),
-                    t(entry.whyKey),
-                  )}
-                  control={
-                    recommendBuilder
-                      ? connectBuilder(
-                          "outline",
-                          t("agentChat.setup.connectBuilder"),
-                        )
-                      : undefined
-                  }
-                />
+              return builderProvidedServiceRow(
+                service.id,
+                BUILDER_ONLY_SERVICES[service.id],
+                true,
               );
             }
+            case "builder-included":
+              return builderProvidedServiceRow(
+                service.id,
+                BUILDER_INCLUDED_SERVICES[service.id],
+                false,
+              );
           }
         })}
       </SettingsGroup>
@@ -624,7 +701,13 @@ function InfrastructurePageContent({
         formatList={(value) => formatters.formatList(value)}
       />
 
-      <Dialog open={storageOpen} onOpenChange={setStorageOpen}>
+      <Dialog
+        open={storageOpen}
+        onOpenChange={(open) => {
+          setStorageOpen(open);
+          if (!open) setStorageBuilderReconnectPending(false);
+        }}
+      >
         {storageOpen ? (
           <DialogContent
             className="max-w-2xl"
@@ -633,8 +716,65 @@ function InfrastructurePageContent({
           >
             <DialogHeader>
               <DialogTitle>{t(`${K}storageTitle`)}</DialogTitle>
-              <DialogDescription>{t(`${K}storageIntro`)}</DialogDescription>
+              <DialogDescription>
+                {t(
+                  storageBuilderGrantMissing
+                    ? `${K}storageBuilderGrantMissing`
+                    : storageBuilderStatusUnknown
+                      ? `${K}storageBuilderStatusUnknown`
+                      : `${K}storageIntro`,
+                )}
+              </DialogDescription>
             </DialogHeader>
+            {storageBuilderGrantMissing ? (
+              <div className="flex flex-col gap-2">
+                {storageBuilderReconnectScope ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    disabled={flow.connecting}
+                    onClick={() => {
+                      setStorageBuilderReconnectPending(true);
+                      flow.start({
+                        provisionAccount: false,
+                        scope: storageBuilderReconnectScope,
+                        trackingFlow: "file_upload",
+                      });
+                    }}
+                  >
+                    {flow.connecting ? <Spinner aria-hidden /> : null}
+                    {flow.connecting
+                      ? t(`${K}connecting`)
+                      : t(`${K}reconnectBuilderUploads`)}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => navigate("integrations", "builder")}
+                  >
+                    {t(`${K}manage`)}
+                  </Button>
+                )}
+                {flow.error && flow.errorKind !== "status-read" ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {flow.error}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {storageBuilderStatusUnknown ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={() => void storage.refetch()}
+              >
+                {t(`${K}retry`)}
+              </Button>
+            ) : null}
             <StorageSettingsForm
               onCancel={() => setStorageOpen(false)}
               onSaved={(status) => {

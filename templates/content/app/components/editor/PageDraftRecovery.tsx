@@ -21,7 +21,10 @@ import {
   useUpdateDocument,
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
-import { isDocumentCreationPending } from "@/lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import {
   readDocumentShapeHint,
   readPageIconRowHint,
@@ -34,6 +37,7 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { LiveEditorSessionContext } from "./live-editor-session";
 import {
   clearPageDraftJournal,
+  liveDraftWriterIds,
   readPageDraftJournal,
   sweepLegacyRetainedPageDraftMarkers,
   writePageDraftJournal,
@@ -65,7 +69,11 @@ export function PageDraftRecovery({
   const openAiWidget = isOpenAiMcpAppHost();
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const scopedWidgetReadOnly = document.mcpDirectoryWidgetReadOnly === true;
-  const skipDraftRecovery = openAiWidget || scopedWidgetReadOnly;
+  const skipDraftRecovery =
+    openAiWidget ||
+    scopedWidgetReadOnly ||
+    document.canEdit !== true ||
+    document.source?.mode === "local-files";
   const { session } = useSession();
   const scopeKey = session?.email
     ? JSON.stringify([
@@ -75,12 +83,20 @@ export function PageDraftRecovery({
       ])
     : null;
   const queryClient = useQueryClient();
-  const creationPending = isDocumentCreationPending(document);
+  const creationPending = isDocumentCreationPending(queryClient, document);
+  const skipCreationDraftRecoveryRef = useRef(
+    creationPending || isDocumentCreationConfirmed(queryClient, document),
+  );
+  if (creationPending || isDocumentCreationConfirmed(queryClient, document)) {
+    skipCreationDraftRecoveryRef.current = true;
+  }
+  const skipCreationDraftRecovery = skipCreationDraftRecoveryRef.current;
   const drafts = usePreviewDocumentDraft(document.id, {
-    enabled: !creationPending && !skipDraftRecovery,
+    enabled:
+      !creationPending && !skipDraftRecovery && !skipCreationDraftRecovery,
     createdAt: document.createdAt,
   });
-  const update = useUpdateDocument();
+  const update = useUpdateDocument({ saveOrigin: "recovery" });
   const updateDraft = useUpdatePreviewDocumentDraft();
   const resolveDraft = useResolvePreviewDocumentDraft();
   const [releasedScopeKey, setReleasedScopeKey] = useState<string | null>(null);
@@ -95,6 +111,20 @@ export function PageDraftRecovery({
     "checking" | "promoting" | "waiting_sql" | "ready" | "failed"
   >("checking");
   const [journalRevision, setJournalRevision] = useState(0);
+  // Another tab's open editor settles its own journal entries; replaying one
+  // here races its save queue and sends a save for text nobody typed here.
+  // A query only knows the editors open when it ran, so it holds for the
+  // journal entry and SQL draft it was taken for; a tab opened since writes
+  // entries it misses.
+  const [liveWriters, setLiveWriters] = useState<{
+    scopeKey: string;
+    entryKey: string | null;
+    draftKey: string | null;
+    writerIds: ReadonlySet<string>;
+  } | null>(null);
+  const scopeLiveWriters =
+    liveWriters && liveWriters.scopeKey === scopeKey ? liveWriters : null;
+  const skippedWriterIds = scopeLiveWriters?.writerIds;
   const journalAttemptRef = useRef<string | null>(null);
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
@@ -109,6 +139,17 @@ export function PageDraftRecovery({
     drafts.data.draft.editorSessionId === liveEditorSessionId
       ? null
       : drafts.data?.draft;
+  // So does an editor open in another tab; settling its draft here would move
+  // text it is still saving to History. Its draft can outlive its journal
+  // entry, or have none when that write failed, so the draft is checked too.
+  const draftKey = draft?.editorSessionId
+    ? `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}`
+    : null;
+  const draftLivenessKnown =
+    draftKey === null || scopeLiveWriters?.draftKey === draftKey;
+  const draftOpenElsewhere = Boolean(
+    draft?.editorSessionId && skippedWriterIds?.has(draft.editorSessionId),
+  );
   // No scope until the session read returns; the session cache expires, so a
   // page opened later can mount before then. Unverified until it does.
   const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
@@ -118,7 +159,13 @@ export function PageDraftRecovery({
   useEffect(() => {
     setVerifiedScopeKey(null);
     setReleasedScopeKey(null);
-    if (!scopeKey || creationPending || skipDraftRecovery) return;
+    if (
+      !scopeKey ||
+      creationPending ||
+      skipDraftRecovery ||
+      skipCreationDraftRecovery
+    )
+      return;
     let cancelled = false;
     void ensurePreviewDocumentDraftRead(
       queryClient,
@@ -138,6 +185,7 @@ export function PageDraftRecovery({
     creationPending,
     document.id,
     skipDraftRecovery,
+    skipCreationDraftRecovery,
     scopeKey,
     verificationRevision,
   ]);
@@ -168,10 +216,39 @@ export function PageDraftRecovery({
     };
     let entry;
     try {
-      entry = readPageDraftJournal(scope);
+      entry = readPageDraftJournal(scope, skippedWriterIds);
     } catch {
       setJournalState("failed");
       return;
+    }
+    const entryKey = entry
+      ? `${entry.scope.writerId}:${entry.snapshot.editGeneration}:${entry.writtenAt}`
+      : null;
+    if (
+      scopeKey &&
+      ((entryKey !== null && scopeLiveWriters?.entryKey !== entryKey) ||
+        !draftLivenessKnown)
+    ) {
+      let cancelled = false;
+      void liveDraftWriterIds().then(
+        (writerIds) => {
+          // Without Web Locks no writer reads as live, so every entry
+          // replays, as it did before writer locks.
+          if (!cancelled)
+            setLiveWriters({
+              scopeKey,
+              entryKey,
+              draftKey,
+              writerIds: writerIds ?? new Set(),
+            });
+        },
+        () => {
+          if (!cancelled) setJournalState("failed");
+        },
+      );
+      return () => {
+        cancelled = true;
+      };
     }
     if (!entry) {
       sweepLegacyRetainedPageDraftMarkers();
@@ -449,6 +526,8 @@ export function PageDraftRecovery({
     editorReleased,
     journalRevision,
     journalState,
+    scopeKey,
+    scopeLiveWriters,
     scopeVerified,
     session?.email,
     session?.orgId,
@@ -668,6 +747,8 @@ export function PageDraftRecovery({
     if (
       !draft ||
       !hasEditIdentity ||
+      !draftLivenessKnown ||
+      draftOpenElsewhere ||
       busy ||
       failure ||
       journalState === "checking" ||
@@ -690,11 +771,14 @@ export function PageDraftRecovery({
     }
     if (session?.email) {
       try {
-        const journal = readPageDraftJournal({
-          accountId: session.email.trim().toLowerCase(),
-          orgId: session.orgId ?? null,
-          documentId: document.id,
-        });
+        const journal = readPageDraftJournal(
+          {
+            accountId: session.email.trim().toLowerCase(),
+            orgId: session.orgId ?? null,
+            documentId: document.id,
+          },
+          skippedWriterIds,
+        );
         if (
           journal?.snapshot.title === draft.title &&
           journal.snapshot.content === draft.content
@@ -711,12 +795,15 @@ export function PageDraftRecovery({
     busy,
     document,
     draft,
+    draftLivenessKnown,
+    draftOpenElsewhere,
     failure,
     hasEditIdentity,
     journalState,
     scopeVerified,
     session?.email,
     session?.orgId,
+    skippedWriterIds,
   ]);
 
   // Keep the editor at one tree position so a notice never remounts it.
@@ -728,7 +815,7 @@ export function PageDraftRecovery({
   );
   // Scoped widget tickets identify the document, not a cookie session whose
   // private draft journal can be verified.
-  if (skipDraftRecovery) return withNotice(null);
+  if (skipDraftRecovery || skipCreationDraftRecovery) return withNotice(null);
   if (editorReleased) return withNotice(null);
   if (drafts.isError)
     return (
@@ -773,7 +860,7 @@ export function PageDraftRecovery({
         }
       />
     );
-  if (!draft) return withNotice(null);
+  if (!draft || draftOpenElsewhere) return withNotice(null);
   // Legacy drafts are preserved automatically; that path toasts once.
   if (!hasEditIdentity && !failure) return withNotice(null);
   if (!failure)

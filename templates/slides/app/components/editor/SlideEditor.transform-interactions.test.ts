@@ -24,8 +24,11 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(resizeSource).toContain("gesture.canvasDelta.x");
     expect(resizeSource).toContain("gesture.canvasDelta.y");
     expect(resizeSource).toContain("readSlideObjectTransformSnapshot(child)");
+    expect(resizeSource).toContain("member.element.style.setProperty(");
+    expect(resizeSource).toContain('"transform"');
+    expect(resizeSource).toContain("plan.transform");
     expect(resizeSource).toContain(
-      "member.element.style.transform = plan.transform",
+      'member.element.style.getPropertyPriority("transform")',
     );
     expect(resizeSource).toContain(
       "member.element.style.transformOrigin = plan.transformOrigin",
@@ -44,7 +47,12 @@ describe("SlideEditor transformed-object interactions", () => {
       "readSlideObjectTransformSnapshot(member.element)",
     );
     expect(rotateSource).toContain(
-      "member.element.style.transform = next.transform",
+      "restoreSlideObjectTransformSnapshots(transforms)",
+    );
+    expect(rotateSource).toContain('"transform"');
+    expect(rotateSource).toContain("next.transform");
+    expect(rotateSource).toContain(
+      'member.element.style.getPropertyPriority("transform")',
     );
     expect(rotateSource).toContain(
       "freezeElementForFreeformSelection(element)",
@@ -53,6 +61,34 @@ describe("SlideEditor transformed-object interactions", () => {
       "preserveSlideObjectLayoutSpacer(promotion.element)",
     );
     expect(rotateSource).toContain("promotion.snapshot.objectId");
+  });
+
+  it("promotes a flow object only after the handle gesture passes the threshold", () => {
+    const resizeStart = editorSource.indexOf("const startElementResize =");
+    const resizeSource = editorSource.slice(
+      resizeStart,
+      editorSource.indexOf("const startGroupResize =", resizeStart),
+    );
+    const resizePreview = resizeSource.indexOf("preview: (gesture)");
+    expect(resizePreview).toBeGreaterThan(0);
+    expect(
+      resizeSource.indexOf("freezeElementForFreeformSelection("),
+    ).toBeGreaterThan(resizeSource.indexOf("const beginResize"));
+    expect(resizeSource).toContain("!beginResize()");
+    expect(resizeSource).toContain("resolveFitTextBoxResize({");
+
+    const rotateStart = editorSource.indexOf("const startRotateSelection =");
+    const rotateSource = editorSource.slice(
+      rotateStart,
+      editorSource.indexOf(
+        "useEffect(() => {\n    if (readOnly || editingEl)",
+        rotateStart,
+      ),
+    );
+    expect(
+      rotateSource.indexOf("freezeElementForFreeformSelection("),
+    ).toBeGreaterThan(rotateSource.indexOf("const beginRotation"));
+    expect(rotateSource).toContain("SLIDES_CANVAS_DRAG_THRESHOLD");
   });
 
   it("renders single-object handles in the measured local transform frame", () => {
@@ -68,8 +104,8 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(outlineSource).toContain("transform: frame?.transform");
     expect(outlineSource).toContain("frame.transformOrigin.x + pad");
     expect(editorSource).toContain("frame={selectedElementFrame}");
-    expect(editorSource).toContain(
-      "isSelectedElementDraggable && selectedElementFrame",
+    expect(editorSource).toMatch(
+      /onResizeStart=\{\s*!readOnly\s*&&\s*selectedElementMeasurementIsCurrent\s*&&\s*isSelectedElementDraggable\s*&&\s*selectedElementFrame/,
     );
     expect(editorSource).toContain("data-slide-move-handle");
     expect(editorSource).toContain(

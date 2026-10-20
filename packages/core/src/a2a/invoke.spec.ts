@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import { ANTHROPIC_MANAGED_AGENTS_METADATA_KEY } from "./anthropic-managed-agents.js";
 import {
   AgentInvocationError,
@@ -101,7 +106,10 @@ describe("invokeAgent", () => {
       runtime: rt,
     });
 
-    expect(rt.findAgent).toHaveBeenCalledWith("mail", "calendar");
+    expect(rt.findAgent).toHaveBeenCalledWith("mail", "calendar", {
+      includePersonalAgents: true,
+      requireReadableAgentSources: true,
+    });
     expect(rt.callAgent).toHaveBeenCalledWith(
       "https://mail.agent-native.test",
       expect.stringContaining("Draft the update"),
@@ -115,33 +123,75 @@ describe("invokeAgent", () => {
     });
   });
 
+  it("resolves personal agents within the invocation caller scope", async () => {
+    const rt = runtime({
+      findAgent: vi.fn(async (_target, _selfAppId, options) => {
+        expect(getRequestUserEmail()).toBe("alice@example.test");
+        expect(getRequestOrgId()).toBe("org-123");
+        expect(options).toEqual({
+          includePersonalAgents: true,
+          requireReadableAgentSources: true,
+        });
+        return {
+          id: "personal-agent",
+          name: "Personal Agent",
+          description: "",
+          url: "https://personal.example.com",
+          color: "#000000",
+        };
+      }),
+    });
+
+    const result = await invokeAgent({
+      target: "personal-agent",
+      prompt: "Do the thing",
+      userEmail: "alice@example.test",
+      orgId: "org-123",
+      runtime: rt,
+    });
+
+    expect(result.target).toMatchObject({
+      id: "personal-agent",
+      url: "https://personal.example.com",
+    });
+  });
+
   it("resolves discovered hosted auth without exposing it in the result", async () => {
     const auth = { type: "bearer" as const, credentialRef: "mail-token" };
     const callAgent = vi.fn(async () => "sent");
     const rt = runtime({
-      findAgent: vi.fn(async () => ({
-        id: "mail",
-        name: "Mail",
-        description: "Send and search email",
-        url: "https://mail.agent-native.test",
-        color: "#2563eb",
-        auth,
-      })),
+      findAgent: vi.fn(async () => {
+        expect(getRequestOrgId()).toBe("explicit-org");
+        return {
+          id: "mail",
+          name: "Mail",
+          description: "Send and search email",
+          url: "https://mail.agent-native.test",
+          color: "#2563eb",
+          auth,
+        };
+      }),
       callAgent,
     });
     resolveRemoteAgentTokenMock.mockResolvedValue("resolved-mail-token");
 
-    const result = await invokeAgent({
-      target: "mail",
-      prompt: "Draft the update",
-      apiKey: "stale-caller-token",
-      userEmail: "alice@example.test",
-      runtime: rt,
-    });
+    const result = await runWithRequestContext({ orgId: "ambient-org" }, () =>
+      invokeAgent({
+        target: "mail",
+        prompt: "Draft the update",
+        apiKey: "stale-caller-token",
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+        runtime: rt,
+      }),
+    );
 
     expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
       auth,
-      expect.objectContaining({ userEmail: "alice@example.test" }),
+      expect.objectContaining({
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+      }),
     );
     expect(callAgent).toHaveBeenCalledWith(
       "https://mail.agent-native.test",
@@ -294,26 +344,40 @@ describe("invokeAgent", () => {
       output: "ok",
     }));
     const rt = runtime({
-      findAgent: vi.fn(async () => ({
-        id: "analytics",
-        name: "Analytics",
-        description: "Read calls",
-        url: "https://analytics.agent-native.test",
-        color: "#2563eb",
-        auth,
-      })),
+      findAgent: vi.fn(async () => {
+        expect(getRequestOrgId()).toBe("explicit-org");
+        return {
+          id: "analytics",
+          name: "Analytics",
+          description: "Read calls",
+          url: "https://analytics.agent-native.test",
+          color: "#2563eb",
+          auth,
+        };
+      }),
       callAction,
     });
     resolveRemoteAgentTokenMock.mockResolvedValue("resolved-analytics-token");
 
-    const result = await invokeAgentAction({
-      target: "analytics",
-      action: "gong-calls",
-      input: { company: "Edmunds" },
-      apiKey: "stale-caller-token",
-      userEmail: "alice@example.test",
-      runtime: rt,
-    });
+    const result = await runWithRequestContext({ orgId: "ambient-org" }, () =>
+      invokeAgentAction({
+        target: "analytics",
+        action: "gong-calls",
+        input: { company: "Edmunds" },
+        apiKey: "stale-caller-token",
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+        runtime: rt,
+      }),
+    );
+
+    expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
+      auth,
+      expect.objectContaining({
+        userEmail: "alice@example.test",
+        orgId: "explicit-org",
+      }),
+    );
 
     expect(callAction).toHaveBeenCalledWith(
       "https://analytics.agent-native.test",
@@ -430,6 +494,27 @@ describe("invokeAgent", () => {
       message:
         'Error: Agent "missing" not found. Available agents: Mail, Calendar',
     });
+  });
+
+  it("reports registry read failures instead of claiming the agent is missing", async () => {
+    const cause = new Error("agent resources are unavailable");
+    const rt = runtime({
+      findAgent: vi.fn(async () => {
+        throw cause;
+      }),
+    });
+
+    await expect(
+      resolveAgentInvocationTarget("mail", { runtime: rt }),
+    ).rejects.toMatchObject({
+      name: "AgentInvocationError",
+      code: "discovery-failed",
+      target: "mail",
+      cause,
+      message:
+        'Error: Could not read connected-agent sources while resolving "mail". No request was sent to another agent.',
+    });
+    expect(rt.discoverAgents).not.toHaveBeenCalled();
   });
 
   it("rejects non-http URL targets instead of treating them as names", async () => {

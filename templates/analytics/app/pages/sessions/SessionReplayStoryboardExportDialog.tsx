@@ -21,11 +21,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getIdToken } from "@/lib/auth";
+import { useStoryboardDesignTargetPreflight } from "@/lib/storyboard-design-target";
 
 import {
-  ReplayCompositorCaptureError,
-  startReplayCompositorCapture,
-  type ReplayCompositorCapture,
+  captureReplayScreenshot,
+  ReplayScreenshotAssetError,
+  ReplayScreenshotCaptureError,
 } from "./session-replay-screenshot";
 
 const MAX_REPLAYS = 3;
@@ -71,6 +72,7 @@ export function SessionReplayStoryboardExportDialog({
   cohortTotal,
 }: Props) {
   const t = useT();
+  const designTargetPreflight = useStoryboardDesignTargetPreflight(open);
   const [timestampInputs, setTimestampInputs] = useState<
     Record<string, string>
   >({});
@@ -91,7 +93,6 @@ export function SessionReplayStoryboardExportDialog({
   const stageAreaRef = useRef<HTMLDivElement>(null);
   const stageRootRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<any>(null);
-  const captureRef = useRef<ReplayCompositorCapture | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const selectionKey = recordings.map((recording) => recording.id).join("\n");
   const viewportFit = Math.min(
@@ -132,8 +133,6 @@ export function SessionReplayStoryboardExportDialog({
   const cleanup = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    captureRef.current?.stop();
-    captureRef.current = null;
     try {
       replayerRef.current?.pause?.();
       replayerRef.current?.destroy?.();
@@ -188,16 +187,13 @@ export function SessionReplayStoryboardExportDialog({
   }
 
   function captureErrorMessage(error: unknown): string {
-    if (error instanceof ReplayCompositorCaptureError) {
-      return t(
-        error.kind === "wrongSurface"
-          ? "sessions.storyboardSelectAnalyticsTab"
-          : error.kind === "tooLarge"
-            ? "sessions.storyboardScreenshotTooLarge"
-            : error.kind === "canceled"
-              ? "sessions.storyboardCanceled"
-              : "sessions.storyboardCaptureFailed",
-      );
+    if (error instanceof ReplayScreenshotAssetError) {
+      console.warn("Replay screenshot capture rejected", error.reason);
+      return t("sessions.screenshotUnsupportedAssets");
+    }
+    if (error instanceof ReplayScreenshotCaptureError) {
+      console.warn("Replay screenshot capture rejected", error.reason);
+      return t("sessions.storyboardCaptureFailed");
     }
     return error instanceof Error
       ? error.message
@@ -223,6 +219,10 @@ export function SessionReplayStoryboardExportDialog({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    if (!designTargetPreflight.ready) {
+      setError(t("sessions.storyboardCaptureFailed"));
+      return;
+    }
 
     let targets: Array<{ recording: Recording; offsets: number[] }>;
     try {
@@ -242,11 +242,8 @@ export function SessionReplayStoryboardExportDialog({
     const controller = new AbortController();
     abortRef.current = controller;
     let mutationSubmitted = false;
-    const capturePromise = startReplayCompositorCapture();
 
     try {
-      const capture = await capturePromise;
-      captureRef.current = capture;
       const totalFrames = targets.reduce(
         (total, target) => total + target.offsets.length,
         0,
@@ -257,7 +254,10 @@ export function SessionReplayStoryboardExportDialog({
       const { Replayer } = await import("@rrweb/replay");
       const replayPlayback = await import("./SessionDetailPage");
       const stageRoot = stageRootRef.current;
-      if (!stageRoot) throw new Error(t("sessions.storyboardCaptureFailed"));
+      const stageArea = stageAreaRef.current;
+      if (!stageRoot || !stageArea) {
+        throw new Error(t("sessions.storyboardCaptureFailed"));
+      }
 
       for (const target of targets) {
         if (controller.signal.aborted)
@@ -364,11 +364,26 @@ export function SessionReplayStoryboardExportDialog({
               timestamp: formatTimestampOffset(offsetMs),
             }),
           );
-          const blob = await capture.capture(
-            iframe,
-            dimensions.width,
-            dimensions.height,
-          );
+          let blob: Blob;
+          try {
+            blob = await captureReplayScreenshot(
+              stageArea,
+              stageRoot,
+              iframe,
+              controller.signal,
+            );
+          } catch (captureError) {
+            if (controller.signal.aborted) {
+              throw new Error(t("sessions.storyboardCanceled"));
+            }
+            if (
+              captureError instanceof ReplayScreenshotAssetError ||
+              captureError instanceof ReplayScreenshotCaptureError
+            ) {
+              throw captureError;
+            }
+            throw new Error(t("sessions.storyboardCaptureFailed"));
+          }
           if (blob.size > MAX_SCREENSHOT_BYTES) {
             throw new Error(t("sessions.storyboardScreenshotTooLarge"));
           }
@@ -389,7 +404,7 @@ export function SessionReplayStoryboardExportDialog({
             viewportWidth: dimensions.width,
             viewportHeight: dimensions.height,
             eventCount: playback.recording.eventCount,
-            capturedAt: new Date().toISOString(),
+            capturedAt: target.recording.startedAt,
           });
         }
         replayer.pause?.();
@@ -437,33 +452,80 @@ export function SessionReplayStoryboardExportDialog({
         throw new Error(t("sessions.storyboardCanceled"));
       }
       mutationSubmitted = true;
-      const upload = await fetch(appApiPath("session-replay/storyboard"), {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        body: formData,
-      });
+      let upload: Response;
+      try {
+        upload = await fetch(appApiPath("session-replay/storyboard"), {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: formData,
+        });
+      } catch {
+        throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
+      }
       let result: {
         response?: string;
         boardUrl?: string;
+        cleanupFailed?: boolean;
         cleanupPending?: boolean;
-        error?: string;
+        cleanupUnknown?: boolean;
+        data?: {
+          cleanupFailed?: boolean;
+          cleanupPending?: boolean;
+          cleanupUnknown?: boolean;
+          saveOutcomeUnknown?: boolean;
+          storyboardResponseUnreadable?: boolean;
+        };
+        error?: string | boolean;
         message?: string;
+        statusMessage?: string;
       } | null;
       try {
         result = (await upload.json()) as typeof result;
       } catch {
-        throw new Error(t("sessions.storyboardUnexpectedResponse"));
+        throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
+      }
+      const cleanupFailed =
+        result?.cleanupFailed === true || result?.data?.cleanupFailed === true;
+      const cleanupUnknown =
+        result?.cleanupUnknown === true ||
+        result?.data?.cleanupUnknown === true;
+      if (
+        cleanupFailed ||
+        cleanupUnknown ||
+        result?.cleanupPending ||
+        result?.data?.cleanupPending
+      ) {
+        const storyboardWasConfirmed = Boolean(
+          !cleanupFailed &&
+          !cleanupUnknown &&
+          upload.ok &&
+          result?.response?.trim() &&
+          result?.boardUrl?.trim(),
+        );
+        setWarning(
+          t(
+            storyboardWasConfirmed
+              ? "sessions.storyboardTemporaryCleanupPending"
+              : "sessions.storyboardTemporaryCleanupFailed",
+          ),
+        );
       }
       if (!upload.ok) {
-        throw new Error(
-          result?.error ?? result?.message ?? `HTTP ${upload.status}`,
-        );
+        if (result?.data?.saveOutcomeUnknown) {
+          throw new Error(t("sessions.storyboardSaveOutcomeUnknown"));
+        }
+        if (result?.data?.storyboardResponseUnreadable) {
+          throw new Error(t("sessions.storyboardUnexpectedResponse"));
+        }
+        const errorMessage =
+          (typeof result?.error === "string" && result.error.trim()) ||
+          result?.statusMessage?.trim() ||
+          result?.message?.trim() ||
+          `HTTP ${upload.status}`;
+        throw new Error(errorMessage);
       }
       if (!result?.response?.trim() || !result.boardUrl?.trim()) {
         throw new Error(t("sessions.storyboardNoDesignResponse"));
-      }
-      if (result.cleanupPending) {
-        setWarning(t("sessions.storyboardTemporaryCleanupPending"));
       }
       setResponse(result.response);
       setBoardUrl(result.boardUrl);
@@ -490,7 +552,6 @@ export function SessionReplayStoryboardExportDialog({
   function cancelCapture() {
     if (exportState !== "capturing") return;
     abortRef.current?.abort();
-    captureRef.current?.stop();
     setExportState("idle");
     setProgress("");
     setError(t("sessions.storyboardCanceled"));
@@ -605,9 +666,9 @@ export function SessionReplayStoryboardExportDialog({
                 {progress}
               </p>
             ) : null}
-            {error ? (
+            {error || designTargetPreflight.unavailable ? (
               <p className="text-sm text-destructive" role="alert">
-                {error}
+                {error || t("sessions.storyboardCaptureFailed")}
               </p>
             ) : null}
             {warning ? (
@@ -647,7 +708,15 @@ export function SessionReplayStoryboardExportDialog({
                   >
                     {t("common.cancel")}
                   </Button>
-                  <Button type="submit" disabled={recordings.length === 0}>
+                  <Button
+                    type="submit"
+                    disabled={
+                      recordings.length === 0 || !designTargetPreflight.ready
+                    }
+                    data-target-code={designTargetPreflight.code}
+                    data-target-failure-code={designTargetPreflight.failureCode}
+                    data-target-class={designTargetPreflight.targetClass}
+                  >
                     <IconPhoto />
                     {t("sessions.captureToDesign")}
                   </Button>

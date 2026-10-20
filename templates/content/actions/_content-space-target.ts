@@ -7,7 +7,10 @@ import {
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  personalContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 
 export type ContentSpaceNameCandidate = { id: string; name: string };
 
@@ -68,6 +71,8 @@ export async function resolveContentSpaceTarget(args: {
   spaceId?: string | null;
   spaceName?: string | null;
   requiredRole?: "viewer" | "contributor" | "editor";
+  /** false resolves without creating the caller's workspaces, for previews. */
+  provision?: boolean;
 }): Promise<ContentSpaceTargetResolution> {
   const requiredRole = args.requiredRole ?? "contributor";
   const spaceName = args.spaceName?.trim() || null;
@@ -77,7 +82,10 @@ export async function resolveContentSpaceTarget(args: {
       { errorCode: "SPACE_TARGET_CONFLICT", statusCode: 400 },
     );
   }
-  const provisioned = await provisionContentSpaces(args.db, args.userEmail);
+  const personalSpaceId =
+    args.provision === false
+      ? personalContentSpaceId(args.userEmail)
+      : (await provisionContentSpaces(args.db, args.userEmail)).personalSpaceId;
   if (args.spaceId) {
     await resolveContentSpaceAccess(args.spaceId, requiredRole, {
       db: args.db,
@@ -113,8 +121,12 @@ export async function resolveContentSpaceTarget(args: {
     });
     return { spaceId: match.spaceId, matchedBy: "name" };
   }
-  await resolveContentSpaceAccess(provisioned.personalSpaceId, requiredRole, {
-    db: args.db,
-  });
-  return { spaceId: provisioned.personalSpaceId, matchedBy: "default" };
+  // An unprovisioned Personal workspace has no row to check yet, but its id
+  // derives from the caller's own email.
+  if (args.provision !== false) {
+    await resolveContentSpaceAccess(personalSpaceId, requiredRole, {
+      db: args.db,
+    });
+  }
+  return { spaceId: personalSpaceId, matchedBy: "default" };
 }

@@ -1,12 +1,16 @@
 import { lexAgentSql, readAgentSqlQuery } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate.js";
+import firstPartyDashboard from "../../seeds/dashboards/agent-native-templates-first-party.json";
+import * as pushdown from "./first-party-analytics-pushdown.js";
+
 const getScopedSettingRecord = vi.hoisted(() => vi.fn());
 const getOrgSetting = vi.hoisted(() => vi.fn());
 const putScopedSettingRecord = vi.hoisted(() => vi.fn());
 const getBigQueryProjectId = vi.hoisted(() => vi.fn());
 const runQuery = vi.hoisted(() => vi.fn());
-const getAccessToken = vi.hoisted(() => vi.fn());
+const getBigQueryAccessToken = vi.hoisted(() => vi.fn());
 const fetchGoogleWithRetry = vi.hoisted(() => vi.fn());
 const execute = vi.hoisted(() => vi.fn());
 
@@ -19,7 +23,11 @@ vi.mock("./bigquery.js", () => ({
   getBigQueryProjectId,
   runQuery,
 }));
-vi.mock("./gcloud.js", () => ({ fetchGoogleWithRetry, getAccessToken }));
+vi.mock("./gcloud.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./gcloud.js")>()),
+  fetchGoogleWithRetry,
+  getBigQueryAccessToken,
+}));
 vi.mock("@agent-native/core/db", () => ({ getDbExec: () => ({ execute }) }));
 vi.mock("./credentials-context.js", () => ({
   requireRequestCredentialContext: vi.fn(),
@@ -35,10 +43,49 @@ import {
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   insertFirstPartyAnalyticsRowsWithResults,
+  renderFirstPartyAnalyticsBigQueryRequestSql,
   renderFirstPartyAnalyticsBigQuerySql,
+  queryFirstPartyAnalyticsInBigQuery,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
 } from "./first-party-analytics-backend.js";
+
+describe("first-party BigQuery execution metadata", () => {
+  it.each([false, true])(
+    "forwards the byte cap and preserves runQuery metadata on app cache hit %s",
+    async (cached) => {
+      const result = {
+        rows: [{ n: 1 }],
+        schema: [{ name: "n", type: "INTEGER" }],
+        bytesProcessed: 4096,
+        cached,
+        providerCacheHit: false,
+        fetchedAt: "2026-10-14T12:00:00.000Z",
+        truncated: false,
+      };
+      runQuery.mockResolvedValue(result);
+      await expect(
+        queryFirstPartyAnalyticsInBigQuery(
+          "SELECT 1 AS n",
+          [],
+          {
+            projectId: "example-project",
+            datasetId: "analytics",
+            tableId: "example_events",
+            fullyQualified: "example-project.analytics.example_events",
+          },
+          { maxBytesBilled: 50_000_000_000 },
+        ),
+      ).resolves.toEqual(result);
+      expect(runQuery).toHaveBeenCalledTimes(1);
+      expect(runQuery).toHaveBeenCalledWith(expect.any(String), {
+        maxBytesBilled: 50_000_000_000,
+      });
+      expect(fetchGoogleWithRetry).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+});
 
 beforeEach(() => {
   getScopedSettingRecord.mockReset();
@@ -46,7 +93,7 @@ beforeEach(() => {
   putScopedSettingRecord.mockReset();
   getBigQueryProjectId.mockReset();
   runQuery.mockReset();
-  getAccessToken.mockReset();
+  getBigQueryAccessToken.mockReset();
   fetchGoogleWithRetry.mockReset();
   execute.mockReset();
   resetFirstPartyAnalyticsBackendCacheForTests();
@@ -60,8 +107,245 @@ beforeEach(() => {
   });
   putScopedSettingRecord.mockResolvedValue(undefined);
   getBigQueryProjectId.mockResolvedValue("builder-3b0a2");
-  getAccessToken.mockResolvedValue("test-token");
+  getBigQueryAccessToken.mockResolvedValue("test-token");
   fetchGoogleWithRetry.mockImplementation((url, init) => fetch(url, init));
+});
+
+describe("event predicate pushdown", () => {
+  const table = {
+    projectId: "example-project",
+    datasetId: "analytics",
+    tableId: "events",
+    fullyQualified: "example-project.analytics.events",
+  };
+  const source =
+    "(SELECT * FROM analytics_events WHERE org_id = 'org' AND event_date <= DATE '2026-10-09') AS e";
+  describe.each([
+    ["total-signups", 0],
+    ["wau-over-time", 6],
+  ] as const)("seed panel %s", (panelId, lookbackDays) => {
+    it.each(["", "all", "7d", "30d", "90d", "180d", "365d", "custom"])(
+      "pushes the rendered %s time range without changing the outer SQL",
+      (timeRange) => {
+        const panel = firstPartyDashboard.panels.find(
+          (panel) => panel.id === panelId,
+        )!;
+        const sql = interpolate(panel.sql, {
+          timeRange,
+          timeRangeStart: "2026-09-01",
+          timeRangeEnd: "2026-09-30",
+          emailFilter: "all",
+          appFilter: "all",
+        }).replace(/FROM analytics_events/g, `FROM ${source}`);
+        const spy = vi
+          .spyOn(pushdown, "firstPartyEventPushdownPredicates")
+          .mockReturnValue([]);
+        let baseline: string;
+        try {
+          baseline = renderFirstPartyAnalyticsBigQuerySql(sql, [], table);
+        } finally {
+          spy.mockRestore();
+        }
+        const rendered = renderFirstPartyAnalyticsBigQuerySql(sql, [], table);
+        const dedupe =
+          " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1";
+        const baselineSplit = baseline.indexOf(dedupe);
+        const renderedSplit = rendered.indexOf(dedupe);
+        expect(baselineSplit).toBeGreaterThan(0);
+        expect(renderedSplit).toBeGreaterThan(baselineSplit);
+        expect(rendered.slice(renderedSplit)).toBe(
+          baseline.slice(baselineSplit),
+        );
+        expect(rendered.slice(0, baselineSplit)).toBe(
+          baseline.slice(0, baselineSplit),
+        );
+        const added = rendered.slice(baselineSplit, renderedSplit);
+        expect(added).toContain(
+          "AND (event_date <= CAST ( CURRENT_DATE ( ) AS DATE ))",
+        );
+        if (timeRange === "custom") {
+          expect(added).toContain(
+            lookbackDays
+              ? "AND (event_date >= CAST ( DATE_SUB ( CAST ( '2026-09-01' AS DATE ) , INTERVAL 6 DAY ) AS DATE ))"
+              : "AND (event_date >= DATE '2026-09-01')",
+          );
+          expect(added).toContain("AND (event_date <= DATE '2026-09-30')");
+        } else if (timeRange === "" || timeRange === "all") {
+          expect(added).not.toContain("event_date >=");
+        } else {
+          const days = Number(timeRange.slice(0, -1)) + lookbackDays;
+          expect(added).toContain(
+            `AND (event_date >= CAST ( DATE_SUB ( CURRENT_DATE ( ) , INTERVAL ${days} DAY ) AS DATE ))`,
+          );
+        }
+        expect(added).not.toMatch(/\b(?:OR|TRUE|FALSE)\b/);
+        expect(runQuery).not.toHaveBeenCalled();
+        expect(fetchGoogleWithRetry).not.toHaveBeenCalled();
+      },
+    );
+  });
+  it.each([
+    "event_date >= DATE '2026-10-08' AND event_name = 'http.response'",
+    "e.event_date BETWEEN DATE '2026-10-08' AND DATE '2026-10-09' AND e.event_name IN ('agent_run_terminal', 'http.response')",
+    "(event_date >= DATE(TIMESTAMP('2026-10-09T00:00:00Z'))) AND (event_name = 'agent_run_terminal')",
+  ])("pushes invariant conjuncts before QUALIFY: %s", (predicate) => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT id FROM ${source} WHERE ${predicate}`,
+      [],
+      table,
+    );
+    const inner = rendered.slice(0, rendered.indexOf(" QUALIFY"));
+    expect(inner).toMatch(/AND \(event_date/);
+    expect(inner).toMatch(/AND \(event_name/);
+    expect(rendered.slice(rendered.indexOf(" QUALIFY"))).toContain(predicate);
+  });
+  it.each([
+    "event_name = 'http.response' OR app = 'analytics'",
+    "NOT (event_name = 'http.response')",
+    "event_date >= received_at",
+    "event_date >= DATE(timestamp)",
+    "event_name = CAST(timestamp AS STRING)",
+    "other.event_name = 'http.response'",
+    "event_name = (SELECT event_name FROM analytics_events WHERE org_id = 'org')",
+  ])("does not infer unsafe predicates: %s", (predicate) => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT id FROM ${source} WHERE ${predicate}`,
+      [],
+      table,
+    );
+    expect(rendered.slice(0, rendered.indexOf(" QUALIFY"))).not.toMatch(
+      /AND \(event_(date|name)/,
+    );
+  });
+  it("leaves mutable payload predicates outside deduplication", () => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT id FROM ${source} WHERE event_name = 'http.response' AND JSON_VALUE(properties, '$.status') = '500'`,
+      [],
+      table,
+    );
+    expect(rendered.slice(0, rendered.indexOf(" QUALIFY"))).not.toContain(
+      "JSON_VALUE",
+    );
+    expect(rendered).toContain("JSON_VALUE(properties, '$.status') = '500'");
+  });
+  it("does not push a joined source's predicates", () => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT e.id FROM ${source} JOIN analytics_user_days u ON e.id = u.user_key WHERE e.event_name = 'http.response'`,
+      [],
+      table,
+    );
+    expect(rendered.slice(0, rendered.indexOf(" QUALIFY"))).not.toContain(
+      "AND (event_name",
+    );
+  });
+  it("does not mistake a quoted alias for a clause before OR", () => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT id FROM ${source.replace("AS e", 'AS "order"')} WHERE event_name = 'a' AND "order".app = 'analytics' OR event_name = 'b'`,
+      [],
+      table,
+    );
+    expect(rendered.slice(0, rendered.indexOf(" QUALIFY"))).not.toContain(
+      "AND (event_name",
+    );
+  });
+  it("pushes invariant predicates qualified by a quoted keyword alias", () => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT "order".id FROM ${source.replace("AS e", 'AS "order"')} WHERE "order".event_name = 'http.response' AND "order".event_date >= DATE '2026-10-09'`,
+      [],
+      table,
+    );
+    const inner = rendered.slice(0, rendered.indexOf(" QUALIFY"));
+    expect(inner).toContain("AND (event_name = 'http.response')");
+    expect(inner).toContain("AND (event_date >= DATE '2026-10-09')");
+  });
+  it("pushes the frozen onboarding date window into every raw source before deduplication", () => {
+    const query = `SELECT COUNT(*) AS n FROM (
+      SELECT * FROM analytics_events WHERE org_id = 'org' AND event_date <= DATE '2026-10-08'
+      UNION ALL
+      SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = 'owner@example.test' AND event_date <= DATE '2026-10-08'
+    ) AS analytics_events WHERE event_date >= DATE '2026-10-08' AND event_date <= DATE '2026-10-08'`;
+
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(query, [], table, {
+      eventDateRange: { startDate: "2026-10-08", endDate: "2026-10-08" },
+    });
+    const sources = [
+      ...rendered.matchAll(
+        /SELECT \* FROM `example-project\.analytics\.events` WHERE([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+
+    expect(sources).toHaveLength(2);
+    for (const source of sources) {
+      expect(source[1]).toContain("event_date >= DATE '2026-10-08'");
+      expect(source[1]).toContain("event_date <= DATE '2026-10-08'");
+    }
+    expect(rendered.match(/QUALIFY ROW_NUMBER\(\)/g)).toHaveLength(2);
+  });
+  it("deduplicates a combined org and owner scan within the original scope groups", () => {
+    const query = `SELECT id, org_id FROM (
+      SELECT * FROM analytics_events
+      WHERE (org_id = 'org' OR (org_id IS NULL AND owner_email = 'owner@example.test'))
+        AND event_date <= DATE '2026-10-09'
+    ) AS analytics_events WHERE event_name = 'signup'`;
+
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(query, [], table, {
+      eventDateRange: { startDate: "2026-09-24", endDate: "2026-10-08" },
+      scopedEventsSingleScan: true,
+    });
+    const dedup = rendered.indexOf(" QUALIFY ROW_NUMBER()");
+    const rawSource = rendered.slice(0, dedup);
+
+    expect(
+      rendered.match(/FROM `example-project\.analytics\.events`/g),
+    ).toHaveLength(1);
+    expect(rawSource).toContain(
+      "(org_id = 'org' OR (org_id IS NULL AND owner_email = 'owner@example.test'))",
+    );
+    expect(rawSource).toContain("event_date >= DATE '2026-09-24'");
+    expect(rawSource).toContain("event_date <= DATE '2026-10-08'");
+    expect(rendered).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1",
+    );
+  });
+  it("forwards single-scan scope deduplication through the bounded request wrapper", () => {
+    const query = `SELECT id FROM (
+      SELECT * FROM analytics_events
+      WHERE (org_id = 'org' OR (org_id IS NULL AND owner_email = 'owner@example.test'))
+    ) AS analytics_events`;
+    const defaultRequest = renderFirstPartyAnalyticsBigQueryRequestSql(
+      query,
+      [],
+      table,
+    );
+    const scopedRequest = renderFirstPartyAnalyticsBigQueryRequestSql(
+      query,
+      [],
+      table,
+      { scopedEventsSingleScan: true },
+    );
+
+    expect(defaultRequest).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1",
+    );
+    expect(scopedRequest).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1",
+    );
+    expect(
+      scopedRequest.match(/FROM `example-project\.analytics\.events`/g),
+    ).toHaveLength(1);
+    expect(scopedRequest).toContain("LIMIT 5000");
+  });
+  it("rejects impossible calendar dates before sending the query", () => {
+    expect(() =>
+      renderFirstPartyAnalyticsBigQuerySql(
+        `SELECT id FROM ${source} WHERE event_name = 'signup'`,
+        [],
+        table,
+        { eventDateRange: { startDate: "2026-02-31", endDate: "2026-03-01" } },
+      ),
+    ).toThrow("First-party event date bounds must be calendar dates");
+    expect(runQuery).not.toHaveBeenCalled();
+  });
 });
 
 describe("first-party BigQuery backend", () => {
@@ -88,9 +372,11 @@ describe("first-party BigQuery backend", () => {
       }),
     ).resolves.toEqual({
       sink: "postgres",
+      sinkSetting: "absent",
       table: null,
       backfillCursor: null,
       backfillCompleted: false,
+      modelTable: null,
     });
 
     expect(getOrgSetting).toHaveBeenCalledWith(
@@ -551,6 +837,7 @@ describe("first-party BigQuery backend", () => {
       "SELECT '2026-08-01'::date AS v FROM analytics_events",
       "CAST('2026-08-01' AS DATE)",
     ],
+    ["SELECT DATE'2026-08-01' AS v FROM analytics_events", "DATE '2026-08-01'"],
     [
       "SELECT properties::jsonb ->> '$ai_model' AS v FROM analytics_events",
       `JSON_VALUE(properties, '$."$ai_model"')`,
@@ -616,6 +903,10 @@ describe("first-party BigQuery backend", () => {
       "SELECT id FROM analytics_events WHERE path ILIKE '%signup%'",
       "ILIKE/SIMILAR TO",
     ],
+    [
+      "SELECT column'value' AS d FROM analytics_events",
+      "a string literal without a preceding separator",
+    ],
   ])("names the unsupported construct for %s", (sql, construct) => {
     const table = {
       projectId: "builder-3b0a2",
@@ -648,6 +939,14 @@ describe("first-party BigQuery backend", () => {
     });
   });
 
+  it("forwards the query abort signal through project resolution", async () => {
+    const signal = new AbortController().signal;
+
+    await getFirstPartyAnalyticsTable(undefined, signal);
+
+    expect(getBigQueryProjectId).toHaveBeenCalledWith(signal);
+  });
+
   it("compares BigQuery retention metrics against the copied non-http scope", async () => {
     runQuery.mockResolvedValue({
       rows: [
@@ -670,6 +969,100 @@ describe("first-party BigQuery backend", () => {
 
     expect(runQuery).toHaveBeenCalledWith(
       expect.stringContaining("event_name IS DISTINCT FROM 'http.response'"),
+      { maxBytesBilled: undefined },
+    );
+  });
+
+  it.each([
+    {
+      name: "combined org and legacy owner",
+      orgId: "org_example",
+      includeLegacyOwnerRows: true,
+      tenantFilter:
+        "(org_id = 'org_example' OR (org_id IS NULL AND owner_email = 'owner@example.com'))",
+    },
+    {
+      name: "org only",
+      orgId: "org_example",
+      includeLegacyOwnerRows: false,
+      tenantFilter: "(org_id = 'org_example')",
+    },
+    {
+      name: "owner only",
+      orgId: null,
+      includeLegacyOwnerRows: true,
+      tenantFilter: "(org_id IS NULL AND owner_email = 'owner@example.com')",
+    },
+  ])(
+    "bounds health metrics and preserves scoped receipt identity for $name",
+    async ({ orgId, includeLegacyOwnerRows, tenantFilter }) => {
+      runQuery.mockResolvedValue({
+        rows: [
+          {
+            event_count: 0,
+            daily_rollup_rows: 0,
+            first_event_date: null,
+            last_event_date: null,
+          },
+        ],
+      });
+
+      await expect(
+        getFirstPartyAnalyticsBigQueryMetrics(
+          { userEmail: "owner@example.com", orgId },
+          "example-project.analytics.events",
+          {
+            includeLegacyOwnerRows,
+            startDate: "2026-09-17",
+            endDate: "2026-10-16",
+            maxBytesBilled: 100_000_000,
+          },
+        ),
+      ).resolves.toEqual({
+        eventCount: 0,
+        dailyRollupRows: 0,
+        firstEventDate: null,
+        lastEventDate: null,
+      });
+
+      const [sql, options] = runQuery.mock.calls[0]!;
+      expect(options).toEqual({ maxBytesBilled: 100_000_000 });
+      expect(sql).toContain("FROM `example-project.analytics.events`");
+      expect(sql).not.toContain("events_query");
+      const beforeDeduplication = sql.slice(0, sql.indexOf("QUALIFY"));
+      expect(beforeDeduplication).toContain("event_date >= DATE '2026-09-17'");
+      expect(beforeDeduplication).toContain("event_date <= DATE '2026-10-16'");
+      expect(beforeDeduplication).toContain(
+        "event_name IS DISTINCT FROM 'http.response'",
+      );
+      expect(beforeDeduplication).toContain(`WHERE ${tenantFilter}`);
+      expect(sql).toContain(
+        "ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1",
+      );
+      expect(sql).not.toContain("CURRENT_DATE");
+      expect(sql).not.toContain("SELECT *");
+    },
+  );
+
+  it("propagates a rejected capped metrics read instead of returning empty metrics", async () => {
+    const failure = new Error(
+      "BigQuery query exceeded its configured billed-byte limit",
+    );
+    runQuery.mockRejectedValueOnce(failure);
+
+    await expect(
+      getFirstPartyAnalyticsBigQueryMetrics(
+        { userEmail: "owner@example.com", orgId: null },
+        "example-project.analytics.events",
+        {
+          startDate: "2026-09-17",
+          endDate: "2026-10-16",
+          maxBytesBilled: 100_000_000,
+        },
+      ),
+    ).rejects.toBe(failure);
+    expect(runQuery.mock.calls[0]![0]).toContain(
+      "(org_id IS NULL AND owner_email = 'owner@example.com')",
     );
   });
 
@@ -819,6 +1212,9 @@ describe("first-party BigQuery backend", () => {
     ).resolves.toBe(201);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getBigQueryAccessToken).toHaveBeenCalledWith({
+      preferServiceAccount: true,
+    });
     expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
     ).toMatchObject({ skipInvalidRows: true, ignoreUnknownValues: false });
@@ -1026,6 +1422,31 @@ describe("first-party BigQuery backend", () => {
         table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
         backfillCursor: "evt_last",
         backfillCompleted: true,
+      }),
+    );
+  });
+
+  it("keeps the stored events model when a save does not name one", async () => {
+    const scope = { userEmail: "owner@example.com", orgId: "org_builder" };
+    getScopedSettingRecord.mockResolvedValue({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      model: { table: "builder-3b0a2.dbt_mart.fact_events" },
+    });
+
+    await expect(getFirstPartyAnalyticsBackend(scope)).resolves.toMatchObject({
+      modelTable: "builder-3b0a2.dbt_mart.fact_events",
+    });
+    await saveFirstPartyAnalyticsBackend(scope, {
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+
+    expect(putScopedSettingRecord).toHaveBeenCalledWith(
+      { email: "owner@example.com", orgId: "org_builder" },
+      "first-party-analytics-backend",
+      expect.objectContaining({
+        model: { table: "builder-3b0a2.dbt_mart.fact_events" },
       }),
     );
   });

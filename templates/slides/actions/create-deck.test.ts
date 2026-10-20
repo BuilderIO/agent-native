@@ -289,6 +289,72 @@ describe("create-deck — save boundary", () => {
   });
 });
 
+describe("create-deck — hygiene warnings", () => {
+  const slidesWithProblems = [
+    {
+      id: "slide-1",
+      content:
+        '<div class="fmd-slide"><svg viewBox="0 0 4 4"></svg><footer>01 / 03</footer></div>',
+    },
+    { id: "slide-2", content: '<div class="fmd-slide"><p>Fine</p></div>' },
+    {
+      id: "slide-3",
+      content:
+        '<div class="fmd-slide"><svg></svg><footer>03 / 03</footer></div>',
+    },
+  ];
+
+  it("groups warnings across the new deck's slides without blocking the write", async () => {
+    const result = (await action.run({
+      title: "Quarterly update",
+      slides: slidesWithProblems,
+    })) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    expect(insertedRow).toBeDefined();
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        severity: "error",
+        count: 2,
+        slideIds: ["slide-1", "slide-3"],
+      }),
+      expect.objectContaining({
+        code: "typed-page-number",
+        count: 2,
+        slideIds: ["slide-1", "slide-3"],
+      }),
+    ]);
+  });
+
+  it("also reports them when it replaces an existing deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      data: JSON.stringify({ title: "Old", slides: [] }),
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const result = (await action.run({
+      title: "Old",
+      deckId: "deck-1",
+      slides: slidesWithProblems,
+    })) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    expect(updatedFields).toBeDefined();
+    expect(result.hygieneWarnings?.warnings.map((w) => w.code)).toEqual([
+      "inline-svg",
+      "typed-page-number",
+    ]);
+  });
+
+  it("omits the field for a clean deck", async () => {
+    const result = await action.run({
+      title: "Quarterly update",
+      slides: [slidesWithProblems[1]],
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
+  });
+});
+
 describe("create-deck — aspectRatio", () => {
   it("defaults omitted slides to an empty deck", async () => {
     await action.run({
@@ -656,6 +722,25 @@ describe("create-deck — generation lifecycle tracking", () => {
     }));
   }
 
+  it("does not count an agent rewrite of an existing deck as a creation start", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+
+    await action.run({
+      title: "T",
+      slides: [{ id: "s1", content: "<div></div>" }],
+      deckId: "deck-1",
+    });
+
+    const names = trackedEvents().map((event) => event.name);
+    expect(names).not.toContain("deck_creation_started");
+    expect(names).not.toContain("deck_created");
+    expect(names).toContain("deck_edited");
+  });
+
   it("accepts only bounded URL-safe browser generation attempt IDs", () => {
     const base = { title: "T", slides: [], deckId: "deck-1" };
 
@@ -702,6 +787,40 @@ describe("create-deck — generation lifecycle tracking", () => {
       ended_at_ms: expect.any(Number),
       duration_ms: expect.any(Number),
     });
+  });
+
+  it("does not start a generation lifecycle for an empty existing-deck replacement", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [{ id: "s1" }],
+        generationContext: {
+          generationAttemptId: "previous-attempt",
+          generationMode: "action",
+        },
+      }),
+    };
+
+    const result = await action.run({
+      title: "T",
+      slides: [],
+      deckId: "deck-1",
+    });
+
+    expect(result.slideCount).toBe(0);
+    const events = trackedEvents();
+    expect(events.some((event) => event.name.startsWith("generation_"))).toBe(
+      false,
+    );
+    expect(events.some((event) => event.name === "deck_edited")).toBe(true);
+    expect(
+      events.find((event) => event.name === "deck_edited")?.properties,
+    ).not.toHaveProperty("generation_attempt_id");
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
   });
 
   it.each([
@@ -978,17 +1097,41 @@ describe("create-deck — generation lifecycle tracking", () => {
     const events = trackedEvents();
     expect(events.map((event) => event.name)).toEqual([
       "generation_started",
+      "deck_creation_started",
       "generation_request_accepted",
       "deck_created",
     ]);
     expect(events[1]?.properties).toMatchObject({
+      generation_attempt_id: events[0]?.properties.generation_attempt_id,
+      output_type: "deck",
+      creation_method: "generated",
+      mode: "new",
+      is_retry: false,
+    });
+    // An agent-created deck has no prompt or attachments to report: unknown,
+    // so the event must not claim "none".
+    for (const unknownFact of [
+      "has_text_prompt",
+      "prompt_length_bucket",
+      "attachment_count",
+      "attachment_types",
+      "has_reference_deck",
+    ]) {
+      expect(events[1]?.properties).not.toHaveProperty(unknownFact);
+    }
+    expect(events[2]?.properties).toMatchObject({
       generation_mode: "incremental",
       slide_count: 0,
       started_at_ms: expect.any(Number),
       ended_at_ms: expect.any(Number),
       duration_ms: expect.any(Number),
     });
-    expect(events[1]?.properties).not.toHaveProperty("prompt");
+    expect(events[2]?.properties).not.toHaveProperty("prompt");
+    expect(events[3]?.properties).toMatchObject({
+      output_id: result.id,
+      creation_method: "generated",
+      slide_count: 0,
+    });
     expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
       generationAttemptId: events[0]?.properties.generation_attempt_id,
       generationMode: "action",

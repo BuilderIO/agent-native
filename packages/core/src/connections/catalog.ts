@@ -29,6 +29,7 @@ export type WorkspaceConnectionProviderId =
   | "gmail"
   | "google_calendar"
   | "google_drive"
+  | "bigquery"
   | "google_docs"
   | "google_sheets"
   | "google_slides"
@@ -38,6 +39,8 @@ export type WorkspaceConnectionProviderId =
   | "sentry"
   | "granola"
   | "clips"
+  | "dbt"
+  | "sigma"
   | "anthropic-managed-agents"
   | "generic";
 
@@ -48,11 +51,20 @@ export interface WorkspaceConnectionCredentialKey {
   required?: boolean;
 }
 
+export interface WorkspaceConnectionConfigurationField {
+  key: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+  defaultValue?: string;
+}
+
 export interface WorkspaceConnectionProvider {
   id: WorkspaceConnectionProviderId;
   label: string;
   description: string;
   credentialKeys: readonly WorkspaceConnectionCredentialKey[];
+  configurationFields?: readonly WorkspaceConnectionConfigurationField[];
   capabilities: readonly WorkspaceConnectionCapability[];
   recommendedTemplateUses: readonly WorkspaceConnectionTemplateUse[];
   oauth?: {
@@ -99,8 +111,8 @@ const GOOGLE_OAUTH_BASE = {
   tokenUrl: "https://oauth2.googleapis.com/token",
 } as const;
 
-function googleOAuth(scopes: readonly string[]) {
-  return { ...GOOGLE_OAUTH_BASE, scopes };
+function googleOAuth(scopes: readonly string[], provider = "google") {
+  return { ...GOOGLE_OAUTH_BASE, provider, scopes };
 }
 
 const GOOGLE_IDENTITY_SCOPES = ["openid", "email", "profile"] as const;
@@ -224,6 +236,19 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     ]),
   }),
   defineWorkspaceConnectionProvider({
+    id: "bigquery",
+    label: "BigQuery",
+    description:
+      "BigQuery datasets and SQL jobs for analytics and data exploration.",
+    credentialKeys: GOOGLE_CREDENTIAL_KEYS,
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+    oauth: googleOAuth([
+      ...GOOGLE_IDENTITY_SCOPES,
+      "https://www.googleapis.com/auth/bigquery",
+    ]),
+  }),
+  defineWorkspaceConnectionProvider({
     id: "google_drive",
     label: "Google Drive",
     description:
@@ -264,10 +289,10 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "docs"],
     recommendedTemplateUses: ["analytics", "brain", "content", "dispatch"],
-    oauth: googleOAuth([
-      ...GOOGLE_IDENTITY_SCOPES,
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
-    ]),
+    oauth: googleOAuth(
+      [...GOOGLE_IDENTITY_SCOPES, "https://www.googleapis.com/auth/drive.file"],
+      "google_sheets",
+    ),
   }),
   defineWorkspaceConnectionProvider({
     id: "google_slides",
@@ -434,6 +459,76 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: [],
     capabilities: ["search", "import", "meetings"],
     recommendedTemplateUses: ["brain", "clips"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "sigma",
+    label: "Sigma",
+    description:
+      "Read Sigma workbooks and reviewed dashboard examples for Analytics data discovery.",
+    credentialKeys: [
+      {
+        key: "SIGMA_CLIENT_ID",
+        label: "Sigma client ID",
+        description:
+          "Stored in the workspace vault and exchanged server-side for a short-lived API token.",
+        required: true,
+      },
+      {
+        key: "SIGMA_CLIENT_SECRET",
+        label: "Sigma client secret",
+        description:
+          "Stored in the workspace vault and exchanged server-side for a short-lived API token.",
+        required: true,
+      },
+      {
+        key: "SIGMA_BASE_URL",
+        label: "Sigma API base URL",
+        description:
+          "Optional cloud-region API origin. Defaults to the AWS API origin.",
+        required: false,
+      },
+    ],
+    oauth: {
+      provider: "sigma",
+      authorizationUrl: "https://aws-api.sigmacomputing.com/mcp/authorize",
+      tokenUrl: "https://aws-api.sigmacomputing.com/mcp/token",
+      scopes: ["api:access"],
+    },
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "dbt",
+    label: "dbt Semantic Layer",
+    description:
+      "Owner-defined dbt metrics and semantic models for governed Analytics queries.",
+    credentialKeys: [
+      {
+        key: "DBT_SEMANTIC_LAYER_TOKEN",
+        label: "dbt Semantic Layer token",
+        description:
+          "Optional read-only service token with Semantic Layer Only and Metadata Only permissions. Store the one-time token in the workspace vault.",
+        required: false,
+      },
+    ],
+    configurationFields: [
+      {
+        key: "semanticLayerBaseUrl",
+        label: "dbt Semantic Layer URL",
+        description:
+          "HTTPS GraphQL endpoint for this dbt account. The host must belong to dbt.com or getdbt.com.",
+        required: true,
+      },
+      {
+        key: "semanticLayerEnvironmentId",
+        label: "dbt environment ID",
+        description:
+          "Environment that contains the approved Semantic Layer definitions.",
+        required: true,
+      },
+    ],
+    capabilities: ["search"],
+    recommendedTemplateUses: ["analytics"],
   }),
   defineWorkspaceConnectionProvider({
     id: "anthropic-managed-agents",

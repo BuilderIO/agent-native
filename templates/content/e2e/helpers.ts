@@ -12,13 +12,25 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
+import {
+  appendFixtureInput,
+  captureFixtureInput,
+  type FixtureInputSnapshot,
+} from "./editor-input-lineage";
+import {
+  SaveLineageCapture,
+  type SaveLineageCheckpointName,
+  type SaveLineageEvent,
+  type UpdateDocumentRequestLineage,
+} from "./save-lineage";
+
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
   "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 
-export const EDITOR = ".notion-editor.ProseMirror";
+export const EDITOR = ".content-editor.ProseMirror";
 
 const SAVE_PATH = "/_agent-native/actions/update-document";
 const SESSION_PATH = "/_agent-native/auth/session";
@@ -69,6 +81,8 @@ export async function getDocument(page: Page, id: string) {
     title?: string;
     content?: string;
     revision?: string;
+    bodyRevision?: number;
+    contentHash?: string;
   };
 }
 
@@ -239,8 +253,17 @@ export interface TabRecord {
   errorToasts: string[];
   saveRequests: number;
   saveOutcomes: Partial<Record<SaveOutcome, number>>;
-  /** Refusal codes, and the reason the server gave for a History diversion. */
+  /**
+   * Refusal codes, the reason the server gave for a History diversion, and
+   * `stranded` for a save still in flight when its page went away.
+   */
   saveCodes: Record<string, number>;
+  /** Answers to stranded saves, which count in `saveOutcomes` as aborted. */
+  lateSaveOutcomes: Partial<Record<SaveOutcome, number>>;
+  saveLineage: SaveLineageEvent[];
+  saveLineageDropped: number;
+  inputLineage: FixtureInputSnapshot[];
+  inputLineageTruncated: boolean;
   realtimeRefusals: number;
   realtimeStreams: number;
   collabPollTimes: number[];
@@ -257,6 +280,11 @@ function emptyTab(label: string): TabRecord {
     saveRequests: 0,
     saveOutcomes: {},
     saveCodes: {},
+    lateSaveOutcomes: {},
+    saveLineage: [],
+    saveLineageDropped: 0,
+    inputLineage: [],
+    inputLineageTruncated: false,
     realtimeRefusals: 0,
     realtimeStreams: 0,
     collabPollTimes: [],
@@ -274,34 +302,62 @@ function pageOf(request: Request): Page | null {
   }
 }
 
-async function classifySave(
-  response: Response,
-): Promise<{ outcome: SaveOutcome; code?: string }> {
+/** A save's answer as the tab got it, or as a SaveGate fetched it to hold. */
+type SaveAnswer = Pick<Response, "ok" | "status" | "text">;
+
+export async function classifySave(response: SaveAnswer): Promise<{
+  outcome: SaveOutcome;
+  code?: string;
+  bodyState: "absent" | "invalid" | "valid";
+  body: Record<string, any>;
+}> {
   let body: Record<string, any> = {};
+  let bodyState: "absent" | "invalid" | "valid" = "invalid";
   try {
-    body = (await response.json()) as Record<string, any>;
+    const text = await response.text();
+    if (text.length === 0) {
+      bodyState = "absent";
+    } else {
+      try {
+        const parsed: unknown = JSON.parse(text);
+        body = parsed as Record<string, any>;
+        if (
+          parsed !== null &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
+          bodyState = "valid";
+        }
+      } catch {
+        bodyState = "invalid";
+      }
+    }
   } catch {
-    // coercion-ok: an unreadable body is classified by its status alone.
-    body = {};
+    // coercion-ok: unreadable response bodies keep the original status-based
+    // outcome; the lineage records the body as invalid instead of absent.
+    bodyState = "invalid";
   }
   if (!response.ok()) {
     const code = String(
       body.errorCode ?? body.code ?? body.error ?? `HTTP ${response.status()}`,
     ).slice(0, 80);
-    return { outcome: "refused", code };
+    return { outcome: "refused", code, bodyState, body };
   }
-  if (body.conflict === true) return { outcome: "conflict" };
-  if (body.superseded === true) return { outcome: "superseded" };
+  if (body.conflict === true) return { outcome: "conflict", bodyState, body };
+  if (body.superseded === true)
+    return { outcome: "superseded", bodyState, body };
   if (body.preservationRequired === true)
     return {
       outcome: "preserved-to-history",
       code: `preservation:${String(body.reason ?? "unknown")}`,
+      bodyState,
+      body,
     };
   if (body.bodyIntentOutcome?.status === "displaced-preserved")
-    return { outcome: "merged-displaced" };
+    return { outcome: "merged-displaced", bodyState, body };
   if (body.browserSaveAttempt?.result === "replayed")
-    return { outcome: "replayed" };
-  return { outcome: "written" };
+    return { outcome: "replayed", bodyState, body };
+  return { outcome: "written", bodyState, body };
 }
 
 export function isCollabPollQuery(params: URLSearchParams): boolean {
@@ -318,6 +374,9 @@ function refuseRealtimeStream(route: Route) {
   return route.fulfill({ status: 204, body: "" });
 }
 
+// A SaveGate asks its context's TabSet whether a save it holds is still awaited.
+const tabSets = new WeakMap<BrowserContext, TabSet>();
+
 /**
  * One browser context with the tabs a scenario opens. Every tab gets the
  * visibility shim and the observer. Unless the server already refuses it, every
@@ -329,7 +388,25 @@ export class TabSet {
   readonly detached = emptyTab("detached");
   private readonly pending: Promise<void>[] = [];
   private readonly sentAt = new WeakMap<Request, number>();
-  private savesInFlight = 0;
+  private readonly saveLineage = new SaveLineageCapture();
+  private readonly lineageByRequest = new WeakMap<
+    Request,
+    { record: TabRecord; entry: UpdateDocumentRequestLineage }
+  >();
+  private readonly activeSaveLineage = new Set<UpdateDocumentRequestLineage>();
+  private readonly inFlight = new Set<Request>();
+  // Once a tab's document is gone, Playwright drops the saves it had in flight:
+  // no answer or failure event follows, and a SaveGate's continue() or fulfill()
+  // resolves. The set numbers each tab's documents so it can settle them itself.
+  private readonly documents = new WeakMap<Page, number>();
+  private readonly documentOf = new WeakMap<
+    Request,
+    { tab: Page; document: number }
+  >();
+  private readonly stranded = new WeakSet<Request>();
+  private readonly heldAnswers = new WeakMap<Request, SaveAnswer>();
+  private readonly answered = new WeakSet<Request>();
+  private readonly fetching = new Set<Request>();
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -338,6 +415,7 @@ export class TabSet {
     { refuseRealtime = true }: { refuseRealtime?: boolean } = {},
   ): Promise<TabSet> {
     const set = new TabSet(context);
+    tabSets.set(context, set);
     await context.addInitScript(TAB_VISIBILITY);
     await context.addInitScript(OBSERVER);
     await context.exposeBinding(
@@ -363,6 +441,17 @@ export class TabSet {
       const record = this.tabs.get(tab);
       if (record) record.loads++;
     });
+    this.documents.set(tab, 0);
+    // Playwright's framenavigated also fires for a same-page history change,
+    // and a navigation that never commits (a 204 answer, a download) leaves the
+    // document in place. Chromium's frameNavigated fires only when a new
+    // document commits; a same-page change is navigatedWithinDocument instead.
+    const cdp = await this.context.newCDPSession(tab);
+    cdp.on("Page.frameNavigated", ({ frame }) => {
+      if (!frame.parentId) this.leaveDocument(tab);
+    });
+    await cdp.send("Page.enable");
+    tab.on("close", () => this.leaveDocument(tab));
     await gotoEditor(tab, id);
     return tab;
   }
@@ -420,25 +509,147 @@ export class TabSet {
     await Promise.all(this.pending);
   }
 
+  captureReadback(
+    checkpoint: SaveLineageCheckpointName,
+    documentId: string,
+    document: Awaited<ReturnType<typeof getDocument>>,
+  ): void {
+    this.saveLineage.captureReadback(this.detached, {
+      checkpoint,
+      documentId,
+      content: document.content,
+      contentHash: document.contentHash,
+      bodyRevision: document.bodyRevision,
+      revision: document.revision,
+      savesInFlight: this.inFlight.size,
+      pendingRequestOrders: [...this.activeSaveLineage]
+        .map((entry) => entry.order)
+        .sort((left, right) => left - right),
+    });
+  }
+
   /**
-   * Wait until no tab has a save on the wire. Reloading or closing a tab cuts
-   * off its save in flight, which is a race of its own; without this wait the
-   * refresh check races whichever save the tab sent last.
+   * Wait until no tab has a save on the wire or held at a gate. Reloading or
+   * closing a tab cuts off its save in flight, which is a race of its own;
+   * without this wait the refresh check races whichever save the tab sent last.
    */
   async quiet(): Promise<void> {
     await expect
-      .poll(() => this.savesInFlight, {
+      .poll(() => this.unanswered(), {
         message: "saves still in flight after the scenario ended",
         timeout: CONVERGENCE_DEADLINE_MS,
       })
-      .toBe(0);
+      .toEqual([]);
     await this.settled();
+  }
+
+  /** True once a save's page went away with the save in flight. */
+  isStranded(request: Request): boolean {
+    return this.stranded.has(request);
+  }
+
+  /**
+   * Fetch the answer to a save a SaveGate holds, and keep it. The gate won't
+   * pass on a stranded save's answer, so the set records it as late instead.
+   * The fetch outlives the save's page, so `quiet()` waits for it either way.
+   */
+  async fetchAnswer<T extends SaveAnswer>(
+    request: Request,
+    fetch: () => Promise<T>,
+  ): Promise<T> {
+    this.fetching.add(request);
+    try {
+      const answer = await fetch();
+      if (this.stranded.has(request)) this.recordAnswer(request, answer);
+      else this.heldAnswers.set(request, answer);
+      return answer;
+    } finally {
+      this.fetching.delete(request);
+    }
+  }
+
+  /** Settle as stranded every save a tab's departing document had in flight. */
+  private leaveDocument(tab: Page) {
+    const document = this.documents.get(tab) ?? 0;
+    this.documents.set(tab, document + 1);
+    for (const request of this.inFlight) {
+      const sender = this.documentOf.get(request);
+      if (sender?.tab !== tab || sender.document !== document) continue;
+      this.stranded.add(request);
+      this.settleAborted(request, "stranded");
+      const answer = this.heldAnswers.get(request);
+      if (answer) this.recordAnswer(request, answer);
+    }
+  }
+
+  /**
+   * Settle a save as aborted, never as answered: its request failed, or its
+   * page went away with the save in flight, which `code` names.
+   */
+  private settleAborted(request: Request, code?: string) {
+    if (!this.inFlight.delete(request)) return;
+    const record = this.recordOf(request);
+    record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
+    if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
+    const lineage = this.lineageByRequest.get(request);
+    if (lineage) {
+      this.activeSaveLineage.delete(lineage.entry);
+      this.saveLineage.failRequest(lineage.entry);
+    }
+  }
+
+  /**
+   * The saves still on the wire or held at a gate, including stranded saves
+   * whose answer a gate is still fetching, and whose they are.
+   */
+  private unanswered(): string[] {
+    const now = Date.now();
+    return [...new Set([...this.inFlight, ...this.fetching])].map(
+      (request) =>
+        `${this.recordOf(request).label}'s ${this.stranded.has(request) ? "stranded " : ""}save sent ${now - (this.sentAt.get(request) ?? now)} ms ago`,
+    );
+  }
+
+  private recordOf(request: Request): TabRecord {
+    const page = pageOf(request);
+    return (page && this.tabs.get(page)) || this.detached;
+  }
+
+  diagnosticSnapshot() {
+    const activeLineageOrders = [...this.activeSaveLineage]
+      .map((entry) => entry.order)
+      .sort((left, right) => left - right);
+
+    return {
+      savesInFlight: this.inFlight.size,
+      retainedLineageInFlight: activeLineageOrders.length,
+      unmatchedSavesInFlight: this.inFlight.size - activeLineageOrders.length,
+      activeLineageOrders,
+      tabs: [...this.tabs.values(), this.detached].map((record) => ({
+        label: record.label,
+        saveRequests: record.saveRequests,
+        saveOutcomes: record.saveOutcomes,
+        saveCodes: record.saveCodes,
+        saveLineage: record.saveLineage,
+        saveLineageDropped: record.saveLineageDropped,
+        saveDurationsMs: record.saveDurationsMs,
+      })),
+    };
   }
 
   private observe(page: Page, kind: string, detail: string) {
     const record = this.tabs.get(page);
     if (!record) return;
     if (kind === "editor-mount") record.editorMounts++;
+    if (kind === "fixture-input") {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(detail);
+      } catch {
+        return;
+      }
+      appendFixtureInput(record, parsed);
+    }
     if (kind === "recovery") record.recovery.push(detail);
     if (kind === "toast" && detail.startsWith("error:"))
       record.errorToasts.push(detail.slice("error:".length));
@@ -450,8 +661,16 @@ export class TabSet {
     const record = (page && this.tabs.get(page)) || this.detached;
     if (url.pathname === SAVE_PATH && request.method() === "POST") {
       record.saveRequests++;
-      this.savesInFlight++;
+      this.inFlight.add(request);
       this.sentAt.set(request, Date.now());
+      const document = page ? this.documents.get(page) : undefined;
+      if (page && document !== undefined)
+        this.documentOf.set(request, { tab: page, document });
+      const entry = this.saveLineage.captureRequest(record, request.postData());
+      if (entry) {
+        this.lineageByRequest.set(request, { record, entry });
+        this.activeSaveLineage.add(entry);
+      }
     }
     // The shared transport sends both `since` and `cursor`, except its first
     // poll (`since=0` alone); the collaboration poll sends only one of them,
@@ -472,12 +691,38 @@ export class TabSet {
       return;
     }
     if (pathname !== SAVE_PATH || request.method() !== "POST") return;
-    this.savesInFlight--;
+    this.recordAnswer(request, response);
+  }
+
+  private recordAnswer(request: Request, answer: SaveAnswer) {
+    // A reload racing a gate's release can deliver both the gate's held copy
+    // of an answer and the tab's own; the first one is the save's answer.
+    if (this.answered.has(request)) return;
+    this.answered.add(request);
+    this.heldAnswers.delete(request);
+    const record = this.recordOf(request);
+    // A save settled as stranded already counted once, as aborted. Its answer
+    // is still the server's word on it, so a History diversion stays noise.
+    const late = !this.inFlight.delete(request);
     const sentAt = this.sentAt.get(request);
-    if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
+    if (!late && sentAt !== undefined)
+      record.saveDurationsMs.push(Date.now() - sentAt);
+    const lineage = this.lineageByRequest.get(request);
+    const lineageResponse = lineage
+      ? this.saveLineage.beginResponse(lineage.entry, answer.status())
+      : undefined;
+    if (lineage) this.activeSaveLineage.delete(lineage.entry);
     this.pending.push(
-      classifySave(response).then(({ outcome, code }) => {
-        record.saveOutcomes[outcome] = (record.saveOutcomes[outcome] ?? 0) + 1;
+      classifySave(answer).then(({ outcome, code, bodyState, body }) => {
+        if (lineage && lineageResponse)
+          this.saveLineage.finishResponse(
+            lineage.entry,
+            lineageResponse,
+            bodyState,
+            bodyState === "valid" ? body : undefined,
+          );
+        const outcomes = late ? record.lateSaveOutcomes : record.saveOutcomes;
+        outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
         if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
       }),
     );
@@ -489,15 +734,12 @@ export class TabSet {
       request.method() !== "POST"
     )
       return;
-    this.savesInFlight--;
-    const page = pageOf(request);
-    const record = (page && this.tabs.get(page)) || this.detached;
-    record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
+    this.settleAborted(request);
   }
 }
 
 type Held = { release: () => Promise<void> };
-type HeldSave = Held & { cutOff: () => Promise<void> };
+type HeldSave = Held & { request: Request; cutOff: () => Promise<void> };
 
 /**
  * Controls when one tab's saves reach the server and when their answers
@@ -511,10 +753,15 @@ export class SaveGate {
   private queue: HeldSave[] = [];
   heldCount = 0;
 
-  private constructor(private readonly page: Page) {}
+  private constructor(
+    private readonly page: Page,
+    private readonly tabs: TabSet,
+  ) {}
 
   static async install(page: Page): Promise<SaveGate> {
-    const gate = new SaveGate(page);
+    const tabs = tabSets.get(page.context());
+    if (!tabs) throw new Error("a SaveGate's page must belong to a TabSet");
+    const gate = new SaveGate(page, tabs);
     await page.route(
       (url) => url.pathname === SAVE_PATH,
       (route) => gate.handle(route),
@@ -540,12 +787,12 @@ export class SaveGate {
   }
 
   get queued(): number {
-    return this.queue.length;
+    return this.held().length;
   }
 
   async waitForHeld(count = 1): Promise<void> {
     await expect
-      .poll(() => this.queue.length, {
+      .poll(() => this.held().length, {
         message: `a save should be held at the gate`,
         timeout: 30_000,
       })
@@ -554,7 +801,7 @@ export class SaveGate {
 
   /** Let every held save through, in the order the tab sent them. */
   async release(): Promise<void> {
-    const held = this.queue;
+    const held = this.held();
     this.queue = [];
     for (const item of held) await item.release();
   }
@@ -564,38 +811,57 @@ export class SaveGate {
    * request fail, whether or not the server applied it.
    */
   async cutOff(): Promise<void> {
-    const held = this.queue;
+    const held = this.held();
     this.queue = [];
     for (const item of held) await item.cutOff();
   }
 
+  /** The held saves, without any whose page has since gone away. */
+  private held(): HeldSave[] {
+    this.queue = this.queue.filter(
+      (item) => !this.tabs.isStranded(item.request),
+    );
+    return this.queue;
+  }
+
   private async handle(route: Route) {
-    if (route.request().method() !== "POST") return route.continue();
+    const request = route.request();
+    if (request.method() !== "POST") return route.continue();
     if (this.latencyMs > 0) await delay(this.latencyMs);
+    // A save whose page went away is settled, and Playwright has dropped it.
+    if (this.tabs.isStranded(request)) return;
     if (this.mode === "arrival") {
       this.heldCount++;
       this.queue.push({
-        release: () => forward(() => route.continue()),
-        cutOff: () => forward(() => route.abort("aborted")),
+        request,
+        release: () => this.send(request, () => route.continue()),
+        cutOff: () => this.send(request, () => route.abort("aborted")),
       });
       return;
     }
     if (this.mode === "answer") {
-      this.heldCount++;
       let response: Awaited<ReturnType<Route["fetch"]>>;
       try {
-        response = await route.fetch();
+        response = await this.tabs.fetchAnswer(request, () => route.fetch());
       } catch (error) {
         if (this.page.isClosed()) return;
         throw error;
       }
+      if (this.tabs.isStranded(request)) return;
+      this.heldCount++;
       this.queue.push({
-        release: () => forward(() => route.fulfill({ response })),
-        cutOff: () => forward(() => route.abort("aborted")),
+        request,
+        release: () => this.send(request, () => route.fulfill({ response })),
+        cutOff: () => this.send(request, () => route.abort("aborted")),
       });
       return;
     }
-    await forward(() => route.continue());
+    await this.send(request, () => route.continue());
+  }
+
+  /** Pass on a save unless its page went away, which settled it already. */
+  private async send(request: Request, step: () => Promise<void>) {
+    if (!this.tabs.isStranded(request)) await forward(step);
   }
 }
 
@@ -666,6 +932,23 @@ export async function typeAtParagraphEnd(
   text: string,
   delayMs = 40,
 ): Promise<void> {
+  const capture = async (phase: FixtureInputSnapshot["phase"]) => {
+    const snapshot = await page.evaluate(captureFixtureInput, {
+      phase,
+      text,
+      editor: EDITOR,
+    });
+    if (!snapshot) return;
+    await page.evaluate((detail) => {
+      const report = (
+        globalThis as typeof globalThis & {
+          __convergenceReport?: (kind: string, detail: string) => void;
+        }
+      ).__convergenceReport;
+      report?.("fixture-input", detail);
+    }, JSON.stringify(snapshot));
+  };
+  await capture("before-caret");
   await page.locator(`${EDITOR} > p`, { hasText: anchor }).first().click();
   // "End" stops at a wrapped visual line; place the caret at the true end.
   await page.evaluate(
@@ -698,6 +981,7 @@ export async function typeAtParagraphEnd(
     { needle: anchor, editor: EDITOR },
   );
   await page.keyboard.type(text, { delay: delayMs });
+  await capture("after-input");
 }
 
 /** Select `text` in the editor and delete it with the keyboard, as a person would. */
@@ -967,12 +1251,15 @@ export async function observeIntegrity(
   const settle = async (at: IntegrityObservation["at"], pages: Page[]) => {
     const deadline = Date.now() + CONVERGENCE_DEADLINE_MS;
     let round: IntegrityObservation[] = [];
+    let lastDocument: Awaited<ReturnType<typeof getDocument>> | undefined;
     do {
+      lastDocument = await getDocument(reader, id);
+      tabs.captureReadback(at, id, lastDocument);
       round = [
         judge(
           at,
           "sql",
-          (await getDocument(reader, id)).content ?? "",
+          lastDocument.content ?? "",
           markers.all,
           markers.removed,
         ),
@@ -1000,6 +1287,7 @@ export async function observeIntegrity(
   await settle("deadline", open);
 
   await tabs.quiet();
+  tabs.captureReadback("before-refresh", id, await getDocument(reader, id));
   for (const page of open) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
@@ -1007,10 +1295,14 @@ export async function observeIntegrity(
   await settle("refresh", open);
 
   await tabs.quiet();
+  tabs.captureReadback("before-close", id, await getDocument(reader, id));
   for (const page of open) await page.close();
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);
   await alone.close();
+  // Closing the tabs strands any save they sent after the last wait, and a
+  // gate may still be fetching its answer; the record must include it.
+  await tabs.quiet();
   return observations;
 }
 
@@ -1064,6 +1356,10 @@ export function noiseFailures(tabs: readonly TabRecord[]): string[] {
     ...HISTORY_OUTCOMES.filter((outcome) => tab.saveOutcomes[outcome]).map(
       (outcome) =>
         `${tab.label} had ${tab.saveOutcomes[outcome]} saves ${outcome}`,
+    ),
+    ...HISTORY_OUTCOMES.filter((outcome) => tab.lateSaveOutcomes[outcome]).map(
+      (outcome) =>
+        `${tab.label} had ${tab.lateSaveOutcomes[outcome]} stranded saves ${outcome}`,
     ),
   ]);
 }

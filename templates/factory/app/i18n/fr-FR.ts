@@ -101,6 +101,7 @@ const messages = {
       pr_observed: "PR observé",
       auto_approved: "Approuvé automatiquement",
       merged: "Fusionné",
+      resolved: "Résolu",
     },
     inboxColumnAutomation: "Automatisation",
     inboxRouting: {
@@ -277,6 +278,11 @@ const messages = {
     inboxTitle: "Boîte de réception des observations",
     inboxTab: "Boîte de réception",
     inboxBackToList: "Retour à la boîte de réception",
+    inboxRowActions: "Actions pour {{title}}",
+    inboxMarkResolved: "Marquer comme résolu",
+    inboxSendBackToAutomation: "Renvoyer à l'automatisation",
+    inboxOutcomeUpdated: "Statut mis à jour",
+    inboxOutcomeFailed: "Impossible de mettre à jour le statut",
     inboxDescription:
       "Les éléments observés entrent dans la factory avant le travail autonome.",
     selectObservation:
@@ -465,7 +471,10 @@ const messages = {
     automationSourceSentryHint: "Erreurs non résolues.",
     automationSlackChannel: "Identifiant du canal Slack",
     automationSlackChannelDescription:
-      "Canal interrogé par ce job. Commence par C.",
+      "Canal Slack que ce job lit ou utilise pour publier des résultats groupés. Commence par C.",
+    automationFindingsSlackChannel: "Canal Slack des résultats",
+    automationFindingsSlackChannelDescription:
+      "Les résultats GitHub et Sentry admissibles sont regroupés en un seul message dans ce canal.",
     automationRepository: "Dépôt GitHub",
     automationRepositoryDescription: "owner/repo interrogé par ce job.",
     automationSentryOrg: "Organisation Sentry",

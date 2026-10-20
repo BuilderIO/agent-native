@@ -121,7 +121,7 @@ describe("test-title production guard", () => {
 
   it("rejects the title and production paths that shipped in PR #5229", () => {
     const event = structuredClone(pullRequestEventFixture);
-    event.pull_request.title = "test: prove URL-backed visual edit parity";
+    event.pull_request.title = "test: verify URL-backed visual editing";
     const productionPaths = [
       "templates/design/app/hooks/use-navigation-state.ts",
       "templates/design/app/lib/design-editor-route.ts",
@@ -167,7 +167,7 @@ describe("test-title production guard", () => {
       "templates/design/app/tests/Canvas.tsx",
       "templates/design/app/Editor.fixture.tsx",
       "templates/design/e2e/helper.ts",
-      "docs/design-parity.md",
+      "docs/search-architecture.md",
     ]) {
       assert.equal(isTestOnlyPath(path), false, path);
     }

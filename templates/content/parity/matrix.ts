@@ -265,6 +265,7 @@ export const parityMatrix: ParityRow[] = [
       "edit-document",
       "get-document-save-attempt",
       "pull-document",
+      "record-editor-mount",
       "record-live-body-parity",
       "seed-document-collab",
       "set-image-alt-text",
@@ -272,7 +273,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding, and the flag-gated live-body parity count are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding, editor mount counts, and the flag-gated live-body parity count are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -281,6 +282,9 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/record-editor-mount.test.ts",
+      "app/components/editor/editor-mount-telemetry.test.ts",
+      "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
     ],
     evalScenarioIds: ["document-search-edit"],
   },
@@ -450,6 +454,28 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: ["actions/_local-file-documents.test.ts"],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "header.import-markdown-files",
+    surface: "header",
+    label: "Import Markdown files as pages and undo the import",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/VisualEditor.tsx",
+      "app/components/editor/ContentImportDialog.tsx",
+    ],
+    durableEffect:
+      "Imported pages with an import History entry, provenance, and the original file; undo moves unedited imports to Trash.",
+    uiImplementation:
+      "The page menu and a dropped .md file open one dialog that previews with dryRun, applies, and offers Undo through the import actions.",
+    status: "action-backed",
+    actions: ["import-content", "undo-content-import"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/import-content.db.test.ts"],
   },
   {
     id: "sharing.os-reveal-local-source",
@@ -1076,6 +1102,28 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P0",
     testCoverage: "seeded",
     followUpPR: null,
+  },
+  {
+    id: "comments.collection-overview",
+    surface: "comments",
+    label:
+      "See which Collection rows and Property values have open comments, and read every row's threads at once",
+    uiEntrypoints: [
+      "app/components/editor/database/database-item-comments.tsx",
+      "app/components/editor/property-comments.tsx",
+    ],
+    durableEffect:
+      "Collection reads return each readable row's open-thread count and per-Property counts; list-content-database-comments returns every readable row's threads with their text or Property target.",
+    uiImplementation:
+      "Table rows and cells show counts from the Collection read and open the row's Comments; agents read all threads through list-content-database-comments.",
+    status: "action-backed",
+    actions: ["list-content-database-comments", "add-comment"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/content-database-comments.db.test.ts"],
   },
   {
     id: "versions.history-and-restore",

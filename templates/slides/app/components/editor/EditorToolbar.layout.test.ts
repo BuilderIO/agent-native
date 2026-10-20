@@ -12,26 +12,17 @@ const globalCssSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "../../global.css"),
   "utf8",
 );
+// The top-right action cluster doubles as the anchor for floating panels.
+const TOP_RIGHT_ACTIONS_OPEN_TAG =
+  /<div\s+ref=\{panelAnchorRef\}\s+className="ml-auto flex shrink-0 items-center gap-1"\s*>/;
 
 describe("EditorToolbar layout contract", () => {
   it("keeps the title input measuring its own width without flex-shrinking", () => {
     expect(editorToolbarSource).toContain(
-      'className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
+      '"min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
     );
     expect(editorToolbarSource).toContain(
       "style={{ width: `${titleInputWidth}px` }}",
-    );
-  });
-
-  it("drops the deck-list link and the agent panel controls inside an MCP App widget", () => {
-    expect(editorToolbarSource).toContain(
-      "const widgetEmbed = useIsMcpAppWidgetEmbed();",
-    );
-    expect(editorToolbarSource).toMatch(
-      /\{!widgetEmbed && \(\s*<Tooltip>\s*<TooltipTrigger asChild>\s*<Link\s+to="\/home"/,
-    );
-    expect(editorToolbarSource).toMatch(
-      /\{!widgetEmbed && \(\s*<div className="flex items-center gap-1">\s*<RunsTray pollMs=\{0\} \/>\s*<AgentToggleButton \/>/,
     );
   });
 
@@ -52,15 +43,13 @@ describe("EditorToolbar layout contract", () => {
   });
 
   it("pushes the top-right actions to the row edge when the style toolbar moves below", () => {
-    expect(editorToolbarSource).toContain(
-      '<div className="ml-auto flex shrink-0 items-center gap-1">',
-    );
+    expect(editorToolbarSource).toMatch(TOP_RIGHT_ACTIONS_OPEN_TAG);
   });
 
   it("keeps the AI presence indicator beside the top-right editor actions", () => {
     const presenceIndex = editorToolbarSource.indexOf("<PresenceBar");
-    const actionClusterIndex = editorToolbarSource.indexOf(
-      '<div className="ml-auto flex shrink-0 items-center gap-1">',
+    const actionClusterIndex = editorToolbarSource.search(
+      TOP_RIGHT_ACTIONS_OPEN_TAG,
     );
     const menuIndex = editorToolbarSource.indexOf("<DropdownMenu>");
     const shareIndex = editorToolbarSource.indexOf("{/* Framework share");
@@ -92,6 +81,13 @@ describe("EditorToolbar layout contract", () => {
     expect(editorToolbarSource).not.toContain(
       '<DropdownMenuLabel>\n                  {t("editorToolbar.comments")}\n                </DropdownMenuLabel>',
     );
+  });
+
+  it("opens the deck in the app through the host bridge", () => {
+    expect(editorToolbarSource).toContain("openMcpAppHostLink(editorUrl)");
+    expect(
+      editorToolbarSource.match(/editorToolbar\.openInAgentNative/g),
+    ).toHaveLength(2);
   });
 
   it("lets the wide contextual toolbar scroll instead of clipping rare overflow", () => {

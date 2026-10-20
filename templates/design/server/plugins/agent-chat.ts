@@ -45,6 +45,7 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "list-files",
   "create-file",
   "update-file",
+  "delete-file",
   "rename-screen",
   "export-png",
 ];
@@ -85,6 +86,10 @@ function projectChatGptDirectoryResult(
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  // Builder app designs send every code change through this; the prompt
+  // names it, so it must be callable without a tool search. (The queued-edit
+  // tools stay discoverable through tool-search.)
+  "send-builder-message",
   "list-review-comments",
   "get-review-feedback",
   "create-review-comment",
@@ -109,7 +114,6 @@ const INITIAL_TOOL_NAMES = [
   "list-localhost-connections",
   "update-screen-source",
   "add-breakpoint",
-  "remove-breakpoint",
   "edit-design",
   "generate-design",
   "present-design-variants",
@@ -140,6 +144,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "detach-component-instance",
   "delete-file",
   "edit-design",
+  "fill-figma-paste-image",
   "generate-design",
   "hydrate-figma-paste-images",
   "insert-asset",
@@ -163,6 +168,7 @@ const DESIGN_FILE_TARGET_TOOLS = new Set([
   "delete-file",
   "detach-component-instance",
   "edit-design",
+  "fill-figma-paste-image",
   "hydrate-figma-paste-images",
   "insert-asset",
   "insert-design-native-asset",
@@ -237,7 +243,6 @@ async function hasDesignEdit(
     if (
       record?.type !== "tool_done" ||
       record.completedSideEffect !== true ||
-      record.isError === true ||
       typeof record.tool !== "string" ||
       !DESIGN_EDIT_TOOLS.has(record.tool)
     ) {
@@ -300,7 +305,7 @@ export default createAgentChatPlugin({
     keyToolNames: ["get-visual-edit-pending"],
     instructions:
       "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
-      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. KEY VISUAL HANDOFF: after the user edits a live screen, call get-visual-edit-pending with the visual-edit designId before asking for copy/paste. It returns the latest source prompt and revision even when the Design tab is closed; apply that prompt to the connected app, then call acknowledge-visual-edit-pending with the same designId and revision only after the source change is verified, and call get-visual-edit-pending again to confirm it cleared. Never acknowledge a handoff you did not apply. The page-local get-visual-edit-prompt tool is an equivalent fallback only for browser-capable hosts.',
+      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. FULL APP DESIGNS: when the open design has a fusionApp (its screens are a live Builder branch container), the app code lives in that branch. Make every app code change (styles, components, copy in source, data, routes) by calling send-builder-message with the designId and a precise prompt; it delegates to Builder on that branch, streams its work into this chat, and returns when the change is done and the screens reload. Use apply-builder-edits only for edits already queued from the canvas (queue-builder-edit); one delegation per request, then report what changed. Never answer an app code change on a Builder app design by asking the user to connect Builder or to copy a prompt. On a Builder app design, pending live visual edits (text, styles, hidden or layer state) are app code changes too: call get-visual-edit-pending, then pass its prompt to send-builder-message with visualEditRevision set to that revision; send-builder-message clears the handoff when Builder finishes. Never route them through the localhost source tools or write consent, which only exist for connected localhost apps. Canvas annotations (strokes and notes from Annotate) on a Builder app design are the user describing changes to the app: work out what each mark points at and asks for, and delegate that change with send-builder-message. The annotation strokes are not part of the app or the design, so never try to edit or delete them. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. KEY VISUAL HANDOFF: after the user edits a live screen, call get-visual-edit-pending with the visual-edit designId before asking for copy/paste. It returns the latest source prompt and revision even when the Design tab is closed; apply that prompt to the connected app, then call acknowledge-visual-edit-pending with the same designId and revision only after the source change is verified, and call get-visual-edit-pending again to confirm it cleared. Never acknowledge a handoff you did not apply. The page-local get-visual-edit-prompt tool is an equivalent fallback only for browser-capable hosts.',
     directoryProfile: {
       ...CHATGPT_DIRECTORY_PROFILE,
       projectResult: projectChatGptDirectoryResult,
@@ -325,7 +330,7 @@ When a user message begins with [Selection question], answer about the captured 
 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
-Every web design without exact pixel dimensions must be responsive. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Desktop is the default primary artboard: use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. When the user specifies exact pixel dimensions, use those exact width and height values for the canvas and generate no mobile or other device frames; take only a screenshot at that exact viewport. Keep each generation action prompt to one distinct exact size; make separate calls scoped to each screen when a request includes different sizes. After ordinary responsive generation, inspect desktop and mobile screenshots and correct overflow or broken reflow before reporting completion.
+App and website UI is responsive by default when the user does not specify exact pixel dimensions. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Static artwork such as ads, banners, social posts, thumbnails, email headers, flyers, and posters uses one fixed canvas with no mobile or tablet frames, including on follow-up edits and resizes; each additional size or version is its own exact-size call. Honor exact pixel dimensions and platform presets in the original request. Desktop is the default primary artboard for responsive UI; use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. Keep each generation action prompt to one distinct exact size; make separate calls scoped to each screen when a request includes different sizes. For responsive UI, inspect desktop and mobile screenshots and correct overflow or broken reflow. For fixed artwork, inspect one screenshot at the requested canvas size.
 
 Treat explicit visual direction, requested content, named pages, and page counts as acceptance criteria. When the user asks for multiple distinct pages or states, call generate-screens with every requested page before generating their files; do not substitute responsive breakpoint frames for requested pages. Verify the saved design contains each requested page before reporting completion.
 
@@ -347,7 +352,7 @@ Provider-specific Design actions are shortcuts, not limits. If a first-class act
 
 Design's GitHub provider API uses the saved GITHUB_TOKEN secret when present. Never ask the user to paste tokens into chat. For large GitHub search results or repository scans, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.
 
-Design's Figma integration uses the saved, user-scoped FIGMA_ACCESS_TOKEN secret; never ask for the token in chat or pass it as an action argument. Use import-figma-frame for a frame/layer link and import-figma-clipboard for Figma Cmd+C metadata. Current clipboard metadata includes exact selected node ids and supports multi-selection; if Figma changes that private field, fall back conservatively and recommend "Copy link to selection." Use provider-api-catalog/docs/request for open-ended reads of files, nodes, components, styles, images, comments, versions, and Enterprise variables. Figma REST cannot create arbitrary canvas frames/layers. For Design-to-Figma handoff use export-design-as-figma-svg / Copy as SVG, or Figma's official OAuth MCP write tools when they are actually connected. Never claim SVG preserves live text, auto-layout, components, variables, or prototype behavior; report the export/import fidelity caveats.
+Design's Figma integration uses the saved, user-scoped FIGMA_ACCESS_TOKEN secret; never ask for the token in chat or pass it as an action argument. Use import-figma-frame for a frame/layer link and import-figma-clipboard for Figma Cmd+C metadata. Current clipboard metadata includes exact selected node ids and supports multi-selection; if Figma changes that private field, fall back conservatively and recommend "Copy link to selection." Use provider-api-catalog/docs/request for open-ended reads of files, nodes, components, styles, images, comments, versions, and Enterprise variables. Figma REST cannot create arbitrary canvas frames/layers. For Design-to-Figma handoff use export-design-as-figma-svg / Copy as SVG, or Figma's official OAuth MCP write tools when they are actually connected. Never claim SVG preserves live text, auto-layout, components, variables, or prototype behavior; report the export/import conversion caveats.
 
 For raster image generation, use available first-party Assets MCP tools such as generate-asset instead of placeholders or generic stock-image descriptions. When the Assets picker returns selectedAsset/chooseAsset/chooseImage context while a design is open, call insert-asset with the chosen asset URL/id, then refine placement with normal Design edit tools if needed. Preserve Assets assetId, runId, and URLs verbatim.`,
 });

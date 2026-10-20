@@ -1,4 +1,7 @@
-import { isBuilderPreviewUrl } from "@shared/builder-preview-url";
+import {
+  isBuilderPreviewUrl,
+  isLoopbackPreviewAllowed,
+} from "@shared/builder-preview-url";
 import { useSyncExternalStore } from "react";
 
 const subscribeToBrowserOrigin = () => () => {};
@@ -209,18 +212,10 @@ const READ_ONLY_INLINE_IFRAME_SANDBOX =
   "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals";
 const VISUAL_EDIT_SNAPSHOT_IFRAME_SANDBOX = "allow-scripts";
 
-export function isTrustedCrossOriginPreviewUrl(
-  previewUrl: string | null | undefined,
+function isCrossOriginPreviewUrl(
+  previewUrl: string,
   parentOrigin?: string,
 ): boolean {
-  if (
-    !previewUrl ||
-    isLoopbackPreviewUrl(previewUrl) ||
-    !isBuilderPreviewUrl(previewUrl)
-  ) {
-    return false;
-  }
-
   const effectiveParentOrigin =
     parentOrigin ??
     (typeof window === "undefined" ? undefined : window.location.origin);
@@ -234,16 +229,55 @@ export function isTrustedCrossOriginPreviewUrl(
   }
 }
 
+export function isTrustedCrossOriginPreviewUrl(
+  previewUrl: string | null | undefined,
+  parentOrigin?: string,
+): boolean {
+  if (!previewUrl || !isBuilderPreviewUrl(previewUrl)) return false;
+  // A loopback preview is a local `builder.io launch` session. It is trusted
+  // only when the editor is itself a local dev build on loopback (Builder's
+  // `npm run dev`); production editors keep loopback apps opaque.
+  if (isLoopbackPreviewUrl(previewUrl)) {
+    const editorOrigin =
+      parentOrigin ??
+      (typeof window === "undefined" ? undefined : window.location.origin);
+    if (
+      !isLoopbackPreviewAllowed() ||
+      !editorOrigin ||
+      !isLoopbackPreviewUrl(editorOrigin)
+    ) {
+      return false;
+    }
+  }
+  return isCrossOriginPreviewUrl(previewUrl, parentOrigin);
+}
+
+/**
+ * A running app shown as itself (Interact) must keep its own origin: sandboxed
+ * to the opaque `null` origin, its same-site module scripts fail CORS and the
+ * frame stays blank. Only a loopback app on a different origin than the editor
+ * qualifies, so it still cannot reach the editor.
+ */
+function isLiveAppPreviewUrl(
+  previewUrl: string | null | undefined,
+  parentOrigin?: string,
+): boolean {
+  if (!previewUrl || !isLoopbackPreviewUrl(previewUrl)) return false;
+  return isCrossOriginPreviewUrl(previewUrl, parentOrigin);
+}
+
 export function getDesignCanvasIframeSandbox(args: {
   externalPreview: boolean;
   readOnly: boolean;
   snapshotOnly?: boolean;
   previewUrl?: string | null;
   parentOrigin?: string;
+  liveApp?: boolean;
 }): string {
   if (args.snapshotOnly) return VISUAL_EDIT_SNAPSHOT_IFRAME_SANDBOX;
   if (args.externalPreview) {
-    return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin)
+    return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin) ||
+      (args.liveApp && isLiveAppPreviewUrl(args.previewUrl, args.parentOrigin))
       ? TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX
       : EXTERNAL_PREVIEW_IFRAME_SANDBOX;
   }

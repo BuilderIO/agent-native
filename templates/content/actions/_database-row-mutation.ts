@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { ActionContractError, isActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   accessFilter,
@@ -92,6 +93,32 @@ export const databaseMutationTargetInputSchema = z.object({
 
 export const databaseMutationAgentTargetSchema =
   databaseMutationTargetInputSchema.omit({ authorityScope: true });
+
+export function assertDatabaseWidgetWriteTarget(
+  target: Pick<
+    DatabaseMutationTargetInput,
+    "spaceId" | "databaseId" | "databaseDocumentId"
+  >,
+  actionName: "add-database-item" | "update-database-item",
+  context: ActionRunContext | undefined,
+): void {
+  if (context?.caller !== "mcp-widget-write") return;
+
+  const grant = context?.mcpDirectoryWidgetWrite;
+  if (
+    !grant ||
+    grant.appId !== "content" ||
+    !grant.actionNames.includes(actionName) ||
+    grant.resourceIds.databaseId !== target.databaseId ||
+    grant.resourceIds.spaceId !== target.spaceId ||
+    grant.resourceIds.databaseDocumentId !== target.databaseDocumentId
+  ) {
+    throw new ActionContractError(
+      "This Content widget write capability is missing or scoped to a different collection or action.",
+      { errorCode: "mcp_widget_write_scope_mismatch", statusCode: 403 },
+    );
+  }
+}
 
 export const databaseMutationEnvelopeSchema = z.object({
   target: databaseMutationTargetInputSchema,
@@ -1774,8 +1801,13 @@ interface RowPatchIssue {
   [detail: string]: unknown;
 }
 
+/** Drizzle wraps the driver's error, so the violation can sit in `cause`. */
 export function isUniqueConstraintError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: unknown;
+  };
   const code =
     typeof candidate?.code === "string"
       ? candidate.code
@@ -1786,7 +1818,10 @@ export function isUniqueConstraintError(error: unknown): boolean {
       : (JSON.stringify(candidate?.message) ?? "");
   return (
     code === "23505" ||
-    /unique constraint|primary key constraint|duplicate key/i.test(message)
+    /unique constraint|primary key constraint|duplicate key/i.test(message) ||
+    (candidate?.cause !== undefined &&
+      candidate.cause !== error &&
+      isUniqueConstraintError(candidate.cause))
   );
 }
 

@@ -145,7 +145,7 @@ describe("ci-red-report", () => {
         runId === 10
           ? [
               "chromium / design editor\tRender canvas spec\t2026-10-05T12:20:00Z ##[error] 1) [chromium] › e2e/canvas-invariants.spec.ts:42:1 › group fill persists",
-              "chromium / design editor\tRun inspector spec\t2026-10-05T12:20:00Z ##[error] 2) [chromium] › e2e/inspector-styles.spec.ts:88:1 › empty stroke title opens color picker",
+              "chromium / design editor\tRun interaction spec\t2026-10-05T12:20:00Z ##[error] 2) [chromium] › e2e/interaction-selection.spec.ts:88:1 › selected object remains active",
               "chromium / design editor\tRun shard\t2026-10-05T12:20:00Z ##[notice] 2 failed, 0 flaky",
             ].join("\n")
           : "captured log without test annotations",
@@ -175,13 +175,13 @@ describe("ci-red-report", () => {
     assert.ok(testRow);
     assert.equal(testRow[columns.fingerprint_grain], "test");
     assert.equal(testRow[columns.step], "Render canvas spec");
-    const inspectorTestRow = reportRows.find((row) =>
-      /inspector-styles\.spec\.ts.*empty stroke title opens color picker/.test(
+    const selectionTestRow = reportRows.find((row) =>
+      /interaction-selection\.spec\.ts.*selected object remains active/.test(
         row[columns.test],
       ),
     );
-    assert.ok(inspectorTestRow);
-    assert.equal(inspectorTestRow[columns.step], "Run inspector spec");
+    assert.ok(selectionTestRow);
+    assert.equal(selectionTestRow[columns.step], "Run interaction spec");
     for (const row of reportRows) {
       assert.match(row[columns.fingerprint], /^sha256:[a-f0-9]{64}$/);
     }
@@ -236,8 +236,8 @@ describe("ci-red-report", () => {
         path: ".github/workflows/deploy-beta-sites.yml@main",
       }),
       run(34, {
-        name: "Hosted app health audit",
-        path: ".github/workflows/monitor-agent-native-sites.yml@main",
+        name: "Audit hosted app health",
+        path: ".github/workflows/keep-neon-warm.yml@main",
       }),
     ];
     const rows = buildCiRedRows(
@@ -272,7 +272,7 @@ describe("ci-red-report", () => {
     assert.equal(records.length, 4);
     assert.deepEqual(
       records.map((record) => record.workflow),
-      ["Design E2E", "Beta deploy", "Hosted app health audit", "CI"],
+      ["Design E2E", "Beta deploy", "Audit hosted app health", "CI"],
     );
     assert.equal(records[0].run_count, "2");
     assert.deepEqual(
@@ -359,14 +359,14 @@ describe("ci-red-report", () => {
 
   it("uses test fingerprints only when annotations match the final non-flaky summary", () => {
     const log = [
-      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 1) [chromium] › e2e/parity-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
-      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 2) [chromium] › e2e/parity-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
+      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 1) [chromium] › e2e/interaction-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
+      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 2) [chromium] › e2e/interaction-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
       "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[notice] 2 failed, 0 flaky",
     ].join("\n");
     const testFailures = parseFailedTestNames(log);
     assert.deepEqual(testFailures.get("Shard 5/8"), [
-      "chromium :: e2e/parity-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
-      "chromium :: e2e/parity-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
+      "chromium :: e2e/interaction-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
+      "chromium :: e2e/interaction-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
     ]);
 
     const rows = buildCiRedRows(
@@ -392,7 +392,7 @@ describe("ci-red-report", () => {
             [
               "Shard 5/8",
               [
-                "chromium :: e2e/parity-drag-move.spec.ts:999:4 › in-screen: Escape after a completed drag does NOT revert it",
+                "chromium :: e2e/interaction-drag-move.spec.ts:999:4 › in-screen: Escape after a completed drag does NOT revert it",
               ],
             ],
           ]),

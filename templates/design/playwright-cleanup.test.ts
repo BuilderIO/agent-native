@@ -1,9 +1,81 @@
-import { describe, expect, it } from "vitest";
+import { spawnSync, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
 
+import type {
+  FullResult,
+  TestCase,
+  TestResult,
+} from "@playwright/test/reporter";
+import { describe, expect, it, vi } from "vitest";
+
+import { startLoopbackProvider } from "./e2e/global-setup";
 import {
   cleanupDesignE2eArtifacts,
   designE2eRunRoot,
 } from "./e2e/global-teardown";
+import RetryFailureReporter, {
+  RETRY_FAILURE_MARKER,
+} from "./e2e/retry-failure-reporter";
+import { startE2EChildWithReadiness } from "./e2e/startup-child";
+
+const testCase = (expectedStatus: TestCase["expectedStatus"]): TestCase =>
+  ({ expectedStatus }) as TestCase;
+const testResult = (status: TestResult["status"]): TestResult =>
+  ({ status }) as TestResult;
+const pinFile = path.resolve(
+  import.meta.dirname,
+  "e2e",
+  "retry-failure-reporter.fixture.spec.ts",
+);
+const pinSelector = "e2e/retry-failure-reporter.fixture.spec.ts:42";
+const pinTitle = "the pinned behavior runs";
+const pinIdentity = { selector: pinSelector, title: pinTitle };
+const require = createRequire(import.meta.url);
+const PLAYWRIGHT_CLI = require.resolve("@playwright/test/cli");
+const REPORTER_PATH = path.join(
+  import.meta.dirname,
+  "e2e",
+  "retry-failure-reporter.ts",
+);
+const pinTestCase = (
+  expectedStatus: TestCase["expectedStatus"],
+  id: string,
+  line = 42,
+  title = pinTitle,
+): TestCase =>
+  ({
+    id,
+    title,
+    expectedStatus,
+    location: { file: pinFile, line },
+  }) as TestCase;
+const reporterWithPinAttestation = (
+  requiredPinIdentities = [pinIdentity],
+): RetryFailureReporter =>
+  new RetryFailureReporter({
+    markerPath: path.join(os.tmpdir(), "unused-design-retry-marker"),
+    requiredPinIdentities: JSON.stringify(requiredPinIdentities),
+  });
+
+async function waitForPidFile(pidPath: string): Promise<number> {
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    try {
+      const pid = Number(await readFile(pidPath, "utf8"));
+      if (Number.isInteger(pid) && pid > 0) return pid;
+    } catch {
+      // The startup helper creates the per-run PID marker asynchronously.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("The startup helper did not write its PID marker.");
+}
 
 describe("Design Playwright artifact cleanup", () => {
   it("removes only this run's artifacts after a pass", () => {
@@ -19,11 +91,31 @@ describe("Design Playwright artifact cleanup", () => {
   it("preserves artifacts after a failure", () => {
     const removed: string[] = [];
     cleanupDesignE2eArtifacts(
-      { pgliteDir: "run/pglite", resultsDir: "run/results" },
+      {
+        pgliteDir: "run/pglite",
+        resultsDir: "run/results",
+        retryFailureMarker: "run/results/retry-failure.marker",
+      },
       1,
       (target) => removed.push(target),
+      () => true,
     );
     expect(removed).toEqual([]);
+  });
+
+  it("preserves retry diagnostics and removes the database after a flaky pass", () => {
+    const removed: string[] = [];
+    cleanupDesignE2eArtifacts(
+      {
+        pgliteDir: "run/pglite",
+        resultsDir: "run/results",
+        retryFailureMarker: "run/results/retry-failure.marker",
+      },
+      0,
+      (target) => removed.push(target),
+      (target) => target === "run/results/retry-failure.marker",
+    );
+    expect(removed).toEqual(["run/pglite"]);
   });
 
   it("uses the configured run root for loopback teardown", () => {
@@ -36,5 +128,485 @@ describe("Design Playwright artifact cleanup", () => {
     expect(designE2eRunRoot("/repo/templates/design", undefined, "run")).toBe(
       "/repo/.tmp/design-e2e/run",
     );
+  });
+
+  it("includes the asynchronous spawn error when the loopback provider cannot start", async () => {
+    const originalExecPath = Object.getOwnPropertyDescriptor(
+      process,
+      "execPath",
+    );
+    const runRoot = await mkdtemp(
+      path.join(os.tmpdir(), "design-loopback-provider-spawn-error-"),
+    );
+
+    try {
+      vi.stubEnv("E2E_RUN_ROOT", runRoot);
+      Object.defineProperty(process, "execPath", {
+        configurable: true,
+        value: path.join(runRoot, "missing-node-executable"),
+      });
+      await expect(startLoopbackProvider(45873)).rejects.toThrow(
+        /spawn .* ENOENT/,
+      );
+    } finally {
+      if (originalExecPath) {
+        Object.defineProperty(process, "execPath", originalExecPath);
+      } else {
+        Reflect.deleteProperty(process, "execPath");
+      }
+      vi.unstubAllEnvs();
+      await rm(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reports an early storage-child exit and removes its PID marker", async () => {
+    const runRoot = await mkdtemp(
+      path.join(os.tmpdir(), "design-storage-child-exit-"),
+    );
+    const pidPath = path.join(runRoot, "storage.pid");
+
+    try {
+      const startup = startE2EChildWithReadiness({
+        serviceName: "HTTPS attachment storage",
+        command: process.execPath,
+        args: [
+          "-e",
+          "process.stderr.write('synthetic storage startup failure'); process.exit(23)",
+        ],
+        env: process.env,
+        pidPath,
+        readinessTarget: "on test port",
+        readinessTimeoutMs: 500,
+        readinessRetryMs: 5,
+        checkReady: async () => {
+          throw new Error("fetch failed");
+        },
+      });
+      const error = await startup.then(
+        () => new Error("Expected startup to fail."),
+        (cause: unknown) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      );
+
+      expect(error.message).toContain(
+        "HTTPS attachment storage exited before readiness (code 23, signal none)",
+      );
+      expect(error.message).toContain("synthetic storage startup failure");
+      expect(existsSync(pidPath)).toBe(false);
+    } finally {
+      await rm(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("stops a child after readiness timeout and removes its PID marker", async () => {
+    const runRoot = await mkdtemp(
+      path.join(os.tmpdir(), "design-storage-readiness-timeout-"),
+    );
+    const pidPath = path.join(runRoot, "storage.pid");
+    let startup: Promise<void> | undefined;
+
+    try {
+      startup = startE2EChildWithReadiness({
+        serviceName: "HTTPS attachment storage",
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1_000)"],
+        env: process.env,
+        pidPath,
+        readinessTarget: "on test port",
+        readinessTimeoutMs: 50,
+        readinessRetryMs: 5,
+        checkReady: async () => {
+          throw new Error("fetch failed");
+        },
+      });
+      const pid = await waitForPidFile(pidPath);
+      const error = await startup.then(
+        () => new Error("Expected startup to fail."),
+        (cause: unknown) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      );
+
+      expect(error.message).toContain(
+        "HTTPS attachment storage did not become ready on test port",
+      );
+      expect(error.message).toContain("fetch failed");
+      expect(existsSync(pidPath)).toBe(false);
+      expect(() => process.kill(pid, 0)).toThrow(
+        expect.objectContaining({ code: "ESRCH" }),
+      );
+    } finally {
+      await startup?.catch(() => undefined);
+      await rm(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("retains the PID marker when a failed child cannot be confirmed closed", async () => {
+    const runRoot = await mkdtemp(
+      path.join(os.tmpdir(), "design-storage-child-cleanup-timeout-"),
+    );
+    const pidPath = path.join(runRoot, "storage.pid");
+    const child = Object.assign(new EventEmitter(), {
+      pid: 4321,
+      exitCode: null,
+      signalCode: null,
+      stderr: null,
+      kill: vi.fn(() => true),
+    }) as unknown as ChildProcess;
+
+    try {
+      const startup = startE2EChildWithReadiness({
+        serviceName: "HTTPS attachment storage",
+        command: process.execPath,
+        args: [],
+        env: process.env,
+        pidPath,
+        readinessTarget: "on test port",
+        readinessTimeoutMs: 5,
+        readinessRetryMs: 1,
+        childCloseTimeoutMs: 5,
+        spawnChild: (() => child) as typeof import("node:child_process").spawn,
+        checkReady: async () => {
+          throw new Error("fetch failed");
+        },
+      });
+      await waitForPidFile(pidPath);
+      const error = await startup.then(
+        () => new Error("Expected startup to fail."),
+        (cause: unknown) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      );
+
+      expect(error.message).toContain("cleanup was incomplete");
+      expect(error.message).toContain("did not close after SIGKILL");
+      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+      expect(await readFile(pidPath, "utf8")).toBe("4321");
+    } finally {
+      await rm(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("records failed and timed out attempts in the run output directory", async () => {
+    const outputDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-playwright-retry-artifacts-"),
+    );
+    const markerPath = path.join(outputDir, RETRY_FAILURE_MARKER);
+
+    try {
+      const reporter = new RetryFailureReporter({ markerPath });
+      reporter.onTestEnd(testCase("passed"), testResult("passed"));
+      expect(existsSync(markerPath)).toBe(false);
+      reporter.onTestEnd(testCase("failed"), testResult("failed"));
+      expect(existsSync(markerPath)).toBe(false);
+      reporter.onTestEnd(testCase("passed"), testResult("failed"));
+      reporter.onTestEnd(testCase("passed"), testResult("timedOut"));
+      expect(existsSync(markerPath)).toBe(true);
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("attests a passed required pin from its absolute Playwright location", async () => {
+    const reporter = reporterWithPinAttestation();
+    reporter.onTestEnd(
+      pinTestCase("passed", "passed-pin"),
+      testResult("passed"),
+    );
+
+    await expect(reporter.onEnd()).resolves.toBeUndefined();
+  });
+
+  it("ignores unrelated test locations but still fails for a missing required pin", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        {
+          id: "unrelated-test",
+          expectedStatus: "passed",
+          location: {
+            file: path.resolve(
+              import.meta.dirname,
+              "../../packages/core/unrelated.spec.ts",
+            ),
+            line: 42,
+          },
+        } as TestCase,
+        testResult("passed"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining(`(0/1): ${pinSelector}`),
+      );
+
+      const invalidSelectorReporter = new RetryFailureReporter({
+        markerPath: path.join(os.tmpdir(), "unused-design-retry-marker"),
+        requiredPinIdentities: JSON.stringify([
+          {
+            selector: "../../packages/core/unrelated.spec.ts:42",
+            title: pinTitle,
+          },
+        ]),
+      });
+      await expect(invalidSelectorReporter.onEnd()).resolves.toEqual({
+        status: "failed",
+      });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("path is outside templates/design"),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("does not let a different test on the selected line satisfy a required pin", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("passed", "same-line-neighbor", 42, "an adjacent test"),
+        testResult("passed"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `(0/1): ${pinSelector} / ${JSON.stringify(pinTitle)}`,
+        ),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("passes the required pin identity from the environment to the reporter", async () => {
+    const runId = randomUUID();
+    const requiredPinIdentities = JSON.stringify([pinIdentity]);
+    const configUrl = new URL("./playwright.config.ts", import.meta.url).href;
+    const script = [
+      `const { default: config } = await import(${JSON.stringify(configUrl)});`,
+      `const reporter = config.reporter.find((entry) => Array.isArray(entry) && entry[0] === ${JSON.stringify(REPORTER_PATH)});`,
+      'if (!reporter) throw new Error("required reporter is missing");',
+      "process.stdout.write(String(reporter[1].requiredPinIdentities));",
+    ].join("\n");
+    const result = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", "--input-type=module", "--eval", script],
+      {
+        cwd: import.meta.dirname,
+        encoding: "utf8",
+        timeout: 15_000,
+        env: {
+          ...process.env,
+          E2E_REQUIRED_PIN_IDENTITIES: requiredPinIdentities,
+          E2E_RUN_ID: `reporter-config-${runId}`,
+          E2E_RUN_ROOT: path.join(os.tmpdir(), `reporter-config-${runId}`),
+          E2E_AUTH_DIR: path.join(os.tmpdir(), `reporter-auth-${runId}`),
+          E2E_DATABASE_URL: `pglite:${path.join(os.tmpdir(), `reporter-db-${runId}`)}`,
+          E2E_RUN_RESULTS_DIR: path.join(
+            os.tmpdir(),
+            `reporter-results-${runId}`,
+          ),
+          E2E_AI_SIDEBAR_LOOPBACK: "0",
+          E2E_DISABLE_AUTO_DEV_ACCOUNT: "0",
+        },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(requiredPinIdentities);
+  });
+
+  it("fails a real Playwright run when only a same-line neighbor passes", async () => {
+    const fixtureDirectory = await mkdtemp(
+      path.join(import.meta.dirname, "e2e", ".required-pin-runner-"),
+    );
+    const specPath = path.join(fixtureDirectory, "same-line-neighbor.spec.ts");
+    const configPath = path.join(fixtureDirectory, "playwright.config.mjs");
+    const markerPath = path.join(fixtureDirectory, RETRY_FAILURE_MARKER);
+    const source = [
+      'import { test } from "@playwright/test";',
+      'test("same-line neighbor passes", () => {});',
+      "",
+    ].join("\n");
+    const relativeFile = path
+      .relative(import.meta.dirname, specPath)
+      .split(path.sep)
+      .join("/");
+    const config = {
+      testDir: fixtureDirectory,
+      testMatch: "same-line-neighbor.spec.ts",
+      outputDir: path.join(fixtureDirectory, "results"),
+      reporter: [
+        ["list"],
+        [
+          REPORTER_PATH,
+          {
+            markerPath,
+            requiredPinIdentities: JSON.stringify([
+              { selector: `${relativeFile}:2`, title: "the pinned behavior" },
+            ]),
+          },
+        ],
+      ],
+    };
+
+    try {
+      await writeFile(specPath, source);
+      await writeFile(
+        configPath,
+        `export default ${JSON.stringify(config)};\n`,
+      );
+      const result = spawnSync(
+        process.execPath,
+        [PLAYWRIGHT_CLI, "test", "--config", configPath, "--workers=1"],
+        { cwd: import.meta.dirname, encoding: "utf8", timeout: 15_000 },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("1 passed");
+      expect(result.stderr).toContain(
+        "required Design pin did not produce a result (0/1)",
+      );
+      expect(result.stderr).toContain(
+        `${relativeFile}:2 / "the pinned behavior"`,
+      );
+    } finally {
+      await rm(fixtureDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("fails a required pin skipped at runtime through a TestInfo alias", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("passed", "runtime-skip-pin"),
+        testResult("skipped"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("status=skipped, expectedStatus=passed"),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("fails a required pin that was statically marked fixme", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("skipped", "fixme-pin"),
+        testResult("skipped"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("status=skipped, expectedStatus=skipped"),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("fails when a required pin did not produce a result at its selected line", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = reporterWithPinAttestation();
+      reporter.onTestEnd(
+        pinTestCase("passed", "wrong-line-pin", 43),
+        testResult("passed"),
+      );
+
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining(`(0/1): ${pinSelector}`),
+      );
+    } finally {
+      reportError.mockRestore();
+    }
+  });
+
+  it("uses the final retry outcome and fails an interrupted attested run", async () => {
+    const outputDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-playwright-required-pin-retry-"),
+    );
+    const markerPath = path.join(outputDir, RETRY_FAILURE_MARKER);
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = new RetryFailureReporter({
+        markerPath,
+        requiredPinIdentities: JSON.stringify([pinIdentity]),
+      });
+      reporter.onTestEnd(
+        pinTestCase("passed", "retry-pin"),
+        testResult("failed"),
+      );
+      reporter.onTestEnd(
+        pinTestCase("passed", "retry-pin"),
+        testResult("passed"),
+      );
+      expect(existsSync(markerPath)).toBe(true);
+      await expect(reporter.onEnd()).resolves.toBeUndefined();
+
+      const interruptedReporter = reporterWithPinAttestation();
+      interruptedReporter.onTestEnd(
+        pinTestCase("passed", "interrupted-pin"),
+        testResult("passed"),
+      );
+      await expect(
+        interruptedReporter.onEnd({ status: "interrupted" } as FullResult),
+      ).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledWith(
+        expect.stringContaining("run ended with status interrupted"),
+      );
+    } finally {
+      reportError.mockRestore();
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails the reporter run when it cannot write a retry marker", async () => {
+    const outputDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-playwright-retry-marker-error-"),
+    );
+    const blockerPath = path.join(outputDir, "not-a-directory");
+    await writeFile(blockerPath, "");
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = new RetryFailureReporter({
+        markerPath: path.join(blockerPath, RETRY_FAILURE_MARKER),
+      });
+      reporter.onTestEnd(testCase("passed"), testResult("failed"));
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledOnce();
+    } finally {
+      reportError.mockRestore();
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails the reporter run when the marker path is not configured", async () => {
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const reporter = new RetryFailureReporter();
+      await expect(reporter.onEnd()).resolves.toEqual({ status: "failed" });
+      expect(reportError).toHaveBeenCalledOnce();
+    } finally {
+      reportError.mockRestore();
+    }
   });
 });

@@ -4,13 +4,12 @@ import {
 } from "@agent-native/core/application-state";
 import {
   deleteUploadedFile,
-  uploadFile,
   type FileUploadResult,
 } from "@agent-native/core/file-upload";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
-import { isLoomEmbedBackedRecording } from "../../shared/loom.js";
+import { recordingEmbedProvider } from "../../shared/embed-provider.js";
 import { getDb, schema } from "../db/index.js";
 import {
   loadRecordingMediaBytes,
@@ -21,7 +20,9 @@ import {
   releaseLease,
   type RecordingLease,
 } from "./recording-leases.js";
+import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
 import { ownerEmailMatches } from "./recordings.js";
+import { uploadRecordingMedia } from "./upload-recording-media.js";
 import { extractJpegFrame, VideoFrameExtractionError } from "./video-frame.js";
 
 export const RECORDING_THUMBNAIL_AT_MS = 350;
@@ -33,6 +34,7 @@ export type EnsureRecordingThumbnailStatus =
   | "skipped-not-ready"
   | "skipped-no-media"
   | "skipped-loom-embed"
+  | "skipped-youtube-embed"
   | "skipped-media-fetch"
   | "skipped-frame-extraction"
   | "skipped-upload-failed"
@@ -160,7 +162,7 @@ async function extractThumbnailFrame(
   } catch (error) {
     if (
       !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_VIDEO"
+      error.code !== "NO_FRAME_AT_TIMESTAMP"
     ) {
       throw error;
     }
@@ -278,10 +280,16 @@ async function cleanupReplacedGeneratedThumbnail(
     ) {
       return;
     }
-    const deleted = await deleteUploadedFile(previousAsset.provider, {
-      url: previousAsset.url,
-      ...(previousAsset.id ? { id: previousAsset.id } : {}),
-    });
+    const deleted =
+      previousAsset.provider === "clips-hosted"
+        ? await deleteStoredMediaUrl(previousAsset.url, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : await deleteUploadedFile(previousAsset.provider, {
+            url: previousAsset.url,
+            ...(previousAsset.id ? { id: previousAsset.id } : {}),
+          });
     if (!deleted) {
       console.warn("[clips] replaced recording thumbnail cleanup unavailable", {
         recordingId,
@@ -319,10 +327,16 @@ async function cleanupUnreferencedThumbnail(
   }
 
   try {
-    const deleted = await deleteUploadedFile(uploaded.provider, {
-      url: uploaded.url,
-      ...(uploaded.id ? { id: uploaded.id } : {}),
-    });
+    const deleted =
+      uploaded.provider === "clips-hosted"
+        ? await deleteStoredMediaUrl(uploaded.url, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : await deleteUploadedFile(uploaded.provider, {
+            url: uploaded.url,
+            ...(uploaded.id ? { id: uploaded.id } : {}),
+          });
     if (!deleted) {
       console.warn(
         "[clips] generated recording thumbnail cleanup unavailable",
@@ -430,9 +444,11 @@ async function ensureRecordingThumbnailOnce(
         return { recordingId, status: "skipped-no-media", changed: false };
       }
       try {
-        if (isLoomEmbedBackedRecording(recording)) {
-          await setThumbnailStatus(recordingId, "none", "skipped-loom-embed");
-          return { recordingId, status: "skipped-loom-embed", changed: false };
+        const embedProvider = recordingEmbedProvider(recording);
+        if (embedProvider) {
+          const status = `skipped-${embedProvider}-embed` as const;
+          await setThumbnailStatus(recordingId, "none", status);
+          return { recordingId, status, changed: false };
         }
         const media = await loadRecordingMediaBytes(recording);
         bytes = media.bytes;
@@ -483,7 +499,8 @@ async function ensureRecordingThumbnailOnce(
     let uploaded: FileUploadResult | null = null;
     let uploadError: unknown;
     try {
-      uploaded = await uploadFile({
+      uploaded = await uploadRecordingMedia({
+        recordingId,
         data: frame,
         filename: `thumb-${recordingId}.${thumbnailExtension}`,
         mimeType: thumbnailMimeType,

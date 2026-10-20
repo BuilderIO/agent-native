@@ -81,9 +81,10 @@ function click(element: HTMLElement) {
   });
 }
 
-async function finishLazyLoad() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 50));
+async function finishLazyLoad(text: string) {
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(document.body.textContent).toContain(text);
   });
 }
 
@@ -182,8 +183,7 @@ describe("CodeAgentsApp credential recovery", () => {
       );
     expect(getTrigger()).toBeDefined();
     click(getTrigger()!);
-    await finishLazyLoad();
-    expect(document.body.textContent).toContain("Create and activate");
+    await finishLazyLoad("Create and activate");
     expect(document.body.textContent).toContain("I have a Builder.io account");
     expect(flow.start).not.toHaveBeenCalled();
     expect(connectExistingAccount).not.toHaveBeenCalled();
@@ -210,7 +210,7 @@ describe("CodeAgentsApp credential recovery", () => {
     });
 
     click(getTrigger()!);
-    await finishLazyLoad();
+    await finishLazyLoad("I have a Builder.io account");
     const signIn = Array.from(document.body.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("I have a Builder.io account"),
     );

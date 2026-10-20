@@ -18,6 +18,10 @@ const messages = {
       chatgptDisconnecting: "Disconnecting…",
       chatgptLocalOnly:
         "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+      chatgptPersonalScopeOnly:
+        "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+      chatgptScopeUnresolved:
+        "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
       chatgptManageAccess: "Manage in ChatGPT",
       chatgptNoDirectUse:
         "Reconnect and allow direct model access to use this ChatGPT account.",
@@ -144,6 +148,8 @@ const messages = {
     mcpStaticTokenDescription:
       "Open the full connect page to create a token for clients that cannot complete OAuth.",
     mcpOpenConnectPage: "Open full connect page",
+    mcpIdentityError: "Couldn't load this app's connection details.",
+    mcpRetry: "Try again",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -1535,6 +1541,24 @@ const messages = {
       "Complete provider setup before connecting your account.",
     continueToConnect: "Connect my account",
     setupTitle: "Connect {{name}}",
+    hubspot: {
+      setupTitle: "Set up HubSpot MCP",
+      dialogDescription:
+        "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+      workspaceSetupStatus: "Workspace setup required",
+      setupChecking: "Checking workspace setup…",
+      setupUnavailable: "Setup status unavailable",
+      setupUnavailableDescription:
+        "Couldn't check the workspace OAuth settings. Try again.",
+      ownerSetupDescription:
+        "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+      memberSetupDescription:
+        "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+      noWorkspaceDescription: "Join a workspace before connecting HubSpot MCP.",
+      configureWorkspaceCredentials: "Add workspace credentials",
+      refreshSetupStatus: "Check again",
+      retrySetupStatus: "Retry",
+    },
     personal: "Personal",
     personalConnection: "Personal connection",
     organization: "Organization",
@@ -1742,7 +1766,7 @@ const messages = {
           "Search and update HubSpot CRM records through its integration.",
         useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
         setupNote:
-          "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+          "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
       },
       pylon: {
         description: "Search and update Pylon support data.",
@@ -1836,6 +1860,8 @@ const messages = {
     promoteMustContain: "Reply must contain…",
     promoteMustContainOptional: "Optional text to check for in the reply…",
     promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteReviewedPromptLabel:
+      "Manually reviewed prompt (never copied from production)",
     promoteNeedsContains:
       "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",

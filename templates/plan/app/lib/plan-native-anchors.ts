@@ -1,6 +1,7 @@
 import type { PlanCommentAnchor } from "@shared/comment-context";
 import type { PlanBlock } from "@shared/plan-content";
 
+import { findPlanBlock } from "@/components/plan/plan-block-structure";
 import type { PlanVisualSurfaceMode } from "@/components/plan/PlanVisualSurface";
 
 export type PlanAnnotationAnchor = PlanCommentAnchor & { x: number; y: number };
@@ -112,15 +113,7 @@ export function findPlanBlockById(
   blocks: PlanBlock[],
   id: string,
 ): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === id) return block;
-    if (block.type !== "tabs") continue;
-    for (const tab of block.data.tabs) {
-      const match = findPlanBlockById(tab.blocks, id);
-      if (match) return match;
-    }
-  }
-  return null;
+  return findPlanBlock(blocks, id);
 }
 
 function cssAttr(value: string) {

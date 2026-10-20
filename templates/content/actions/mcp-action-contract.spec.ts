@@ -18,11 +18,14 @@ import deleteDocument from "./delete-document.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
 import executeContentTrashPurge from "./execute-content-trash-purge.js";
+import getBlocksFieldWordCount from "./get-blocks-field-word-count.js";
 import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
+import listContentDatabaseBlocks from "./list-content-database-blocks.js";
+import listContentDatabaseComments from "./list-content-database-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listContentSpaces from "./list-content-spaces.js";
 import listContentTrash from "./list-content-trash.js";
@@ -33,10 +36,12 @@ import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import patchDatabaseItems from "./patch-database-items.js";
 import permanentlyDeleteDocument from "./permanently-delete-document.js";
+import pullDocument from "./pull-document.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
 import searchDocuments from "./search-documents.js";
+import setDocumentProperty from "./set-document-property.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
 import updateDatabaseItem from "./update-database-item.js";
@@ -61,9 +66,15 @@ describe("Content action-owned agent catalogs", () => {
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
+    "get-blocks-field-word-count": getBlocksFieldWordCount,
+    "list-content-database-blocks": listContentDatabaseBlocks,
+    "set-document-property": setDocumentProperty,
+    "pull-document": pullDocument,
     "create-document": createDocument,
     "edit-document": editDocument,
+    "update-document": updateDocument,
     "list-comments": listComments,
+    "list-content-database-comments": listContentDatabaseComments,
     "add-comment": addComment,
     "update-comment": updateComment,
     "list-content-databases": listContentDatabases,
@@ -94,7 +105,7 @@ describe("Content action-owned agent catalogs", () => {
     expect(migrateContentDatabaseRows.mcpApp?.structuredContent).toBe(true);
   });
 
-  it("keeps Content's composed MCP input schemas complete while declaring object roots", () => {
+  it("flattens Content's composed MCP input schemas into object roots every provider accepts", () => {
     const migrationParameters = migrateContentDatabaseRows.tool.parameters;
     const batchParameters = updateDatabaseItems.tool.parameters;
     const migrationInputSchema = mcpToolInputSchema(
@@ -107,51 +118,42 @@ describe("Content action-owned agent catalogs", () => {
     );
 
     expect(migrationParameters?.anyOf).toBeDefined();
-    expect(migrationInputSchema).toEqual({
-      ...migrationParameters,
-      type: "object",
-    });
-    expect(migrationInputSchema.anyOf).toBe(migrationParameters?.anyOf);
-    expect(migrationInputSchema.anyOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            phase: expect.objectContaining({ const: "validate" }),
-            plan: expect.anything(),
-          }),
-          required: expect.arrayContaining(["phase", "plan"]),
-        }),
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            phase: expect.objectContaining({ const: "verify" }),
-            expectedPostDigest: expect.anything(),
-          }),
-          required: expect.arrayContaining([
-            "phase",
-            "databaseId",
-            "idempotencyKey",
-            "expectedPostDigest",
+    expect(migrationInputSchema.type).toBe("object");
+    expect(migrationInputSchema).not.toHaveProperty("anyOf");
+    expect(migrationInputSchema.properties).toEqual(
+      expect.objectContaining({
+        phase: {
+          anyOf: expect.arrayContaining([
+            expect.objectContaining({ enum: ["validate"] }),
+            expect.objectContaining({ enum: ["verify"] }),
           ]),
-        }),
-      ]),
+        },
+        plan: expect.anything(),
+        databaseId: expect.anything(),
+        idempotencyKey: expect.anything(),
+        expectedPostDigest: expect.anything(),
+      }),
+    );
+    expect(migrationInputSchema.required).toEqual(["phase"]);
+    expect(migrationInputSchema.description).toContain(
+      'phase="validate": requires plan',
+    );
+    expect(migrationInputSchema.description).toContain(
+      'phase="verify": requires databaseId, idempotencyKey, expectedPostDigest',
     );
 
     expect(batchParameters?.allOf).toBeDefined();
-    expect(batchInputSchema).toEqual({
-      ...batchParameters,
-      type: "object",
-    });
-    expect(batchInputSchema.allOf).toBe(batchParameters?.allOf);
-    expect(batchInputSchema.allOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            propertyId: expect.anything(),
-            value: expect.anything(),
-          }),
-          required: expect.arrayContaining(["propertyId", "value"]),
-        }),
-      ]),
+    expect(batchInputSchema.type).toBe("object");
+    expect(batchInputSchema).not.toHaveProperty("allOf");
+    expect(batchInputSchema.properties).toEqual(
+      expect.objectContaining({
+        databaseId: expect.anything(),
+        propertyId: expect.anything(),
+        value: expect.anything(),
+      }),
+    );
+    expect(batchInputSchema.required).toEqual(
+      expect.arrayContaining(["propertyId", "value"]),
     );
   });
 
@@ -345,6 +347,13 @@ describe("Content action-owned agent catalogs", () => {
     expect(restoreDocument.tool.parameters?.required).toEqual(
       expect.arrayContaining(["id", "expectedTrashedAt", "idempotencyKey"]),
     );
+  });
+
+  it("gives external agents pull-document as a write, since it saves an open editor first", () => {
+    expect(pullDocument.mcpAnnotations?.readOnlyHint).toBe(false);
+    expect(pullDocument.publicAgent?.readOnly).toBe(false);
+    expect(getBlocksFieldWordCount.mcpAnnotations?.readOnlyHint).toBe(false);
+    expect(getBlocksFieldWordCount.publicAgent?.readOnly).toBe(false);
   });
 
   it("classifies direct comment reads and writes for MCP authorization", () => {

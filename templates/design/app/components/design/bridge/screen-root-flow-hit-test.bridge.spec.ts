@@ -382,6 +382,98 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
+  it("drops on an empty static screen body at the release point", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body data-agent-native-node-id="page" style="margin:0;min-height:400px"></body></html>`,
+      );
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "empty-body",
+            x: 300,
+            y: 200,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        anchorNodeId: "page",
+        placement: "inside",
+        dropMode: "absolute-container",
+        absoluteOrigin: { left: 0, top: 0 },
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("drops inside an absolutely positioned frame of an auto-layout screen root, not beside it in the root's flow", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;position:relative;display:flex;align-items:flex-start;gap:20px;width:640px;height:480px">
+        <div data-agent-native-node-id="flow-frame" data-an-primitive="frame" style="position:relative;width:80px;height:50px"></div>
+        <div data-agent-native-node-id="floating-frame" data-an-primitive="frame" style="position:absolute;left:180px;top:120px;width:320px;height:240px">
+          <div data-agent-native-node-id="floating-child" style="position:absolute;left:16px;top:16px;width:80px;height:40px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "floating-frame",
+            x: 330,
+            y: 235,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        correlationId: "floating-frame",
+        anchorNodeId: "floating-frame",
+        placement: "inside",
+        dropMode: "absolute-container",
+        absoluteOrigin: { left: 180, top: 120 },
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("uses the vertical main-axis size for row drops in vertical writing modes", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -620,7 +712,7 @@ describe("Screen-root auto-layout hit testing", () => {
         anchorNodeId: "column",
         placement: "before",
         axis: "y",
-        dropMode: "flow-insert",
+        dropMode: "absolute-container",
       });
       expect(packets[4]).toMatchObject({
         correlationId: "reverse-column-fallback",
@@ -751,7 +843,7 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
-  it("uses a fitting board-root flow slot when the direct auto-layout receiver is too small", async () => {
+  it("drops beside a too-small auto-layout receiver on a freeform board root, keeping the release point", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
@@ -789,6 +881,56 @@ describe("Screen-root auto-layout hit testing", () => {
         await page.evaluate(() => (window as any).__hitTestResults[0]),
       ).toMatchObject({
         correlationId: "root-flow-sibling-fallback",
+        anchorNodeId: "root-flow",
+        placement: "before",
+        axis: "y",
+        dropMode: "absolute-container",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("drops beside a too-small auto-layout receiver in a normal-flow body as a flow sibling", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px">
+        <header data-agent-native-node-id="header" style="height:40px"></header>
+        <section data-agent-native-node-id="root-flow" style="width:140px;height:80px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="root-child" style="flex:none;width:80px;height:40px"></div>
+        </section>
+        <footer data-agent-native-node-id="footer" style="height:40px"></footer>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "flow-body-sibling-fallback",
+            x: 100,
+            y: 60,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        correlationId: "flow-body-sibling-fallback",
         anchorNodeId: "root-flow",
         placement: "before",
         axis: "y",
@@ -1067,7 +1209,7 @@ describe("Screen-root auto-layout hit testing", () => {
         correlationId: "transient-copy",
         anchorNodeId: "",
         placement: "inside",
-        dropMode: "flow-insert",
+        dropMode: "absolute-container",
       });
       expect(packet.pendingNodeId).toBeUndefined();
     } finally {

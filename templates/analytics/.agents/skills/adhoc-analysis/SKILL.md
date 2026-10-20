@@ -36,7 +36,7 @@ Analytics result or direct the user to an Extensions page.
 
 ### Step 1: Understand the Question (catalog-first, clarify-first)
 
-Orient before gathering data. Consult the preloaded `<resource scope="analytics-catalog">` references (else one `search-analytics-query-catalog`) and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
+Orient before gathering data. Consult the preloaded `<resource scope="analytics-catalog">` references (else one `find-data`) and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
 
 - What is being analyzed? (deals, users, campaigns, errors, etc.)
 - What time range?
@@ -63,7 +63,7 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 **Tips for data gathering:**
 
 - Start with the primary source (e.g., HubSpot for deals), then enrich with secondary sources
-- For named deal/account deep dives, call `account-deep-dive` first with the
+- For the CRM side of named deal/account deep dives, call `account-deep-dive` first (ask what was said in Gong calls with `run-gong-native-insight`) with the
   account, company, domain, deal, or opportunity name. It returns HubSpot deals,
   associated companies/contacts/tickets/notes/emails, Gong call detail, compact
   transcript excerpts, coverage counts, and gaps. Use targeted `hubspot-records`

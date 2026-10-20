@@ -1,5 +1,73 @@
 # @agent-native/otel
 
+## 0.1.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
+## 0.1.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 9bb40f0: Document that on serverless, core exports metrics at most once every 10 seconds per process instead of after every response.
+
+## 0.1.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.2
 
 ### Patch Changes

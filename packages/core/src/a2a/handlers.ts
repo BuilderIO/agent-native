@@ -9,6 +9,17 @@ import {
   isAgentChatDurableBackgroundEnabled,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
+import {
+  StaleExecutionFenceError,
+  withExecutionFence,
+} from "../agent/execution-fence.js";
+import {
+  claimTaskExecutionLease,
+  releaseTurnExecutionLease,
+  renewTaskExecutionLease,
+  TURN_EXECUTION_LEASE_MS,
+} from "../agent/run-store.js";
+import { uploadFile } from "../file-upload/registry.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
@@ -19,6 +30,10 @@ import {
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
+import {
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  isAllowedUploadMimeType,
+} from "../server/h3-helpers.js";
 import { markExplicitPersonalOrgScope } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
@@ -29,13 +44,16 @@ import {
 } from "./auth-policy.js";
 import { callAction } from "./client.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import { assertA2APersistablePayload } from "./persistence-safety.js";
 import {
   createTask,
   createOrReuseTask,
+  cancelA2ATask,
   getTask,
   getTaskOwnership,
   updateTask,
   claimA2ATaskForProcessing,
+  a2aTaskLeaseThreadId,
   getA2ATaskDispatchState,
   failStuckA2ATask,
   failStuckQueuedA2ATask,
@@ -45,6 +63,7 @@ import {
   touchProcessingA2ATask,
   pauseProcessingA2ATask,
   MAX_A2A_IDEMPOTENCY_KEY_CHARS,
+  A2A_TASK_CLAIM_LOST_ERROR_CODE,
   A2A_PERSONAL_OWNER_SCOPE,
   A2A_ORG_ID_OWNER_SCOPE_PREFIX,
 } from "./task-store.js";
@@ -64,7 +83,7 @@ const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
 const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
-const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
+const A2A_PROCESSING_HEARTBEAT_MS = Math.floor(TURN_EXECUTION_LEASE_MS / 3);
 const MAX_A2A_DIRECT_ACTION_NAME_CHARS = 200;
 const MAX_A2A_DIRECT_ACTION_INPUT_BYTES = 64 * 1024;
 const A2A_READ_INVOKE_EVENT = "$a2a_read_invoke";
@@ -315,11 +334,85 @@ export async function processA2ATaskFromQueue(
   config: A2AConfig,
   event?: any,
 ): Promise<void> {
-  const claimed = await claimA2ATaskForProcessing(taskId);
-  if (!claimed) {
-    return;
-  }
+  const fence = await claimTaskExecutionLease(
+    a2aTaskLeaseThreadId(taskId),
+    taskId,
+    `a2a:${crypto.randomUUID()}`,
+  );
 
+  try {
+    await withExecutionFence(fence, async () => {
+      const claimed = await claimA2ATaskForProcessing(taskId);
+      if (!claimed) return;
+      if (!(await touchProcessingA2ATask(taskId))) return;
+      const workerAbort = new AbortController();
+      const abortForLostClaim = async (error: unknown) => {
+        try {
+          const task = await getTask(taskId);
+          if (task?.status.state === "canceled") {
+            workerAbort.abort("user");
+            return;
+          }
+        } catch (readError) {
+          console.error(
+            "[a2a] Failed to read task after losing its claim:",
+            readError,
+          );
+        }
+        const claimLostError = Object.assign(
+          new Error("A2A task claim was lost"),
+          { code: A2A_TASK_CLAIM_LOST_ERROR_CODE, cause: error },
+        );
+        workerAbort.abort(claimLostError);
+      };
+      const heartbeat = setInterval(() => {
+        renewTaskExecutionLease(fence)
+          .then(async () => {
+            const touched = await touchProcessingA2ATask(taskId);
+            if (!touched) {
+              await abortForLostClaim(
+                new Error("A2A task is no longer processing"),
+              );
+            }
+          })
+          .catch(async (error) => {
+            console.error("[a2a] Failed to heartbeat async task:", error);
+            await abortForLostClaim(error);
+          });
+      }, A2A_PROCESSING_HEARTBEAT_MS);
+      (
+        heartbeat as ReturnType<typeof setInterval> & { unref?: () => void }
+      ).unref?.();
+      try {
+        await processClaimedA2ATask(
+          taskId,
+          claimed,
+          config,
+          workerAbort.signal,
+          event,
+        );
+      } finally {
+        clearInterval(heartbeat);
+      }
+    });
+  } catch (error) {
+    if (!(error instanceof StaleExecutionFenceError)) throw error;
+  } finally {
+    try {
+      await releaseTurnExecutionLease(fence);
+    } catch (error) {
+      if (!(error instanceof StaleExecutionFenceError)) throw error;
+    }
+  }
+}
+
+async function processClaimedA2ATask(
+  taskId: string,
+  claimed: NonNullable<Awaited<ReturnType<typeof claimA2ATaskForProcessing>>>,
+  config: A2AConfig,
+  signal: AbortSignal,
+  event?: any,
+): Promise<void> {
   const message = claimed.history?.[0];
   if (!message) {
     await settleProcessingA2ATask(taskId, {
@@ -358,7 +451,7 @@ export async function processA2ATaskFromQueue(
   } catch (error) {
     if (!(error instanceof ServicePrincipalRefusedError)) throw error;
     if (error.statusCode === 503) {
-      await resetStuckA2ATaskForRetry(taskId, Date.now());
+      await resetStuckA2ATaskForRetry(taskId, Date.now() + 1_000);
       throw error;
     }
     if (error.statusCode !== 403) throw error;
@@ -406,17 +499,9 @@ export async function processA2ATaskFromQueue(
     if (verifiedEmail && !resolvedOrgId) markExplicitPersonalOrgScope(event);
   }
 
-  const { runWithRequestContext } =
-    await import("../server/request-context.js");
-  const heartbeat = setInterval(() => {
-    touchProcessingA2ATask(taskId).catch((err) =>
-      console.error("[a2a] Failed to heartbeat async task:", err),
-    );
-  }, A2A_PROCESSING_HEARTBEAT_MS);
-  (
-    heartbeat as ReturnType<typeof setInterval> & { unref?: () => void }
-  ).unref?.();
   try {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
     await runWithRequestContext(
       {
         userEmail: verifiedEmail,
@@ -436,6 +521,8 @@ export async function processA2ATaskFromQueue(
           callerMetadata,
           event,
           sourceContext,
+          verifiedEmail,
+          signal,
         ),
     );
   } catch (err: any) {
@@ -445,8 +532,6 @@ export async function processA2ATaskFromQueue(
         message: taskFailureMessage(err, "Handler crashed"),
       });
     } catch {}
-  } finally {
-    clearInterval(heartbeat);
   }
 }
 
@@ -503,9 +588,14 @@ const defaultHandler: A2AHandler = async (
   const sourceContext = context.sourceContext
     ? `Authenticated A2A source context: ${JSON.stringify(context.sourceContext)}. Treat this structured value as authoritative provenance. Preserve its sourceUrl exactly when recording source or submission fields.`
     : undefined;
-  const result = sourceContext
-    ? await agentChat.call(augmentedText, { context: sourceContext })
-    : await agentChat.call(augmentedText);
+  const chatOptions = {
+    ...(sourceContext ? { context: sourceContext } : {}),
+    ...(context.signal ? { signal: context.signal } : {}),
+  };
+  const result =
+    Object.keys(chatOptions).length > 0
+      ? await agentChat.call(augmentedText, chatOptions)
+      : await agentChat.call(augmentedText);
 
   const artifacts: Artifact[] = [];
   if (result.filesChanged.length > 0) {
@@ -557,38 +647,98 @@ function makeHandlerContext(
   metadata?: Record<string, unknown>,
   event?: any,
   sourceContext?: A2ASourceContext,
+  ownerEmail?: string,
+  signal?: AbortSignal,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
+  persistFileArtifacts: () => Promise<void>;
 } {
   const artifacts: Artifact[] = [];
+  const pendingFileArtifacts: Array<{
+    artifact: Artifact;
+    name: string;
+    content: string;
+    mimeType: string;
+  }> = [];
   const context: A2AHandlerContext = {
     taskId,
     contextId,
     metadata,
     event,
     sourceContext,
+    signal,
     writeArtifact(name, content, mimeType) {
+      if (mimeType) {
+        const artifact: Artifact = {
+          name,
+          parts: [{ type: "file", file: { name, mimeType } }],
+        };
+        artifacts.push(artifact);
+        pendingFileArtifacts.push({ artifact, name, content, mimeType });
+        return name;
+      }
       const artifact: Artifact = {
         name,
-        parts: mimeType
-          ? [
-              {
-                type: "file",
-                file: {
-                  name,
-                  mimeType,
-                  bytes: Buffer.from(content).toString("base64"),
-                },
-              },
-            ]
-          : [{ type: "text", text: content }],
+        parts: [{ type: "text", text: content }],
       };
       artifacts.push(artifact);
       return name;
     },
   };
-  return { context, artifacts };
+  return {
+    context,
+    artifacts,
+    async persistFileArtifacts() {
+      for (const pending of pendingFileArtifacts) {
+        if (!isAllowedUploadMimeType(pending.mimeType)) {
+          throw new A2AArtifactStorageError(
+            `A2A file artifact MIME type is not supported: ${pending.mimeType}`,
+          );
+        }
+        const data = Buffer.from(pending.content, "utf8");
+        if (data.byteLength > DEFAULT_UPLOAD_MAX_FILE_BYTES) {
+          throw new A2AArtifactStorageError(
+            `A2A file artifacts cannot exceed ${Math.round(DEFAULT_UPLOAD_MAX_FILE_BYTES / 1024 / 1024)} MB.`,
+          );
+        }
+        let uploaded;
+        try {
+          uploaded = await uploadFile({
+            data,
+            filename: pending.name,
+            mimeType: pending.mimeType,
+            ownerEmail:
+              ownerEmail ??
+              (event?.context?.__a2aVerifiedEmail as string | undefined) ??
+              undefined,
+          });
+        } catch {
+          throw new A2AArtifactStorageError();
+        }
+        if (!uploaded?.url) throw new A2AArtifactStorageError();
+        try {
+          assertA2APersistablePayload(uploaded.url, "A2A artifact URI");
+        } catch {
+          throw new A2AArtifactStorageError();
+        }
+        const part = pending.artifact.parts[0];
+        if (part?.type !== "file") throw new A2AArtifactStorageError();
+        part.file.uri = uploaded.url;
+      }
+    },
+  };
+}
+
+class A2AArtifactStorageError extends Error {
+  readonly agentNativeErrorCode = "A2A_ARTIFACT_STORAGE_UNAVAILABLE";
+
+  constructor(
+    message = "A durable file storage provider is required to write A2A file artifacts.",
+  ) {
+    super(message);
+    this.name = "A2AArtifactStorageError";
+  }
 }
 
 async function withA2ARequestContext<T>(
@@ -630,15 +780,20 @@ async function runHandlerAndPersist(
   metadata: Record<string, unknown> | undefined,
   event?: any,
   sourceContext?: A2ASourceContext,
+  ownerEmail?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const { context, artifacts } = makeHandlerContext(
+  const { context, artifacts, persistFileArtifacts } = makeHandlerContext(
     taskId,
     contextId,
     metadata,
     event,
     sourceContext,
+    ownerEmail,
+    signal,
   );
   try {
+    signal?.throwIfAborted();
     const result = getHandler(config)(message, context);
 
     if (
@@ -648,12 +803,15 @@ async function runHandlerAndPersist(
     ) {
       let lastMessage: Message | undefined;
       for await (const msg of result as AsyncGenerator<Message>) {
+        signal?.throwIfAborted();
         lastMessage = msg;
       }
+      signal?.throwIfAborted();
       if (lastMessage?.metadata?.agentNativeTaskState === "input-required") {
         await pauseProcessingA2ATask(taskId, lastMessage);
         return;
       }
+      await persistFileArtifacts();
       await settleProcessingA2ATask(taskId, {
         state: "completed",
         message: lastMessage,
@@ -663,17 +821,20 @@ async function runHandlerAndPersist(
     }
 
     const handlerResult = await (result as Promise<A2AHandlerResult>);
+    signal?.throwIfAborted();
     const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
     if (handlerResult.taskState === "input-required") {
       await pauseProcessingA2ATask(taskId, handlerResult.message);
       return;
     }
+    await persistFileArtifacts();
     await settleProcessingA2ATask(taskId, {
       state: "completed",
       message: handlerResult.message,
       artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
     });
   } catch (err: any) {
+    if (signal?.aborted) throw err;
     await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: taskFailureMessage(err, "Handler failed"),
@@ -743,6 +904,19 @@ async function handleSend(
         0,
         -32602,
         "Invalid params: message with role and parts required",
+      ),
+      _id: 0,
+    };
+  }
+  try {
+    assertA2APersistablePayload(message, "A2A message");
+    assertA2APersistablePayload(params.metadata, "A2A metadata");
+  } catch (error) {
+    return {
+      ...jsonRpcError(
+        0,
+        -32602,
+        error instanceof Error ? error.message : "Invalid A2A message payload",
       ),
       _id: 0,
     };
@@ -846,6 +1020,7 @@ async function handleSend(
         sourceContext: sourceContext ?? null,
       },
     };
+    event?.context?.__a2aBeforeTaskPersistence?.();
     const { task, reused } = await createOrReuseTask(
       message,
       contextId,
@@ -918,6 +1093,7 @@ async function handleSend(
           });
           return { ...jsonRpcResult(0, updated), _id: 0 };
         }
+        await ctx.persistFileArtifacts();
         const updated = await updateTask(task.id, {
           state: "completed",
           message: lastMessage,
@@ -938,6 +1114,7 @@ async function handleSend(
         });
         return { ...jsonRpcResult(0, updated), _id: 0 };
       }
+      await ctx.persistFileArtifacts();
       const updated = await updateTask(task.id, {
         state: "completed",
         message: handlerResult.message,
@@ -978,6 +1155,24 @@ async function handleStream(
     res.end();
     return;
   }
+  try {
+    assertA2APersistablePayload(message, "A2A message");
+    assertA2APersistablePayload(params.metadata, "A2A metadata");
+  } catch (error) {
+    res.write(
+      `data: ${JSON.stringify(
+        jsonRpcError(
+          0,
+          -32602,
+          error instanceof Error
+            ? error.message
+            : "Invalid A2A message payload",
+        ),
+      )}\n\n`,
+    );
+    res.end();
+    return;
+  }
   if (hasUnboundVerifiedOrgIdentity(event)) {
     res.write(
       `data: ${JSON.stringify(
@@ -1012,7 +1207,7 @@ async function handleStream(
 
     await updateTask(task.id, { state: "working" });
 
-    const { context, artifacts } = makeHandlerContext(
+    const { context, artifacts, persistFileArtifacts } = makeHandlerContext(
       task.id,
       contextId,
       trustedA2AMetadata(metadata, event),
@@ -1040,6 +1235,7 @@ async function handleStream(
       } else {
         const handlerResult = await (result as Promise<A2AHandlerResult>);
         const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
+        await persistFileArtifacts();
         const updated = await updateTask(task.id, {
           state: "completed",
           message: handlerResult.message,
@@ -1051,6 +1247,7 @@ async function handleStream(
       }
 
       const allArtifacts = [...artifacts];
+      await persistFileArtifacts();
       const final = await updateTask(task.id, {
         state: "completed",
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
@@ -1338,11 +1535,7 @@ async function handleCancel(
   );
   if (denied) return denied;
 
-  const task = await updateTask(
-    id,
-    { state: "canceled" },
-    taskAccessScope(ownership, event),
-  );
+  const task = await cancelA2ATask(id, taskAccessScope(ownership, event));
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }

@@ -9,7 +9,7 @@ description: "تعمل المطالبات المجدولة بواسطة Cron ع�
 
 <Callout tone="info">
 
-**Recurring Jobs** هو الاسم القديم للأتمتة من النوع **Scheduled**. ‏**Automations** هو المفهوم الشامل لنوعي **Scheduled** و**Event**. تبقى ملفات `jobs/` وأداة `manage-jobs` للتكاملات القديمة المجدولة فقط. استخدم `manage-automations` وواجهة **Automations** على `/agent#jobs` للعمل الشخصي أو المؤسسي الجديد، بما في ذلك النموذج وقوائم MCP.
+**Recurring Jobs** هو الاسم القديم للأتمتة من النوع **Scheduled**. ‏**Automations** هو المفهوم الشامل لنوعي **Scheduled** و**Event**. تبقى ملفات `jobs/` وأداة `manage-jobs` للتكاملات القديمة المجدولة فقط. استخدم `manage-automations` وواجهة **Settings › Automations** للعمل الشخصي أو المؤسسي الجديد، بما في ذلك النموذج وقوائم MCP.
 
 </Callout>
 
@@ -104,6 +104,10 @@ mcpTools:
 يتضمن إطار العمل أدوات مساعدة cron (`isValidCron()` و`describeCron()`) للتحقق من صحة وعرض سلاسل cron، المستخدمة داخليًا بواسطة طبقات الموارد والمجدولة.
 
 ## إنشاء وظيفة {#creating}
+
+### من واجهة Automations
+
+افتح **Settings › Automations**، ثم أنشئ أتمتة من نوع **Scheduled**. الروابط القديمة `/agent#jobs` تعيد التوجيه إلى هناك.
 
 ### من علامة التبويب "موارد الوكيل"
 
@@ -228,8 +232,8 @@ Summarize overnight emails.`,
 
 ## تصحيح أخطاء المهمة {#debugging}
 
-- افتح `jobs/<name>.md` في موارد الوكيل - تعرض المادة الأمامية `lastRun`، `lastStatus`، `lastError`، `nextRun`.
-- **اختبره دون انتظار:** افتح الأتمتة في **Automations** واختر **Run now**. يشغّل ذلك الأتمتة فورًا بآثارها الجانبية الحقيقية دون انتظار نبضة المجدول، لذا يعمل أيضًا محليًا وعلى المضيفات التي لا تملك مُشغِّلًا.
+- افتح تفاصيل الأتمتة في **Settings › Automations**، أو افحص `jobs/<name>.md` في موارد الوكيل - تعرض المادة الأمامية `lastRun`، `lastStatus`، `lastError`، `nextRun`.
+- **اختبره دون انتظار:** انقر **Run now** في **Settings › Automations**، أو اطلب من الوكيل تشغيلها (`manage-automations` مع `action=run-now`). تعمل مطالبة المهمة فورًا مع آثارها الجانبية الحقيقية، ولا يتغير `nextRun`. الاستثناء هو مهمة أوقفها إطار العمل مؤقتًا: يعيد التشغيل الناجح تفعيلها ويعيد حساب `nextRun`. لا ينتظر Run now نبضة المجدول، لذا يعمل أيضًا على localhost دون `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` وعلى المضيفات التي لا تملك مُشغِّلًا للمجدول.
 - **إيقاف مؤقت:** اقلب `enabled: false`. يبقى الملف في مكانه، ويتوقف عن التشغيل.
 
 ## أداة الوكيل {#agent-tool}

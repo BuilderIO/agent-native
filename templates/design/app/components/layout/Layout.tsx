@@ -193,7 +193,6 @@ export function Layout({ children }: LayoutProps) {
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
     enabled: hasSession,
-    providerStatusChecksEnabled: false,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -354,6 +353,9 @@ export function Layout({ children }: LayoutProps) {
             scope={designScope}
             chatHistory={designChatHistory}
             showScopeBadge={false}
+            setupCardOwner={
+              isDesignHomeRoute(location.pathname) ? "host" : "chat"
+            }
             browserTabId={browserTabId}
             threadFooterSlot={designQuestionsWaitingSlot}
             onComposerTextChange={handleComposerTextChange}

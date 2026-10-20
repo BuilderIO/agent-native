@@ -21,17 +21,20 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { SqlQuerySnapshotSessionBridge } from "@/components/auth/SqlQuerySnapshotSessionBridge";
 import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifier";
 import "@/lib/register-analysis-result-renderer";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { notifyProviderCorpusJobSyncEvent } from "@/lib/provider-corpus-job-sync";
+import { isSessionlessAnalyticsRoute } from "@/lib/sessionless-route";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
+import { DashboardNameDraftRouterBridge } from "./pages/adhoc/sql-dashboard/DashboardNameDrafts";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -79,6 +82,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
+        <DashboardNameDraftRouterBridge />
         {children}
         <ScrollRestoration />
         <Scripts />
@@ -133,10 +137,12 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
 
-  const isPublicStatusPath =
-    location.pathname === "/status" || location.pathname.startsWith("/status/");
+  const isPublicPath = isSessionlessAnalyticsRoute(
+    location.pathname,
+    location.search,
+  );
 
-  if (isPublicStatusPath) {
+  if (isPublicPath) {
     return (
       <AppToolkitProvider>
         <AppProviders
@@ -154,6 +160,7 @@ export default function Root() {
 
   return (
     <AppToolkitProvider>
+      <SqlQuerySnapshotSessionBridge />
       <AppProviders
         queryClient={queryClient}
         skeletonLayout="assistant"

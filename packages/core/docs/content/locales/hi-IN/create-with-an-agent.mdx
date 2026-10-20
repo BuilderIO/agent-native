@@ -1,0 +1,163 @@
+---
+title: "AI agent से app बनाएं"
+description: "Claude, ChatGPT, Codex, Cursor या किसी और AI agent को एक prompt दें और वह आपके लिए नया Agent-Native app बनाकर चालू कर दे।"
+---
+
+# AI agent से app बनाएं
+
+आप किसी AI agent से अपना Agent-Native app बनाने को कह सकते हैं। आप एक prompt paste करते हैं, agent setup commands चलाता है, और काम पूरा होने पर आपको चलता हुआ app दिखाता है।
+
+अगर आप commands खुद टाइप करना चाहते हैं, तो इसके बजाय [शुरुआत करें](/docs/getting-started) का पालन करें।
+
+## शुरू करने से पहले
+
+- ऐसा AI agent जो terminal commands चला सके, जैसे Claude Code, Codex या Cursor। जो agents सिर्फ chat करते हैं, जैसे ChatGPT या web पर Claude, वे भी मदद कर सकते हैं। [Commands न चला सकने वाले agents](#chat-only-agents) देखें।
+- [Node.js](https://nodejs.org) 22.22 या बाद का संस्करण।
+- एक खाली folder जहां नया app रहेगा।
+
+App बनाने के लिए API key की जरूरत नहीं है। यह तभी चाहिए जब आप चाहें कि app का अपना agent आपको जवाब दे। [LLM कनेक्ट करें](/docs/getting-started#connect-an-llm) देखें।
+
+## यह prompt paste करें
+
+खाली folder में अपना agent खोलें और नीचे दिया prompt paste करें। पहली line में `my-app` को अपनी पसंद के नाम से बदलें। इसे सिर्फ एक बार बदलना है।
+
+```markdown
+my-app नाम के नए folder में नया Agent-Native app बनाओ और उसे
+चालू करो। नीचे जिस step में APP_NAME लिखा है, वहां यही नाम
+इस्तेमाल करो।
+
+1. जांचो कि Node.js का संस्करण 22.22 या बाद का है और pnpm
+   उपलब्ध है। अगर pnpm नहीं है, तो `corepack enable` चलाओ।
+   अगर corepack भी उपलब्ध नहीं है, तो `npm install -g pnpm` चलाओ।
+   अगर Node.js बहुत पुराना है, तो उसे इंस्टॉल करने के बजाय
+   रुककर मुझे बताओ।
+2. यह चलाओ:
+   npx --yes @agent-native/core@latest create APP_NAME \
+    --standalone --template chat
+3. नए APP_NAME folder में `pnpm install` चलाओ।
+4. APP_NAME/AGENTS.md पढ़ो ताकि तुम्हें पता चले कि app कैसे
+   व्यवस्थित है।
+5. `pnpm dev` से app चालू करो और उसे background में चलता रखो।
+6. `pnpm dev` जो local URL प्रिंट करे उसे पढ़ो। जांचो कि वह
+   जवाब देता है, जैसे `curl -I <url>` से। browser मत खोलो और
+   headless browser tools इस्तेमाल मत करो। app मैं खुद खोलूंगा।
+7. मुझे नतीजा दिखाओ। मुझे local URL और उससे मिला जवाब दो।
+   सिर्फ यह मत कहो कि setup पूरा हो गया।
+
+नियम:
+
+- API keys खुद से मत गढ़ो और मुझसे उन्हें paste करने को मत कहो।
+  LLM कनेक्ट करना वैकल्पिक है और मैं उसे खुद करूंगा।
+- किसी भी .env file के secrets प्रिंट मत करो।
+- अगर कोई command fail हो, तो मुझे error और तुमने क्या आजमाया
+  वह दिखाओ। उसे छिपाओ मत।
+```
+
+## Agent को क्या करना चाहिए
+
+अच्छी तरह पूरा हुआ run इन नतीजों के साथ खत्म होता है, और आप हर एक को खुद जांच सकते हैं:
+
+- एक नया app folder, जिसका नाम आपके बदले बिना `my-app` है, और जिसमें `actions/`, `app/` और एक `AGENTS.md` file हो।
+- `pnpm dev` बिना errors के चल रहा हो।
+- एक local URL, आमतौर पर `http://localhost:8080`, जिसके जवाब देने की agent ने जांच कर ली हो।
+
+फिर local URL को अपने browser में खोलें। Welcome screen पर **Continue as local dev** चुनें। शुरुआत का page दिखाई देगा।
+
+अगर इनमें से कुछ भी नहीं दिखे, तो agent से कहें कि उसने आखिरी जो command चलाया और उसका output दिखाए।
+
+<Callout tone="info">
+
+अगर commands peer dependency errors के साथ fail हों, तो npx cache में किसी package की पुरानी copy कारण हो सकती है। Agent से `npx clear-npx-cache` चलाने और फिर कोशिश करने को कहें।
+
+</Callout>
+
+## अपने agent के लिए सही setup चुनें
+
+| Agent का प्रकार        | उदाहरण                                                 | यह कैसे काम करता है                                    |
+| ---------------------- | ------------------------------------------------------ | ------------------------------------------------------ |
+| Terminal और IDE agents | Claude Code, Codex, Cursor, VS Code में GitHub Copilot | Prompt paste करें। Agent हर command आपके लिए चलाता है। |
+| सिर्फ chat वाले agents | ChatGPT, web पर Claude                                 | उनसे commands मांगें, फिर उन्हें खुद चलाएं।            |
+
+### Commands न चला सकने वाले agents {#chat-only-agents}
+
+सिर्फ chat वाला agent terminal नहीं खोल सकता, इसलिए वह app नहीं बना सकता। फिर भी prompt paste करें और सबसे ऊपर यह line जोड़ें:
+
+```markdown
+तुम commands नहीं चला सकते। मेरे terminal में चलाने के लिए हर
+command एक-एक करके दो, और आगे बढ़ने से पहले मेरे बताने का
+इंतजार करो कि क्या हुआ।
+```
+
+Agent आपको वही steps समझाता है और कुछ गलत होने पर मदद करता है।
+
+## आपका अपना agent और app का agent
+
+आपके app पर दो agents काम कर सकते हैं, और उनके काम अलग हैं।
+
+- **आपका अपना agent** वह है जिसमें आपने prompt paste किया, जैसे Claude Code, Codex या Cursor। यह app के बाहर, आपके terminal या editor में रहता है।
+- **App का agent** वह chat है जो app में पहले से बना आता है। App चलने के दौरान आप उसे browser में खोलते हैं।
+
+|                                 | आपका अपना agent (app के बाहर)                                                                                                      | App का agent (app के अंदर)                                                                                            |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| आप इसे कहां इस्तेमाल करते हैं   | आपका terminal या editor                                                                                                            | Browser में app की chat                                                                                               |
+| यह किस पर काम करता है           | आपके project की files                                                                                                              | App का data और वह screen जो आप देख रहे हैं                                                                            |
+| यह क्या कर सकता है              | Project बनाना, packages इंस्टॉल करना, `pnpm dev` चलाना, actions, pages और database tables लिखना और बदलना, और deploy की तैयारी करना | App के actions को tools की तरह call करना, app का data पढ़ना और अपडेट करना, और screen पर जो है उसके बारे में जवाब देना |
+| app से LLM कनेक्ट होना जरूरी है | नहीं, यह अपना model इस्तेमाल करता है                                                                                               | हां। [LLM कनेक्ट करें](/docs/getting-started#connect-an-llm) देखें                                                    |
+| किसके लिए सबसे अच्छा            | App बनाना और बदलना                                                                                                                 | App इस्तेमाल करना और उसका रोज का काम करना                                                                             |
+
+आपका अपना agent app बनाता है। App का agent उसे चलाता है। जब आपका अपना agent कोई action जोड़ता है, तो app का agent उसे तुरंत call कर सकता है क्योंकि दोनों एक ही action इस्तेमाल करते हैं।
+
+### अपने agent को अच्छी तरह बनाने में मदद करें
+
+बनाया गया app इस तरह सेट है कि आपका अपना agent अतिरिक्त निर्देशों के बिना भी उसमें अच्छे से काम कर सके।
+
+- App की root में `AGENTS.md` agent को बताता है कि app कैसे व्यवस्थित है और किन नियमों का पालन करना है।
+- `.agents/skills/` में आम कामों के लिए छोटी guides हैं, जैसे feature जोड़ना या action लिखना।
+- आपके framework संस्करण के अनुसार docs app के साथ आते हैं। Agent उन्हें `pnpm action docs-search --query "<topic>"` से खोज सकता है।
+
+जब आप कुछ नया मांगें, तो agent से कह सकते हैं कि पहले इन्हें पढ़े। उदाहरण के लिए: "कुछ भी बदलने से पहले AGENTS.md और संबंधित skill पढ़ो।"
+
+अपने agent को चलते हुए app के code के बजाय उसके tools इस्तेमाल करने देने के लिए [बाहरी एजेंट](/docs/external-agents) देखें।
+
+## अपना पहला बदलाव मांगें
+
+App चलने पर, अपने agent से कोई छोटा बदलाव मांगें और उसे काम करते देखें। यहां कुछ उदाहरण हैं:
+
+```markdown
+list-notes नाम का एक action जोड़ो जो खाली list लौटाए, फिर उसे
+नए /notes page पर दिखाओ।
+```
+
+```markdown
+hello action को ऐसे बदलो कि वह "Hello" की जगह "Welcome" से
+स्वागत करे, फिर पुष्टि के लिए उसे Alex के लिए call करो।
+```
+
+```markdown
+App deploy करने के docs पढ़ो, फिर बताओ कि इस app को online करने
+के लिए मुझे कौन से steps लेने होंगे।
+```
+
+Agent उन्हीं actions को बदलता है जिन्हें UI और app का अपना agent इस्तेमाल करते हैं। यही साझा action model कारण है कि एक बदलाव हर जगह दिखता है। [मुख्य अवधारणाएं](/docs/key-concepts) बताती हैं कि यह सब कैसे जुड़ता है।
+
+## अगले कदम
+
+<Cards>
+
+### [शुरुआत करें](/docs/getting-started)
+
+वही app हाथ से बनाएं और जानें कि action कैसे काम करता है।
+
+### [बाहरी एजेंट](/docs/external-agents)
+
+Claude, ChatGPT, Codex या Cursor को ऐसे app से कनेक्ट करें जो पहले से चल रहा है।
+
+### [एक्शन](/docs/actions-overview)
+
+वे capabilities define करें जिन्हें आपका UI और आपके agents दोनों इस्तेमाल करते हैं।
+
+### [App deploy करें](/docs/deploy-an-app)
+
+Local development से असली database और supported host पर जाएं।
+
+</Cards>

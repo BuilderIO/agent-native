@@ -1,5 +1,104 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  meetingBrowserConfirmation:
+    "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
+  meetingReplacement: {
+    title: "Meeting notes need attention",
+    description:
+      "The previous meeting's notes couldn't be saved. Copy them before starting this meeting.",
+    copyAndStart: "Copy notes and start",
+    actionFailed: "Could not continue meeting recovery. Try again.",
+  },
+  quitRecovery: {
+    title: "Clips is still finishing the meeting",
+    body: "Clips hasn't finished stopping and saving this meeting. The latest transcript may be lost if you quit now.",
+    keepOpen: "Keep Clips open",
+    quitAnyway: "Quit anyway",
+    actionFailed: "Clips couldn't update the quit recovery state. Try again.",
+  },
+  lookbackContext: {
+    includeLast: "Include last",
+    whatIsThis: "What is this?",
+    off: "Off",
+    none: "None",
+    noneExplanation:
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
+    custom: "Custom…",
+    customLabel: "Custom length",
+    customAmount: "Length",
+    customUnit: "Unit",
+    unitSeconds: "seconds",
+    unitMinutes: "minutes",
+    customSave: "Use length",
+    customErrorEmpty: "Enter a length.",
+    customErrorInvalid: "Enter a whole number of seconds or minutes.",
+    customErrorTooLong: "Keep it to 5 min or less.",
+    turnOnRewind: "Turn on Rewind",
+    turnOffRewind: "Turn off",
+    turnOffRewindFailed:
+      "Couldn't turn off Rewind. Stop your recording and try again.",
+    turnOnRewindFailed: "Couldn't turn on Rewind. Try again.",
+    turnOnRewindPermissionFailed:
+      "Allow screen recording for Clips in System Settings > Privacy & Security > Screen & System Audio Recording, then restart Clips and try again.",
+    turnOnRewindUnsupported:
+      "Rewind screen capture is available only on macOS.",
+    turnOnRewindNoSpace:
+      "There isn't enough free disk space to start Rewind. Free up space and try again.",
+    turnOnRewindStopClip: "Stop the current Clip before turning on Rewind.",
+    turnOnRewindStorageFailed:
+      "Couldn't access Rewind's storage. Check disk space and folder permissions, then try again.",
+    rewindConsentTitle: "Turn on Rewind?",
+    rewindConsentBody:
+      "While Rewind is on, Clips continuously records your screen and keeps recent history on this device until it reaches your time or storage limit. Choose Screen + audio to also capture your microphone and system audio. Connected agents can access screen images directly, without a Clips approval; what happens to those images next depends on the agent. When you set an earlier-screen-time length, Clips adds that much history to each new Clip, using the Clip's sharing settings. Requests to share a selected time range as a Clip are reviewed before sending by default. Turn off review before sending in Rewind settings to send those requests automatically. A Clip may include captured microphone and system audio. Turning Rewind off stops new recording but keeps saved history. While Rewind is off, history can remain past your time and storage limits until recording starts again. Choose Delete all to erase saved history now.",
+    rewindConsentCancel: "Not now",
+    rewindConsentConfirm: "Turn on Rewind",
+    rewindConsentBusy: "Turning on…",
+    rewindOffTitle: "Turn on Rewind",
+    rewindOffBody:
+      "To include earlier screen time, turn on Rewind first. While Rewind is on, it keeps recent screen history on this device within your time and storage limits. When Rewind is off, saved history can remain past those limits until recording starts again. To erase it now, open Settings > Rewind > Storage > On this device and choose Delete all. A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
+    requestFailed:
+      "Couldn't include earlier screen time. The recording continues without it.",
+    localOnlyUnavailable:
+      "Earlier screen time isn't saved for local-only recordings.",
+    saving: "Saving {{window}} before…",
+    ready: "With {{window}} before",
+    failed: "Couldn't save earlier screen time",
+    unreadable: "Couldn't check earlier screen time",
+    edit: "Edit",
+    editTitle: "Earlier screen time",
+    editSave: "Save",
+    editFailed: "Couldn't save the window. Try again.",
+    previewPreparing: "Preparing preview…",
+    previewFailed: "Couldn't prepare the preview.",
+    previewLabel: "Earlier screen time preview",
+    retry: "Retry",
+    playSelection: "Play selection",
+    removeFailed:
+      "Couldn't remove earlier screen time for the discarded recording.",
+    removeFailedAction: "Couldn't remove earlier screen time. Try again.",
+    removeAction: "Remove earlier screen time",
+    removeConfirmTitle: "Remove earlier screen time?",
+    removeConfirmBody:
+      "The footage is moved to Trash and the clip no longer includes it.",
+    removeConfirm: "Remove",
+    removed: "Earlier screen time removed",
+    scrubberFromBefore: "From {{offset}} before",
+    scrubberFromStart: "From recording start",
+    scrubberToBefore: "To {{offset}} before",
+    scrubberToStart: "To recording start",
+    scrubberLength: "Length",
+    scrubberStartHandle: "Window start",
+    scrubberEndHandle: "Window end",
+    tab: "Context",
+    label: "Screen before recording",
+    window: "{{start}}–{{end}} before recording",
+    savingEarlierTime: "Saving earlier screen time…",
+    loadFailed: "Couldn't load earlier screen time.",
+    empty: "No earlier screen time is attached to this clip.",
+    larger: "Larger",
+    editHint: "Edit the window in Clips Desktop.",
+    waitingOtherDevice: "Waiting for the device that recorded this clip",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Use Builder.io",
@@ -83,9 +182,12 @@ const messages = {
     expandSidebar: "Expand sidebar",
     collapseSidebar: "Collapse sidebar",
     agentEmptyState: "How can I help with your recordings?",
-    agentSuggestionSummary: "Summarize my last recording",
-    agentSuggestionPricing: "Find where I mentioned pricing",
-    agentSuggestionFiller: "Remove filler words from this clip",
+    agentSuggestionSummary: "Summarize a recording",
+    agentSuggestionPricing: "Find pricing mentions",
+    agentSuggestionFiller: "Remove filler words",
+    agentScreenshotSuggestionSummary: "Summarize screenshots",
+    agentScreenshotSuggestionText: "Find text in screenshots",
+    agentScreenshotSuggestionCompare: "Compare screenshots",
     createFolderError: "Create failed",
     folderCreated: "Folder created",
     folderNamePlaceholder: "Folder name",
@@ -153,6 +255,7 @@ const messages = {
   recordingPage: {
     back: "Back",
     done: "Done",
+    backToClip: "Back to clip",
     untitledClip: "Untitled Clip",
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
@@ -180,6 +283,10 @@ const messages = {
     transcriptionCompleted: "Transcription complete",
     transcriptNotReady: "Transcript is not ready yet",
     tryAfterTranscription: "Try again after transcription finishes.",
+    silenceTranscriptUnavailableTitle:
+      "This transcript can't be used to remove silences",
+    silenceTranscriptUnavailableDescription:
+      "Try generating a new transcript, then remove silences again.",
     titleGenerationQueued: "Generating title…",
     descriptionQueued: "Generating description…",
     chapterQueued: "Generating chapters…",
@@ -188,6 +295,8 @@ const messages = {
     silenceWorking: "Removing silences…",
     silenceCompleted: "Silence removal complete",
     silenceFailed: "Silence removal failed",
+    silenceEditsUnreadable:
+      "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
@@ -278,7 +387,7 @@ const messages = {
       "The owner is making changes to this clip. The link will start working again when they have finished.",
     agentReadableContext: "Agent-readable clip context",
     agentInstructions:
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Open agentContextUrl first. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link.",
     untitledClip: "Untitled Clip",
     incorrectPassword: "Incorrect password",
     passwordProtected: "This clip is password-protected",
@@ -479,6 +588,40 @@ const messages = {
     waiting: "Waiting…",
     nativeSpeechPrimary: "Native speech remains the primary transcript source.",
   },
+  transcriptImport: {
+    addFile: "Add transcript file",
+    imported: "Imported",
+    replaceTitle: "Replace transcript?",
+    replaceDescription: "{{fileName}} will replace the current transcript.",
+    replace: "Replace",
+    regenerateOverImportTitle: "Replace the imported transcript?",
+    regenerateOverImportDescription:
+      "A new transcript made from the recording's audio will replace the one imported from a file.",
+    added: "Transcript added",
+    replaced: "Transcript replaced",
+    failed: "Couldn't add transcript",
+    invalidFile: "Couldn't read {{fileName}}",
+    errorEmpty: "The file has no transcript text.",
+    errorTooLarge: "The file is too large to import.",
+    errorNotUtf8: "The file isn't UTF-8 text. Save it as UTF-8 and try again.",
+    errorMissingTiming:
+      "Line {{line}}: expected a cue timing line like 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "Line {{line}}: the cue timing couldn't be read.",
+    errorBadRange: "Line {{line}}: the cue ends before it starts.",
+    errorMissingTimestamp:
+      "Line {{line}}: expected a start time like 0:21 or [0:21].",
+    errorOutOfOrder:
+      "Line {{line}}: this time is earlier than the one before it.",
+    errorPastEnd: "Line {{line}}: this time is after the end of the video.",
+  },
+  transcriptHistory: {
+    title: "Earlier transcripts",
+    automatic: "Automatic",
+    restore: "Restore",
+    restored: "Transcript restored",
+    restoreFailed: "Couldn't restore transcript",
+    undo: "Undo",
+  },
   thumbnailPicker: {
     failedCapture: "Failed to capture frame",
     failedGif: "Failed to generate GIF — try a shorter range",
@@ -532,7 +675,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:
@@ -687,6 +830,8 @@ const messages = {
     switchToNightly: "Switch to Nightly builds",
     switchToStable: "Switch to stable builds",
     retry: "Try again",
+    mountError:
+      "Clips could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     heroDescription:
       "A menu-bar recorder for screen, camera, and screen + camera. One-click start, draggable camera bubble, instant-share link when you stop.",
     versionReleased: "Version {{version}} — released {{date}}",
@@ -744,8 +889,12 @@ const messages = {
     labVideoEditingDescription: "Try the new video editor.",
     labMeetings: "Meetings and transcription",
     labMeetingsDescription: "Try automatic meeting capture and transcription.",
-    labWisprFlow: "Voice dictation",
-    labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
+    labVoiceDictation: "Voice dictation",
+    labVoiceDictationDescription:
+      "Show or hide voice dictation in Clips Desktop.",
+    labLookbackContext: "Include earlier screen time",
+    labLookbackContextDescription:
+      "Attach up to five minutes of screen time from before a recording as passive context.",
     uploadWorkspaceTitle: "Active workspace",
     uploadWorkspaceDescription:
       "Choose the workspace Clips uses for new recordings, including desktop uploads.",
@@ -1168,6 +1317,15 @@ const messages = {
     playClip: "Play clip",
     unsupportedFormat:
       "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
+    youtubeLoading: "Loading YouTube's player",
+    youtubeUnavailable: "This YouTube video is private or has been removed.",
+    youtubeEmbedBlocked:
+      "This video's owner doesn't allow it to play outside YouTube.",
+    youtubeInvalid: "This YouTube link doesn't point to a playable video.",
+    youtubePlaybackFailed: "YouTube couldn't play this video here.",
+    youtubeApiUnavailable:
+      "YouTube's player didn't load. Check your connection or content blocker, then reload.",
+    watchOnYouTube: "Watch on YouTube",
   },
   searchBar: {
     placeholder: "Search recordings…",
@@ -1269,6 +1427,10 @@ const messages = {
     burningRedactionsPercent:
       "Rendering the redactions into the video… {{percent}}%",
     editFailed: "Could not save that edit",
+    refreshFailed: "Couldn't load the latest edits. Try again before editing.",
+    autoSaveHint: "Edits save to this clip automatically",
+    savingChanges: "Saving changes…",
+    changesSaved: "Changes saved to this clip",
     nothingToRedo: "Nothing to redo",
   },
   transcriptEditor: {
@@ -1386,6 +1548,9 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io's free tier includes video storage, with one-click setup.",
+    customKeys: "Custom keys",
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
@@ -1399,13 +1564,14 @@ const messages = {
     builderGrantAskAdmin:
       "Ask an owner or admin to connect Builder.io with clip upload access.",
     statusUnavailable: "Couldn't check whether video storage is ready.",
+    hostedStorageUnavailable:
+      "Clips hosted storage is temporarily unavailable. Your free clip allowance is unchanged; try the upload again later.",
     checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    description:
-      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
+    description: "Choose where to store your recorded videos.",
     createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
@@ -1433,12 +1599,28 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Add chapters",
+    editLabel: "Edit chapters",
+    placeholder: "0:00 Introduction\n1:30 Next section",
+    errorLineShape:
+      'Line {{line}}: put a time then a title, e.g. "0:48 Saved note dates".',
+    errorBadTime: 'Line {{line}}: "{{value}}" isn\'t a time like 0:48.',
+    errorDuplicate: "Line {{line}}: there's already a chapter at {{value}}.",
+    errorPastEnd: "Line {{line}}: {{value}} is past the end of the clip.",
+    changedWhileEditing:
+      "Chapters changed while you were editing. Check your lines, then Save again to replace them.",
+  },
   chapters: {
     title: "Chapters",
     addHere: "Add here",
     empty: "No chapters yet.",
     remove: "Remove chapter",
     saveFailed: "Failed to save chapters",
+    changedElsewhere:
+      "Chapters were changed elsewhere, so your last change wasn't saved.",
+    unreadable:
+      "Some saved chapters can't be read, so changes can't be saved here. Ask the agent to replace the chapters.",
     duplicateAtPoint: "A chapter already exists at this point",
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",
@@ -1628,7 +1810,7 @@ const messages = {
     unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
     takeScreenshot: "Take screenshot",
-    importLoom: "Import Loom",
+    importLoom: "Import video",
     importing: "Importing...",
     import: "Import",
     recordNew: "Record new",
@@ -1750,6 +1932,16 @@ const messages = {
     validWebUrl: "Enter a valid http:// or https:// address.",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} free clip left",
+    freeClipsLeft_other: "{{count}} free clips left",
+    hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
+    hostedClipsExhaustedDescription:
+      "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
+    clipExceedsSizeLimit: "This clip exceeds the current upload size limit.",
+    clipExceedsMaxDuration:
+      "This clip exceeds the current recording length limit.",
+    maxClipDurationReached:
+      "The maximum clip length was reached. Saving your recording now.",
     pageTitle: "New recording — Clips",
     uploadFailed: "Upload failed",
     uploadFailedAtChunk:
@@ -1764,12 +1956,16 @@ const messages = {
     storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
     loomImported: "Loom imported",
     couldNotImportLoom: "Could not import that Loom.",
+    youtubeImported: "YouTube video added",
+    couldNotImportVideo: "Could not import that video.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copied",
     copyLinkAction: "Copy link",
     noLocalRecordingData: "No local recording data is available to download.",
     recordingDownloadStarted: "Recording download started",
+    partialLocalCopyDownloadStarted:
+      "The local copy may be incomplete. The available recording data is downloading.",
     backToLibrary: "Back to library",
     clipsRecorder: "Clips recorder",
     preparingSources: "Preparing sources…",
@@ -1861,12 +2057,12 @@ const messages = {
       "This recording is still processing, so Clips kept your copy here. Wait for it, or upload it again.",
   },
   importRoute: {
-    pageTitle: "Import Loom — Clips",
-    title: "Import Loom",
+    pageTitle: "Import video — Clips",
+    title: "Import video",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Import",
     helperText:
-      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+      "Works great with Loom and YouTube. You can also paste a link to any other screen recording or video file.",
     stageFetching: "Pulling in your video…",
     stageUploading: "Uploading the raw footage…",
     stageTranscript: "Making speech and on-screen visuals agent-readable…",
@@ -1911,6 +2107,32 @@ const messages = {
     copy: "Copy",
     copied: "Copied",
     copyFailed: "Couldn't copy",
+    flowStarting: "Starting dictation…",
+    flowFinalizing: "Finishing dictation…",
+    flowBusy: "Finishing the previous dictation…",
+    flowTranscribing: "Transcribing…",
+    flowCleaning: "Cleaning up text…",
+    flowPasting: "Pasting text…",
+    flowSavingHistory: "Saving to history…",
+    flowPasted: "Pasted",
+    flowCopied: "Copied to clipboard",
+    flowPastedHistoryFailed: "Pasted, but history wasn’t saved",
+    flowCopiedHistoryFailed: "Copied, but history wasn’t saved",
+    flowHistoryNotSaved: "Dictation history wasn’t saved",
+    flowPermissionFailed: "Microphone permission is off",
+    flowMicrophoneUnavailable: "Microphone unavailable",
+    flowProviderFailed: "Couldn’t transcribe speech",
+    flowMeetingCaptureActive: "Stop the meeting recording before dictating",
+    flowPasteFailed: "Couldn’t paste transcript",
+    flowCancelled: "Dictation canceled",
+    flowRetryHistory: "Retry saving history",
+    flowDismiss: "Dismiss",
+    flowTranscriptRecovery: "Transcript recovery",
+    flowOriginalTranscript: "Show original transcript",
+    flowCleanupSkipped: "Text cleanup was skipped; original text was kept",
+    flowBacktrackSkipped: "Text editing was skipped; recognized text was kept",
+    flowCancelDictation: "Cancel dictation",
+    flowCopying: "Copying transcript…",
     aiProcessed: "AI Processed",
     aiCleaned: "AI cleaned",
     original: "Original",
@@ -1930,6 +2152,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI",
     cleanupComplete: "Dictation cleaned up",
     cleanupFailed: "Couldn't clean up dictation",
+    undoCleanup: "Undo",
+    restoreOriginal: "Restore original",
+    cleanupRestored: "Original dictation restored",
+    cleanupRestoreFailed: "Couldn't restore original dictation",
     startFirst: "Turn your thoughts into text",
     recordOnDesktop: "Record on desktop",
     emptyDesktopDescription:
@@ -1976,6 +2202,10 @@ const messages = {
     vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Hosted Clips storage is full. Connect Builder.io storage to keep saving clips.",
+    hostedRecordingTakenDown:
+      "This recording was removed from hosted Clips storage.",
     splitAtPlayhead: "Split at playhead (S)",
     selectedCount: "{{count}} selected",
     selectAll: "Select all",
@@ -2006,6 +2236,7 @@ const messages = {
     viewsCount: "{{count}} views",
     recordingMenu: "Recording menu",
     moveToFolder: "Move to folder",
+    moveHere: "Move here",
     unarchive: "Unarchive",
     shareNamedMeeting: 'Share "{{title}}"',
     shareMeeting: "Share meeting",
@@ -2132,21 +2363,6 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
   },
-  rewindExtension: {
-    title: "Add what happened before",
-    description:
-      "Pull a specific interval from local Rewind and add it to the start of this Clip. Nothing is added automatically.",
-    progressLabel: "Rewind history processing progress",
-    privateFirstTitle: "Make this Clip private first",
-    privateFirstDescription:
-      "Local Rewind history can contain context from before you chose to record. This changes the Clip to private. If anyone still has direct access, Clips will stop here so you can remove them in Share first.",
-    makePrivateContinue: "Make private and continue",
-    add30Seconds: "Add the previous 30 seconds",
-    add5Minutes: "Add the previous 5 minutes",
-    add5MinutesDescription:
-      "Good for recovering the lead-in to a longer explanation.",
-    privateReady: "This Clip is private. You can now add local Rewind history.",
-  },
   browserDiagnostics: {
     debug: "Debug",
     title: "Browser diagnostics",
@@ -2169,9 +2385,15 @@ const messages = {
     issues: "Issues",
     consoleSource: "Console",
     networkSource: "Network",
+    appSource: "App activity",
+    appEvent: "Event",
+    appData: "Data",
+    appFailureSummary: "{{count}} app failures",
+    appUnavailable: "App activity could not be loaded.",
     consoleCount: "Console {{count}}",
     networkCount: "Network {{count}}",
     afterRecording: "After recording",
+    beforeRecording: "Before recording",
     seekToTime: "Seek to {{time}}",
     occurrences: "Occurrences",
     message: "Message",
@@ -2183,6 +2405,7 @@ const messages = {
     noIssuesTitle: "No browser issues detected",
     noConsoleTitle: "No console events",
     noNetworkTitle: "No network requests",
+    noAppTitle: "No app activity",
     capturedDescription: "Diagnostics were captured for this recording.",
   },
   timeline: {

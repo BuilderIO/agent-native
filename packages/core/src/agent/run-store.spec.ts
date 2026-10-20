@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { withExecutionFence } from "./execution-fence.js";
+
 interface ExecCall {
   sql: string;
   args: unknown[];
@@ -18,6 +20,8 @@ let latestEventRows: Array<{
   event_at?: number | null;
   event_data: string;
 }> = [];
+let connectionRequestRows: Array<{ event_data: string }> = [];
+let hasLaterSameTurnRun = false;
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let completedTurnRows: Array<{
@@ -41,6 +45,13 @@ let turnInitiatorByRunRows: Array<Record<string, unknown>> = [];
 let insertEventBehavior: () => void = () => {};
 let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
+let staleRecoveryRows: Array<{
+  thread_id: string;
+  turn_id: string | null;
+  dispatch_mode: string | null;
+  dispatch_payload: string | null;
+  started_at: number;
+}> = [];
 let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
@@ -60,6 +71,59 @@ const mockDb: any = {
 
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
+    }
+    if (
+      /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id\s+FROM agent_runs WHERE id = \?/i.test(
+        rawSql,
+      )
+    ) {
+      return {
+        rows: [{ thread_id: "thread-test", turn_id: "turn-test" }],
+        rowsAffected: 0,
+      };
+    }
+    if (/SELECT generation, owner_run_id,/i.test(rawSql)) {
+      return { rows: [], rowsAffected: 0 };
+    }
+    if (/SELECT generation\s+FROM agent_execution_leases/i.test(rawSql)) {
+      return { rows: [{ generation: args[3] }], rowsAffected: 0 };
+    }
+    if (
+      /SELECT status, worker_generation FROM agent_runs WHERE id/i.test(rawSql)
+    ) {
+      return {
+        rows: [{ status: "running", worker_generation: null }],
+        rowsAffected: 0,
+      };
+    }
+    if (
+      /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
+      args.includes('{"type":"connection_required"%')
+    ) {
+      return {
+        rows: hasLaterSameTurnRun ? [] : connectionRequestRows,
+        rowsAffected: 0,
+      };
+    }
+    if (
+      /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id, status,/i.test(
+        rawSql,
+      ) &&
+      /FROM agent_runs WHERE id = \?/i.test(rawSql)
+    ) {
+      return {
+        rows: [
+          {
+            thread_id: "thread-test",
+            turn_id: "turn-test",
+            status: "running",
+            error_code: null,
+            terminal_reason: null,
+            completed_at: null,
+          },
+        ],
+        rowsAffected: 0,
+      };
     }
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
@@ -150,13 +214,17 @@ const mockDb: any = {
         rawSql,
       ) &&
       /WHERE thread_id = \?/i.test(rawSql) &&
-      /LIMIT \?/i.test(rawSql)
+      (/LIMIT \?/i.test(rawSql) || /AND id IN \(/i.test(rawSql))
     ) {
-      const rows =
+      const selectedRows =
         refreshedRunListRows && runListSelectCount > 0
           ? refreshedRunListRows
           : runListRows;
       runListSelectCount++;
+      const runIds = rawSql.includes("AND id IN (") ? args.slice(1) : null;
+      const rows = runIds
+        ? selectedRows.filter((row) => runIds.includes(row.id))
+        : selectedRows;
       return { rows, rowsAffected: 0 };
     }
     if (
@@ -168,14 +236,17 @@ const mockDb: any = {
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
-      return { rows: [], rowsAffected: 1 };
+      return {
+        rows: /\bRETURNING\b/i.test(rawSql) ? [{ seq: args[1] }] : [],
+        rowsAffected: 1,
+      };
     }
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
     }
     // Tool-call result ledger lookup.
     if (
-      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger/i.test(
         rawSql,
       )
     ) {
@@ -183,6 +254,13 @@ const mockDb: any = {
     }
     if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: dispatchPayloadRows, rowsAffected: 0 };
+    }
+    if (
+      /SELECT thread_id, turn_id, dispatch_mode, dispatch_payload, started_at\s+FROM agent_runs WHERE id/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: staleRecoveryRows, rowsAffected: 0 };
     }
     if (/DELETE FROM agent_runs[\s\S]*RETURNING/i.test(rawSql)) {
       return { rows: prunedRunRows, rowsAffected: prunedRunRows.length };
@@ -228,6 +306,7 @@ vi.mock("../server/capture-error.js", () => ({
 }));
 
 const {
+  AgentRunEventNotPersistedError,
   STALE_RUN_ERROR_EVENT,
   STALE_RUN_TERMINAL_REASON,
   markRunAborted,
@@ -262,6 +341,7 @@ const {
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
   getRunEventsSince,
+  getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
   __resetNoRunningRunsProbeForTests,
@@ -272,6 +352,8 @@ const {
   RUN_STALE_MS,
   resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
+const { approvalKeyForHistory } = await import("./approval-key.js");
+const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
 let ledgerRows: Array<{
   result_summary: string;
@@ -280,12 +362,50 @@ let ledgerRows: Array<{
   chat_ui_result_json?: string | null;
 }> = [];
 
+const inlineDispatchPayloads = [
+  [
+    "data URL",
+    JSON.stringify({
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+        },
+      ],
+    }),
+  ],
+  [
+    "raw image bytes",
+    JSON.stringify({
+      content: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "iVBORw0KGgo=",
+          },
+        },
+      ],
+    }),
+  ],
+  [
+    "file bytes",
+    JSON.stringify({
+      content: [{ type: "file", file: { bytes: [37, 80, 68, 70] } }],
+    }),
+  ],
+] as const;
+
 describe("run store", () => {
   beforeEach(() => {
     evaluateServicePrincipalMock.mockReset();
     evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     execCalls.length = 0;
     latestEventRows = [];
+    connectionRequestRows = [];
+    hasLaterSameTurnRun = false;
     staleSelectRows = [];
     claimSlotRows = [];
     completedTurnRows = [];
@@ -300,6 +420,7 @@ describe("run store", () => {
     turnInitiatorByRunRows = [];
     ledgerRows = [];
     dispatchPayloadRows = [];
+    staleRecoveryRows = [];
     unclaimedBackgroundRunRows = [];
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
@@ -309,6 +430,18 @@ describe("run store", () => {
     __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
   });
+
+  async function reconcileAsWorker(runId: string): Promise<boolean> {
+    return withExecutionFence(
+      {
+        threadId: "thread-test",
+        turnId: "turn-test",
+        runId,
+        generation: "1",
+      },
+      () => reconcileTerminalRunFromEvents(runId),
+    );
+  }
 
   it("does not mark replayed provider auth failures recoverable", () => {
     const resolved = resolveErroredRunTerminalEvent({
@@ -522,6 +655,124 @@ describe("run store", () => {
     ]);
   });
 
+  it("stores run events without inline image bytes", async () => {
+    await insertRunEvent(
+      "run-image",
+      2,
+      JSON.stringify({
+        type: "tool_done",
+        result: "saved data:image/png;base64,iVBORw0KGgo=",
+        images: [{ data: "aW1hZ2U=", mediaType: "image/png", label: "shot" }],
+      }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    assertNoInlineImageBytes(stored, "event_data");
+    expect(JSON.parse(stored)).toMatchObject({
+      result: "saved [inline image/png data omitted]",
+      images: [{ label: "shot", omitted: "inline-bytes" }],
+    });
+  });
+
+  it("keeps a paused request pending after the run's terminal done event", async () => {
+    latestEventRows = [
+      {
+        seq: 2,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBe("request-gong");
+    expect(execCalls.at(-1)).toMatchObject({
+      args: ["run-connection", '{"type":"connection_required"%'],
+    });
+    expect(execCalls.at(-1)?.sql).toMatch(
+      /ORDER BY request_event\.seq DESC\s+LIMIT 1/i,
+    );
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+  });
+
+  it("does not restore a connection request after a same-turn continuation", async () => {
+    hasLaterSameTurnRun = true;
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBeNull();
+    expect(execCalls.at(-1)?.sql).toMatch(/continuation_order/i);
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+  });
+
+  it("reports no pending connection request when the run has no request event", async () => {
+    await expect(
+      getRunPendingConnectionRequestId("run-without-connection"),
+    ).resolves.toBeNull();
+  });
+
+  it("stores approval keys as opaque hashes and strips their inline inputs", async () => {
+    const approvalKey = 'upload-image:{"payload":"INLINE_APPROVAL_BASE64"}';
+    await insertRunEvent(
+      "run-approval-image",
+      2,
+      JSON.stringify({
+        type: "approval_required",
+        tool: "upload-image",
+        input: {
+          payload: "data:image/png;base64,INLINE_APPROVAL_IMAGE",
+          sourceUrl: "https://files.example.test/report.png?download=1",
+        },
+        approvalKey,
+        askId: "agent-tool-approval-ask-1",
+      }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    const event = JSON.parse(stored);
+    assertNoInlineImageBytes(stored, "event_data");
+    expect(stored).not.toContain("INLINE_APPROVAL_BASE64");
+    expect(stored).not.toContain("INLINE_APPROVAL_IMAGE");
+    expect(event).toMatchObject({
+      type: "approval_required",
+      approvalKey: approvalKeyForHistory(approvalKey),
+      input: {
+        payload: "[inline image/png data omitted]",
+        sourceUrl: "https://files.example.test/report.png?download=1",
+      },
+      askId: "agent-tool-approval-ask-1",
+    });
+  });
+
   it("never lets an older progress write move the stored timestamp backward", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(12_345);
 
@@ -585,13 +836,20 @@ describe("run store", () => {
     expect(mockCaptureError).not.toHaveBeenCalled();
   });
 
-  it("captures to Sentry when the terminal-event retry also fails", async () => {
+  it("surfaces and captures a terminal-event failure after the retry also fails", async () => {
     insertEventBehavior = () => {
       throw new Error("DB unavailable");
     };
 
-    await markRunAborted("run-retry-fail");
+    const error = await markRunAborted("run-retry-fail").catch(
+      (failure: unknown) => failure,
+    );
 
+    expect(error).toBeInstanceOf(AgentRunEventNotPersistedError);
+    expect(error).toMatchObject({ terminalRun: true });
+    expect((error as Error & { cause?: unknown }).cause).toMatchObject({
+      message: "DB unavailable",
+    });
     expect(mockCaptureError).toHaveBeenCalledTimes(1);
     const [err, ctx] = mockCaptureError.mock.calls[0];
     expect((err as Error).message).toBe("DB unavailable");
@@ -625,7 +883,7 @@ describe("run store", () => {
     expect(JSON.parse(eventJson)).toEqual(STALE_RUN_ERROR_EVENT);
   });
 
-  it("reconciles a persisted terminal event instead of stale-reaping the run", async () => {
+  it("does not repair a terminal run from the reaper before ownership transfer", async () => {
     latestEventRows = [
       {
         seq: 9,
@@ -634,30 +892,19 @@ describe("run store", () => {
       },
     ];
 
-    const reaped = await reapIfStale("run-done-event");
+    const reconciled = await reconcileTerminalRunFromEvents("run-done-event");
 
-    expect(reaped).toBe(false);
-    const repair = execCalls.find(
-      (call) =>
-        /UPDATE agent_runs/i.test(call.sql) &&
-        /SET status = \?/i.test(call.sql),
-    );
-    expect(repair?.args[0]).toBe("completed");
-    expect(repair?.args[1]).toBe(123_456);
-    expect(repair?.args[2]).toBeNull();
-    expect(repair?.args[3]).toBeNull();
-    expect(repair?.args[4]).toBe("done");
-    expect(repair?.args[5]).toBe("run-done-event");
+    expect(reconciled).toBe(false);
     expect(
       execCalls.some(
         (call) =>
-          /UPDATE agent_runs[\s\S]*SET status = 'errored'/i.test(call.sql) &&
-          call.args.includes("run-done-event"),
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = \?/i.test(call.sql),
       ),
     ).toBe(false);
   });
 
-  it("reconciles missing credential terminal events as errored runs", async () => {
+  it("reconciles missing credential terminal events under the worker fence", async () => {
     latestEventRows = [
       {
         seq: 9,
@@ -666,9 +913,7 @@ describe("run store", () => {
       },
     ];
 
-    const reaped = await reapIfStale("run-missing-key-event");
-
-    expect(reaped).toBe(false);
+    await reconcileAsWorker("run-missing-key-event");
     const repair = execCalls.find(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&
@@ -681,7 +926,8 @@ describe("run store", () => {
       expect.stringContaining("No LLM provider is connected"),
     );
     expect(repair?.args[4]).toBe("missing_api_key");
-    expect(repair?.args[5]).toBe("run-missing-key-event");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-missing-key-event");
   });
 
   it("keeps an earlier stream error from reconciling as a later successful terminal event", async () => {
@@ -703,9 +949,7 @@ describe("run store", () => {
       },
     ];
 
-    const reaped = await reapIfStale("run-error-then-done");
-
-    expect(reaped).toBe(false);
+    await reconcileAsWorker("run-error-then-done");
     const repair = execCalls.find(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&
@@ -716,7 +960,8 @@ describe("run store", () => {
     expect(repair?.args[2]).toBe("provider_failed");
     expect(repair?.args[3]).toBe("model returned 500");
     expect(repair?.args[4]).toBe("error:provider_failed");
-    expect(repair?.args[5]).toBe("run-error-then-done");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-error-then-done");
     const eventLookup = execCalls.find((call) =>
       /SELECT seq, event_data, event_at/i.test(call.sql),
     );
@@ -738,7 +983,7 @@ describe("run store", () => {
       },
     ];
 
-    await reapIfStale("run-missing-then-done");
+    await reconcileAsWorker("run-missing-then-done");
 
     const repair = execCalls.find(
       (call) =>
@@ -749,7 +994,8 @@ describe("run store", () => {
     expect(repair?.args[1]).toBe(123_456);
     expect(repair?.args[2]).toBe("missing_credentials");
     expect(repair?.args[4]).toBe("missing_api_key");
-    expect(repair?.args[5]).toBe("run-missing-then-done");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-missing-then-done");
   });
 
   it("still repairs a synthetic stale-run event when a later done event was persisted", async () => {
@@ -766,7 +1012,7 @@ describe("run store", () => {
       },
     ];
 
-    await reapIfStale("run-stale-then-done");
+    await reconcileAsWorker("run-stale-then-done");
 
     const repair = execCalls.find(
       (call) =>
@@ -778,7 +1024,8 @@ describe("run store", () => {
     expect(repair?.args[2]).toBeNull();
     expect(repair?.args[3]).toBeNull();
     expect(repair?.args[4]).toBe("done");
-    expect(repair?.args[5]).toBe("run-stale-then-done");
+    expect(repair?.args[5]).toBe(false);
+    expect(repair?.args[6]).toBe("run-stale-then-done");
   });
 
   it("reconciles legacy terminal events without stamping repair time", async () => {
@@ -786,7 +1033,7 @@ describe("run store", () => {
       { seq: 9, event_data: JSON.stringify({ type: "done" }) },
     ];
 
-    await reapIfStale("run-legacy-done-event");
+    await reconcileAsWorker("run-legacy-done-event");
 
     const repair = execCalls.find(
       (call) =>
@@ -800,7 +1047,7 @@ describe("run store", () => {
     expect(repair?.args[1]).toBeNull();
   });
 
-  it("repairs terminal event rows before listing runs for debug surfaces", async () => {
+  it("does not repair terminal event rows from run-list reads", async () => {
     runListRows = [
       {
         id: "run-done-event",
@@ -818,14 +1065,6 @@ describe("run store", () => {
         diag_stage: null,
       },
     ];
-    refreshedRunListRows = [
-      {
-        ...runListRows[0],
-        status: "completed",
-        completed_at: 123_456,
-        terminal_reason: "done",
-      },
-    ];
     latestEventRows = [
       {
         seq: 9,
@@ -836,20 +1075,83 @@ describe("run store", () => {
 
     const runs = await listRunsForThread("thread-done");
 
-    expect(runs[0]?.status).toBe("completed");
-    expect(runs[0]?.completedAt).toBe(123_456);
-    expect(runs[0]?.terminalReason).toBe("done");
-    expect(runListSelectCount).toBe(2);
-    const repair = execCalls.find(
-      (call) =>
-        /UPDATE agent_runs/i.test(call.sql) &&
-        /SET status = \?/i.test(call.sql),
+    expect(runs[0]?.status).toBe("running");
+    expect(runs[0]?.completedAt).toBeNull();
+    expect(runListSelectCount).toBe(1);
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = \?/i.test(call.sql),
+      ),
+    ).toBe(false);
+  });
+
+  it("lists only the requested run lifecycle rows without a table-wide read", async () => {
+    runListRows = [
+      {
+        id: "run-lifecycle-one",
+        thread_id: "thread-lifecycle",
+        turn_id: "turn-one",
+        status: "completed",
+        started_at: 1000,
+        heartbeat_at: 1500,
+        completed_at: 1600,
+        last_progress_at: 1500,
+        error_code: null,
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: "done",
+        diag_stage: null,
+      },
+      {
+        id: "run-lifecycle-two",
+        thread_id: "thread-lifecycle",
+        turn_id: "turn-two",
+        status: "errored",
+        started_at: 2000,
+        heartbeat_at: 2500,
+        completed_at: 2600,
+        last_progress_at: 2500,
+        error_code: "run_timeout",
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: "run_timeout",
+        diag_stage: null,
+      },
+    ];
+
+    const runs = await listRunsForThread("thread-lifecycle", {
+      runIds: ["run-lifecycle-two", "missing-run", "run-lifecycle-two"],
+    });
+
+    expect(runs.map((run) => run.id)).toEqual(["run-lifecycle-two"]);
+    expect(runs[0]).toMatchObject({
+      status: "errored",
+      errorCode: "run_timeout",
+      completedAt: 2600,
+    });
+    expect(execCalls.at(-1)?.sql).toContain("AND id IN (?, ?)");
+    expect(execCalls.at(-1)?.args).toEqual([
+      "thread-lifecycle",
+      "run-lifecycle-two",
+      "missing-run",
+    ]);
+  });
+
+  it("splits large lifecycle projections into bounded SQL batches", async () => {
+    const runIds = Array.from({ length: 501 }, (_, index) => `run-${index}`);
+
+    await listRunsForThread("thread-large-lifecycle", { runIds });
+
+    const queries = execCalls.filter((call) =>
+      /FROM agent_runs\s+WHERE thread_id = \? AND id IN \(/i.test(call.sql),
     );
-    expect(repair?.args[0]).toBe("completed");
-    expect(repair?.args[2]).toBeNull();
-    expect(repair?.args[3]).toBeNull();
-    expect(repair?.args[4]).toBe("done");
-    expect(repair?.args[5]).toBe("run-done-event");
+    expect(queries).toHaveLength(2);
+    expect(queries.map((query) => query.args.length)).toEqual([501, 2]);
+    expect(
+      queries.every((query) => query.args[0] === "thread-large-lifecycle"),
+    ).toBe(true);
   });
 
   it("reconciles multiple stale candidate runs in parallel, not sequentially", async () => {
@@ -885,12 +1187,6 @@ describe("run store", () => {
         diag_stage: null,
       },
     ];
-    refreshedRunListRows = runListRows.map((row) => ({
-      ...row,
-      status: "completed",
-      completed_at: 123_456,
-      terminal_reason: "done",
-    }));
     latestEventRows = [
       {
         seq: 9,
@@ -902,16 +1198,14 @@ describe("run store", () => {
     const runs = await listRunsForThread("thread-multi-stale");
 
     expect(runs).toHaveLength(2);
-    expect(runs.every((run) => run.status === "completed")).toBe(true);
-    expect(runListSelectCount).toBe(2);
+    expect(runs.every((run) => run.status === "running")).toBe(true);
+    expect(runListSelectCount).toBe(1);
     const repairCalls = execCalls.filter(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&
         /SET status = \?/i.test(call.sql),
     );
-    expect(repairCalls).toHaveLength(2);
-    const reconciledRunIds = repairCalls.map((call) => call.args[5]).sort();
-    expect(reconciledRunIds).toEqual(["run-stale-a", "run-stale-b"]);
+    expect(repairCalls).toHaveLength(0);
   });
 
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
@@ -928,35 +1222,25 @@ describe("run store", () => {
     );
   });
 
-  it("cleanupOldRuns SELECTs both heartbeat-stale AND age-stale rows for terminal-event append", async () => {
-    staleSelectRows = [{ id: "old-but-heartbeating-run" }];
-
+  it("cleanupOldRuns leaves stale recovery to the lease-aware reaper", async () => {
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
-    const select = execCalls.find(
-      (call) =>
-        /SELECT id FROM agent_runs/i.test(call.sql) &&
-        /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/.test(
-          call.sql,
-        ) &&
-        /< \(CAST\(\? AS BIGINT\) -/.test(call.sql) &&
-        /dispatch_mode LIKE 'background%'/.test(call.sql) &&
-        /OR started_at < \?/.test(call.sql),
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = 'errored'/i.test(call.sql),
+      ),
+    ).toBe(false);
+    expect(execCalls.some((call) => /OR started_at < \?/i.test(call.sql))).toBe(
+      false,
     );
-    expect(select).toBeDefined();
-
-    const insert = execCalls.find((call) =>
-      /INSERT INTO agent_run_events/i.test(call.sql),
-    );
-    expect(insert?.args[0]).toBe("old-but-heartbeating-run");
-    expect(insert?.args[3] as string).toContain('"errorCode":"stale_run"');
   });
 
-  it("persists stale error diagnostics for all stale-run reap paths", async () => {
+  it("persists stale error diagnostics when the lease-aware reaper wins", async () => {
     staleSelectRows = [{ id: "run-stale-startup" }];
 
     await reapAllStaleRuns();
-    await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const staleUpdates = execCalls.filter(
       (call) =>
@@ -966,7 +1250,7 @@ describe("run store", () => {
         /error_detail = \?/i.test(call.sql) &&
         /terminal_reason = \?/i.test(call.sql),
     );
-    expect(staleUpdates.length).toBeGreaterThanOrEqual(3);
+    expect(staleUpdates).toHaveLength(1);
     for (const update of staleUpdates) {
       expect(update.args[0]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
       expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.details);
@@ -1030,6 +1314,38 @@ describe("run store", () => {
       execCalls.some((call) => call.sql.includes("INSERT INTO agent_runs")),
     ).toBe(true);
   });
+
+  it("tryClaimRunSlot persists a byte-free dispatch payload", async () => {
+    const dispatchPayload = JSON.stringify({
+      messages: [{ role: "user", content: "Create an ad" }],
+    });
+    await tryClaimRunSlot(
+      "thread-claim-payload",
+      "run-claim-payload",
+      undefined,
+      { dispatchPayload },
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.args).toContain(dispatchPayload);
+  });
+
+  it.each(inlineDispatchPayloads)(
+    "tryClaimRunSlot rejects %s before SQL",
+    async (_kind, dispatchPayload) => {
+      await expect(
+        tryClaimRunSlot("thread-inline", "run-inline", undefined, {
+          dispatchPayload,
+        }),
+      ).rejects.toThrow("dispatch_payload stores inline");
+
+      expect(
+        execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+      ).toBe(false);
+    },
+  );
 
   it("binds the initiator before inserting a claimed run", async () => {
     await tryClaimRunSlot("thread-bound", "run-first", undefined, {
@@ -1278,7 +1594,8 @@ describe("run store", () => {
     );
     expect(update).toBeDefined();
     expect(update?.args[0]).toBe("completed");
-    expect(update?.args[2]).toBe("run-alive");
+    expect(update?.args[2]).toBe(false);
+    expect(update?.args[3]).toBe("run-alive");
   });
 
   it("getRunStatus returns the current status string for a run", async () => {
@@ -1311,7 +1628,47 @@ describe("run store", () => {
     expect(insert?.args[3]).toBe("[]");
     expect(insert?.args[4]).toBeNull();
     expect(insert?.args[5]).toBeNull();
+    expect(insert?.args[7]).toBeNull();
     expect(insert?.sql).toContain("ON CONFLICT");
+  });
+
+  it("records and returns the arguments a ledger result ran with", async () => {
+    await writeLedgerEntry(
+      "thread-hash",
+      "my-tool#abc",
+      "the result",
+      [],
+      true,
+      undefined,
+      "abc",
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("arguments_hash = excluded.arguments_hash");
+    expect(insert?.args[7]).toBe("abc");
+
+    ledgerRows = [
+      {
+        result_summary: "the result",
+        artifacts_json: "[]",
+        arguments_hash: "abc",
+      },
+    ];
+    await expect(
+      readLedgerEntry("thread-hash", "my-tool#abc"),
+    ).resolves.toMatchObject({ result: "the result", argumentsHash: "abc" });
+    // A result recorded before calls bound their arguments has none.
+    ledgerRows = [
+      {
+        result_summary: "the result",
+        artifacts_json: "[]",
+        arguments_hash: null,
+      },
+    ];
+    const legacy = await readLedgerEntry("thread-hash", "my-tool#abc");
+    expect(legacy).not.toBeNull();
+    expect(legacy).not.toHaveProperty("argumentsHash");
   });
 
   it("writeLedgerEntry preserves artifact receipts outside the capped result", async () => {
@@ -1335,6 +1692,34 @@ describe("run store", () => {
     );
     expect(insert?.args[2]).toContain("ledger truncated");
     expect(JSON.parse(insert?.args[3] as string)).toEqual(artifacts);
+  });
+
+  it("writeLedgerEntry strips inline image bytes from every persisted payload", async () => {
+    const inlineImage = "data:image/png;base64,aW1hZ2UtYnl0ZXM=";
+    const toolImage = {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/png",
+        data: "aW1hZ2UtYnl0ZXM=",
+      },
+    };
+    await writeLedgerEntry(
+      "thread-image-ledger",
+      "image-tool:{}",
+      `Could not process ${inlineImage}`,
+      [toolImage as never],
+      undefined,
+      JSON.stringify({ attachment: toolImage }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    const persisted = JSON.stringify(insert?.args);
+    expect(persisted).not.toContain("data:image");
+    expect(persisted).not.toContain("aW1hZ2UtYnl0ZXM=");
+    expect(persisted).toContain("inline image/png data omitted");
   });
 
   it("writeLedgerEntry caps result at 8 000 chars and appends truncation marker", async () => {
@@ -1369,7 +1754,7 @@ describe("run store", () => {
       chatUIResult: { id: "draft-1" },
     });
     const select = execCalls.find((call) =>
-      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger/i.test(
         call.sql,
       ),
     );
@@ -1619,6 +2004,42 @@ describe("run store", () => {
     ]);
   });
 
+  it.each(inlineDispatchPayloads)(
+    "insertRun rejects %s before SQL",
+    async (_kind, dispatchPayload) => {
+      await expect(
+        insertRun("run-inline-payload", "thread-inline", "turn-inline", {
+          dispatchPayload,
+        }),
+      ).rejects.toThrow("dispatch_payload stores inline");
+
+      expect(
+        execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+      ).toBe(false);
+    },
+  );
+
+  it("does not copy malformed legacy image payloads during stale recovery", async () => {
+    staleRecoveryRows = [
+      {
+        thread_id: "thread-legacy-image",
+        turn_id: "turn-legacy-image",
+        dispatch_mode: "background-processing",
+        dispatch_payload:
+          '{"message":"legacy payload data:image/png;base64,LEGACY_IMAGE_BYTES"',
+        started_at: 1,
+      },
+    ];
+
+    await expect(reapIfStale("run-legacy-image", 1)).resolves.toBe(true);
+
+    expect(
+      execCalls.some((call) =>
+        /INSERT INTO agent_runs[\s\S]*dispatch_payload/i.test(call.sql),
+      ),
+    ).toBe(false);
+  });
+
   it("insertRun binds null dispatch_payload when no payload is given", async () => {
     await insertRun("run-no-payload", "thread-1");
 
@@ -1690,7 +2111,7 @@ describe("run store", () => {
     await updateRunStatusIfRunning("run-terminal-if-running", "errored");
 
     const update = execCalls.find((call) =>
-      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL WHERE id = \? AND status = 'running'/i.test(
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL,\s*thread_projection_pending = CASE WHEN \? THEN TRUE ELSE thread_projection_pending END\s*WHERE id = \? AND status = 'running'/i.test(
         call.sql,
       ),
     );
@@ -1698,6 +2119,7 @@ describe("run store", () => {
     expect(update?.args).toEqual([
       "errored",
       expect.any(Number),
+      false,
       "run-terminal-if-running",
     ]);
   });
@@ -1847,15 +2269,25 @@ describe("run store", () => {
     ]);
   });
 
-  it("an idle fast-sweep tick costs one query, not one per sweep", async () => {
+  it("an idle fast-sweep tick does one projection scan and shares one running-row probe", async () => {
     await reapAllStaleRuns();
     await listUnclaimedBackgroundRunRows();
 
     const runTableReads = execCalls.filter((call) =>
       /FROM agent_runs/i.test(call.sql),
     );
-    expect(runTableReads).toHaveLength(1);
-    expect(runTableReads[0]?.sql).toContain("LIMIT 1");
+    const projectionReads = runTableReads.filter((call) =>
+      /thread_projection_pending IS TRUE/i.test(call.sql),
+    );
+    const runningRowProbes = runTableReads.filter((call) =>
+      /SELECT id FROM agent_runs\s+WHERE status = 'running' LIMIT 1/i.test(
+        call.sql,
+      ),
+    );
+    expect(projectionReads).toHaveLength(1);
+    expect(runningRowProbes).toHaveLength(1);
+    expect(runningRowProbes[0]?.sql).toContain("LIMIT 1");
+    expect(runTableReads).toHaveLength(2);
   });
 
   it("a running row makes both sweeps run their own scan again", async () => {
@@ -1986,7 +2418,15 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
         event_data: JSON.stringify(event),
       },
     ];
-    await reconcileTerminalRunFromEvents("run-invariant");
+    await withExecutionFence(
+      {
+        threadId: "thread-test",
+        turnId: "turn-test",
+        runId: "run-invariant",
+        generation: "1",
+      },
+      () => reconcileTerminalRunFromEvents("run-invariant"),
+    );
     const update = execCalls.find(
       (call) =>
         /UPDATE agent_runs/i.test(call.sql) &&

@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "このブロックは一時的に利用できません。",
+  "block.loading": "ブロックを読み込み中です。",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl":
     "有効な HTTP または HTTPS の URL を入力してください。",
@@ -39,6 +41,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "待機中",
   "agent.completed": "完了しました",
   "agent.failed": "対応が必要です",
+  "agent.failureReason.failed": "完了できませんでした",
+  "agent.failureReason.setup": "先に設定が必要です",
+  "agent.failureReason.auth": "アクセスが拒否されました",
+  "agent.failureReason.timeout": "応答がタイムアウトしました",
+  "agent.failureReason.budget": "時間切れになりました",
+  "agent.failureReason.response": "使える結果がありません",
   "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
@@ -85,6 +93,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "返信で確認する任意のテキスト…",
   "observability.promoteMustContainLabel":
     "昇格した評価の返信で確認するテキスト",
+  "observability.promoteReviewedPromptLabel":
+    "手動で確認したプロンプト（本番環境から自動コピーされません）",
   "observability.promoteNeedsContains":
     "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.viewDetails": "詳細を表示",
@@ -127,7 +137,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
-  "onboarding.builderSignInWithAccount": "Builder.io を使う",
+  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":
@@ -149,8 +159,17 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io アカウントをすでにお持ちです",
   "onboarding.builderAccountExistsDescription":
     "ログインしてアカウントを使用してください。",
+  "onboarding.builderActivationChecking":
+    "新しいアカウントを作成できるか確認しています。",
+  "onboarding.builderActivationUnavailable":
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
+  "onboarding.builderActivationUnavailableInMode":
+    "Builder.io に接続するには、アカウントを作成するかサインインしてください。",
+  "onboarding.builderActivationCheckFailed":
+    "このアプリで新しいアカウントを作成できるか確認できませんでした。",
+
   "onboarding.builderActivationDescription":
-    "ワンクリックで Builder.io アカウントを作成または接続して、無料クレジットを獲得します。",
+    "新しいアカウントを作成して無料クレジットを有効にするか、既存のアカウントで続行します。",
   "onboarding.builderOrgActivationDescription":
     "ワンクリックで Builder.io アカウントを作成し、組織で使えるようにします。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
@@ -159,11 +178,34 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "利用規約",
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
-  "onboarding.builderExistingAccount": "Builder.io を使う",
+  "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
+  "onboarding.creditsTitle": "毎月 60 の無料 Agent Credits で試してみましょう",
+  "onboarding.creditsTitleClips":
+    "無料のビデオストレージと毎月 60 の Agent Credits で試してみましょう",
+  "onboarding.creditsActivate": "無料クレジットを有効化",
+  "onboarding.creditsFinePrint":
+    "無料の Builder.io アカウントが作成されます。続行することで、当社の",
+  "onboarding.creditsMoreInfo": "詳細情報",
+  "onboarding.creditsSubtitle":
+    "Builder.io から、このアプリ向けの LLM、Jev、ストレージなどの無料クレジットをワンクリックで入手できます。",
+  "onboarding.creditsLearnMore": "詳しく見る",
+  "onboarding.creditsSkip": "スキップ",
+  "onboarding.creditsSkipConfirmTitle": "よろしいですか？",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native アプリでは、ほとんどの機能を使うために LLM の接続が必要です。LLM がないと、ほとんどの機能は動作しません。",
+  "onboarding.creditsSkipGoBack": "戻る",
+  "onboarding.creditsSkipAnyway": "それでもスキップ",
+  "onboarding.creditsUseCustomKeys": "カスタムキーを使用",
+  "onboarding.creditsAboutLabel": "無料クレジットについて",
+  "onboarding.creditsActivating": "無料クレジットを有効化しています",
+  "onboarding.creditsActivatingTooltip":
+    "Builder は、LLM、Jev、ストレージなどの無料クレジットを提供します。自分のキーがなくても、このアプリの AI 機能を使えます。",
+  "onboarding.builderConnect": "Builder.io に接続",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
     "Builder.io アカウントを作成し、無料クレジットを有効化しています。",
+  "onboarding.builderCancelPending": "接続状態を確認しています…",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
   "onboarding.builderReadyWithCodeChanges":
@@ -195,6 +237,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "埋め込み",
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
+  "onboarding.capability.webSearch.label": "ウェブ検索",
+  "onboarding.capability.webSearch.keySummary": "ウェブ検索",
+  "onboarding.capability.webSearch.why":
+    "ウェブ上の最新の公開情報を検索します。Builder 管理の検索では付属の Builder AI クレジットを使うため、別の検索 API キーは不要です。",
   "onboarding.capability.systemOne.why":
     "Jev は、エージェントが最初にモデルへリクエストする前に、関連するツールやスキルを選ぶための任意の判断モデルです。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
@@ -516,7 +562,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "スキルファイルをアップロード",
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
+  "composer.fileTooLarge":
+    "このファイルはアップロード上限の {{size}} MB を超えています。",
+  "composer.sessionExpired":
+    "セッションの有効期限が切れました。もう一度サインインしてから、メッセージを送信してください。",
   "composer.unsupportedFileType": "このファイル形式はサポートされていません。",
+  "composer.uploadUnavailable":
+    "現在ファイルをアップロードできません。しばらくしてからもう一度お試しください。",
+  "composer.uploadOffline":
+    "アップロードがサーバーに届きませんでした。接続を確認して、もう一度お試しください。",
+  "composer.submissionNotReady":
+    "チャットはまだ送信できる状態ではありません。少し待ってから、もう一度送信してください。",
+  "composer.submissionScopeChanged":
+    "メッセージの送信前にこのチャットが変更されました。もう一度送信してください。",
+  "composer.attachmentNotSaved": "このチャットには保存されていません",
   "composer.useAttachedContext": "添付されたコンテキストを使用してください。",
   "mentions.commands": "コマンド",
   "mentions.learnMore": "詳細を見る",
@@ -653,6 +712,10 @@ const messages: ToolkitAgentChatTranslation = {
     "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
   "errorMessages.requestTooLarge":
     "このリクエストはサーバーのサイズ上限を超えました（HTTP 413）。新しいチャットを開始するか、大きな添付ファイルや参照を削除して再試行してください。",
+  "errorMessages.capabilityUnavailable":
+    "現在メッセージを送信できませんでした。少し待ってからもう一度お試しください。",
+  "errorMessages.capabilityUnsupported":
+    "このアプリは、保存したプロンプトをまだ安全に再試行できません。アプリを更新してから、もう一度お試しください。",
   "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
   "errorMessages.runFailed": "エージェントの実行に失敗しました。",
   "errorMessages.runUnverified":
@@ -661,6 +724,8 @@ const messages: ToolkitAgentChatTranslation = {
     "サインアウトしているため、このチャットはエージェントを追跡できません。もう一度サインインしてから再読み込みしてください。",
   "errorMessages.malformedRequestAttachment":
     "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
+  "errorMessages.invalidAttachment":
+    "モデルプロバイダーが、添付ファイルの形式またはサイズを理由に拒否しました。画像は小さい PNG、JPEG、GIF、WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けてから、もう一度添付してください。",
   "errorMessages.noProviderConnected":
     "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）を使用するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
@@ -952,7 +1017,26 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM、連絡先、会社、取引、チケット、顧客分析",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "ワークスペースで管理する HubSpot MCP Auth App が設定されている場合、どのメンバーも OAuth と PKCE で個人の HubSpot アカウントを接続できます。設定されていない場合は、接続する前に HubSpot Developer Platform でアプリを作成してください。既存の HubSpot OAuth コネクターは引き続きアプリのアクションで利用できます。",
+    "ワークスペースのオーナーが HubSpot MCP Auth App を設定すると、各メンバーが自分の HubSpot アカウントを接続できます。",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP を設定",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "ワークスペースのオーナーが HubSpot MCP を一度設定します。その後、各メンバーが自分のアカウントを接続します。",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "ワークスペースの設定が必要です",
+  "mcpIntegrations.hubspot.setupChecking": "ワークスペースの設定を確認中…",
+  "mcpIntegrations.hubspot.setupUnavailable": "設定状況を確認できません",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "ワークスペースの OAuth 設定を確認できませんでした。もう一度お試しください。",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "HubSpot MCP Auth App を作成し、Agent-Native settings → API keys にクライアント ID とシークレットを追加してください。",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "ワークスペースのオーナーに HubSpot MCP Auth App の作成と、Agent-Native settings → API keys へのクライアント ID とシークレットの追加を依頼してください。設定後、自分の HubSpot アカウントを接続できます。",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "HubSpot MCP を接続する前にワークスペースに参加してください。",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "ワークスペースの認証情報を追加",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "再確認",
+  "mcpIntegrations.hubspot.retrySetupStatus": "再試行",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon のサポートデータを検索、更新します。",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1156,6 +1240,15 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.continueUnavailable":
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
+  "errorMessages.invalidAttachmentNamed":
+    "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.resendVerificationEmail": "確認メールを再送信",
+  "recovery.sendingVerificationEmail": "送信中...",
+  "recovery.verificationEmailRequested":
+    "確認メールの送信をリクエストしました。受信トレイと迷惑メールフォルダーを確認してください。",
+  "recovery.verificationEmailFailed":
+    "確認メールをリクエストできませんでした。もう一度お試しください。",
+  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
   "recovery.deferredSubmissionFailed":
@@ -1199,6 +1292,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "他{{count}}件は「新規」の下にあるか、任意のカスタムキーを追加できます",
   "secrets.emptyTitle": "キーはまだありません。",
+  "secrets.figmaTokenMustBeToken":
+    "Figma ファイル URL ではなく、Figma アクセストークンを貼り付けてください。",
   "secrets.fromEnvironment": "デプロイ環境から提供されています。",
   "secrets.managedInVault":
     "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
@@ -1226,6 +1321,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.clear": "選択範囲のコンテキストを消去",
+  "setup.addKeyInSettings": "設定でキーを追加",
+  "setup.addKeyInSettingsDescription": "個人または組織のアカウント用です。",
+  "setup.setEnvironmentVariable": "環境変数を設定",
+  "setup.setEnvironmentVariableDescription":
+    "このアプリの全ユーザーで1つのプロバイダーキーを共有します。",
+
   "setup.addOwnKeys": "独自のキーを追加",
   "setup.builderCredits":
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",
@@ -1793,6 +1894,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}} 経由のエージェント",
   "settings.audit.allApps": "すべてのアプリ",
   "settings.audit.app": "アプリ",
+  "settings.audit.approval": "承認",
+  "settings.audit.approvalAgentChat": "エージェントチャットで承認",
+  "settings.audit.approvalA2AReview":
+    "エージェントアクションの確認ページで承認",
+  "settings.audit.approvalMcpClient": "MCP クライアントが承諾（未検証）",
   "settings.audit.changedBy": "変更者",
   "settings.audit.close": "閉じる",
   "settings.audit.empty": "この期間に変更はありません。",
@@ -1806,9 +1912,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "過去 90 日間",
   "settings.audit.loadFailed": "監査ログを読み込めませんでした。",
   "settings.audit.loading": "監査ログを読み込み中",
+  "settings.audit.oauthClient": "OAuth クライアント",
   "settings.audit.onBehalfOf": "依頼者",
   "settings.audit.range": "期間",
   "settings.audit.refused": "拒否",
+  "settings.audit.reportedClient": "自己申告のクライアント",
   "settings.audit.result": "結果",
   "settings.audit.showMore": "さらに {{count}} 件表示",
   "settings.audit.succeeded": "成功",
@@ -2079,7 +2187,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io の接続を解除できませんでした。",
   "settingsShell.builder.disconnectTitle": "Builder.io の接続を解除しますか？",
   "settingsShell.builder.grantsFailed":
-    "Builder.io への接続を確認できませんでした。",
+    "接続状態を確認できません。もう一度お試しください。",
   "settingsShell.builder.setupStartFailed":
     "Builder.io のセットアップを開始できませんでした。このページを更新して、もう一度お試しください。",
   "settingsShell.builder.setupHostFailed":
@@ -2515,7 +2623,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID。無料プランがあります。",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io の接続を確認できませんでした。",
+    "接続状態を確認できません。もう一度お試しください。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "デザイン",
   "settingsShell.integrations.category.engineering": "エンジニアリング",
@@ -2585,6 +2693,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "アプリのデフォルトモデル",
   "settingsShell.search.backgroundAgents": "バックグラウンドエージェント",
   "settingsShell.search.browserAutomation": "ブラウザ自動化",
+  "settingsShell.search.webSearch": "ウェブ検索",
   "settingsShell.search.connectedAgents": "接続済みエージェント",
   "settingsShell.search.database": "データベース",
   "settingsShell.search.defaultModel": "デフォルトモデル",
@@ -2670,6 +2779,11 @@ const messages: ToolkitAgentChatTranslation = {
     "デプロイのフォールバックを利用できます。上書きするには、ご自身の Builder.io アカウントを使用してください。",
   "settingsInfra.builderStorageHint":
     "オブジェクトストレージはアップロードしたファイルを保持し、スレッド全体で URL を再利用できるようにします。以下では Builder.io または S3 互換バケットを使用してください。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io は接続されていますが、まだアップロードしたファイルを保存できません。アップロード権限を付与するため再接続するか、下でバケットを設定してください。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io のアップロード権限を確認できませんでした。再試行するか、下でバケットを設定してください。",
+  "settingsInfra.reconnectBuilderUploads": "アップロード権限を付与",
   "settingsInfra.builderUnknown": "Builder.io の接続を確認できませんでした。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "接続",
@@ -2715,6 +2829,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "本番環境からコードを変更します。",
   "settingsInfra.whyBrowser":
     "本番環境でエージェントがブラウザを使えるようにします。",
+  "settingsInfra.whyWebSearch":
+    "最新の公開情報や公式ドキュメントを検索します。",
   "settingsInfra.provider": "プロバイダー",
   "settingsInfra.keyOrg": "組織の {{provider}} キーを使います。",
   "settingsInfra.manageKey": "キーを管理",
@@ -2875,6 +2991,10 @@ const messages: ToolkitAgentChatTranslation = {
     "ここでは接続を解除しました。ChatGPT ではアクセスが有効なままの場合があります。",
   "settingsModel.chatgptLocalOnly":
     "オープンソースアプリは、loopback callback を使ってローカルで実行すれば申請なしで利用できます。パートナー申請は不要です。*.agent-native.com 上のホスト型アプリには、運営者の承認とホスト型 callback が必要です。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT プランへのアクセスには個人アカウントを使用してください。ローカル開発では、サインイン前に access.autoCreateDefaultOrg を false に設定してください。",
+  "settingsModel.chatgptScopeUnresolved":
+    "アプリでアカウントのスコープを確認できませんでした。ローカル設定を完了してから、設定を再読み込みしてください。",
   "settingsModel.chatgptNoDirectUse":
     "このChatGPTアカウントを使用するには、再接続してモデルへの直接アクセスを許可してください。",
   "settingsModel.chatgptReconnect": "再接続",
@@ -3049,6 +3169,16 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.connectTitle": "{{name}} を接続",
   "settingsSubAgents.close": "閉じる",
   "observability.insights.rawTrace": "生のトレース（すべてのスパンと入出力）",
+  "reportProblem.menuItem": "問題を報告",
+  "reportProblem.title_other":
+    "過去 {{count}} 秒間のアプリの動作を添付しますか？",
+  "reportProblem.noEvents": "まだ記録はありません。",
+  "reportProblem.send": "エージェントに送信",
+  "reportProblem.copy": "問題レポートをコピー",
+  "reportProblem.attaching": "添付中…",
+  "reportProblem.notAttached": "レポートは添付されませんでした。",
+  "reportProblem.agentMessage":
+    "アプリで問題が発生しました。添付の問題レポートをもとに、何が起きたのか説明してください。",
 };
 
 export default messages;

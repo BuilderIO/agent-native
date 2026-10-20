@@ -77,6 +77,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (value: Date, options?: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat("en-US", options).format(value),
+  }),
 }));
 vi.mock("@agent-native/core/client/labs", () => ({
   useLabState: () => ({
@@ -470,6 +474,37 @@ describe("Sessions empty states", () => {
     expect(container.textContent).toContain("sessions.frictionSignalCount");
   });
 
+  it("lists anonymous sessions without presenting the browser id as a person", async () => {
+    mocks.total = 1;
+    mocks.recordings = [
+      {
+        id: "sr_pre_auth_test",
+        sessionId: "session_pre_auth_test",
+        userId: null,
+        userKey: "anon_test_browser_id",
+        anonymousId: "anon_test_browser_id",
+        startedAt: "2026-10-08T10:00:00.000Z",
+        durationMs: 60_000,
+        eventCount: 4,
+        pageCount: 1,
+        errorCount: 0,
+        networkErrorCount: 0,
+        rageClickCount: 0,
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?visitorType=anonymous"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(listCalls()[0][1]).toMatchObject({ visitorType: "anonymous" });
+    expect(container.textContent).toContain("sessions.anonymous");
+    expect(container.textContent).not.toContain("anon_test_browser_id");
+  });
+
   it("keeps the list and offers a retry when row friction fails to load", async () => {
     mocks.labEnabled = true;
     mocks.total = 1;
@@ -705,7 +740,7 @@ describe("Sessions empty states", () => {
   async function renderSessions(path = "/sessions") {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={[path]}>
+        <MemoryRouter key={path} initialEntries={[path]}>
           <SessionsTriagePage />
         </MemoryRouter>,
       );
@@ -832,25 +867,40 @@ describe("Sessions empty states", () => {
     ).toHaveLength(2);
   });
 
-  it("says when speed coverage began beside a slow match", async () => {
-    mocks.labEnabled = true;
-    mocks.speedCoverage = null;
-    await renderSessions("/sessions?slow=any");
-    expect(container.textContent).toContain("sessions.noSessions");
-    expect(container.textContent).toContain("sessions.speedCoverageStarting");
+  it.each([
+    "2026-10-19T00:00:00.000Z",
+    "2026-10-20T00:00:00.000Z",
+    "2026-11-30T00:00:00.000Z",
+  ])(
+    "says when speed coverage began beside a slow match at %s",
+    async (now) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(now));
+      mocks.labEnabled = true;
+      mocks.speedCoverage = null;
+      await renderSessions("/sessions?slow=any");
+      expect(container.textContent).toContain("sessions.noSessions");
+      expect(container.textContent).toContain("sessions.speedCoverageStarting");
 
-    mocks.speedCoverage = "2026-09-20T00:00:00.000Z";
-    await renderSessions("/sessions?slow=any");
-    expect(container.textContent).toContain("sessions.speedCoverageSince");
+      // Ten days ago, so the default 30-day range starts before coverage
+      // whatever today's date is.
+      mocks.speedCoverage = new Date(
+        Date.now() - 10 * 24 * 3_600_000,
+      ).toISOString();
+      await renderSessions("/sessions?slow=any");
+      expect(container.textContent).toContain("sessions.speedCoverageSince");
 
-    // Matches from a range that starts before coverage say so above the list.
-    mocks.total = 1;
-    mocks.recordings = [recording("r1")];
-    await renderSessions("/sessions?slow=any&range=all");
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "sessions.speedCoverageSince",
-    );
-  });
+      // Matches from a range that starts before coverage say so above the list.
+      mocks.total = 1;
+      mocks.recordings = [recording("r1")];
+      await renderSessions("/sessions?slow=any&range=all");
+      const calls = listCalls();
+      expect(calls[calls.length - 1][1].from).toBeUndefined();
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(
+        "sessions.speedCoverageSince",
+      );
+    },
+  );
 
   function retryButtons() {
     return Array.from(container.querySelectorAll("button")).filter(

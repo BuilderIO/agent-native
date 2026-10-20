@@ -43,6 +43,8 @@ import {
   type AgentProtocolMetadata,
   type AgentRequestContext,
   type AgentProtocolVersionOffer,
+  type AgentRequestAttachment,
+  type AgentSubmissionPayload,
   type AgentQueuedMessage,
   type AgentReplayCheckpoint,
   type RunId,
@@ -86,6 +88,11 @@ export class AgentProtocolValidationError extends Error {
   }
 }
 
+export const MAX_AGENT_REQUEST_ATTACHMENTS = 20;
+export const MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS = 6_000_000;
+const MAX_AGENT_REQUEST_ATTACHMENT_DATA_URL_CHARS = 3_000_000;
+const MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE = 256;
+
 function record(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new AgentProtocolValidationError(path, "expected an object");
@@ -119,6 +126,15 @@ function string(value: unknown, path: string): string {
 function optionalString(value: unknown, path: string): void {
   if (value !== undefined && typeof value !== "string") {
     throw new AgentProtocolValidationError(path, "expected a string");
+  }
+}
+
+function rejectDataUrlReference(value: unknown, path: string): void {
+  if (typeof value === "string" && /^\s*data:/i.test(value)) {
+    throw new AgentProtocolValidationError(
+      path,
+      "data URLs cannot be persisted as file references",
+    );
   }
 }
 
@@ -435,7 +451,27 @@ function validateMessagePart(value: unknown, path: string): void {
       optionalString(part.url, `${path}.url`);
       optionalString(part.fileId, `${path}.fileId`);
       optionalString(part.mediaType, `${path}.mediaType`);
-      if (part.url === undefined && part.fileId === undefined) {
+      if (part.data !== undefined) {
+        throw new AgentProtocolValidationError(
+          `${path}.data`,
+          "inline file data cannot be persisted in a queue",
+        );
+      }
+      if (
+        part.omitted !== undefined &&
+        part.omitted !== "inline-bytes" &&
+        part.omitted !== "unsafe-url"
+      ) {
+        throw new AgentProtocolValidationError(
+          `${path}.omitted`,
+          "unsupported omission marker",
+        );
+      }
+      if (
+        part.url === undefined &&
+        part.fileId === undefined &&
+        part.omitted === undefined
+      ) {
         throw new AgentProtocolValidationError(
           path,
           "a file part requires either url or fileId",
@@ -504,6 +540,95 @@ export function parseFilePart(value: unknown, path = "file"): FilePart {
   return value as FilePart;
 }
 
+function parseAgentRequestAttachments(
+  value: unknown,
+  path: string,
+  options: { allowInlineData: boolean; allowLegacyQueueCount?: boolean },
+): AgentRequestAttachment[] {
+  const attachments = array(value, path);
+  if (
+    !options.allowLegacyQueueCount &&
+    attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS
+  ) {
+    throw new AgentProtocolValidationError(
+      path,
+      `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
+    );
+  }
+  let aggregateDataChars = 0;
+  return attachments.map((attachment, index) => {
+    const itemPath = `${path}[${index}]`;
+    const item = record(attachment, itemPath);
+    if (item.type !== "image") {
+      throw new AgentProtocolValidationError(
+        `${itemPath}.type`,
+        "expected image",
+      );
+    }
+    string(item.name, `${itemPath}.name`);
+    optionalString(item.contentType, `${itemPath}.contentType`);
+    optionalString(item.data, `${itemPath}.data`);
+    optionalString(item.url, `${itemPath}.url`);
+    optionalString(item.referenceUrl, `${itemPath}.referenceUrl`);
+    rejectDataUrlReference(item.url, `${itemPath}.url`);
+    rejectDataUrlReference(item.referenceUrl, `${itemPath}.referenceUrl`);
+    if (typeof item.data === "string") {
+      if (!options.allowInlineData) {
+        throw new AgentProtocolValidationError(
+          `${itemPath}.data`,
+          "inline image data cannot be persisted in a queue",
+        );
+      }
+      if (
+        item.data.length > MAX_AGENT_REQUEST_ATTACHMENT_DATA_URL_CHARS ||
+        !/^data:image\/(?:gif|jpeg|png|webp);base64,/i.test(item.data)
+      ) {
+        throw new AgentProtocolValidationError(
+          `${itemPath}.data`,
+          "expected a bounded base64 raster image data URL",
+        );
+      }
+      aggregateDataChars += item.data.length;
+      if (aggregateDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
+        throw new AgentProtocolValidationError(
+          `${path}.data`,
+          `aggregate inline image data exceeds ${MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS} characters`,
+        );
+      }
+    }
+    if (typeof item.data !== "string" && typeof item.url !== "string") {
+      throw new AgentProtocolValidationError(
+        itemPath,
+        "expected inline image data or an image URL",
+      );
+    }
+    return attachment as AgentRequestAttachment;
+  });
+}
+
+function parseQueueFileAttachments(
+  value: unknown,
+  path: string,
+  options: { allowLegacyQueueCount?: boolean } = {},
+): FilePart[] {
+  const attachments = array(value, path);
+  if (
+    !options.allowLegacyQueueCount &&
+    attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS
+  ) {
+    throw new AgentProtocolValidationError(
+      path,
+      `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
+    );
+  }
+  return attachments.map((attachment, index) => {
+    const itemPath = `${path}[${index}]`;
+    const part = parseFilePart(attachment, itemPath);
+    rejectDataUrlReference(part.url, `${itemPath}.url`);
+    return part;
+  });
+}
+
 export function parseAgentThread(value: unknown, path = "thread"): AgentThread {
   const thread = record(value, path);
   string(thread.id, `${path}.id`);
@@ -542,14 +667,23 @@ export function parseAgentQueuedMessage(
   }
   timestamp(message.createdAt, `${path}.createdAt`);
   if (message.attachments !== undefined) {
-    array(message.attachments, `${path}.attachments`).forEach(
-      (attachment, index) =>
-        parseFilePart(attachment, `${path}.attachments[${index}]`),
+    parseQueueFileAttachments(message.attachments, `${path}.attachments`, {
+      allowLegacyQueueCount: true,
+    });
+  }
+  if (message.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      message.requestAttachments,
+      `${path}.requestAttachments`,
+      { allowInlineData: false, allowLegacyQueueCount: true },
     );
   }
   optionalMetadata(message.metadata, `${path}.metadata`);
   if (message.options !== undefined) {
     parseAgentRunOptions(message.options, `${path}.options`);
+  }
+  if (message.interruptActiveRun !== undefined) {
+    boolean(message.interruptActiveRun, `${path}.interruptActiveRun`);
   }
   return value as AgentQueuedMessage;
 }
@@ -1294,6 +1428,10 @@ export function parseAgentThreadSnapshot(
           `must be contiguous within each run; expected ${expectedSequence}`,
         );
       }
+      const sequenceEnd = agentEventSequenceEnd(
+        parsed,
+        `${path}.events[${index}]`,
+      );
       if (eventIds.has(parsed.id)) {
         throw new AgentProtocolValidationError(
           `${path}.events[${index}].id`,
@@ -1301,7 +1439,7 @@ export function parseAgentThreadSnapshot(
         );
       }
       eventIds.add(parsed.id);
-      lastSequenceByRun.set(parsed.runId, parsed.sequence);
+      lastSequenceByRun.set(parsed.runId, sequenceEnd);
     });
   }
   const runIds = new Set<string>();
@@ -1588,6 +1726,22 @@ export function parseQueueMessageResult(
 ): QueueMessageResult {
   const result = record(value, path);
   parseAgentQueuedMessage(result.message, `${path}.message`);
+  if (result.alreadySubmitted === true) {
+    string(result.submittedRunId, `${path}.submittedRunId`);
+  } else if (
+    result.alreadySubmitted !== undefined &&
+    result.alreadySubmitted !== false
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.alreadySubmitted`,
+      "must be true when provided",
+    );
+  } else if (result.submittedRunId !== undefined) {
+    throw new AgentProtocolValidationError(
+      `${path}.submittedRunId`,
+      "requires alreadySubmitted to be true",
+    );
+  }
   return value as QueueMessageResult;
 }
 
@@ -2048,6 +2202,31 @@ export function parseAgentEvent(value: unknown, path = "event"): AgentEvent {
   return value as AgentEvent;
 }
 
+export function agentEventSequenceEnd(
+  event: AgentEvent,
+  path = "event",
+): number {
+  if (event.type !== "x-agent-native.persisted-event-omission-range") {
+    return event.sequence;
+  }
+  const payload = record(event.payload, `${path}.payload`);
+  const sequenceEnd = nonNegativeSafeInteger(
+    payload.lastSequence,
+    `${path}.payload.lastSequence`,
+  );
+  if (
+    sequenceEnd < event.sequence ||
+    sequenceEnd - event.sequence >=
+      MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.payload.lastSequence`,
+      `must cover at most ${MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE} event sequences`,
+    );
+  }
+  return sequenceEnd;
+}
+
 export interface ParseAgentEventSequenceOptions {
   afterSequence?: number;
   threadId?: ThreadId;
@@ -2495,6 +2674,100 @@ export function parseAgentRunOptions(
   return value as AgentRunOptions;
 }
 
+function parseAgentSubmissionPayload(
+  value: unknown,
+  path: string,
+): AgentSubmissionPayload {
+  const submission = record(value, path);
+  knownKeys(
+    submission,
+    [
+      "threadId",
+      "id",
+      "text",
+      "attachments",
+      "requestAttachments",
+      "metadata",
+      "options",
+      "interruptActiveRun",
+    ],
+    path,
+  );
+  parseThreadIdInput(submission, path);
+  string(submission.id, `${path}.id`);
+  if (typeof submission.text !== "string") {
+    throw new AgentProtocolValidationError(`${path}.text`, "expected a string");
+  }
+  if (submission.attachments !== undefined) {
+    array(submission.attachments, `${path}.attachments`).forEach(
+      (attachment, index) => {
+        const attachmentPath = `${path}.attachments[${index}]`;
+        const item = record(attachment, attachmentPath);
+        knownKeys(
+          item,
+          ["type", "name", "mediaType", "fingerprint"],
+          attachmentPath,
+        );
+        if (item.type !== "file") {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.type`,
+            "expected file",
+          );
+        }
+        string(item.name, `${attachmentPath}.name`);
+        optionalString(item.mediaType, `${attachmentPath}.mediaType`);
+        if (
+          typeof item.fingerprint !== "string" ||
+          !/^[a-f0-9]{64}$/.test(item.fingerprint)
+        ) {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.fingerprint`,
+            "expected a lowercase SHA-256 fingerprint",
+          );
+        }
+      },
+    );
+  }
+  if (submission.requestAttachments !== undefined) {
+    array(submission.requestAttachments, `${path}.requestAttachments`).forEach(
+      (attachment, index) => {
+        const attachmentPath = `${path}.requestAttachments[${index}]`;
+        const item = record(attachment, attachmentPath);
+        knownKeys(
+          item,
+          ["type", "name", "contentType", "fingerprint"],
+          attachmentPath,
+        );
+        if (item.type !== "image") {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.type`,
+            "expected image",
+          );
+        }
+        string(item.name, `${attachmentPath}.name`);
+        optionalString(item.contentType, `${attachmentPath}.contentType`);
+        if (
+          typeof item.fingerprint !== "string" ||
+          !/^[a-f0-9]{64}$/.test(item.fingerprint)
+        ) {
+          throw new AgentProtocolValidationError(
+            `${attachmentPath}.fingerprint`,
+            "expected a lowercase SHA-256 fingerprint",
+          );
+        }
+      },
+    );
+  }
+  optionalMetadata(submission.metadata, `${path}.metadata`);
+  if (submission.options !== undefined) {
+    parseAgentRunOptions(submission.options, `${path}.options`);
+  }
+  if (submission.interruptActiveRun !== undefined) {
+    boolean(submission.interruptActiveRun, `${path}.interruptActiveRun`);
+  }
+  return value as AgentSubmissionPayload;
+}
+
 export function parseStartRunInput(
   value: unknown,
   path = "startRun",
@@ -2504,6 +2777,13 @@ export function parseStartRunInput(
   array(input.messages, `${path}.messages`).forEach((message, index) =>
     parseAgentMessage(message, `${path}.messages[${index}]`),
   );
+  if (input.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      input.requestAttachments,
+      `${path}.requestAttachments`,
+      { allowInlineData: true },
+    );
+  }
   if (input.options !== undefined) {
     parseAgentRunOptions(input.options, `${path}.options`);
   }
@@ -2511,6 +2791,18 @@ export function parseStartRunInput(
     parseAgentResumeEntries(input.resume, `${path}.resume`);
   }
   optionalMetadata(input.metadata, `${path}.metadata`);
+  if (input.submissionPayload !== undefined) {
+    const submission = parseAgentSubmissionPayload(
+      input.submissionPayload,
+      `${path}.submissionPayload`,
+    );
+    if (submission.threadId !== input.threadId) {
+      throw new AgentProtocolValidationError(
+        `${path}.submissionPayload.threadId`,
+        "must match startRun.threadId",
+      );
+    }
+  }
   return value as StartRunInput;
 }
 
@@ -2687,29 +2979,51 @@ export function parseForkThreadInput(
 export function parseQueueMessageInput(
   value: unknown,
   path = "queueMessage",
+  options: { allowLegacyQueueCount?: boolean } = {},
 ): QueueMessageInput {
   const input = record(parseThreadIdInput(value, path), path);
   if (typeof input.text !== "string") {
     throw new AgentProtocolValidationError(`${path}.text`, "expected a string");
   }
   if (input.attachments !== undefined) {
-    array(input.attachments, `${path}.attachments`).forEach(
-      (attachment, index) => {
-        validateMessagePart(attachment, `${path}.attachments[${index}]`);
-        if (
-          record(attachment, `${path}.attachments[${index}]`).type !== "file"
-        ) {
-          throw new AgentProtocolValidationError(
-            `${path}.attachments[${index}].type`,
-            "expected file",
-          );
-        }
+    parseQueueFileAttachments(
+      input.attachments,
+      `${path}.attachments`,
+      options,
+    );
+  }
+  if (input.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      input.requestAttachments,
+      `${path}.requestAttachments`,
+      {
+        allowInlineData: false,
+        allowLegacyQueueCount: options.allowLegacyQueueCount,
       },
     );
   }
   optionalMetadata(input.metadata, `${path}.metadata`);
   if (input.options !== undefined) {
     parseAgentRunOptions(input.options, `${path}.options`);
+  }
+  if (input.interruptActiveRun !== undefined) {
+    boolean(input.interruptActiveRun, `${path}.interruptActiveRun`);
+  }
+  if (input.submissionPayload !== undefined) {
+    const submission = parseAgentSubmissionPayload(
+      input.submissionPayload,
+      `${path}.submissionPayload`,
+    );
+    if (
+      submission.threadId !== input.threadId ||
+      submission.text !== input.text ||
+      (input.id !== undefined && submission.id !== input.id)
+    ) {
+      throw new AgentProtocolValidationError(
+        `${path}.submissionPayload`,
+        "threadId, id, and text must match queueMessage",
+      );
+    }
   }
   return value as QueueMessageInput;
 }

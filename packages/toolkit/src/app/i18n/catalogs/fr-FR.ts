@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Ce bloc est temporairement indisponible.",
+  "block.loading": "Chargement du bloc.",
   "composer.contextUrlLabel": "Adresse URL",
   "composer.contextInvalidUrl": "Saisissez une URL HTTP ou HTTPS valide.",
   "composer.contextAttach": "Joindre",
@@ -38,6 +40,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "en attente",
   "agent.completed": "a terminé",
   "agent.failed": "nécessite une attention particulière",
+  "agent.failureReason.failed": "Impossible de terminer",
+  "agent.failureReason.setup": "Configuration requise",
+  "agent.failureReason.auth": "Accès refusé",
+  "agent.failureReason.timeout": "Délai dépassé",
+  "agent.failureReason.budget": "Temps écoulé",
+  "agent.failureReason.response": "Résultat inutilisable",
   "agent.closed": "a fermé",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":
@@ -88,6 +96,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Texte facultatif à rechercher dans la réponse…",
   "observability.promoteMustContainLabel":
     "Texte à vérifier dans la réponse de l’évaluation promue",
+  "observability.promoteReviewedPromptLabel":
+    "Prompt vérifié manuellement (jamais copié depuis la production)",
   "observability.promoteNeedsContains":
     "Cette exécution ne comporte aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir.",
   "observability.viewDetails": "Afficher les détails",
@@ -129,7 +139,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
-  "onboarding.builderSignInWithAccount": "Utiliser Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Se connecter avec un compte Builder.io",
   "onboarding.builderActivateDescription":
     "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
   "onboarding.builderActiveCredits":
@@ -149,8 +160,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "Vous avez déjà un compte Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Connectez-vous pour utiliser votre compte.",
+  "onboarding.builderActivationChecking":
+    "Vérification de la disponibilité de la création de compte.",
+  "onboarding.builderActivationUnavailable":
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
+  "onboarding.builderActivationCheckFailed":
+    "Impossible de vérifier si cette application peut créer de nouveaux comptes.",
+
   "onboarding.builderActivationDescription":
-    "Créez ou connectez un compte Builder.io en un clic pour obtenir des crédits gratuits.",
+    "Créez un compte pour activer les crédits gratuits, ou continuez avec un compte existant.",
   "onboarding.builderOrgActivationDescription":
     "Nous créerons votre compte Builder.io en un clic afin que votre organisation puisse l’utiliser.",
   "onboarding.builderCreateAndActivate": "Créer et activer",
@@ -159,12 +179,35 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Conditions d’utilisation",
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
-  "onboarding.builderExistingAccount": "Utiliser Builder.io",
+  "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.creditsTitle": "Essayez avec 60 crédits Agent gratuits par mois",
+  "onboarding.creditsTitleClips":
+    "Essayez avec du stockage vidéo gratuit et 60 crédits Agent par mois",
+  "onboarding.creditsActivate": "Activer les crédits gratuits",
+  "onboarding.creditsFinePrint":
+    "Ceci créera un compte Builder.io gratuit. En continuant, vous acceptez nos",
+  "onboarding.creditsMoreInfo": "Plus d’infos",
+  "onboarding.creditsSubtitle":
+    "Obtenez des crédits gratuits pour les LLM, Jev, le stockage et plus pour cette application en un clic avec Builder.io.",
+  "onboarding.creditsLearnMore": "En savoir plus",
+  "onboarding.creditsSkip": "Ignorer",
+  "onboarding.creditsSkipConfirmTitle": "Êtes-vous sûr ?",
+  "onboarding.creditsSkipConfirmBody":
+    "Les apps Agent-Native ont besoin d’un LLM connecté pour utiliser la plupart des fonctionnalités. La plupart ne fonctionneront pas sans.",
+  "onboarding.creditsSkipGoBack": "Retour",
+  "onboarding.creditsSkipAnyway": "Ignorer quand même",
+  "onboarding.creditsUseCustomKeys": "Utiliser mes propres clés",
+  "onboarding.creditsAboutLabel": "À propos des crédits gratuits",
+  "onboarding.creditsActivating": "Activation des crédits gratuits",
+  "onboarding.creditsActivatingTooltip":
+    "Builder fournit des crédits gratuits pour les LLM, Jev, le stockage et plus, pour que vous puissiez utiliser les fonctionnalités IA de cette application sans vos propres clés.",
+  "onboarding.builderConnect": "Connecter Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",
   "onboarding.builderProvisioningDescription":
     "Création de votre compte Builder.io et activation des crédits gratuits.",
+  "onboarding.builderCancelPending": "Vérification de l’état de la connexion…",
   "onboarding.builderConnectionDescription":
     "Terminez la connexion en un clic dans la nouvelle fenêtre.",
   "onboarding.builderReadyWithCodeChanges":
@@ -198,6 +241,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Représentations vectorielles",
   "onboarding.capability.embeddings.why":
     "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
+  "onboarding.capability.webSearch.label": "Recherche sur le Web",
+  "onboarding.capability.webSearch.keySummary": "Recherche sur le Web",
+  "onboarding.capability.webSearch.why":
+    "Recherche dans les sources publiques actuelles du Web. La recherche gérée par Builder utilise les crédits IA inclus ; aucune clé de recherche distincte n'est nécessaire.",
   "onboarding.capability.systemOne.why":
     "Jev est un modèle de décision facultatif qui aide à choisir les outils et compétences pertinents avant la première requête du modèle de l’agent.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
@@ -673,7 +720,28 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contacts, entreprises, transactions, tickets, analytique client",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "Lorsqu’une HubSpot MCP Auth App gérée par l’espace de travail est configurée, tout membre peut connecter un compte HubSpot personnel avec OAuth et PKCE. Sinon, créez l’app dans HubSpot Developer Platform avant de vous connecter. Le connecteur OAuth HubSpot existant reste disponible pour les actions de l’app.",
+    "Chaque personne connecte son propre compte HubSpot après la configuration de la HubSpot MCP Auth App par un propriétaire de l’espace de travail.",
+  "mcpIntegrations.hubspot.setupTitle": "Configurer HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "Un propriétaire configure HubSpot MCP une seule fois. Chaque membre connecte ensuite son propre compte.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "Configuration de l’espace de travail requise",
+  "mcpIntegrations.hubspot.setupChecking":
+    "Vérification de la configuration de l’espace de travail…",
+  "mcpIntegrations.hubspot.setupUnavailable":
+    "État de la configuration indisponible",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Impossible de vérifier les paramètres OAuth de l’espace de travail. Réessayez.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Créez une HubSpot MCP Auth App, puis ajoutez son ID et son secret client dans Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Demandez à un propriétaire de créer une HubSpot MCP Auth App et d’ajouter son ID et son secret client dans Agent-Native settings → API keys. Vous pourrez ensuite connecter votre propre compte HubSpot.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Rejoignez un espace de travail avant de connecter HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Ajouter les identifiants de l’espace de travail",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Vérifier à nouveau",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Réessayer",
   "mcpIntegrations.catalog.pylon.description":
     "Recherchez et mettez à jour les données de support Pylon.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -823,6 +891,15 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Échec de la copie",
   "recovery.continueUnavailable":
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
+  "errorMessages.invalidAttachmentNamed":
+    "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
+  "recovery.resendVerificationEmail": "Renvoyer l’e-mail de vérification",
+  "recovery.sendingVerificationEmail": "Envoi...",
+  "recovery.verificationEmailRequested":
+    "E-mail de vérification demandé. Vérifiez votre boîte de réception et vos courriers indésirables.",
+  "recovery.verificationEmailFailed":
+    "Impossible de demander l’e-mail de vérification. Réessayez.",
+  "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
   "recovery.deferredSubmissionFailed":
@@ -867,6 +944,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "et {{count}} de plus sous Nouveau, ou ajoutez n'importe quelle clé personnalisée",
   "secrets.emptyTitle": "Aucune clé pour le moment.",
+  "secrets.figmaTokenMustBeToken":
+    "Collez un jeton d’accès Figma, pas une URL de fichier Figma.",
   "secrets.fromEnvironment": "Fourni par l'environnement de déploiement.",
   "secrets.managedInVault":
     "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",
@@ -893,6 +972,13 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.usePersonalKey": "Utiliser une clé personnelle à la place",
   "selection.attached": "{{formattedCount}} caractères de la sélection joints",
   "selection.clear": "Effacer le contexte de la sélection",
+  "setup.addKeyInSettings": "Ajouter une clé dans les paramètres",
+  "setup.addKeyInSettingsDescription":
+    "Pour votre compte ou votre organisation.",
+  "setup.setEnvironmentVariable": "Définir une variable d’environnement",
+  "setup.setEnvironmentVariableDescription":
+    "Une clé de fournisseur pour tous les utilisateurs de cette application.",
+
   "setup.addOwnKeys": "Ajouter vos propres clés",
   "setup.builderCredits":
     "Builder.io inclut des crédits gratuits, mais vous pouvez aussi utiliser votre propre clé API.",
@@ -1152,8 +1238,21 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.fileTooLarge":
+    "Ce fichier dépasse la limite d’envoi de {{size}} Mo.",
+  "composer.sessionExpired":
+    "Votre session a expiré. Reconnectez-vous, puis renvoyez votre message.",
   "composer.unsupportedFileType":
     "Ce type de fichier n'est pas pris en charge.",
+  "composer.uploadUnavailable":
+    "L’envoi de fichiers est indisponible pour le moment. Réessayez dans un instant.",
+  "composer.uploadOffline":
+    "L’envoi n’a pas pu joindre le serveur. Vérifiez votre connexion et réessayez.",
+  "composer.submissionNotReady":
+    "Le chat n’est pas encore prêt à envoyer. Patientez un instant, puis renvoyez.",
+  "composer.submissionScopeChanged":
+    "Ce chat a changé avant l’envoi de votre message. Renvoyez-le.",
+  "composer.attachmentNotSaved": "Non enregistré avec ce chat",
   "composer.useAttachedContext": "Utilisez le contexte ci-joint.",
   "mentions.commands": "Commandes",
   "mentions.learnMore": "En savoir plus",
@@ -1306,6 +1405,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
   "errorMessages.requestTooLarge":
     "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
+  "errorMessages.capabilityUnavailable":
+    "Impossible d’envoyer votre message pour le moment. Réessayez dans quelques instants.",
+  "errorMessages.capabilityUnsupported":
+    "Cette application ne peut pas encore réessayer votre message enregistré en toute sécurité. Mettez l’application à jour, puis réessayez.",
   "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
   "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
   "errorMessages.runUnverified":
@@ -1314,6 +1417,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Vous êtes déconnecté, cette conversation ne peut donc pas suivre l’agent. Reconnectez-vous, puis rechargez.",
   "errorMessages.malformedRequestAttachment":
     "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
+  "errorMessages.invalidAttachment":
+    "Le fournisseur du modèle a rejeté cette pièce jointe en raison de son format ou de sa taille. Pour les images, exportez une version plus petite en PNG, JPEG, GIF ou WebP ; pour les documents, utilisez un format de fichier pris en charge ou collez le texte pertinent, puis joignez-le à nouveau.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis utilisez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":
@@ -1924,6 +2029,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "Toutes les apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Approbation",
+  "settings.audit.approvalAgentChat": "Approuvé dans le chat de l’agent",
+  "settings.audit.approvalA2AReview":
+    "Approuvé sur la page de vérification des actions de l’agent",
+  "settings.audit.approvalMcpClient": "Accepté par le client MCP (non vérifié)",
   "settings.audit.changedBy": "Modifié par",
   "settings.audit.close": "Fermer",
   "settings.audit.empty": "Aucune modification sur cette période.",
@@ -1937,9 +2047,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "90 derniers jours",
   "settings.audit.loadFailed": "Impossible de charger le journal d’audit.",
   "settings.audit.loading": "Chargement du journal d’audit",
+  "settings.audit.oauthClient": "Client OAuth",
   "settings.audit.onBehalfOf": "Au nom de",
   "settings.audit.range": "Période",
   "settings.audit.refused": "Refusé",
+  "settings.audit.reportedClient": "Client autodéclaré",
   "settings.audit.result": "Résultat",
   "settings.audit.showMore": "Afficher {{count}} de plus",
   "settings.audit.succeeded": "Réussi",
@@ -2237,7 +2349,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de déconnecter Builder.io.",
   "settingsShell.builder.disconnectTitle": "Déconnecter Builder.io ?",
   "settingsShell.builder.grantsFailed":
-    "Impossible de vérifier la connexion à Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.builder.setupStartFailed":
     "Impossible de démarrer la configuration de Builder.io. Actualisez cette page, puis réessayez.",
   "settingsShell.builder.setupHostFailed":
@@ -2692,7 +2804,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Accès aux modèles, automatisation du navigateur, stockage de fichiers et identité de l’espace de travail. Offre gratuite disponible.",
   "settingsShell.integrations.builderStatusFailed":
-    "Impossible de vérifier la connexion Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.integrations.category.analytics": "Analytique",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Ingénierie",
@@ -2763,6 +2875,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modèle par défaut de l'app",
   "settingsShell.search.backgroundAgents": "Agents en arrière-plan",
   "settingsShell.search.browserAutomation": "Automatisation du navigateur",
+  "settingsShell.search.webSearch": "Recherche sur le Web",
   "settingsShell.search.connectedAgents": "Agents connectés",
   "settingsShell.search.database": "Base de données",
   "settingsShell.search.defaultModel": "Modèle par défaut",
@@ -2852,6 +2965,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Le repli du déploiement est disponible. Utilisez votre propre compte Builder.io pour le remplacer.",
   "settingsInfra.builderStorageHint":
     "Le stockage objet conserve les fichiers envoyés et permet de réutiliser leurs URL tout au long du fil. Utilisez Builder.io ou le compartiment compatible S3 ci-dessous.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io est connecté, mais ne peut pas encore stocker les fichiers importés. Reconnectez-le pour autoriser les imports, ou configurez un bucket ci-dessous.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Impossible de vérifier l'accès de Builder.io aux imports. Réessayez ou configurez un bucket ci-dessous.",
+  "settingsInfra.reconnectBuilderUploads": "Autoriser les imports",
   "settingsInfra.builderUnknown":
     "Impossible de vérifier la connexion Builder.io.",
   "settingsInfra.manage": "Gérer",
@@ -2899,6 +3017,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Modifie le code depuis la production.",
   "settingsInfra.whyBrowser":
     "Permet à l'agent d'utiliser un navigateur en production.",
+  "settingsInfra.whyWebSearch":
+    "Trouve des informations publiques récentes et la documentation officielle.",
   "settingsInfra.provider": "Fournisseur",
   "settingsInfra.keyOrg": "Utilise la clé {{provider}} de l'organisation.",
   "settingsInfra.manageKey": "Gérer la clé",
@@ -3063,6 +3183,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Déconnecté ici. L’accès peut rester actif dans ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Les applications open source sont accessibles sans demande lorsque vous les exécutez localement avec un callback loopback ; aucune demande de partenariat n’est nécessaire. Les applications hébergées sur *.agent-native.com nécessitent l’approbation de l’opérateur et un callback hébergé.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Utilisez l’accès au forfait ChatGPT avec un compte personnel. En développement local, définissez access.autoCreateDefaultOrg sur false avant de vous connecter.",
+  "settingsModel.chatgptScopeUnresolved":
+    "L’application n’a pas pu confirmer le périmètre de votre compte. Terminez la configuration locale, puis rechargez les paramètres.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnectez-vous et autorisez l’accès direct aux modèles pour utiliser ce compte ChatGPT.",
   "settingsModel.chatgptReconnect": "Reconnecter",
@@ -3252,6 +3376,20 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Fermer",
   "observability.insights.rawTrace":
     "Trace brute (tous les spans, avec entrées et sorties)",
+  "reportProblem.menuItem": "Signaler un problème",
+  "reportProblem.title_one":
+    "Joindre ce que l'app a fait au cours de la dernière {{count}} seconde ?",
+  "reportProblem.title_many":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.title_other":
+    "Joindre ce que l'app a fait au cours des {{count}} dernières secondes ?",
+  "reportProblem.noEvents": "Rien n'a encore été enregistré.",
+  "reportProblem.send": "Envoyer à l'agent",
+  "reportProblem.copy": "Copier le rapport de problème",
+  "reportProblem.attaching": "Ajout en cours…",
+  "reportProblem.notAttached": "Le rapport n'a pas été joint.",
+  "reportProblem.agentMessage":
+    "Un problème est survenu dans l'app. Utilisez le rapport de problème joint pour expliquer ce qui s'est passé.",
 };
 
 export default messages;

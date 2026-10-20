@@ -12,10 +12,12 @@ import { z } from "zod";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { orderMigrationsByVersion } from "../lib/migration-order.js";
 import {
   uploadLeaseExpiry,
   waitingStorageLeaseExpiry,
 } from "../lib/upload-lease.js";
+import "../lib/hosted-clip-allowance.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -200,7 +202,7 @@ function scheduleRecordingOrgIdBackfill(): void {
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
 export const migrations = runMigrations(
-  [
+  orderMigrationsByVersion([
     {
       version: 1,
       sql: `CREATE TABLE IF NOT EXISTS workspaces (
@@ -571,6 +573,7 @@ export const migrations = runMigrations(
       started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      cleanup_version BIGINT NOT NULL DEFAULT 0,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -643,6 +646,7 @@ export const migrations = runMigrations(
       started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      cleanup_version BIGINT NOT NULL DEFAULT 0,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -1178,7 +1182,150 @@ export const migrations = runMigrations(
       // guard:allow-unscoped — startup migration backfills every owner's rows.
       sql: `UPDATE recordings SET upload_lease_expires_at = '${waitingStorageLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status = 'uploading' AND failure_reason IS NOT NULL`,
     },
-  ],
+    {
+      version: 81,
+      name: "recording-context-items",
+      // Additive. Mirrors `recordingContextItems` in server/db/schema.ts; keep
+      // the partial unique index predicate identical to the schema's.
+      sql: `CREATE TABLE IF NOT EXISTS recording_context_items (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'screen_history',
+        label TEXT,
+        requested_seconds INTEGER NOT NULL,
+        original_started_at TEXT NOT NULL,
+        original_ended_at TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        media_recording_id TEXT,
+        duration_ms INTEGER,
+        width INTEGER,
+        height INTEGER,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_context_items_active_recording_unique_idx
+        ON recording_context_items (recording_id)
+        WHERE status <> 'removed';
+      CREATE INDEX IF NOT EXISTS recording_context_items_pending_idx
+        ON recording_context_items (created_at)
+        WHERE status = 'pending'`,
+    },
+    {
+      version: 82,
+      name: "recording-context-pending-footage",
+      // Additive. Mirrors `pendingMediaRecordingId` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS pending_media_recording_id TEXT`,
+    },
+    {
+      version: 83,
+      name: "recording-context-footage-indexes",
+      // Additive. The in-use check looks up items by either footage column.
+      // Mirrors the indexes on `recordingContextItems` in server/db/schema.ts.
+      sql: `CREATE INDEX IF NOT EXISTS recording_context_items_media_recording_idx
+        ON recording_context_items (media_recording_id);
+      CREATE INDEX IF NOT EXISTS recording_context_items_pending_media_recording_idx
+        ON recording_context_items (pending_media_recording_id)`,
+    },
+    {
+      version: 84,
+      name: "recording-context-captured-device",
+      // Additive. Mirrors `capturedDeviceId` in server/db/schema.ts. NULL rows
+      // predate device scoping and stay visible to every device's queue.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
+    },
+    {
+      version: 85,
+      name: "clips-dictation-cleanup-version",
+      sql: [
+        `ALTER TABLE IF EXISTS dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
+        `ALTER TABLE IF EXISTS clips_dictations ADD COLUMN IF NOT EXISTS cleanup_version BIGINT NOT NULL DEFAULT 0`,
+      ].join("; "),
+    },
+    {
+      version: 86,
+      name: "recording-browser-diagnostics-app-activity",
+      // Additive. Mirrors `appActivitySummaryJson` and `appActivityBlobJson`
+      // in server/db/schema.ts.
+      sql: [
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_summary_json TEXT`,
+        `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS app_activity_blob_json TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 87,
+      name: "clips-hosted-clip-allowances",
+      sql: `CREATE TABLE IF NOT EXISTS clips_hosted_clip_allowances (
+        recording_id TEXT PRIMARY KEY,
+        identity_key TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('reserved', 'consumed', 'released')),
+        ip_prefix TEXT,
+        quota_bytes BIGINT NOT NULL DEFAULT 0 CHECK (quota_bytes >= 0),
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        consumed_at TEXT,
+        released_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_identity_created_idx
+        ON clips_hosted_clip_allowances (identity_key, created_at);
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_user_created_idx
+        ON clips_hosted_clip_allowances (user_id, created_at);
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_ip_created_idx
+        ON clips_hosted_clip_allowances (ip_prefix, created_at);
+      CREATE INDEX IF NOT EXISTS clips_hosted_allowances_created_idx
+        ON clips_hosted_clip_allowances (created_at)`,
+    },
+    {
+      version: 88,
+      name: "clips-recording-storage-mode",
+      sql: `ALTER TABLE recordings
+        ADD COLUMN IF NOT EXISTS storage_mode TEXT
+        CHECK (storage_mode IN ('own', 'hosted'))`,
+    },
+    {
+      version: 89,
+      name: "recording-transcripts-source",
+      // Additive. Mirrors `source` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS source TEXT`,
+    },
+    {
+      version: 90,
+      name: "recording-transcripts-import-id",
+      // Additive. Mirrors `importId` on `recordingTranscripts` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS import_id TEXT`,
+    },
+    {
+      version: 91,
+      name: "recording-context-capture-audio",
+      // Nullable so existing requests can fall back to their originating device.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS include_microphone BOOLEAN;
+      ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS include_system_audio BOOLEAN`,
+    },
+    {
+      version: 92,
+      name: "recording-transcript-versions",
+      // Mirrors `recordingTranscriptVersions` in server/db/schema.ts.
+      sql: `CREATE TABLE IF NOT EXISTS recording_transcript_versions (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        language TEXT NOT NULL,
+        segments_json TEXT NOT NULL,
+        full_text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source TEXT,
+        import_id TEXT,
+        reason TEXT NOT NULL,
+        replaced_by TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE INDEX IF NOT EXISTS recording_transcript_versions_recording_created_idx
+        ON recording_transcript_versions (recording_id, created_at)`,
+    },
+  ]),
   { table: "clips_migrations" },
 );
 

@@ -344,13 +344,6 @@ export interface RuntimeComponentDetails {
   local?: ComponentLocalSource;
 }
 
-interface GoToMainComponentResult {
-  isMain?: boolean;
-  ctaRequired?: boolean;
-  ctaMessage?: string;
-  note?: string;
-}
-
 interface SwapComponentInstanceResult {
   swapped?: boolean;
   conflict?: boolean;
@@ -517,6 +510,7 @@ export function ComponentSection({
   hasLocalOverrides = false,
   onResetOverrides,
   onRestoreComponent,
+  onGoToMainComponent,
   onComponentPropApplied,
   sourceCapabilities = [],
   runtime,
@@ -535,6 +529,7 @@ export function ComponentSection({
   hasLocalOverrides?: boolean;
   onResetOverrides?: () => void;
   onRestoreComponent?: () => void;
+  onGoToMainComponent?: () => void;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
@@ -625,7 +620,6 @@ export function ComponentSection({
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
-  const goToMainMutation = useActionMutation("go-to-main-component");
   const detachMutation = useActionMutation("detach-component-instance");
   const swapMutation = useActionMutation("swap-component-instance");
 
@@ -672,31 +666,6 @@ export function ComponentSection({
           ...(latestSource.revision ? { revision: latestSource.revision } : {}),
         }
       : undefined;
-  };
-
-  const handleGoToMainComponent = () => {
-    goToMainMutation.mutate(
-      { designId, nodeId, ...(fileId ? { fileId } : {}) },
-      {
-        onSuccess: (result: GoToMainComponentResult) => {
-          if (result.ctaRequired) {
-            toast.error(
-              result.ctaMessage ??
-                t("designEditor.componentInstances.goToMainUnavailable"),
-            );
-            return;
-          }
-          if (result.isMain) {
-            toast(
-              result.note ??
-                t("designEditor.componentInstances.onlyKnownInstance"),
-            );
-          }
-        },
-        onError: () =>
-          toast.error(t("designEditor.componentInstances.resolveMainFailed")),
-      },
-    );
   };
 
   const handleDetachInstance = () => {
@@ -1020,7 +989,7 @@ export function ComponentSection({
     };
   }, [refetch]);
 
-  if (isLoading || !componentDetailsReady) {
+  if (isLoading || (!componentDetailsReady && !data)) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
         <div className="flex min-h-[var(--design-section-height)] items-center gap-2 px-2">
@@ -1052,8 +1021,11 @@ export function ComponentSection({
       : sourceRestoreState === "valid";
 
   const isInline = sourceType === "inline";
-  const editingEnabled =
+  const editingSupported =
     (isInline || Boolean(effectiveRuntime?.local)) && capabilities.canEditProps;
+  // Cached details can predate a pending save; an edit built from them
+  // rewrites the source over that save.
+  const editingEnabled = editingSupported && componentDetailsReady;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   const rows: PropRow[] = buildComponentPropRows({
@@ -1132,8 +1104,8 @@ export function ComponentSection({
           <InspectorGridCell span={8}>
             <InspectorActionRail>
               {/* Instance operations: Go to main component / Swap instance /
-            Detach instance (Figma's instance-only affordances). Inline/Alpine
-            designs only — the underlying actions fail closed for real-app
+            Detach instance. These operations apply to inline/Alpine designs
+            only — the underlying actions fail closed for real-app
             sources, so hide them entirely there rather than show a
             perpetually-disabled button. */}
               {isInline && !data.isMain && (
@@ -1148,7 +1120,7 @@ export function ComponentSection({
                         disabled={
                           canRestore
                             ? !onRestoreComponent
-                            : goToMainMutation.isPending
+                            : !onGoToMainComponent
                         }
                         aria-label={t(
                           canRestore
@@ -1156,9 +1128,7 @@ export function ComponentSection({
                             : "designEditor.componentInstances.goToMain",
                         )}
                         onClick={
-                          canRestore
-                            ? onRestoreComponent
-                            : handleGoToMainComponent
+                          canRestore ? onRestoreComponent : onGoToMainComponent
                         }
                       >
                         {canRestore ? (
@@ -1424,7 +1394,7 @@ export function ComponentSection({
         )}
 
         {/* Connect-Builder CTA (only when prop editing is actually gated). */}
-        {capabilities.ctaRequired && !editingEnabled && (
+        {capabilities.ctaRequired && !editingSupported && (
           <MakeItRealCard
             designId={designId}
             featureLabel="component source jump and typed prop metadata"

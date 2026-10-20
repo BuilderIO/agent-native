@@ -7,7 +7,7 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { chromium, type CDPSession, type Page } from "@playwright/test";
+import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
 import {
   expectedCanvasScaleAtZoomPercent,
@@ -48,6 +48,7 @@ const { values } = parseArgs({
     out: { type: "string" },
     summary: { type: "string" },
     headed: { type: "boolean", default: false },
+    channel: { type: "string", default: "chromium" },
   },
 });
 const baseUrl = values["base-url"]?.replace(/\/$/, "");
@@ -103,7 +104,11 @@ if (!values.design) seededDesignId = seedDesign();
 const designId = values.design ?? seededDesignId!;
 const sessionStartedAt = Date.now();
 
-const browser = await chromium.launch({ headless: !values.headed });
+const browser = await chromium.launch({
+  channel: values.channel,
+  headless: !values.headed,
+});
+const browserVersion = browser.version();
 const context = await browser.newContext({
   viewport: { width: 1280, height: 720 },
   deviceScaleFactor: 2,
@@ -294,10 +299,49 @@ await page
 metrics.editorVisibleMs = Date.now() - loadStartedAt;
 await page.waitForTimeout(8000);
 
-async function heapAfterGcMB(session: CDPSession): Promise<number> {
-  await session.send("HeapProfiler.collectGarbage");
-  const { usedSize } = await session.send("Runtime.getHeapUsage");
-  return usedSize / 1e6;
+type RendererMemory = {
+  editorHeapMB: number;
+  totalHeapMB: number;
+  editorDocuments: number;
+  totalDocuments: number;
+  processes: number;
+};
+// The editor's renderer holds the page and its same-origin live editors;
+// out-of-process frames (the static previews) add renderers of their own.
+async function readRendererMemory(): Promise<RendererMemory> {
+  const frameSessions: CDPSession[] = [];
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try {
+      frameSessions.push(await context.newCDPSession(frame));
+    } catch (error) {
+      if (!String(error).includes("does not have a separate CDP session")) {
+        throw error;
+      }
+    }
+  }
+  // Chrome puts every sandboxed preview of a site in one renderer, so many
+  // frame sessions report the same isolate; count each isolate once.
+  const sessionByIsolate = new Map<string, CDPSession>();
+  for (const session of [cdp, ...frameSessions]) {
+    const { id } = await session.send("Runtime.getIsolateId");
+    if (!sessionByIsolate.has(id)) sessionByIsolate.set(id, session);
+  }
+  const perProcess = [];
+  for (const session of sessionByIsolate.values()) {
+    await session.send("HeapProfiler.collectGarbage");
+    const { usedSize } = await session.send("Runtime.getHeapUsage");
+    const { documents } = await session.send("Memory.getDOMCounters");
+    perProcess.push({ heapMB: usedSize / 1e6, documents });
+  }
+  await Promise.all(frameSessions.map((session) => session.detach()));
+  return {
+    editorHeapMB: perProcess[0]!.heapMB,
+    totalHeapMB: perProcess.reduce((sum, p) => sum + p.heapMB, 0),
+    editorDocuments: perProcess[0]!.documents,
+    totalDocuments: perProcess.reduce((sum, p) => sum + p.documents, 0),
+    processes: perProcess.length,
+  };
 }
 const now = () => page.evaluate(() => performance.now());
 function countSince(field: "liveInserts" | "previewRemounts", since: number) {
@@ -346,7 +390,7 @@ async function zoomTo(target: number): Promise<boolean> {
   const deadline = startedAt + 10_000;
   const remainingTimeout = () => Math.max(1, deadline - Date.now());
   // This benchmark measures camera-driven rendering and preview churn; wheel
-  // forwarding is covered by parity-pan-zoom-mouse.spec.ts.
+  // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
   const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
   const currentZoomPercent = await readZoomUntilAvailable(
     zoomPercentFromUrl,
@@ -415,16 +459,73 @@ async function panToViewportCenter(locator: ReturnType<Page["locator"]>) {
   const viewport = page.viewportSize();
   if (!viewport) throw new Error("browser viewport is unavailable");
   let lastBox = await settledBox(locator);
+  const readCamera = () =>
+    page.evaluate(() => {
+      const transform = document.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      )?.style.transform;
+      if (!transform) return null;
+      const matrix = new DOMMatrixReadOnly(transform);
+      return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
+    });
+  let lastCamera = await readCamera();
+  if (!lastCamera) throw new Error("canvas camera is unavailable before pan");
+  let wheelCalls = 0;
+  let missingHeadingSince: number | null = null;
+  let missingCameraSince: number | null = null;
+  let lastHeadingReadFailure: string | null = null;
+  const readHeadingBox = async () => {
+    let box = null;
+    try {
+      box = await locator.boundingBox({ timeout: 500 });
+      lastHeadingReadFailure = box ? null : "heading has no layout box";
+    } catch (error) {
+      if (!(error instanceof errors.TimeoutError)) throw error;
+      lastHeadingReadFailure = error.message.split("\n")[0] ?? error.message;
+    }
+    return box;
+  };
 
-  for (let attempt = 0; attempt < 96; attempt += 1) {
-    // coercion-ok: The editor can reload during a camera move; this loop retries until it settles.
-    const box = await locator.boundingBox({ timeout: 500 }).catch(() => null);
-    if (!box) {
-      await page.waitForTimeout(30);
+  while (wheelCalls < 96) {
+    const [box, camera] = await Promise.all([readHeadingBox(), readCamera()]);
+    if (!camera) {
+      missingCameraSince ??= Date.now();
+      if (Date.now() - missingCameraSince > 10_000) {
+        throw new Error("canvas camera did not remount during pan");
+      }
+      await page.waitForTimeout(100);
       continue;
     }
-    lastBox = box;
-    if (box && box.y >= 120 && box.y + box.height <= viewport.height - 120) {
+    missingCameraSince = null;
+    if (!box && Math.abs(camera.scale - lastCamera.scale) > 0.0001) {
+      throw new Error(
+        "canvas zoom changed while the selected editor was unavailable",
+      );
+    }
+    const targetBox = box ?? {
+      ...lastBox,
+      x: lastBox.x + camera.x - lastCamera.x,
+      y: lastBox.y + camera.y - lastCamera.y,
+    };
+    if (box) {
+      lastBox = box;
+      lastCamera = camera;
+      missingHeadingSince = null;
+    }
+    if (
+      targetBox.y >= 120 &&
+      targetBox.y + targetBox.height <= viewport.height - 120
+    ) {
+      if (!box) {
+        missingHeadingSince ??= Date.now();
+        if (Date.now() - missingHeadingSince > 10_000) {
+          throw new Error(
+            `selected screen editor did not remount inside the viewport; last heading read: ${lastHeadingReadFailure}`,
+          );
+        }
+        await page.waitForTimeout(100);
+        continue;
+      }
       return;
     }
 
@@ -432,13 +533,34 @@ async function panToViewportCenter(locator: ReturnType<Page["locator"]>) {
     await page.mouse.move(viewport.width / 2, centerY);
     await page.mouse.wheel(
       0,
-      box && box.y + box.height / 2 < centerY ? -120 : 120,
+      targetBox.y + targetBox.height / 2 < centerY ? -120 : 120,
     );
+    wheelCalls += 1;
     await page.waitForTimeout(30);
   }
 
+  const finalView = await page
+    .evaluate(() => {
+      const world = document.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      );
+      const hit = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+      return {
+        cameraTransform: world?.style.transform ?? null,
+        centerHitTag: hit?.tagName ?? null,
+        centerHitTestId: hit?.getAttribute("data-testid") ?? null,
+        centerHitInCanvas: Boolean(
+          hit?.closest("[data-multi-screen-canvas-surface]"),
+        ),
+        centerHitInScreen: Boolean(hit?.closest("[data-screen-shell]")),
+      };
+    })
+    .catch((error) => ({ cameraReadError: String(error) }));
+  console.log(
+    `  pan final state: ${JSON.stringify({ lastBox, ...finalView })}`,
+  );
   throw new Error(
-    `${locator} never moved into the canvas viewport; last box ${JSON.stringify(lastBox)} after 96 wheel ticks`,
+    `${locator} never moved into the canvas viewport; last box ${JSON.stringify(lastBox)} after ${wheelCalls} wheel ticks; last heading read: ${lastHeadingReadFailure}`,
   );
 }
 
@@ -565,8 +687,18 @@ async function step(name: string, run: () => Promise<boolean>) {
   return tookEffect;
 }
 
-const heapSeries = [await heapAfterGcMB(cdp)];
-metrics.heapAfterLoadMB = heapSeries[0]!;
+const heapSeries = [await readRendererMemory()];
+metrics.editorHeapAfterLoadMB = heapSeries[0]!.editorHeapMB;
+metrics.totalHeapAfterLoadMB = heapSeries[0]!.totalHeapMB;
+const frameProcesses = heapSeries[0]!.processes - 1;
+const measuredIn = `${values.channel} ${browserVersion}, ${
+  frameProcesses
+    ? `out-of-process frames in ${frameProcesses} renderer(s) besides the editor's`
+    : "every frame in the editor's renderer"
+}`;
+console.log(`Measuring in ${measuredIn}`);
+// The editor heap gates assume static previews are out of process, as in Chrome.
+if (!frameProcesses) failedSteps.push("previewIsolation");
 const refreshesFrom = await now();
 const visits = [
   "Nested 2",
@@ -677,6 +809,8 @@ async function runSession() {
       );
     });
     await step("color", async () => {
+      const computedColor = (el: Element) => getComputedStyle(el).color;
+      const originalColor = await heading.evaluate(computedColor);
       const fill = page
         .locator("section")
         .filter({ has: page.getByRole("heading", { name: /^Fill$/i }) })
@@ -685,7 +819,15 @@ async function runSession() {
         .getByRole("button", { name: "Open color picker" })
         .first()
         .click();
+      // The picker opens in the notation its color was written in, and the
+      // board's Tailwind v4 palette is OKLCH, so Hex is a mode to choose.
+      const modeSelect = page.getByRole("combobox", { name: "Color model" });
+      await modeSelect.waitFor({ timeout: 10_000 });
       const hex = page.locator('[aria-label="Hex"]').first();
+      if (!(await hex.isVisible())) {
+        await modeSelect.click();
+        await page.getByRole("option", { name: "Hex", exact: true }).click();
+      }
       await hex.fill(iteration % 2 ? "2563EB" : "DC2626");
       await hex.press("Enter");
       const applied = (await hex.inputValue())
@@ -693,8 +835,13 @@ async function runSession() {
         .includes(iteration % 2 ? "2563EB" : "DC2626");
       await page.keyboard.press("Escape");
       await page.waitForTimeout(1500);
-      await page.keyboard.press("ControlOrMeta+z");
-      await page.waitForTimeout(1500);
+      // Choosing Hex rewrites an OKLCH color as a history step of its own, so
+      // undo until the heading is back to the color it started with.
+      for (let undo = 0; undo < 3; undo += 1) {
+        await page.keyboard.press("ControlOrMeta+z");
+        await page.waitForTimeout(1500);
+        if ((await heading.evaluate(computedColor)) === originalColor) break;
+      }
       return applied;
     });
     await page.keyboard.press("Escape");
@@ -758,7 +905,7 @@ async function runSession() {
     });
     await page.keyboard.press("Escape");
     await step("finalZoom", () => zoomTo(8));
-    heapSeries.push(await heapAfterGcMB(cdp));
+    heapSeries.push(await readRendererMemory());
   }
 }
 
@@ -803,14 +950,24 @@ const refreshes = (
 metrics.visibleRefreshes = refreshes.length;
 metrics.editorBootsPerZoomCycle = zoomCycleBoots / budgets.iterations;
 metrics.previewRemountsPerZoomCycle = zoomCycleRemounts / budgets.iterations;
-metrics.heapEndMB = heapSeries[heapSeries.length - 1]!;
+const end = heapSeries[heapSeries.length - 1]!;
+metrics.editorHeapEndMB = end.editorHeapMB;
+metrics.totalHeapEndMB = end.totalHeapMB;
+metrics.editorDocumentsEnd = end.editorDocuments;
+metrics.totalDocumentsEnd = end.totalDocuments;
 // The first iteration fills caches; growth after it is what a long session keeps paying.
 const afterWarmUp = heapSeries.slice(2);
-metrics.heapGrowthPerIterationMB =
+const growthPerIteration = (heapMB: (read: RendererMemory) => number) =>
   afterWarmUp.length > 1
-    ? (afterWarmUp[afterWarmUp.length - 1]! - afterWarmUp[0]!) /
+    ? (heapMB(afterWarmUp[afterWarmUp.length - 1]!) - heapMB(afterWarmUp[0]!)) /
       (afterWarmUp.length - 1)
     : Number.NaN;
+metrics.editorHeapGrowthPerIterationMB = growthPerIteration(
+  (read) => read.editorHeapMB,
+);
+metrics.totalHeapGrowthPerIterationMB = growthPerIteration(
+  (read) => read.totalHeapMB,
+);
 for (const [name, worst] of Object.entries(worstFrameByStep)) {
   metrics[`${name}WorstFrameMs`] = worst;
 }
@@ -832,6 +989,8 @@ const gateRows = Object.entries(budgets.gates).map(([name, { max, why }]) => {
 });
 const overBudget = gateRows.filter((row) => row.over);
 const table = [
+  `Measured in ${measuredIn}.`,
+  "",
   "| Gate | Measured | Max | Result | Why |",
   "| --- | --- | --- | --- | --- |",
   ...gateRows.map(
@@ -858,7 +1017,18 @@ if (values.out) {
   writeFileSync(
     values.out,
     JSON.stringify(
-      { designId, metrics, heapSeries, failedSteps, refreshes },
+      {
+        designId,
+        browser: {
+          channel: values.channel,
+          version: browserVersion,
+          frameProcesses,
+        },
+        metrics,
+        heapSeries,
+        failedSteps,
+        refreshes,
+      },
       null,
       2,
     ),

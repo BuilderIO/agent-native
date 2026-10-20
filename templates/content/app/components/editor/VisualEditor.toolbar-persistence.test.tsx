@@ -501,4 +501,51 @@ describe("collaborative toolbar persistence", () => {
       peerMount.remove();
     }
   });
+
+  it("reports local typing before a remote snapshot that already holds it", async () => {
+    const observed = vi.fn<(markdown: string) => void>();
+    const { editor, onChange, headingFrom } = await mount(baseline, observed);
+
+    const peerDoc = new Y.Doc();
+    Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(ydoc));
+    const peerMount = document.createElement("div");
+    document.body.append(peerMount);
+    const peer = new Editor({
+      element: peerMount,
+      extensions: createVisualEditorExtensions({ ydoc: peerDoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    peerDoc.on("update", (update) => Y.applyUpdate(ydoc, update, "peer"));
+    try {
+      act(() => {
+        editor.view.dom.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "x",
+            code: "KeyX",
+            keyCode: 88,
+            bubbles: true,
+          }),
+        );
+        editor.view.dispatch(
+          editor.state.tr.insertText("x", headingFrom, headingFrom),
+        );
+        peer.view.dispatch(peer.state.tr.insertText("Remote ", 1));
+      });
+      await settle();
+
+      const typed = onChange.mock.calls[0]?.[0];
+      expect(typed).toContain("xHeading");
+      expect(typed).not.toContain("Remote ");
+      expect(observed).toHaveBeenCalledWith(
+        expect.stringContaining("Remote Indent sample."),
+      );
+      expect(onChange.mock.invocationCallOrder[0]).toBeLessThan(
+        observed.mock.invocationCallOrder[0],
+      );
+    } finally {
+      peer.destroy();
+      peerDoc.destroy();
+      peerMount.remove();
+    }
+  });
 });
