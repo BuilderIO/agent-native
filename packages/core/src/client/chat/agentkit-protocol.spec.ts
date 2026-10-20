@@ -3825,15 +3825,30 @@ describe("createAgentKitProtocolAdapter", () => {
   });
 
   it("reuses a replayed runtime run ID for the same thread and turn", async () => {
+    let startCount = 0;
+    const discardedStreamClosed = vi.fn(async () => ({
+      done: true as const,
+      value: undefined,
+    }));
+    const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () =>
+          new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+        return: discardedStreamClosed,
+      }),
+    };
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };
     }
-    const startTurn = vi.fn(async () => ({
-      id: "turn-replayed",
-      runId: "runtime-run-replayed",
-      sessionId: "thread-1",
-      events: events(),
-    }));
+    const startTurn = vi.fn(async () => {
+      startCount += 1;
+      return {
+        id: "turn-replayed",
+        runId: "runtime-run-replayed",
+        sessionId: "thread-1",
+        events: startCount === 1 ? events() : discardedEvents,
+      };
+    });
     const runtime = createRuntime(events, {
       async createSession() {
         return {
@@ -3856,6 +3871,7 @@ describe("createAgentKitProtocolAdapter", () => {
 
     expect(replay.runId).toBe(first.runId);
     expect(startTurn).toHaveBeenCalledTimes(2);
+    expect(discardedStreamClosed).toHaveBeenCalledOnce();
     await transport.dispose();
   });
 

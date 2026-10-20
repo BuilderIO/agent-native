@@ -33,6 +33,14 @@ export async function fetchClipsExtensionSession(
     if (response?.ok) {
       const session: unknown = await response.json();
       if (
+        session &&
+        typeof session === "object" &&
+        "error" in session &&
+        session.error === "Not authenticated"
+      ) {
+        return null;
+      }
+      if (
         !session ||
         typeof session !== "object" ||
         !("email" in session) ||

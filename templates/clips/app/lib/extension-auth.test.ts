@@ -75,7 +75,7 @@ describe("fetchClipsExtensionSession", () => {
     const fetchSession = vi
       .fn<() => Promise<Response>>()
       .mockResolvedValue(
-        Response.json({ error: "Not authenticated" }, { status: 401 }),
+        Response.json({ error: "Not authenticated" }, { status: 200 }),
       );
 
     await expect(

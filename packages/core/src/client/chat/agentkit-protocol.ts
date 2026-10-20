@@ -2182,7 +2182,10 @@ export function createAgentKitProtocolAdapter(
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
     const indexedRun = indexRun(run, turn.runId, true);
-    if (indexedRun !== run) return indexedRun.runId;
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun.runId;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -2199,6 +2202,13 @@ export function createAgentKitProtocolAdapter(
     if (disposedSessions.has(session)) return;
     disposedSessions.add(session);
     await session.dispose?.();
+  }
+
+  async function closeDiscardedTurnEvents(
+    turn: AgentChatRuntimeTurn,
+  ): Promise<void> {
+    const iterator = turn.events[Symbol.asyncIterator]();
+    await iterator.return?.();
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {
