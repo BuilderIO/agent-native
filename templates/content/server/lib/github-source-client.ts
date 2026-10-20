@@ -117,6 +117,9 @@ function untilDeadline<T>(
   });
 }
 
+/** How long the provider client gives a request before it ends it itself. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /** How the provider client reports a request that a signal ended. */
 function endedBySignal(error: unknown): boolean {
   const cause =
@@ -140,7 +143,9 @@ async function githubGet(
   // once more when some other signal ended it, such as another caller's on a
   // read they shared, like a link preview's read shared with a sync. If
   // that ends too, GitHub didn't answer in time, the same as at its own
-  // deadline, rather than something wrong with the link.
+  // deadline, rather than something wrong with the link. The client ends a
+  // request at its own timeout the same way, so a try that lasted that long
+  // isn't sent again.
   const send = () => {
     const request = executeGitHubSourceRequest({
       provider: "github",
@@ -149,14 +154,18 @@ async function githubGet(
       headers: options.etag ? { "If-None-Match": options.etag } : undefined,
       connectionId: target.connectionId ?? undefined,
       maxBytes: options.maxBytes,
+      timeoutMs: REQUEST_TIMEOUT_MS,
       signal: target.signal,
     });
     return target.signal ? untilDeadline(request, target.signal) : request;
   };
+  const started = Date.now();
   let raw: unknown;
   try {
     raw = await send().catch((error: unknown) => {
-      if (!target.signal?.aborted && endedBySignal(error)) return send();
+      const endedElsewhere =
+        endedBySignal(error) && Date.now() - started < REQUEST_TIMEOUT_MS;
+      if (!target.signal?.aborted && endedElsewhere) return send();
       throw error;
     });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requests = vi.hoisted(
-  () => [] as Array<{ path: string; signal?: AbortSignal }>,
+  () => [] as Array<{ path: string; timeoutMs?: number; signal?: AbortSignal }>,
 );
 const github = vi.hoisted(() => ({
   hang: false,
@@ -9,6 +9,8 @@ const github = vi.hoisted(() => ({
   stall: false,
   /** Requests to end as if another caller's signal ended a shared read. */
   endedElsewhere: 0,
+  /** Requests to end at the provider client's own timeout, once it's passed. */
+  ranOutItself: 0,
   failure: null as Error | null,
   /** What GitHub answers instead of an empty folder, when set. */
   response: null as null | { status: number; json: unknown },
@@ -21,6 +23,7 @@ const github = vi.hoisted(() => ({
 vi.mock("./provider-api.js", () => ({
   executeGitHubSourceRequest: async (args: {
     path: string;
+    timeoutMs?: number;
     signal?: AbortSignal;
   }) => {
     requests.push(args);
@@ -28,6 +31,11 @@ vi.mock("./provider-api.js", () => ({
     if (github.stall) await new Promise(() => {});
     if (github.endedElsewhere > 0) {
       github.endedElsewhere -= 1;
+      throw github.timedOut();
+    }
+    if (github.ranOutItself > 0) {
+      github.ranOutItself -= 1;
+      vi.setSystemTime(Date.now() + (args.timeoutMs ?? 0));
       throw github.timedOut();
     }
     if (github.hang) {
@@ -67,6 +75,7 @@ beforeEach(() => {
   github.hang = false;
   github.stall = false;
   github.endedElsewhere = 0;
+  github.ranOutItself = 0;
   github.failure = null;
   github.response = null;
 });
@@ -172,6 +181,35 @@ describe("GitHub request deadlines", () => {
     const head = await readGitHubBranchHead({ ...target, branch: "main" });
     expect(head).toMatchObject({ status: "ok", sha: "c0ffee" });
     expect(requests).toHaveLength(2);
+  });
+
+  it("doesn't ask again when a read ran out the provider client's own timeout", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      github.ranOutItself = 1;
+      await expect(
+        readGitHubBranchHead({ ...target, branch: "main" }),
+      ).rejects.toMatchObject({
+        name: "GitHubSourceError",
+        code: "unavailable",
+      });
+      expect(requests).toEqual([
+        expect.objectContaining({ timeoutMs: 30_000 }),
+      ]);
+
+      requests.length = 0;
+      github.ranOutItself = 1;
+      await expect(
+        readGitHubBranchHead({
+          ...target,
+          branch: "main",
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+      expect(requests).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("names a request that never reached GitHub, and leaves a missing connection to the caller", async () => {
