@@ -4,6 +4,7 @@ import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
+  ambiguousLegacyCallEffectKey,
   classifyToolCallJournal,
   buildResumeJournalNote,
   findAmbiguousLegacyJournalEntryForCall,
@@ -788,6 +789,46 @@ describe("recorded call effects", () => {
         [toolCallIdentityKey("b"), actionArgumentsHash({ page: 2 })],
       ]),
     );
+  });
+
+  it("keeps a conservative effect for an ambiguous legacy provider ID", () => {
+    const id = "reused-provider-id";
+    const input = { id: "deck-1" };
+    const events: AgentChatEvent[] = [
+      { type: "tool_start", id, tool: "create-deck", input },
+      {
+        type: "tool_done",
+        id,
+        tool: "create-deck",
+        input,
+        result: "The deck was saved, but the response failed.",
+        isError: true,
+        completedSideEffect: true,
+      },
+      { type: "tool_start", id, tool: "create-deck", input },
+      {
+        type: "tool_done",
+        id,
+        tool: "create-deck",
+        input,
+        result: "The deck was saved, but the response failed.",
+        isError: true,
+        completedSideEffect: true,
+      },
+    ];
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id, name: "create-deck", input }],
+      },
+    ];
+
+    expect(journalCallIdentities(events, history)).toEqual(new Map());
+    expect(
+      journalCallEffects(classifyToolCallJournal(events), events, history).get(
+        ambiguousLegacyCallEffectKey(id, "create-deck"),
+      ),
+    ).toBe("committed");
   });
 
   it("keeps journal identities attached to repeated provider IDs by execution step", () => {

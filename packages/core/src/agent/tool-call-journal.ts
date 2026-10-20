@@ -578,8 +578,21 @@ export function isJournalEmpty(journal: ToolCallJournal): boolean {
 export type JournalCallEffect = "none" | "committed" | "unknown";
 
 /**
+ * A conservative legacy effect group for IDs reused across calls. This key is
+ * only for invalidating cached reads and holding unknown writes; it does not
+ * identify a call for replay or argument matching.
+ */
+export function ambiguousLegacyCallEffectKey(
+  id: string,
+  toolName: string,
+): string {
+  return JSON.stringify(["ambiguous-legacy-effect", toolName, id]);
+}
+
+/**
  * What each call recorded having done, keyed by execution step where present
- * and otherwise by an unambiguous legacy provider ID.
+ * and otherwise by an unambiguous legacy provider ID. Ambiguous legacy IDs
+ * retain a conservative effect group, separate from call identity.
  */
 export function journalCallEffects(
   journal: ToolCallJournal,
@@ -599,6 +612,29 @@ export function journalCallEffects(
       events,
       history,
     );
+  const recordEffect = (
+    id: string | undefined,
+    executionStepId: string | undefined,
+    toolName: string,
+    effect: JournalCallEffect,
+  ) => {
+    const key = identityKey(id, executionStepId, toolName);
+    if (key) {
+      effects.set(key, effect);
+      return;
+    }
+    if (executionStepId !== undefined || id === undefined) return;
+
+    const fallbackKey = ambiguousLegacyCallEffectKey(id, toolName);
+    const previous = effects.get(fallbackKey);
+    if (
+      previous === undefined ||
+      (previous === "none" && effect !== "none") ||
+      effect === "unknown"
+    ) {
+      effects.set(fallbackKey, effect);
+    }
+  };
   // The journal drops a call that changed nothing, so its own record says so.
   for (const event of events) {
     if (
@@ -606,20 +642,17 @@ export function journalCallEffects(
       event.completedSideEffect === false &&
       event.outcomeUnknown !== true
     ) {
-      const key = identityKey(event.id, event.executionStepId, event.tool);
-      if (key) effects.set(key, "none");
+      recordEffect(event.id, event.executionStepId, event.tool, "none");
     }
   }
   for (const entry of journal.completed) {
     if (entry.committed) {
-      const key = identityKey(entry.id, entry.executionStepId, entry.tool);
-      if (key) effects.set(key, "committed");
+      recordEffect(entry.id, entry.executionStepId, entry.tool, "committed");
     }
   }
   for (const entry of journal.interrupted) {
     if (entry.outcomeUnknown) {
-      const key = identityKey(entry.id, entry.executionStepId, entry.tool);
-      if (key) effects.set(key, "unknown");
+      recordEffect(entry.id, entry.executionStepId, entry.tool, "unknown");
     }
   }
   return effects;

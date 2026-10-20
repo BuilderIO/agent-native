@@ -418,6 +418,7 @@ import {
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
+  ambiguousLegacyCallEffectKey,
   findAmbiguousLegacyJournalEntryForCall,
   findInterruptedJournalEntryForCall,
   findInterruptedLegacyJournalEntryForCall,
@@ -4738,8 +4739,11 @@ function historyResultInvalidatesReads(
   readOnly: boolean,
   priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   identityKey?: string,
+  fallbackEffectKey?: string,
 ): boolean {
-  const effect = identityKey ? priorCallEffects.get(identityKey) : undefined;
+  const effect =
+    (identityKey ? priorCallEffects.get(identityKey) : undefined) ??
+    (fallbackEffectKey ? priorCallEffects.get(fallbackEffectKey) : undefined);
   if (
     part.outcome === "unknown" ||
     (effect !== undefined && effect !== "none")
@@ -4781,6 +4785,14 @@ function* historyToolResults(
       call: {
         name: part.name,
         identityKey,
+        ...(part.executionStepId === undefined
+          ? {
+              fallbackEffectKey: ambiguousLegacyCallEffectKey(
+                part.id,
+                part.name,
+              ),
+            }
+          : {}),
         ...(argumentsHash
           ? { key: preparedToolCallKey(part.name, argumentsHash) }
           : {}),
@@ -4817,6 +4829,7 @@ function seedReadOnlyToolResultsFromHistory(
         call.readOnly,
         priorCallEffects,
         call.identityKey,
+        call.fallbackEffectKey,
       )
     ) {
       cache.clear();
@@ -4881,6 +4894,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
         call.readOnly,
         priorCallEffects,
         call.identityKey,
+        call.fallbackEffectKey,
       )
     ) {
       repeats.clear();
@@ -5118,9 +5132,11 @@ function seedUnknownOutcomes(
     // What the call's run recorded decides, however it prepares now. Only a
     // call that recorded none is judged by its result; writes alone hold back
     // the turn.
-    const effect = call.identityKey
-      ? priorCallEffects.get(call.identityKey)
-      : undefined;
+    const effect =
+      (call.identityKey ? priorCallEffects.get(call.identityKey) : undefined) ??
+      (call.fallbackEffectKey
+        ? priorCallEffects.get(call.fallbackEffectKey)
+        : undefined);
     if (
       effect
         ? effect === "unknown"
