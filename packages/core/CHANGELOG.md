@@ -51,6 +51,32 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.210.1
+
+### Patch Changes
+
+- de17c2f: Fix path-mounted Chat commands and embed telemetry, bound raw SQL operations and protect private chat transcripts, show long-running tools earlier, and compress workspace Vercel immutable asset header routes to one pattern per app.
+- 3a73a99: Check managed HubSpot OAuth readiness before connecting and guide workspace owners through setup.
+- 4ec0f36: `sendFusionBranchMessage` reports `completed` only after the app agent's run finishes, and `unconfirmed` when a dispatched run timed out or was cut off, so callers can tell an unfinished Builder run from a done one.
+- a9e3e21: Keep default compact MCP widget tools when action declarations add connector tools to an app without a catalog, while preserving templates' explicit curated tool lists.
+- dfb4ffb: Expose collaboration poll events to editor subscribers so open Content editors can acknowledge field flush requests on hosted deployments without additional polling.
+- b738cb8: Preserve accepted turn-abort markers and dispatch-gate persistence failures, while surfacing durable cancellation failures before Agent Teams redispatch.
+- 1b84641: Serialize Zod 4 literal values correctly in the action schema compatibility fallback so agents receive valid operation tags.
+- Release all public npm packages with a patch version bump.
+- c3e3063: Expose organization member listing and approval-gated invitations in curated MCP catalogs.
+- 79f48bc: Fence turn-abort writes to the live generation and keep queued interruptions retryable until abort and stable-idle checks complete.
+- d65df24: Bind hosted workspace registry tokens to mounted paths and use the configured path during receiver validation.
+- de17c2f: Use the recorded template ref when rebuilding baselines after a core upgrade.
+- de17c2f: Use the Windows system tar executable for CLI archive operations.
+- 1b84641: Refresh agent chat context for its application-state key and unscoped state changes without waking on unrelated state updates.
+- de17c2f: Keep generated Windows skill links valid after workspace scaffolding is copied.
+- 1b84641: Upgrade PGlite to 0.5.9 so repeated failed local queries do not exhaust the database stack-depth budget.
+  Batch large mounted action catalogs so unrelated requests do not exhaust H3's middleware call stack.
+- 1f18160: Keep recovered and replayed turns in sync with durable run events, and persist approved tool actions before dispatch.
+- Updated dependencies
+  - @agent-native/agentkit@0.210.1
+  - @agent-native/recap-cli@0.5.76
+
 ## 0.210.0
 
 ### Minor Changes
@@ -4224,11 +4250,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - 07e0de3: Show the personal or workspace scope choice before connecting an integration in an organization, including a clear owner/admin requirement for members.
 - 68265a5: Forward hosted provider setup callbacks through `AgentSidebar` so Electron chat can show its native AI connection action after sign-in, and allow the native integrations surface to route OAuth through the authenticated app webview.
-
-## 0.168.0
-
-### Minor Changes
-
-- 6203d5d: Add an About Agent-Native command surface for inspecting deployed framework package versions and diagnostics.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

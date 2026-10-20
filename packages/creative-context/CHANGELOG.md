@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.8.45
+
+### Patch Changes
+
+- 1b84641: Scope creative-context state refreshes to its application-state key, so unrelated state changes do not rerender consumers.
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.44
 
 ### Patch Changes
