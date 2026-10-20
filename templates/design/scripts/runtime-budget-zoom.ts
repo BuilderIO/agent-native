@@ -1,4 +1,4 @@
-import type { ZoomSnapshot } from "./runtime-budget-zoom-snapshot";
+import type { ZoomSnapshot } from "./_runtime-budget-zoom-snapshot";
 
 type DeadlineResult<T> = { timedOut: false; value: T } | { timedOut: true };
 

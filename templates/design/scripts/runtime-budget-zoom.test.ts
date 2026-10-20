@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ZoomSnapshot } from "./runtime-budget-zoom-snapshot";
+import type { ZoomSnapshot } from "./_runtime-budget-zoom-snapshot";
 import {
   expectedCanvasScaleAtZoomPercent,
   measureRuntimeZoom,

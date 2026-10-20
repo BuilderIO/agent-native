@@ -14,7 +14,7 @@ import { DEVICE_FRAME_VIEWPORTS } from "../app/components/design/types.ts";
 import {
   readRuntimeZoomSnapshot,
   type ZoomSnapshot,
-} from "./runtime-budget-zoom-snapshot.ts";
+} from "./_runtime-budget-zoom-snapshot.ts";
 import {
   measureRuntimeZoom,
   readZoomUntilAvailable,

@@ -8,8 +8,8 @@ import { OVERVIEW_FRAME_WIDTH } from "../app/components/design/multi-screen/over
 import type { MultiScreenCanvasGroupedProps } from "../app/components/design/multi-screen/types";
 import { DEVICE_FRAME_VIEWPORTS } from "../app/components/design/types";
 import { getOverviewZoomScale } from "../app/pages/design-editor/overview-camera";
+import { readRuntimeZoomSnapshot } from "./_runtime-budget-zoom-snapshot";
 import { measureRuntimeZoom } from "./runtime-budget-zoom";
-import { readRuntimeZoomSnapshot } from "./runtime-budget-zoom-snapshot";
 
 const config = {
   defaultFrameWidth: OVERVIEW_FRAME_WIDTH,
