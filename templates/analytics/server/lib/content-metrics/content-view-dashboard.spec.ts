@@ -188,7 +188,6 @@ describe("Content view dashboard", () => {
         source_signups: null,
         not_collected:
           "GA4: not reported in this window · Search Console: not set up · Signups: cost-limited",
-
       }),
       expect.objectContaining({
         title: "Post one",
@@ -211,7 +210,7 @@ describe("Content view dashboard", () => {
     );
     const rows = await runPanel("articles");
     expect(rows.find((row) => row.title === "Post one")?.not_collected).toBe(
-      "Search Console: not reported in this window · Signups: cost-limited",
+      "Search Console: not reported in this window",
     );
   });
 

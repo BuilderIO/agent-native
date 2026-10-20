@@ -135,10 +135,7 @@
       "config": {
         "timeScope": "dashboard",
         "xKey": "date",
-        "yKeys": [
-          "pageviews",
-          "search_clicks"
-        ],
+        "yKeys": ["pageviews", "search_clicks"],
         "seriesLabels": {
           "pageviews": "Pageviews",
           "search_clicks": "Search clicks"

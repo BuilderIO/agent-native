@@ -65,7 +65,6 @@ import {
   startContentRun,
 } from "./store.js";
 
-
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
 const ORG_A = { ownerEmail: "alice@example.test", orgId: "org_a" };
@@ -796,6 +795,55 @@ describe("content collection", () => {
       expect(late.sql).toContain("createdDate >= TIMESTAMP('2026-09-01')");
     });
 
+    it("joins each signup only to visits at or before that signup", () => {
+      const { sql } = buildSignupsQuery(
+        {
+          ...WAREHOUSE,
+          signupEventsTable: "example-project.analytics.events",
+          firstPageviewsTable: "example-project.staging.first_pageviews",
+          signupSource: "example-app",
+          signupsSince: "2026-05-18",
+        },
+        new Date("2026-10-19T07:00:00Z"),
+      );
+      expect(sql).toContain("createdDate AS signup_at");
+      expect(sql).toContain("GROUP BY 1, 2, 3");
+      expect(sql).toContain(
+        "visitor_id, created_date, DATE(created_date) AS day",
+      );
+      expect(sql).toContain(
+        "s.visitor_id = v.visitor_id AND s.signup_at >= v.created_date",
+      );
+      expect(sql).toContain("COUNT(DISTINCT s.user_id) AS signups");
+      expect(sql).toContain(
+        "COUNT(DISTINCT IF(s.from_source, s.user_id, NULL)) AS source_signups",
+      );
+    });
+
+    it("matches the blog host boundary rather than a URL substring", () => {
+      const { sql } = buildSignupsQuery(
+        {
+          signupEventsTable: "example-project.analytics.events",
+          firstPageviewsTable: "example-project.staging.first_pageviews",
+          signupSource: "example-app",
+          signupsSince: "2026-05-18",
+        },
+        new Date("2026-10-19T07:00:00Z"),
+      );
+      const pattern = /REGEXP_CONTAINS\(url, r'([^']+)'\)/.exec(sql)?.[1];
+      expect(pattern).toBeDefined();
+      const matches = new RegExp(pattern!);
+      expect(matches.test("https://www.builder.io/blog/post-a1")).toBe(true);
+      expect(matches.test("http://builder.io/blog/post-a1")).toBe(true);
+      for (const url of [
+        "https://evilbuilder.io/blog/post-a1",
+        "https://builder.io.evil.test/blog/post-a1",
+        "https://evil.test/builder.io/blog/post-a1",
+        "https://evil.test/?next=https://builder.io/blog/post-a1",
+      ])
+        expect(matches.test(url)).toBe(false);
+    });
+
     it("stays not set up, and runs no dry run, until a cap is saved", async () => {
       await onlySteps({ builderBlog: true, signups: true }, [], WAREHOUSE);
       feed(article("a1"));
@@ -973,6 +1021,54 @@ describe("content collection", () => {
           value: 0,
           source: "signups",
         },
+      ]);
+    });
+
+    it("matches URL-encoded warehouse handles to collected article URLs", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(
+        article("a1", {
+          handle: "café",
+          publishDate: "2026-10-13T00:00:00.000Z",
+        }),
+      );
+      mocks.dryRunQuerySchema.mockResolvedValueOnce({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            data_through: "2026-10-13",
+            handle: "caf%C3%A9",
+            day: "2026-10-13",
+            signups: 2,
+            source_signups: 1,
+          },
+        ],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed: 900,
+      });
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      expect(await snapshots("signups_first_touch")).toEqual([
+        expect.objectContaining({
+          external_id: "a1",
+          metric_date: "2026-10-13",
+          value: 2,
+        }),
+      ]);
+      expect(await snapshots("signups_first_touch_source")).toEqual([
+        expect.objectContaining({
+          external_id: "a1",
+          metric_date: "2026-10-13",
+          value: 1,
+        }),
       ]);
     });
 

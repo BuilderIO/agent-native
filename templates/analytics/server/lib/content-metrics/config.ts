@@ -72,7 +72,13 @@ export const signupsConfigSchema = z.object({
   signupSource: signupSourceSchema.nullable().default(null),
   /** Earliest signup counted, as YYYY-MM-DD; it bounds the events scan. */
   signupsSince: z.iso.date().nullable().default(null),
-  maxBytesBilled: z.number().int().positive().nullable().default(null),
+  maxBytesBilled: z
+    .number()
+    .int()
+    .positive()
+    .max(750_000_000_000)
+    .nullable()
+    .default(null),
 });
 
 /**
@@ -85,7 +91,13 @@ export const signupsSettingsUpdateSchema = z.object({
   firstPageviewsTable: bigQueryTableSchema.nullable().optional(),
   signupSource: signupSourceSchema.nullable().optional(),
   signupsSince: z.iso.date().nullable().optional(),
-  maxBytesBilled: z.number().int().positive().nullable().optional(),
+  maxBytesBilled: z
+    .number()
+    .int()
+    .positive()
+    .max(750_000_000_000)
+    .nullable()
+    .optional(),
 });
 export type SignupsConfig = z.infer<typeof signupsConfigSchema>;
 

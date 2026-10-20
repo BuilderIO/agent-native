@@ -86,25 +86,27 @@ export function buildSignupsQuery(
   const signupsFrom =
     config.signupsSince > startDate ? config.signupsSince : startDate;
   const blog = new URL(BUILDER_BLOG_ORIGIN);
-  const blogPattern = `%${blog.hostname.replace(/^www\./, "")}${blog.pathname}%`;
+  const escapeRegex = (value: string) =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const blogPattern = `^https?://(www\\.)?${escapeRegex(blog.hostname.replace(/^www\./, ""))}${escapeRegex(blog.pathname)}`;
   const sql = `WITH signups AS (
-  SELECT JSON_VALUE(data, '$.visitorId') AS visitor_id, JSON_VALUE(data, '$.userId') AS user_id,
+  SELECT JSON_VALUE(data, '$.visitorId') AS visitor_id, JSON_VALUE(data, '$.userId') AS user_id, createdDate AS signup_at,
     LOGICAL_OR(JSON_VALUE(data, '$.signupSource') = '${config.signupSource}') AS from_source
   FROM \`${config.signupEventsTable}\`
   WHERE createdDate >= TIMESTAMP('${signupsFrom}') AND event = 'signup'
     AND COALESCE(JSON_VALUE(data, '$.visitorId'), '') != ''
-  GROUP BY 1, 2
+  GROUP BY 1, 2, 3
 ), visits AS (
-  SELECT REGEXP_EXTRACT(url, r'/blog/([^/?#]+)') AS handle, visitor_id, DATE(created_date) AS day
+  SELECT REGEXP_EXTRACT(url, r'/blog/([^/?#]+)') AS handle, visitor_id, created_date, DATE(created_date) AS day
   FROM \`${config.firstPageviewsTable}\`
-  WHERE url LIKE '${blogPattern}' AND is_bot = FALSE
+  WHERE REGEXP_CONTAINS(url, r'${blogPattern}') AND is_bot = FALSE
     AND created_date >= TIMESTAMP('${startDate}') AND created_date < TIMESTAMP(DATE_ADD(DATE '${endDate}', INTERVAL 1 DAY))
 ), fresh AS (
   SELECT FORMAT_DATE('%F', MAX(day)) AS data_through FROM visits
 ), counts AS (
   SELECT v.handle, FORMAT_DATE('%F', v.day) AS day, COUNT(DISTINCT s.user_id) AS signups,
     COUNT(DISTINCT IF(s.from_source, s.user_id, NULL)) AS source_signups
-  FROM visits v JOIN signups s ON s.visitor_id = v.visitor_id
+  FROM visits v JOIN signups s ON s.visitor_id = v.visitor_id AND s.signup_at >= v.created_date
   WHERE v.handle IS NOT NULL
   GROUP BY 1, 2
 )
@@ -123,9 +125,12 @@ function costLimited(message: string): ContentStepStop {
 function articleHandle(url: string | null): string | null {
   if (!url) return null;
   const match = /\/blog\/([^/?#]+)/.exec(url);
-  if (!match) return null;
+  return match ? normalizeHandle(match[1]!) : null;
+}
+
+function normalizeHandle(handle: string): string | null {
   try {
-    return decodeURIComponent(match[1]!).toLowerCase();
+    return decodeURIComponent(handle).toLowerCase();
     // coercion-ok: a malformed escape gets the typed null handle, which matches no row
   } catch {
     return null;
@@ -200,7 +205,8 @@ export const signupsStep: ContentStep = {
       if (typeof row.handle !== "string" || typeof row.day !== "string") {
         continue;
       }
-      const article = byHandle.get(row.handle.toLowerCase());
+      const handle = normalizeHandle(row.handle);
+      const article = handle ? byHandle.get(handle) : undefined;
       if (!article) continue;
       values.add(
         article,
