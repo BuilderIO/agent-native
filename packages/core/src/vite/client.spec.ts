@@ -4363,6 +4363,22 @@ describe("local-core dev aliases and router dedupe", () => {
         },
       }),
     );
+    const corePackageDir = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    fs.mkdirSync(corePackageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(corePackageDir, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        main: "index.js",
+        dependencies: { "cron-parser": "^5.5.0" },
+      }),
+    );
+    fs.writeFileSync(path.join(corePackageDir, "index.js"), "export {};\n");
 
     try {
       process.chdir(tmpDir);
@@ -4428,6 +4444,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sheet",
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
+          "@agent-native/core > cron-parser",
           "@agent-native/toolkit > lowlight > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",
