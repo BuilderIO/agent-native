@@ -526,6 +526,60 @@ describe("useInboxThreads tab previews", () => {
   });
 });
 
+describe("pending-push wake-up while a sync is in flight", () => {
+  it("does not cancel a refresh sync that is in flight when a pending push arrives", async () => {
+    // The first sync establishes query data. React Query cancels an in-flight
+    // refetch only when there is data, so the held sync must be a refetch.
+    let finishHeldSync!: (value: unknown) => void;
+    mutateSyncAction.mockResolvedValueOnce({ accounts: [] });
+    mutateSyncAction.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishHeldSync = resolve;
+        }),
+    );
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    callActionWithRetry.mockResolvedValue({
+      ...response(),
+      accounts: [{ ...steadyAccount, pushPending: true, pushWatch: "active" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(syncHook.result.current.data).toBeDefined());
+
+    void invalidateInboxThreads(queryClient);
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
+
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mutateSyncAction).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      finishHeldSync({ accounts: [] });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mutateSyncAction).toHaveBeenCalledTimes(2);
+
+    syncHook.unmount();
+    listHook.unmount();
+    queryClient.clear();
+  });
+});
+
 describe("useInboxSyncPoller account discovery", () => {
   it("drops omitted stale accounts from unscoped polls and becomes idle", async () => {
     const staleAccount = {

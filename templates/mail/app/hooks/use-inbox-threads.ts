@@ -326,10 +326,13 @@ function fetchInboxThreads(
             .pushPending,
       )
     ) {
-      void qc.invalidateQueries({
-        queryKey: INBOX_SYNC_QUERY_KEY,
-        refetchType: "active",
-      });
+      // An in-flight sync is already working on the account and its result is
+      // kept; cancelling it would discard that result while the server keeps
+      // going. Leave it running instead of restarting it.
+      void qc.invalidateQueries(
+        { queryKey: INBOX_SYNC_QUERY_KEY, refetchType: "active" },
+        { cancelRefetch: false },
+      );
     }
     publishInboxOverview(qc, input.accountEmails, {
       tabs: incoming.tabs,

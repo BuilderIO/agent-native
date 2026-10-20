@@ -294,8 +294,11 @@ export async function readInboxTabWindows(params: {
     const ids = params.aiLabelIdsByAccount.get(account) ?? [];
     if (ids.length === 0) return [];
     const accountParam = bind(account);
+    // Whole array elements, not substrings: `Label_ai` must not match
+    // `Label_ai_extra`.
     const idChecks = ids.map(
-      (id) => `strpos(t.label_ids_json, ${bind(JSON.stringify(id))}) > 0`,
+      (id) =>
+        `EXISTS (SELECT 1 FROM jsonb_array_elements_text(t.label_ids_json::jsonb) AS label(value) WHERE label.value = ${bind(id)})`,
     );
     return [
       `(t.account_email = ${accountParam} AND (${idChecks.join(" OR ")}))`,

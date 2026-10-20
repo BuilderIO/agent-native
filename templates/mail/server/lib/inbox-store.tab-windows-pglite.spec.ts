@@ -27,7 +27,10 @@ function syntheticRows(count: number) {
     ["AGENT-NATIVE-IMPORTANT"],
     ["Label/agent_native important"],
     ["agent-native-important", "CATEGORY_UPDATES"],
-    // Near misses that must not count.
+    // Near misses that must not count. A mapped AI id is a whole element: a
+    // label that merely starts with it is not the AI label.
+    ["Label_ai_extra"],
+    ["Label_ai_2", "Label_work"],
     ["agent-native-importantx"],
     ["my_agent_native_important"],
   ];
