@@ -928,6 +928,8 @@ interface SyncRun {
   storageMissing: boolean;
   now: string;
   actor: string;
+  /** The lease this run holds; each write checks the link still has it. */
+  claimId: string;
 }
 
 function documentIdForNewFile(run: SyncRun, repoPath: string) {
@@ -1479,16 +1481,29 @@ async function applyFile(
  * disconnect that lands while this sync reads GitHub has made the pages
  * ordinary again, so the sync stops instead of writing to them.
  */
+/**
+ * Locks the collection for one write and checks the link is still this run's.
+ * Relinking the same folder makes the same source id, so the source alone
+ * can't tell; the lease can, and it also stops a run whose lease ran out and
+ * another sync took over.
+ */
 async function lockLinkedCollection(tx: Db, run: SyncRun) {
   await lockContentDatabaseMutation(tx, run.database.id);
   const [source] = await tx
-    .select({ id: schema.contentDatabaseSources.id })
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.id, run.sourceId));
   if (!source) {
     throw new ActionContractError(
       "This collection isn't linked to a GitHub folder.",
       { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
+    );
+  }
+  const state = readGitHubSourceState(parseJsonObject(source.metadataJson));
+  if (state?.claim?.id !== run.claimId) {
+    throw new ActionContractError(
+      "This sync stopped because the folder was linked again or another sync took over, which brings the collection up to date.",
+      { errorCode: "SYNC_SUPERSEDED", statusCode: 409 },
     );
   }
 }
@@ -1732,6 +1747,7 @@ export async function syncGitHubSource(
       storageMissing: false,
       now,
       actor: state.linkedBy,
+      claimId,
     };
 
     const planned: PlannedFile[] = [];

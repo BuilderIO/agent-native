@@ -1050,6 +1050,45 @@ describe("GitHub folder source", () => {
     expect(after.every((row) => row.sourceMode === null)).toBe(true);
   });
 
+  it("stops a sync that a relink of the same folder overtakes", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    github.state.duringBlobRead = async () => {
+      await as(() => disconnectSource.run({ databaseId: database.id }));
+      for (const row of await liveRows(database.id)) {
+        await as(() => deleteDocument.run({ id: row.documentId }));
+      }
+      await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+    };
+
+    await expect(
+      as(() => syncFolder.run({ databaseId: database.id })),
+    ).rejects.toThrow("the folder was linked again");
+    const live = await liveRows(database.id);
+    expect(live).toHaveLength(3);
+    expect(
+      live.find((row) => row.sourcePath === "docs/faq.md")!.content,
+    ).toContain("Answers moved to the forum.");
+    // Every file's record points at its row in the new link, not an old page.
+    const records = await getDb()
+      .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        eq(
+          schema.contentDatabaseSourceRows.sourceId,
+          await sourceId(database.id),
+        ),
+      );
+    expect(records.map((record) => record.documentId).sort()).toEqual(
+      live.map((row) => row.documentId).sort(),
+    );
+  });
+
   it("keeps a GitHub page in its collection when someone tries to move it", async () => {
     const { database } = await linkBaseFolder();
     const faq = (await liveRows(database.id)).find(
