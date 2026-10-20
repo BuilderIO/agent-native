@@ -59,6 +59,7 @@ vi.mock("../server/lib/inbox-store.js", () => ({
       hydratePendingIds: [],
       archivePendingIds: [],
       degraded: { hydrate: [], verify: [], kind: null },
+      corrupt: {},
       ...account,
     })),
   readInboxPushGeneration: mocks.readInboxPushGeneration,
