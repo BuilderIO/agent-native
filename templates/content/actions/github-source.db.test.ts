@@ -800,6 +800,12 @@ describe("GitHub folder source", () => {
       expect(synced.source).toBeNull();
       // Readers are told to look again, since the status couldn't be read.
       expect(synced.statusChanged).toBe(true);
+      expect(synced.followUpFailed).toEqual([
+        "status_read",
+        "refresh_signal",
+        "source_read",
+      ]);
+      expect(synced.summary).toContain("they show them once they reload");
       expect(warn).toHaveBeenCalledTimes(3);
 
       // A refresh that changes no rows reads the status back, and a failed
@@ -840,6 +846,7 @@ describe("GitHub folder source", () => {
     });
     const synced = await as(() => syncFolder.run({ databaseId: database.id }));
     expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
+    expect(synced.followUpFailed).toEqual([]);
     const [updated] = (await liveRows(database.id)).filter(
       (row) => row.documentId === faq.documentId,
     );
