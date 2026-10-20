@@ -1489,6 +1489,39 @@ describe("resolveMutationAccounts", () => {
       expect(new Set(asked).size).toBe(asked.length);
     });
 
+    it("skips a lookup it cannot afford and still probes a cheaper one behind it", async () => {
+      tokensPerAccount();
+      // The first account's 1,500-unit share fits 37 threads (1,480), leaving
+      // 20: the next thread (40) no longer fits but a message (20) does.
+      const threads = Array.from({ length: 38 }, (_, index) => ({
+        id: `m-t${index}`,
+        threadId: `t${index}`,
+      }));
+      vi.mocked(gmailBatchGetThreads).mockImplementation((async (
+        _token: string,
+        requested: string[],
+      ) => requested.map(notFound)) as any);
+      vi.mocked(gmailBatchGetMessages).mockImplementation((async (
+        token: string,
+        requested: string[],
+      ) =>
+        requested.map((id) =>
+          token === `token-${ACCT}` ? { id, data: { id } } : notFound(id),
+        )) as any);
+
+      const { resolved } = await resolveMutationAccounts(OWNER, [
+        ...threads,
+        { id: "lone-message" },
+      ]);
+
+      expect(resolved).toEqual([{ id: "lone-message", accountEmail: ACCT }]);
+      expect(vi.mocked(gmailBatchGetMessages).mock.calls[0]).toEqual([
+        `token-${ACCT}`,
+        ["lone-message"],
+        "minimal",
+      ]);
+    });
+
     it("tries the account with the most cached rows first", async () => {
       tokensPerAccount();
       inboxStoreMocks.readAccountRowCounts.mockResolvedValue(

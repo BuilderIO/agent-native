@@ -105,6 +105,7 @@ async function takeOverStaleClaim(
     .select({
       syncClaimId: schema.mailSyncAccounts.syncClaimId,
       syncClaimedAt: schema.mailSyncAccounts.syncClaimedAt,
+      status: schema.mailSyncAccounts.status,
     })
     .from(schema.mailSyncAccounts)
     .where(eq(schema.mailSyncAccounts.id, syncId))
@@ -113,10 +114,19 @@ async function takeOverStaleClaim(
   if (!account) return false;
   if (account.syncClaimId == null) return true;
   if ((account.syncClaimedAt ?? 0) >= now - STALE_CLAIM_MS) return false;
+  // The dead worker left the account "syncing"; error states are kept.
   await tx
     .update(schema.mailSyncAccounts)
-    .set({ syncClaimId: null, syncClaimedAt: null, updatedAt: now })
+    .set({
+      syncClaimId: null,
+      syncClaimedAt: null,
+      ...(account.status === "syncing" ? { status: "idle" } : {}),
+      updatedAt: now,
+    })
     .where(eq(schema.mailSyncAccounts.id, syncId));
+  console.info("[inbox-retention] took over a stale sync claim", {
+    wasSyncing: account.status === "syncing",
+  });
   return true;
 }
 
@@ -174,6 +184,7 @@ export async function clearPair(
         hydratePendingIdsJson: null,
         syncDegradedJson: null,
         archiveHistoryPending: null,
+        syncCorruptJson: null,
         status: "idle",
         lastError: null,
         syncClaimId: null,

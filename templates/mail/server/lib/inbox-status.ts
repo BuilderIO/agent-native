@@ -13,14 +13,20 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     // work the next step will complete.
     row.archivePendingIds.some((id) => !row.degraded.hydrate.includes(id)) ||
     row.archiveHistoryPending;
+  const corruptCount = Object.keys(row.corrupt).length;
   const degradedCount =
-    row.degraded.hydrate.length + row.degraded.verify.length;
+    row.degraded.hydrate.length + row.degraded.verify.length + corruptCount;
+  // Unreadable stored state outranks every read failure: it is never reported
+  // as "nothing pending".
   const degraded =
     degradedCount > 0
       ? {
           degraded: {
             count: degradedCount,
-            kind: row.degraded.kind ?? "unknown",
+            kind:
+              corruptCount > 0
+                ? "corrupt_state"
+                : (row.degraded.kind ?? "unknown"),
           },
         }
       : {};

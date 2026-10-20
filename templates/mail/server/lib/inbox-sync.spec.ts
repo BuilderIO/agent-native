@@ -175,6 +175,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     archivePendingIds: [],
     hydratePendingIds: [],
     degraded: { hydrate: [], verify: [], kind: null },
+    corrupt: {},
     archiveHistoryPending: false,
     status: "syncing",
     lastError: null,
@@ -2178,6 +2179,25 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       (call) => call[2] === "minimal",
     );
     expect(minimalReads).toEqual([]);
+  });
+
+  it("reports corrupt stored state as degraded and saves the raw value before overwriting it", async () => {
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      corrupt: { archive_pending_ids_json: "{not json" },
+    });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.degraded).toEqual({ count: 1, kind: "corrupt_state" });
+    expect(currentRow.corrupt).toEqual({
+      archive_pending_ids_json: "{not json",
+    });
   });
 
   it("clears the degraded record once the failing thread reads again", async () => {

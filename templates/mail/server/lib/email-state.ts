@@ -230,7 +230,9 @@ async function probeAccountsForTargets(
     const probing: ProbeTarget[] = [];
     for (const t of toProbe) {
       const cost = t.threadId ? THREAD_PROBE_UNITS : MESSAGE_PROBE_UNITS;
-      if (allowance < cost) break;
+      // Skip what no longer fits and keep scanning: a cheaper lookup later in
+      // the list may still be affordable.
+      if (allowance < cost) continue;
       allowance -= cost;
       budget -= cost;
       probing.push(t);

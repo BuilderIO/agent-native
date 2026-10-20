@@ -62,18 +62,48 @@ export type SyncDegraded = {
   kind: string | null;
 };
 
-function parseDegraded(raw: string | null): SyncDegraded {
+// Sync-state columns that cannot be read are never "nothing pending": the
+// unreadable column is recorded here with its raw value so status can say
+// `corrupt_state` and the value stays available for inspection.
+export type SyncCorrupt = Record<string, string>;
+const CORRUPT_RAW_MAX = 2_048;
+
+function readStateJson<T>(
+  corrupt: SyncCorrupt,
+  column: string,
+  raw: string | null,
+  read: (parsed: unknown) => T | null,
+  empty: T,
+): T {
+  if (!raw) return empty;
   try {
-    const parsed = raw ? JSON.parse(raw) : null;
-    return {
-      hydrate: Array.isArray(parsed?.hydrate) ? parsed.hydrate : [],
-      verify: Array.isArray(parsed?.verify) ? parsed.verify : [],
-      kind: typeof parsed?.kind === "string" ? parsed.kind : null,
-    };
+    const value = read(JSON.parse(raw));
+    if (value !== null) return value;
   } catch {
-    return { hydrate: [], verify: [], kind: null };
+    // fall through to the corrupt record
   }
+  corrupt[column] = raw.slice(0, CORRUPT_RAW_MAX);
+  return empty;
 }
+
+const readIdList = (parsed: unknown): string[] | null =>
+  Array.isArray(parsed) && parsed.every((id) => typeof id === "string")
+    ? (parsed as string[])
+    : null;
+
+const readDegraded = (parsed: unknown): SyncDegraded | null => {
+  const value = parsed as Partial<SyncDegraded> | null;
+  const hydrate = readIdList(value?.hydrate);
+  const verify = readIdList(value?.verify);
+  if (!hydrate || !verify) return null;
+  return {
+    hydrate,
+    verify,
+    kind: typeof value?.kind === "string" ? value.kind : null,
+  };
+};
+
+const HISTORY_ID = /^\d+$/;
 
 export type SyncAccountRow = {
   id: string;
@@ -92,6 +122,7 @@ export type SyncAccountRow = {
   archivePendingIds: string[];
   hydratePendingIds: string[];
   degraded: SyncDegraded;
+  corrupt: SyncCorrupt;
   archiveHistoryPending: boolean;
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
@@ -161,6 +192,55 @@ function toInboxThreadRow(
 function toSyncAccountRow(
   row: typeof schema.mailSyncAccounts.$inferSelect,
 ): SyncAccountRow {
+  // Columns recorded as corrupt earlier stay recorded until a resync clears them.
+  const corrupt: SyncCorrupt = {};
+  try {
+    Object.assign(
+      corrupt,
+      row.syncCorruptJson ? JSON.parse(row.syncCorruptJson) : {},
+    );
+  } catch {
+    corrupt.sync_corrupt_json = String(row.syncCorruptJson).slice(
+      0,
+      CORRUPT_RAW_MAX,
+    );
+  }
+  for (const [column, value] of [
+    ["history_id", row.historyId],
+    ["archive_history_id", row.archiveHistoryId],
+  ] as const) {
+    if (value != null && !HISTORY_ID.test(value)) {
+      corrupt[column] = value.slice(0, CORRUPT_RAW_MAX);
+    }
+  }
+  const reconcilePending = readStateJson<string[] | null>(
+    corrupt,
+    "full_sync_reconcile_pending_ids_json",
+    row.fullSyncReconcilePendingIdsJson,
+    readIdList,
+    null,
+  );
+  const archivePendingIds = readStateJson<string[]>(
+    corrupt,
+    "archive_pending_ids_json",
+    row.archivePendingIdsJson,
+    readIdList,
+    [],
+  );
+  const hydratePendingIds = readStateJson<string[]>(
+    corrupt,
+    "hydrate_pending_ids_json",
+    row.hydratePendingIdsJson,
+    readIdList,
+    [],
+  );
+  const degraded = readStateJson<SyncDegraded>(
+    corrupt,
+    "sync_degraded_json",
+    row.syncDegradedJson,
+    readDegraded,
+    { hydrate: [], verify: [], kind: null },
+  );
   return {
     id: row.id,
     ownerEmail: row.ownerEmail,
@@ -172,14 +252,13 @@ function toSyncAccountRow(
     fullSyncStartedAt: row.fullSyncStartedAt,
     fullSyncPhase: row.fullSyncPhase,
     fullSyncReconcilePageToken: row.fullSyncReconcilePageToken,
-    fullSyncReconcilePendingIds: row.fullSyncReconcilePendingIdsJson
-      ? parseJsonArray<string>(row.fullSyncReconcilePendingIdsJson, [])
-      : null,
+    fullSyncReconcilePendingIds: reconcilePending,
     fullSyncReconcilePasses: row.fullSyncReconcilePasses,
     fullSyncListedCount: row.fullSyncListedCount,
-    archivePendingIds: parseJsonArray<string>(row.archivePendingIdsJson, []),
-    hydratePendingIds: parseJsonArray<string>(row.hydratePendingIdsJson, []),
-    degraded: parseDegraded(row.syncDegradedJson),
+    archivePendingIds,
+    hydratePendingIds,
+    degraded,
+    corrupt,
     archiveHistoryPending: row.archiveHistoryPending === 1,
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
@@ -1395,6 +1474,7 @@ export type SyncAccountPatch = Partial<{
   archivePendingIds: string[] | null;
   hydratePendingIds: string[] | null;
   degraded: SyncDegraded | null;
+  corrupt: SyncCorrupt | null;
   archiveHistoryPending: boolean | null;
   status: SyncAccountRow["status"];
   lastError: string | null;
@@ -1470,6 +1550,13 @@ export async function patchSyncAccount(
         : null;
     delete set.archivePendingIds;
   }
+  if (patch.corrupt !== undefined) {
+    set.syncCorruptJson =
+      patch.corrupt && Object.keys(patch.corrupt).length > 0
+        ? JSON.stringify(patch.corrupt)
+        : null;
+    delete set.corrupt;
+  }
   if (patch.archiveHistoryPending !== undefined) {
     set.archiveHistoryPending = patch.archiveHistoryPending ? 1 : null;
   }
@@ -1524,6 +1611,7 @@ export async function resetSyncAccountProgress(
       archivePendingIds: null,
       hydratePendingIds: null,
       degraded: null,
+      corrupt: null,
       archiveHistoryPending: null,
       status: "idle",
       lastError: null,

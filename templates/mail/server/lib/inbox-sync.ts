@@ -976,6 +976,9 @@ async function runIncrementalSyncStep(
     historyId,
     archiveHistoryId,
     archiveHistoryPending: !archiveCaughtUp,
+    // The pending lists below overwrite any unreadable column, so its raw value
+    // is saved first and the account stays degraded until a resync.
+    ...(Object.keys(row.corrupt).length > 0 ? { corrupt: row.corrupt } : {}),
     hydratePendingIds: hydrateQueue.filter((id) => !priorFailedHydrate.has(id)),
     archivePendingIds: [
       ...verifyQueue.filter((id) => !priorFailedVerify.has(id)),
@@ -1138,7 +1141,9 @@ async function runIncrementalSyncStep(
     ],
     kind: failureKinds[failureKinds.length - 1] ?? row.degraded.kind,
   };
-  const degradedCount = degraded.hydrate.length + degraded.verify.length;
+  const corruptCount = Object.keys(row.corrupt).length;
+  const degradedCount =
+    degraded.hydrate.length + degraded.verify.length + corruptCount;
   const syncedAt = Date.now();
   if (hydrateError) {
     await patchProgress(ownerEmail, accountEmail, claimId, {
@@ -1173,7 +1178,10 @@ async function runIncrementalSyncStep(
         ? {
             degraded: {
               count: degradedCount,
-              kind: degraded.kind ?? "unknown",
+              kind:
+                corruptCount > 0
+                  ? "corrupt_state"
+                  : (degraded.kind ?? "unknown"),
             },
           }
         : {}),

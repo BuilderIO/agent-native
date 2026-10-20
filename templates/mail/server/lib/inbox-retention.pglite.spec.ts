@@ -540,6 +540,76 @@ describe("runInboxRetention (PGlite)", () => {
     ).rejects.toThrow();
   });
 
+  it("sets a dead worker's account back to idle when taking over its stale claim", async () => {
+    const owner = "dead@example.com";
+    const account = "dead-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 10 * 60_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await stores.patchSyncAccount(owner, account, { status: "syncing" });
+    // An error state is not the dead worker's to overwrite.
+    const errOwner = "err@example.com";
+    await seedAccount(errOwner, "err-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 10 * 60_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(errOwner, "err-acct@example.com", "{}");
+    await stores.patchSyncAccount(errOwner, "err-acct@example.com", {
+      status: "error",
+    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+    info.mockRestore();
+
+    const [taken] = await stores.readSyncAccounts(owner);
+    const [kept] = await stores.readSyncAccounts(errOwner);
+    expect(taken).toMatchObject({ status: "idle", syncClaimId: null });
+    expect(kept).toMatchObject({ status: "error", syncClaimId: null });
+  });
+
+  it("reports unreadable stored sync state as corrupt_state and keeps the raw value", async () => {
+    const owner = "corrupt@example.com";
+    const account = "corrupt-acct@example.com";
+    await stores.ensureSyncAccountRow(owner, account);
+    await exec.execute({
+      sql: `UPDATE mail_sync_accounts
+        SET archive_pending_ids_json = $1, sync_degraded_json = $2, history_id = $3
+        WHERE owner_email = $4`,
+      args: ["{not json", '{"hydrate":"x"}', "12ab", owner],
+    });
+
+    const [row] = await stores.readSyncAccounts(owner);
+
+    expect(row.archivePendingIds).toEqual([]);
+    expect(row.corrupt).toEqual({
+      history_id: "12ab",
+      archive_pending_ids_json: "{not json",
+      sync_degraded_json: '{"hydrate":"x"}',
+    });
+    const { statusFromRow } = await import("./inbox-status.js");
+    expect(statusFromRow(row).degraded).toEqual({
+      count: 3,
+      kind: "corrupt_state",
+    });
+
+    // Persisting the raw values lets a later read still report them.
+    await stores.patchSyncAccount(owner, account, {
+      corrupt: row.corrupt,
+      archivePendingIds: [],
+      degraded: null,
+    });
+    const [again] = await stores.readSyncAccounts(owner);
+    expect(again.corrupt.archive_pending_ids_json).toBe("{not json");
+  });
+
   it("keeps one owner's rows when their connection lookup throws and cleans the rest", async () => {
     await seedAccount("a-flaky@example.com", "flaky-acct@example.com", {
       lastSyncedAt: NOW - HOUR,

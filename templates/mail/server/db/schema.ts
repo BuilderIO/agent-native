@@ -185,6 +185,9 @@ export const mailSyncAccounts = table(
     syncDegradedJson: text("sync_degraded_json"),
     // 1 while the archive history stream has more pages than one step read.
     archiveHistoryPending: integer("archive_history_pending"),
+    // Raw values of sync-state columns that failed to parse, kept for
+    // inspection until a resync; {column: first 2KB of the raw value}.
+    syncCorruptJson: text("sync_corrupt_json"),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })
