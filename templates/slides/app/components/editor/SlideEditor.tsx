@@ -3488,12 +3488,18 @@ export default function SlideEditor({
   const runNotesAction = useCallback(
     (action: FloatingToolbarNotesAction | "generate" | "rewrite") => {
       setNotesOpen(true);
+      if (!deckId) {
+        toast.error(t("floatingToolbar.agentUnavailable"));
+        return;
+      }
       void sendToAgentChatAndConfirm({
         message: [
           NOTES_ACTION_PROMPTS[action],
           ``,
+          `Deck id: \`${deckId}\``,
           `Slide id: \`${slide.id}\``,
-          `Work only on this slide id, whichever slide is on screen now. Read its content and current notes with \`get-deck\` (\`slideId\` above, \`compact: "false"\`); \`view-screen\` does not return note text. Write the result with \`patch-deck\` using a \`patch-slide\` op for the same slide id that sets only \`fields.notes\`. Do not change the slide's content.`,
+          `Work only on this slide id, whichever slide is on screen now. Read its content and current notes with \`get-deck\` (\`deckId\` and \`slideId\` above, \`compact: "false"\`); \`view-screen\` does not return note text.`,
+          `Write the result with \`patch-deck\` (\`deckId\` above) using a \`patch-slide\` op for the same slide id that sets only \`fields.notes\`. Pass \`baseFields: { notes }\` from the notes you just read: \`{ present: true, value: <exact notes text> }\`, or \`{ present: false }\` when \`get-deck\` returned no notes, so a newer edit by the user is not overwritten. Do not change the slide's content.`,
         ].join("\n"),
         submit: true,
         chatTarget: "local",
@@ -3502,7 +3508,7 @@ export default function SlideEditor({
           toast.error(t("floatingToolbar.agentUnavailable"));
       });
     },
-    [slide.id, t],
+    [deckId, slide.id, t],
   );
   const generateNotes = useCallback(
     () => runNotesAction(slide.notes?.trim() ? "rewrite" : "generate"),
