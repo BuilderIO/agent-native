@@ -1,3 +1,8 @@
+import {
+  ActionContractError,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
+
 import type { GitHubSourceProblemCode } from "../../shared/github-source.js";
 import { executeGitHubSourceRequest } from "./provider-api.js";
 
@@ -155,7 +160,19 @@ async function githubGet(
     if (target.signal && (target.signal.aborted || endedBySignal(error))) {
       throw new GitHubSourceDeadlineError();
     }
-    throw error;
+    // A missing connection is the caller's to explain. Anything else the
+    // provider client throws, like a dropped connection, means GitHub never
+    // answered.
+    if (
+      isAgentConnectionRequiredError(error) ||
+      error instanceof ActionContractError
+    ) {
+      throw error;
+    }
+    throw Object.assign(
+      new GitHubSourceError("unavailable", "GitHub couldn't be reached."),
+      { cause: error },
+    );
   }
   const result = asRecord(raw);
   const response = asRecord(result.response) as unknown as ProviderResponse;

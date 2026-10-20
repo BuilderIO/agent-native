@@ -149,15 +149,26 @@ describe("GitHub request deadlines", () => {
     expect(requests).toHaveLength(2);
   });
 
-  it("keeps other failures as they are", async () => {
-    github.failure = new Error("socket hang up");
-    await expect(
+  it("names a request that never reached GitHub, and leaves a missing connection to the caller", async () => {
+    const read = () =>
       readGitHubBlob({
         ...target,
         sha: "b10b",
         signal: new AbortController().signal,
-      }),
-    ).rejects.toThrow("socket hang up");
+      });
+    github.failure = new Error(
+      "Provider API request failed (ECONNRESET): GET api.github.com/repos/acme/docs: socket hang up",
+    );
+    await expect(read()).rejects.toMatchObject({
+      name: "GitHubSourceError",
+      code: "unavailable",
+    });
+
+    const missing = Object.assign(new Error("Connect GitHub."), {
+      agentConnectionRequired: true,
+    });
+    github.failure = missing;
+    await expect(read()).rejects.toBe(missing);
   });
 });
 
