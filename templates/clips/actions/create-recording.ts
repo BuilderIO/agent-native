@@ -328,14 +328,19 @@ export default defineAction({
       if (failure.failureCode === "storage_setup_required") {
         failStorageSetupRequired();
       }
+      const retryable =
+        failure.failureCode === "hosted_storage_unavailable" ||
+        failure.failureCode === "multipart_start_failed";
       fail(
         failure.failureCode === "hosted_storage_unavailable"
           ? HOSTED_STORAGE_UNAVAILABLE_REASON
-          : "Video storage could not start an upload. Refresh and try again.",
+          : failure.failureCode === "streaming_upload_unavailable"
+            ? reason
+            : "Video storage could not start an upload. Refresh and try again.",
         {
           errorCode: failure.failureCode,
           statusCode: 503,
-          details: { retryable: true },
+          details: { retryable },
         },
       );
     };

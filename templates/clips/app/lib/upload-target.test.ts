@@ -266,6 +266,29 @@ describe("openUploadTarget", () => {
     });
   });
 
+  it("maps typed streaming failures for intake starts", async () => {
+    const result = openUploadTarget({
+      intake: true,
+      ownerEmail: null,
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => null,
+      create: async () =>
+        Response.json(
+          {
+            error: "The current storage setup cannot start the upload.",
+            errorCode: "streaming_upload_unavailable",
+          },
+          { status: 503 },
+        ),
+      dropRow: vi.fn(),
+    });
+
+    await expect(result).rejects.toMatchObject({
+      code: "streaming_upload_unavailable",
+    });
+  });
+
   it("requires an owner before opening an upload row", async () => {
     const create = vi.fn();
     const { result } = open(create, null);

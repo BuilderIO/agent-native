@@ -164,7 +164,13 @@ export async function openUploadTarget(options: {
     // coercion-ok: a non-JSON error body falls back to the HTTP status below.
     const body = (await res.json().catch(() => null)) as {
       error?: string;
+      errorCode?: string;
+      details?: { denyReason?: string };
     } | null;
+    const denialCode = body?.details?.denyReason ?? body?.errorCode;
+    if (denialCode === "streaming_upload_unavailable") {
+      throw new UploadTargetError("streaming_upload_unavailable");
+    }
     throw new Error(body?.error ?? `create-recording failed (${res.status})`);
   }
   // Action failures include the storage denial reason as an errorCode and in

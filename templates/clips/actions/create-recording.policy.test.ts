@@ -352,6 +352,9 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "streaming_upload_unavailable",
       statusCode: 503,
+      details: { retryable: false },
+      message:
+        "The current storage setup cannot start the resumable upload required by this recorder.",
     });
 
     expect(calls.updateSet).toHaveBeenLastCalledWith(
