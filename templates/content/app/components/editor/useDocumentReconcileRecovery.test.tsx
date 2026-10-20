@@ -30,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.useRealTimers();
 });
 
 function mount(
@@ -273,37 +274,84 @@ describe("document reconcile recovery", () => {
     });
   });
 
-  it("falls back to recovery after three automatic saves race with typing", async () => {
+  it("keeps saving while typing overtakes each automatic save", async () => {
+    vi.useFakeTimers();
     const save = vi.fn(async () => true);
     const retain = vi.fn(async () => undefined);
     let identity = 0;
     mount(save, () => String(identity), retain, false);
     save.mockImplementation(async () => {
-      identity += 1;
-      draft = `typing generation ${identity}`;
+      if (save.mock.calls.length <= 3) {
+        identity += 1;
+        draft = `typing generation ${identity}`;
+      }
       return true;
     });
 
     let result!: boolean;
     await act(async () => {
-      result = await recovery.resolveAutomatically(
+      const resolved = recovery.resolveAutomatically(
         { localDraft: draft, localTitle: "Merged title" },
         base,
       );
+      await vi.advanceTimersByTimeAsync(10_000);
+      result = await resolved;
     });
 
-    expect(result).toBe(false);
-    expect(save).toHaveBeenCalledTimes(3);
-    expect(retain).toHaveBeenCalledWith({
-      localDraft: "typing generation 3",
-      localTitle: "",
+    expect({ result, state: recovery.state }).toEqual({
+      result: true,
+      state: null,
     });
-    expect(recovery.state).toEqual({
-      reason: "conflict",
-      localDraft: "typing generation 3",
-      localTitle: "",
-      saving: false,
+    expect(save).toHaveBeenCalledTimes(4);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "typing generation 3", localTitle: "" },
+      undefined,
+    );
+    expect(retain).not.toHaveBeenCalled();
+  });
+
+  async function overtakeFirstAutomaticSave() {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => true);
+    const typing = { identity: 0 };
+    mount(save, () => String(typing.identity), undefined, false);
+    save.mockImplementationOnce(async () => {
+      typing.identity += 1;
+      return true;
     });
+    await act(async () => {
+      void recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    const after = async (ms: number, keystroke = false) => {
+      await act(async () => vi.advanceTimersByTimeAsync(ms));
+      if (keystroke) typing.identity += 1;
+    };
+    return { save, after };
+  }
+
+  it("saves again once typing that overtook a save pauses", async () => {
+    const { save, after } = await overtakeFirstAutomaticSave();
+    await after(500, true);
+    await after(500, true);
+    await after(1_000);
+    expect(save).toHaveBeenCalledTimes(1);
+    // A second without a keystroke.
+    await after(1_000);
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves again within 5 s while typing never pauses", async () => {
+    const { save, after } = await overtakeFirstAutomaticSave();
+    for (let elapsed = 500; elapsed < 5_000; elapsed += 500)
+      await after(500, true);
+    expect(save).toHaveBeenCalledTimes(1);
+    await after(500, true);
+    expect(save).toHaveBeenCalledTimes(2);
   });
 
   it("saves text typed during recovery before clearing the banner", async () => {

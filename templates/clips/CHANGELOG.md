@@ -39,6 +39,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Paste a YouTube link to make a clip that plays in YouTube's player, with timed comments, chapters, and an imported transcript that follows playback.
 - Replacing a transcript, by importing a file or regenerating it, now keeps the old one to restore from Earlier transcripts in the transcript panel, and an import or restore can be undone right away from its toast.
 - Select a timeline range to cut or delete the middle of a recording.
 

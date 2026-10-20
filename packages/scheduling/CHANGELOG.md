@@ -1,5 +1,23 @@
 # @agent-native/scheduling
 
+## 0.2.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.210.2
+
+## 0.2.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [de17c2f]
+- Updated dependencies [3a73a99]
+- Updated dependencies
+  - @agent-native/toolkit@0.210.1
+
 ## 0.2.31
 
 ### Patch Changes
@@ -1089,19 +1107,5 @@
 ### Patch Changes
 
 - 966838d: Update scheduling package docs after removing the legacy scheduling template.
-
-## 0.1.9
-
-### Patch Changes
-
-- a56d93d: Remove unused imports, dead state, no-op plugin hooks, and debug logging from package internals.
-- a56d93d: Route outbound A2A, Dispatch vault, and scheduling webhook requests through
-  SSRF-safe URL fetch paths.
-
-## 0.1.8
-
-### Patch Changes
-
-- 853ab71: Internal cleanup: remove unused imports and variables (no behavior change).
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

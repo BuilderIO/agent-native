@@ -235,7 +235,7 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
-  it("does not probe readiness while the session preloads, and probes once it resolves", async () => {
+  it("probes during the hidden session preload and reuses the result after it resolves", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({ configured: true, chatEligible: true }),
     );
@@ -250,8 +250,8 @@ describe("useAgentEngineConfigured", () => {
       root.render(<Preloaded preloading />);
     });
     await flushAfterPaint();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(container.textContent).toBe("unknown");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("configured");
 
     await act(async () => {
       root.render(<Preloaded preloading={false} />);

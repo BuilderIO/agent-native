@@ -64,6 +64,7 @@ GitHub
 GitHub OAuth
 Google Calendar
 Google OAuth
+Google Search Console
 Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate

@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
+import { CONTENT_DATABASE_FILTER_OPERATORS } from "../shared/api.js";
 import { withSavedTableColumnPresentation } from "../shared/database-table-columns.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
@@ -39,20 +40,7 @@ const filterSchema = z
   .object({
     key: z.string(),
     label: z.string(),
-    operator: z.enum([
-      "contains",
-      "equals",
-      "does_not_equal",
-      "greater_than",
-      "less_than",
-      "before",
-      "after",
-      "between",
-      "is_checked",
-      "is_unchecked",
-      "is_empty",
-      "is_not_empty",
-    ]),
+    operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
     value: z.string(),
     filterGroupId: z.string().optional(),
     parentFilterGroupId: z.string().optional(),

@@ -753,6 +753,45 @@ export default {
       "Vorhandene Einträge für diese Kennzahl konnten nicht geprüft werden.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Tägliche Klicks und Impressionen pro Seite für die Content-Ansicht.",
+      serviceAccount: "Dienstkonto",
+      copyEmail: "E-Mail kopieren",
+      grantHint:
+        "Füge diese E-Mail in der Search Console bei jeder Property als Nutzer hinzu, unter Einstellungen → Nutzer und Berechtigungen.",
+      noServiceAccount: "Füge zuerst einen Google-Dienstkontoschlüssel hinzu.",
+      openGoogleCloud: "Google Cloud öffnen",
+      invalidServiceAccount:
+        "Der gespeicherte Dienstkontoschlüssel kann nicht gelesen werden.",
+      properties: "Properties",
+      siteLabel: "Property",
+      pathLabel: "Pfadpräfix",
+      pathInvalid: "Das Pfadpräfix muss mit / beginnen.",
+      addProperty: "Property hinzufügen",
+      removeProperty: "Property entfernen",
+      save: "Speichern",
+      collectDaily: "Täglich erfassen",
+      adminOnly: "Nur Inhaber und Admins der Organisation können das ändern.",
+      statusCollecting: "Wird erfasst",
+      statusNeedsAccess: "Zugriff fehlt",
+      statusFailed: "Letzter Lauf fehlgeschlagen",
+      runSucceeded: "Erfasst {{when}}",
+      runNeedsAccess: "Kein Zugriff, Stand {{when}}",
+      runRunning: "Wird seit {{when}} erfasst",
+      runFailed: "Fehlgeschlagen {{when}}",
+      unavailable: "Erfassungsstatus nicht verfügbar: {{message}}",
+      keyUnreadable:
+        "Der gespeicherte Dienstkontoschlüssel konnte nicht gelesen werden. Speichere ihn unter Google Cloud erneut.",
+      propertyBareDomain: "Verwende für eine Domain-Property {{suggestion}}.",
+      propertyInvalidDomain:
+        "Nach sc-domain: steht nur die Domain, zum Beispiel {{suggestion}}.",
+      propertyMissingSlash:
+        "URL-Präfix-Properties enden auf /. Verwende {{suggestion}}.",
+      propertyUnrecognized:
+        "Verwende sc-domain:example.com oder eine URL-Präfix-Property, die auf / endet.",
+    },
     uploadFile: "Datei hochladen",
     googleSheetsExport: "Google-Sheets-Export",
     googleSheetsExportDescription:
@@ -1349,6 +1388,14 @@ export default {
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",
     saveFailed: "Das Dashboard konnte nicht gespeichert werden",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "BigQuery-Kosten für „{{title}}“",
+    panelCostOverTitle: "„{{title}}“ ist teuer zu aktualisieren",
+    panelCostScheduled:
+      "~{{size}} gescannt · {{perRun}} pro Aktualisierung · ~{{perMonth}}/Monat für E-Mail-Berichte",
+    panelCostUnscheduled:
+      "~{{size}} gescannt · {{perRun}} pro Aktualisierung · keine E-Mail-Berichte",
+    panelCostOverHint:
+      "Ein kürzerer Zeitraum oder weniger Spalten scannen weniger Daten.",
     archived: "Dashboard „{{name}}“ archiviert",
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Das Dashboard konnte nicht archiviert werden",

@@ -33,8 +33,8 @@ jobs:
     permissions:
       contents: read
       packages: read
-    # Keep a 25-minute reserve for setup and report upload beyond the PR test budgets.
-    timeout-minutes: 120
+    # Reserve time after the shard timeout for setup and report upload.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -111,40 +111,22 @@ jobs:
 
       - name: Run shard
         id: run-shard
-        if: matrix.shard != 'runtime-budget' && github.event_name != 'pull_request'
+        if: matrix.shard != 'runtime-budget'
         working-directory: templates/design
-        timeout-minutes: 37
+        timeout-minutes: 52
         env:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
           E2E_RUN_ID: design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           E2E_LOG_TEST_PROGRESS: "1"
         run: |
           mkdir -p .react-router/types
-          E2E_RUN_ID="${E2E_RUN_ID}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16
-
-      - name: Run PR export E2E
-        if: matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'
-        working-directory: templates/design
-        timeout-minutes: 37
-        env:
-          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
-          E2E_RUN_ID: design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-exports
-          E2E_LOG_TEST_PROGRESS: "1"
-        run: |
-          mkdir -p .react-router/types
-          pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts
-
-      - name: Run PR marquee E2E
-        if: matrix.shard != 'runtime-budget' && github.event_name == 'pull_request'
-        working-directory: templates/design
-        timeout-minutes: 37
-        env:
-          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
-          E2E_RUN_ID: design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-marquee
-          E2E_LOG_TEST_PROGRESS: "1"
-        run: |
-          mkdir -p .react-router/types
-          pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"
+          base_run_id="$E2E_RUN_ID"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts
+            E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"
+          else
+            E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16
+          fi
 
       # These specs skip themselves unless the loopback provider is on, so
       # without this step nothing in CI proves the model receives uploaded

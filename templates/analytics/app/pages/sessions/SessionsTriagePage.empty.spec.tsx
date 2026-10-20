@@ -867,29 +867,40 @@ describe("Sessions empty states", () => {
     ).toHaveLength(2);
   });
 
-  it("says when speed coverage began beside a slow match", async () => {
-    mocks.labEnabled = true;
-    mocks.speedCoverage = null;
-    await renderSessions("/sessions?slow=any");
-    expect(container.textContent).toContain("sessions.noSessions");
-    expect(container.textContent).toContain("sessions.speedCoverageStarting");
+  it.each([
+    "2026-10-19T00:00:00.000Z",
+    "2026-10-20T00:00:00.000Z",
+    "2026-11-30T00:00:00.000Z",
+  ])(
+    "says when speed coverage began beside a slow match at %s",
+    async (now) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(now));
+      mocks.labEnabled = true;
+      mocks.speedCoverage = null;
+      await renderSessions("/sessions?slow=any");
+      expect(container.textContent).toContain("sessions.noSessions");
+      expect(container.textContent).toContain("sessions.speedCoverageStarting");
 
-    // Ten days ago, so the default 30-day range starts before coverage
-    // whatever today's date is.
-    mocks.speedCoverage = new Date(
-      Date.now() - 10 * 24 * 3_600_000,
-    ).toISOString();
-    await renderSessions("/sessions?slow=any");
-    expect(container.textContent).toContain("sessions.speedCoverageSince");
+      // Ten days ago, so the default 30-day range starts before coverage
+      // whatever today's date is.
+      mocks.speedCoverage = new Date(
+        Date.now() - 10 * 24 * 3_600_000,
+      ).toISOString();
+      await renderSessions("/sessions?slow=any");
+      expect(container.textContent).toContain("sessions.speedCoverageSince");
 
-    // Matches from a range that starts before coverage say so above the list.
-    mocks.total = 1;
-    mocks.recordings = [recording("r1")];
-    await renderSessions("/sessions?slow=any&range=all");
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "sessions.speedCoverageSince",
-    );
-  });
+      // Matches from a range that starts before coverage say so above the list.
+      mocks.total = 1;
+      mocks.recordings = [recording("r1")];
+      await renderSessions("/sessions?slow=any&range=all");
+      const calls = listCalls();
+      expect(calls[calls.length - 1][1].from).toBeUndefined();
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(
+        "sessions.speedCoverageSince",
+      );
+    },
+  );
 
   function retryButtons() {
     return Array.from(container.querySelectorAll("button")).filter(

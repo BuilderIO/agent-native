@@ -116,6 +116,11 @@ import {
   type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
+import {
+  SearchConsoleDetail,
+  searchConsoleState,
+  useContentCollectionStatus,
+} from "@/pages/data-sources/SearchConsoleDetail";
 
 import {
   ConnectionTestStatus,
@@ -2214,6 +2219,7 @@ export default function DataSources() {
       statusData.workspaceConnections?.available === false);
 
   const firstParty = useFirstPartyAnalyticsData();
+  const contentCollection = useContentCollectionStatus();
   const googleSheetsConnected =
     getGoogleSheetsConnection(statusData)?.grantState === "connected";
 
@@ -2377,6 +2383,55 @@ export default function DataSources() {
     ),
   };
 
+  const searchConsoleLabel = {
+    unavailable: {
+      label: t("dataSources.statusUnknown"),
+      className: "text-destructive",
+    },
+    collecting: {
+      label: t("dataSources.searchConsole.statusCollecting"),
+      className: "text-emerald-500",
+    },
+    needs_access: {
+      label: t("dataSources.searchConsole.statusNeedsAccess"),
+      className: "text-amber-600 dark:text-amber-400",
+    },
+    failed: {
+      label: t("dataSources.searchConsole.statusFailed"),
+      className: "text-destructive",
+    },
+    off: {
+      label: t("dataSources.notConfigured"),
+      className: "text-muted-foreground",
+    },
+  }[searchConsoleState(contentCollection.data, contentCollection.error)];
+  const searchConsoleEntry: SourceEntry = {
+    id: "google-search-console",
+    name: t("dataSources.searchConsole.name"),
+    description: t("dataSources.searchConsole.description"),
+    category: "seo",
+    logo: (
+      <SourceLogo
+        id="google-search-console"
+        name={t("dataSources.searchConsole.name")}
+        fallbackIcon={IconSearch}
+      />
+    ),
+    status: contentCollection.isLoading ? undefined : searchConsoleLabel.label,
+    statusClassName: searchConsoleLabel.className,
+    connected:
+      searchConsoleState(contentCollection.data, contentCollection.error) ===
+      "collecting",
+    searchText: [
+      t("dataSources.searchConsole.name"),
+      t("dataSources.searchConsole.description"),
+      "google search console gsc seo clicks impressions",
+    ]
+      .join(" ")
+      .toLowerCase(),
+    detail: <SearchConsoleDetail />,
+  };
+
   const customApiEntry: SourceEntry = {
     id: "custom-api",
     name: t("dataSources.customApi.title"),
@@ -2403,6 +2458,7 @@ export default function DataSources() {
     firstPartyEntry,
     ...sourceEntries,
     googleSheetsEntry,
+    searchConsoleEntry,
     customApiEntry,
   ];
   const activeEntry = entries.find((entry) => entry.id === activeId);

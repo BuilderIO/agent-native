@@ -742,6 +742,48 @@ export default {
       "No se pudieron comprobar las entradas existentes de esta métrica.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Clics e impresiones diarios por página para la vista de contenido.",
+      serviceAccount: "Cuenta de servicio",
+      copyEmail: "Copiar correo",
+      grantHint:
+        "Añade este correo como usuario en cada propiedad de Search Console, en Configuración → Usuarios y permisos.",
+      noServiceAccount:
+        "Primero añade una clave de cuenta de servicio de Google.",
+      openGoogleCloud: "Abrir Google Cloud",
+      invalidServiceAccount:
+        "No se puede leer la clave de cuenta de servicio guardada.",
+      properties: "Propiedades",
+      siteLabel: "Propiedad",
+      pathLabel: "Prefijo de ruta",
+      pathInvalid: "El prefijo de ruta debe empezar por /.",
+      addProperty: "Añadir propiedad",
+      removeProperty: "Quitar propiedad",
+      save: "Guardar",
+      collectDaily: "Recopilar a diario",
+      adminOnly:
+        "Solo los propietarios y administradores de la organización pueden cambiar esto.",
+      statusCollecting: "Recopilando",
+      statusNeedsAccess: "Necesita acceso",
+      statusFailed: "La última ejecución falló",
+      runSucceeded: "Recopilado {{when}}",
+      runNeedsAccess: "Sin acceso a {{when}}",
+      runRunning: "Recopilando desde {{when}}",
+      runFailed: "Falló {{when}}",
+      unavailable:
+        "El estado de la recopilación no está disponible: {{message}}",
+      keyUnreadable:
+        "No se pudo leer la clave de cuenta de servicio guardada. Vuelve a guardarla en Google Cloud.",
+      propertyBareDomain: "Para una propiedad de dominio, usa {{suggestion}}.",
+      propertyInvalidDomain:
+        "Después de sc-domain: va solo el dominio, como en {{suggestion}}.",
+      propertyMissingSlash:
+        "Las propiedades de prefijo de URL terminan en /. Usa {{suggestion}}.",
+      propertyUnrecognized:
+        "Usa sc-domain:example.com o una propiedad de prefijo de URL que termine en /.",
+    },
     uploadFile: "Subir archivo",
     googleSheetsExport: "Exportación a Google Sheets",
     googleSheetsExportDescription:
@@ -1338,6 +1380,14 @@ export default {
     viewOnly: "Tiene acceso de solo lectura a este panel.",
     saveFailed: "No se pudo guardar el panel",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "Coste de BigQuery de «{{title}}»",
+    panelCostOverTitle: "Actualizar «{{title}}» es caro",
+    panelCostScheduled:
+      "~{{size}} analizados · {{perRun}} por actualización · ~{{perMonth}}/mes en informes por correo",
+    panelCostUnscheduled:
+      "~{{size}} analizados · {{perRun}} por actualización · sin informes por correo",
+    panelCostOverHint:
+      "Un intervalo de fechas más corto o menos columnas analizan menos datos.",
     archived: 'Panel archivado: "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "No se pudo archivar el panel",

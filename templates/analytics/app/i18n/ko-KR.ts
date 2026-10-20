@@ -718,6 +718,43 @@ export default {
     sameNameCheckFailed: "이 지표의 기존 항목을 확인하지 못했습니다.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "콘텐츠 보기용 페이지별 일일 클릭수와 노출수입니다.",
+      serviceAccount: "서비스 계정",
+      copyEmail: "이메일 복사",
+      grantHint:
+        "Search Console의 각 속성에서 설정 → 사용자 및 권한에 이 이메일을 사용자로 추가하세요.",
+      noServiceAccount: "먼저 Google 서비스 계정 키를 추가하세요.",
+      openGoogleCloud: "Google Cloud 열기",
+      invalidServiceAccount: "저장된 서비스 계정 키를 읽을 수 없습니다.",
+      properties: "속성",
+      siteLabel: "속성",
+      pathLabel: "경로 접두사",
+      pathInvalid: "경로 접두사는 /로 시작해야 합니다.",
+      addProperty: "속성 추가",
+      removeProperty: "속성 제거",
+      save: "저장",
+      collectDaily: "매일 수집",
+      adminOnly: "조직 소유자와 관리자만 변경할 수 있습니다.",
+      statusCollecting: "수집 중",
+      statusNeedsAccess: "액세스 필요",
+      statusFailed: "마지막 실행 실패",
+      runSucceeded: "{{when}}에 수집됨",
+      runNeedsAccess: "{{when}} 기준 액세스 없음",
+      runRunning: "{{when}}부터 수집 중",
+      runFailed: "{{when}}에 실패",
+      unavailable: "수집 상태를 확인할 수 없습니다: {{message}}",
+      keyUnreadable:
+        "저장된 서비스 계정 키를 읽을 수 없습니다. Google Cloud에서 다시 저장하세요.",
+      propertyBareDomain: "도메인 속성에는 {{suggestion}}을(를) 사용하세요.",
+      propertyInvalidDomain:
+        "sc-domain: 뒤에는 도메인만 입력합니다(예: {{suggestion}}).",
+      propertyMissingSlash:
+        "URL 접두어 속성은 /로 끝납니다. {{suggestion}}을(를) 사용하세요.",
+      propertyUnrecognized:
+        "sc-domain:example.com 또는 /로 끝나는 URL 접두어 속성을 사용하세요.",
+    },
     uploadFile: "파일 업로드",
     googleSheetsExport: "Google Sheets 내보내기",
     googleSheetsExportDescription:
@@ -1295,6 +1332,13 @@ export default {
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",
     saveFailed: "대시보드를 저장할 수 없습니다.",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: '"{{title}}"의 BigQuery 비용',
+    panelCostOverTitle: '"{{title}}"은(는) 새로 고침 비용이 큽니다',
+    panelCostScheduled:
+      "약 {{size}} 스캔 · 새로 고침당 {{perRun}} · 이메일 보고서로 월 약 {{perMonth}}",
+    panelCostUnscheduled:
+      "약 {{size}} 스캔 · 새로 고침당 {{perRun}} · 이메일 보고서 없음",
+    panelCostOverHint: "날짜 범위를 줄이거나 열을 줄이면 스캔량이 줄어듭니다.",
     archived: '"{{name}}" 대시보드를 보관처리했습니다.',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "대시보드를 보관처리할 수 없습니다.",

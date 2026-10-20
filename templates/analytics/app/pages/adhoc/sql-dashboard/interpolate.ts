@@ -158,7 +158,9 @@ export function interpolate(
         return "SELECT __invalid_custom_date_range__";
       }
       if (
-        /generate_series|generate_date_array/i.test(sourceSql) &&
+        /generate_series|generate_date_array|\bwith\s+recursive\b/i.test(
+          sourceSql,
+        ) &&
         (Date.parse(`${end}T00:00:00.000Z`) -
           Date.parse(`${start}T00:00:00.000Z`)) /
           DAY_MILLISECONDS +

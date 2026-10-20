@@ -1382,6 +1382,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ".github/workflows/design-e2e.yml",
     "utf8",
   );
+  // source-read-ok: Playwright timeout contract is checked from the config source.
+  const designPlaywrightConfig = readFileSync(
+    "templates/design/playwright.config.ts",
+    "utf8",
+  );
   // source-read-ok: the Design setup budget is a source-level contract.
   const designGlobalSetup = readFileSync(
     "templates/design/e2e/global-setup.ts",
@@ -1407,36 +1412,42 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^    timeout-minutes: 120$/m,
-    "the standalone Design job must reserve setup and artifact time after the PR E2E budgets",
+    /^    timeout-minutes: 90$/m,
+    "the standalone Design job must cover the shard, loopback setup, and artifacts",
+  );
+  const runShardStep =
+    designE2eWorkflow.match(
+      /^      - name: Run shard\n([\s\S]*?)(?=^      - name:)/m,
+    )?.[1] ?? "";
+  const prRunIds = [
+    ...runShardStep.matchAll(
+      /E2E_RUN_ID="\$\{base_run_id\}-(?:exports|marquee)"/g,
+    ),
+  ];
+  const globalSetupBudgetMs =
+    Number(
+      designGlobalSetup.match(
+        /^const GLOBAL_SETUP_BUDGET_MS = (\d+) \* 60_000;$/m,
+      )?.[1],
+    ) * 60_000;
+  const webServerTimeoutMs =
+    Number(
+      designPlaywrightConfig.match(/^        timeout: (\d+)_000,$/m)?.[1],
+    ) * 1_000;
+  const runShardTimeoutMinutes = Number(
+    runShardStep.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  assert.equal(prRunIds.length, 2);
+  assert.equal(
+    runShardTimeoutMinutes * 60_000 -
+      prRunIds.length * (globalSetupBudgetMs + webServerTimeoutMs),
+    20 * 60_000,
+    "the PR shard timeout must leave 20 minutes for tests after both setup and webServer budgets",
   );
   assert.match(
     designE2eWorkflow,
     /^      - name: Run chat attachment and sizing loopback E2E\n        if: matrix\.shard == 1\n        working-directory: templates\/design\n        timeout-minutes: 21$/m,
     "the loopback attachment suite must budget global setup and webServer startup",
-  );
-  assert.match(
-    designE2eWorkflow,
-    /^      - name: Run shard\n        id: run-shard\n        if: matrix\.shard != 'runtime-budget' && github\.event_name != 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
-    "the standalone shard budget must remain explicit outside the separate PR runs",
-  );
-  assert.match(
-    designE2eWorkflow,
-    /^      - name: Run PR export E2E\n        if: matrix\.shard != 'runtime-budget' && github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
-    "the PR export run must have its own setup and test budget",
-  );
-  assert.match(
-    designE2eWorkflow,
-    /^      - name: Run PR marquee E2E\n        if: matrix\.shard != 'runtime-budget' && github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
-    "the PR marquee run must have its own setup and test budget",
-  );
-  const standaloneJobTimeoutMinutes = Number(
-    designE2eWorkflow.match(/^    timeout-minutes: (\d+)$/m)?.[1],
-  );
-  const standalonePrStepBudgetsMinutes = 37 + 37 + 21;
-  assert.ok(
-    standaloneJobTimeoutMinutes >= standalonePrStepBudgetsMinutes + 25,
-    `the standalone Design job must reserve 25 minutes beyond the sequential PR E2E step caps (job ${standaloneJobTimeoutMinutes}, steps ${standalonePrStepBudgetsMinutes})`,
   );
   assert.match(
     designGlobalSetup,
@@ -1445,8 +1456,23 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designGlobalSetup,
+    /^const HOME_RECOVERY_RETRY_BUDGET_MS = 2 \* 60_000;$/m,
+    "the initial Home attempt must reserve time for Vite recovery and composer readiness",
+  );
+  assert.match(
+    designGlobalSetup,
     /^const HOME_WARMUP_BUDGET_MS = 6 \* 60_000;$/m,
-    "Home warmup must reserve the composer probe after a slow cold navigation",
+    "Home warmup must reserve bounded time for Vite recovery",
+  );
+  assert.match(
+    designGlobalSetup,
+    /const homeRecoveryDeadline =\s*homeDeadline - HOME_RECOVERY_RETRY_BUDGET_MS;/,
+    "Home warmup must reserve the retry budget before the first navigation",
+  );
+  assert.match(
+    designGlobalSetup,
+    /const homeInitialNavigationDeadline =\s*homeRecoveryDeadline - HOME_RECOVERY_DETECTION_BUDGET_MS;/,
+    "the first navigation and composer probe must leave the full retry budget",
   );
   assert.deepEqual(
     [
@@ -1463,18 +1489,18 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
-        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(\s*(homeRecoveryDetectionDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
+        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(\s*(homeInitialNavigationDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
       ),
     ].map(([, deadline, budget]) => [deadline, budget]),
     [
-      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
+      ["homeInitialNavigationDeadline", "HOME_INITIAL_NAVIGATION_BUDGET_MS"],
       ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
     ],
-    "home navigation must retain the full cold-compile budget before the recovery probe",
+    "the first Home navigation must leave bounded time for recovery",
   );
   assert.match(
     designGlobalSetup,
-    /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
+    /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeRecoveryDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
     "the composer probe window must start after navigation so a slow cold route does not consume it",
   );
   assert.match(
@@ -3611,6 +3637,7 @@ test(
         ".github/workflows/design-e2e.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
         "templates/design/e2e/global-setup.ts",
+        "templates/design/playwright.config.ts",
         "templates/design/e2e/css-style-helpers.ts",
         "templates/design/e2e/css-style-helpers.spec.ts",
         "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",
