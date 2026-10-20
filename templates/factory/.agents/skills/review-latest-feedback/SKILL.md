@@ -21,7 +21,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. Write in plain, non-technical language; keep scope details and proof in the internal ledger. Never explain why `👀` or `✅` is absent. If `🎫` is used, briefly say what still needs checking and who should handle it, when known. Add and read back root reactions as soon as their proof bar passes, preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
+Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. Write one short sentence in plain, non-technical language. Say what changed; mention an unresolved check or action only when `🎫` applies, and name its owner when known. Do not mention or explain absent reactions. Keep scope details and proof in the internal ledger. Add and read back root reactions as soon as their proof bar passes, preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
 
 ## Slack channels and ownership
 
@@ -313,11 +313,10 @@ instruction or prompt exception.
 Thank issue reporters for opening issues and Slack reporters for sharing.
 Before posting, inspect the full thread and follow the one-reply gate in
 `address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
-send one short, plain-language paragraph. Say what changed; include a next
-step only when one remains. Never explain absent `👀` or `✅` reactions. If
-`🎫` is used, briefly name the remaining check or action and its owner when
-known. Keep hashes, branches, CI, publisher details, and proof in the internal
-recap. End Slack replies with
+send one short sentence in plain, non-technical language. Say what changed.
+Mention an unresolved check or action only when `🎫` applies, and name its
+owner when known. Do not mention or explain absent reactions. Keep hashes,
+branches, CI, publisher details, and proof in the internal recap. End with
 `this was sent from a bot.`.
 
 ### After a PR merges
@@ -326,13 +325,13 @@ Track publisher state and beta verification in the internal recap. A beta-
 eligible app PR is one whose changed paths map to a site in the matching main
 beta run. After its merge is confirmed in `origin/main`, wait for the matching
 run's site discovery to succeed and select the affected site. Post one short
-update in the same owned Slack thread with the PR link. If the site is already
-current, verify it and say it is on beta. Otherwise, say it is expected on beta
-within 24 hours. This is an expectation, not a guarantee. Keep checking;
-if publishing fails, is blocked, or 24 hours pass without the site becoming
-current, correct the update in that thread. Use `🎫` only when another person
-or team must act. Do not say it is live until checked; keep publisher details
-in the recap.
+sentence in the same owned Slack thread with the PR link: "[PR link] is merged
+and expected on beta within 24 hours." If the site is already current, verify
+it and say: "[PR link] is merged and on beta." This is an expectation, not a
+guarantee. Keep checking. If publishing fails, is blocked, or the site is
+still not current after 24 hours, correct the update in that thread. Use `🎫`
+only when another person or team must act. Do not say it is live until checked;
+keep publisher details in the recap.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The

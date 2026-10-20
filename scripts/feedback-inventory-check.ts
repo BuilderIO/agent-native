@@ -7,6 +7,7 @@ type Handoff = {
   owner: string;
   ownerSlackId?: string;
   action: string;
+  publicActionSummary?: string;
   status?: "unassigned" | "accepted" | "completed";
   requestReply?: {
     ts: string;
@@ -44,6 +45,7 @@ type ReporterRequestReply = {
 type ReporterRequest = {
   scope: string;
   action: string;
+  publicActionSummary?: string;
   requestReply: ReporterRequestReply;
 };
 
@@ -902,6 +904,9 @@ function validateThreadSnapshot(
       !reporterRequest.scope.trim() ||
       typeof reporterRequest.action !== "string" ||
       !reporterRequest.action.trim() ||
+      (reporterRequest.publicActionSummary !== undefined &&
+        (typeof reporterRequest.publicActionSummary !== "string" ||
+          !reporterRequest.publicActionSummary.trim())) ||
       !request ||
       !isSlackUserId(request.actorId) ||
       typeof request.ts !== "string" ||
@@ -1807,12 +1812,19 @@ function validateStatusReactionLanguage(
     !normalizedText.includes(` ${normalizedSummary} `) ||
     activeHandoffs.some(
       (handoff) =>
-        !replyNamesHandoffAction(summary, handoff.action) ||
+        !replyNamesHandoffAction(
+          summary,
+          handoff.publicActionSummary ?? handoff.action,
+        ) ||
         (handoff.owner.toLowerCase() !== "unassigned" &&
           !replyNamesHandoffOwner(summary, handoff)),
     ) ||
     reporterRequests.some(
-      (request) => !replyNamesHandoffAction(summary, request.action),
+      (request) =>
+        !replyNamesHandoffAction(
+          summary,
+          request.publicActionSummary ?? request.action,
+        ),
     )
   ) {
     throw new Error(
@@ -2273,7 +2285,10 @@ function validateHandoffDefinitions(
       typeof handoff.owner !== "string" ||
       !handoff.owner.trim() ||
       typeof handoff.action !== "string" ||
-      !handoff.action.trim()
+      !handoff.action.trim() ||
+      (handoff.publicActionSummary !== undefined &&
+        (typeof handoff.publicActionSummary !== "string" ||
+          !handoff.publicActionSummary.trim()))
     ) {
       throw new Error(
         `${parentName}: handoff ${handoffIndex + 1} needs a distinct scope, responsible person/team, and action`,
@@ -9786,14 +9801,34 @@ if (args[0] === "--self-test" && args.length === 1) {
       ),
     },
     {
-      name: "active ticket summary must name the recorded action",
+      name: "active ticket summary must name the public action",
       inventory: withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: "I will set up the preview service in the deployment pipeline.",
+        },
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "set up the preview service in the deployment pipeline",
+            publicActionSummary: "set up the preview service",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will set up the preview service in the deployment pipeline.",
+            },
+          },
+        ],
         statusReply: {
           ts: "12.000000",
           threadParentTs: "10.000000",
           actorId: "USWEEPER",
           disposition: "In progress",
-          evidence: "Alex Rivera will choose the remaining behavior",
+          evidence: "Alex Rivera will set up the preview service",
           text: "In progress: Alex Rivera will review the launch notes. this was sent from a bot.",
           pendingActionSummary: "Alex Rivera will review the launch notes",
         },
@@ -11070,7 +11105,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "status reply evidence must include every fixed scope's recorded verification",
     "active ticket status needs a pending action summary":
       "active 🎫 summary must include every pending action and known owner",
-    "active ticket summary must name the recorded action":
+    "active ticket summary must name the public action":
       "active 🎫 summary must include every pending action and known owner",
     "active ticket summary must name the recorded owner":
       "active 🎫 summary must include every pending action and known owner",
@@ -11237,6 +11272,56 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
         }),
       ),
+    );
+    validateTestInventory(
+      withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: "I will set up the preview service in the deployment pipeline.",
+        },
+        handoffs: [
+          {
+            scope: "scheduled canary credentials",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "set up the preview service in the deployment pipeline",
+            publicActionSummary: "set up the preview service",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will set up the preview service in the deployment pipeline.",
+            },
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "In progress",
+          evidence: "Alex Rivera will set up the preview service",
+          text: "In progress: Alex Rivera will set up the preview service. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will set up the preview service",
+        },
+      }),
+    );
+    validateStatusReactionLanguage(
+      "self-test reporter request",
+      "Clarification needed: Please provide the URL so we can review the flow. this was sent from a bot.",
+      [],
+      [
+        {
+          scope: "reproduce the reported flow",
+          action: "send the link to check the flow",
+          publicActionSummary: "provide the URL so we can review the flow",
+          requestReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "USWEEPER",
+            text: "Please send the link to check the flow.",
+          },
+        },
+      ],
+      "Please provide the URL so we can review the flow",
     );
     validateTestInventory(
       withHandoffReply(

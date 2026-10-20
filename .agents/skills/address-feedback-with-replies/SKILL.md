@@ -294,17 +294,16 @@ non-repeating question only if one specific required detail still blocks it.
 ## Slack reply voice
 
 Write as the invoking user from the same connected Slack identity. Keep each
-reporter reply to one short, plain-language paragraph. Start with
-`ty for the feedback -` or `thanks for the feedback -`; end with
+reporter reply to one short sentence in plain, non-technical language. Start
+with `ty for the feedback -` or `thanks for the feedback -`; end with
 `this was sent from a bot.`.
 
-Say what changed in plain language. Do not explain why `👀` or `✅` is absent.
-If `🎫` is used, briefly name what still needs checking and who should handle
-it, when known. The Slack `🎫` reaction does not mean an external tracker ticket
-was created or assigned. For a beta app fix in an open PR, link it and say
-merge is pending. Give beta timing only after the matching run selects the site.
-If work continues beyond this run, name the next
-action only when a reporter needs to know it.
+Say what changed. Mention an unresolved check or action only when `🎫` applies,
+and name its owner when known. Do not mention or explain absent reactions. The
+Slack `🎫` reaction does not mean an external tracker ticket was created or
+assigned. For a beta app fix in an open PR, link it and say merge is pending.
+Give beta timing only after the matching run selects the site. If work continues
+beyond this run, name the next action only when a reporter needs to know it.
 For a clarification, ask one direct question only when reporter input changes
 the next step. Never ask for supplied evidence or internal access gaps.
 

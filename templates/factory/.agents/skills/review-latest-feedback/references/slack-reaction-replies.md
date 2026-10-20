@@ -9,15 +9,16 @@ owned by this task only when its reaction owner ID matches that actor ID. Each
 owned root needs a current same-actor status reply under the same parent. Reuse
 it while the disposition and next step remain current; send one short update
 when they materially change, including after a linked PR merges. Keep full
-scope, evidence, and handoff details in the internal ledger. Write Slack
-replies in plain, non-technical language. Never explain why `👀` or `✅` is
-absent. If `🎫` is used, briefly name what still needs checking and who should
-handle it, when known. For a beta-eligible app PR, wait until the matching
-run selects the affected site. Include the PR link and say it is expected on
-beta within 24 hours. This is an expectation, not a guarantee. If the site is
-current, verify it and say it is on beta. If publishing fails, is blocked, or
-misses that timing, correct the update in the same thread. Use `🎫` only when
-another person or team must act.
+scope, evidence, and handoff details in the internal ledger. Write one short
+sentence in plain, non-technical language. Say what changed; mention an
+unresolved check or action only when `🎫` applies, and name its owner when
+known. Do not mention or explain absent reactions. For a beta-eligible app PR,
+wait until the matching run selects the affected site. Include the PR link and
+say: "[PR link] is merged and expected on beta within 24 hours." This is an
+expectation, not a guarantee. If the site is current, verify it and say:
+"[PR link] is merged and on beta." If publishing fails, is blocked, or misses
+that timing, correct the update in the same thread. Use `🎫` only when another
+person or team must act.
 Do not claim it is live until checked. End with the exact
 bot disclosure and read the visible reply and root reactions back.
 

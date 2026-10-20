@@ -282,7 +282,10 @@ place of Slack source messages.
   evidence, and read-back text. Keep exact scope, proof, and handoff details in
   the ledger. For active `🎫` actions, add a short plain-language
   `pendingActionSummary` to `statusReply` that names every open action and its
-  known owner, and include it in the reply. Every
+  known owner, and include it in the reply. Keep the exact action in the
+  internal ledger. When that wording is too technical or long for Slack, add a
+  concise plain-language `publicActionSummary` to the matching handoff or
+  reporter request; the reply must name that public summary. Every
   distinct unfinished team action gets this actor's root `🎫`, even when no
   person has accepted it. For `status: "unassigned"`, record the responsible team/role or
   `unassigned`; omit the owner Slack ID and acceptance. If this actor asked a

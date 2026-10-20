@@ -377,20 +377,20 @@ Shipping does not independently take ownership of new Slack feedback. For
 feedback already owned by review-latest-feedback, keep all reactions in place:
 never remove or clean them up; add `✅` when accepted scope is complete and
 verified, and `🎫` only for distinct remaining work needing follow-up or an
-owner. Keep each Slack reply to one short, plain-language paragraph. Never
-explain absent reactions or include implementation, CI, or publisher details.
-If `🎫` is used for an active action, briefly name what still needs checking
-and who should handle it, when known. For a beta-eligible app PR linked to an
-owned feedback thread, wait until its merge is confirmed in `origin/main` and
-the matching run selects the affected site. Post one short update in that same
-thread with the PR link. If the site is current, verify it and say it is on
-beta. Otherwise, say it is expected on beta within 24 hours. This is an
-expectation, not a guarantee. Keep checking; if publishing fails, is blocked,
-or 24 hours pass without the site becoming current, correct the update in that
-thread. Use `🎫` only when another person or team must act. Keep publisher
-details in the ship ledger. Do not send Slack replies or reactions as a routine ship step unless
-review-latest-feedback was requested or already owns the action. This does not
-widen existing write authorization.
+owner. Keep each Slack reply to one short sentence in plain, non-technical
+language. Say what changed; mention an unresolved action only when `🎫` applies,
+and name its owner when known. Do not mention or explain absent reactions or
+include implementation, CI, or publisher details. For a beta-eligible app PR
+linked to an owned feedback thread, wait until its merge is confirmed in
+`origin/main` and the matching run selects the affected site. Post one short
+update in the same thread with the PR link: "[PR link] is merged and expected on beta within 24
+hours." If the site is current, verify it and say: "[PR link] is merged and on
+beta." This is an expectation, not a guarantee. Keep checking. If publishing
+fails, is blocked, or the site is still not current after 24 hours, correct the
+update in that thread. Use `🎫` only when another person or team must act. Keep
+publisher details in the ship ledger. Send Slack replies or reactions only
+when `review-latest-feedback` was requested or already owns the action. This
+does not widen existing write authorization.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship
