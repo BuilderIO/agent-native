@@ -99,6 +99,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { installNativeWorkerBroker } from "@/components/design/bridge/native-worker-broker";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -138,7 +139,10 @@ import {
   useBrowserOrigin,
 } from "./design-canvas/external-preview";
 import { hitTestResponderMarkup } from "./design-canvas/hit-test";
-import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import {
+  withLocalRuntimes,
+  withNativeShaderRuntime,
+} from "./design-canvas/local-runtime";
 import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
@@ -200,6 +204,9 @@ import {
   type ElementSelectionIntent,
   type PortableStyleSnapshot,
 } from "./types";
+import { useNativeShaderApprovals } from "./use-native-shader-approvals";
+
+if (typeof window !== "undefined") installNativeWorkerBroker(window);
 
 const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
 const CANVAS_BACKGROUND_VAR = "var(--design-editor-canvas-bg)";
@@ -9856,7 +9863,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (focusedInteractRef.current) return;
-      if (isCanvasOverlayInteractionTarget(e.target)) return;
+      // Middle-button pan may start on the comment click plane, but never on a popover over the canvas.
+      if (isCanvasOverlayInteractionTarget(e.target)) {
+        const onClickPlane =
+          e.target instanceof Element &&
+          !!e.target.closest("[data-review-click-plane]");
+        if (e.button !== 1 || !onClickPlane) return;
+        // Claiming canvas focus here would blur the open composer.
+        beginPan(e);
+        return;
+      }
       claimKeyboardFocus();
       suppressNextPick.current = false;
       setAltHoverMeasurement(null);
@@ -10079,6 +10095,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      // Popover mouse moves bubble here through React; they must not measure the design underneath.
+      if (isCanvasOverlayInteractionTarget(e.target)) {
+        setAltHoverMeasurement(null);
+        return;
+      }
       updateAltHoverMeasurement(e);
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
       if (tool !== "pen" || dragState.current?.type === "pen-node") return;
@@ -10643,12 +10664,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
+    // The comment click plane is portaled to body, so wheels over it never reach the surface.
+    const handlePlaneWheel = (event: WheelEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-review-click-plane]")
+      ) {
+        handleWheelEvent(event);
+      }
+    };
     surface.addEventListener("wheel", handleWheelEvent, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener("wheel", handlePlaneWheel, {
       capture: true,
       passive: false,
     });
     return () => {
       surface.removeEventListener("wheel", handleWheelEvent, {
+        capture: true,
+      });
+      document.removeEventListener("wheel", handlePlaneWheel, {
         capture: true,
       });
     };
@@ -14116,8 +14153,15 @@ const Screen = memo(function Screen({
 }: ScreenProps) {
   const t = useT();
   const browserOrigin = useBrowserOrigin();
-  const display = screenDisplayName(screen, metadata);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
+  const syncNativeShaderApprovals = useNativeShaderApprovals({
+    designId,
+    fileId: screen.id,
+    enabled:
+      !previewUrl &&
+      screen.content.includes("application/x-agent-native-effects"),
+  });
+  const display = screenDisplayName(screen, metadata);
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const previewViewport = getScreenPreviewViewport(
     focusedInteract ? geometry : metadata,
@@ -14172,15 +14216,17 @@ const Screen = memo(function Screen({
     if (!staticSrcdocNeeded) return "";
     // One injection for all three bridges: each separate one rescans the whole
     // screen for its closing body tag.
-    return injectSessionReplayIframeBootstrap(
-      injectDocumentMarkup(
-        getEmbeddedFrameDocumentContent({
-          content: withLocalRuntimes(screen.content),
-          fitBodyToFrame,
-        }),
-        STATIC_PREVIEW_TWEAK_BRIDGE +
-          hitTestResponderMarkup(screen.content) +
-          CONTENT_SIZE_REPORT_BRIDGE,
+    return withNativeShaderRuntime(
+      injectSessionReplayIframeBootstrap(
+        injectDocumentMarkup(
+          getEmbeddedFrameDocumentContent({
+            content: withLocalRuntimes(screen.content),
+            fitBodyToFrame,
+          }),
+          STATIC_PREVIEW_TWEAK_BRIDGE +
+            hitTestResponderMarkup(screen.content) +
+            CONTENT_SIZE_REPORT_BRIDGE,
+        ),
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -14525,12 +14571,14 @@ const Screen = memo(function Screen({
               onLoad={
                 previewUrl
                   ? undefined
-                  : (event) =>
+                  : (event) => {
+                      syncNativeShaderApprovals(event.currentTarget);
                       onStaticPreviewLoad?.(
                         event.currentTarget,
                         privateScreenshotPreview.screenshotPaths,
                         privateScreenshotPreview.nonce,
-                      )
+                      );
+                    }
               }
               loading={
                 isExportPreview || cullTier === "visible" ? "eager" : "lazy"
@@ -14866,6 +14914,13 @@ function BreakpointPreviewRow({
 }) {
   const t = useT();
   const browserOrigin = useBrowserOrigin();
+  const syncNativeShaderApprovals = useNativeShaderApprovals({
+    designId,
+    fileId: screen.id,
+    enabled:
+      !previewUrl &&
+      screen.content.includes("application/x-agent-native-effects"),
+  });
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
@@ -15231,12 +15286,14 @@ function BreakpointPreviewRow({
                       parentOrigin: browserOrigin ?? undefined,
                     })}
                     onLoad={(event) => {
-                      if (!previewUrl)
+                      if (!previewUrl) {
+                        syncNativeShaderApprovals(event.currentTarget);
                         onStaticPreviewLoad?.(
                           event.currentTarget,
                           privateScreenshotPreview.screenshotPaths,
                           privateScreenshotPreview.nonce,
                         );
+                      }
                       getBootStartCallback?.(
                         screen.id,
                         `breakpoint:${widthPx}`,

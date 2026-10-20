@@ -57,6 +57,7 @@ import * as Y from "yjs";
 
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
+import { isOutlineDrawingEligible } from "@/components/design/edit-panel/motion-controls";
 import {
   type MotionDockLiveState,
   type MotionDockTrack,
@@ -1264,6 +1265,9 @@ export function useEditorLiveEditsAndPresence({
     [activeCanvasSourceType, activeCodeLayerProjection, selectedCodeLayerNode],
   );
 
+  const selectedElementIsOutlineDrawable = selectedElement
+    ? isOutlineDrawingEligible(selectedElement)
+    : false;
   const motionSelectedTarget = useMemo<{
     nodeId: string;
     label: string;
@@ -1288,9 +1292,14 @@ export function useEditorLiveEditsAndPresence({
             (animation) => animation.targetNodeId === nodeId,
           ),
         ),
-      isPath: selectedCodeLayerNode.tag.toLowerCase() === "path",
+      isPath: selectedElementIsOutlineDrawable,
     };
-  }, [motionTextDocument, selectedCodeLayerNode, selectedElement?.tagName]);
+  }, [
+    motionTextDocument,
+    selectedCodeLayerNode,
+    selectedElement?.tagName,
+    selectedElementIsOutlineDrawable,
+  ]);
   const [motionOriginEditing, setMotionOriginEditing] = useState(false);
 
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {

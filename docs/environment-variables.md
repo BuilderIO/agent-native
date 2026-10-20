@@ -131,6 +131,7 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `COMSPEC` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                                                                                                                            |
 | `USERPROFILE` / `LOCALAPPDATA`                                                 | Windows home and local app-data folders, read by local tooling and core test isolation.                                                                                                                                    |
 | `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                                          | Tool-specific configuration and package-manager home directories.                                                                                                                                                          |
+| `SYSTEMROOT`                                                                   | Windows system directory supplied by the host; local CLI tools use it to select the built-in `tar.exe`.                                                                                                                    |
 
 Per-app `<APP_NAME>_DATABASE_URL` and
 Workspace apps use their `<APP_NAME>_DATABASE_URL` override for database

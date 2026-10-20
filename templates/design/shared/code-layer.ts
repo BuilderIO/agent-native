@@ -36,6 +36,7 @@ import {
 } from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
+import { pruneDeletedNativeEffects } from "./native-effect-pruning";
 import {
   parsePenNodes,
   serializePenNodes,
@@ -53,6 +54,7 @@ import {
   removePropertyClass,
   utilityStem,
 } from "./responsive-classes.js";
+import { sourceEquivalentSelectorPath } from "./source-equivalent-selector";
 import type { DesignSourceType } from "./source-mode";
 import { commonPrefixLength, commonSuffixLength } from "./string-diff";
 import { parseSvgPathData } from "./svg-path-data";
@@ -4002,7 +4004,10 @@ export function removeCodeLayerNodeFromHtml(
   const start = node.source.start;
   const end = node.source.end;
   if (start < 0 || end <= start || end > html.length) return null;
-  return `${html.slice(0, start)}${html.slice(end)}`;
+  return pruneDeletedNativeEffects(
+    html,
+    `${html.slice(0, start)}${html.slice(end)}`,
+  );
 }
 
 type CodeLayerTreeFields = Omit<CodeLayerTreeNode, "children">;
@@ -4140,6 +4145,7 @@ export function buildCodeLayerTree(
 }
 
 function normalizeSelectorForMatch(selector: string): string {
+  selector = sourceEquivalentSelectorPath(selector);
   let normalized = "";
   let quote: string | null = null;
   let escaped = false;

@@ -1387,6 +1387,7 @@ export function useEditorFilesAndSaving({
       enabled: canEditDesign && Boolean(id) && !shellMode,
       refetchInterval:
         canEditDesign && Boolean(id) && !shellMode ? 2_000 : false,
+      notifyOnChangeProps: ["data", "error", "status"],
     },
   );
   const remoteVisualEditPending =

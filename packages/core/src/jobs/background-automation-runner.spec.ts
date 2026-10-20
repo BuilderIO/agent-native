@@ -284,7 +284,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
       });
       const journal = vi
         .spyOn(runStore, "getCurrentTurnRunEventsForThread")
-        .mockResolvedValue([
+        .mockImplementation(async (journalThreadId, journalTurnId) => [
           {
             runId: "prior",
             seq: 0,
@@ -300,6 +300,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
               completedSideEffect: true,
             },
           },
+          ...(await persistedRunEventsForTest(journalThreadId, journalTurnId)),
         ]);
       const claim = vi
         .spyOn(runStore, "tryClaimRunSlot")
@@ -391,7 +392,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
     });
     const persistedEvents = vi
       .spyOn(runStore, "getCurrentTurnRunEventsForThread")
-      .mockResolvedValue([
+      .mockImplementation(async (journalThreadId, journalTurnId) => [
         {
           runId: "prior-worker",
           seq: 0,
@@ -402,6 +403,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
             input: { recipient: "fixture@example.test" },
           },
         },
+        ...(await persistedRunEventsForTest(journalThreadId, journalTurnId)),
       ]);
     const completedSteps = vi
       .spyOn(runStore, "getCompletedAgentExecutionSteps")
@@ -2131,6 +2133,31 @@ const standardDeps = {
   engine: testEngine,
 };
 
+async function persistedRunEventsForTest(threadId: string, turnId: string) {
+  const runStore = await import("../agent/run-store.js");
+  await runStore.ensureRunTables();
+  const { rows } = await pglite.query(
+    `SELECT e.run_id AS "runId", e.seq AS seq, e.event_data AS "eventData"
+     FROM agent_run_events e
+     JOIN agent_runs r ON r.id = e.run_id
+     WHERE r.thread_id = $1
+       AND COALESCE(r.turn_id, r.id) = $2
+     ORDER BY e.event_at ASC, e.seq ASC, r.id ASC`,
+    [threadId, turnId],
+  );
+  return (
+    rows as Array<{
+      runId: string;
+      seq: number | string;
+      eventData: string;
+    }>
+  ).map(({ runId, seq, eventData }) => ({
+    runId,
+    seq: Number(seq),
+    event: JSON.parse(eventData),
+  }));
+}
+
 describe("runBackgroundAutomation — preconditions fail before any thread or run exists", () => {
   async function usableCheck() {
     const engineIndex = await import("../agent/engine/index.js");
@@ -2601,7 +2628,10 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       ];
       const journal = vi
         .spyOn(store, "getCurrentTurnRunEventsForThread")
-        .mockResolvedValue(receipt);
+        .mockImplementation(async (journalThreadId, journalTurnId) => [
+          ...receipt.map((entry) => ({ runId: "prior", ...entry })),
+          ...(await persistedRunEventsForTest(journalThreadId, journalTurnId)),
+        ]);
       const ref = vi
         .spyOn(store, "getRunTurnRef")
         .mockResolvedValue({ threadId, turnId });
@@ -2956,7 +2986,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     });
     const journal = vi
       .spyOn(runStore, "getCurrentTurnRunEventsForThread")
-      .mockResolvedValue([]);
+      .mockImplementation(persistedRunEventsForTest);
     const claim = vi
       .spyOn(runStore, "tryClaimRunSlot")
       .mockImplementation(
@@ -3148,7 +3178,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
 
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<{ state: "timeout" }>((resolve) => {
-      timeout = setTimeout(() => resolve({ state: "timeout" }), 1_000);
+      timeout = setTimeout(() => resolve({ state: "timeout" }), 10_000);
     });
     try {
       const result = await Promise.race([

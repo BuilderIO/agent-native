@@ -52,6 +52,8 @@ const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 const RETIRED_PATH_CONTEXT_KEY = "_frameworkRetiredPathname";
+const ROUTE_MIDDLEWARE_BATCH_SIZE = 64;
+const routeMiddlewareBatches = new WeakMap<Function, MountedMiddleware[]>();
 
 const CANONICAL_AUTH_EARLY_PATHS = [
   "/",
@@ -666,6 +668,23 @@ function registerMiddleware(
   const middleware = createMountedMiddleware(path, handler);
   if (options.prepend) {
     chain.unshift(middleware);
+  } else if (path) {
+    const last = chain[chain.length - 1] as Function | undefined;
+    const existing = last && routeMiddlewareBatches.get(last);
+    if (existing && existing.length < ROUTE_MIDDLEWARE_BATCH_SIZE) {
+      existing.push(middleware);
+      return;
+    }
+    const batch: MountedMiddleware[] = [middleware];
+    const dispatch = (event: H3Event, next: () => any) => {
+      const run = (index: number): any =>
+        index === batch.length
+          ? Promise.resolve().then(next)
+          : batch[index](event, () => run(index + 1));
+      return run(0);
+    };
+    routeMiddlewareBatches.set(dispatch, batch);
+    chain.push(dispatch);
   } else {
     chain.push(middleware);
   }

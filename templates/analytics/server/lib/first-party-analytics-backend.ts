@@ -10,7 +10,10 @@ import {
 import { getDbExec } from "@agent-native/core/db";
 import { getOrgSetting } from "@agent-native/core/settings";
 
-import type { SourceGenerationUnavailableReason } from "../../shared/source-generation.js";
+import type {
+  SourceGenerationResult,
+  SourceGenerationUnavailableReason,
+} from "../../shared/source-generation.js";
 import type {
   FirstPartyEventsModelSkipReason,
   FirstPartyEventsSource,
@@ -1507,24 +1510,139 @@ function httpResponseExclusionEnd(
   }
 }
 
+type ConditionTokens = {
+  tokens: AgentSqlToken[];
+  depths: number[];
+  sourceName: string;
+};
+
+function widensCondition(tokens: AgentSqlToken[], index: number): boolean {
+  const token = tokens[index];
+  return (
+    isWord(token, "or") ||
+    isWord(token, "case") ||
+    (isWord(token, "not") && !isWord(tokens[index - 1], "is"))
+  );
+}
+
+/** Whether some AND conjunct of tokens [from, to) at `level` drops every `http.response` row. */
+function conjunctionExcludesHttpResponse(
+  condition: ConditionTokens,
+  from: number,
+  to: number,
+  level: number,
+): boolean {
+  let start = from;
+  let between = false;
+  for (let index = from; index <= to; index++) {
+    if (index < to) {
+      if (condition.depths[index] !== level) continue;
+      const token = condition.tokens[index];
+      if (isWord(token, "between")) between = true;
+      if (!isWord(token, "and")) continue;
+      // BETWEEN's own AND joins its bounds, not two conditions.
+      if (between) {
+        between = false;
+        continue;
+      }
+    }
+    if (conjunctExcludesHttpResponse(condition, start, index, level)) {
+      return true;
+    }
+    start = index + 1;
+  }
+  return false;
+}
+
+function conjunctExcludesHttpResponse(
+  condition: ConditionTokens,
+  from: number,
+  to: number,
+  level: number,
+): boolean {
+  const { tokens, depths } = condition;
+  if (
+    to - from >= 2 &&
+    tokens[from].text === "(" &&
+    tokens[to - 1].text === ")"
+  ) {
+    // A subquery's event_name belongs to its own FROM, not to this source.
+    if (
+      isWord(tokens[from + 1], "select") ||
+      isWord(tokens[from + 1], "with")
+    ) {
+      return false;
+    }
+    for (let index = from + 1; index < to - 1; index++) {
+      if (depths[index] <= level) return false;
+    }
+    return groupExcludesHttpResponse(condition, from + 1, to - 1, level + 1);
+  }
+  const column = tokens[from + 1]?.text === "." ? from + 2 : from;
+  return (
+    isEventNameColumn(tokens, column, condition.sourceName) &&
+    httpResponseExclusionEnd(tokens, column) === to
+  );
+}
+
+// A parenthesized condition excludes `http.response` only when every OR
+// branch does: one branch without an event restriction readmits it.
+function groupExcludesHttpResponse(
+  condition: ConditionTokens,
+  from: number,
+  to: number,
+  level: number,
+): boolean {
+  let start = from;
+  for (let index = from; index <= to; index++) {
+    if (index < to) {
+      if (condition.depths[index] !== level) continue;
+      if (!isWord(condition.tokens[index], "or")) {
+        if (widensCondition(condition.tokens, index)) return false;
+        continue;
+      }
+    }
+    if (!conjunctionExcludesHttpResponse(condition, start, index, level)) {
+      return false;
+    }
+    start = index + 1;
+  }
+  return true;
+}
+
 /**
  * The model omits every `http.response` row, so a read can move to it only
  * when its own WHERE provably drops them: a top-level conjunct on
- * `event_name`, with no OR or NOT in that WHERE that could let them back in.
- * An unfiltered count or an `event_name` breakdown would otherwise lose those
- * rows without any sign the number changed.
+ * `event_name`, or a parenthesized OR whose every branch has one. ANDed
+ * conditions only narrow, so OR and NOT may appear inside any other
+ * parenthesized conjunct, but an OR, NOT, or CASE at the WHERE's own level
+ * could let `http.response` back in. An unfiltered count or an
+ * `event_name` breakdown would otherwise lose those rows without any sign the
+ * number changed.
  */
 function eventsReadsIneligibility(
   sql: string,
 ): "reads_no_events" | "http_response_not_excluded" | null {
   const query = readAgentSqlQuery(sql, { dialect: "bigquery" });
   const { tokens } = query;
+  // A pipe stage filters an earlier stage's result, so its WHERE says nothing
+  // about which rows the source fed in.
+  if (
+    tokens.some(
+      (token, index) =>
+        token.text === "|>" ||
+        (token.text === "|" && tokens[index + 1]?.text === ">"),
+    )
+  ) {
+    return "http_response_not_excluded";
+  }
   const depths: number[] = [];
   let depth = 0;
+  // Array brackets nest expressions just as parentheses do.
   for (const token of tokens) {
-    if (token.text === ")") depth--;
+    if (token.text === ")" || token.text === "]") depth--;
     depths.push(depth);
-    if (token.text === "(") depth++;
+    if (token.text === "(" || token.text === "[") depth++;
   }
   const tokenIndex = new Map(
     tokens.map((token, index) => [token.start, index]),
@@ -1555,28 +1673,17 @@ function eventsReadsIneligibility(
       where++;
     }
     if (atLevelEnd(where)) return "http_response_not_excluded";
-    let excluded = false;
-    for (let index = where + 1; !atLevelEnd(index); index++) {
-      const token = tokens[index];
-      if (isWord(token, "or")) return "http_response_not_excluded";
-      if (isWord(token, "not") && !isWord(tokens[index - 1], "is")) {
+    let end = where + 1;
+    while (!atLevelEnd(end)) end++;
+    for (let index = where + 1; index < end; index++) {
+      if (depths[index] === level && widensCondition(tokens, index)) {
         return "http_response_not_excluded";
       }
-      if (
-        depths[index] !== level ||
-        !isEventNameColumn(tokens, index, sourceName)
-      ) {
-        continue;
-      }
-      const column = tokens[index - 1]?.text === "." ? index - 2 : index;
-      const before = tokens[column - 1];
-      if (!isWord(before, "where") && !isWord(before, "and")) continue;
-      const end = httpResponseExclusionEnd(tokens, index);
-      if (end !== -1 && (atLevelEnd(end) || isWord(tokens[end], "and"))) {
-        excluded = true;
-      }
     }
-    if (!excluded) return "http_response_not_excluded";
+    const condition = { tokens, depths, sourceName };
+    if (!conjunctionExcludesHttpResponse(condition, where + 1, end, level)) {
+      return "http_response_not_excluded";
+    }
   }
   return null;
 }
@@ -1862,6 +1969,34 @@ const MODEL_MISSING_SKIP_REASONS: Partial<
 };
 
 /**
+ * Check that a planned events model is there to read. A failed lookup still
+ * reads the model under an unknown generation; only a model that is not there
+ * to read sends the query to the raw table.
+ */
+export async function settleFirstPartyEventsSource(
+  eventsSource: FirstPartyEventsSource | undefined,
+  signal?: AbortSignal,
+): Promise<{
+  eventsSource: FirstPartyEventsSource | undefined;
+  sourceGeneration: SourceGenerationResult | undefined;
+}> {
+  const sourceGeneration =
+    eventsSource?.source === "model"
+      ? await resolveSourceGeneration([eventsSource.table], { signal })
+      : undefined;
+  const modelMissing =
+    sourceGeneration?.status === "unavailable"
+      ? MODEL_MISSING_SKIP_REASONS[sourceGeneration.reason]
+      : undefined;
+  return {
+    eventsSource: modelMissing
+      ? { source: "raw", modelSkipped: modelMissing }
+      : eventsSource,
+    sourceGeneration,
+  };
+}
+
+/**
  * Choose where a first-party query reads `analytics_events`: the events model
  * when one is configured and the query reads nothing the model lacks, the raw
  * table otherwise, with the reason the model was skipped.
@@ -1975,19 +2110,9 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   try {
     // Read the generation before the job, so rows are never labeled newer
     // than the model they read.
-    const sourceGeneration =
-      eventsSource?.source === "model"
-        ? await resolveSourceGeneration([eventsSource.table], { signal })
-        : undefined;
-    // A failed lookup still reads the model under an unknown generation; only
-    // a model that is not there to read sends the query to the raw table.
-    const modelMissing =
-      sourceGeneration?.status === "unavailable"
-        ? MODEL_MISSING_SKIP_REASONS[sourceGeneration.reason]
-        : undefined;
-    if (modelMissing) {
-      eventsSource = { source: "raw", modelSkipped: modelMissing };
-    }
+    const settled = await settleFirstPartyEventsSource(eventsSource, signal);
+    eventsSource = settled.eventsSource;
+    const { sourceGeneration } = settled;
     result = await runQuery(
       renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
         eventDateRange: options.eventDateRange,

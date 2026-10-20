@@ -17,6 +17,7 @@ import {
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
@@ -1323,6 +1324,33 @@ export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
   editor: T | null | undefined,
 ): editor is T {
   return Boolean(editor && editor.isDestroyed !== true);
+}
+
+export function focusComposerEditorWhenVisible(
+  editor: Editor | null | undefined,
+): void {
+  if (!isComposerEditorUsable(editor)) return;
+  const dom = editor.view.dom;
+  if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
+    let observer: ResizeObserver;
+    const disconnect = () => {
+      observer.disconnect();
+      editor.off("destroy", disconnect);
+    };
+    observer = new ResizeObserver(() => {
+      if (!isComposerEditorUsable(editor)) {
+        disconnect();
+        return;
+      }
+      if (isInsideHiddenShell(dom)) return;
+      disconnect();
+      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+    });
+    editor.on("destroy", disconnect);
+    observer.observe(dom);
+    return;
+  }
+  editor.commands.focus("end");
 }
 
 export function createTiptapComposerExtensions(
@@ -4072,20 +4100,9 @@ export function TiptapComposer({
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      if (!isComposerEditorUsable(editor)) return;
       // An editor inside a hidden session shell cannot take focus, and nothing
       // re-runs this when the shell is shown. Focus on the first size change.
-      const dom = editor.view.dom;
-      if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
-        const observer = new ResizeObserver(() => {
-          if (isInsideHiddenShell(dom)) return;
-          observer.disconnect();
-          editor.commands.focus("end");
-        });
-        observer.observe(dom);
-        return;
-      }
-      editor.commands.focus("end");
+      focusComposerEditorWhenVisible(editor);
     },
     addAttachment(file: File) {
       return addAttachmentForCurrentScope(file);

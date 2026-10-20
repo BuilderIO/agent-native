@@ -90,6 +90,10 @@ export default defineAction({
 
     return {
       sent: result.sent,
+      // Only a completed run changed the app. An unconfirmed one may still be
+      // running in Builder: check the screens before resending it.
+      completed: result.completed === true,
+      ...(result.unconfirmed ? { unconfirmed: true } : {}),
       visualEditHandoff,
       message: summary.text ?? result.response,
       changedFiles: summary.changedFiles,

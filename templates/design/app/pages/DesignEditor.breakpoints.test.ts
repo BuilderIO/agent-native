@@ -565,7 +565,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(handler).toContain("removeElementFromHtml");
 
     const singleElementStart = handler.indexOf(
-      "// Item 7b — same breakpoint-scoped display:none routing",
+      "// Item 7b — same breakpoint-scoped display:none routing as the",
     );
     const multiElementBranch = handler.slice(0, singleElementStart);
     expect(multiElementBranch).toContain(
@@ -581,7 +581,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       /if \(shouldDeleteActiveLiveDom\) \{\s*deleteFromLiveDom\(activeRuntimeSelectors\);/,
     );
     const singleElementEnd = handler.indexOf(
-      "const nextContent = removeElementFromHtml",
+      "const removedContent = removeElementFromHtml",
       singleElementStart,
     );
     const singleElementBranch = handler.slice(

@@ -194,7 +194,8 @@ export function runApplyLocalContentUpdate(
         : null,
   });
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
 
   if (!previewOnly) {
     acknowledgeAuthoritativeClipboardMutation({
@@ -208,6 +209,7 @@ export function runApplyLocalContentUpdate(
     canWriteCollabText(ydoc, isSynced, previousContent);
   const yjsHistoryAvailable = Boolean(
     shouldRecordHistory &&
+    !(options.serverAccepted && options.shaderWriteCompletion) &&
     viewModeRef.current !== "overview" &&
     writeLiveDoc &&
     undoManagerRef.current,
@@ -222,6 +224,9 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      ...(options.shaderWriteCompletion && options.serverAccepted
+        ? { isCheckpoint: true }
+        : {}),
     };
     if (viewModeRef.current === "overview") {
       recordContentHistoryEntry(
@@ -244,6 +249,9 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      ...(options.shaderWriteCompletion && options.serverAccepted
+        ? { isCheckpoint: true }
+        : {}),
       selectionBefore: options.selectionBefore,
     });
   }
@@ -303,7 +311,12 @@ export function runApplyLocalContentUpdate(
     setContentRenderRevision((revision) => revision + 1);
   }
   let yjsHistoryRecorded = false;
-  if (ydoc && writeLiveDoc && !previewOnly) {
+  if (
+    ydoc &&
+    writeLiveDoc &&
+    !previewOnly &&
+    !(options.serverAccepted && options.shaderWriteCompletion)
+  ) {
     const ytext = ydoc.getText("content");
     if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {

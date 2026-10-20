@@ -6,6 +6,7 @@ import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
 
 export default defineAction({
+  mcpTool: true,
   description:
     "Invite one person to the active organization as a member and email them the invitation. Every call needs the user's approval. Only organization owners and admins may invite. Admin invitations are sent from Settings > Members.",
   schema: z.object({ email: z.string().trim().email() }),

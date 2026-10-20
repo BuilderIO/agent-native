@@ -127,7 +127,7 @@ const legacyConfigureDocumentPropertySchema = z
 
 export default defineAction({
   description:
-    "Create an ordinary Content collection property or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
+    "Create an ordinary Content collection property (a `blocks` property adds a tab to every row's page) or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: configureDocumentPropertyAgentSchema,

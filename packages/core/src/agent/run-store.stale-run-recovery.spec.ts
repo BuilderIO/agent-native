@@ -11,7 +11,7 @@ import {
 import { createTestPglite } from "../a2a/test-pglite.js";
 
 const foldReapedRunIntoThreadMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
+  vi.fn().mockResolvedValue("projected"),
 );
 
 vi.mock("./reaped-run-thread.js", () => ({
@@ -111,6 +111,7 @@ const {
   reapAllStaleRuns,
   cleanupOldRuns,
   failRunBeforeDispatch,
+  markRunAbortedAtSafeBoundary,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
   BACKGROUND_RUN_STALE_MS,
@@ -123,7 +124,7 @@ const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 beforeEach(async () => {
   __resetNoRunningRunsProbeForTests();
   afterStaleCandidateScan = undefined;
-  foldReapedRunIntoThreadMock.mockReset().mockResolvedValue(undefined);
+  foldReapedRunIntoThreadMock.mockReset().mockResolvedValue("projected");
 });
 
 let seq = 0;
@@ -349,6 +350,39 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(projected?.thread_projection_pending).toBe(false);
   });
 
+  it("keeps a retryable stale-run projection pending until a retry succeeds", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    foldReapedRunIntoThreadMock
+      .mockResolvedValueOnce("retry")
+      .mockResolvedValueOnce("projected");
+
+    await expect(reapIfStale(runId)).resolves.toBe(true);
+    const [pending] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(pending?.thread_projection_pending).toBe(true);
+
+    await expect(reapAllStaleRuns()).resolves.toEqual({
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    });
+    const [projected] = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(runId)) as Array<{ thread_projection_pending: boolean }>;
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledTimes(2);
+    expect(projected?.thread_projection_pending).toBe(false);
+  });
+
   it("does not fail a missing-payload dispatch while a worker owns the live lease", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
@@ -387,6 +421,152 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       error_code: "dispatch_payload_missing",
       terminal_reason: "dispatch_payload_missing",
     });
+  });
+
+  it("surfaces and retries a run abort terminal-event failure", async () => {
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let failedWrites = 2;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        failedWrites > 0
+      ) {
+        failedWrites--;
+        throw new Error("terminal event write unavailable");
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).rejects.toThrow(
+      "terminal event write unavailable",
+    );
+    expect((await readRow(runId))?.status).toBe("aborted");
+    expect(
+      await pglite
+        .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
+        .all(runId),
+    ).toHaveLength(0);
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+    const events = (await pglite
+      .prepare("SELECT event_data FROM agent_run_events WHERE run_id = ?")
+      .all(runId)) as Array<{ event_data: string }>;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].event_data)).toMatchObject({
+      type: "done",
+      reason: "user",
+    });
+  });
+
+  it("retries a terminal append when a concurrent event claims its sequence", async () => {
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let conflictInjected = false;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        /RETURNING seq/i.test(input.sql) &&
+        !conflictInjected
+      ) {
+        conflictInjected = true;
+        const [eventRunId, eventSeq] = input.args ?? [];
+        await pglite
+          .prepare(
+            `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            String(eventRunId),
+            Number(eventSeq),
+            Date.now(),
+            JSON.stringify({ type: "tool_start", toolName: "slow_tool" }),
+          );
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+
+    const events = (await pglite
+      .prepare(
+        `SELECT seq, event_data FROM agent_run_events
+         WHERE run_id = ? ORDER BY seq`,
+      )
+      .all(runId)) as Array<{ seq: number; event_data: string }>;
+    expect(conflictInjected).toBe(true);
+    expect(events.map((row) => JSON.parse(row.event_data).type)).toEqual([
+      "tool_start",
+      "done",
+    ]);
+  });
+
+  it("surfaces and retries a turn abort terminal-event failure", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    const newerRunId = `${runId}-newer`;
+    await insertRun(newerRunId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', terminal_reason = 'completed',
+             completed_at = ?, started_at = ?
+         WHERE id = ?`,
+      )
+      .run(Date.now(), Date.now() + 1, newerRunId);
+
+    const client = makeRawClient(true);
+    const execute = client.execute.getMockImplementation();
+    if (!execute) throw new Error("run-store test client is not configured");
+    let failedWrites = 2;
+    client.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /INSERT INTO agent_run_events/i.test(input.sql) &&
+        failedWrites > 0
+      ) {
+        failedWrites--;
+        throw new Error("turn terminal event write unavailable");
+      }
+      return execute(input);
+    });
+    currentClient = client;
+
+    await expect(markTurnAborted(thread, turn, "user")).rejects.toThrow(
+      "turn terminal event write unavailable",
+    );
+    expect((await readRow(runId))?.status).toBe("aborted");
+    expect(
+      await pglite
+        .prepare("SELECT seq FROM agent_run_events WHERE run_id = ?")
+        .all(runId),
+    ).toHaveLength(0);
+
+    await expect(markTurnAborted(thread, turn, "user")).resolves.toBe(
+      "already_terminal",
+    );
+    const events = (await pglite
+      .prepare("SELECT event_data FROM agent_run_events WHERE run_id = ?")
+      .all(runId)) as Array<{ event_data: string }>;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].event_data)).toMatchObject({ type: "done" });
   });
 
   it("records an early Stop as a turn marker before any real run exists", async () => {
@@ -890,6 +1070,31 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     );
     expect(await rowsForTurn(turn)).toHaveLength(2);
     expect((await readRow(successorId))?.status).toBe("running");
+  });
+
+  it("does not create a recovery successor when a leased run has lost its lease row", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimTurnExecutionLease(thread, turn, runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await pglite
+      .prepare(
+        `DELETE FROM agent_execution_leases
+         WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+      )
+      .run(thread, turn, runId);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    expect((await readRow(runId))?.status).toBe("errored");
+    expect((await readRow(runId))?.diag_stage).toContain(
+      "declined reason=execution_lease_changed",
+    );
+    expect(await rowsForTurn(turn)).toHaveLength(1);
   });
 
   it("does not recover into a turn that was cancelled before the stale insert", async () => {

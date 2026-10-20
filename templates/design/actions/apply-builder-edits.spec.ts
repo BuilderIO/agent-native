@@ -46,6 +46,7 @@ vi.mock("../server/lib/full-app-lab.js", () => ({
 vi.mock("nanoid", () => ({ nanoid: () => "batch_123" }));
 
 let pendingRows: Array<Record<string, unknown>> = [];
+let claimSucceeds = true;
 const updateCalls: Array<Record<string, unknown>> = [];
 
 vi.mock("../server/db/index.js", () => ({
@@ -61,7 +62,13 @@ vi.mock("../server/db/index.js", () => ({
       set: (vals: Record<string, unknown>) => ({
         where: () => {
           updateCalls.push(vals);
-          return Promise.resolve();
+          // The claim reads back which rows it moved; every queued row here.
+          return Object.assign(Promise.resolve(), {
+            returning: () =>
+              Promise.resolve(
+                claimSucceeds ? pendingRows.map((row) => ({ id: row.id })) : [],
+              ),
+          });
         },
       }),
     }),
@@ -71,6 +78,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "id",
       designId: "designId",
       status: "status",
+      batchId: "batchId",
       createdAt: "createdAt",
     },
   },
@@ -83,6 +91,7 @@ beforeEach(() => {
   isFullAppBuildingEnabled.mockResolvedValue(true);
   updateCalls.length = 0;
   pendingRows = [];
+  claimSucceeds = true;
 });
 
 describe("apply-builder-edits", () => {
@@ -140,11 +149,13 @@ describe("apply-builder-edits", () => {
       "1. Make the header sticky (path: /, selector: header)",
     );
     expect(prompt).toContain("2. Use a green primary button");
-    expect(updateCalls).toHaveLength(1);
+    // Claimed (in flight) before dispatch, then sent once Builder finished.
+    expect(updateCalls).toHaveLength(2);
     expect(updateCalls[0]).toMatchObject({
-      status: "sent",
+      status: "unconfirmed",
       batchId: "batch_123",
     });
+    expect(updateCalls[1]).toMatchObject({ status: "sent" });
   });
 
   it("keeps rows pending with the reason when the dispatch fails", async () => {
@@ -161,7 +172,7 @@ describe("apply-builder-edits", () => {
       errorCode: "fusion_edit_dispatch_failed",
       statusCode: 502,
     });
-    expect(updateCalls[0]).toMatchObject({
+    expect(updateCalls.at(-1)).toMatchObject({
       status: "pending",
       error: "container unreachable",
     });
@@ -174,10 +185,57 @@ describe("apply-builder-edits", () => {
     await expect(
       action.run({ designId: "design_1" } as never),
     ).rejects.toMatchObject({ errorCode: "fusion_edit_dispatch_failed" });
-    expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]).toMatchObject({
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[1]).toMatchObject({
       status: "pending",
       error: "Builder did not finish applying these edits",
     });
+  });
+
+  it("holds a timed-out batch as unconfirmed instead of requeueing it", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({
+      sent: true,
+      unconfirmed: true,
+      error:
+        "Timed out waiting for the app agent to finish; it may still be working",
+    });
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "fusion_edit_unconfirmed",
+      statusCode: 504,
+      message: expect.stringContaining("retryUnconfirmed: true"),
+    });
+    // Still held as claimed: the outcome only records why.
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0]).toMatchObject({
+      status: "unconfirmed",
+      batchId: "batch_123",
+    });
+    expect(updateCalls[1]).not.toHaveProperty("status");
+  });
+
+  it("requeues unconfirmed edits only when asked to retry them", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({ sent: true, completed: true });
+
+    await action.run({ designId: "design_1", retryUnconfirmed: true } as never);
+
+    expect(updateCalls[0]).toMatchObject({ status: "pending" });
+    expect(updateCalls.at(-1)).toMatchObject({ status: "sent" });
+  });
+
+  it("sends nothing when another apply already claimed the edits", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    claimSucceeds = false;
+
+    const result = (await action.run({ designId: "design_1" } as never)) as {
+      sentCount: number;
+    };
+
+    expect(result.sentCount).toBe(0);
+    expect(sendFusionBranchMessage).not.toHaveBeenCalled();
   });
 });

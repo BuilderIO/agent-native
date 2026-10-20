@@ -1,5 +1,6 @@
 import type { CodeLayerNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { remapClonedNativeEffectBindings } from "@shared/native-effect-cloning";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -440,6 +441,7 @@ export function runDuplicateSelection({
         filename: file.filename,
       };
       const insertedRootNodeIds: string[] = [];
+      const clonedNodeIdMap = new Map<string, string>();
       for (const snapshot of group) {
         const projection = buildCodeLayerProjection(content, { source });
         const anchorNode =
@@ -473,10 +475,14 @@ export function runDuplicateSelection({
         if (structureUnsupported) return;
         if (!result) continue;
         content = result.content;
+        result.nodeIdMap.forEach((value, key) =>
+          clonedNodeIdMap.set(key, value),
+        );
         insertedRootNodeIds.unshift(...result.rootNodeIds);
         remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
+      content = remapClonedNativeEffectBindings(content, clonedNodeIdMap);
       const submittedProjection = buildCodeLayerProjection(content, { source });
       const tracksActiveSelectionHistory = file.id === activeFile?.id;
       if (tracksActiveSelectionHistory) {

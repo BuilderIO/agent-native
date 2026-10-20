@@ -835,8 +835,10 @@ function useLocalTemplate(target: AppTarget, ref: string | null): boolean {
   if (!ref) return true;
   const source = target.provenance.templateSource;
   if (source !== "bundled" && source !== "local-checkout") return false;
-  return ref === target.provenance.templateRef;
+  return _getGitHubTemplateRefCandidates().includes(ref);
 }
+
+export { useLocalTemplate as _useLocalTemplate };
 
 async function materializeForTarget(
   target: AppTarget,

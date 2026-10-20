@@ -22,13 +22,13 @@ function parseTarget(raw: string | null): Record<string, unknown> | null {
 export default defineAction({
   description:
     "List queued fusion (full-app) visual edit instructions for a design, " +
-    "oldest first. Optionally filter by status (pending|sent|error). Use to " +
+    "oldest first. Optionally filter by status (pending|sent|unconfirmed|error). Use to " +
     "review what's queued before calling apply-builder-edits, or to check the " +
     "outcome of a previous batch.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
     status: z
-      .enum(["pending", "sent", "error"])
+      .enum(["pending", "sent", "unconfirmed", "error"])
       .optional()
       .describe("Filter to edits with this status. Omit to return all."),
   }),
@@ -64,7 +64,12 @@ export default defineAction({
     }));
 
     const pendingCount = rows.filter((row) => row.status === "pending").length;
+    // Sent, but Builder never confirmed the run finished; held until the user
+    // checks the app and retries (apply-builder-edits retryUnconfirmed).
+    const unconfirmedCount = rows.filter(
+      (row) => row.status === "unconfirmed",
+    ).length;
 
-    return { edits, pendingCount };
+    return { edits, pendingCount, unconfirmedCount };
   },
 });

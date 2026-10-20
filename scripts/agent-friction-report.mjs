@@ -75,6 +75,25 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
   [false, "Agents are leaving browser tabs for the next session."],
   [false, "Open a browser tab for a quick check."],
 ];
+const MOUNTED_NAVIGATION_PATH_REGEX_CASES = [
+  [
+    true,
+    "The path-only /chat/thread-one command was incorrectly stripped to /thread-one under the /chat mount.",
+  ],
+  [
+    true,
+    "Don't strip the mount prefix from a path-only local navigation command.",
+  ],
+  [
+    true,
+    "Keep navigation.path router-local and put the mounted URL in publicPath.",
+  ],
+  [false, "The app is mounted under /chat."],
+  [false, "Navigate to the new chat thread."],
+  [false, "The public URL for the share page is /chat/share/abc."],
+];
+const MOUNTED_NAVIGATION_PATH_RE =
+  /\b(?:path[- ]only|navigation\.path)\b[^.!?\n]{0,140}\b(?:strip(?:ped|ping)?|normaliz(?:e|ed|ing)|rewrit(?:e|es|ten|ing)|infer(?:red|ring)?|treat(?:ed|ing)?)\b[^.!?\n]{0,120}\b(?:mount|prefix|public|local)\b|\b(?:mount|prefix|public)\b[^.!?\n]{0,100}\b(?:path[- ]only|navigation\.path)\b[^.!?\n]{0,120}\b(?:strip(?:ped|ping)?|normaliz(?:e|ed|ing)|rewrit(?:e|s|ten|ing)|infer(?:red|ring)?|treat(?:ed|ing)?)\b|\b(?:keep|use)\s+(?:`?navigation\.path`?\s+)?router[- ]local\b[^.!?\n]{0,100}\bpublicPath\b|\b(?:don['’]?t|do not|never|must not)\s+strip\b[^.!?\n]{0,100}\b(?:mount|prefix)\b[^.!?\n]{0,60}\bpath[- ]only\b/i;
 
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
@@ -718,6 +737,21 @@ const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
   ],
   [false, "Keep 👀 and ✅ on fixed reports; ask about anything unfixed."],
   [false, "A ticket emoji is already on the issue."],
+];
+
+const FEEDBACK_SWEEP_LIFETIME_RE =
+  /(?=.*\b(?:slack|feedback)\b)(?=.*\b(?:sweep|triag\w*|scan)\b)(?=.*\b(?:forever|perpetual|open[- ]ended|endless|(?:3|three)\s+days?|every few hours)\b)(?=.*\b(?:stop|not supposed to|should(?:n['’]?t| not)\s+(?:go|continue|run)|do not|don['’]?t)\b)/is;
+const FEEDBACK_SWEEP_LIFETIME_REGEX_CASES = [
+  [
+    true,
+    "You've been sweeping Slack for 3 days; stop, this should not go forever because separate agents sweep every few hours.",
+  ],
+  [
+    true,
+    "Stop the open-ended feedback triage at its cutoff; scheduled agents handle later windows.",
+  ],
+  [false, "A scheduled Slack sweep runs every few hours."],
+  [false, "Please triage this bounded feedback window."],
 ];
 
 const POST_MERGE_FEEDBACK_FOLLOWUP_RE =
@@ -3387,6 +3421,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...MOUNTED_NAVIGATION_PATH_REGEX_CASES.filter(
+      ([expected, message]) =>
+        MOUNTED_NAVIGATION_PATH_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
       ([expected, message]) =>
         matchesPattern(FEEDBACK_REPLY_DETAIL_PATTERN, message) !== expected,
@@ -3408,6 +3448,12 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_CHANNEL_COVERAGE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_SWEEP_LIFETIME_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -3710,7 +3756,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -3876,6 +3922,13 @@ const PATTERNS = [
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
   },
   {
+    key: "mounted-navigation-path",
+    label: "Had to correct mounted vs router-local navigation paths",
+    fixedBy:
+      ".agents/skills/context-awareness (local path and publicPath contract, 2026-10-19)",
+    re: MOUNTED_NAVIGATION_PATH_RE,
+  },
+  {
     key: "ai-gate-bypass",
     label: "Had to repeat that prompts must not send without connected AI",
     fixedBy:
@@ -4036,6 +4089,13 @@ const PATTERNS = [
     fixedBy:
       "feedback:inventory-check required independent source-receipt parity + review-latest-feedback channel-inventory procedure (2026-10-17)",
     re: FEEDBACK_CHANNEL_COVERAGE_RE,
+  },
+  {
+    key: "feedback-sweep-unbounded",
+    label: "Had to stop an open-ended feedback sweep",
+    fixedBy:
+      ".agents/skills/review-latest-feedback/references/channel-inventory.md + feedback:inventory-check fixed window and bounded retry (2026-10-20)",
+    re: FEEDBACK_SWEEP_LIFETIME_RE,
   },
   {
     key: "feedback-attachment-coverage",

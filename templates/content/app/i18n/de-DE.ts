@@ -1043,6 +1043,7 @@ const comments = {
   openPropertyComments_other: "{{count}} offene Kommentare zu {{name}}",
   openRowComments_one: "{{count}} offener Kommentar zu {{title}}",
   openRowComments_other: "{{count}} offene Kommentare zu {{title}}",
+  openRow: "Zeile öffnen",
   suggestions: "Vorschläge",
   suggestionAdd: "Hinzufügen",
   suggestionDelete: "Löschen",
@@ -1483,8 +1484,21 @@ const overrides = {
     searchLanguages: "Sprachen suchen...",
     noBlocksFields:
       "Keine Blocks-Felder. Füge eines über das Eigenschaftenmenü hinzu.",
-    reorderField: "{{name}} neu anordnen",
-    toggleField: "{{name}} umschalten",
+    addBlockField: "Feld hinzufügen",
+    blockFieldChanged: "Seit Ihrem letzten Aufruf geändert",
+    blockFieldTabs: "Felder",
+    blockFieldMenu: "Optionen für {{name}}",
+    blockFieldMenuScope: "Gilt für jede Zeile dieser Sammlung",
+    blockFieldName: "Feldname",
+    renameBlockField: "Umbenennen",
+    renameBlockFieldFailed: "Feld konnte nicht umbenannt werden",
+    deleteBlockField: "Löschen",
+    deleteBlockFieldFailed: "Feld konnte nicht gelöscht werden",
+    deleteBlockFieldQuestion: "„{{name}}“ löschen?",
+    deleteBlockFieldDescription:
+      "Dadurch werden „{{name}}“ und sein Text aus jeder Zeile dieser Sammlung gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteBlockFieldBodyWarning:
+      "„{{name}}“ ist der Seiteninhalt, daher wird auch der Haupttext jeder Zeile gelöscht.",
   },
   comments: {
     add: "Kommentar hinzufügen...",

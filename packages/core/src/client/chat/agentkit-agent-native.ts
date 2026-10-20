@@ -4695,22 +4695,28 @@ export function createAgentNativeAgentKitTransport(
         typeof record?.submittedRunId === "string"
           ? record.submittedRunId
           : undefined;
-      const localRun = serverActiveRunId
-        ? await protocolTransport.getRun?.({
-            threadId: input.threadId,
-            runId: serverActiveRunId,
-          })
-        : null;
+      const hasSubmittedReceipt =
+        typeof submittedRunId === "string" && submittedRunId.length > 0;
+      const localRun =
+        serverActiveRunId && !hasSubmittedReceipt
+          ? await protocolTransport.getRun?.({
+              threadId: input.threadId,
+              runId: serverActiveRunId,
+            })
+          : null;
       const activeRunId = localRun?.id ?? serverActiveRunId;
       const explicitNonSlotCode =
         typeof record?.code === "string" &&
         record.code !== "run_slot_busy" &&
+        record.code !== "queued_message_already_submitted" &&
         record.code !== "http_409";
       if (
         record?.status === 409 &&
         (error instanceof AgentKitRunSlotBusyError ||
           record.code === "run_slot_busy" ||
-          ((typeof activeRunId === "string" || submittedRunId !== undefined) &&
+          (record.code === "queued_message_already_submitted" &&
+            hasSubmittedReceipt) ||
+          ((typeof activeRunId === "string" || hasSubmittedReceipt) &&
             !explicitNonSlotCode))
       ) {
         const busy = new AgentKitRunSlotBusyError(

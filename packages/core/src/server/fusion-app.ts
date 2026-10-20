@@ -58,6 +58,13 @@ export interface SendFusionMessageResult {
    * afterwards, or was fire-and-forget.
    */
   completed?: boolean;
+  /**
+   * True when the message was dispatched but this call stopped hearing from
+   * the run before it ended (timed out or the stream was cut off): Builder
+   * may still be applying it, so it must not be treated as failed-and-safe
+   * to resend, nor as done.
+   */
+  unconfirmed?: boolean;
   response?: string;
   error?: string;
 }
@@ -414,7 +421,16 @@ export async function sendFusionBranchMessage(
     });
   } catch (error) {
     if (controller.signal.aborted) {
-      if (dispatched) return { sent: true };
+      if (dispatched) {
+        // Fire-and-forget never waits for the run, so dispatch is the outcome.
+        if (fireAndForget) return { sent: true };
+        return {
+          sent: true,
+          unconfirmed: true,
+          error:
+            "Timed out waiting for the app agent to finish; it may still be working",
+        };
+      }
       return {
         sent: false,
         error: "Timed out sending message to the app agent",
@@ -436,6 +452,7 @@ export async function sendFusionBranchMessage(
     if (fireAndForget) return { sent: dispatched };
     return {
       sent: dispatched,
+      ...(dispatched ? { unconfirmed: true } : {}),
       error: "The app agent's run ended before it finished",
     };
   }

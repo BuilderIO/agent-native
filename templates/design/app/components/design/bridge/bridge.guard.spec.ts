@@ -594,13 +594,104 @@ describe("source vector stroke overlay reconciliation", () => {
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
+    "./native-region-export",
     "@agent-native/toolkit/canvas-interactions",
     "@jridgewell/trace-mapping",
     "../../../../shared/spacing-handle-rule",
     "../../../../shared/text-layer-rule",
     "../../../../shared/relative-position-containing-block",
+    "../../../../shared/source-equivalent-selector",
   ],
-  "hit-test.bridge.ts": ["../../../../shared/text-layer-rule"],
+  // The source-equivalent selector walker is shared with the parent canvas, which resolves
+  // the selectors the bridge builds, so both sides skip the same siblings.
+  "hit-test.bridge.ts": [
+    "../../../../shared/text-layer-rule",
+    "../../../../shared/source-equivalent-selector",
+  ],
+  "native-shader-runtime.bridge.ts": [
+    "../../../../.generated/bridge/native-builtin-metadata.generated",
+    "../../../../.generated/bridge/native-worker-source.generated",
+    "../../../../shared/effect-graph",
+    "../../../../shared/native-clip-geometry",
+    "../../../../shared/native-draft-preview-contract",
+    "../../../../shared/native-editor-preferences",
+    "../../../../shared/native-effect-animation-capability",
+    "../../../../shared/native-effect-frame-policy",
+    "../../../../shared/native-effect-transform",
+    "../../../../shared/native-effect-trust",
+    "../../../../shared/native-effects",
+    "../../../../shared/native-embedded-assets",
+    "../../../../shared/native-export-region",
+    "../../../../shared/native-feedback-plan",
+    "../../../../shared/native-input-resources",
+    "../../../../shared/native-instance-preview-contract",
+    "../../../../shared/native-linear-resource-graph",
+    "../../../../shared/native-parameter-animation",
+    "../../../../shared/native-pipeline-cache",
+    "../../../../shared/native-pointer-history",
+    "../../../../shared/native-pointer-input",
+    "../../../../shared/native-presentation-fault-gate",
+    "../../../../shared/native-presentation-fault-pin",
+    "../../../../shared/native-shader-validation",
+    "../../../../shared/native-source-composition-tree",
+    "../../../../shared/native-stateful-reset-values",
+    "../../../../shared/native-stateful-resource-graph",
+    "../../../../shared/native-stateless-compute",
+    "../../../../shared/native-static-generator-pass-cache",
+    "../../../../shared/native-uniform-timing",
+    "./native-authored-paint",
+    "./native-bounded-frame-scheduler",
+    "./native-camera-recorder",
+    "./native-capture-roi",
+    "./native-color-mode",
+    "./native-composition-budget",
+    "./native-composition-clock",
+    "./native-composition-session",
+    "./native-device-lifecycle",
+    "./native-effect-extent",
+    "./native-effect-output-geometry",
+    "./native-export-selection",
+    "./native-frame-resource-scratch",
+    "./native-gpu-profiler",
+    "./native-gpu-sample-window",
+    "./native-gpu-scope-profiler",
+    "./native-group-local-backdrop-window",
+    "./native-linear-golden",
+    "./native-live-camera-source",
+    "./native-mounted-benchmark",
+    "./native-mounted-output-summary",
+    "./native-packed-uniform-arena",
+    "./native-parameter-preview-queue",
+    "./native-pixel-readback",
+    "./native-playback-clock",
+    "./native-presentation-pair",
+    "./native-presentation-readback",
+    "./native-presentation-slots",
+    "./native-preview-budget",
+    "./native-preview-geometry",
+    "./native-preview-policy",
+    "./native-raf-interval",
+    "./native-receiver-distance",
+    "./native-region-export",
+    "./native-render-placement",
+    "./native-runtime-epoch",
+    "./native-simulation-timeline",
+    "./native-simulation-transaction",
+    "./native-source-affine-geometry",
+    "./native-source-coordinate-scale",
+    "./native-source-frame-witness",
+    "./native-source-provider",
+    "./native-source-sampling",
+    "./native-stateful-resource",
+    "./native-stateless-compute",
+    "./native-stateless-frame-transaction",
+    "./native-submission-pipeline",
+    "./native-svg-geometry",
+    "./native-texture-feedback",
+    "./native-worker-gpu-wgsl",
+    "./native-worker-host",
+    "./native-worker-scene-host",
+  ],
   // A pure, dependency-free module shared with the editor, so the media-query
   // rewrite and the dark-style scan have one definition and one unit test.
   "preview-theme.bridge.ts": ["../../../../shared/preview-color-scheme"],
@@ -14351,9 +14442,13 @@ it(
       await page.setContent(`<!doctype html>
 <html>
   <body style="margin:0">
-    <h1 data-agent-native-node-id="hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
+    <h1 data-agent-native-node-id="hero-title" data-loc="src:hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
     <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
     <div data-agent-native-node-id="nested-parent" style="position:absolute;left:700px;top:100px;width:160px;height:100px"><span data-agent-native-node-id="nested-child" style="display:block;width:120px;height:60px">Nested identity</span></div>
+    <section data-loc="src:nested-source" style="position:absolute;left:500px;top:300px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested source location</span></section>
+    <div id="hero" style="position:absolute;left:100px;top:200px;width:50px;height:40px">Plain id</div>
+    <section data-loc="hero" style="position:absolute;left:300px;top:200px;width:80px;height:40px">Source location</section>
+    <section id="same-identity" data-loc="same-identity" style="position:absolute;left:400px;top:200px;width:80px;height:40px">One element, two identity kinds</section>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
@@ -14401,13 +14496,46 @@ it(
           },
           "agent-native:review-anchor-at-point-result",
         );
+        const sourceLocationAnchor = await request(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId: "review-source-location-point",
+            x: 520,
+            y: 320,
+          },
+          "agent-native:review-anchor-at-point-result",
+        );
         const rects = await request(
           {
             type: "agent-native:review-node-rects",
             correlationId: "review-rects",
-            nodeIds: ["hero-title"],
+            nodeIds: ["hero-title", "hero", "same-identity"],
           },
           "agent-native:review-node-rects-result",
+        );
+        const selectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-selector-rects",
+            selector: '[data-loc="src:hero-title"]',
+          },
+          "agent-native:review-selector-rects-result",
+        );
+        const malformedSelectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-malformed-selector-rects",
+            selector: "[",
+          },
+          "agent-native:review-selector-rects-result",
+        );
+        const missingSelectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-missing-selector-rects",
+            selector: "[data-missing]",
+          },
+          "agent-native:review-selector-rects-result",
         );
         const focus = await request(
           {
@@ -14417,7 +14545,17 @@ it(
           },
           "agent-native:review-focus-result",
         );
-        return { anchor, selectorAnchor, nestedAnchor, rects, focus };
+        return {
+          anchor,
+          selectorAnchor,
+          nestedAnchor,
+          sourceLocationAnchor,
+          rects,
+          selectorRects,
+          malformedSelectorRects,
+          missingSelectorRects,
+          focus,
+        };
       });
 
       expect(result.anchor).toMatchObject({
@@ -14426,19 +14564,131 @@ it(
         tagName: "h1",
       });
       expect(result.selectorAnchor).toMatchObject({
-        targetSelector: "body > div:nth-of-type(1) > span:nth-of-type(1)",
+        targetSelector:
+          "source-equivalent:v1:body > div:nth-of-type(1) > span:nth-of-type(1)",
         tagName: "span",
       });
       expect(result.selectorAnchor.nodeId).toBeUndefined();
       expect(result.nestedAnchor).toMatchObject({ nodeId: "nested-child" });
+      expect(result.sourceLocationAnchor).toMatchObject({
+        nodeId: "src:nested-source",
+        hitSelector: "source-equivalent:v1:body > section:nth-of-type(1)",
+        tagName: "section",
+      });
       expect(result.rects).toMatchObject({
         rects: {
           "hero-title": { left: 40, top: 40, width: 320, height: 80 },
+          "same-identity": { left: 400, top: 200, width: 80, height: 40 },
         },
         viewportWidth: 900,
         viewportHeight: 700,
       });
+      expect(
+        (result.rects as { rects?: Record<string, unknown> }).rects?.hero,
+      ).toBeUndefined();
+      expect(result.selectorRects).toMatchObject({
+        selectorStatus: "matched",
+        rect: { left: 40, top: 40, width: 320, height: 80 },
+      });
+      expect(result.malformedSelectorRects.selectorStatus).toBe(
+        "invalid-selector",
+      );
+      expect(result.malformedSelectorRects.rect).toBeUndefined();
+      expect(result.missingSelectorRects).toMatchObject({
+        selectorStatus: "not-found",
+      });
+      expect(result.missingSelectorRects.rect).toBeUndefined();
       expect(result.focus).toMatchObject({ focused: true });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge prefers a unique node-id preview target over a shifted source-equivalent selector",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <body style="margin:0">
+    <button id="node-id-target" data-agent-native-node-id="hero" data-loc="src:shared">Node id target</button>
+    <button id="selector-target" data-loc="src:shared">Repeated source target</button>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      const originalNodeIdTarget = await page
+        .locator("#node-id-target")
+        .evaluate((element) => element.outerHTML);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                event.data?.type !== "agent-native:node-html-preview-applied" ||
+                event.data.proposalId !== "repeated-source-preview"
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "node-html-preview",
+                operation: "preview",
+                proposalId: "repeated-source-preview",
+                target: {
+                  nodeId: "hero",
+                  selector: "source-equivalent:v1:body > button:nth-of-type(2)",
+                },
+                html: '<button id="preview-target">Preview target</button>',
+              },
+              "*",
+            );
+          }),
+      );
+
+      expect(await page.locator("#node-id-target").count()).toBe(0);
+      expect(await page.locator("#selector-target").textContent()).toBe(
+        "Repeated source target",
+      );
+      expect(await page.locator("#preview-target").textContent()).toBe(
+        "Preview target",
+      );
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "node-html-preview",
+            operation: "restore",
+            proposalId: "repeated-source-preview",
+          },
+          "*",
+        );
+      });
+
+      expect(
+        await page
+          .locator("#node-id-target")
+          .evaluate((element) => element.outerHTML),
+      ).toBe(originalNodeIdTarget);
+      expect(await page.locator("#selector-target").textContent()).toBe(
+        "Repeated source target",
+      );
+      expect(await page.locator("#preview-target").count()).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
