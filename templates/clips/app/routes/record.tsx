@@ -79,6 +79,10 @@ import {
   macPermissionGuidanceFor,
 } from "@/lib/capture-permissions";
 import {
+  INTAKE_CREATE_RETRY_DELAYS_MS,
+  shouldRetryIntakeCreateResponse,
+} from "@/lib/clip-intake-create-retry";
+import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
@@ -827,12 +831,6 @@ interface PendingRecording {
 const RECORDING_INTERRUPTED_REASON =
   "The recorder page closed before the recording finished saving.";
 
-const INTAKE_CREATE_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
-
-function isRetryableIntakeCreateStatus(status: number): boolean {
-  return [408, 409, 425, 429, 500, 502, 503, 504].includes(status);
-}
-
 async function createRecordingRequest(
   url: string,
   body: Record<string, unknown>,
@@ -871,7 +869,7 @@ async function createRecordingRequest(
 
     if (
       !isIntakeRequest ||
-      !isRetryableIntakeCreateStatus(response.status) ||
+      !(await shouldRetryIntakeCreateResponse(response)) ||
       attempt >= INTAKE_CREATE_RETRY_DELAYS_MS.length
     ) {
       return response;
