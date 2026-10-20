@@ -24,6 +24,7 @@ export function resolveNetlifyBuildEnvironment(
   context: string,
   inheritedEnvironment: NodeJS.ProcessEnv = process.env,
   branch?: string,
+  sourceTemplate?: string,
 ): NodeJS.ProcessEnv {
   if (!context) throw new Error("Netlify build context is required.");
   if (context === "branch-deploy" && !branch) {
@@ -138,6 +139,7 @@ export function resolveNetlifyBuildEnvironment(
       if (
         key === "ANALYTICS_DATABASE_URL" &&
         context === "production" &&
+        sourceTemplate === "analytics" &&
         !inheritedEnvironment.ANALYTICS_DATABASE_URL_SECRET
       ) {
         throw new Error(
@@ -212,6 +214,7 @@ function main(): void {
       options.context,
       process.env,
       options.branch,
+      options.filter,
     );
     result = spawnSync(
       "netlify",

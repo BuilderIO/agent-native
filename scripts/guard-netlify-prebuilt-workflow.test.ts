@@ -331,8 +331,29 @@ describe("Netlify offline prebuilt build environment", () => {
           ],
           "production",
           {},
+          undefined,
+          "analytics",
         ),
       /ANALYTICS_DATABASE_URL_SECRET offline build input/,
+    );
+
+    const unrelatedTemplateEnvironment = resolveNetlifyBuildEnvironment(
+      [
+        {
+          key: "ANALYTICS_DATABASE_URL",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [{ context: "production", value: "********" }],
+        },
+      ],
+      "production",
+      {},
+      undefined,
+      "chat",
+    );
+    assert.equal(
+      unrelatedTemplateEnvironment.ANALYTICS_DATABASE_URL,
+      undefined,
     );
 
     const betaEnvironment = resolveNetlifyBuildEnvironment(
@@ -482,6 +503,7 @@ describe("Netlify offline prebuilt build environment", () => {
 const { writeFileSync } = require("node:fs");
 writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
   args: process.argv.slice(2),
+  analyticsDatabaseUrl: process.env.ANALYTICS_DATABASE_URL,
   siteValue: process.env.SITE_ONLY,
 }));
 `;
@@ -494,6 +516,12 @@ writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
           {
             key: "SITE_ONLY",
             values: [{ context: "production", value: "from-site" }],
+          },
+          {
+            key: "ANALYTICS_DATABASE_URL",
+            is_secret: true,
+            scopes: ["builds"],
+            values: [{ context: "production", value: "********" }],
           },
         ]),
       );
@@ -532,6 +560,7 @@ writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
         "--offline",
       ]);
       assert.equal(result.siteValue, "from-site");
+      assert.equal(result.analyticsDatabaseUrl, undefined);
       assert.equal(existsSync(environmentPath), false);
     } finally {
       rmSync(directory, { recursive: true, force: true });
