@@ -8,7 +8,6 @@ import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
   dispatchApiKeysHref,
-  dispatchIntegrationsHref,
   isWorkspaceAppEnvironment,
   useOrgSwitcherAppLinks,
 } from "@agent-native/toolkit/app/org/workspace-app-links";
@@ -145,11 +144,7 @@ export function ConnectProviderButton({
     <Button asChild type="button" variant="outline" size="sm">
       {target.kind === "dispatch" ? (
         <a
-          href={
-            target.page === "api-keys"
-              ? dispatchApiKeysHref(apps)
-              : dispatchIntegrationsHref(apps)
-          }
+          href={dispatchApiKeysHref(apps)}
           target="_blank"
           rel="noopener noreferrer"
         >

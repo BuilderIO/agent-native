@@ -173,38 +173,32 @@ describe("connectTarget", () => {
   const workspace = { workspace: true, signIn: true };
   const alone = { workspace: false, signIn: true };
 
-  it("sends a provider in the workspace connection catalog to Dispatch's Integrations page", () => {
-    for (const provider of [
-      "bigquery",
-      "github",
-      "hubspot",
-      "jira",
-      "notion",
-      "sentry",
-      "slack",
-    ]) {
-      expect(
-        connectTarget(provider, "workspace-connection", workspace),
-      ).toEqual({ kind: "dispatch", page: "integrations" });
-    }
+  it("opens the sign-in popup for an OAuth provider in a workspace, when it is known to be missing", () => {
+    expect(connectTarget("github", "workspace-connection", workspace)).toEqual({
+      kind: "oauth",
+      provider: "github",
+    });
   });
 
-  it("sends a key for a provider outside the catalog to Dispatch's API keys page", () => {
-    for (const provider of ["gong", "posthog", "pylon", "stripe"]) {
-      expect(connectTarget(provider, "vault", workspace)).toEqual({
-        kind: "dispatch",
-        page: "api-keys",
-      });
-    }
-  });
-
-  it("never starts a sign-in in a workspace, even for a provider that could not be checked", () => {
+  it("sends an OAuth provider that is not known to be missing to Dispatch's API keys page", () => {
     expect(
       connectTarget("github", "workspace-connection", {
         workspace: true,
         signIn: false,
       }),
-    ).toEqual({ kind: "dispatch", page: "integrations" });
+    ).toEqual({ kind: "dispatch" });
+  });
+
+  it("sends Slack, which has no OAuth start route, to Dispatch's API keys page", () => {
+    expect(connectTarget("slack", "workspace-connection", workspace)).toEqual({
+      kind: "dispatch",
+    });
+  });
+
+  it("sends Stripe's key to Dispatch's API keys page", () => {
+    expect(connectTarget("stripe", "vault", workspace)).toEqual({
+      kind: "dispatch",
+    });
   });
 
   it("keeps Builder and email with this app's Settings, in a workspace or not", () => {

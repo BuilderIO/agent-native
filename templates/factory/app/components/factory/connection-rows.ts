@@ -48,18 +48,21 @@ const READINESS: Record<ProviderConnectionStatus, Readiness> = {
 type ConnectTarget =
   /** The shared sign-in popup, which grants the connection to this app. */
   | { kind: "oauth"; provider: string }
-  /** A page in Dispatch: Integrations for a catalog provider, API keys for any other key. */
-  | { kind: "dispatch"; page: "integrations" | "api-keys" }
+  /** Dispatch's API keys page, where a key is added and granted to this app. */
+  | { kind: "dispatch" }
   /** One of this app's own Settings pages. */
   | { kind: "settings"; page: string; sub?: string };
 
 /**
  * Where a person connects a provider. Builder and email are this app's own, so
- * they stay in its Settings. In a workspace, a provider in the workspace
- * connection catalog is connected in Dispatch's Integrations, and any other key
- * is entered in Dispatch's API keys. Outside a workspace there is no Dispatch: a
- * catalog provider with OAuth opens its sign-in when it is known to be missing,
- * and every other key goes to this app's API keys.
+ * they stay in its Settings. In a workspace, a provider with OAuth opens its
+ * sign-in popup when it is known to be missing, and every other provider is
+ * entered on Dispatch's API keys page, not its Integrations page, which does not
+ * create the key this app reads. The catalog's OAuth entries must match the
+ * OAuth start route's list in core's `server/workspace-provider-oauth.ts`.
+ * Outside a workspace there is no Dispatch: a catalog provider with OAuth opens
+ * its sign-in when it is known to be missing, and every other key goes to this
+ * app's API keys.
  */
 export function connectTarget(
   provider: string,
@@ -76,7 +79,9 @@ export function connectTarget(
   if (provider === "email") return { kind: "settings", page: "api-keys" };
   const catalogued = getWorkspaceConnectionProvider(provider);
   if (where.workspace) {
-    return { kind: "dispatch", page: catalogued ? "integrations" : "api-keys" };
+    return where.signIn && catalogued?.oauth
+      ? { kind: "oauth", provider }
+      : { kind: "dispatch" };
   }
   if (
     where.signIn &&
