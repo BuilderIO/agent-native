@@ -124,6 +124,12 @@ describe("live-body writer gate", () => {
         },
       };
       for (const options of [
+        null,
+        [],
+        new Date(0),
+        Object.defineProperty({}, "transaction", { value: foreign }),
+        Object.create({ db: tx }),
+        { [Symbol("foreign")]: foreign },
         { db: tx, transaction: foreign },
         { context: foreign, db: tx },
         { context: null },

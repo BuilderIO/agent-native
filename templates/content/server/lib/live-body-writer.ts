@@ -102,11 +102,12 @@ export class LiveBodyWriterContextError extends Error {
 }
 
 function readContext(options: LiveBodyWriterReadOptions): DbExec {
+  if (!options || typeof options !== "object" || Array.isArray(options))
+    throw new LiveBodyWriterContextError();
+  const prototype = Object.getPrototypeOf(options);
   if (
-    !options ||
-    typeof options !== "object" ||
-    Array.isArray(options) ||
-    Object.keys(options).some((key) => key !== "context")
+    (prototype !== Object.prototype && prototype !== null) ||
+    Reflect.ownKeys(options).some((key) => key !== "context")
   )
     throw new LiveBodyWriterContextError();
   const context = options.context === undefined ? getDbExec() : options.context;
