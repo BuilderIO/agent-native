@@ -89,10 +89,25 @@ export async function liveBodyWriterGateForRow(
 
 type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
 
+export type LiveBodyWriterReadOptions =
+  | { db?: ContentDb; transaction?: never }
+  | { db: ContentDb; transaction: DbExec };
+
+export class LiveBodyWriterTransactionError extends Error {
+  readonly code = "LIVE_BODY_TRANSACTION_DB_REQUIRED";
+
+  constructor() {
+    super("A live-body transaction read requires its matching row database.");
+    this.name = "LiveBodyWriterTransactionError";
+  }
+}
+
 export async function liveBodyWriterGate(
   docId: string,
-  options: { db?: ContentDb; transaction?: DbExec } = {},
+  options: LiveBodyWriterReadOptions = {},
 ): Promise<LiveBodyWriterGate> {
+  if (options.transaction !== undefined && !options.db)
+    throw new LiveBodyWriterTransactionError();
   const db = options.db ?? getDb();
   const [row] = await db
     .select(liveBodyWriterPageColumns)
@@ -105,7 +120,7 @@ export async function liveBodyWriterGate(
 /** True when `docId`'s body must be written through its live copy. */
 export async function isLiveBodyWriterPage(
   docId: string,
-  options: { db?: ContentDb; transaction?: DbExec } = {},
+  options: LiveBodyWriterReadOptions = {},
 ): Promise<boolean> {
   return (await liveBodyWriterGate(docId, options)).writePath === "live_copy";
 }
