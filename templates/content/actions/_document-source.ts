@@ -8,6 +8,7 @@ import {
   parseGitHubSourceTable,
 } from "../shared/github-source.js";
 import { chunks } from "./_batch-utils.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 
 interface DocumentSourceColumns {
   sourceMode?: string | null;
@@ -118,7 +119,9 @@ export async function assertCollectionAcceptsNewRows(
  * moved it to Trash when its file left, or it was in Trash before the link.
  * It comes back with its comments, History and sub-pages as an ordinary page,
  * out of the collection's rows, as a local folder sync leaves a page whose
- * file is gone. Rows restored along with their collection stay rows.
+ * file is gone. Rows restored along with their collection stay rows. It takes
+ * the collection's lock, as each sync write does, so a sync never writes a
+ * page from a record this deletes; call it before the restore's other writes.
  */
 export async function releaseRestoredPagesFromGitHubCollections(
   db: ReturnType<typeof getDb>,
@@ -128,6 +131,7 @@ export async function releaseRestoredPagesFromGitHubCollections(
 ): Promise<string[]> {
   const restored = new Set(documentIds);
   const releasedFrom = new Set<string>();
+  const locked = new Set<string>();
   for (const batch of chunks(documentIds, 90)) {
     const memberships = await db
       .select({
@@ -155,6 +159,10 @@ export async function releaseRestoredPagesFromGitHubCollections(
       .where(inArray(schema.contentDatabaseItems.documentId, batch));
     for (const membership of memberships) {
       if (restored.has(membership.databaseDocumentId)) continue;
+      if (!locked.has(membership.databaseId)) {
+        await lockContentDatabaseMutation(db, membership.databaseId);
+        locked.add(membership.databaseId);
+      }
       releasedFrom.add(membership.databaseId);
       await db
         .delete(schema.contentDatabaseItems)
