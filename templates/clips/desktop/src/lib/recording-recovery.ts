@@ -37,8 +37,9 @@ export function recordingRecoveryKey(upload: PendingDesktopUpload): string {
 export function shouldShowRecordingRecoveryBanner(
   view: string,
   authenticated: boolean,
+  hasLocalFiles = false,
 ): boolean {
-  return authenticated && view === "recorder";
+  return view === "recorder" && (authenticated || hasLocalFiles);
 }
 
 export function classifyRecordingRecoveryError(

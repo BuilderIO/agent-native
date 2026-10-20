@@ -59,6 +59,10 @@ describe("RecordingRecovery", () => {
     root = createRoot(host);
     props = {
       uploads: [native, browser],
+      localFiles: [],
+      localFilesError: null,
+      localFilesUploading: false,
+      localFilesStorageStatus: "configured",
       lookupErrors: [],
       actionErrors: {},
       refreshing: false,
@@ -74,6 +78,10 @@ describe("RecordingRecovery", () => {
       onExport: vi.fn(),
       onOpenFolder: vi.fn(),
       onConnectStorage: vi.fn(),
+      onRetryLocalFiles: vi.fn(),
+      onRefreshStorage: vi.fn(),
+      onConnectLocalStorage: vi.fn(),
+      onForgetLocalFile: vi.fn(),
       onReviewFiles: vi.fn(),
       onOpenLogs: vi.fn(),
     };
@@ -145,6 +153,45 @@ describe("RecordingRecovery", () => {
     act(() => root.render(<RecordingRecovery {...props} onOpen={vi.fn()} />));
     expect(host.textContent).toBe(copy.recordingsNeedAttention);
     expect(host.textContent).not.toContain(copy.attentionOne);
+  });
+
+  it("shows queued local clips in the recovery UI and opens storage setup", () => {
+    props.uploads = [];
+    props.localFiles = [
+      {
+        path: "/Movies/Clips/clip.webm",
+        fileName: "clip.webm",
+        savedAt: "2026-10-20T12:00:00Z",
+      },
+    ];
+    props.localFilesStorageStatus = "missing";
+
+    act(() => root.render(<RecordingRecovery {...props} onOpen={vi.fn()} />));
+    expect(host.textContent).toBe(copy.attentionOne);
+    expect(
+      host.querySelector(".row-icon")?.getAttribute("data-recovery-tone"),
+    ).toBe("warning");
+
+    renderPage();
+    expect(host.textContent).toContain("clip.webm");
+    expect(host.textContent).toContain(copy.storageRequired);
+    act(() => buttons(copy.connectStorage)[0]!.click());
+    expect(props.onConnectLocalStorage).toHaveBeenCalledOnce();
+  });
+
+  it("offers upload retry for queued local clips when storage is configured", () => {
+    props.uploads = [];
+    props.localFiles = [
+      {
+        path: "/Movies/Clips/clip.webm",
+        fileName: "clip.webm",
+        savedAt: "2026-10-20T12:00:00Z",
+      },
+    ];
+
+    renderPage();
+    act(() => buttons(copy.retry)[0]!.click());
+    expect(props.onRetryLocalFiles).toHaveBeenCalledOnce();
   });
 
   it.each([
