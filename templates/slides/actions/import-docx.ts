@@ -15,7 +15,7 @@ export default defineAction({
     filePath: z
       .string()
       .describe(
-        "Uploaded DOCX path, hosted reference, or exact current attachment name. A single attached upload can be resolved when its name is unclear.",
+        "Uploaded DOCX path, hosted reference, exact current attachment name, or a generic reference such as 'the attached document' when exactly one document is attached. Specific unmatched filenames are rejected.",
       ),
     convertToSlides: z
       .boolean()

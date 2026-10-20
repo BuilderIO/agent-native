@@ -143,12 +143,54 @@ describe("readUserUploadedFile", () => {
               name: "Erin's brief.docx",
               slidesUploadPath: ref,
             },
+            {
+              type: "image",
+              name: "logo.png",
+              url: "https://cdn.example.com/logo.png",
+            },
           ],
         }),
       ),
     ).resolves.toEqual({
       data: Buffer.from("PK-docx"),
       filename: "Erin's brief.docx",
+    });
+  });
+
+  it("does not substitute a sole upload for a specific unmatched filename", async () => {
+    const ref = await mint("brief.docx", Buffer.from("PK-docx"));
+
+    await expect(
+      inOrg("org-one", () =>
+        readUserUploadedFile("Q3-deck.pptx", {
+          attachments: [
+            { type: "file", name: "brief.docx", slidesUploadPath: ref },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      details: { attachmentStatus: "malformed", reason: "unrecognized_scheme" },
+    });
+  });
+
+  it("does not choose a document for a generic attachment request when an image is also attached", async () => {
+    const ref = await mint("brief.docx", Buffer.from("PK-docx"));
+
+    await expect(
+      inOrg("org-one", () =>
+        readUserUploadedFile("the attachment", {
+          attachments: [
+            { type: "file", name: "brief.docx", slidesUploadPath: ref },
+            {
+              type: "image",
+              name: "logo.png",
+              url: "https://cdn.example.com/logo.png",
+            },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      details: { attachmentStatus: "malformed", reason: "unrecognized_scheme" },
     });
   });
 

@@ -15,10 +15,15 @@ import {
 } from "../server/lib/tenant-files.js";
 import { resolveUploadedReference } from "../server/lib/uploaded-reference-storage.js";
 
+const GENERIC_DOCUMENT_REFERENCE =
+  /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?(?:word document|word doc|document|docx|pdf|pptx|powerpoint presentation|presentation)(?: file)?$/i;
+const GENERIC_ATTACHMENT_REFERENCE =
+  /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?(?:file|attachment)$/i;
+
 /**
  * Resolve a name or URL through the current turn's stamped upload. If the model
- * cannot reproduce a name and there is only one upload, that reference is
- * unambiguous and safe to use.
+ * cannot reproduce a name, only a generic phrase that identifies one eligible
+ * attachment may use its stamped reference.
  */
 function stampedReference(
   filePath: string,
@@ -44,16 +49,25 @@ function stampedReference(
   }
   if (/[/\\:]/.test(wanted)) return null;
 
-  const references = new Set(
-    candidates.flatMap((attachment) => {
-      const stamped = (attachment as { slidesUploadPath?: unknown })
-        .slidesUploadPath;
-      return typeof stamped === "string" ? [stamped] : [];
-    }),
+  const genericDocument = GENERIC_DOCUMENT_REFERENCE.test(
+    wanted.replace(/\s+/g, " "),
   );
-  return references.size === 1
-    ? (references.values().next().value ?? null)
-    : null;
+  const genericAttachment = GENERIC_ATTACHMENT_REFERENCE.test(
+    wanted.replace(/\s+/g, " "),
+  );
+  if (!genericDocument && !genericAttachment) return null;
+
+  const eligible = genericDocument
+    ? candidates.filter(
+        (attachment) =>
+          attachment.type === "file" || attachment.type === "document",
+      )
+    : candidates;
+  if (eligible.length !== 1) return null;
+
+  const stamped = (eligible[0] as { slidesUploadPath?: unknown })
+    .slidesUploadPath;
+  return typeof stamped === "string" ? stamped : null;
 }
 
 /**

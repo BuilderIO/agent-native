@@ -111,7 +111,7 @@ export default defineAction({
     filePath: z
       .string()
       .describe(
-        "Uploaded path, hosted reference, or exact current attachment name. A single attached upload can be resolved when its name is unclear.",
+        "Uploaded path, hosted reference, exact current attachment name, or a generic reference such as 'the attached document' when exactly one document is attached. Specific unmatched filenames are rejected.",
       ),
     format: z
       .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])

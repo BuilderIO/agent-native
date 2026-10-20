@@ -322,7 +322,7 @@ export default defineAction({
     filePath: z
       .string()
       .describe(
-        "Uploaded PPTX path, hosted reference, or exact current attachment name. A single attached upload can be resolved when its name is unclear.",
+        "Uploaded PPTX path, hosted reference, exact current attachment name, or a generic reference such as 'the attached presentation' when exactly one document is attached. Specific unmatched filenames are rejected.",
       ),
     deckId: z
       .string()
