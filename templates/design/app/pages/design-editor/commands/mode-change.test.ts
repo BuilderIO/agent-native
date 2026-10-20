@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { commentModeReturnOptions } from "@/pages/design-editor/tool-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runModeChange } from "./mode-change";
@@ -87,6 +88,20 @@ describe("runModeChange Interact navigation", () => {
     expect(args.rememberOverviewScreenSelection).toHaveBeenCalledWith(
       targetFile.id,
     );
+  });
+
+  it("keeps the selected device when returning to Interact after comments", () => {
+    const args = makeArgs();
+    const returnOptions = commentModeReturnOptions("interact", targetFile.id);
+
+    expect(returnOptions).not.toBeNull();
+    if (!returnOptions) throw new Error("Interact return options are missing");
+
+    runModeChange(args, "interact", returnOptions);
+
+    expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id, {
+      keepInteractDevice: true,
+    });
   });
 
   it("does not change the restored overview selection when pending edits block Interact", () => {

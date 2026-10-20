@@ -48,7 +48,7 @@ import {
 import { computeInteractZoomToFit } from "../responsive-interact";
 import { hasSelectableCodeLayerParent } from "../selection-state";
 import {
-  commentModeReturnScreenId,
+  commentModeReturnOptions,
   resolveDrawStateWithoutLab,
   resolveModeForAnnotateLab,
   shouldAutoEnableDrawOverlay,
@@ -467,10 +467,11 @@ export function useEditorModes({
 
   const lastSettledSingleZoomRef = useRef<number | null>(null);
   const suppressOverviewPopForExplicitZoomRef = useRef(false);
-  const commentReturnScreenIdRef = useRef<string | null>(null);
+  const commentReturnOptionsRef =
+    useRef<ReturnType<typeof commentModeReturnOptions>>(null);
   useEffect(() => {
     if (mode === "annotate") return;
-    commentReturnScreenIdRef.current = commentModeReturnScreenId(
+    commentReturnOptionsRef.current = commentModeReturnOptions(
       mode,
       activeFile?.id,
     );
@@ -791,14 +792,14 @@ export function useEditorModes({
   ]);
 
   const handleExitReviewCommentMode = useCallback(() => {
-    const returnScreenId = commentReturnScreenIdRef.current;
-    commentReturnScreenIdRef.current = null;
+    const returnOptions = commentReturnOptionsRef.current;
+    commentReturnOptionsRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
     setDrawMode(false);
     setActiveTool("move");
-    if (returnScreenId) {
-      handleModeChange("interact", { targetFileId: returnScreenId });
+    if (returnOptions) {
+      handleModeChange("interact", returnOptions);
     } else {
       setMode("edit");
     }

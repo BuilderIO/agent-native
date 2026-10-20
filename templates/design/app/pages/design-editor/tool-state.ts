@@ -82,11 +82,13 @@ export function normalizeDesignMode(value: unknown): EditorMode | null {
     : null;
 }
 
-export function commentModeReturnScreenId(
+export function commentModeReturnOptions(
   mode: EditorMode,
   activeFileId: string | null | undefined,
-): string | null {
-  return mode === "interact" ? (activeFileId ?? null) : null;
+): { targetFileId: string; keepInteractDevice: true } | null {
+  return mode === "interact" && activeFileId
+    ? { targetFileId: activeFileId, keepInteractDevice: true }
+    : null;
 }
 
 /**

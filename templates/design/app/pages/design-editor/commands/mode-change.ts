@@ -155,7 +155,11 @@ export function runModeChange(
   if (routing === "enter-single-interact") {
     rememberOverviewScreenSelection(nextActiveFile!.id);
     setOverviewInteractScreenId(nextActiveFile!.id);
-    enterSingleScreen(nextActiveFile?.id);
+    if (options?.keepInteractDevice) {
+      enterSingleScreen(nextActiveFile?.id, { keepInteractDevice: true });
+    } else {
+      enterSingleScreen(nextActiveFile?.id);
+    }
     return;
   }
   if (routing === "enter-overview") {
