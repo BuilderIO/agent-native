@@ -74,7 +74,10 @@ function itemValue(item: ContentDatabaseItem, property: DocumentProperty) {
   );
 }
 
-/** Values a row leaves out entirely, so empty slots take no space. */
+/**
+ * Values a row leaves out entirely, so empty slots take no space. An
+ * unchecked box is a checkbox's empty value; a checked one shows by name.
+ */
 function isBlankValue(property: DocumentProperty) {
   return (
     isEmptyPropertyValue(property.value) ||
@@ -182,7 +185,14 @@ function MetaValues({ values }: { values: DocumentProperty[] }) {
       key={property.definition.id}
       className="inline-flex max-w-48 min-w-0 items-center truncate"
     >
-      {displayValue(property)}
+      {property.definition.type === "checkbox" ? (
+        <span className="inline-flex min-w-0 items-center gap-1 text-foreground">
+          <IconCheck className="size-3.5 shrink-0" />
+          <span className="truncate">{property.definition.name}</span>
+        </span>
+      ) : (
+        displayValue(property)
+      )}
     </span>
   ));
 }
