@@ -14,6 +14,7 @@ import {
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
+  snapshotGenerationOutputBaseline,
   shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
 import { designPrecedentDirectives } from "@/pages/design-editor/creative-context-precedent";
@@ -248,6 +249,13 @@ export function runResumePendingGeneration({
       attempt: pending.attempt ?? 1,
       designSystemId: pendingDesignSystemId,
       startedAt: Date.now(),
+      ...(!pending.templateId
+        ? {
+            outputBaselineFiles:
+              pending.outputBaselineFiles ??
+              snapshotGenerationOutputBaseline(files),
+          }
+        : {}),
     });
     setHasPendingGeneration(true);
   })();

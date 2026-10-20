@@ -37,6 +37,17 @@ describe("empty design", () => {
     );
   });
 
+  it("keeps failed generation retry state when prior output exists", () => {
+    const handler = source.slice(
+      source.indexOf("const handleGenerationFailed = useCallback"),
+      source.indexOf("const getKnownPreviousRunBaseline"),
+    );
+
+    expect(handler).toContain("rememberPendingGenerationForRetry()");
+    expect(handler).not.toContain("if (generationOutputReadyRef.current)");
+    expect(handler).toContain('t("designEditor.generationStoppedRetry")');
+  });
+
   it("keeps the prompt and blocks generation when Labs state is unreadable", () => {
     const submit = source.slice(
       source.indexOf("onSubmit={async (\n          prompt: string,"),

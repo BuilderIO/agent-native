@@ -126,5 +126,6 @@ export interface RetryablePrompt {
   attempt?: number;
   source?: string;
   templateId?: string;
+  outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
 }

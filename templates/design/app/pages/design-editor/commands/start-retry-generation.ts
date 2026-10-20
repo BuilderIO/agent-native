@@ -41,6 +41,7 @@ export interface StartRetryGenerationArgs {
   imageAttachmentUnavailableMessage: string;
   invalidCanvasDimensionsMessage: string;
   id: string | undefined;
+  outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
   setGenerationIssue: Dispatch<SetStateAction<string | null>>;
   setHasPendingGeneration: Dispatch<SetStateAction<boolean>>;
@@ -56,6 +57,7 @@ export interface StartRetryGenerationArgs {
       attempt?: number;
       source?: string;
       templateId?: string;
+      outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
       templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
     } | null>
   >;
@@ -72,6 +74,7 @@ export async function runStartRetryGeneration(
     imageAttachmentUnavailableMessage,
     invalidCanvasDimensionsMessage,
     id,
+    outputBaselineFiles,
     setGenerationChatTabId,
     setGenerationIssue,
     setHasPendingGeneration,
@@ -159,6 +162,7 @@ export async function runStartRetryGeneration(
     contextItems: promptState.contextItems,
     source: promptState.source,
     templateId: promptState.templateId,
+    outputBaselineFiles: outputBaselineFiles ?? [],
     templateBaselineFiles: promptState.templateBaselineFiles,
     attempt,
     startedAt,
@@ -187,6 +191,7 @@ export async function runStartRetryGeneration(
     effort: promptState.effort,
     source: promptState.source,
     templateId: promptState.templateId,
+    outputBaselineFiles: outputBaselineFiles ?? [],
     templateBaselineFiles: promptState.templateBaselineFiles,
     attempt,
     runTabId,

@@ -55,6 +55,7 @@ import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
   readPendingGeneration,
+  snapshotGenerationOutputBaseline,
 } from "@/lib/pending-generation";
 import { externalPreviewUrlForContent } from "@/pages/design-editor/preview-html";
 
@@ -341,6 +342,7 @@ export function useEditorActiveScreenAndGeometry({
     setGenerationIssue,
     setRetryablePrompt,
     generationOutputReadyRef,
+    generationOutputBaselineRef,
     clearGenerationCompleteTimer,
     staleToastShownRef,
     generationModelRef,
@@ -1212,6 +1214,9 @@ export function useEditorActiveScreenAndGeometry({
         files,
       )
     : null;
+  generationOutputBaselineRef.current = designDataReady
+    ? snapshotGenerationOutputBaseline(files)
+    : undefined;
 
   useEffect(() => {
     if (!id) return;

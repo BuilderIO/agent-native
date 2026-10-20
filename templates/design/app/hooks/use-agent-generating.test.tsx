@@ -367,6 +367,35 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("clears the restored-run status failure timeout on unmount", async () => {
+    const onStale = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe onComplete={vi.fn()} onStale={onStale} onStopped={vi.fn()} />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", { resumingStoredRun: true });
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await act(async () => root.unmount());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+
+    expect(onStale).not.toHaveBeenCalled();
+    container.remove();
+  });
+
   it("marks a restored run stale only after repeated authoritative idle reads", async () => {
     const onComplete = vi.fn();
     const onStale = vi.fn();

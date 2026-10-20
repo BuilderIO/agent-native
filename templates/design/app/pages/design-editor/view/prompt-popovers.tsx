@@ -71,6 +71,7 @@ export function renderPromptPopovers({
     clearGenerationCompleteTimer,
     generationModelRef,
     setHasPendingGeneration,
+    generationOutputBaselineRef,
     agentSubmit,
     setGenerationChatTabId,
     generating,
@@ -230,6 +231,7 @@ export function renderPromptPopovers({
             ...options,
             attempt: 1,
             startedAt,
+            outputBaselineFiles: generationOutputBaselineRef.current ?? [],
           });
           setHasPendingGeneration(true);
           const runTabId = agentSubmit(prompt, context, {
@@ -247,6 +249,7 @@ export function renderPromptPopovers({
             runTabId,
             attempt: 1,
             startedAt,
+            outputBaselineFiles: generationOutputBaselineRef.current ?? [],
           });
           handlePromptOpenChange(false);
         }}

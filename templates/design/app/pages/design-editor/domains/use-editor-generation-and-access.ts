@@ -267,6 +267,9 @@ export function useEditorGenerationAndAccess({
   const [retryablePrompt, setRetryablePrompt] =
     useState<RetryablePrompt | null>(null);
   const generationOutputReadyRef = useRef<boolean | null>(null);
+  const generationOutputBaselineRef = useRef<
+    Array<{ id: string; contentHash: string }> | undefined
+  >(undefined);
   const authoritativeDesignReadIdRef = useRef<string | null>(null);
   const pendingQuestionsVisibleRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
@@ -303,6 +306,7 @@ export function useEditorGenerationAndAccess({
         attempt: pending.attempt ?? 1,
         source: pending.source,
         templateId: pending.templateId,
+        outputBaselineFiles: pending.outputBaselineFiles,
         templateBaselineFiles: pending.templateBaselineFiles,
       });
       return true;
@@ -377,12 +381,6 @@ export function useEditorGenerationAndAccess({
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
-    if (generationOutputReadyRef.current) {
-      clearPendingGeneration(id);
-      setHasPendingGeneration(false);
-      setGenerationIssue(null);
-      return;
-    }
     const preservedForRetry = rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
@@ -493,6 +491,7 @@ export function useEditorGenerationAndAccess({
         currentTurnId: undefined,
         attempt: pending?.attempt ?? 1,
         startedAt: Date.now(),
+        outputBaselineFiles: generationOutputBaselineRef.current ?? [],
       });
       setHasPendingGeneration(true);
       trackAgentGeneration(runTabId, {
@@ -1495,6 +1494,7 @@ export function useEditorGenerationAndAccess({
           setGenerationIssue,
           setHasPendingGeneration,
           setRetryablePrompt,
+          outputBaselineFiles: generationOutputBaselineRef.current ?? [],
         },
         promptState,
         attempt,
@@ -1573,6 +1573,7 @@ export function useEditorGenerationAndAccess({
     retryablePrompt,
     setRetryablePrompt,
     generationOutputReadyRef,
+    generationOutputBaselineRef,
     autoRetryTimerRef,
     clearGenerationCompleteTimer,
     clearAutoRetryTimer,

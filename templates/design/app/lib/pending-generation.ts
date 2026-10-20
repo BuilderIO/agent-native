@@ -29,6 +29,7 @@ export interface PendingGeneration {
   previousRunBaselineVerified?: boolean;
   currentRunId?: string;
   currentTurnId?: string;
+  outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
 }
 
@@ -75,10 +76,31 @@ export function generationOutputFiles<
   return files.filter(isGenerationOutputFile);
 }
 
+export function snapshotGenerationOutputBaseline(
+  files: readonly {
+    id: string;
+    filename?: string;
+    fileType?: string;
+    content: string;
+  }[],
+): Array<{ id: string; contentHash: string }> {
+  return generationOutputFiles(files).map((file) => ({
+    id: file.id,
+    contentHash: sourceContentHash(file.content),
+  }));
+}
+
 export function shouldSkipPendingGenerationResume<
-  T extends { filename?: string; fileType?: string },
+  T extends {
+    id: string;
+    filename?: string;
+    fileType?: string;
+    content: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  },
 >(pending: PendingGeneration, files: readonly T[]): boolean {
-  return generationOutputFiles(files).length > 0 && !pending.templateId;
+  return !pending.templateId && hasPendingGenerationOutput(pending, files);
 }
 
 function isTrackedTemplateOutputFile(file: { filename?: string }): boolean {
@@ -96,26 +118,42 @@ export function hasPendingGenerationOutput(
     updatedAt?: string | null;
   }[],
 ): boolean {
-  if (!pending?.templateId) return generationOutputFiles(files).length > 0;
+  if (!pending) return false;
+  if (pending.templateId) {
+    const trackedFiles = files.filter(isTrackedTemplateOutputFile);
+    if (pending.templateBaselineFiles !== undefined) {
+      const baseline = new Map(
+        pending.templateBaselineFiles.map((file) => [
+          file.id,
+          file.contentHash,
+        ]),
+      );
+      return trackedFiles.some(
+        (file) =>
+          !baseline.has(file.id) ||
+          baseline.get(file.id) !== sourceContentHash(file.content),
+      );
+    }
 
-  const trackedFiles = files.filter(isTrackedTemplateOutputFile);
-
-  if (pending.templateBaselineFiles?.length) {
-    const baseline = new Map(
-      pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
-    );
     return trackedFiles.some(
+      (file) =>
+        Boolean(file.createdAt && file.updatedAt) &&
+        file.createdAt !== file.updatedAt,
+    );
+  }
+
+  if (pending.outputBaselineFiles !== undefined) {
+    const baseline = new Map(
+      pending.outputBaselineFiles.map((file) => [file.id, file.contentHash]),
+    );
+    return generationOutputFiles(files).some(
       (file) =>
         !baseline.has(file.id) ||
         baseline.get(file.id) !== sourceContentHash(file.content),
     );
   }
 
-  return trackedFiles.some(
-    (file) =>
-      Boolean(file.createdAt && file.updatedAt) &&
-      file.createdAt !== file.updatedAt,
-  );
+  return generationOutputFiles(files).length > 0;
 }
 
 export function pendingGenerationKey(id: string): string {

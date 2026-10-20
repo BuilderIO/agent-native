@@ -843,8 +843,14 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       clearGenerationTimeout();
       clearHandoffTimeout();
       clearStatusPollTimeout();
+      clearStatusReadFailureTimeout();
     };
-  }, [clearGenerationTimeout, clearHandoffTimeout, clearStatusPollTimeout]);
+  }, [
+    clearGenerationTimeout,
+    clearHandoffTimeout,
+    clearStatusPollTimeout,
+    clearStatusReadFailureTimeout,
+  ]);
 
   const submit = useCallback(
     (

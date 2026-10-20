@@ -11,6 +11,7 @@ import {
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
   resolvePreviousRunBaseline,
+  snapshotGenerationOutputBaseline,
   shouldSkipPendingGenerationResume,
   writePendingGeneration,
 } from "./pending-generation";
@@ -293,5 +294,44 @@ describe("board file is not generation output", () => {
         },
       ]),
     ).toBe(false);
+  });
+});
+
+describe("generation output baseline", () => {
+  const existing = {
+    id: "file-1",
+    filename: "index.html",
+    content: "<main>Existing design</main>",
+    createdAt: "2026-07-10T12:00:00.000Z",
+    updatedAt: "2026-07-10T12:00:00.000Z",
+  };
+
+  it("does not treat existing HTML as output from a new prompt", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      outputBaselineFiles: snapshotGenerationOutputBaseline([existing]),
+    };
+
+    expect(hasPendingGenerationOutput(pending, [existing])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(pending, [existing])).toBe(false);
+  });
+
+  it("recognizes changed and newly created HTML against the prompt baseline", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      outputBaselineFiles: snapshotGenerationOutputBaseline([existing]),
+    };
+
+    expect(
+      hasPendingGenerationOutput(pending, [
+        { ...existing, content: "<main>Updated settings page</main>" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasPendingGenerationOutput(pending, [
+        existing,
+        { ...existing, id: "file-2", filename: "settings.html" },
+      ]),
+    ).toBe(true);
   });
 });
