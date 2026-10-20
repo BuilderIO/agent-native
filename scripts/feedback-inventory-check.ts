@@ -5389,13 +5389,7 @@ function validateSourceReceipt(
         const parent = inventoryPage.parents[rowIndex];
         if (!parent) continue;
         const parentName = `${pageName} result ${rowIndex + 1}`;
-        if (parent.ownershipSkip) {
-          if (parent.files !== undefined) {
-            throw new Error(
-              `${parentName}: held-root attachment state must remain unknown because search metadata is ambiguous without a thread read-back`,
-            );
-          }
-        } else if (Object.hasOwn(row, "filesMetadata")) {
+        if (Object.hasOwn(row, "filesMetadata")) {
           if (
             !Object.hasOwn(parent, "files") ||
             !isDeepStrictEqual(parent.files, row.filesMetadata)
@@ -5404,6 +5398,10 @@ function validateSourceReceipt(
               `${parentName}: attachment IDs, names, and MIME types must match the raw source listing`,
             );
           }
+        } else if (parent.ownershipSkip && Object.hasOwn(parent, "files")) {
+          throw new Error(
+            `${parentName}: without a raw source file listing, held-root attachment state must remain unknown`,
+          );
         }
       }
     }
@@ -15965,6 +15963,10 @@ if (args[0] === "--self-test" && args.length === 1) {
             sourceText: parent.ownershipSkip
               ? ambiguousHeldSearchMessage.rawText
               : "",
+            ...(parent.ownershipSkip &&
+            ambiguousHeldSearchMessage.filesMetadata !== undefined
+              ? { files: ambiguousHeldSearchMessage.filesMetadata }
+              : {}),
           })),
         })),
       })),
@@ -16076,19 +16078,14 @@ if (args[0] === "--self-test" && args.length === 1) {
     heldAttachmentRawPages["test-channel"]![0]!.rows[0]!.filesMetadata = [
       sourceAttachmentFixture,
     ];
-    expectFocusedFailure(
-      "held root accepts ambiguous search attachment metadata",
-      () =>
-        validateInventory(heldAttachmentInventory, {
-          requireFreshReads: true,
-          sourceReceipt: heldAttachmentReceipt,
-          rawSourcePages: heldAttachmentRawPages,
-          scopeConfirmation: scopeConfirmationForTestInventory(
-            heldAttachmentInventory,
-          ),
-        }),
-      "held-root attachment state must remain unknown",
-    );
+    validateInventory(heldAttachmentInventory, {
+      requireFreshReads: true,
+      sourceReceipt: heldAttachmentReceipt,
+      rawSourcePages: heldAttachmentRawPages,
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        heldAttachmentInventory,
+      ),
+    });
     const heldAttachmentStateUnknown = withPageRoot(
       heldPageRootWithoutThread,
       "11.000000",
@@ -16108,7 +16105,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             heldAttachmentStateUnknown,
           ),
         }),
-      "held-root attachment state must remain unknown",
+      "without a raw source file listing, held-root attachment state must remain unknown",
     );
     expectFocusedFailure(
       "held source root with stale direct reaction evidence",
