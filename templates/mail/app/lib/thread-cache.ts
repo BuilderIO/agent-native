@@ -105,7 +105,12 @@ export function bindThreadCacheQueryClient(client: QueryClient): void {
 }
 
 function persistedThreadQueryKey(key: string) {
-  return [...PERSISTED_THREADS_KEY, sessionScope ?? null, key];
+  return [
+    ...PERSISTED_THREADS_KEY,
+    sessionScope ?? null,
+    accountScope ?? null,
+    key,
+  ];
 }
 
 function persistThread(

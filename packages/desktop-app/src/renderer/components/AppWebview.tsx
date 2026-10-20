@@ -943,8 +943,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         updateDesktopIdentitySessionReady(true);
         return;
       }
+      if (!isActive && hasLoadedGuestPageRef.current) return;
       if (!isActive && !preload) {
-        if (hasLoadedGuestPageRef.current) return;
         const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
           rememberedDesktopIdentityStatus,
           undefined,

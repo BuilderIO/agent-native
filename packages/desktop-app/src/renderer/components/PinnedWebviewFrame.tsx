@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Keeps a webview in one DOM parent for the whole session and lays it over
@@ -49,13 +50,16 @@ export function PinnedWebviewFrame({
     };
   }, [slot]);
 
-  return (
+  // The shell is transformed, so fixed positions must be rooted at the body.
+  return createPortal(
     <div
       ref={frameRef}
       className="fixed inset-0"
-      style={{ visibility: "hidden", pointerEvents: "none" }}
+      data-pinned-webview-frame
+      style={{ zIndex: 3, visibility: "hidden", pointerEvents: "none" }}
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   );
 }

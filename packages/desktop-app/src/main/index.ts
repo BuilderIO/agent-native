@@ -338,6 +338,7 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { restoreMailWebviewBackgroundThrottling } from "./webview-background-throttling.js";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
@@ -2146,6 +2147,9 @@ ipcMain.on(
   IPC.SET_ACTIVE_WEBVIEW,
   (event: IpcMainEvent, target: ActiveWebviewTarget) => {
     if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+    restoreMailWebviewBackgroundThrottling(target, (id) =>
+      webContents.fromId(id),
+    );
     if (target.active === false) {
       desktopDesignPreviewManager?.clearOwner(target.webContentsId);
       if (activeWebviewContentsId === target.webContentsId) {

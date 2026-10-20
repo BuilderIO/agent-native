@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { EmailMessage } from "@shared/types";
+import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const THREAD_CACHE_STORAGE_KEY = "mail.threadCache.v1";
@@ -156,5 +157,45 @@ describe("thread cache privacy", () => {
     ]);
     threadCache.setThreadCacheAccountScope("account-b");
     expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
+  });
+
+  it("does not restore account-less threads after the mailbox scope changes", async () => {
+    const threadCache = await import("./thread-cache");
+    const queryClient = new QueryClient();
+    threadCache.bindThreadCacheQueryClient(queryClient);
+    threadCache.setThreadCacheSessionScope("session-a");
+    threadCache.setThreadCacheAccountScope("mailboxes-a");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            headers: new Headers({
+              "X-Agent-Native-Browser-Persist": "allow",
+            }),
+            json: async () => [
+              { id: "message-a", body: "mailbox a body" } as EmailMessage,
+            ],
+          }) as Response,
+      ),
+    );
+
+    expect(await threadCache.ensureThread("shared-thread")).toEqual([
+      { id: "message-a", body: "mailbox a body" },
+    ]);
+    expect(threadCache.getCachedThread("shared-thread")).toEqual([
+      { id: "message-a", body: "mailbox a body" },
+    ]);
+
+    threadCache.setThreadCacheAccountScope("mailboxes-b");
+
+    expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["action", "mail-thread-messages"] }),
+    ).toHaveLength(1);
+    queryClient.clear();
   });
 });

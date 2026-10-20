@@ -55,11 +55,14 @@ describe("PinnedWebviewFrame", () => {
         </PinnedWebviewFrame>,
       );
     });
-  const frame = () => container.firstElementChild as HTMLDivElement;
+  const frame = () =>
+    document.body.querySelector(
+      "[data-pinned-webview-frame]",
+    ) as HTMLDivElement;
 
   it("keeps the guest mounted but hidden until a slot shows it", () => {
     render(null);
-    expect(container.querySelector("[data-guest]")).not.toBeNull();
+    expect(frame().querySelector("[data-guest]")).not.toBeNull();
     expect(frame().style.visibility).toBe("hidden");
     expect(frame().style.pointerEvents).toBe("none");
   });
@@ -67,8 +70,10 @@ describe("PinnedWebviewFrame", () => {
   it("lays the guest over a visible slot and hides it again without unmounting", () => {
     const slot = slotAt({ left: 56, top: 0, width: 1224, height: 800 });
     render(slot);
+    expect(frame().parentElement).toBe(document.body);
     expect(frame().style.visibility).toBe("visible");
     expect(frame().style.pointerEvents).toBe("auto");
+    expect(frame().style.zIndex).toBe("3");
     expect([
       frame().style.left,
       frame().style.top,
@@ -76,10 +81,10 @@ describe("PinnedWebviewFrame", () => {
       frame().style.height,
     ]).toEqual(["56px", "0px", "1224px", "800px"]);
 
-    const guest = container.querySelector("[data-guest]");
+    const guest = frame().querySelector("[data-guest]");
     render(null);
     expect(frame().style.visibility).toBe("hidden");
-    expect(container.querySelector("[data-guest]")).toBe(guest);
+    expect(frame().querySelector("[data-guest]")).toBe(guest);
   });
 
   it("stays hidden over a zero-size slot such as an inactive tab", () => {
