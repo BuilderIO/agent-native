@@ -292,9 +292,19 @@ function timedOutPanel(
 }
 
 /**
- * Estimate one panel, but give up when the deadline passes, even mid-way
- * through credential, table, or backend lookups, so finished panels still
- * come back before the caller's own timeout.
+ * Ends a batch early without losing it: panels still running or not yet
+ * started come back timed out with `error`, and finished panels keep their
+ * estimates.
+ */
+export interface EstimateStop {
+  signal: AbortSignal;
+  error: string;
+}
+
+/**
+ * Estimate one panel, but give up when the deadline passes or `stop` fires,
+ * even mid-way through credential, table, or backend lookups, so finished
+ * panels still come back before the caller's own timeout.
  */
 async function estimatePanelBefore(
   deadline: number,
@@ -302,6 +312,7 @@ async function estimatePanelBefore(
   scope: AnalyticsScope,
   runsPerMonth: number | null,
   signal?: AbortSignal,
+  stop?: EstimateStop,
 ): Promise<PanelCostEstimate> {
   const remaining = deadline - Date.now();
   if (remaining <= 0) {
@@ -310,21 +321,29 @@ async function estimatePanelBefore(
       "Skipped: this request ran out of time. Estimate this panel on its own with panelId.",
     );
   }
+  if (stop?.signal.aborted) return timedOutPanel(panel, stop.error);
   const controller = new AbortController();
   const forwardAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) forwardAbort();
   signal?.addEventListener("abort", forwardAbort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onStop: (() => void) | undefined;
   const timedOut = new Promise<PanelCostEstimate>((resolve) => {
-    timer = setTimeout(() => {
-      resolve(
-        timedOutPanel(
-          panel,
+    const giveUp = (error: string) => {
+      resolve(timedOutPanel(panel, error));
+      controller.abort();
+    };
+    timer = setTimeout(
+      () =>
+        giveUp(
           "Stopped: this panel's dry run didn't finish in time. Estimate it on its own with panelId.",
         ),
-      );
-      controller.abort();
-    }, remaining);
+      remaining,
+    );
+    if (stop) {
+      onStop = () => giveUp(stop.error);
+      stop.signal.addEventListener("abort", onStop, { once: true });
+    }
   });
   try {
     return await Promise.race([
@@ -334,6 +353,7 @@ async function estimatePanelBefore(
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", forwardAbort);
+    if (onStop) stop?.signal.removeEventListener("abort", onStop);
   }
 }
 
@@ -358,16 +378,20 @@ async function mapPool<T, R>(
 
 const DRY_RUN_CONCURRENCY = 6;
 
-/** Dry-run resolved panels a few at a time; none starts after `deadline`. */
+/**
+ * Dry-run resolved panels a few at a time; none starts after `deadline` or
+ * once `stop` fires.
+ */
 export function estimateResolvedPanels(
   panels: readonly ResolvedDashboardPanelQuery[],
   scope: AnalyticsScope,
   runsPerMonth: number | null,
   deadline: number,
   signal?: AbortSignal,
+  stop?: EstimateStop,
 ): Promise<PanelCostEstimate[]> {
   return mapPool(panels, DRY_RUN_CONCURRENCY, (panel) =>
-    estimatePanelBefore(deadline, panel, scope, runsPerMonth, signal),
+    estimatePanelBefore(deadline, panel, scope, runsPerMonth, signal, stop),
   );
 }
 

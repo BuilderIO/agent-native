@@ -1609,6 +1609,40 @@ describe("cost of a write", () => {
     }
   });
 
+  it("keeps the panels it priced when the others run past the save", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.resolve.mockResolvedValue(rows(WIDE));
+      mocks.dryRun.mockImplementation((sql: string, options: unknown) => {
+        if (!isEstimate(options)) return Promise.resolve({ error: null });
+        return sql.includes("slow_table")
+          ? new Promise(() => {})
+          : Promise.resolve({ error: null, totalBytesProcessed: 2 * GIB });
+      });
+      const next = editedSql();
+      next.panels[1].sql = "SELECT week, signups FROM slow_table";
+
+      const pending = verifyPanelWrite({ base, next, dashboardId: "d1" });
+      await vi.advanceTimersByTimeAsync(3_000);
+      const verdict = await pending;
+
+      expect(verdict.cost?.panels).toEqual([
+        expect.objectContaining({
+          panelId: "p1",
+          status: "estimated",
+          estimatedBytes: 2 * GIB,
+        }),
+        expect.objectContaining({ panelId: "p2", failure: "timeout" }),
+      ]);
+      expect(verdict.cost?.total).toMatchObject({
+        estimatedBytes: 2 * GIB,
+        partial: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops the estimate when verification refuses the write", async () => {
     mocks.resolve.mockResolvedValue(rows(WIDE));
     let estimateSignal: AbortSignal | undefined;

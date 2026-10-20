@@ -1031,6 +1031,8 @@ export interface PanelWriteCost {
 const MAX_COST_PANELS = 60;
 /** Once verification is done, how much longer a write waits for its price. */
 const COST_GRACE_MS = 3_000;
+const COST_LATE =
+  "Stopped: pricing took longer than the save. Estimate this panel with estimate-query-cost.";
 /** Sources whose panels can bill BigQuery, whether or not they can be priced. */
 const BILLABLE_SOURCES = new Set(["bigquery", "first-party", "program"]);
 
@@ -1092,28 +1094,50 @@ function unpricedWriteCost(
   );
 }
 
+/** `work`'s result, or undefined if `stop` fires first. */
+function beforeStop<T>(
+  work: Promise<T>,
+  stop: AbortSignal,
+): Promise<T | undefined> {
+  if (stop.aborted) return Promise.resolve(undefined);
+  let onStop: (() => void) | undefined;
+  const stopped = new Promise<undefined>((resolve) => {
+    onStop = () => resolve(undefined);
+    stop.addEventListener("abort", onStop, { once: true });
+  });
+  return Promise.race([work, stopped]).finally(() => {
+    if (onStop) stop.removeEventListener("abort", onStop);
+  });
+}
+
 /**
  * Prices the panels a write changed with the same free dry runs as
- * estimate-query-cost, at the default filters a fresh tab shows.
+ * estimate-query-cost, at the default filters a fresh tab shows. Once `late`
+ * fires it settles at once: panels already priced keep their estimates and
+ * the rest go unpriced.
  */
 async function estimateWriteCost(
   panels: readonly WriteCostPanel[],
   dashboardId: string | undefined,
   signal: AbortSignal,
+  late: AbortSignal,
 ): Promise<PanelWriteCost | null> {
   const scope = getCredentialContext();
   if (!scope || !dashboardId || panels.length === 0) return null;
   try {
-    const { reportSchedules, runsPerMonth } = await scheduledDashboardRuns(
-      dashboardId,
-      scope,
+    const schedule = await beforeStop(
+      scheduledDashboardRuns(dashboardId, scope),
+      late,
     );
+    if (!schedule) return unpricedWriteCost(panels, "timeout", COST_LATE);
+    const { reportSchedules, runsPerMonth } = schedule;
     const estimates = await estimateResolvedPanels(
       panels.slice(0, MAX_COST_PANELS),
       scope,
       runsPerMonth,
       Date.now() + PANEL_VERIFICATION_BUDGET_MS,
       signal,
+      { signal: late, error: COST_LATE },
     );
     const skipped: PanelCostEstimate[] = panels
       .slice(MAX_COST_PANELS)
@@ -1140,26 +1164,16 @@ async function estimateWriteCost(
 
 /**
  * Pricing is informational, so once verification is done an estimate still
- * running gets COST_GRACE_MS more, then stops and its panels go unpriced.
+ * running gets COST_GRACE_MS more. Then `late` fires, and the estimate
+ * settles with what it has priced.
  */
 async function settleWriteCost(
   pending: Promise<PanelWriteCost | null>,
-  panels: readonly WriteCostPanel[],
-  stop: AbortController,
+  late: AbortController,
 ): Promise<PanelWriteCost | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<"late">((resolve) => {
-    timer = setTimeout(() => resolve("late"), COST_GRACE_MS);
-  });
+  const timer = setTimeout(() => late.abort(), COST_GRACE_MS);
   try {
-    const cost = await Promise.race([pending, late]);
-    if (cost !== "late") return cost;
-    stop.abort();
-    return unpricedWriteCost(
-      panels,
-      "timeout",
-      "Stopped: pricing took longer than the save. Estimate this panel with estimate-query-cost.",
-    );
+    return await pending;
   } finally {
     clearTimeout(timer);
   }
@@ -1238,6 +1252,7 @@ export async function verifyPanelWrite(
     .map((change) => change.panelId);
   // The estimate runs beside verification and stops if the write is refused.
   const stopEstimate = new AbortController();
+  const costLate = new AbortController();
   const costPanels = options.dashboardId
     ? writeCostPanels(
         next,
@@ -1250,6 +1265,7 @@ export async function verifyPanelWrite(
     options.signal
       ? AbortSignal.any([options.signal, stopEstimate.signal])
       : stopEstimate.signal,
+    costLate.signal,
   );
   const verification = await verifyDashboardPanels(
     next,
@@ -1295,7 +1311,7 @@ export async function verifyPanelWrite(
       .slice(0, 5)
       .map((panel) => panel.panelId)
       .join(", ")}${panels.length > 5 ? ` (+${panels.length - 5} more)` : ""}`;
-  const cost = await settleWriteCost(pendingCost, costPanels, stopEstimate);
+  const cost = await settleWriteCost(pendingCost, costLate);
   return {
     verified,
     ...(visual.length > 0 ? { visualOnly: visual } : {}),
