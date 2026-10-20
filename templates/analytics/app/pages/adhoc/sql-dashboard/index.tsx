@@ -2041,8 +2041,10 @@ function SqlDashboardPageContent({
           clampDashboardColumns(current.columns ?? DEFAULT_DASHBOARD_COLUMNS),
         ),
       }));
+      // A removed panel's cost notice would outlive it.
+      panelCost.clear(panelId);
     },
-    [persist],
+    [panelCost, persist],
   );
 
   const handleResizePanel = useCallback(
