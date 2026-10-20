@@ -232,6 +232,7 @@ vi.mock("@/hooks/use-undo", () => ({
 
 vi.mock("@/lib/thread-cache", () => ({
   ensureThread: vi.fn(() => Promise.resolve([])),
+  THREAD_PREFETCH_INTENT_MS: 75,
   warmThreads: vi.fn(),
 }));
 

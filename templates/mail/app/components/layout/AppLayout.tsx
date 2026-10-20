@@ -676,7 +676,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         .sort(),
     }),
   );
-  useInboxSyncPoller(inboxAccountEmails);
+  useInboxSyncPoller(inboxAccountEmails, { enabled: view === "inbox" });
   const inboxThreadInput = {
     tab: resolvedInboxTab,
     accountEmails: inboxAccountEmails,

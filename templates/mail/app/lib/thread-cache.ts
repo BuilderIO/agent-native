@@ -296,6 +296,9 @@ export function invalidateCachedThread(threadId: string) {
 
 const STALE_AFTER = 60 * 1000;
 
+/** Hover must rest this long before a row prefetches, so a cursor sweep fetches nothing. */
+export const THREAD_PREFETCH_INTENT_MS = 75;
+
 export function ensureThread(
   threadId: string,
   accountEmail?: string,

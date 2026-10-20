@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   resolveWorkspaceConnectionForApp: vi.fn(),
   readSettings: vi.fn(),
   readInboxThreads: vi.fn(),
+  readInboxTabWindows: vi.fn(),
   readCachedLabels: vi.fn(),
   readSyncAccounts: vi.fn(),
   readInboxPushGeneration: vi.fn(),
@@ -51,6 +52,8 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 
 vi.mock("../server/lib/inbox-store.js", () => ({
   readInboxThreads: mocks.readInboxThreads,
+  readInboxTabWindows: mocks.readInboxTabWindows,
+  aiImportantLabelIds: () => [],
   readCachedLabels: mocks.readCachedLabels,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxPushGeneration: mocks.readInboxPushGeneration,
@@ -78,6 +81,21 @@ vi.mock("../server/lib/inbox-store.js", () => ({
 }));
 
 import action from "./list-inbox-threads";
+
+// The SQL windows are verified against the in-memory partition in
+// server/lib/inbox-store.tab-windows-pglite.spec.ts. Here the same partition
+// stands in for the store so the action's assembly is tested on the same rows.
+mocks.readInboxTabWindows.mockImplementation(async (params: any) => {
+  const { inboxRowToItem } = await import("../server/lib/inbox-store.js");
+  const { inMemoryTabWindows } =
+    await import("../server/lib/inbox-tab-windows.fake.js");
+  const rows = await mocks.readInboxThreads(params.ownerEmail, {
+    accountEmails: params.accountEmails,
+  });
+  return inMemoryTabWindows(rows, params, (row) =>
+    inboxRowToItem(row, undefined),
+  );
+});
 
 const OWNER = "owner@example.com";
 

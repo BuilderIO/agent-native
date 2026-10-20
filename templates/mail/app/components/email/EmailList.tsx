@@ -107,7 +107,11 @@ import {
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import { mailThreadHref } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import {
+  ensureThread,
+  THREAD_PREFETCH_INTENT_MS,
+  warmThreads,
+} from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
@@ -1151,6 +1155,25 @@ export function EmailList({
     selectThreads((thread) => !thread.hasStarred);
   }, [selectThreads]);
 
+  const prefetchThread = useCallback((thread: ThreadSummary) => {
+    const email = thread.latestMessage;
+    if (email.isDraft) return;
+    void ensureThread(email.threadId || email.id, email.accountEmail).catch(
+      () => {},
+    );
+  }, []);
+
+  const neighbourPrefetchRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  useEffect(
+    () => () => {
+      if (neighbourPrefetchRef.current)
+        clearTimeout(neighbourPrefetchRef.current);
+    },
+    [],
+  );
+
   const moveFocus = useCallback(
     (delta: number) => {
       setSelectedIds(new Set());
@@ -1167,10 +1190,20 @@ export function EmailList({
       );
       setFocusedId(threads[next].latestMessage.id);
       focusedIndexRef.current = next;
+      // Holding J/K must not fetch every row it passes: only the row that
+      // rests under focus prefetches its neighbours.
+      if (neighbourPrefetchRef.current)
+        clearTimeout(neighbourPrefetchRef.current);
+      neighbourPrefetchRef.current = setTimeout(() => {
+        neighbourPrefetchRef.current = null;
+        for (const neighbour of [threads[next - 1], threads[next + 1]]) {
+          if (neighbour) prefetchThread(neighbour);
+        }
+      }, THREAD_PREFETCH_INTENT_MS);
       // Scrolling the focused row into view is handled by the effect that
       // watches `focusedIndex` and calls `rowVirtualizer.scrollToIndex`.
     },
-    [threads, setFocusedId, setSelectedIds],
+    [threads, setFocusedId, setSelectedIds, prefetchThread],
   );
 
   const extendSelection = useCallback(
@@ -2811,6 +2844,7 @@ export function EmailList({
                   onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
                   onRetryUncertainScheduled={handleRetryUncertainScheduled}
                   onHover={handleHoverThread}
+                  onPrefetch={prefetchThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}
                   highlight={searchQuery}

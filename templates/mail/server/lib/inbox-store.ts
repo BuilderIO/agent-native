@@ -1,3 +1,6 @@
+import { getDbExec } from "@agent-native/core/db";
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
+import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
@@ -189,6 +192,226 @@ export async function readInboxThreads(
       desc(schema.mailInboxThreads.id),
     );
   return rows.map(toInboxThreadRow);
+}
+
+/**
+ * Raw Gmail label ids that `inboxRowToItem` resolves to the AI-important
+ * label. Mirrors its name resolution exactly, so the SQL tab membership below
+ * agrees with the in-memory partition for the same rows.
+ */
+export function aiImportantLabelIds(
+  labelMap: Map<string, string> | undefined,
+): string[] {
+  const candidates = new Set([...(labelMap?.keys() ?? []), AI_IMPORTANT_LABEL]);
+  return [...candidates].filter((id) => {
+    if (id === "UNREAD" || id === "STARRED") return false;
+    const name =
+      CATEGORY_MAP[id] ||
+      (labelMap?.get(id) || id).replace(/_/g, " ").toLowerCase();
+    return mailLabelsInclude([name], AI_IMPORTANT_LABEL);
+  });
+}
+
+export type InboxTabWindowSpec = { id: string; kind: string };
+
+export type InboxTabWindows = {
+  counts: Map<string, { total: number; unread: number }>;
+  page: InboxThreadRow[];
+  previews: Map<string, InboxThreadRow[]>;
+};
+
+// Each synced row falls in one of eight groups by these bits. A group's tab
+// membership is fixed, so one ranked read serves every built-in tab.
+const AI_GROUP_BIT = 4;
+const AUTOMATED_GROUP_BIT = 2;
+const UNREAD_GROUP_BIT = 1;
+const GROUP_COUNT = 8;
+
+/**
+ * Membership of the built-in tabs as `inboxTabsForItem` resolves it when no
+ * pinned-label or saved-filter tab exists: Important is "AI-important or not
+ * automated", Other is "not AI-important and automated". Tabs with a query
+ * are not expressible here and must use `readInboxThreads` instead.
+ */
+function tabAcceptsGroup(kind: string, group: number): boolean {
+  const aiImportant = (group & AI_GROUP_BIT) !== 0;
+  const automated = (group & AUTOMATED_GROUP_BIT) !== 0;
+  switch (kind) {
+    case "all":
+    case "inbox":
+      return true;
+    case "important":
+      return aiImportant || !automated;
+    case "other":
+      return !aiImportant && automated;
+    default:
+      throw new Error(`inbox tab "${kind}" needs the in-memory partition`);
+  }
+}
+
+/**
+ * Per-tab counts and bounded row windows for the built-in tab set, from one
+ * statement. Every row is ranked in list order, then ranked again inside its
+ * group, and each group returns only its first `rankLimit` rows. Merging
+ * windows in JS compares those integer ranks, never SQL string collation.
+ */
+export async function readInboxTabWindows(params: {
+  ownerEmail: string;
+  accountEmails: readonly string[];
+  tabs: readonly InboxTabWindowSpec[];
+  aiLabelIdsByAccount: ReadonlyMap<string, readonly string[]>;
+  pageTabId: string;
+  pageOffset: number;
+  pageLimit: number;
+  pageUnreadOnly: boolean;
+  previewLimit: number;
+}): Promise<InboxTabWindows> {
+  const accounts = params.accountEmails.map((e) => e.toLowerCase());
+  if (accounts.length === 0) {
+    throw new Error("readInboxTabWindows needs at least one account");
+  }
+  const pageTab = params.tabs.find((tab) => tab.id === params.pageTabId);
+  if (!pageTab) throw new Error(`unknown inbox tab "${params.pageTabId}"`);
+
+  const args: unknown[] = [];
+  const bind = (value: unknown) => {
+    args.push(value);
+    return `$${args.length}`;
+  };
+  const ownerParam = bind(params.ownerEmail.toLowerCase());
+  const accountParams = accounts.map((account) => bind(account));
+  const aiClauses = accounts.flatMap((account) => {
+    const ids = params.aiLabelIdsByAccount.get(account) ?? [];
+    if (ids.length === 0) return [];
+    const accountParam = bind(account);
+    const idChecks = ids.map(
+      (id) => `strpos(t.label_ids_json, ${bind(JSON.stringify(id))}) > 0`,
+    );
+    return [
+      `(t.account_email = ${accountParam} AND (${idChecks.join(" OR ")}))`,
+    ];
+  });
+  const aiImportant =
+    aiClauses.length > 0 ? `(${aiClauses.join(" OR ")})` : "false";
+  const rankLimit = Math.max(
+    params.previewLimit,
+    params.pageOffset + params.pageLimit,
+  );
+  const rankLimitParam = bind(rankLimit);
+
+  const { rows } = await getDbExec().execute({
+    // guard:allow-unbounded-read — the owner/account scope bounds the keys CTE, and only the top rows of each group (at most 8 × rankLimit) return to JS
+    sql: `
+      WITH keys AS (
+        SELECT t.id, t.latest_date, t.latest_message_id, t.is_automated, t.unread_count,
+          ${aiImportant} AS ai
+        FROM mail_inbox_threads t
+        WHERE t.owner_email = ${ownerParam} AND t.in_inbox = 1
+          AND t.account_email IN (${accountParams.join(", ")})
+      ),
+      ordered AS (
+        SELECT k.id,
+          row_number() OVER (ORDER BY k.latest_date DESC, k.latest_message_id DESC, k.id DESC) AS r,
+          (CASE WHEN k.ai THEN ${AI_GROUP_BIT} ELSE 0 END
+            + CASE WHEN coalesce(k.is_automated, 0) = 1 THEN ${AUTOMATED_GROUP_BIT} ELSE 0 END
+            + CASE WHEN coalesce(k.unread_count, 0) > 0 THEN ${UNREAD_GROUP_BIT} ELSE 0 END) AS grp
+        FROM keys k
+      ),
+      grouped AS (
+        SELECT o.id, o.r, o.grp,
+          row_number() OVER (PARTITION BY o.grp ORDER BY o.r) AS gr,
+          count(*) OVER (PARTITION BY o.grp) AS grp_total
+        FROM ordered o
+      )
+      SELECT t.*, g.grp, g.gr, g.grp_total
+      FROM grouped g
+      JOIN mail_inbox_threads t ON t.id = g.id
+      WHERE g.gr <= ${rankLimitParam}
+      ORDER BY g.r`,
+    args,
+  });
+
+  const windowRows = rows.map(windowRowFromSql);
+  const groupTotal = new Map<number, number>();
+  for (const row of windowRows) {
+    if (row.groupRank === 1) groupTotal.set(row.group, row.groupTotal);
+  }
+  const windowOf = (kind: string, unreadOnly: boolean) =>
+    windowRows.filter(
+      (row) =>
+        tabAcceptsGroup(kind, row.group) &&
+        (!unreadOnly || (row.group & UNREAD_GROUP_BIT) !== 0),
+    );
+
+  const counts = new Map<string, { total: number; unread: number }>();
+  const previews = new Map<string, InboxThreadRow[]>();
+  for (const tab of params.tabs) {
+    let total = 0;
+    let unread = 0;
+    for (let group = 0; group < GROUP_COUNT; group += 1) {
+      if (!tabAcceptsGroup(tab.kind, group)) continue;
+      const n = groupTotal.get(group) ?? 0;
+      total += n;
+      if ((group & UNREAD_GROUP_BIT) !== 0) unread += n;
+    }
+    counts.set(tab.id, { total, unread });
+    previews.set(
+      tab.id,
+      windowOf(tab.kind, false).slice(0, params.previewLimit),
+    );
+  }
+  return {
+    counts,
+    page: windowOf(pageTab.kind, params.pageUnreadOnly).slice(
+      params.pageOffset,
+      params.pageOffset + params.pageLimit,
+    ),
+    previews,
+  };
+}
+
+type WindowRow = InboxThreadRow & {
+  group: number;
+  groupRank: number;
+  groupTotal: number;
+};
+
+function windowRowFromSql(raw: Record<string, unknown>): WindowRow {
+  const nullableNumber = (value: unknown) =>
+    value == null ? null : Number(value);
+  const row = toInboxThreadRow({
+    id: String(raw.id),
+    ownerEmail: String(raw.owner_email),
+    accountEmail: String(raw.account_email),
+    threadId: String(raw.thread_id),
+    historyId: raw.history_id == null ? null : String(raw.history_id),
+    inInbox: Number(raw.in_inbox),
+    isUnread: nullableNumber(raw.is_unread),
+    isStarred: nullableNumber(raw.is_starred),
+    isImportant: nullableNumber(raw.is_important),
+    isAutomated: nullableNumber(raw.is_automated),
+    latestDate: Number(raw.latest_date),
+    latestMessageId:
+      raw.latest_message_id == null ? null : String(raw.latest_message_id),
+    subject: raw.subject == null ? null : String(raw.subject),
+    snippet: raw.snippet == null ? null : String(raw.snippet),
+    fromName: raw.from_name == null ? null : String(raw.from_name),
+    fromEmail: raw.from_email == null ? null : String(raw.from_email),
+    toJson: raw.to_json == null ? null : String(raw.to_json),
+    labelIdsJson: String(raw.label_ids_json),
+    messageIdsJson: String(raw.message_ids_json),
+    messageCount: nullableNumber(raw.message_count),
+    unreadCount: nullableNumber(raw.unread_count),
+    hasAttachments: nullableNumber(raw.has_attachments),
+    syncedAt: Number(raw.synced_at),
+    updatedAt: Number(raw.updated_at),
+  } as typeof schema.mailInboxThreads.$inferSelect);
+  return {
+    ...row,
+    group: Number(raw.grp),
+    groupRank: Number(raw.gr),
+    groupTotal: Number(raw.grp_total),
+  };
 }
 
 export async function countInboxThreads(

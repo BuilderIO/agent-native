@@ -1106,6 +1106,28 @@ export async function syncInboxAccount(
   }
 }
 
+/**
+ * A steady account synced inside the freshness window needs no Gmail call.
+ * Initial sync, backfill, and a pending push must still advance one step per
+ * call, so they never count as fresh even when the last step was recent.
+ */
+function isFreshSteadyAccount(
+  row: SyncAccountRow,
+  pushGeneration: number,
+  now: number,
+  maxAgeMs: number,
+): boolean {
+  return (
+    row.historyId != null &&
+    row.status === "idle" &&
+    row.fullSyncPageToken == null &&
+    row.fullSyncPhase == null &&
+    row.lastPushGeneration >= pushGeneration &&
+    row.lastSyncedAt != null &&
+    now - row.lastSyncedAt < maxAgeMs
+  );
+}
+
 export async function ensureInboxFresh(
   ownerEmail: string,
   opts?: { accountEmails?: string[]; maxAgeMs?: number; budgetMs?: number },
@@ -1136,11 +1158,9 @@ export async function ensureInboxFresh(
         ownerEmail,
         accountEmail,
       );
-      const fresh =
-        row.lastPushGeneration >= pushGeneration &&
-        row.lastSyncedAt != null &&
-        now - row.lastSyncedAt < maxAgeMs;
-      if (fresh) return statusFromRow(row);
+      if (isFreshSteadyAccount(row, pushGeneration, now, maxAgeMs)) {
+        return statusFromRow(row);
+      }
       try {
         const result = await syncInboxAccount(ownerEmail, accountEmail, {
           budgetMs,
@@ -1187,12 +1207,31 @@ export async function syncInbox(
       : lookupErrors;
 
   const progress = await Promise.all(
-    emails.map((accountEmail) =>
-      syncInboxAccount(ownerEmail, accountEmail, {
+    emails.map(async (accountEmail) => {
+      const row = await ensureSyncAccountRow(ownerEmail, accountEmail);
+      const pushGeneration = await readInboxPushGeneration(
+        ownerEmail,
+        accountEmail,
+      );
+      if (
+        isFreshSteadyAccount(
+          row,
+          pushGeneration,
+          Date.now(),
+          DEFAULT_MAX_AGE_MS,
+        )
+      ) {
+        return progressFromStatus(
+          statusFromRow(row),
+          pushGeneration,
+          row.lastPushGeneration,
+        );
+      }
+      return syncInboxAccount(ownerEmail, accountEmail, {
         budgetMs: opts?.budgetMs ?? 1_800,
         connectedAccountEmails: accounts,
-      }),
-    ),
+      });
+    }),
   );
   const disconnected = requested
     ? [...requested]

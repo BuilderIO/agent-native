@@ -19,7 +19,14 @@ import {
   IconThumbDown,
   IconThumbUp,
 } from "@tabler/icons-react";
-import { memo, useRef, useState, useCallback, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type CSSProperties,
+} from "react";
 import { Link } from "react-router";
 
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
@@ -36,6 +43,7 @@ import {
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { getLabelStyle } from "@/lib/label-colors";
 import { mailLabelDisplayName } from "@/lib/label-display";
+import { THREAD_PREFETCH_INTENT_MS } from "@/lib/thread-cache";
 import type { ThreadSummary } from "@/lib/threads";
 import { cn, formatEmailDate } from "@/lib/utils";
 
@@ -70,6 +78,7 @@ interface EmailListItemProps {
     thread: ThreadSummary,
   ) => void;
   onHover: (thread: ThreadSummary) => void;
+  onPrefetch?: (thread: ThreadSummary) => void;
   onSwipeArchive?: (thread: ThreadSummary) => void;
   onSwipeSnooze?: (thread: ThreadSummary) => void;
   highlight?: string;
@@ -151,6 +160,7 @@ export const EmailListItem = memo(function EmailListItem({
   onConfirmUncertainScheduled,
   onRetryUncertainScheduled,
   onHover,
+  onPrefetch,
   onSwipeArchive,
   onSwipeSnooze,
   highlight,
@@ -323,6 +333,27 @@ export const EmailListItem = memo(function EmailListItem({
   const handleRowHover = useCallback(() => {
     if (thread) onHover(thread);
   }, [onHover, thread]);
+
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPrefetch = useCallback(() => {
+    if (prefetchTimerRef.current === null) return;
+    clearTimeout(prefetchTimerRef.current);
+    prefetchTimerRef.current = null;
+  }, []);
+  useEffect(() => cancelPrefetch, [cancelPrefetch]);
+
+  const handleRowPointerDown = useCallback(() => {
+    if (thread) onPrefetch?.(thread);
+  }, [onPrefetch, thread]);
+
+  const handleRowMouseEnter = useCallback(() => {
+    if (!thread || !onPrefetch) return;
+    cancelPrefetch();
+    prefetchTimerRef.current = setTimeout(() => {
+      prefetchTimerRef.current = null;
+      onPrefetch(thread);
+    }, THREAD_PREFETCH_INTENT_MS);
+  }, [cancelPrefetch, onPrefetch, thread]);
 
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -511,6 +542,9 @@ export const EmailListItem = memo(function EmailListItem({
         aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
         onMouseMove={handleRowHover}
+        onMouseEnter={handleRowMouseEnter}
+        onMouseLeave={cancelPrefetch}
+        onPointerDown={handleRowPointerDown}
         onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
         onTouchMove={canSwipe ? handleTouchMove : undefined}

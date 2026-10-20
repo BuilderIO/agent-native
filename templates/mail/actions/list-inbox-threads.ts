@@ -9,11 +9,15 @@ import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
 import { readGmailCooldown } from "../server/lib/gmail-quota.js";
 import { hasGmailScope } from "../server/lib/gmail-scope.js";
 import {
+  aiImportantLabelIds,
   inboxRowToItem,
   readCachedLabels,
+  readInboxTabWindows,
   readInboxThreads,
   readInboxPushGeneration,
   readSyncAccounts,
+  type InboxTabWindows,
+  type InboxThreadRow,
   type SyncAccountRow,
 } from "../server/lib/inbox-store.js";
 import {
@@ -21,6 +25,7 @@ import {
   partitionInboxItems,
   resolveActiveTabId,
   resolveInboxTabs,
+  type ResolvedInboxTab,
 } from "../server/lib/inbox-tabs-server.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
@@ -31,12 +36,19 @@ import {
   type InboxSyncAccountStatus,
   type InboxTab,
   type InboxTabConfig,
+  type InboxTabKind,
   type InboxThreadItem,
   type ListInboxThreadsResult,
 } from "../shared/inbox-threads.js";
 import type { Label } from "../shared/types.js";
 
 const TAB_PREVIEW_LIMIT = 50;
+const SQL_TAB_KINDS: ReadonlySet<InboxTabKind> = new Set([
+  "all",
+  "inbox",
+  "important",
+  "other",
+]);
 
 type CachedTabCount = { total: number; unread: number };
 
@@ -67,6 +79,105 @@ function cachedInboxCount(
   return { total, unread };
 }
 
+type InboxResultWindow = {
+  tabs: ResolvedInboxTab[];
+  activeTabId: string;
+  counts: Map<string, CachedTabCount>;
+  previews: Map<string, InboxThreadItem[]>;
+  pageItems: InboxThreadItem[];
+  /** Rows the active tab's page is cut from: unread-only when requested. */
+  activePoolLength: number;
+  offset: number;
+  unreadOnly?: boolean;
+  labels: Label[];
+  syncing: boolean;
+  accounts: InboxSyncAccountStatus[];
+  backfillIncomplete: boolean;
+  cachedInboxTotal?: CachedTabCount;
+};
+
+function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
+  const resultTabs: InboxTab[] = window.tabs.map((tab) => {
+    const count = window.counts.get(tab.id) ?? { total: 0, unread: 0 };
+    const cachedCount =
+      window.backfillIncomplete && (tab.kind === "inbox" || tab.kind === "all")
+        ? window.cachedInboxTotal
+        : undefined;
+    return {
+      id: tab.id,
+      kind: tab.kind,
+      name: tab.name,
+      query: tab.query,
+      total: cachedCount?.total ?? count.total,
+      unread: cachedCount?.unread ?? count.unread,
+      ...(window.backfillIncomplete ? { totalIsLowerBound: true } : {}),
+    };
+  });
+  const activeTab = resultTabs.find((tab) => tab.id === window.activeTabId);
+
+  return {
+    tabs: resultTabs,
+    activeTabId: window.activeTabId,
+    items: window.pageItems,
+    tabPreviews: Object.fromEntries(
+      window.tabs.map((tab) => [tab.id, window.previews.get(tab.id) ?? []]),
+    ),
+    total: activeTab?.total ?? 0,
+    complete:
+      !window.unreadOnly &&
+      !activeTab?.totalIsLowerBound &&
+      window.offset + window.pageItems.length >= window.activePoolLength &&
+      window.activePoolLength >= (activeTab?.total ?? 0),
+    syncing: window.syncing,
+    accounts: window.accounts,
+    labels: window.labels,
+  };
+}
+
+function buildWindowedResult(
+  windows: InboxTabWindows,
+  input: {
+    tabs: ResolvedInboxTab[];
+    activeTabId: string;
+    page: { offset: number; unreadOnly?: boolean };
+    labels: Label[];
+    syncing: boolean;
+    accounts: InboxSyncAccountStatus[];
+    backfillIncomplete: boolean;
+    cachedInboxTotal?: CachedTabCount;
+    rowToItem: (row: InboxThreadRow) => InboxThreadItem;
+  },
+): ListInboxThreadsResult {
+  const activeCount = windows.counts.get(input.activeTabId);
+  if (!activeCount) {
+    // guard:allow-bare-error — invariant: the active tab is always one of the tabs the windows were read for
+    throw new Error(`inbox windows missing counts for "${input.activeTabId}"`);
+  }
+  return buildInboxResult({
+    tabs: input.tabs,
+    activeTabId: input.activeTabId,
+    counts: windows.counts,
+    previews: new Map(
+      [...windows.previews].map(([tabId, rows]) => [
+        tabId,
+        rows.map(input.rowToItem),
+      ]),
+    ),
+    pageItems: windows.page.map(input.rowToItem),
+    activePoolLength: input.page.unreadOnly
+      ? activeCount.unread
+      : activeCount.total,
+    offset: input.page.offset,
+    unreadOnly: input.page.unreadOnly,
+    labels: input.labels,
+    syncing: input.syncing,
+    accounts: input.accounts,
+    backfillIncomplete: input.backfillIncomplete,
+    cachedInboxTotal: input.cachedInboxTotal,
+  });
+}
+
+/** Tabs with a pinned-label or saved-filter query need every row to partition. */
 function paginateIntoResult(
   items: InboxThreadItem[],
   config: InboxTabConfig,
@@ -81,53 +192,42 @@ function paginateIntoResult(
   const tabs = resolveInboxTabs(config, labelNameById);
   const byTab = partitionInboxItems(items, tabs);
   const activeTabId = resolveActiveTabId(page.tab, tabs);
-
-  const resultTabs: InboxTab[] = tabs.map((tab) => {
-    const members = byTab.get(tab.id) ?? [];
-    const cachedCount =
-      backfillIncomplete && (tab.kind === "inbox" || tab.kind === "all")
-        ? cachedInboxTotal
-        : undefined;
-    return {
-      id: tab.id,
-      kind: tab.kind,
-      name: tab.name,
-      query: tab.query,
-      total: cachedCount?.total ?? members.length,
-      unread:
-        cachedCount?.unread ??
-        members.filter((item) => item.unreadCount > 0).length,
-      ...(backfillIncomplete ? { totalIsLowerBound: true } : {}),
-    };
-  });
-
   const activeMembers = byTab.get(activeTabId) ?? [];
   const pageSource = page.unreadOnly
     ? activeMembers.filter((item) => item.unreadCount > 0)
     : activeMembers;
-  const pageItems = pageSource.slice(page.offset, page.offset + page.limit);
-  const activeTab = resultTabs.find((tab) => tab.id === activeTabId);
 
-  return {
-    tabs: resultTabs,
+  return buildInboxResult({
+    tabs,
     activeTabId,
-    items: pageItems,
-    tabPreviews: Object.fromEntries(
+    counts: new Map(
+      tabs.map((tab) => {
+        const members = byTab.get(tab.id) ?? [];
+        return [
+          tab.id,
+          {
+            total: members.length,
+            unread: members.filter((item) => item.unreadCount > 0).length,
+          },
+        ];
+      }),
+    ),
+    previews: new Map(
       tabs.map((tab) => [
         tab.id,
         (byTab.get(tab.id) ?? []).slice(0, TAB_PREVIEW_LIMIT),
       ]),
     ),
-    total: resultTabs.find((tab) => tab.id === activeTabId)?.total ?? 0,
-    complete:
-      !page.unreadOnly &&
-      !activeTab?.totalIsLowerBound &&
-      page.offset + pageItems.length >= pageSource.length &&
-      pageSource.length >= (activeTab?.total ?? 0),
+    pageItems: pageSource.slice(page.offset, page.offset + page.limit),
+    activePoolLength: pageSource.length,
+    offset: page.offset,
+    unreadOnly: page.unreadOnly,
+    labels,
     syncing,
     accounts,
-    labels,
-  };
+    backfillIncomplete,
+    cachedInboxTotal,
+  });
 }
 
 export default defineAction({
@@ -243,14 +343,12 @@ export default defineAction({
       );
     }
 
-    const [settings, rows, { labels, labelMapByAccount }] = await Promise.all([
+    const [settings, { labels, labelMapByAccount }] = await Promise.all([
       readSettings(ownerEmail),
-      readInboxThreads(ownerEmail, { accountEmails: connectedAccounts }),
       readCachedLabels(ownerEmail, connectedAccounts),
     ]);
-    const items = rows.map((row) =>
-      inboxRowToItem(row, labelMapByAccount.get(row.accountEmail)),
-    );
+    const rowToItem = (row: InboxThreadRow) =>
+      inboxRowToItem(row, labelMapByAccount.get(row.accountEmail));
 
     const config: InboxTabConfig = {
       pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, true),
@@ -260,6 +358,37 @@ export default defineAction({
       showAllTab: settings.showAllTab,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
+    const tabs = resolveInboxTabs(config, labelNameById);
+    const activeTabId = resolveActiveTabId(page.tab, tabs);
+    // Built-in tabs are SQL-expressible; a pinned label or saved filter is not,
+    // so those accounts fall back to reading every row.
+    const sqlTabs = tabs.every((tab) => SQL_TAB_KINDS.has(tab.kind));
+    const rowSource = sqlTabs
+      ? {
+          kind: "windows" as const,
+          windows: await readInboxTabWindows({
+            ownerEmail,
+            accountEmails: connectedAccounts,
+            tabs,
+            aiLabelIdsByAccount: new Map(
+              connectedAccounts.map((accountEmail) => [
+                accountEmail,
+                aiImportantLabelIds(labelMapByAccount.get(accountEmail)),
+              ]),
+            ),
+            pageTabId: activeTabId,
+            pageOffset: page.offset,
+            pageLimit: page.limit,
+            pageUnreadOnly: page.unreadOnly === true,
+            previewLimit: TAB_PREVIEW_LIMIT,
+          }),
+        }
+      : {
+          kind: "rows" as const,
+          rows: await readInboxThreads(ownerEmail, {
+            accountEmails: connectedAccounts,
+          }),
+        };
     const rowByAccount = new Map(
       syncAccounts.map((account) => [account.accountEmail, account]),
     );
@@ -300,22 +429,36 @@ export default defineAction({
     const now = Date.now();
     const cooldown = await readGmailCooldown(connectedAccounts, now);
     const syncedTimes = statuses.map((status) => status.lastSyncedAt);
-    const result = paginateIntoResult(
-      items,
-      config,
-      labelNameById,
-      labels,
-      page,
-      statuses.some(
-        (status) =>
-          status.state === "initial" ||
-          (status as InboxSyncAccountStatus & { pushPending?: boolean })
-            .pushPending,
-      ),
-      statuses,
-      backfillIncomplete,
-      cachedAllInboxCount,
+    const syncing = statuses.some(
+      (status) =>
+        status.state === "initial" ||
+        (status as InboxSyncAccountStatus & { pushPending?: boolean })
+          .pushPending,
     );
+    const result =
+      rowSource.kind === "windows"
+        ? buildWindowedResult(rowSource.windows, {
+            tabs,
+            activeTabId,
+            page,
+            labels,
+            syncing,
+            accounts: statuses,
+            backfillIncomplete,
+            cachedInboxTotal: cachedAllInboxCount,
+            rowToItem,
+          })
+        : paginateIntoResult(
+            rowSource.rows.map(rowToItem),
+            config,
+            labelNameById,
+            labels,
+            page,
+            syncing,
+            statuses,
+            backfillIncomplete,
+            cachedAllInboxCount,
+          );
     return {
       ...result,
       read: gmailReadState(

@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => {
     readInboxThreadIds: vi.fn(),
     readSyncAccounts: vi.fn(),
     readInboxThreads: vi.fn(),
+    readInboxTabWindows: vi.fn(),
     readCachedLabels: vi.fn(),
     withSyncClaim: vi.fn(),
     SyncClaimLostError,
@@ -113,6 +114,8 @@ vi.mock("./inbox-store.js", () => ({
   readInboxThreadIds: mocks.readInboxThreadIds,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxThreads: mocks.readInboxThreads,
+  readInboxTabWindows: mocks.readInboxTabWindows,
+  aiImportantLabelIds: () => [],
   readCachedLabels: mocks.readCachedLabels,
   readGmailQuotaCooldowns: async () => new Map<string, number>(),
   inboxRowToItem: (row: any, labelMap?: Map<string, string>) => ({
@@ -142,6 +145,17 @@ vi.mock("./inbox-store.js", () => ({
 }));
 
 import listInboxAction from "../../actions/list-inbox-threads.js";
+
+mocks.readInboxTabWindows.mockImplementation(async (params: any) => {
+  const { inboxRowToItem } = await import("./inbox-store.js");
+  const { inMemoryTabWindows } = await import("./inbox-tab-windows.fake.js");
+  const rows = await mocks.readInboxThreads(params.ownerEmail, {
+    accountEmails: params.accountEmails,
+  });
+  return inMemoryTabWindows(rows, params, (row) =>
+    inboxRowToItem(row, undefined),
+  );
+});
 import {
   ensureInboxFresh,
   resetInboxSync,
