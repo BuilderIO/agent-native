@@ -1,5 +1,5 @@
 import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
-import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
+import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
   listDashboardSummaries,
@@ -66,7 +66,7 @@ function seedConfig(id: string): SqlDashboardConfig {
   if (id !== FIRST_PARTY_DASHBOARD_ID) {
     return seed as unknown as SqlDashboardConfig;
   }
-  return repairCanonicalFirstPartyDashboardQueries(seed)
+  return repairKnownFirstPartyDashboardQueries(id, seed)
     .config as unknown as SqlDashboardConfig;
 }
 
@@ -948,7 +948,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 48,
+    panelCount: 51,
     version: CATALOG_VERSION,
     recommended: true,
     visibleInCatalog: false,

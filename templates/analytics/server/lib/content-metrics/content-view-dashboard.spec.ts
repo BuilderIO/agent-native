@@ -148,7 +148,7 @@ describe("Content view dashboard", () => {
         ...panel.sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)/gi),
       ]
         .map((match) => match[1]!.toLowerCase())
-        .filter((name) => name !== "latest" && name !== "totals");
+        .filter((name) => !["latest", "totals", "dates"].includes(name));
       expect(tables.length).toBeGreaterThan(0);
       for (const table of tables) {
         expect(table).toMatch(/^analytics_content_/);
@@ -167,6 +167,7 @@ describe("Content view dashboard", () => {
       expect.objectContaining({
         source: "Search Console",
         status: "Not set up",
+        data_through: daysAgo(4),
         detail: "Search Console denied access to sc-domain:example.test.",
       }),
       expect.objectContaining({ source: "Signups", status: "Cost-limited" }),
@@ -186,7 +187,8 @@ describe("Content view dashboard", () => {
         signups: null,
         source_signups: null,
         not_collected:
-          "GA4: still arriving · Search Console: not set up · Signups: cost-limited",
+          "GA4: not reported in this window · Search Console: not set up · Signups: cost-limited",
+
       }),
       expect.objectContaining({
         title: "Post one",
@@ -203,6 +205,48 @@ describe("Content view dashboard", () => {
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
+  it("does not label an unreported article as still arriving after a successful search run", async () => {
+    await client.exec(
+      "UPDATE analytics_content_collection_runs SET status = 'succeeded' WHERE id = 'r4'",
+    );
+    const rows = await runPanel("articles");
+    expect(rows.find((row) => row.title === "Post one")?.not_collected).toBe(
+      "Search Console: not reported in this window · Signups: cost-limited",
+    );
+  });
+
+  it("rejects a custom date scaffold wider than the supported range", () => {
+    const panel = contentView().panels.find(
+      (panel) => panel.id === "daily-trend",
+    )!;
+    expect(
+      interpolateDashboardPanelSql(
+        panel.sql,
+        {
+          timeRange: "custom",
+          timeRangeStart: "2000-01-01",
+          timeRangeEnd: "2026-10-20",
+        },
+        panel,
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+  });
+
+  it("keeps a wholly missing day between reported dates as null", async () => {
+    await client.exec(
+      "UPDATE analytics_content_metric_snapshots SET metric_date = '" +
+        daysAgo(1) +
+        "' WHERE id = 's2'",
+    );
+    const trend = await runPanel("daily-trend");
+    expect(trend.find((row) => row.date === daysAgo(2))).toEqual({
+      date: daysAgo(2),
+      pageviews: null,
+      search_clicks: null,
+    });
+    expect(trend.find((row) => row.date === daysAgo(1))?.pageviews).toBe(0);
+  });
+
   it("keeps the time range and the organization in every panel", async () => {
     const all = await runPanel("articles", "all");
     expect(all.find((row) => row.title === "Post one")?.pageviews).toBe(105);
@@ -210,7 +254,8 @@ describe("Content view dashboard", () => {
 
     // Search Console reported nothing on these days: null, drawn as a gap.
     const trend = await runPanel("daily-trend");
-    expect(trend).toEqual([
+    expect(trend).toHaveLength(29);
+    expect(trend.filter((row) => row.pageviews !== null)).toEqual([
       { date: daysAgo(3), pageviews: 5, search_clicks: null },
       { date: daysAgo(2), pageviews: 0, search_clicks: null },
     ]);
@@ -219,7 +264,12 @@ describe("Content view dashboard", () => {
     )!;
     const plan = planPanelRender(trend, trendPanel, { timeRange: 28 });
     expect(plan.yKeys).toEqual(["pageviews", "search_clicks"]);
-    expect(plan.rows.map((row) => row.search_clicks)).toEqual([null, null]);
+    expect(plan.rows.every((row) => row.search_clicks === null)).toBe(true);
+    expect(trend.find((row) => row.date === daysAgo(1))).toEqual({
+      date: daysAgo(1),
+      pageviews: null,
+      search_clicks: null,
+    });
     expect(await runPanel("search-pages")).toEqual([
       {
         page: "https://agent-native.com/docs",

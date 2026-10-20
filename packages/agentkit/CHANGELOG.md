@@ -1,5 +1,17 @@
 # @agent-native/agentkit
 
+## 0.210.0
+
+### Minor Changes
+
+- 41f86eb: Persist fenced agent execution steps and submission receipts across chat, automation, team, and A2A runs.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+- 69b873f: Keep attachment submissions available without Web Crypto and reject leased run writes that lack an execution fence.
+
 ## 0.209.2
 
 ### Patch Changes

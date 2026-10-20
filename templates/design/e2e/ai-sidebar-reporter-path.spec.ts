@@ -112,6 +112,74 @@ async function queryE2eDatabase(
   }
 }
 
+type PersistedChatThread = {
+  id: string;
+  threadData: string;
+  messageCount: number;
+  updatedAt: number;
+};
+
+async function getPersistedChatThread(
+  page: Page,
+  threadId: string,
+): Promise<PersistedChatThread> {
+  const routeUrl = appPath(
+    `/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}`,
+  );
+  const response = await page.request.get(routeUrl);
+  const body = (await response.json()) as Partial<PersistedChatThread> & {
+    error?: string;
+  };
+  if (
+    !response.ok() ||
+    typeof body.id !== "string" ||
+    typeof body.threadData !== "string" ||
+    typeof body.messageCount !== "number" ||
+    typeof body.updatedAt !== "number"
+  ) {
+    throw new Error(
+      `The authenticated chat thread read failed (${response.status()}): ${body.error ?? "invalid response"}`,
+    );
+  }
+  return body as PersistedChatThread;
+}
+
+async function findPersistedChatThread(
+  page: Page,
+  prompt: string,
+): Promise<PersistedChatThread> {
+  const routeUrl = new URL(appPath("/_agent-native/agent-chat/threads"));
+  routeUrl.searchParams.set("q", prompt);
+  routeUrl.searchParams.set("limit", "200");
+  const response = await page.request.get(routeUrl.toString());
+  const body = (await response.json()) as {
+    threads?: Array<{ id?: unknown }>;
+    error?: string;
+  };
+  if (!response.ok() || !Array.isArray(body.threads)) {
+    throw new Error(
+      `The authenticated chat thread search failed (${response.status()}): ${body.error ?? "invalid response"}`,
+    );
+  }
+
+  const candidates = await Promise.all(
+    body.threads.flatMap((thread) =>
+      typeof thread.id === "string"
+        ? [getPersistedChatThread(page, thread.id)]
+        : [],
+    ),
+  );
+  const matches = candidates.filter((thread) =>
+    thread.threadData.includes(prompt),
+  );
+  if (matches.length === 0) {
+    throw new Error("No persisted chat thread contains the E2E prompt.");
+  }
+  return matches.reduce((latest, thread) =>
+    thread.updatedAt > latest.updatedAt ? thread : latest,
+  );
+}
+
 async function assertNoInlineImageDataPersisted(
   currentPrompt: string,
   page: Page,
@@ -123,25 +191,8 @@ async function assertNoInlineImageDataPersisted(
         WHERE ${INLINE_IMAGE_LEAK_PREDICATE}
       `);
   expect(negativeControl).toEqual([{ match_count: 1 }]);
-  const currentComposerRun = await queryE2eDatabase(
-    `
-      SELECT id, thread_data, message_count
-      FROM chat_threads
-      WHERE thread_data::text LIKE '%' || $1 || '%'
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `,
-    [currentPrompt],
-  );
-  expect(
-    currentComposerRun.length,
-    "the active composer prompt must be present in the scanned persisted thread payload",
-  ).toBeGreaterThan(0);
-  const currentThread = currentComposerRun[0]!;
-  const threadData =
-    typeof currentThread.thread_data === "string"
-      ? JSON.parse(currentThread.thread_data)
-      : currentThread.thread_data;
+  const currentThread = await findPersistedChatThread(page, currentPrompt);
+  const threadData = JSON.parse(currentThread.threadData);
   const inlineImageProbe =
     "data:image/png;base64,INLINE_SQL_ROUTE_NEGATIVE_CONTROL";
   const unsafeThreadData = JSON.stringify({
@@ -152,15 +203,14 @@ async function assertNoInlineImageDataPersisted(
       data: inlineImageProbe,
     },
   });
-  const routeUrl = new URL(
-    `/_agent-native/agent-chat/threads/${encodeURIComponent(String(currentThread.id))}`,
-    page.url(),
+  const routeUrl = appPath(
+    `/_agent-native/agent-chat/threads/${encodeURIComponent(currentThread.id)}`,
   );
-  const saveResponse = await page.request.put(routeUrl.toString(), {
+  const saveResponse = await page.request.put(routeUrl, {
     headers: { "content-type": "application/json" },
     data: JSON.stringify({
       threadData: unsafeThreadData,
-      messageCount: Number(currentThread.message_count),
+      messageCount: currentThread.messageCount,
     }),
   });
   const saveBody = (await saveResponse.json()) as {
@@ -170,8 +220,6 @@ async function assertNoInlineImageDataPersisted(
   const leakedProbeRows = await queryE2eDatabase(
     `
       WITH persisted_payloads(source, payload) AS (
-        SELECT 'chat_threads', to_jsonb(chat_threads)::text FROM chat_threads
-        UNION ALL
         SELECT 'agent_runs', to_jsonb(agent_runs)::text FROM agent_runs
         UNION ALL
         SELECT 'agent_run_events', to_jsonb(agent_run_events)::text FROM agent_run_events
@@ -192,9 +240,14 @@ async function assertNoInlineImageDataPersisted(
     `,
     [inlineImageProbe],
   );
+  const threadAfterRejectedSave = await getPersistedChatThread(
+    page,
+    currentThread.id,
+  );
+  expect(threadAfterRejectedSave.threadData).not.toContain(inlineImageProbe);
   expect(
     leakedProbeRows,
-    "the authenticated thread save route must reject the negative-control image before any SQL store sees it",
+    "the authenticated thread save route must reject the negative-control image before any other SQL store sees it",
   ).toEqual([]);
   expect(saveResponse.status()).toBe(400);
   expect(saveBody).toEqual({
@@ -206,8 +259,6 @@ async function assertNoInlineImageDataPersisted(
   const result = await queryE2eDatabase(
     `
         WITH persisted_payloads(source, payload) AS (
-          SELECT 'chat_threads', to_jsonb(chat_threads)::text FROM chat_threads
-          UNION ALL
           SELECT 'agent_runs', to_jsonb(agent_runs)::text FROM agent_runs
           UNION ALL
           SELECT 'agent_run_events', to_jsonb(agent_run_events)::text FROM agent_run_events
@@ -230,6 +281,10 @@ async function assertNoInlineImageDataPersisted(
     [rawBase64Probe],
   );
   expect(result).toEqual([]);
+  assertNoInlineImageBytes(
+    threadAfterRejectedSave.threadData,
+    "chat_threads.thread_data",
+  );
 }
 
 function crc32(bytes: Buffer): number {
@@ -714,8 +769,7 @@ async function uploadImage(
   return image;
 }
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design Home sends a 6 MB uploaded image through generation", async ({
+test("Design Home sends a 6 MB uploaded image through generation", async ({
   page,
 }) => {
   test.skip(
@@ -890,8 +944,7 @@ test.fixme("Design Home sends a 6 MB uploaded image through generation", async (
   ).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design Home preserves image pixels when a document crosses the upload limit", async ({
+test("Design Home preserves image pixels when a document crosses the upload limit", async ({
   page,
 }) => {
   test.skip(
@@ -1087,8 +1140,7 @@ test.fixme("Design Home preserves image pixels when a document crosses the uploa
   ).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor sidebar sends uploaded PNG bytes to model vision input", async ({
+test("Design editor sidebar sends uploaded PNG bytes to model vision input", async ({
   page,
 }) => {
   test
@@ -1267,8 +1319,7 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   }).toStrictEqual({ files: ["__board__.html"], canvasFrames: {} });
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async ({
+test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async ({
   page,
 }) => {
   test
@@ -1370,8 +1421,7 @@ test.fixme("Design chat hydrates a 2.3 MB HTTPS upload into model vision input",
   ).toBe(true);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor hydrates a 6 MB PNG's resized durable URL into model vision input", async ({
+test("Design editor hydrates a 6 MB PNG's resized durable URL into model vision input", async ({
   page,
 }) => {
   test
@@ -1508,8 +1558,7 @@ test.fixme("Design editor hydrates a 6 MB PNG's resized durable URL into model v
   await assertNoInlineImageDataPersisted(IMAGE_PROMPT, page, resizedBytes);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor downscales a 6 MB PNG for vision and retains the original upload", async ({
+test("Design editor downscales a 6 MB PNG for vision and retains the original upload", async ({
   page,
 }) => {
   test
@@ -1857,8 +1906,7 @@ test.fixme("Design editor downscales a 6 MB PNG for vision and retains the origi
   ).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design editor sidebar applies a same-thread edit and persists it", async ({
+test("Design editor sidebar applies a same-thread edit and persists it", async ({
   page,
 }) => {
   test.skip(
@@ -1957,8 +2005,7 @@ test.fixme("Design editor sidebar applies a same-thread edit and persists it", a
   );
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async ({
+test("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async ({
   page,
 }) => {
   test.skip(
@@ -2107,8 +2154,7 @@ test.fixme("Design chat preserves EXIF-rotated JPEG dimensions and orientation",
   expect(providerText).not.toContain("<chat-attachment-processing-error");
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat keeps uploaded image bytes out of every SQL table", async ({
+test("Design chat keeps uploaded image bytes out of every SQL table", async ({
   page,
 }) => {
   test.skip(
@@ -2281,8 +2327,7 @@ test.fixme("Design chat keeps uploaded image bytes out of every SQL table", asyn
   expect(newInlineBytesHits(sqlBefore, control.afterRollback)).toEqual([]);
 });
 
-// fixme: product bug: Its assertions pass. A new chat requests GET /_agent-native/agent-chat/checkpoints?threadId=… before the thread is saved; core answers
-test.fixme("Design chat sends a queued image to model vision input", async ({
+test("Design chat sends a queued image to model vision input", async ({
   page,
 }) => {
   test.skip(
@@ -2344,4 +2389,52 @@ test.fixme("Design chat sends a queued image to model vision input", async ({
     .flatMap((summary) => summary.userMessages)
     .join("\n");
   expect(providerText).not.toContain("reference-only-unavailable");
+});
+
+test("Edit with Agent from a layer's context menu focuses the Agent composer and takes typed input", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+  const { designId, fileId } = await createDesign(page);
+  await configureProvider(page, designId, fileId, "observe");
+  await gotoEditor(page, designId);
+  const heading = designFrame(page, fileId).locator("h1.title");
+  await expect(heading).toBeVisible({ timeout: 30_000 });
+  const contentBefore = (await readDesign(page, designId)).files?.find(
+    (file) => file.id === fileId,
+  )?.content;
+
+  const box = (await heading.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+    button: "right",
+  });
+  await page
+    .getByRole("menuitem", { name: "Edit with Agent", exact: true })
+    .click();
+
+  const composer = page.locator("[data-design-agent-panel] .ProseMirror");
+  await expect(composer).toBeFocused();
+  await page.keyboard.type("Make this heading more concise");
+  await expect(composer).toContainText("Make this heading more concise");
+  expect(
+    (await readDesign(page, designId)).files?.find((file) => file.id === fileId)
+      ?.content,
+    "the keystrokes went to the composer, not the canvas",
+  ).toBe(contentBefore);
 });

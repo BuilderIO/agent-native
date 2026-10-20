@@ -126,7 +126,7 @@ function panelList(config: JsonRecord): unknown {
 }
 
 const PANEL_QUERY_FIELDS = new Set(["sql", "source", "configId"]);
-const PANEL_LAYOUT_FIELDS = new Set(["width", "tab", "columns"]);
+const PANEL_LAYOUT_FIELDS = new Set(["width", "height", "tab", "columns"]);
 const PANEL_DISPLAY_FIELDS = new Set(["chartType"]);
 const PANEL_CONFIG_QUERY_FIELDS = new Set(["timeScope"]);
 
@@ -268,6 +268,7 @@ function describePanels(
   let rearranged =
     !sameValue(kept, keptAfter) || !sameValue(before.columns, after.columns);
   const resized: string[] = [];
+  const heightResized: string[] = [];
   for (const id of kept) {
     const previous = beforePanels.byId.get(id)!;
     const next = afterPanels.byId.get(id)!;
@@ -278,19 +279,23 @@ function describePanels(
       rearranged = true;
     }
     if (!sameValue(previous.width, next.width)) resized.push(id);
+    if (!sameValue(previous.height, next.height)) heightResized.push(id);
   }
   // Adding, removing or moving a panel rebalances the widths of every row it
   // leaves or joins (`rebalanceRowWidths`), so width changes alongside one are
   // the reflow, not a resize anyone asked for.
   if (rearranged) {
     changes.push({ kind: "layout-changed" });
-  } else if (!addedOrRemoved) {
-    for (const id of resized) {
-      changes.push({
-        kind: "panel-resized",
-        title: nameOf(afterPanels.byId.get(id)!.title),
-      });
-    }
+  }
+  const resizedPanels = new Set([
+    ...(addedOrRemoved || rearranged ? [] : resized),
+    ...heightResized,
+  ]);
+  for (const id of resizedPanels) {
+    changes.push({
+      kind: "panel-resized",
+      title: nameOf(afterPanels.byId.get(id)!.title),
+    });
   }
   return { other };
 }

@@ -79,6 +79,7 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 import { runInIdleSlices } from "@/pages/design-editor/idle-slices";
+import { selectionHasOutermostFrame } from "@/pages/design-editor/motion-add-menu";
 import type { MotionAnimationStyle } from "@/pages/design-editor/motion-animation-style";
 import type { EditorMode } from "@/pages/design-editor/types";
 
@@ -207,6 +208,7 @@ import type { TextContrastContext } from "./edit-panel/text-contrast";
 import {
   mergeRotationValue,
   normalizeRotationDegrees,
+  sharedRotationValue,
 } from "./edit-panel/transform-helpers";
 import {
   displayFontFamilyName,
@@ -240,6 +242,7 @@ import {
 } from "./inspector/GlslShaderPanel";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { MotionAudioTracks } from "./MotionAudioTracks";
+import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
 import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
 import {
   MotionNativeStyleEditor,
@@ -472,6 +475,7 @@ interface EditPanelProps {
     fileId: string,
     content: string,
     updatedAt?: string,
+    beforeContent?: string,
   ) => void;
   /**
    * Edits a file's HTML through the editor. A shader on a frame drawn on the
@@ -496,6 +500,7 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
   onRestoreComponent?: (nodeId: string) => void;
+  onGoToMainComponent?: () => void;
   componentSwapPickerRequest?: number;
   sourceCapabilities?: string[];
   onCreateComponent?: (name: string) => void;
@@ -560,6 +565,7 @@ interface EditPanelProps {
   onMotionAudioDurationChange?: (durationMs: number) => void;
   motionWriteUnavailable?: boolean;
   motionWriteUnavailableReason?: string;
+  motionCode?: MotionCodeInput;
   breakpointContext?: {
     breakpointWidths: readonly number[];
     baseWidthPx: number;
@@ -2109,6 +2115,7 @@ function GroupFillProperties({
       documentColorPalette={documentColors}
       hideAddFill={disabled}
       cancelOpacityGestureOnHistoryUndo={!disabled}
+      allowDesignHistoryHotkeys={!disabled}
       onAddFill={onAddFill}
       uploadScopeKey={uploadScopeKey}
     />
@@ -2244,6 +2251,7 @@ export const EditPanel = memo(function EditPanel({
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
   onRestoreComponent,
+  onGoToMainComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -2288,6 +2296,7 @@ export const EditPanel = memo(function EditPanel({
   onMotionAudioDurationChange,
   motionWriteUnavailable = false,
   motionWriteUnavailableReason,
+  motionCode,
   breakpointContext,
 }: EditPanelProps) {
   const recentFillColorRef = useRef<string | undefined>(undefined);
@@ -2356,6 +2365,13 @@ export const EditPanel = memo(function EditPanel({
       effectiveSelectedElements,
     ],
   );
+  const sharedSelectionRotation = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? sharedRotationValue(effectiveSelectedElements)
+        : undefined,
+    [effectiveSelectedElements],
+  );
   const inspectorElement = useMemo(() => {
     const element =
       effectiveSelectedElements.length > 1
@@ -2413,6 +2429,8 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !shaderFileId || selectedCount > 1) return undefined;
+    // A screen deleted while selected is gone; reading it would 404.
+    if (!files?.some((file) => file.id === shaderFileId)) return undefined;
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
     const base = {
@@ -2481,6 +2499,7 @@ export const EditPanel = memo(function EditPanel({
       const screenFileId = selectedScreenGeometry?.id;
       const nodeId = selectedScreenElement?.sourceId;
       if (!designId || !screenFileId || !nodeId) return undefined;
+      if (!files?.some((file) => file.id === screenFileId)) return undefined;
       return {
         designId,
         fileId: screenFileId,
@@ -2491,6 +2510,7 @@ export const EditPanel = memo(function EditPanel({
       };
     }, [
       designId,
+      files,
       selectedScreenGeometry?.id,
       selectedScreenElement?.sourceId,
       selectedScreenElement?.selector,
@@ -2951,6 +2971,7 @@ export const EditPanel = memo(function EditPanel({
                         ? () => onRestoreComponent(componentNodeId)
                         : undefined
                     }
+                    onGoToMainComponent={onGoToMainComponent}
                     onComponentPropApplied={onComponentPropApplied}
                     sourceCapabilities={sourceCapabilities}
                   />
@@ -3208,7 +3229,13 @@ export const EditPanel = memo(function EditPanel({
                                       t(
                                         "designEditor.motion.sourceWriteUnavailable",
                                       ))
-                                    : undefined
+                                    : selectionHasOutermostFrame(
+                                          effectiveSelectedElements,
+                                        )
+                                      ? t(
+                                          "designEditor.motion.addMenu.outermostFrame",
+                                        )
+                                      : undefined
                                 }
                                 onCreateTrack={
                                   onCreateMotionTrack ?? (() => undefined)
@@ -3227,21 +3254,36 @@ export const EditPanel = memo(function EditPanel({
                           </p>
                         ) : null}
                         {motionSelectedTarget ? (
-                          <MotionNativeStyleEditor
-                            styles={motionNativeStyles}
-                            targetNodeId={motionSelectedTarget.nodeId}
-                            disabled={motionWriteUnavailable}
-                            easingVariables={motionEasingVariables}
-                            onEasingVariablesChange={
-                              onMotionEasingVariablesChange
-                            }
-                            onChange={(instance, identity) =>
-                              onMotionNativeStyleChange?.(instance, identity)
-                            }
-                            onRemove={(identity) =>
-                              onRemoveMotionNativeStyle?.(identity)
-                            }
+                          <MotionCodeView
+                            input={motionCode}
+                            hasList={motionNativeStyles.some(
+                              (style) =>
+                                style.targetNodeId ===
+                                motionSelectedTarget.nodeId,
+                            )}
                             t={t}
+                            list={
+                              <MotionNativeStyleEditor
+                                styles={motionNativeStyles}
+                                targetNodeId={motionSelectedTarget.nodeId}
+                                isText={motionSelectedTarget.isText}
+                                disabled={motionWriteUnavailable}
+                                easingVariables={motionEasingVariables}
+                                onEasingVariablesChange={
+                                  onMotionEasingVariablesChange
+                                }
+                                onChange={(instance, identity) =>
+                                  onMotionNativeStyleChange?.(
+                                    instance,
+                                    identity,
+                                  )
+                                }
+                                onRemove={(identity) =>
+                                  onRemoveMotionNativeStyle?.(identity)
+                                }
+                                t={t}
+                              />
+                            }
                           />
                         ) : null}
                       </PanelSection>
@@ -3263,6 +3305,7 @@ export const EditPanel = memo(function EditPanel({
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
+                      sharedRotation={sharedSelectionRotation}
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
                       onAlignSelection={onAlignSelection}

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  normalizeSearchConsoleProperty,
   searchConsolePropertyMessage,
   searchConsolePropertyProblem,
 } from "../../../shared/search-console-property.js";
@@ -24,12 +25,15 @@ const stepToggleSchema = z.object({ enabled: z.boolean() });
  * property such as `https://www.example.com/`. `pathPrefix` keeps a large
  * site to the pages the Content view tracks.
  */
-export const searchConsoleSiteSchema = z.object({
-  siteUrl: z
-    .string()
-    .trim()
-    .min(1)
-    .superRefine((siteUrl, ctx) => {
+const storedSearchConsoleSiteSchema = z.object({
+  siteUrl: z.string().trim().min(1).transform(normalizeSearchConsoleProperty),
+  pathPrefix: z.string().trim().startsWith("/").optional(),
+});
+
+// Existing configs must stay readable so admins can correct or disable them.
+export const searchConsoleSiteSchema = storedSearchConsoleSiteSchema.extend({
+  siteUrl: storedSearchConsoleSiteSchema.shape.siteUrl.superRefine(
+    (siteUrl, ctx) => {
       const problem = searchConsolePropertyProblem(siteUrl);
       if (problem) {
         ctx.addIssue({
@@ -37,8 +41,8 @@ export const searchConsoleSiteSchema = z.object({
           message: searchConsolePropertyMessage(siteUrl, problem),
         });
       }
-    }),
-  pathPrefix: z.string().trim().startsWith("/").optional(),
+    },
+  ),
 });
 export type SearchConsoleSite = z.infer<typeof searchConsoleSiteSchema>;
 
@@ -91,7 +95,9 @@ export const contentCollectionConfigSchema = z.object({
   // Off until a property owner grants the service account access; a run
   // before then would only record "no access".
   searchConsole: stepToggleSchema
-    .extend({ sites: z.array(searchConsoleSiteSchema).max(20).default([]) })
+    .extend({
+      sites: z.array(storedSearchConsoleSiteSchema).max(20).default([]),
+    })
     .default({ enabled: false, sites: [] }),
   signups: signupsConfigSchema.default({
     enabled: false,

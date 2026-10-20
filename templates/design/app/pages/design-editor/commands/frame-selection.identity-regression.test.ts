@@ -86,6 +86,7 @@ function wrap(content: string, origins: string[]) {
     canEditDesign: true,
     contentHistorySelectionAfterRef: { current: new Map() },
     contentUndoStackRef: { current: [] },
+    localContentUndoStackRef: { current: [] },
     files: [file],
     getFreshActiveContent: () => content,
     overviewSelectedScreenIds: [],

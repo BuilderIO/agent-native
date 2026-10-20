@@ -3,6 +3,9 @@ import type {
   DesignHotkeyDistributeAxis,
 } from "@/hooks/useDesignHotkeys";
 
+/** An omitted axis keeps its authored offset, which may not be in px. */
+export type NodePositionPatch = { x?: number; y?: number };
+
 export interface AlignableRect {
   id: string;
   x: number;
@@ -43,8 +46,8 @@ export function computeAlignedPositions(
   rects: readonly AlignableRect[],
   bounds: { x: number; y: number; width: number; height: number },
   edge: DesignHotkeyAlignEdge,
-): Map<string, { x: number; y: number }> {
-  const next = new Map<string, { x: number; y: number }>();
+): Map<string, NodePositionPatch> {
+  const next = new Map<string, NodePositionPatch>();
   for (const rect of rects) {
     let x = rect.x;
     let y = rect.y;
@@ -70,9 +73,8 @@ export function computeAlignedPositions(
     }
     x = Math.round(x);
     y = Math.round(y);
-    if (x !== Math.round(rect.x) || y !== Math.round(rect.y)) {
-      next.set(rect.id, { x, y });
-    }
+    if (x !== Math.round(rect.x)) next.set(rect.id, { x });
+    if (y !== Math.round(rect.y)) next.set(rect.id, { y });
   }
   return next;
 }
@@ -80,8 +82,8 @@ export function computeAlignedPositions(
 export function computeDistributedPositions(
   rects: readonly AlignableRect[],
   axis: DesignHotkeyDistributeAxis,
-): Map<string, { x: number; y: number }> {
-  const next = new Map<string, { x: number; y: number }>();
+): Map<string, NodePositionPatch> {
+  const next = new Map<string, NodePositionPatch>();
   if (rects.length < 3) return next;
   const sorted = [...rects].sort((a, b) =>
     axis === "horizontal" ? a.x - b.x : a.y - b.y,
@@ -103,9 +105,7 @@ export function computeDistributedPositions(
     if (position !== Math.round(start(rect))) {
       next.set(
         rect.id,
-        axis === "horizontal"
-          ? { x: position, y: rect.y }
-          : { x: rect.x, y: position },
+        axis === "horizontal" ? { x: position } : { y: position },
       );
     }
     cursor += size(rect) + gap;

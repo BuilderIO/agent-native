@@ -45,6 +45,11 @@ vi.mock("../server/lib/dashboards-store", () => ({
   getDashboardForReview: mocks.getDashboardForReview,
 }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: vi.fn(async () => null),
+  getUserSetting: vi.fn(async () => null),
+}));
+
 vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
@@ -63,6 +68,7 @@ vi.mock("../server/lib/data-notes-store", () => ({
 import {
   FIRST_PARTY_BIGQUERY_WAU_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
   PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
 } from "../server/lib/canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
@@ -177,6 +183,20 @@ describe("get-sql-dashboard seed fallback", () => {
     expect(result.name).toBe("Funnel");
     expect(result.builtin.id).toBe("skills-cli-funnel");
   });
+
+  it.each(["skills-cli-funnel", "builtin-risk-meeting"])(
+    "rejects hidden saved fallback when builtin %s is unavailable",
+    async (id) => {
+      mocks.getDashboard.mockResolvedValue({
+        id,
+        kind: "sql",
+        config: { name: "Stale hidden dashboard", panels: [] },
+        hiddenBy: "analytics:builtin-dashboards",
+      });
+      mocks.loadDashboardSeed.mockReturnValue(null);
+      await expect(getSqlDashboard.run({ id })).rejects.toThrow(/not found/i);
+    },
+  );
 
   it("returns a saved empty dashboard instead of rehydrating its seed", async () => {
     mocks.getDashboard.mockResolvedValue({
@@ -327,6 +347,7 @@ describe("get-sql-dashboard seed fallback", () => {
         kind: "sql",
         config: {
           filters,
+          introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
           panels: [
             { id: "wau-over-time", source: "bigquery", sql: wauSql },
             ...otherPanels,

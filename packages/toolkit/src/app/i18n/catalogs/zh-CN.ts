@@ -165,6 +165,27 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
+  "onboarding.creditsTitle": "每月免费试用 60 个 Agent Credits",
+  "onboarding.creditsTitleClips":
+    "免费试用视频存储，并每月获得 60 个 Agent Credits",
+  "onboarding.creditsActivate": "激活免费额度",
+  "onboarding.creditsFinePrint":
+    "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
+  "onboarding.creditsMoreInfo": "更多信息",
+  "onboarding.creditsSubtitle":
+    "从 Builder.io 一键获取适用于此应用的 LLM、Jev、存储等免费额度。",
+  "onboarding.creditsLearnMore": "了解更多",
+  "onboarding.creditsSkip": "跳过",
+  "onboarding.creditsSkipConfirmTitle": "确定要跳过吗？",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 应用需要连接 LLM 才能使用大部分功能。没有 LLM，大部分功能都无法使用。",
+  "onboarding.creditsSkipGoBack": "返回",
+  "onboarding.creditsSkipAnyway": "仍然跳过",
+  "onboarding.creditsUseCustomKeys": "使用自定义密钥",
+  "onboarding.creditsAboutLabel": "关于免费额度",
+  "onboarding.creditsActivating": "正在激活免费额度",
+  "onboarding.creditsActivatingTooltip":
+    "Builder 提供 LLM、Jev、存储等免费额度，无需自备密钥即可使用此应用的 AI 功能。",
   "onboarding.builderConnect": "连接 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
@@ -197,6 +218,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
+  "onboarding.capability.webSearch.label": "网页搜索",
+  "onboarding.capability.webSearch.keySummary": "网页搜索",
+  "onboarding.capability.webSearch.why":
+    "搜索网页上的最新公开信息。Builder 管理的搜索使用随附的 Builder AI 积分，因此无需单独的搜索 API 密钥。",
   "onboarding.capability.systemOne.why":
     "Jev 是一个可选的决策模型，可在代理首次请求模型前帮助选择相关工具和技能。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
@@ -913,7 +938,24 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM、联系人、公司、交易、工单、客户分析",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "如果已配置由工作区管理的 HubSpot MCP Auth App，任何成员都可以通过 OAuth 和 PKCE 连接个人 HubSpot 账号。否则，请在连接前于 HubSpot Developer Platform 中创建该应用；现有的 HubSpot OAuth 连接器仍可供应用操作使用。",
+    "工作区所有者配置 HubSpot MCP Auth App 后，每位成员都可以连接自己的 HubSpot 账户。",
+  "mcpIntegrations.hubspot.setupTitle": "设置 HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "工作区所有者只需配置一次 HubSpot MCP。之后每位成员都可以连接自己的账户。",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "需要配置工作区",
+  "mcpIntegrations.hubspot.setupChecking": "正在检查工作区配置…",
+  "mcpIntegrations.hubspot.setupUnavailable": "无法获取配置状态",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "无法检查工作区 OAuth 设置，请重试。",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "创建 HubSpot MCP Auth App，然后在 Agent-Native settings → API keys 中添加客户端 ID 和密钥。",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "请工作区所有者创建 HubSpot MCP Auth App，并在 Agent-Native settings → API keys 中添加客户端 ID 和密钥。配置完成后，你可以连接自己的 HubSpot 账户。",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "请先加入工作区，再连接 HubSpot MCP。",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials": "添加工作区凭据",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "重新检查",
+  "mcpIntegrations.hubspot.retrySetupStatus": "重试",
   "mcpIntegrations.catalog.pylon.description": "搜索和更新 Pylon 支持数据。",
   "mcpIntegrations.catalog.pylon.useCase": "客户支持、问题、客户、联系人、对话",
   "mcpIntegrations.catalog.pylon.setupNote":
@@ -1715,6 +1757,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
   "settings.audit.allApps": "所有应用",
   "settings.audit.app": "应用",
+  "settings.audit.approval": "批准",
+  "settings.audit.approvalAgentChat": "已在智能体聊天中批准",
+  "settings.audit.approvalA2AReview": "已在智能体操作审核页面批准",
+  "settings.audit.approvalMcpClient": "由 MCP 客户端接受（未验证）",
   "settings.audit.changedBy": "更改者",
   "settings.audit.close": "关闭",
   "settings.audit.empty": "此期间没有更改。",
@@ -1727,9 +1773,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "过去 90 天",
   "settings.audit.loadFailed": "无法加载审计日志。",
   "settings.audit.loading": "正在加载审计日志",
+  "settings.audit.oauthClient": "OAuth 客户端",
   "settings.audit.onBehalfOf": "代表",
   "settings.audit.range": "时间范围",
   "settings.audit.refused": "已拒绝",
+  "settings.audit.reportedClient": "自报客户端",
   "settings.audit.result": "结果",
   "settings.audit.showMore": "再显示 {{count}} 条",
   "settings.audit.succeeded": "成功",
@@ -2405,6 +2453,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "应用默认模型",
   "settingsShell.search.backgroundAgents": "后台智能体",
   "settingsShell.search.browserAutomation": "浏览器自动化",
+  "settingsShell.search.webSearch": "网页搜索",
   "settingsShell.search.connectedAgents": "已连接的智能体",
   "settingsShell.search.database": "数据库",
   "settingsShell.search.defaultModel": "默认模型",
@@ -2528,6 +2577,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyDesignSystem": "让生成的幻灯片和设计符合品牌规范。",
   "settingsInfra.whyBackground": "在生产环境中修改代码。",
   "settingsInfra.whyBrowser": "让智能体在生产环境中使用浏览器。",
+  "settingsInfra.whyWebSearch": "查找最新的公开信息和官方文档。",
   "settingsInfra.provider": "提供商",
   "settingsInfra.keyOrg": "使用组织的 {{provider}} 密钥。",
   "settingsInfra.manageKey": "管理密钥",
@@ -2676,6 +2726,10 @@ const messages: ToolkitAgentChatTranslation = {
     "已在此处断开连接。在 ChatGPT 中，访问权限可能仍然有效。",
   "settingsModel.chatgptLocalOnly":
     "开源应用在本地使用 loopback callback 运行时，无需申请合作伙伴资格即可使用 ChatGPT 计划。托管在 *.agent-native.com 上的应用需要运营方批准，并配置托管 callback。",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "使用个人账户访问 ChatGPT 方案。在本地开发时，请在登录前将 access.autoCreateDefaultOrg 设为 false。",
+  "settingsModel.chatgptScopeUnresolved":
+    "应用无法确认你的账户范围。请完成本地设置，然后重新加载设置页面。",
   "settingsModel.chatgptNoDirectUse":
     "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
   "settingsModel.chatgptReconnect": "重新连接",

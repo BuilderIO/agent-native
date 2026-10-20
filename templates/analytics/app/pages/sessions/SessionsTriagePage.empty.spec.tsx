@@ -740,7 +740,7 @@ describe("Sessions empty states", () => {
   async function renderSessions(path = "/sessions") {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={[path]}>
+        <MemoryRouter key={path} initialEntries={[path]}>
           <SessionsTriagePage />
         </MemoryRouter>,
       );
@@ -874,7 +874,11 @@ describe("Sessions empty states", () => {
     expect(container.textContent).toContain("sessions.noSessions");
     expect(container.textContent).toContain("sessions.speedCoverageStarting");
 
-    mocks.speedCoverage = "2026-09-20T00:00:00.000Z";
+    // Ten days ago, so the default 30-day range starts before coverage
+    // whatever today's date is.
+    mocks.speedCoverage = new Date(
+      Date.now() - 10 * 24 * 3_600_000,
+    ).toISOString();
     await renderSessions("/sessions?slow=any");
     expect(container.textContent).toContain("sessions.speedCoverageSince");
 

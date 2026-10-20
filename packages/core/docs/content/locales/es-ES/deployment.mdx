@@ -23,6 +23,16 @@ aplicaciones desde el mismo origen.
 
 </Cards>
 
+## Agentes que superan la vida de sus funciones {#durable-agents}
+
+Las ejecuciones de agentes no dependen de que la función que las inició siga activa. Cada
+ejecución se registra en tu base de datos, por lo que un turno que alcanza el límite de tiempo de una función sin servidor
+continúa en una invocación nueva, un navegador que se reconecta recoge la respuesta de
+donde estaba, y una función que muere a mitad del turno se recupera en lugar de dejar el chat
+atascado. Esto es lo que permite que el mismo agente se ejecute económicamente en hosts sin servidor, se
+pueda cambiar entre proveedores sin cambios de código, y comparta el despliegue con el resto de
+tu aplicación. Consulta [Agentes que sobreviven a cualquier host](/docs/durable-background-runs#survive-any-host).
+
 ## Antes de implementar: elige una base de datos persistente {#persistent-database}
 
 Cada aplicación implementada necesita una base de datos PostgreSQL persistente. El desarrollo local puede usar

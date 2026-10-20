@@ -1482,6 +1482,7 @@ describe("PromptPopover skip affordance", () => {
     );
 
     expect(skipButton).toBeTruthy();
+    expect(skipButton?.parentElement?.className).not.toContain("border-t");
     expect(
       container!.querySelector('[data-testid="prompt-composer"]'),
     ).toBeTruthy();

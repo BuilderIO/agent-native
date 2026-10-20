@@ -71,6 +71,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Choisissez l’espace de travail Sigma dont vous voulez parcourir les classeurs.",
     sigmaNoConnection: "Sigma n’est pas connecté",
+    sigmaApiRegion: "Région de l’API Sigma",
+    sigmaOAuthConnect: "Connecter mon compte Sigma personnel",
+    sigmaOAuthAddAnother: "Connecter un autre compte Sigma",
+    sigmaOAuthCancel: "Annuler",
+    sigmaOAuthDescription:
+      "Connectez-vous à Sigma avec votre compte pour parcourir les classeurs auxquels vous avez accès.",
     sigmaClientId: "ID client",
     sigmaClientSecret: "Secret client",
     sigmaBaseUrl: "URL de base de l’API (facultatif)",
@@ -84,7 +90,7 @@ export default {
     sigmaCredentialsRequired:
       "Enregistrez d’abord l’ID client et le secret client Sigma.",
     sigmaBaseUrlInvalid:
-      "Utilisez une URL HTTPS de l’API Sigma sur un domaine sigmacomputing.com.",
+      "Choisissez une URL officielle d’une région de l’API Sigma prise en charge.",
     sigmaPersistenceUnavailable:
       "Analytics ne peut pas enregistrer la connexion Sigma de manière sécurisée pour le moment. Réessayez.",
     sigmaPolicyInvalid:
@@ -99,7 +105,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Impossible de lire les identifiants Sigma enregistrés pour Analytics. Un administrateur de l’organisation peut reconnecter Sigma dans Dispatch ou saisir à nouveau les identifiants dans Analytics.",
     sigmaNoConnectionDescription:
-      "Saisissez ici les identifiants pour créer une connexion réservée à Analytics. Les connexions Sigma autorisées pour Analytics dans Dispatch s’affichent automatiquement ici ; seuls les administrateurs de l’organisation peuvent enregistrer directement des identifiants.",
+      "Connectez votre compte Sigma personnel ou utilisez les identifiants enregistrés par un administrateur de l’organisation. Les connexions Dispatch autorisées pour Analytics s’affichent aussi ici.",
     sigmaOpenDispatch: "Connecter dans Dispatch",
     sigmaOpenVault: "Ouvrir Vault",
     sigmaWorkbooksLoadFailed: "Impossible de charger les classeurs Sigma",
@@ -652,6 +658,7 @@ export default {
     notConnected: "Non connecté",
     needsReauth: "Réauthentification requise",
     error: "Erreur",
+    unknown: "Inconnu",
     indexNotImported: "Aucun index généré n’a été importé.",
     indexUnreadable:
       "Impossible de lire l’index enregistré. Importez un index valide.",
@@ -759,6 +766,7 @@ export default {
       properties: "Propriétés",
       siteLabel: "Propriété",
       pathLabel: "Préfixe de chemin",
+      pathInvalid: "Le préfixe du chemin doit commencer par /.",
       addProperty: "Ajouter une propriété",
       removeProperty: "Retirer la propriété",
       save: "Enregistrer",
@@ -883,6 +891,7 @@ export default {
     bigQueryHealthUnavailable:
       "Impossible de vérifier la pression Analytics propriétaire. Rechargez la page avant de changer de backend.",
     analyticsEventCount: "Événements observés",
+    analyticsRecentEventCount: "Événements observés (30 derniers jours)",
     slowQueries24h: "Requêtes lentes (24 h)",
     maxQueryDuration: "Durée maximale de requête",
     defaultKeyName: "Modèles hébergés",
@@ -1293,6 +1302,8 @@ export default {
       "Ajoutez un événement et sélectionnez-le pour voir les résultats",
     queryError: "Query error: {{message}}",
     noDataReturned: "Aucune donnée renvoyée",
+    incompleteResultsWarning:
+      "Ce résultat peut être incomplet. Des lignes ou des données source manquantes peuvent fausser les totaux.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrer par",
     pickPropertyToFilter: "Choisissez une propriété à filtrer",
@@ -1420,6 +1431,23 @@ export default {
     resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
+    drilldownChartPoints: "Points du graphique",
+    drilldownPreviousPage: "Page précédente des points du graphique",
+    drilldownNextPage: "Page suivante des points du graphique",
+    drilldownPageRange: "Affichage de {{start}} à {{end}} sur {{total}}",
+    drilldownFilterRows: "Filtrer les lignes",
+    drilldownShowSql: "Afficher le SQL",
+    drilldownHideSql: "Masquer le SQL",
+    drilldownDownloadCsv: "Télécharger le CSV",
+    drilldownShowing: "Affichage de {{shown}} sur {{total}} enregistrements",
+    drilldownCsvTruncated:
+      "Export incomplet : la requête correspond à {{total}} enregistrements, mais seuls les {{loaded}} premiers ont été chargés ; ce fichier en contient {{exported}} après filtrage.",
+    drilldownCountMismatch:
+      "Le graphique affiche {{chart}}, mais {{total}} enregistrements correspondent",
+    drilldownAggregateOnly:
+      "Ce panneau ne contient que des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
+    drilldownNoRecords: "Aucun enregistrement correspondant",
+    drilldownLoadFailed: "Impossible de charger les enregistrements",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
     chartTimeRangeInherit: "Plage du tableau de bord",
@@ -1482,6 +1510,9 @@ export default {
       "Impossible d’exporter vers Google Sheets : {{message}}",
     viewSql: "Voir SQL",
     dragToReorder: "Faites glisser pour réorganiser",
+    resizePanelWidth: "Redimensionner la largeur du panneau",
+    resizePanelHeight: "Redimensionner la hauteur du panneau",
+    resetPanelHeight: "Réinitialiser la hauteur du panneau",
     columnFormat: "Format",
     columnFormatText: "Texte brut",
     columnFormatNumber: "Nombre",
@@ -1494,6 +1525,24 @@ export default {
     columnShowHidden: "Afficher les colonnes masquées",
     columnName: "Nom de la colonne",
     columnResize: "Redimensionner la colonne",
+    rowBreakdownBy: "Ventiler par",
+    rowBreakdownAll: "Tous",
+    rowBreakdownOther: "Autres",
+    rowBreakdownOtherHint:
+      "Groupes plus petits, et toute personne que le SQL de ce panneau exclut",
+    rowBreakdownSmallGroup: "Moins de {{count}} : lisez les taux avec prudence",
+    rowBreakdownNoValue: "(aucun)",
+    rowBreakdownEmpty: "Aucune ligne pour cette ventilation.",
+    rowBreakdownUnavailable:
+      "Le SQL de ce panneau n'a pas de ventilation par {{column}}.",
+    rowBreakdownFromPanel: "Issu des lignes de ce panneau. Rien n'a été lu.",
+    rowBreakdownFromCache: "Issu du cache. Rien n'a été lu.",
+    rowBreakdownAlreadyLoaded: "Déjà chargé. Rien n'a été lu.",
+    rowBreakdownBytesRead: "{{bytes}} lus",
+    rowBreakdownOverByteCap:
+      "Cette ventilation lirait plus de {{gib}} Gio, elle n'a donc pas été exécutée. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
+    rowBreakdownTruncated:
+      "Le résultat a été tronqué : certains groupes manquent ou sont comptés dans Autres.",
     deleteSectionTitle: "Supprimer la rubrique ?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Supprimer le panneau ?",
@@ -2191,10 +2240,6 @@ export default {
     noMatches: "Aucune définition ne correspond à votre recherche.",
     searchPlaceholder: "Rechercher des définitions",
     sourceIndex: "Index des sources",
-    statusApproved: "Approuvée",
-    statusSuggested: "Suggérée",
-    statusUnreviewed: "Non vérifiée",
-    unsourced: "Sans source",
   },
   indexPanel: {
     presetDaily: "Tous les jours à 06:00",
@@ -2252,6 +2297,8 @@ export default {
     dbtAdminOnly:
       "Seuls les administrateurs de l’organisation peuvent modifier cette connexion.",
     dbtReadFailed: "La connexion dbt n’a pas pu être chargée.",
+    dbtSeveralConnections:
+      "Plusieurs connexions dbt sont accordées à Analytics, donc ce panneau ne peut en modifier aucune. Supprimez les connexions en trop dans Paramètres → Intégrations pour n'en garder qu'une.",
     dbtSave: "Enregistrer la connexion",
     dbtChecking: "Vérification",
     dbtSaveFailed: "La connexion dbt n’a pas pu être enregistrée.",

@@ -5,7 +5,6 @@ import { centerOf, enterInteract } from "./interact-helpers";
 // Interact is the page running, not a picture of it: the editor adds nothing
 // above the frame and takes no wheel, pinch, drag or key from it.
 
-// oracle: none — drives the real pointer, wheel and keyboard against the running page.
 test("the Interact preview is a live page: it hovers, clicks, scrolls and takes Space", async ({
   page,
 }) => {

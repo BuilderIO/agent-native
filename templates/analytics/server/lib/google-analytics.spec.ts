@@ -46,6 +46,20 @@ describe("getGoogleServiceAccountToken", () => {
     expect((error as Error).message).not.toContain("private stuff");
   });
 
+  it.each([undefined, null, 42, "", "   "])(
+    "rejects an unreadable client email %s before token exchange",
+    async (client_email) => {
+      credential.value = JSON.stringify({
+        client_email,
+        private_key: "placeholder-private-key",
+      });
+      await expect(getGoogleServiceAccountToken()).rejects.toMatchObject({
+        errorCode: "google_credentials_unreadable",
+        statusCode: 422,
+      });
+    },
+  );
+
   it("still reports a missing key as not configured", async () => {
     await expect(getGoogleServiceAccountToken()).rejects.toMatchObject({
       errorCode: "google_credentials_missing",

@@ -329,7 +329,7 @@ export function imageFillChangePatch(
  * phantom-second-fill problem `solidToGradientPatch` exists to avoid.
  */
 // guard:allow-raw-color — new solid layers need a parseable color value.
-const NEW_FILL_COLOR = "#d9d9d9";
+export const NEW_FILL_COLOR = "#d9d9d9";
 
 export function addFillLayerPatch(params: {
   backgroundColor: string | undefined;
@@ -371,7 +371,16 @@ export function addFillLayerPatch(params: {
 
 export function removeBaseFillPatch(
   fillProperty: "color" | "backgroundColor" | "fill",
+  inlineStyles: Record<string, string> = {},
 ): Record<string, string> {
+  const image = inlineStyles.backgroundImage?.trim() ?? "";
+  if (
+    fillProperty === "backgroundColor" &&
+    inlineStyles.backgroundColor &&
+    (image === "" || image === "none" || image === "initial")
+  ) {
+    return { background: "", backgroundColor: "" };
+  }
   return { [fillProperty]: "transparent" };
 }
 

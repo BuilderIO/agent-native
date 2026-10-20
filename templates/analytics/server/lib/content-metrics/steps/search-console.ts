@@ -4,6 +4,7 @@ import { ContentStepStop, type ContentStep } from "../step.js";
 import {
   listContentItems,
   type ContentItemInput,
+  type ContentSnapshotInput,
   type StoredContentItem,
 } from "../store.js";
 import {
@@ -32,7 +33,7 @@ function escapeRegex(value: string): string {
 
 /** Whether a page URL belongs to a Domain or URL-prefix property. */
 export function siteCoversUrl(siteUrl: string, url: string): boolean {
-  if (siteUrl.startsWith("sc-domain:")) {
+  if (siteUrl.toLowerCase().startsWith("sc-domain:")) {
     const domain = siteUrl.slice("sc-domain:".length).toLowerCase();
     if (!URL.canParse(url)) return false;
     const host = new URL(url).hostname.toLowerCase();
@@ -83,8 +84,7 @@ export const searchConsoleStep: ContentStep = {
       LOOKBACK_DAYS,
     );
     const newPages = new Map<string, ContentItemInput>();
-    const snapshots = [];
-    let lastReturnedOverall: string | null = null;
+    const snapshots = new Map<string, ContentSnapshotInput>();
 
     for (const site of sites) {
       const rows = await querySearchAnalytics({
@@ -140,31 +140,36 @@ export const searchConsoleStep: ContentStep = {
         );
       }
 
-      snapshots.push(
-        ...values.snapshots({
-          items: [...articles, ...knownPages].filter((item) =>
-            inScope(site, item.url),
-          ),
-          metrics: METRICS,
-          startDate: window.startDate,
-          lastReturnedDate,
-        }),
-      );
-      if (
-        lastReturnedDate &&
-        (!lastReturnedOverall || lastReturnedDate > lastReturnedOverall)
-      ) {
-        lastReturnedOverall = lastReturnedDate;
+      for (const snapshot of values.snapshots({
+        items: [...articles, ...knownPages].filter((item) =>
+          inScope(site, item.url),
+        ),
+        metrics: METRICS,
+        startDate: window.startDate,
+        lastReturnedDate,
+        fillMissing: false,
+      })) {
+        // Overlapping properties measure the same traffic. The first configured
+        // property returning a value owns it, rather than double counting.
+        const key = JSON.stringify([
+          snapshot.itemSource,
+          snapshot.itemExternalId,
+          snapshot.metricDate,
+          snapshot.metric,
+        ]);
+        if (!snapshots.has(key)) snapshots.set(key, snapshot);
       }
     }
 
     return {
       items: [...newPages.values()],
-      snapshots,
+      snapshots: [...snapshots.values()],
       outcome: {
-        rowCount: snapshots.length,
+        rowCount: snapshots.size,
         windowStart: window.startDate,
-        windowEnd: lastReturnedOverall,
+        // Query coverage advances even when no rows exist. Data dates remain
+        // on the snapshots, and omitted values still have no snapshot.
+        windowEnd: window.endDate,
       },
     };
   },

@@ -22,6 +22,11 @@ import { cliBoolean } from "./schema-helpers.js";
 const CONTENT_VIEW_DASHBOARD_ID = "content-view";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values. Turning collection on also lists the built-in Content dashboard in the organization's Dashboards; the result's contentDashboardId opens it at /dashboards/<id>.",
   schema: z.object({
@@ -73,13 +78,13 @@ export default defineAction({
       },
       signups: { ...saved.signups, ...signups },
     });
-    await writeContentCollection(scope, { enabled, config });
     if (enabled) {
       await installBuiltinDashboardOnce(
         { email: admin.userEmail, orgId: admin.orgId },
         CONTENT_VIEW_DASHBOARD_ID,
       );
     }
+    await writeContentCollection(scope, { enabled, config });
     return {
       ...(await readContentCollectionStatus(admin.orgId, admin.userEmail)),
       contentDashboardId: enabled ? CONTENT_VIEW_DASHBOARD_ID : null,

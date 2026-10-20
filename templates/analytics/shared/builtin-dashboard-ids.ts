@@ -56,6 +56,7 @@ const LEGACY_NATIVE_ID = /^native-(.+)-[0-9a-f]{10}$/;
  * never belonged to one. Seed ids map to themselves.
  */
 export function builtinDashboardIdForLegacyId(id: string): string | null {
+  if (/^content-view-[0-9a-f]{10}$/.test(id)) return "content-view";
   if (LEGACY_DEMO_ID.test(id)) return BUILTIN_DEMO_DASHBOARD_ID;
   if (id === "risk-meeting") return BUILTIN_RISK_MEETING_DASHBOARD_ID;
   const native = LEGACY_NATIVE_ID.exec(id);
@@ -66,6 +67,13 @@ export function builtinDashboardIdForLegacyId(id: string): string | null {
     return nativeV2BuiltinDashboardId(native[1]);
   }
   if ((SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(id)) return id;
+  const settingsCopy = /^(.*)-legacy-[0-9a-f]{32}$/.exec(id);
+  if (
+    settingsCopy &&
+    (SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(settingsCopy[1])
+  ) {
+    return settingsCopy[1];
+  }
   return null;
 }
 
