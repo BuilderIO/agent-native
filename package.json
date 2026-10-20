@@ -92,7 +92,7 @@
     "guard:chat-send-gate": "tsx scripts/guard-chat-send-gate.ts",
     "guard:no-empty-migrations": "tsx scripts/guard-no-empty-migrations.ts",
     "guard:release-schema-complete": "tsx scripts/guard-release-schema-complete.ts",
-    "gen:store-registry": "tsx scripts/gen-store-registry.ts",
+    "gen:store-registry": "tsx scripts/gen-store-registry.ts && oxfmt --write packages/core/src/db/store-registry.generated.ts",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",
     "guard:identity-columns-registered": "tsx scripts/guard-identity-columns-registered.ts",
     "guard:no-raw-app-identity-env": "tsx scripts/guard-no-raw-app-identity-env.ts",
@@ -229,7 +229,7 @@
     "guard:automated-findings": "tsx scripts/guard-automated-findings.ts",
     "template-layer": "tsx scripts/template-layer.ts",
     "guard:template-layers": "tsx scripts/template-layer.ts check",
-    "gen:schema-snapshot": "tsx scripts/gen-schema-snapshot.ts"
+    "gen:schema-snapshot": "tsx scripts/gen-schema-snapshot.ts && oxfmt --write packages/core/src/db/schema-snapshot.generated.ts"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",
