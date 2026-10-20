@@ -151,26 +151,27 @@ Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
 concise **Skipped** reply if absent.
 **Fixed** closes the issue after a verified source fix merges; publication,
 beta, and live verification follow separately. Use **In progress** while the
-source PR is open. Link the PR and say beta should follow within 24 hours of
-merge when applicable. After merge, follow `review-latest-feedback`'s reply
-reference for the short post-merge update and verified publisher status.
+source PR is open. Link the PR and say merge is pending. Give beta timing only
+after the merge reaches `origin/main` and the publisher selects the affected
+site. After merge, follow `review-latest-feedback`'s reply reference for the
+short post-merge update and verified publisher status.
 **In progress** is an open ownership state. Do not send an interim progress
 reply for work fixed in the same run. If work continues beyond this run, follow
-`review-latest-feedback` and post one concrete status before the next sweep.
+`review-latest-feedback` and post one brief update only when the next step
+changes.
 Continue or coordinate existing work instead of starting a duplicate. Never
 use a vague update or replace verification. The next run must revisit this
 state and resolve it to **Fixed**, **Clarification needed**, or evidence-backed
 **Open - no question** when no safe fix or reproduction remains. `Blocked`,
 `not fixed yet`, `still needs a fix`, and similar phrases are internal notes,
 never a complete Slack reply. **Open - no question** is terminal with our eye
-retained and no checkmark. A reply must state a verified resolution, concrete
-active work, a needed question, or one terminal disposition with its reason;
-never send a vague status alone. These are ledger states, not mandatory
+retained and no checkmark. Keep each Slack reply to one short, plain-language
+paragraph: say what changed or what is still needed, without repeating proof,
+scope lists, or absent reactions. These are ledger states, not mandatory
 headings: keep the reporter-facing wording natural instead of opening with the
-robotic phrase “Clarification needed”. A
-substantive diagnosis, fix, or in-progress ownership statement from someone in
-the thread is not a reason to ask for clarification; verify it or continue the
-existing handoff first.
+robotic phrase “Clarification needed”. A substantive diagnosis, fix, or
+in-progress ownership statement from someone in the thread is not a reason to
+ask for clarification; verify it or continue the existing handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
@@ -246,9 +247,9 @@ non-repeating question only if one specific required detail still blocks it.
    owns with `👀`, `✅`, or `🎫`. Record clustered source links and disposition
    in the owner thread or linked work; do not send duplicate replies:
    - **Fixed** - name the fix in plain language and link the PR. For an open
-     beta app PR, say beta should follow within 24 hours of merge. After merge,
-     send one short update with the PR link and beta timing; do not claim it is
-     live until checked.
+     beta app PR, say merge is pending. After merge, send one short update with
+     the PR link and beta timing only after the publisher selects the affected
+     site; do not claim it is live until checked.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
    - **In progress** - only when work continues beyond this run; thank the
@@ -299,9 +300,10 @@ reporter reply to one short, plain-language paragraph. Start with
 Say what changed in plain language. Do not explain why `👀` or `✅` is absent.
 If `🎫` is used, briefly name what still needs checking and who should handle
 it, when known. The Slack `🎫` reaction does not mean an external tracker ticket
-was created or assigned. For a beta app fix in an open PR, link it and say beta
-should follow within 24 hours of merge. If work continues beyond this run, name
-the concrete action and owner only when a reporter needs to know it.
+was created or assigned. For a beta app fix in an open PR, link it and say
+merge is pending. Give beta timing only after the merge and publisher have
+selected the affected site. If work continues beyond this run, name the next
+action only when a reporter needs to know it.
 For a clarification, ask one direct question only when reporter input changes
 the next step. Never ask for supplied evidence or internal access gaps.
 
@@ -314,11 +316,14 @@ count as the status reply.
 ## Beta availability
 
 Keep merge, publisher, and live verification details in the recap. After a
-linked beta-eligible app PR merges, reply once in its owned thread with the PR
-link and say it should be on beta within 24 hours. Do not say it is live
-until checked. If the publisher fails or blocks release, do not promise that
-timing; when `🎫` is used, briefly state what still needs checking and who owns
-it. Answer direct reporter follow-ups.
+linked beta-eligible app PR merges and is confirmed in `origin/main`, check the
+matching beta run. Once **Discover beta sites** succeeds and selects the
+affected site, reply once in its owned thread with the PR link and say it
+should be on beta within 24 hours. If the site is already current, verify it
+and say it is on beta. Do not say it is live until checked. If the publisher
+fails or blocks release, do not promise that timing; use `🎫` only when another
+person or team must act, and briefly state the remaining check or action and
+owner when known. Answer direct reporter follow-ups.
 
 ## Verification
 

@@ -13,11 +13,11 @@ scope, evidence, and handoff details in the internal ledger. Write Slack
 replies in plain, non-technical language. Never explain why `👀` or `✅` is
 absent. If `🎫` is used, briefly name what still needs checking and who should
 handle it, when known. For a beta-eligible app PR, after merge is confirmed in
-`origin/main`, include the PR link and say it should be on beta within
-24 hours. Do not claim it is live until checked. If the publisher fails or
-blocks release, do not promise that timing; use `🎫` only when another person or
-team must act. End with the exact bot disclosure and read the visible reply and
-root reactions back.
+`origin/main` and the matching publisher selects the affected site, include the
+PR link and say it should be on beta within 24 hours. Do not claim it is live
+until checked. If the publisher fails or blocks release, do not promise that
+timing; use `🎫` only when another person or team must act. End with the exact
+bot disclosure and read the visible reply and root reactions back.
 
 For a recent unanswered reporter question, reuse the existing same-actor
 question/update as the status reply when it still reflects the disposition. If
@@ -26,6 +26,12 @@ without asking it again; then wait silently. Do not send another question or
 progress ping before the four-day rule below. An evidence-only addendum or
 correction is not a current status; edit it into a concise disposition when
 possible, or send one status after the latest human reply.
+
+Keep each visible reply to one short paragraph in plain language. Store proof,
+scope details, and handoff records in the internal ledger. When an active
+`🎫` action remains, record its brief plain-language summary as
+`statusReply.pendingActionSummary` and include that summary in the reply. Do not
+explain absent reactions or list every scope.
 
 When editing an ordinary Slack reply, pass its visible body as
 `message.markdown_text` to `slack_edit_message`; `message.text` is a fallback
@@ -246,8 +252,9 @@ do not send a second owner update. If another task owns it or ownership is
 unclear, preserve the eye, record the source in the ledger, and stop. Keep
 distinct scopes and their status clear.
 
-Compare each reported symptom with the evidence. State what is fixed and what
-is not. Use one root `✅` when at least one fixed scope is verified; it covers every
+Compare each reported symptom with the evidence. If the report is only partly
+fixed, say so briefly and keep the scope details in the ledger. Use one root
+`✅` when at least one fixed scope is verified; it covers every
 verified scope listed in `fixedScopes[]`, which the internal ledger must name
 with its proof. Use one root `🎫` whenever at least one distinct unfinished action
 requires another person to act; it covers the actions listed in `handoffs[]`
@@ -265,11 +272,12 @@ partial fix resolved the whole report.
 
 For beta app fixes, check the matching merge-triggered publisher and keep
 details in the recap. After a linked beta-eligible app PR merges and is
-confirmed in `origin/main`, reply once in its owned thread with the PR link and
-say it should be on beta within 24 hours. Do not say it is live until
-checked. If the publisher fails or blocks the release, do not promise that
-timing; use `🎫` only when another person or team must act, and briefly say what
-still needs checking and who owns it. Keep hashes, branch names, CI, workflow
+confirmed in `origin/main`, wait for **Discover beta sites** to succeed and
+select the affected site. Then reply once in its owned thread with the PR link
+and say it should be on beta within 24 hours. If the site is already current,
+verify it and say it is on beta. Do not say it is live until checked. If the
+publisher fails or blocks release, do not promise that timing; use `🎫` only
+when another person or team must act. Keep hashes, branch names, CI, workflow
 details, and run IDs out of reporter replies. For package work, distinguish
 the source PR from any release PR and registry proof; source merge alone does
 not establish publication. Give no ETA for a pending package release.

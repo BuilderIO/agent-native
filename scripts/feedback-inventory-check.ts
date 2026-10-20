@@ -61,6 +61,7 @@ type StatusReply = {
   disposition: string;
   evidence: string;
   text: string;
+  pendingActionSummary?: string;
 };
 
 type OtherOwnerEvidence = {
@@ -939,14 +940,8 @@ function validateThreadSnapshot(
           ": requestReply must be this actor's exact in-thread request before or in the current status",
       );
     }
-    if (
-      !replyNamesHandoffAction(request.text, reporterRequest.action) ||
-      !replyNamesHandoffAction(statusReply.text, reporterRequest.action)
-    ) {
-      throw new Error(
-        label +
-          ": request and current status must name the exact requested action",
-      );
+    if (!replyNamesHandoffAction(request.text, reporterRequest.action)) {
+      throw new Error(label + ": request must name the exact requested action");
     }
   }
 
@@ -1107,24 +1102,6 @@ function normalizeReplyPhrase(phrase: string): string {
       ?.filter((word) => !["a", "an", "the"].includes(word))
       .join(" ") ?? ""
   );
-}
-
-function replyNamesHandoffs(text: string, handoffs: Handoff[]): boolean {
-  const reply = ` ${normalizeReplyPhrase(text)} `;
-  return handoffs.every((handoff) => {
-    const namesRecordedAction = [
-      handoff.scope,
-      handoff.owner,
-      handoff.action,
-    ].every((phrase) => {
-      const normalizedPhrase = normalizeReplyPhrase(phrase);
-      return normalizedPhrase !== "" && reply.includes(` ${normalizedPhrase} `);
-    });
-    return (
-      namesRecordedAction &&
-      (handoff.status !== "unassigned" || reply.includes(" unassigned "))
-    );
-  });
 }
 
 function replyNamesHandoffAction(text: string, action: string): boolean {
@@ -1501,8 +1478,7 @@ function validateHistoricalReactionMarks(
       typeof previous.text !== "string" ||
       !previous.text.trim() ||
       typeof previous.evidence !== "string" ||
-      !previous.evidence.trim() ||
-      !previous.text.includes(previous.evidence.trim())
+      !previous.evidence.trim()
     ) {
       throw new Error(
         `${label}: prior status must be this actor's earlier same-thread read-back`,
@@ -1519,30 +1495,6 @@ function validateHistoricalReactionMarks(
     ) {
       throw new Error(
         `${label}: prior status must match the captured full-thread read`,
-      );
-    }
-    const emojiPattern =
-      mark.emoji === "white_check_mark"
-        ? /(?:✅|:white_check_mark:)/i
-        : /(?:🎫|:ticket:)/i;
-    if (
-      !emojiPattern.test(previous.text) ||
-      !normalizeScope(previous.text).includes(normalizeScope(mark.scope))
-    ) {
-      throw new Error(
-        `${label}: prior status must name the marked scope and reaction`,
-      );
-    }
-    if (
-      !/\b(?:historical|previously|superseded)\b/i.test(currentStatus.text) ||
-      !emojiPattern.test(currentStatus.text) ||
-      !normalizeScope(currentStatus.text).includes(
-        normalizeScope(mark.scope),
-      ) ||
-      !currentStatus.text.includes(mark.reason.trim())
-    ) {
-      throw new Error(
-        `${label}: current status must explain why the retained reaction is historical`,
       );
     }
     const reactionDecision =
@@ -1610,20 +1562,10 @@ function validateHistoricalReactionMarks(
         requestReadback?.actorId !== sweepActorId ||
         requestReadback.kind !== "sweep" ||
         requestReadback.text !== request.text ||
-        !replyNamesHandoffAction(request.text, closedReporterRequest.action) ||
-        !replyNamesHandoffAction(previous.text, closedReporterRequest.action) ||
-        !replyNamesHandoffAction(
-          currentStatus.text,
-          closedReporterRequest.action,
-        ) ||
-        !replyNamesHandoffAction(previous.text, closedReporterRequest.scope) ||
-        !replyNamesHandoffAction(
-          currentStatus.text,
-          closedReporterRequest.scope,
-        )
+        !replyNamesHandoffAction(request.text, closedReporterRequest.action)
       ) {
         throw new Error(
-          `${label}: historical reporter request must tie its exact request and action to the prior and current status replies`,
+          `${label}: historical reporter request must tie its exact action to the captured request`,
         );
       }
 
@@ -1771,11 +1713,6 @@ function validateHistoricalReactionMarks(
         `${label}: historical handoff acceptance must match the captured human reply`,
       );
     }
-    if (!replyNamesHandoffs(previous.text, [handoff])) {
-      throw new Error(
-        `${label}: prior ticket status must name the accepted owner's action`,
-      );
-    }
     const withdrawalTs = slackTimestamp(
       withdrawal.ts,
       `${label}.withdrawalReply.ts`,
@@ -1848,100 +1785,38 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
 function validateStatusReactionLanguage(
   parentName: string,
   text: string,
-  hasCheckmark: boolean,
-  hasTicket: boolean,
-  fixedScopes: NonNullable<Parent["fixedScopes"]>,
-  unfinishedScopes: NonNullable<Parent["unfinishedScopes"]>,
-  historicalReactionMarks: NonNullable<Parent["historicalReactionMarks"]> = [],
+  hasActiveTicketAction: boolean,
+  pendingActionSummary: string | undefined,
 ): void {
   if (!text.includes("this was sent from a bot.")) {
     throw new Error(
       `${parentName}: latest status reply must include the exact bot disclosure`,
     );
   }
+  if (!hasActiveTicketAction) return;
 
-  const checkmarkMentioned = /(?:✅|:white_check_mark:)/i.test(text);
-  if (hasCheckmark && !checkmarkMentioned) {
-    throw new Error(
-      `${parentName}: status reply must name the verified scope covered by this actor's ✅`,
-    );
-  }
-  const normalizedReply = normalizeScope(text);
+  const normalizedSummary = pendingActionSummary
+    ? normalizeReplyPhrase(pendingActionSummary)
+    : "";
+  const normalizedText = ` ${normalizeReplyPhrase(text)} `;
   if (
-    hasCheckmark &&
-    fixedScopes.some(
-      (scope) => !normalizedReply.includes(normalizeScope(scope.scope)),
-    )
+    !normalizedSummary ||
+    !normalizedText.includes(` ${normalizedSummary} `)
   ) {
     throw new Error(
-      `${parentName}: status reply must name every fixed scope covered by this actor's ✅`,
+      `${parentName}: active 🎫 needs a short pending action in the status reply`,
     );
   }
-  for (const mark of historicalReactionMarks) {
-    if (
-      mark.emoji === "white_check_mark" &&
-      !fixedScopes.some(
-        (scope) => normalizeScope(scope.scope) === normalizeScope(mark.scope),
-      )
-    ) {
-      if (
-        !/\b(?:historical|previously|superseded)\b/i.test(text) ||
-        !normalizedReply.includes(normalizeScope(mark.scope)) ||
-        !text.includes(mark.reason)
-      ) {
-        throw new Error(
-          `${parentName}: status reply must identify each retained historical ✅ scope and why it no longer represents current proof`,
-        );
-      }
-    }
-    if (mark.emoji === "ticket") {
-      if (
-        !/\b(?:historical|previously|superseded)\b/i.test(text) ||
-        !normalizedReply.includes(normalizeScope(mark.scope)) ||
-        !text.includes(mark.reason)
-      ) {
-        throw new Error(
-          `${parentName}: status reply must identify each retained historical 🎫 action and why it was withdrawn`,
-        );
-      }
-    }
-  }
-  if (
-    unfinishedScopes.some(
-      (scope) => !normalizedReply.includes(normalizeScope(scope.scope)),
-    )
-  ) {
-    throw new Error(
-      `${parentName}: status reply must name every unfinished scope that remains open`,
-    );
-  }
-  if (
-    !hasCheckmark &&
-    !/No\s+(?:✅|:white_check_mark:)(?:\s+from\s+(?:me|this actor))?\s*(?:(?:—|–|-|:)\s*\S.{4,}|(?:applies?\s+)?because\s+\S.{4,})/i.test(
-      text,
-    )
-  ) {
-    throw new Error(
-      `${parentName}: status reply must say why this actor has no ✅`,
-    );
-  }
+}
 
-  const ticketMentioned = /(?:🎫|:ticket:)/i.test(text);
-  if (hasTicket && !ticketMentioned) {
-    throw new Error(
-      `${parentName}: status reply must name this actor's 🎫 human/team action`,
-    );
-  }
-  if (
-    !hasTicket &&
-    !/No\s+(?:🎫|:ticket:)(?:\s+from\s+(?:me|this actor))?\s*(?:(?:—|–|-|:)\s*\S.{4,}|(?:applies?\s+)?because\s+\S.{4,})/i.test(
-      text,
-    )
-  ) {
-    throw new Error(
-      `${parentName}: status reply must say why this actor has no 🎫`,
-    );
-  }
+function hasActiveTicketAction(
+  handoffs: Handoff[],
+  reporterRequests: ReporterRequest[],
+): boolean {
+  return (
+    handoffs.some((handoff) => handoff.status !== "completed") ||
+    reporterRequests.length > 0
+  );
 }
 
 function validateHumanOwnerBlock(
@@ -2712,8 +2587,7 @@ function validateSupplementalRootAudit(
     typeof reply.evidence !== "string" ||
     !reply.evidence.trim() ||
     reply.disposition !== parent.disposition ||
-    !replyStatesDisposition(reply.text, parent.disposition) ||
-    !reply.text.includes(reply.evidence.trim())
+    !replyStatesDisposition(reply.text, parent.disposition)
   ) {
     throw new Error(
       `${parentName}: an owned root eye or mark needs its latest same-actor status reply`,
@@ -2736,11 +2610,8 @@ function validateSupplementalRootAudit(
   validateStatusReactionLanguage(
     parentName,
     reply.text,
-    rootReactionState.white_check_mark,
-    rootReactionState.ticket,
-    parent.fixedScopes ?? [],
-    parent.unfinishedScopes ?? [],
-    historicalMarks,
+    hasActiveTicketAction(handoffs, parent.reporterRequests ?? []),
+    reply.pendingActionSummary,
   );
   const replyTs = slackTimestamp(reply.ts, `${parentName}.statusReply.ts`);
   if (
@@ -2836,11 +2707,10 @@ function validateSupplementalRootAudit(
         !handoff.scope.trim() ||
         !handoff.owner.trim() ||
         !handoff.action.trim(),
-    ) ||
-    (handoffs.length > 0 && !replyNamesHandoffs(reply.text, handoffs))
+    )
   ) {
     throw new Error(
-      `${parentName}: status reply must name each handoff's scope, owner, and action`,
+      `${parentName}: each handoff needs a scope, owner, and action`,
     );
   }
 }
@@ -6005,11 +5875,10 @@ function validateInventory(
             !reply.evidence.trim() ||
             typeof reply.text !== "string" ||
             !reply.text.trim() ||
-            !replyStatesDisposition(reply.text, parent.disposition) ||
-            !reply.text.includes(reply.evidence.trim())
+            !replyStatesDisposition(reply.text, parent.disposition)
           ) {
             throw new Error(
-              `${parentName}: status reply must state the exact disposition and include its recorded evidence`,
+              `${parentName}: status reply must record its disposition and evidence`,
             );
           }
           if (historicalMarks.length > 0) {
@@ -6029,11 +5898,8 @@ function validateInventory(
           validateStatusReactionLanguage(
             parentName,
             reply.text,
-            hasCheckmark,
-            hasTicket,
-            fixedScopes,
-            unfinishedScopes,
-            historicalMarks,
+            hasActiveTicketAction(handoffs, parent.reporterRequests ?? []),
+            reply.pendingActionSummary,
           );
           if (
             fixedScopes.some(
@@ -6090,14 +5956,6 @@ function validateInventory(
             handoffs,
             hasTicket,
           );
-          if (
-            handoffs.length > 0 &&
-            !replyNamesHandoffs(parent.statusReply!.text, handoffs)
-          ) {
-            throw new Error(
-              `${parentName}: status reply must name each handoff's scope, owner, and action`,
-            );
-          }
         }
 
         if (seen.has(key)) {
@@ -7941,7 +7799,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     };
     return withTestThreadSnapshots(markedReply);
   };
-  const withHandoffReply = (text: string): Inventory => ({
+  const withHandoffReply = (
+    text: string,
+    pendingActionSummary = "Alex is still choosing the remaining behavior",
+  ): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
       ...channel,
@@ -7954,6 +7815,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             disposition: "Partially fixed",
             evidence: "focused route-picker test passed; merge pending",
             text,
+            pendingActionSummary,
           };
           return {
             ...parent,
@@ -8054,7 +7916,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...parent.statusReply!,
             disposition: "In progress",
             evidence: "Alex Rivera will choose the remaining behavior",
-            text: "In progress: Alex Rivera will choose the remaining behavior. Handoff: remaining design choice — Alex Rivera — choose the remaining behavior. No :white_check_mark: — no verified scope is complete yet. :ticket: tracks Alex Rivera's accepted action. this was sent from a bot.",
+            text: "In progress: Alex is still choosing the remaining design behavior. this was sent from a bot.",
+            pendingActionSummary:
+              "Alex is still choosing the remaining design behavior",
           };
           const updated: Parent = {
             ...parent,
@@ -8123,7 +7987,9 @@ if (args[0] === "--self-test" && args.length === 1) {
         disposition: "In progress",
         evidence:
           "the Product team still needs to choose the remaining behavior",
-        text: "In progress: the Product team still needs to choose the remaining behavior. Handoff: remaining design choice — Product team — choose the remaining behavior; owner unassigned. No :white_check_mark: — no verified scope is complete yet. :ticket: tracks the unfinished Product team action; owner unassigned. this was sent from a bot.",
+        text: "In progress: The Product team still needs to choose the remaining behavior. this was sent from a bot.",
+        pendingActionSummary:
+          "The Product team still needs to choose the remaining behavior",
       },
       ...overrides,
     });
@@ -8136,14 +8002,18 @@ if (args[0] === "--self-test" && args.length === 1) {
         parents: page.parents.map((parent) => {
           if (parent.ts !== "10.000000") return parent;
           const action = "provide the URL already requested in this thread";
-          const statusText = hasTicket
-            ? "Clarification needed: waiting for the URL already requested in this thread. Evidence: the URL is missing. No :white_check_mark: — no scope is verified while the URL is missing. :ticket: tracks the requested reporter action to provide the URL already requested in this thread; this is not a team handoff. this was sent from a bot."
-            : "Clarification needed: waiting for the URL already requested in this thread. Evidence: the URL is missing. No :white_check_mark: — no scope is verified while the URL is missing. No :ticket: — the requested reporter action to provide the URL already requested in this thread is not tracked. this was sent from a bot.";
+          const statusText =
+            "Clarification needed: Could you provide the URL already requested in this thread? We need that link to check the flow. this was sent from a bot.";
           const statusReply: StatusReply = {
             ...parent.statusReply!,
             disposition: "Clarification needed",
             evidence: "the URL is missing",
             text: statusText,
+            ...(hasTicket
+              ? {
+                  pendingActionSummary: "We need that link to check the flow",
+                }
+              : {}),
           };
           return {
             ...parent,
@@ -9197,19 +9067,6 @@ if (args[0] === "--self-test" && args.length === 1) {
       inventory: withUnownedCheckmark({ statusReply: undefined }),
     },
     {
-      name: "checkmark without an owned eye still needs its recorded evidence",
-      inventory: withUnownedCheckmark({
-        statusReply: {
-          ts: "12.000000",
-          threadParentTs: "10.000000",
-          actorId: "USWEEPER",
-          disposition: "Fixed",
-          evidence: "focused test passed in the open PR; merge pending",
-          text: "Fixed: a different note",
-        },
-      }),
-    },
-    {
       name: "ticket without an owned eye still needs reaction decisions",
       inventory: withUnownedTicket({
         reactionSummary: "ticket (1): USWEEPER",
@@ -9691,6 +9548,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             disposition: "Blocked on human owner",
             evidence: "the reported root scope still needs verification",
             text: "Blocked on human owner: Alex Rivera will verify the remote route; the reported root scope still needs verification. No :white_check_mark: — no root scope has passed verification. :ticket: tracks Alex Rivera's accepted remote route verification. this was sent from a bot.",
+            pendingActionSummary: "Alex Rivera will verify the remote route",
           },
         }),
       ),
@@ -9891,29 +9749,6 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
-      name: "status reply must include its recorded evidence",
-      inventory: {
-        ...valid,
-        channels: valid.channels.map((channel) => ({
-          ...channel,
-          pages: channel.pages.map((page) => ({
-            ...page,
-            parents: page.parents.map((parent) =>
-              parent.ts === "10.000000"
-                ? {
-                    ...parent,
-                    statusReply: {
-                      ...parent.statusReply!,
-                      text: "Fixed — a different note",
-                    },
-                  }
-                : parent,
-            ),
-          })),
-        })),
-      },
-    },
-    {
       name: "status reply evidence must match fixed-scope verification",
       inventory: {
         ...valid,
@@ -9939,27 +9774,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
-      name: "handoff reply must name the recorded owner",
+      name: "active ticket status needs a pending action summary",
       inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: secondary request — choose the remaining behavior. :ticket: tracks the accepted follow-up. this was sent from a bot.",
-      ),
-    },
-    {
-      name: "handoff reply must name the recorded action",
-      inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: secondary request — Alex Rivera will follow up. :ticket: tracks the accepted follow-up. this was sent from a bot.",
-      ),
-    },
-    {
-      name: "handoff reply must name the recorded scope",
-      inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: Alex Rivera will choose the remaining behavior. :ticket: tracks the accepted follow-up. this was sent from a bot.",
-      ),
-    },
-    {
-      name: "handoff reply must match owner word boundaries",
-      inventory: withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. :white_check_mark: covers route-picker behavior. Handoff: secondary request — Product ownership will choose the remaining behavior. :ticket: tracks the accepted follow-up. this was sent from a bot.",
+        "Partially fixed: The route picker works. Alex is still choosing the remaining behavior. this was sent from a bot.",
+        "",
       ),
     },
     {
@@ -10681,6 +10499,8 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "In progress",
           evidence: "Alex Rivera will choose the remaining behavior",
           text: "In progress: Alex Rivera will choose the remaining behavior. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope passed verification. :ticket: tracks Alex Rivera's accepted action. this was sent from a bot.",
+          pendingActionSummary:
+            "Alex Rivera will choose the remaining behavior",
         },
       }),
     },
@@ -10713,6 +10533,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "In progress",
           evidence: "Alex Rivera withdrew the accepted action",
           text: "In progress: Alex Rivera withdrew the accepted action. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera withdrew the accepted action",
         },
       }),
     },
@@ -10746,6 +10567,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             disposition: "In progress",
             evidence: "Alex Rivera's accepted action is withdrawn",
             text: "In progress: Alex Rivera's accepted action is withdrawn. Handoff: Alex Rivera — choose the remaining behavior. No :white_check_mark: — no scope has been verified. :ticket: is stale because Alex Rivera withdrew the action. this was sent from a bot.",
+            pendingActionSummary: "Alex Rivera's accepted action is withdrawn",
           },
         });
         return {
@@ -10981,7 +10803,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                     ...firstPage.parents[1],
                     statusReply: {
                       ...firstPage.parents[1].statusReply!,
-                      evidence: "A different snapshot was observed",
+                      evidence: "focused test passed; duplicate row differs",
                     },
                   },
                   firstPage.parents[2],
@@ -11146,8 +10968,6 @@ if (args[0] === "--self-test" && args.length === 1) {
       "status reply must belong to the source message's root thread",
     "checkmark without an owned eye still needs a status reply":
       "an owned 👀 or own ✅/🎫 needs a same-parent status reply by the same actor",
-    "checkmark without an owned eye still needs its recorded evidence":
-      "status reply must state the exact disposition and include its recorded evidence",
     "ticket without an owned eye still needs reaction decisions":
       "record a ✅ and 🎫 decision for every owned eye or own status mark",
     "unfinished accepted handoff requires this actor's eye":
@@ -11197,25 +11017,17 @@ if (args[0] === "--self-test" && args.length === 1) {
     "reply points to an in-page reply instead of its root":
       "threadParentTs resolves to a reply, not the actual root",
     "status reply text omits its disposition":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "status reply does not claim the disposition inside a negated phrase":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "Fixed label cannot contradict a later unfixed claim":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "Fixed label cannot claim a report described as not truly fixed":
-      "status reply must state the exact disposition and include its recorded evidence",
-    "status reply must include its recorded evidence":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "status reply must record its disposition and evidence",
     "status reply evidence must match fixed-scope verification":
       "status reply evidence must include every fixed scope's recorded verification",
-    "handoff reply must name the recorded owner":
-      "status reply must name each handoff's scope, owner, and action",
-    "handoff reply must name the recorded action":
-      "status reply must name each handoff's scope, owner, and action",
-    "handoff reply must name the recorded scope":
-      "status reply must name each handoff's scope, owner, and action",
-    "handoff reply must match owner word boundaries":
-      "status reply must name each handoff's scope, owner, and action",
+    "active ticket status needs a pending action summary":
+      "active 🎫 needs a short pending action in the status reply",
     "Verified locally scope without a checkmark":
       "a current ✅ needs verified scope evidence (or an explicitly documented historical mark), and every verified scope needs ✅",
     "checkmark without verified fixed scope":
@@ -11301,7 +11113,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "duplicate handoff scopes are not distinct":
       "handoff scopes must be distinct",
     "cursor overlap row differs from the prior page snapshot":
-      "status reply must state the exact disposition and include its recorded evidence",
+      "cursor-overlap row must exactly match the prior page's last source row",
     "cursor cycle": "nextCursor repeats a cursor already used",
   };
   if (Object.keys(expectedDiagnostics).length !== invalid.length) {
@@ -11348,6 +11160,43 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test failed: a separately supplied orchestrator scope confirmation was not recognized.",
       );
     }
+    const conciseStatus = structuredClone(valid);
+    conciseStatus.channels[0]!.pages[0]!.parents =
+      conciseStatus.channels[0]!.pages[0]!.parents.map((parent) => {
+        if (parent.ts !== "10.000000") return parent;
+        const text = "Fixed: The route works now. this was sent from a bot.";
+        return {
+          ...parent,
+          statusReply: { ...parent.statusReply!, text },
+          latestOwnedReply: { ...parent.latestOwnedReply!, text },
+        };
+      });
+    validateTestInventory(conciseStatus);
+    validateTestInventory(
+      withSupplementalRootAudit(
+        ownedSupplementalRootAudit({
+          unfinishedScopes: [
+            {
+              scope: "reported behavior",
+              evidence: "the reported behavior still needs direct verification",
+            },
+          ],
+          statusReply: {
+            ts: "8.600000",
+            threadParentTs: "8.500000",
+            actorId: "USWEEPER",
+            disposition: "In progress",
+            evidence: "the reported behavior still needs direct verification",
+            text: "In progress: We are still checking the reported behavior. this was sent from a bot.",
+          },
+        }),
+      ),
+    );
+    validateTestInventory(
+      withHandoffReply(
+        "Partially fixed: The first route works. Alex is still choosing the remaining behavior. this was sent from a bot.",
+      ),
+    );
     const caseInsensitiveVerification = JSON.parse(
       JSON.stringify(valid),
     ) as Inventory;
@@ -11419,7 +11268,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       disposition: "In progress",
       evidence:
         "a newer run still shows the create action for an existing account",
-      text: `In progress: a newer run still shows the create action for an existing account. :white_check_mark: for the initial route screen is historical. ${historicalCheckReason} No :ticket: — no separate human action was accepted. this was sent from a bot.`,
+      text: "In progress: The behavior still needs checking. this was sent from a bot.",
     };
     const historicalCheckInventory = withSweepOwnedParent({
       disposition: "In progress",
@@ -11460,6 +11309,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...rootTen.statusReply!,
             ts: "10.500000",
             threadParentTs: "10.000000",
+            text: "Fixed: The route worked. this was sent from a bot.",
           },
         },
       ],
@@ -11490,7 +11340,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       actorId: "USWEEPER",
       disposition: "In progress",
       evidence: historicalTicketEvidence,
-      text: `In progress: ${historicalTicketEvidence} :ticket: for Alex Rivera's accepted remaining design choice is historical. ${historicalTicketReason} No :white_check_mark: — no scope has passed verification. this was sent from a bot.`,
+      text: "In progress: The remaining design choice is still open. this was sent from a bot.",
     };
     const historicalTicketInventory = withUnownedTicket({
       disposition: "In progress",
@@ -11591,34 +11441,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
-    expectHistoricalMarkFailure(
-      "historical checkmark needs a prior marked proof reply",
-      {
-        ...historicalCheckInventory,
-        channels: historicalCheckInventory.channels.map((channel) => ({
-          ...channel,
-          pages: channel.pages.map((page) => ({
-            ...page,
-            parents: page.parents.map((parent) =>
-              parent.ts === "10.000000"
-                ? {
-                    ...parent,
-                    historicalReactionMarks:
-                      parent.historicalReactionMarks?.map((mark) => ({
-                        ...mark,
-                        previousStatus: {
-                          ...mark.previousStatus,
-                          text: "Fixed: focused test passed for the initial route screen. No checkmark was set. this was sent from a bot.",
-                        },
-                      })),
-                  }
-                : parent,
-            ),
-          })),
-        })),
-      },
-      "prior status must name the marked scope and reaction",
-    );
     expectHistoricalMarkFailure(
       "historical ticket withdrawal needs the assigned owner's reply",
       {
@@ -12284,6 +12106,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           disposition: "In progress",
           evidence: "Alex Rivera will take a look",
           text: "In progress: Alex Rivera will take a look. Handoff: remaining design choice — Alex Rivera — take a look. No :white_check_mark: — no verified scope is complete yet. :ticket: tracks Alex Rivera's accepted action. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will take a look",
         },
       }),
     );
@@ -12313,13 +12136,14 @@ if (args[0] === "--self-test" && args.length === 1) {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Blocked on human owner",
           evidence: "Alex Rivera must configure VERCEL_TOKEN.",
-          text: "Blocked on human owner: Alex Rivera must configure VERCEL_TOKEN. Handoff: scheduled canary credentials — Alex Rivera — configure VERCEL_TOKEN. No :white_check_mark: — no fix is verified yet. :ticket: tracks Alex Rivera's accepted VERCEL_TOKEN action. this was sent from a bot.",
+          text: "Blocked on human owner: Alex is setting up the preview service. this was sent from a bot.",
+          pendingActionSummary: "Alex is setting up the preview service",
         },
       }),
     );
     validateTestInventory(
       withHandoffReply(
-        "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Alex Rivera to choose the remaining behavior. :white_check_mark: covers route-picker behavior. :ticket: tracks Alex Rivera's accepted follow-up. this was sent from a bot.",
+        "Partially fixed: The route-picker works. Alex is still choosing the remaining behavior. this was sent from a bot.",
       ),
     );
     validateTestInventory(withReporterRequest(true));
@@ -12348,11 +12172,13 @@ if (args[0] === "--self-test" && args.length === 1) {
                         disposition: "Partially fixed",
                         evidence:
                           "the verified scope is complete; a separate handoff remains.",
-                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Alex Rivera to choose the remaining behavior; release timing — Morgan Lee to schedule the rollout. :white_check_mark: covers first scope. :ticket: tracks the accepted handoffs. this was sent from a bot.",
+                        text: "Partially fixed: The main issue is fixed. Alex is choosing the behavior; Morgan is scheduling the rollout. this was sent from a bot.",
+                        pendingActionSummary:
+                          "Alex is choosing the behavior; Morgan is scheduling the rollout",
                       },
                       latestOwnedReply: {
                         ...parent.latestOwnedReply!,
-                        text: "Partially fixed: the verified scope is complete; a separate handoff remains. Handoffs: secondary request — Alex Rivera to choose the remaining behavior; release timing — Morgan Lee to schedule the rollout. :white_check_mark: covers first scope. :ticket: tracks the accepted handoffs. this was sent from a bot.",
+                        text: "Partially fixed: The main issue is fixed. Alex is choosing the behavior; Morgan is scheduling the rollout. this was sent from a bot.",
                       },
                       reactionSummary:
                         "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; ticket (1): USWEEPER",

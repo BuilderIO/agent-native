@@ -324,21 +324,24 @@ instruction or prompt exception.
 Thank issue reporters for opening issues and Slack reporters for sharing.
 Before posting, inspect the full thread and follow the one-reply gate in
 `address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
-send one short, plain-language status. Say what changed and what happens next.
-Never explain absent `👀` or `✅` reactions. If `🎫` is used, name the remaining
-check or action and its owner when known. Keep hashes, branches, CI, publisher
-details, and proof in the internal recap. End Slack replies with
+send one short, plain-language paragraph. Say what changed; include a next
+step only when one remains. Never explain absent `👀` or `✅` reactions. If
+`🎫` is used, briefly name the remaining check or action and its owner when
+known. Keep hashes, branches, CI, publisher details, and proof in the internal
+recap. End Slack replies with
 `this was sent from a bot.`.
 
 ### After a PR merges
 
 Track publisher state and beta verification in the internal recap. After a
 linked beta-eligible app PR merges and the merge is confirmed in `origin/main`,
-post one short update in the same owned Slack thread. Include the PR link and
-say it should be on beta within 24 hours. Do not say it is live until
-checked. If the publisher fails or blocks the release, do not promise that
-timing; use `🎫` only when another person or team must act, and briefly state
-what still needs checking and who owns it.
+check the matching beta run. Once **Discover beta sites** succeeds and selects
+the affected site, post one short update in the same owned Slack thread with
+the PR link and say it should be on beta within 24 hours. If the site is
+already current, verify it and say it is on beta. Do not say it is live until
+checked. If the publisher fails or blocks release, do not promise that timing;
+use `🎫` only when another person or team must act, and briefly name the
+remaining check or action and its owner when known.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The

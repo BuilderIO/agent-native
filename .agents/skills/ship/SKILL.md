@@ -377,17 +377,20 @@ Shipping does not independently take ownership of new Slack feedback. For
 feedback already owned by review-latest-feedback, keep all reactions in place:
 never remove or clean them up; add `✅` when accepted scope is complete and
 verified, and `🎫` only for distinct remaining work needing follow-up or an
-owner. Keep replies short and non-technical. Never explain why `👀` or `✅` is
-absent. If `🎫` is used, briefly name what still needs checking and who should
-handle it, when known. After a beta-eligible app PR linked to an owned feedback
-thread merges and is confirmed in `origin/main`, post one short update in that
-same thread with the PR link and say it should be on beta within 24
-hours. Do not say it is live until checked. If the publisher fails or blocks
-the release, do not promise that timing; use `🎫` only when another person or
-team must act. Keep publisher details in the ship ledger. Do not send Slack
-replies or reactions as a routine ship step unless review-latest-feedback was
-requested or already owns the action. This does not widen existing write
-authorization.
+owner. Keep each Slack reply to one short, plain-language paragraph. Never
+explain absent reactions or include implementation, CI, or publisher details.
+If `🎫` is used for an active action, briefly say what still needs checking and
+who should handle it, when known. After a beta-eligible app PR linked to an
+owned feedback thread merges and is confirmed in `origin/main`, check the
+matching beta run. Once **Discover beta sites** succeeds and selects the
+affected site, post one short update in that same thread with the PR link and
+say it should be on beta within 24 hours. If the site is already current,
+verify it and say it is on beta. Do not say it is live until checked. If the
+publisher fails or blocks the release, do not promise that timing; use `🎫`
+only when another person or team must act. Keep publisher details in the ship
+ledger. Do not send Slack replies or reactions as a routine ship step unless
+review-latest-feedback was requested or already owns the action. This does not
+widen existing write authorization.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship
