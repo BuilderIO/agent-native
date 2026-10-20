@@ -20,6 +20,22 @@
       "action": "lane-move",
       "from": {
         "shard": "inspector-4b",
+        "file": "inspector-styles.spec.ts",
+        "title": "export rows add, remove, and reset when selection changes"
+      },
+      "to": {
+        "shard": "inspector-4c",
+        "file": "inspector-styles.spec.ts",
+        "title": "export rows add, remove, and reset when selection changes"
+      },
+      "reason": "inspector-4b exceeded its nine-minute job cap after its eight specs passed. Move three pins that no required core coverage names to a new inspector-4c shard so inspector-4b stays under the cap.",
+      "evidence": "CI run 39304892117, job 118240614249 (design core regression inspector-4b): eight specs passed in 6.5 minutes after about three minutes of setup; the job was cancelled at the nine-minute cap.",
+      "owner": "Steve Sewell"
+    },
+    {
+      "action": "lane-move",
+      "from": {
+        "shard": "inspector-4b",
         "file": "vector-live-edit-acceptance.spec.ts",
         "title": "closing an edited pasted SVG restores authored fill opacity through history and reload"
       },
@@ -47,6 +63,38 @@
       "reason": "Balance the nine-minute core jobs by moving nested SVG stroke editing from inspector-4a to inspector-3a.",
       "evidence": "PR #7841 head 0d6a5dc: inspector-1b reached the seven-minute test cap after both pasted-SVG cases reached screenshots; inspector-3a completed in 4m08s.",
       "owner": "design-infra"
+    },
+    {
+      "action": "lane-move",
+      "from": {
+        "shard": "inspector-4b",
+        "file": "inspector-styles.spec.ts",
+        "title": "style layer row actions stay visible and toggle visibility state"
+      },
+      "to": {
+        "shard": "inspector-4c",
+        "file": "inspector-styles.spec.ts",
+        "title": "style layer row actions stay visible and toggle visibility state"
+      },
+      "reason": "inspector-4b exceeded its nine-minute job cap after its eight specs passed. Move three pins that no required core coverage names to a new inspector-4c shard so inspector-4b stays under the cap.",
+      "evidence": "CI run 39304892117, job 118240614249 (design core regression inspector-4b): eight specs passed in 6.5 minutes after about three minutes of setup; the job was cancelled at the nine-minute cap.",
+      "owner": "Steve Sewell"
+    },
+    {
+      "action": "lane-move",
+      "from": {
+        "shard": "inspector-4b",
+        "file": "design-component-behavior.spec.ts",
+        "title": "redoing a duplicated component while the undo's save is in flight reads no missing node"
+      },
+      "to": {
+        "shard": "inspector-4c",
+        "file": "design-component-behavior.spec.ts",
+        "title": "redoing a duplicated component while the undo's save is in flight reads no missing node"
+      },
+      "reason": "inspector-4b exceeded its nine-minute job cap after its eight specs passed. Move three pins that no required core coverage names to a new inspector-4c shard so inspector-4b stays under the cap.",
+      "evidence": "CI run 39304892117, job 118240614249 (design core regression inspector-4b): eight specs passed in 6.5 minutes after about three minutes of setup; the job was cancelled at the nine-minute cap.",
+      "owner": "Steve Sewell"
     },
     {
       "action": "lane-move",

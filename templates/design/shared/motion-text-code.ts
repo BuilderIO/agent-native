@@ -1324,22 +1324,31 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     }
     // Each run is its own script, so the crop owner is kept on the element. Only the current owner may lift the crop.
     var cropOwner = target.__anMotionCrop;
+    var owner = null;
+    var runningAnimations = [];
+    function liftOwnedCrop() {
+      if (target.__anMotionCrop !== owner) return;
+      target.style.clipPath = owner.original;
+      delete target.__anMotionCrop;
+      if (owner.observer) owner.observer.disconnect();
+    }
     if (targetGroup.animations.some(function (track) { return track.clipContent === true; })) {
-      var owner = { original: cropOwner ? cropOwner.original : (target.style.clipPath || "") };
+      owner = { original: cropOwner ? cropOwner.original : (target.style.clipPath || ""), observer: null };
+      if (cropOwner && cropOwner.observer) cropOwner.observer.disconnect();
       target.__anMotionCrop = owner;
       target.style.clipPath = "inset(0)";
       // The editor preview rewrites the units in place instead of reloading, so lift the crop once they are gone.
       // A paragraph target is its own unit, so it never counts as contained and any rewrite of its content lifts the crop.
       if (typeof MutationObserver === "function") {
-        new MutationObserver(function (records, observer) {
-          if (target.__anMotionCrop !== owner) { observer.disconnect(); return; }
+        owner.observer = new MutationObserver(function () {
+          if (target.__anMotionCrop !== owner) { owner.observer.disconnect(); return; }
           if (entries.some(function (entry) { return entry.unit !== target && target.contains(entry.unit); })) return;
-          target.style.clipPath = owner.original;
-          delete target.__anMotionCrop;
-          observer.disconnect();
-        }).observe(target, { childList: true, subtree: true });
+          liftOwnedCrop();
+        });
+        owner.observer.observe(target, { childList: true, subtree: true });
       }
     } else if (cropOwner) {
+      if (cropOwner.observer) cropOwner.observer.disconnect();
       target.style.clipPath = cropOwner.original;
       delete target.__anMotionCrop;
     }
@@ -1388,6 +1397,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
           options.iterations = Infinity;
         }
         var runningAnimation = entry.unit.animate(keyframes, options);
+        runningAnimations.push(runningAnimation);
         if (previewBridge) {
           runningAnimation.pause();
           runningAnimation.currentTime = 0;
@@ -1395,6 +1405,14 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         }
       });
     });
+    // The crop belongs to the move. A move that plays once ends here and the crop goes with it; looping motion never ends,
+    // so its crop stays until the units go. The preview holds its animations paused, so it never reaches this point.
+    // A cancelled animation rejects its finished promise, so each one settles on its own before the crop lifts.
+    if (owner && !previewBridge && playbackMode === "once" && runningAnimations.length) {
+      Promise.all(runningAnimations.map(function (animation) {
+        return animation.finished.then(function () {}, function () {});
+      })).then(liftOwnedCrop);
+    }
   });
   var previewSpanDurationMs = previewAnimations.reduce(function (duration, entry) {
     return Math.max(duration, entry.delay + entry.duration);
