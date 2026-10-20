@@ -45,6 +45,20 @@ describe("openUploadTarget", () => {
     return { result, dropRow };
   }
 
+  function openIntake(create: () => Promise<Response>) {
+    const dropRow = vi.fn();
+    const result = openUploadTarget({
+      intake: true,
+      ownerEmail: null,
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => null,
+      create,
+      dropRow,
+    });
+    return { result, dropRow };
+  }
+
   it("opens the row for the account signed in when capture started", async () => {
     const create = vi.fn(async () => Response.json({ result: target }));
     const { result } = open(create);
@@ -266,27 +280,52 @@ describe("openUploadTarget", () => {
     });
   });
 
-  it("maps typed streaming failures for intake starts", async () => {
-    const result = openUploadTarget({
-      intake: true,
-      ownerEmail: null,
-      newId: () => "srv-1",
-      isStale: () => false,
-      fetchStatus: async () => null,
-      create: async () =>
+  it.each([
+    {
+      status: 403,
+      errorCode: "forbidden",
+      denyReason: "disabled",
+      expected: "storage_setup_required",
+    },
+    {
+      status: 503,
+      errorCode: "hosted_storage_unavailable",
+      expected: "hosted_storage_unavailable",
+    },
+    {
+      status: 409,
+      errorCode: "recording_owner_mismatch",
+      expected: "recording_owner_mismatch",
+    },
+    {
+      status: 503,
+      errorCode: "streaming_upload_unavailable",
+      expected: "streaming_upload_unavailable",
+    },
+  ])(
+    "maps typed intake denial $errorCode before status fallback",
+    async ({ status, errorCode, denyReason, expected }) => {
+      const { result } = openIntake(async () =>
         Response.json(
           {
-            error: "The current storage setup cannot start the upload.",
-            errorCode: "streaming_upload_unavailable",
+            error: "Storage needs attention.",
+            errorCode,
+            ...(denyReason ? { details: { denyReason } } : {}),
           },
-          { status: 503 },
+          { status },
         ),
-      dropRow: vi.fn(),
-    });
+      );
 
-    await expect(result).rejects.toMatchObject({
-      code: "streaming_upload_unavailable",
-    });
+      await expect(result).rejects.toMatchObject({ code: expected });
+    },
+  );
+
+  it("uses session-expired recovery for an untyped intake authorization error", async () => {
+    const { result } = openIntake(async () =>
+      Response.json({ error: "Forbidden" }, { status: 403 }),
+    );
+
+    await expect(result).rejects.toMatchObject({ code: "session_expired" });
   });
 
   it("requires an owner before opening an upload row", async () => {

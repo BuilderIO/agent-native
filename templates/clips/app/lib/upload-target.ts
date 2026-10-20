@@ -63,6 +63,24 @@ const STORAGE_SETUP_DENIAL_CODES = new Set([
   "exhausted",
 ]);
 
+function typedUploadTargetError(
+  denialCode: string | undefined,
+): UploadTargetError | null {
+  if (STORAGE_SETUP_DENIAL_CODES.has(denialCode ?? "")) {
+    return new UploadTargetError("storage_setup_required");
+  }
+  if (denialCode === "hosted_storage_unavailable") {
+    return new UploadTargetError("hosted_storage_unavailable");
+  }
+  if (denialCode === "recording_owner_mismatch") {
+    return new UploadTargetError("recording_owner_mismatch");
+  }
+  if (denialCode === "streaming_upload_unavailable") {
+    return new UploadTargetError("streaming_upload_unavailable");
+  }
+  return null;
+}
+
 /** Runs capture preparation only after the server accepts an upload target. */
 export async function prepareCaptureAfterUploadTarget<T>(
   resolveTarget: () => Promise<T | null>,
@@ -158,9 +176,6 @@ export async function openUploadTarget(options: {
     return { ...info, ...(clientLimits ? { clientLimits } : {}) };
   }
   if (intake) {
-    if (res.status === 401 || res.status === 403) {
-      throw new Error("SESSION_EXPIRED");
-    }
     // coercion-ok: a non-JSON error body falls back to the HTTP status below.
     const body = (await res.json().catch(() => null)) as {
       error?: string;
@@ -168,8 +183,10 @@ export async function openUploadTarget(options: {
       details?: { denyReason?: string };
     } | null;
     const denialCode = body?.details?.denyReason ?? body?.errorCode;
-    if (denialCode === "streaming_upload_unavailable") {
-      throw new UploadTargetError("streaming_upload_unavailable");
+    const typedError = typedUploadTargetError(denialCode);
+    if (typedError) throw typedError;
+    if (res.status === 401 || res.status === 403) {
+      throw new UploadTargetError("session_expired");
     }
     throw new Error(body?.error ?? `create-recording failed (${res.status})`);
   }
@@ -181,7 +198,8 @@ export async function openUploadTarget(options: {
     details?: { denyReason?: string };
   } | null;
   const denialCode = body?.details?.denyReason ?? body?.errorCode;
-  const storageSetupRequired = STORAGE_SETUP_DENIAL_CODES.has(denialCode ?? "");
+  const typedError = typedUploadTargetError(denialCode);
+  const storageSetupRequired = typedError?.code === "storage_setup_required";
   // Storage read as connected but the server opened no upload (an expired
   // grant, an outage, a lost session, another account): stop before capture.
   options.onCreateFailed?.({
@@ -190,18 +208,7 @@ export async function openUploadTarget(options: {
     ...(storageSetupRequired ? { storageSetupRequired: true } : {}),
   });
   options.dropRow(serverId!);
-  if (storageSetupRequired) {
-    throw new UploadTargetError("storage_setup_required");
-  }
-  if (denialCode === "hosted_storage_unavailable") {
-    throw new UploadTargetError("hosted_storage_unavailable");
-  }
-  if (denialCode === "recording_owner_mismatch") {
-    throw new UploadTargetError("recording_owner_mismatch");
-  }
-  if (denialCode === "streaming_upload_unavailable") {
-    throw new UploadTargetError("streaming_upload_unavailable");
-  }
+  if (typedError) throw typedError;
   if (res.status === 401 || res.status === 403) {
     throw new UploadTargetError("session_expired");
   }
