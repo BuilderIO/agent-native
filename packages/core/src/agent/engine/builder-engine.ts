@@ -394,10 +394,15 @@ class BuilderEngine implements AgentEngine {
             },
             body: payload,
             signal: gatewayAbort.signal,
-          }),
+          }).then(
+            (response) => ({ status: "fulfilled" as const, response }),
+            (error: unknown) => ({ status: "rejected" as const, error }),
+          ),
         );
         if (!dispatch.started) return;
-        response = await dispatch.value;
+        const result = await dispatch.value;
+        if (result.status === "rejected") throw result.error;
+        response = result.response;
       } catch (err) {
         const timedOut = gatewayAbort.didTimeout();
         if (gatewayAbort.didTimeout()) {

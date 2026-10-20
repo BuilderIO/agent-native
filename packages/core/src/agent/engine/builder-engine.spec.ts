@@ -1767,6 +1767,43 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("socket hang up");
   });
 
+  it("observes a gateway rejection while the dispatch guard is still pending", async () => {
+    let releaseGuard!: () => void;
+    const beforeModelDispatch = async <T>(dispatch: () => T) => {
+      const value = dispatch();
+      await new Promise<void>((resolve) => {
+        releaseGuard = resolve;
+      });
+      return { started: true as const, value };
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("socket hang up")),
+    );
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const eventsPromise = collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, beforeModelDispatch }),
+      );
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandledRejections).toEqual([]);
+
+      releaseGuard();
+      const events = await eventsPromise;
+      const stop = events.find((event) => event.type === "stop");
+      expect(stop?.errorCode).toBe("builder_gateway_network_error");
+      expect(stop?.error).toContain("socket hang up");
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+  });
+
   it("tags Anthropic bare Connection error. stop events as gateway network errors", async () => {
     vi.stubGlobal(
       "fetch",

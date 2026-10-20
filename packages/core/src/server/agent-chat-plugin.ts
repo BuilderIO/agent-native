@@ -101,6 +101,7 @@ import {
   normalizeAgentActionSurfaceResolution,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
@@ -7036,21 +7037,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // Empty/invalid body — keep the default user abort reason.
             }
             if (safeBoundary) {
-              const aborted = await abortRunAtSafeBoundaryDurably(
-                runId,
-                reason,
-              );
-              if (aborted && USER_STOP_ABORT_REASONS.has(reason)) {
-                await abortTurnDurably(runId, reason);
-              }
+              const aborted = USER_STOP_ABORT_REASONS.has(reason)
+                ? await abortRunAndTurnDurably(runId, reason, {
+                    safeBoundary: true,
+                  })
+                : await abortRunAtSafeBoundaryDurably(runId, reason);
               return { ok: true, aborted };
             }
             // Recovery starts as soon as this response resolves, so wait for
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
-            await abortRunDurably(runId, reason);
             if (USER_STOP_ABORT_REASONS.has(reason)) {
-              await abortTurnDurably(runId, reason);
+              await abortRunAndTurnDurably(runId, reason);
+            } else {
+              await abortRunDurably(runId, reason);
             }
             return { ok: true };
           }

@@ -96,7 +96,7 @@ vi.mock("./run-store.js", () => ({
   tryClaimRunSlot: vi.fn(() =>
     Promise.resolve({ claimed: true, activeRunId: null }),
   ),
-  markRunAborted: vi.fn(() => Promise.resolve()),
+  markRunAborted: vi.fn(() => Promise.resolve(true)),
   markRunAbortedAtSafeBoundary: vi.fn(() => Promise.resolve(false)),
   markTurnAborted: vi.fn(() => Promise.resolve()),
   getRunTurnRef: vi.fn(() => Promise.resolve(null)),
@@ -217,6 +217,7 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
+  abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
   abortTurnDurably,
   abortTurnByRefDurably,
@@ -363,6 +364,7 @@ describe("run manager soft timeout", () => {
     vi.mocked(insertRun).mockResolvedValue(undefined);
     vi.mocked(insertRunEvent).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
+    vi.mocked(markRunAborted).mockResolvedValue(true);
     vi.mocked(markTurnAborted).mockClear();
     vi.mocked(getRunTurnRef).mockReset();
     vi.mocked(getRunTurnRef).mockResolvedValue(null);
@@ -1678,8 +1680,8 @@ describe("run manager soft timeout", () => {
     let persistAbort: (() => void) | undefined;
     vi.mocked(markRunAborted).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          persistAbort = resolve;
+        new Promise<boolean>((resolve) => {
+          persistAbort = () => resolve(true);
         }),
     );
 
@@ -1703,6 +1705,110 @@ describe("run manager soft timeout", () => {
     persistAbort?.();
     await expect(abortPromise).resolves.toBe(false);
     expect(resolved).toBe(true);
+  });
+
+  it("waits for the initial run insert before acknowledging a durable abort", async () => {
+    let releaseInsert!: () => void;
+    const insertGate = new Promise<void>((resolve) => {
+      releaseInsert = resolve;
+    });
+    vi.mocked(insertRun).mockReturnValueOnce(insertGate);
+
+    let releaseRun!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const run = startRun(
+      "run-abort-waits-for-insert",
+      "thread-abort-waits-for-insert",
+      async () => runGate,
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    const abortPromise = abortRunDurably(run.runId, "user");
+    await Promise.resolve();
+    expect(markRunAborted).not.toHaveBeenCalled();
+
+    releaseInsert();
+    await expect(abortPromise).resolves.toBe(true);
+    expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
+
+    releaseRun();
+    await run.finalized;
+  });
+
+  it("does not acknowledge an abort when the durable run row is missing", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.mocked(markRunAborted).mockResolvedValueOnce(false);
+    vi.mocked(getRunStatus).mockResolvedValueOnce(null);
+    const run = startRun(
+      "run-abort-missing-row",
+      "thread-abort-missing-row",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    try {
+      await expect(abortRunDurably(run.runId, "user")).rejects.toThrow(
+        `Cannot confirm durable abort for missing run ${run.runId}`,
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+    await run.finalized;
+  });
+
+  it("writes the turn abort marker before reporting a terminal event flush failure", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-terminal-flush",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-stop-terminal-flush",
+      "thread-stop-terminal-flush",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi
+      .fn()
+      .mockRejectedValueOnce(terminalEventError)
+      .mockRejectedValueOnce(terminalEventError)
+      .mockResolvedValueOnce(undefined);
+    vi.mocked(markRunAborted).mockResolvedValueOnce(false);
+    vi.mocked(getRunStatus).mockResolvedValueOnce("completed");
+
+    try {
+      await expect(abortRunAndTurnDurably(run.runId, "user")).rejects.toBe(
+        terminalEventError,
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
+    expect(markTurnAborted).toHaveBeenCalledWith(
+      run.threadId,
+      run.turnId,
+      "user",
+    );
+    await run.finalized;
   });
 
   it("does not abort the in-memory run when safe-boundary admission is denied", async () => {
@@ -5230,6 +5336,68 @@ describe("run manager soft timeout", () => {
     expect(result).toBeNull();
     expect(reapUnclaimedBackgroundRun).toHaveBeenCalledWith("run-unclaimed");
     expect(reapIfStale).not.toHaveBeenCalled();
+  });
+
+  it("captures an unclaimed-run reap failure while returning the current running snapshot", async () => {
+    const provider = vi.fn(() => "evt_unclaimed_reap_failure");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-unclaimed-reap-failure-test",
+      provider,
+    );
+    const reapError = new Error("unclaimed reap transaction failed");
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-unclaimed-reap-failure",
+      threadId: "thread-unclaimed-reap-failure",
+      status: "running",
+      startedAt: Date.now() - (5 * 60_000 + 30_000),
+      heartbeatAt: Date.now() - 30_000,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: "background",
+      diagStage: null,
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockRejectedValueOnce(reapError);
+    const staleReapError = new Error("stale reap transaction failed");
+    vi.mocked(reapIfStale).mockRejectedValueOnce(staleReapError);
+
+    try {
+      const result = await getActiveRunForThreadAsync(
+        "thread-unclaimed-reap-failure",
+      );
+
+      expect(result).toMatchObject({
+        runId: "run-unclaimed-reap-failure",
+        status: "running",
+      });
+      expect(provider).toHaveBeenCalledWith(
+        reapError,
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            source: "agent-run-manager",
+            phase: "unclaimed-background-reap",
+          }),
+          extra: expect.objectContaining({
+            runId: "run-unclaimed-reap-failure",
+            threadId: "thread-unclaimed-reap-failure",
+          }),
+        }),
+      );
+      expect(provider).toHaveBeenCalledWith(
+        staleReapError,
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            source: "agent-run-manager",
+            phase: "stale-run-reap",
+          }),
+          extra: expect.objectContaining({
+            runId: "run-unclaimed-reap-failure",
+            threadId: "thread-unclaimed-reap-failure",
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("does NOT reap a deferred background successor while still WITHIN the redispatch bound — leaves it for the sweep", async () => {

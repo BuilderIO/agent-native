@@ -3337,8 +3337,8 @@ export function terminalEventForAbortReason(
 export async function markRunAborted(
   runId: string,
   reason?: string,
-): Promise<void> {
-  await updateRunAborted(runId, reason, false);
+): Promise<boolean> {
+  return updateRunAborted(runId, reason, false);
 }
 
 /** Abort only when no model or tool work has crossed its dispatch boundary. */

@@ -91,6 +91,7 @@ export interface ActiveRun {
   nextEventSeq?: number;
   pendingAbortEvent?: RunEvent;
   flushEvents?: () => Promise<void>;
+  waitForPersistence?: () => Promise<void>;
   abortReason?: string;
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
@@ -136,6 +137,7 @@ async function flushRunEventsBeforeAbort(
   run?: ActiveRun,
 ): Promise<AgentRunEventNotPersistedError | null> {
   try {
+    await run?.waitForPersistence?.();
     await run?.flushEvents?.();
     return null;
   } catch (error) {
@@ -1082,6 +1084,7 @@ export function startRun(
     persistenceChain = activeDrain;
     return activeDrain;
   };
+  run.waitForPersistence = () => insertRunPromise;
   run.flushEvents = () => flushEventWrites(true);
   // Streamed deltas arrive hundreds per tool call, and a write tool waits for
   // every queued event to persist first; one round trip per event put tens of
@@ -2974,11 +2977,33 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       );
       if (isUnclaimedBackgroundDispatch && !stillInsideRedispatchBound) {
         const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
-          () => false,
+          (error) => {
+            captureError(error, {
+              route: "/_agent-native/agent-chat/runs/active",
+              aiTraceId: sqlRun.id,
+              tags: {
+                source: "agent-run-manager",
+                phase: "unclaimed-background-reap",
+              },
+              extra: { runId: sqlRun.id, threadId },
+            });
+            return false;
+          },
         );
         if (recovered) return null;
       }
-      const reaped = await reapIfStale(sqlRun.id).catch(() => false);
+      const reaped = await reapIfStale(sqlRun.id).catch((error) => {
+        captureError(error, {
+          route: "/_agent-native/agent-chat/runs/active",
+          aiTraceId: sqlRun.id,
+          tags: {
+            source: "agent-run-manager",
+            phase: "stale-run-reap",
+          },
+          extra: { runId: sqlRun.id, threadId },
+        });
+        return false;
+      });
       if (reaped) return null;
       return {
         runId: sqlRun.id,
@@ -3106,7 +3131,18 @@ export async function abortRunDurably(
   const abortedInMemory = abortRunInMemory(runId, reason);
   try {
     const eventFlushFailure = await flushRunEventsBeforeAbort(run);
-    await markRunAborted(runId, reason);
+    const abortPersisted = await markRunAborted(runId, reason);
+    if (!abortPersisted || eventFlushFailure) {
+      const persistedStatus = await getRunStatus(runId);
+      if (persistedStatus === null) {
+        throw new Error(
+          `Cannot confirm durable abort for missing run ${runId}`,
+        );
+      }
+      if (!abortPersisted && persistedStatus === "running") {
+        throw new Error(`Durable abort did not transition run ${runId}`);
+      }
+    }
     if (eventFlushFailure) throw eventFlushFailure;
   } catch (error) {
     captureError(error, {
@@ -3233,6 +3269,45 @@ export async function abortTurnDurably(
     });
     throw error;
   }
+}
+
+/** Persist a Stop's turn marker even when a terminal event flush must be reported. */
+export async function abortRunAndTurnDurably(
+  runId: string,
+  reason: string = "user",
+  options?: { safeBoundary?: boolean },
+): Promise<boolean> {
+  let abortedInMemory = false;
+  let terminalFlushFailure: AgentRunEventNotPersistedError | undefined;
+  try {
+    abortedInMemory = options?.safeBoundary
+      ? await abortRunAtSafeBoundaryDurably(runId, reason)
+      : await abortRunDurably(runId, reason);
+  } catch (error) {
+    if (
+      !(error instanceof AgentRunEventNotPersistedError) ||
+      !error.terminalRun
+    ) {
+      throw error;
+    }
+    terminalFlushFailure = error;
+  }
+
+  if (!options?.safeBoundary || abortedInMemory || terminalFlushFailure) {
+    try {
+      await abortTurnDurably(runId, reason);
+    } catch (error) {
+      if (terminalFlushFailure) {
+        throw new AggregateError(
+          [terminalFlushFailure, error],
+          "Run event flush and turn abort persistence failed",
+        );
+      }
+      throw error;
+    }
+  }
+  if (terminalFlushFailure) throw terminalFlushFailure;
+  return abortedInMemory;
 }
 
 export { getSlotHoldingRunId, tryClaimRunSlot } from "./run-store.js";
