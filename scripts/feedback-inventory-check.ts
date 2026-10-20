@@ -62,6 +62,7 @@ type StatusReply = {
   actorId: string;
   disposition: string;
   evidence: string;
+  publicEvidenceSummary?: string;
   text: string;
   pendingActionSummary?: string;
 };
@@ -1419,6 +1420,15 @@ function replyNamesHandoffAction(text: string, action: string): boolean {
   return normalizedAction !== "" && reply.includes(` ${normalizedAction} `);
 }
 
+function replyContainsPhrase(text: string, phrase: unknown): boolean {
+  if (typeof phrase !== "string" || !phrase.trim()) return false;
+  const normalizedPhrase = normalizeReplyPhrase(phrase);
+  return (
+    normalizedPhrase !== "" &&
+    ` ${normalizeReplyPhrase(text)} `.includes(` ${normalizedPhrase} `)
+  );
+}
+
 function publicActionSummaryMatchesAction(
   action: string,
   publicActionSummary: unknown,
@@ -1878,6 +1888,18 @@ function validateHistoricalReactionMarks(
     ) {
       throw new Error(
         `${label}: historical ✅ needs a prior verified disposition stated in its captured reply`,
+      );
+    }
+    if (
+      mark.emoji === "white_check_mark" &&
+      (!replyContainsPhrase(
+        previous.evidence,
+        previous.publicEvidenceSummary,
+      ) ||
+        !replyContainsPhrase(previous.text, previous.publicEvidenceSummary))
+    ) {
+      throw new Error(
+        `${label}: historical ✅ needs a safe evidence summary in both its internal proof and captured prior reply`,
       );
     }
     if (
@@ -13785,7 +13807,9 @@ if (args[0] === "--self-test" && args.length === 1) {
             ...rootTen.statusReply!,
             ts: "10.500000",
             threadParentTs: "10.000000",
-            evidence: "focused test passed for the initial route screen",
+            evidence:
+              "focused test passed for the initial route screen; the initial route screen works now",
+            publicEvidenceSummary: "The initial route screen works now",
             text: "Fixed: The initial route screen works now. this was sent from a bot.",
           },
         },
@@ -14014,7 +14038,8 @@ if (args[0] === "--self-test" && args.length === 1) {
                         ...mark,
                         previousStatus: {
                           ...mark.previousStatus,
-                          evidence: "focused test passed",
+                          evidence: "focused test passed; the route worked",
+                          publicEvidenceSummary: "The route worked",
                           text: "Fixed: The route worked. this was sent from a bot.",
                         },
                       }
@@ -14044,8 +14069,8 @@ if (args[0] === "--self-test" && args.length === 1) {
                           ...mark,
                           previousStatus: {
                             ...mark.previousStatus,
-                            evidence:
-                              "focused test passed for the initial route screen",
+                            evidence: "focused test passed; the route worked",
+                            publicEvidenceSummary: "The route worked",
                             text: "Fixed: The route worked. this was sent from a bot.",
                           },
                         }
@@ -14059,11 +14084,11 @@ if (args[0] === "--self-test" && args.length === 1) {
       historicalCheckWithScopeOnlyInLedgerEvidence,
       "historical mark prior captured status must include its recorded scope",
     );
-    const historicalCheckWithEvidenceOnlyInLedger = structuredClone(
+    const historicalCheckWithDetailedEvidenceInLedger = structuredClone(
       historicalCheckInventory,
     );
-    historicalCheckWithEvidenceOnlyInLedger.channels[0]!.pages[0]!.parents =
-      historicalCheckWithEvidenceOnlyInLedger.channels[0]!.pages[0]!.parents.map(
+    historicalCheckWithDetailedEvidenceInLedger.channels[0]!.pages[0]!.parents =
+      historicalCheckWithDetailedEvidenceInLedger.channels[0]!.pages[0]!.parents.map(
         (parent) =>
           parent.ts === "10.000000"
             ? {
@@ -14076,7 +14101,9 @@ if (args[0] === "--self-test" && args.length === 1) {
                           previousStatus: {
                             ...mark.previousStatus,
                             evidence:
-                              "focused test passed for the initial route screen",
+                              "focused test passed for the initial route screen; the initial route screen works now",
+                            publicEvidenceSummary:
+                              "The initial route screen works now",
                             text: "Fixed: The initial route screen works now. this was sent from a bot.",
                           },
                         }
@@ -14085,7 +14112,65 @@ if (args[0] === "--self-test" && args.length === 1) {
               }
             : parent,
       );
-    validateTestInventory(historicalCheckWithEvidenceOnlyInLedger);
+    validateTestInventory(historicalCheckWithDetailedEvidenceInLedger);
+    const historicalCheckWithSummaryMissingFromReply = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithSummaryMissingFromReply.channels[0]!.pages[0]!.parents =
+      historicalCheckWithSummaryMissingFromReply.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "Fixed: The initial route screen has changed. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with summary only in internal evidence",
+      historicalCheckWithSummaryMissingFromReply,
+      "historical ✅ needs a safe evidence summary in both its internal proof and captured prior reply",
+    );
+    const historicalCheckWithSummaryMissingFromEvidence = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithSummaryMissingFromEvidence.channels[0]!.pages[0]!.parents =
+      historicalCheckWithSummaryMissingFromEvidence.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence: "unrelated test evidence",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with summary only in captured reply",
+      historicalCheckWithSummaryMissingFromEvidence,
+      "historical ✅ needs a safe evidence summary in both its internal proof and captured prior reply",
+    );
     const historicalTicketWithActionOnlyInLedgerEvidence = structuredClone(
       historicalTicketInventory,
     );
@@ -18089,7 +18174,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 20} negative cases; 32 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 22} negative cases; 32 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

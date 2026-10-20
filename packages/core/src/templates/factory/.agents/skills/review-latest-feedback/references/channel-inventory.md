@@ -428,10 +428,13 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   `withdrawalReply` (`ts`, `threadParentTs`, `actorId`, and verbatim `text`).
   Record why each retained mark is historical in the internal reaction
   decision; preserve it without presenting it as current proof or an active
-  handoff. The recorded evidence must appear in the captured prior status
-  reply. For a historical `🎫`, that reply must name both the accepted action
-  and its owner. The checker validates these details against the captured
-  thread. When every report scope
+  handoff. Keep detailed proof in `previousStatus.evidence` in the internal
+  ledger. For a historical `✅`, also record a brief, non-sensitive
+  `publicEvidenceSummary` drawn from that proof and include it in the captured
+  `previousStatus.text`; the checker verifies the summary appears in both.
+  Never put secrets, customer details, or raw logs in the summary. For a
+  historical `🎫`, the prior reply must name both the accepted action and its
+  owner. The checker validates these details against the captured thread. When every report scope
   and follow-up is closed, post or reuse the final same-thread status and read
   back the status and reactions. Preserve every reaction; disposition and
   status show that work is closed even when the root still has `👀`.
