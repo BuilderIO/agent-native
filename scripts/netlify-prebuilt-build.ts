@@ -135,19 +135,12 @@ export function resolveNetlifyBuildEnvironment(
       );
     if (!selected) continue;
     if (variable.is_secret === true) {
-      const hasBuildOverride =
-        Boolean(inheritedEnvironment[key]) ||
-        (key === "DATABASE_URL" &&
-          inheritedEnvironment.agentNativePrebuiltBuild === "true" &&
-          Boolean(inheritedEnvironment.agentNativePrebuiltDatabaseUrl)) ||
-        (key === "BETTER_AUTH_SECRET" &&
-          inheritedEnvironment.agentNativePrebuiltBuild === "true" &&
-          Boolean(inheritedEnvironment.agentNativePrebuiltAuthSecret)) ||
-        (key === "ANALYTICS_DATABASE_URL" &&
-          Boolean(inheritedEnvironment.ANALYTICS_DATABASE_URL_SECRET));
-      if (!hasBuildOverride) {
+      if (
+        key === "ANALYTICS_DATABASE_URL" &&
+        !inheritedEnvironment.ANALYTICS_DATABASE_URL_SECRET
+      ) {
         throw new Error(
-          `Netlify secret build variable ${key} is masked and has no offline build input.`,
+          `Netlify secret build variable ${key} is masked and has no ANALYTICS_DATABASE_URL_SECRET offline build input.`,
         );
       }
       continue;

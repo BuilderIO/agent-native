@@ -61,7 +61,6 @@ jobs:
             const phaseDeadline = (timeoutMs) =>
               Math.min(coordinatorDeadline, Date.now() + timeoutMs);
             let dispatchSequence = 0;
-            const dispatchAttempts = 3;
             const dispatchReconciliationPolls = 5;
 
             function isTransientDispatchFailure(error) {
@@ -89,19 +88,58 @@ jobs:
             }
 
             async function waitForDispatchedRun(workflow, ref, coordinatorRunId) {
+              const lookupErrors = [];
               for (let poll = 0; poll < dispatchReconciliationPolls; poll += 1) {
-                const run = await findDispatchedRun(workflow, ref, coordinatorRunId);
-                if (run) {
-                  if (!Number.isInteger(run.id) || typeof run.html_url !== "string") {
-                    throw new Error(`GitHub returned an incomplete workflow run for ${workflow}.`);
+                try {
+                  const run = await findDispatchedRun(workflow, ref, coordinatorRunId);
+                  if (run) {
+                    if (!Number.isInteger(run.id) || typeof run.html_url !== "string") {
+                      throw new Error(`GitHub returned an incomplete workflow run for ${workflow}.`);
+                    }
+                    return {
+                      run: { id: run.id, url: run.html_url },
+                      lookupErrors,
+                    };
                   }
-                  return { id: run.id, url: run.html_url };
+                } catch (error) {
+                  lookupErrors.push(error);
                 }
                 if (poll + 1 < dispatchReconciliationPolls) {
                   await sleep(pollIntervalMs);
                 }
               }
-              return null;
+              return { run: null, lookupErrors };
+            }
+
+            async function recoverAmbiguousDispatch(
+              workflow,
+              ref,
+              coordinatorRunId,
+              dispatchError,
+            ) {
+              const reconciliation = await waitForDispatchedRun(
+                workflow,
+                ref,
+                coordinatorRunId,
+              );
+              if (reconciliation.run) {
+                if (dispatchError) {
+                  core.warning(
+                    `Recovered ${workflow} after an ambiguous GitHub dispatch response: ${reconciliation.run.url}`,
+                  );
+                }
+                return reconciliation.run;
+              }
+
+              const lookupSummary = reconciliation.lookupErrors.length
+                ? `Run reconciliation failed ${reconciliation.lookupErrors.length}/${dispatchReconciliationPolls} times; last error: ${reconciliation.lookupErrors.at(-1)?.message ?? String(reconciliation.lookupErrors.at(-1))}.`
+                : `No matching run appeared after ${dispatchReconciliationPolls} lookups, which does not prove the dispatch was rejected.`;
+              const dispatchSummary = dispatchError
+                ? `${dispatchError.message ?? String(dispatchError)} (HTTP ${dispatchError.status ?? dispatchError.response?.status ?? "unknown"})`
+                : "GitHub returned a successful response without a workflow run ID";
+              throw new Error(
+                `Could not confirm ${workflow} dispatch (${dispatchSummary}). ${lookupSummary} Check the Actions history for [release:${coordinatorRunId}] before rerunning this release.`,
+              );
             }
 
             async function readJsonAt(ref, path) {
@@ -119,70 +157,50 @@ jobs:
             }
 
             async function dispatch(workflow, ref, inputs) {
-              const coordinatorRunId = `${context.runId}-${++dispatchSequence}`;
+              const coordinatorRunId = `${context.runId}-${context.runAttempt}-${++dispatchSequence}`;
               const dispatchInputs = {
                 ...inputs,
                 coordinator_run_id: coordinatorRunId,
               };
-              for (let attempt = 1; attempt <= dispatchAttempts; attempt += 1) {
-                let response;
-                try {
-                  response = await github.request(
-                    "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
-                    {
-                      owner,
-                      repo,
-                      workflow_id: workflow,
-                      ref,
-                      inputs: dispatchInputs,
-                      return_run_details: true,
-                      headers: {
-                        accept: "application/vnd.github+json",
-                        "X-GitHub-Api-Version": apiVersion,
-                      },
+              let response;
+              try {
+                response = await github.request(
+                  "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+                  {
+                    owner,
+                    repo,
+                    workflow_id: workflow,
+                    ref,
+                    inputs: dispatchInputs,
+                    return_run_details: true,
+                    headers: {
+                      accept: "application/vnd.github+json",
+                      "X-GitHub-Api-Version": apiVersion,
                     },
-                  );
-                } catch (error) {
-                  if (!isTransientDispatchFailure(error)) throw error;
-                  const recovered = await waitForDispatchedRun(
-                    workflow,
-                    ref,
-                    coordinatorRunId,
-                  );
-                  if (recovered) {
-                    core.warning(
-                      `Recovered ${workflow} after an ambiguous GitHub dispatch response: ${recovered.url}`,
-                    );
-                    return recovered;
-                  }
-                  if (attempt === dispatchAttempts) {
-                    const status = error?.status ?? error?.response?.status ?? "unknown";
-                    throw new Error(
-                      `GitHub did not confirm ${workflow} after ${dispatchAttempts} transient dispatch failures (last HTTP status: ${status}).`,
-                    );
-                  }
-                  core.warning(
-                    `GitHub's transient response for ${workflow} did not create a matching run; retrying dispatch (${attempt + 1}/${dispatchAttempts}).`,
-                  );
-                  continue;
-                }
-
-                const runId = response.data?.workflow_run_id;
-                if (!Number.isInteger(runId)) {
-                  const recovered = await waitForDispatchedRun(
-                    workflow,
-                    ref,
-                    coordinatorRunId,
-                  );
-                  if (recovered) return recovered;
-                  throw new Error(
-                    `GitHub did not return a workflow run id or matching run for ${workflow} (HTTP ${response.status}).`,
-                  );
-                }
-                const url = `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
-                core.info(`Dispatched ${workflow}: ${url}`);
-                return { id: runId, url };
+                  },
+                );
+              } catch (error) {
+                if (!isTransientDispatchFailure(error)) throw error;
+                return recoverAmbiguousDispatch(
+                  workflow,
+                  ref,
+                  coordinatorRunId,
+                  error,
+                );
               }
+
+              const runId = response.data?.workflow_run_id;
+              if (!Number.isInteger(runId)) {
+                return recoverAmbiguousDispatch(
+                  workflow,
+                  ref,
+                  coordinatorRunId,
+                  undefined,
+                );
+              }
+              const url = `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
+              core.info(`Dispatched ${workflow}: ${url}`);
+              return { id: runId, url };
             }
 
             async function getRun(runId) {

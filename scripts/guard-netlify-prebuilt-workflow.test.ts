@@ -286,26 +286,53 @@ describe("Netlify offline prebuilt build environment", () => {
     );
   });
 
-  it("does not pass masked Netlify secrets without an explicit build input", () => {
-    const maskedSecret = {
+  it("omits unused masked secrets but requires the analytics build input", () => {
+    const unrelatedSecret = {
+      key: "STRIPE_SECRET_KEY",
+      is_secret: true,
+      scopes: ["builds"],
+      values: [{ context: "production", value: "********" }],
+    };
+    const sentrySecret = {
       key: "SENTRY_AUTH_TOKEN",
       is_secret: true,
       scopes: ["builds"],
       values: [{ context: "production", value: "********" }],
     };
 
-    assert.throws(
-      () => resolveNetlifyBuildEnvironment([maskedSecret], "production", {}),
-      /Netlify secret build variable SENTRY_AUTH_TOKEN is masked/,
+    const omittedSecrets = resolveNetlifyBuildEnvironment(
+      [unrelatedSecret, sentrySecret],
+      "production",
+      {},
     );
+    assert.equal(omittedSecrets.STRIPE_SECRET_KEY, undefined);
+    assert.equal(omittedSecrets.SENTRY_AUTH_TOKEN, undefined);
+
     const inheritedEnvironment = resolveNetlifyBuildEnvironment(
-      [maskedSecret],
+      [sentrySecret],
       "production",
       { SENTRY_AUTH_TOKEN: "workflow-provided-test-value" },
     );
     assert.equal(
       inheritedEnvironment.SENTRY_AUTH_TOKEN,
       "workflow-provided-test-value",
+    );
+
+    assert.throws(
+      () =>
+        resolveNetlifyBuildEnvironment(
+          [
+            {
+              key: "ANALYTICS_DATABASE_URL",
+              is_secret: true,
+              scopes: ["builds"],
+              values: [{ context: "production", value: "********" }],
+            },
+          ],
+          "production",
+          {},
+        ),
+      /ANALYTICS_DATABASE_URL_SECRET offline build input/,
     );
 
     const environment = resolveNetlifyBuildEnvironment(

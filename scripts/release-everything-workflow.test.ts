@@ -64,7 +64,7 @@ describe("release everything workflow", () => {
     });
   });
 
-  it("reconciles transient workflow dispatch failures before retrying", async () => {
+  it("reconciles ambiguous workflow dispatches without risking duplicate children", async () => {
     const source = String((coordinator.with as Workflow).script);
     const start = source.indexOf("let dispatchSequence = 0;");
     const end = source.indexOf("\n\nasync function getRun", start);
@@ -84,6 +84,7 @@ describe("release everything workflow", () => {
       `${source.slice(start, end)}\nreturn dispatch;`,
     );
     const warnings: string[] = [];
+    let acceptedInputs: Workflow | undefined;
     const core = {
       info: () => {},
       warning: (message: string) => warnings.push(message),
@@ -93,8 +94,9 @@ describe("release everything workflow", () => {
     let postAttempts = 0;
     let lookups = 0;
     const acceptedGithub = {
-      request: async () => {
+      request: async (_route: string, options: Workflow) => {
         postAttempts += 1;
+        acceptedInputs = options.inputs as Workflow;
         throw Object.assign(new Error("Failed to run workflow dispatch"), {
           status: 500,
         });
@@ -107,7 +109,14 @@ describe("release everything workflow", () => {
               data: {
                 workflow_runs:
                   lookups < 3
-                    ? []
+                    ? (() => {
+                        throw Object.assign(
+                          new Error(
+                            "Workflow run lookup is temporarily unavailable",
+                          ),
+                          { status: 503 },
+                        );
+                      })()
                     : [
                         {
                           id: 123,
@@ -115,7 +124,7 @@ describe("release everything workflow", () => {
                             "https://github.com/BuilderIO/agent-native/actions/runs/123",
                           event: "workflow_dispatch",
                           head_branch: "main",
-                          display_title: "Publish packages [release:456-1]",
+                          display_title: "Publish packages [release:456-1-1]",
                         },
                       ],
               },
@@ -126,7 +135,7 @@ describe("release everything workflow", () => {
     };
     const acceptedDispatch = await createDispatch(
       acceptedGithub,
-      { runId: 456 },
+      { runId: 456, runAttempt: 1 },
       "BuilderIO",
       "agent-native",
       "2026-03-10",
@@ -143,23 +152,18 @@ describe("release everything workflow", () => {
     });
     assert.equal(postAttempts, 1);
     assert.equal(lookups, 3);
+    assert.equal(acceptedInputs?.coordinator_run_id, "456-1-1");
     assert.match(warnings[0] ?? "", /Recovered auto-publish\.yml/);
 
     const requestInputs: Workflow[] = [];
-    let retryPostAttempts = 0;
-    const retryGithub = {
+    let ambiguousPostAttempts = 0;
+    const ambiguousGithub = {
       request: async (_route: string, options: Workflow) => {
-        retryPostAttempts += 1;
+        ambiguousPostAttempts += 1;
         requestInputs.push(options.inputs as Workflow);
-        if (retryPostAttempts < 3) {
-          throw Object.assign(new Error("GitHub is temporarily unavailable"), {
-            status: 503,
-          });
-        }
-        return {
-          status: 200,
-          data: { workflow_run_id: 789 },
-        };
+        throw Object.assign(new Error("GitHub is temporarily unavailable"), {
+          status: 503,
+        });
       },
       rest: {
         actions: {
@@ -167,9 +171,9 @@ describe("release everything workflow", () => {
         },
       },
     };
-    const retryDispatch = await createDispatch(
-      retryGithub,
-      { runId: 456 },
+    const ambiguousDispatch = await createDispatch(
+      ambiguousGithub,
+      { runId: 456, runAttempt: 2 },
       "BuilderIO",
       "agent-native",
       "2026-03-10",
@@ -177,21 +181,62 @@ describe("release everything workflow", () => {
       sleep,
       15_000,
     );
-    assert.deepEqual(
-      await retryDispatch("deploy-docs-production.yml", "main", {
+    await assert.rejects(
+      ambiguousDispatch("deploy-docs-production.yml", "main", {
         source_ref: "a".repeat(40),
         smoke: "true",
       }),
-      {
-        id: 789,
-        url: "https://github.com/BuilderIO/agent-native/actions/runs/789",
+      (error: Error) => {
+        assert.match(error.message, /GitHub is temporarily unavailable/);
+        assert.match(error.message, /does not prove the dispatch was rejected/);
+        assert.match(error.message, /\[release:456-2-1\]/);
+        return true;
       },
     );
-    assert.equal(retryPostAttempts, 3);
+    assert.equal(ambiguousPostAttempts, 1);
     assert.deepEqual(
       requestInputs.map((inputs) => inputs.coordinator_run_id),
-      ["456-1", "456-1", "456-1"],
+      ["456-2-1"],
     );
+
+    let failedLookupCalls = 0;
+    const failedReconciliationGithub = {
+      request: async () => {
+        throw Object.assign(new Error("GitHub dispatch returned 502"), {
+          status: 502,
+        });
+      },
+      rest: {
+        actions: {
+          listWorkflowRuns: async () => {
+            failedLookupCalls += 1;
+            throw Object.assign(new Error("Run listing returned 503"), {
+              status: 503,
+            });
+          },
+        },
+      },
+    };
+    const failedReconciliationDispatch = await createDispatch(
+      failedReconciliationGithub,
+      { runId: 456, runAttempt: 2 },
+      "BuilderIO",
+      "agent-native",
+      "2026-03-10",
+      core,
+      sleep,
+      15_000,
+    );
+    await assert.rejects(
+      failedReconciliationDispatch("deploy-docs-production.yml", "main", {}),
+      (error: Error) => {
+        assert.match(error.message, /GitHub dispatch returned 502/);
+        assert.match(error.message, /Run reconciliation failed 5\/5 times/);
+        assert.match(error.message, /Run listing returned 503/);
+        return true;
+      },
+    );
+    assert.equal(failedLookupCalls, 5);
 
     let invalidStatusLookups = 0;
     const invalidGithub = {
@@ -209,7 +254,7 @@ describe("release everything workflow", () => {
     };
     const invalidDispatch = await createDispatch(
       invalidGithub,
-      { runId: 456 },
+      { runId: 456, runAttempt: 1 },
       "BuilderIO",
       "agent-native",
       "2026-03-10",
