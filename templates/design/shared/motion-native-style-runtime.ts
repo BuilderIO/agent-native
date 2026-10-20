@@ -313,6 +313,7 @@ export function motionNativeTextAnimationSettings(
     props: {
       ...style.props,
       positionEnabled: true,
+      positionVisible: true,
       rotationEnabled: false,
       scaleEnabled: false,
       opacityEnabled: false,
@@ -1100,8 +1101,27 @@ function textStaggerAnimations(
   );
   const ease = easing(props.easing);
   const animations: MotionTextAnimation[] = [];
+  const effectPlays = (effect: string, enabledByDefault: boolean) =>
+    booleanProp(
+      props[`${effect}Enabled`],
+      enabledByDefault,
+      `${effect}Enabled`,
+    ) && booleanProp(props[`${effect}Visible`], true, `${effect}Visible`);
 
-  if (booleanProp(props.blurEnabled, false, "blurEnabled")) {
+  if (
+    props.elementTransformOriginMode !== undefined &&
+    props.elementTransformOriginMode !== "MATCH"
+  ) {
+    unsupportedTextStaggerProp("elementTransformOriginMode");
+  }
+  const originX = originPercent(props.elementTransformOriginX, "X");
+  const originY = originPercent(props.elementTransformOriginY, "Y");
+  // Only rotation and scale read the pivot, so only they carry it.
+  const pivot = originX === 50 && originY === 50 ? {} : { originX, originY };
+  // Cropping only means something while the move effect plays.
+  const clipContent = booleanProp(props.clipContent, false, "clipContent");
+
+  if (effectPlays("blur", false)) {
     const amount = numeric(props.blurAmount, 20);
     animations.push(
       textAnimation(
@@ -1118,25 +1138,7 @@ function textStaggerAnimations(
       ),
     );
   }
-  if (booleanProp(props.clipContent, false, "clipContent")) {
-    unsupportedTextStaggerProp("clipContent");
-  }
-  if (
-    props.elementTransformOriginMode !== undefined &&
-    props.elementTransformOriginMode !== "MATCH"
-  ) {
-    unsupportedTextStaggerProp("elementTransformOriginMode");
-  }
-  for (const key of [
-    "elementTransformOriginX",
-    "elementTransformOriginY",
-  ] as const) {
-    if (props[key] !== undefined && props[key] !== 50) {
-      unsupportedTextStaggerProp(key);
-    }
-  }
-
-  if (booleanProp(props.positionEnabled, true, "positionEnabled")) {
+  if (effectPlays("position", true)) {
     const vector = directionVector(text(props.direction, "top"));
     const distance = numeric(props.distance, 40);
     animations.push(
@@ -1150,11 +1152,11 @@ function textStaggerAnimations(
         "translate",
         [`${vector[0] * distance}px ${vector[1] * distance}px`, "0px 0px"],
         ease,
-        textOptions,
+        clipContent ? { ...textOptions, clipContent } : textOptions,
       ),
     );
   }
-  if (booleanProp(props.rotationEnabled, false, "rotationEnabled")) {
+  if (effectPlays("rotation", false)) {
     const rotationDirection = text(props.rotationDirection, "clockwise");
     if (
       rotationDirection !== "clockwise" &&
@@ -1178,11 +1180,11 @@ function textStaggerAnimations(
         "rotate",
         [`${animationDirection === "out" ? -signed : signed}deg`, "0deg"],
         ease,
-        textOptions,
+        { ...textOptions, ...pivot },
       ),
     );
   }
-  if (booleanProp(props.scaleEnabled, false, "scaleEnabled")) {
+  if (effectPlays("scale", false)) {
     const amount = numeric(props.scaleAmount, 120) / 100;
     animations.push(
       textAnimation(
@@ -1195,11 +1197,11 @@ function textStaggerAnimations(
         "scale",
         [String(amount), "1"],
         ease,
-        textOptions,
+        { ...textOptions, ...pivot },
       ),
     );
   }
-  if (booleanProp(props.opacityEnabled, false, "opacityEnabled")) {
+  if (effectPlays("opacity", false)) {
     const amount = numeric(props.opacityAmount, 0) / 100;
     animations.push(
       textAnimation(
@@ -1231,7 +1233,13 @@ function textAnimation(
   ease: string,
   textOptions: Pick<
     MotionTextAnimation,
-    "animationDirection" | "order" | "overlapPercent" | "ignoreSpaces"
+    | "animationDirection"
+    | "order"
+    | "overlapPercent"
+    | "ignoreSpaces"
+    | "clipContent"
+    | "originX"
+    | "originY"
   >,
 ): MotionTextAnimation {
   return {
@@ -1396,6 +1404,17 @@ function textAnimationSettingsMatch(
     Math.max(1, Math.abs(authoredStaggerMs), Math.abs(nativeStaggerMs)) *
     4;
   return Math.abs(authoredStaggerMs - nativeStaggerMs) <= tolerance;
+}
+
+function originPercent(
+  value: MotionNativeStyleJsonValue | undefined,
+  axis: "X" | "Y",
+): number {
+  const percent = numeric(value, 50);
+  if (percent < 0 || percent > 100) {
+    invalid(`Imported Text Stagger pivot ${axis} must be between 0 and 100.`);
+  }
+  return percent;
 }
 
 function unsupportedTextStaggerProp(property: string): never {

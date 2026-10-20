@@ -48,6 +48,7 @@ import {
   releaseBackgroundRunBeforeStart,
   type AgentExecutionStepIntent,
 } from "../agent/run-store.js";
+import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -812,6 +813,7 @@ async function persistBackgroundAutomationTurn(input: {
   threadTitle: string;
   prompt: string;
   run: Pick<ActiveRun, "runId" | "turnId" | "startedAt" | "events">;
+  persistAssistant?: boolean;
   persistFailure?: { message: string; errorCode: string };
 }): Promise<void> {
   const fence = currentExecutionFence();
@@ -865,13 +867,21 @@ async function persistBackgroundAutomationTurn(input: {
         },
       });
     }
-    const assistantMsg = buildAssistantMessage(events, input.run.runId, {
-      suppressInternalContinuation: !input.persistFailure,
-      turnId: input.run.turnId,
-      runDurationMs: Number.isFinite(input.run.startedAt)
-        ? Math.max(0, Date.now() - input.run.startedAt)
-        : undefined,
-    });
+    const assistantMsg =
+      input.persistAssistant === false
+        ? null
+        : await buildAssistantMessageFromRunJournal({
+            threadId: input.threadId,
+            turnId: input.run.turnId,
+            runId: input.run.runId,
+            runEvents: events,
+            options: {
+              suppressInternalContinuation: !input.persistFailure,
+              runDurationMs: Number.isFinite(input.run.startedAt)
+                ? Math.max(0, Date.now() - input.run.startedAt)
+                : undefined,
+            },
+          });
     if (assistantMsg) {
       repo = foldAssistantTurn(repo, assistantMsg, {
         runId: input.run.runId,
@@ -1412,6 +1422,7 @@ async function executeBackgroundAutomation(
           threadTitle,
           prompt: executionPrompt,
           run: { runId, turnId, startedAt: Date.now(), events: [] },
+          persistAssistant: false,
         });
         const afterInsert = (tx: DbExec) =>
           withDbExec(tx, async () => {

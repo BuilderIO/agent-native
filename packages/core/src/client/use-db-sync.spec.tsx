@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getBrowserTabId } from "./browser-tab-id.js";
-import { useChangeVersion } from "./use-change-version.js";
+import { getChangeVersion, useChangeVersion } from "./use-change-version.js";
 import {
   isInteractionCriticalSyncEvent,
   subscribeSyncEvents,
@@ -346,6 +346,19 @@ describe("useDbSync", () => {
     expect(invalidatedQueryKeys(result.queryClient.calls)).toContainEqual([
       "navigate-command",
     ]);
+  });
+
+  it("bumps the app-state wildcard for an unscoped remote state event", async () => {
+    const before = getChangeVersion("app-state:*");
+    const result = await renderWithEvent({
+      version: before + 1,
+      source: "app-state",
+      type: "change",
+    });
+    roots.push(result.root);
+    containers.push(result.container);
+
+    expect(getChangeVersion("app-state:*")).toBeGreaterThan(before);
   });
 
   it("invalidates only the originating tab's navigate command cache", async () => {

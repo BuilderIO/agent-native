@@ -79,6 +79,7 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 import { runInIdleSlices } from "@/pages/design-editor/idle-slices";
+import { selectionHasOutermostFrame } from "@/pages/design-editor/motion-add-menu";
 import type { MotionAnimationStyle } from "@/pages/design-editor/motion-animation-style";
 import type { EditorMode } from "@/pages/design-editor/types";
 
@@ -241,6 +242,7 @@ import {
 } from "./inspector/GlslShaderPanel";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { MotionAudioTracks } from "./MotionAudioTracks";
+import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
 import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
 import {
   MotionNativeStyleEditor,
@@ -473,6 +475,7 @@ interface EditPanelProps {
     fileId: string,
     content: string,
     updatedAt?: string,
+    beforeContent?: string,
   ) => void;
   /**
    * Edits a file's HTML through the editor. A shader on a frame drawn on the
@@ -562,6 +565,7 @@ interface EditPanelProps {
   onMotionAudioDurationChange?: (durationMs: number) => void;
   motionWriteUnavailable?: boolean;
   motionWriteUnavailableReason?: string;
+  motionCode?: MotionCodeInput;
   breakpointContext?: {
     breakpointWidths: readonly number[];
     baseWidthPx: number;
@@ -2292,6 +2296,7 @@ export const EditPanel = memo(function EditPanel({
   onMotionAudioDurationChange,
   motionWriteUnavailable = false,
   motionWriteUnavailableReason,
+  motionCode,
   breakpointContext,
 }: EditPanelProps) {
   const recentFillColorRef = useRef<string | undefined>(undefined);
@@ -3224,7 +3229,13 @@ export const EditPanel = memo(function EditPanel({
                                       t(
                                         "designEditor.motion.sourceWriteUnavailable",
                                       ))
-                                    : undefined
+                                    : selectionHasOutermostFrame(
+                                          effectiveSelectedElements,
+                                        )
+                                      ? t(
+                                          "designEditor.motion.addMenu.outermostFrame",
+                                        )
+                                      : undefined
                                 }
                                 onCreateTrack={
                                   onCreateMotionTrack ?? (() => undefined)
@@ -3243,21 +3254,36 @@ export const EditPanel = memo(function EditPanel({
                           </p>
                         ) : null}
                         {motionSelectedTarget ? (
-                          <MotionNativeStyleEditor
-                            styles={motionNativeStyles}
-                            targetNodeId={motionSelectedTarget.nodeId}
-                            disabled={motionWriteUnavailable}
-                            easingVariables={motionEasingVariables}
-                            onEasingVariablesChange={
-                              onMotionEasingVariablesChange
-                            }
-                            onChange={(instance, identity) =>
-                              onMotionNativeStyleChange?.(instance, identity)
-                            }
-                            onRemove={(identity) =>
-                              onRemoveMotionNativeStyle?.(identity)
-                            }
+                          <MotionCodeView
+                            input={motionCode}
+                            hasList={motionNativeStyles.some(
+                              (style) =>
+                                style.targetNodeId ===
+                                motionSelectedTarget.nodeId,
+                            )}
                             t={t}
+                            list={
+                              <MotionNativeStyleEditor
+                                styles={motionNativeStyles}
+                                targetNodeId={motionSelectedTarget.nodeId}
+                                isText={motionSelectedTarget.isText}
+                                disabled={motionWriteUnavailable}
+                                easingVariables={motionEasingVariables}
+                                onEasingVariablesChange={
+                                  onMotionEasingVariablesChange
+                                }
+                                onChange={(instance, identity) =>
+                                  onMotionNativeStyleChange?.(
+                                    instance,
+                                    identity,
+                                  )
+                                }
+                                onRemove={(identity) =>
+                                  onRemoveMotionNativeStyle?.(identity)
+                                }
+                                t={t}
+                              />
+                            }
                           />
                         ) : null}
                       </PanelSection>

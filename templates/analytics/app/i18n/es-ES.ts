@@ -842,6 +842,7 @@ export default {
     bigQueryHealthUnavailable:
       "No se pudo comprobar la presión de Analytics propio. Recarga e inténtalo de nuevo antes de cambiar de backend.",
     analyticsEventCount: "Eventos observados",
+    analyticsRecentEventCount: "Eventos observados (últimos 30 días)",
     slowQueries24h: "Consultas lentas (24 h)",
     maxQueryDuration: "Tiempo máximo de consulta",
     defaultKeyName: "Plantillas alojadas",
@@ -1345,6 +1346,10 @@ export default {
     dashboardActions: "Detalles y acciones del panel",
     certifyForAi: "Certificar para consultas de IA",
     certifiedForAi: "Certificado para consultas de IA",
+    duplicateToCustomize: "Duplicar para personalizar",
+    duplicateToCustomizeHint:
+      "Los paneles integrados se actualizan con cada versión de Analytics. Crea tu propia copia para cambiar este.",
+    duplicateFailed: "No se pudo duplicar este panel.",
     certificationSaved: "Panel certificado para consultas de IA",
     certificationFailed: "No se pudo certificar el panel: {{message}}",
     details: "Details",
@@ -1473,6 +1478,25 @@ export default {
     columnShowHidden: "Mostrar columnas ocultas",
     columnName: "Nombre de la columna",
     columnResize: "Cambiar tamaño de la columna",
+    rowBreakdownBy: "Desglosar por",
+    rowBreakdownAll: "Todos",
+    rowBreakdownOther: "Otros",
+    rowBreakdownOtherHint:
+      "Grupos más pequeños y quienes el SQL de este panel deja fuera",
+    rowBreakdownSmallGroup:
+      "Menos de {{count}}: interpreta las tasas con cautela",
+    rowBreakdownNoValue: "(ninguno)",
+    rowBreakdownEmpty: "No hay filas para este desglose.",
+    rowBreakdownUnavailable:
+      "El SQL de este panel no tiene desglose por {{column}}.",
+    rowBreakdownFromPanel: "De las filas de este panel. No se leyó nada.",
+    rowBreakdownFromCache: "De la caché. No se leyó nada.",
+    rowBreakdownAlreadyLoaded: "Ya cargado. No se leyó nada.",
+    rowBreakdownBytesRead: "Se leyeron {{bytes}}",
+    rowBreakdownOverByteCap:
+      "Este desglose leería más de {{gib}} GiB, así que no se ejecutó. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
+    rowBreakdownTruncated:
+      "El resultado se cortó, así que faltan algunos grupos o se cuentan en Otros.",
     deleteSectionTitle: "¿Eliminar sección?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "¿Eliminar panel?",
@@ -2160,10 +2184,6 @@ export default {
     noMatches: "Ninguna definición coincide con la búsqueda.",
     searchPlaceholder: "Buscar definiciones",
     sourceIndex: "Índice de fuentes",
-    statusApproved: "Aprobada",
-    statusSuggested: "Sugerida",
-    statusUnreviewed: "Sin revisar",
-    unsourced: "Sin fuente",
   },
   indexPanel: {
     presetDaily: "Diario a las 06:00",

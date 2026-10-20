@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
+  ActionOutputContractError,
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
@@ -310,6 +311,83 @@ describe("runAgentLoop — output-contract failures", () => {
   });
 });
 
+describe("runAgentLoop — a thrown value that cannot be classified", () => {
+  it.each([
+    { readOnly: true, outcome: { completedSideEffect: false }, markers: 0 },
+    { readOnly: false, outcome: { outcomeUnknown: true }, markers: 1 },
+  ])(
+    "finishes the call as an untyped failure (readOnly: $readOnly)",
+    async ({ readOnly, outcome, markers }) => {
+      notify.mockClear();
+      const thrown = Object.defineProperty(
+        new Error("Handler failed"),
+        "actionContractError",
+        {
+          get() {
+            throw new Error("Classification accessor failed");
+          },
+        },
+      );
+      const action = defineAction({
+        description: "Fail.",
+        schema: z.object({}),
+        readOnly,
+        run: async () => {
+          throw thrown;
+        },
+      }) as unknown as ActionEntry;
+      const done = toolDone(await runOneCall({ fail: action }, "fail"));
+      expect(done).toMatchObject({ isError: true, ...outcome });
+      expect(notify).toHaveBeenCalledTimes(markers);
+    },
+  );
+
+  it("runs a read again whose result check threw a value it cannot classify", async () => {
+    const thrown = Object.defineProperty(
+      new ActionOutputContractError({
+        effect: "none",
+        contract: "semantic",
+        issues: ["(root): unreadable"],
+      }),
+      "effect",
+      {
+        get() {
+          throw new Error("Unreadable effect");
+        },
+      },
+    );
+    const run = vi.fn(async () => ({ ok: true }));
+    const action = defineAction({
+      description: "Read the draft.",
+      schema: z.object({}),
+      readOnly: true,
+      outputSchema: {
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: async () =>
+            Object.defineProperty({}, "issues", {
+              get() {
+                throw thrown;
+              },
+            }),
+        },
+      } as any,
+      outputErrorStrategy: "strict",
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runSequentialCalls({ "read-draft": action }, [
+      "read-draft",
+      "read-draft",
+    ]);
+    expect(events.filter((event) => event.type === "tool_done")).toEqual([
+      expect.objectContaining({ isError: true, completedSideEffect: false }),
+      expect.objectContaining({ isError: true, completedSideEffect: false }),
+    ]);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("runAgentLoop — gates follow the validated arguments", () => {
   it("blocks a write its defaults make in plan mode", async () => {
     const counter = { writes: 0 };
@@ -466,6 +544,32 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
     } finally {
       unregisterTrackingProvider("invalid-call-spec");
     }
+  });
+
+  it("records the run a call refused for invalid arguments was declined in", async () => {
+    audit.mockClear();
+    const rename = defineAction({
+      description: "Rename the draft.",
+      schema: z.object({ title: z.string() }),
+      run: async () => ({ ok: true }),
+    }) as unknown as ActionEntry;
+    await runOneCall({ "rename-draft": rename }, "rename-draft", {
+      runId: "run-1",
+      turnId: "turn-1",
+      networkProtocol: "a2a",
+      networkId: "task-1",
+    });
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(audit.mock.calls[0]![0]).toMatchObject({
+      status: "error",
+      attribution: {
+        caller: "tool",
+        runId: "run-1",
+        turnId: "turn-1",
+        networkProtocol: "a2a",
+        networkId: "task-1",
+      },
+    });
   });
 
   it("replays a committed failure on a continued turn instead of running it again", async () => {

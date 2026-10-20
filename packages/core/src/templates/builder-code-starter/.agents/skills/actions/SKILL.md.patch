@@ -1,7 +1,7 @@
 ===================================================================
 --- a/.agents/skills/actions/SKILL.md
 +++ b/.agents/skills/actions/SKILL.md
-@@ -156,8 +156,22 @@
+@@ -158,8 +158,22 @@
  ```
  
  CLI flags become action input fields (`--key value` or `--key=value`); the runner does not read or write files for `--input` or `--output`. The default template dispatches through core's `runScript()` in `actions/run.ts`. Action names are lowercase-with-hyphens (`pnpm action my-action` → `actions/my-action.ts`).
