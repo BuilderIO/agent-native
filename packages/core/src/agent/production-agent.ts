@@ -11094,6 +11094,37 @@ function validateQueuedPromotionRequestAttachments(
   return attachments;
 }
 
+/**
+ * Whether the durable thread lacks the reply to its most recently completed
+ * run. An admitted queued prompt rebuilds the model's history from that record,
+ * so it waits for the reply instead of answering a turn the model cannot see.
+ * Runs are written with the latest update last, so the last completed run is
+ * the most recent one.
+ */
+function durableReplyPending(repository: unknown): boolean {
+  const record = queuedPromotionRecord(repository);
+  const agentKit = queuedPromotionRecord(record?.agentKit);
+  if (!agentKit || !Array.isArray(agentKit.runs)) return false;
+  if (!Array.isArray(record?.messages)) return false;
+  const messages = record.messages;
+  const latest = agentKit.runs
+    .map((run) => queuedPromotionRecord(run))
+    .filter(
+      (run) =>
+        run?.status === "completed" && typeof run.activeMessageId === "string",
+    )
+    .at(-1);
+  if (!latest) return false;
+  return !messages.some((entry) => {
+    const message = queuedPromotionRecord(
+      queuedPromotionRecord(entry)?.message ?? entry,
+    );
+    return (
+      message?.id === latest.activeMessageId && message?.role === "assistant"
+    );
+  });
+}
+
 async function readAdmittedQueuedMessagePromotion(opts: {
   ownerEmail: string | null;
   orgId: string | null;
@@ -11102,7 +11133,7 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   claimId: unknown;
   message: string;
   continuationRequested: boolean;
-}): Promise<AdmittedQueuedMessagePromotion | null> {
+}): Promise<AdmittedQueuedMessagePromotion | "reply_pending" | null> {
   const messageId =
     typeof opts.messageId === "string" ? opts.messageId.trim() : "";
   const claimId = typeof opts.claimId === "string" ? opts.claimId.trim() : "";
@@ -11189,6 +11220,8 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   ) {
     return null;
   }
+
+  if (durableReplyPending(repository)) return "reply_pending";
 
   return {
     id: messageId,
@@ -12476,6 +12509,14 @@ export function createProductionAgentHandler(
         typeof requestedAutoContinueOfRunId === "string" ||
         typeof requestedContinueOfRunId === "string",
     });
+    if (admittedQueuedMessage === "reply_pending") {
+      setResponseStatus(event, 409);
+      return {
+        error: "The previous reply is still being saved.",
+        code: "queued_reply_pending",
+        retryable: true,
+      };
+    }
     const isQueuedPromotion = admittedQueuedMessage !== null;
     if (admittedQueuedMessage) {
       // A claim admits the persisted queue payload, not extra fields in this request.

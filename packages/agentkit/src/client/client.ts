@@ -780,9 +780,10 @@ function submittedRunIdFromError(error: unknown): RunId | undefined {
 }
 
 function isRetryableQueuePromotionError(error: unknown): boolean {
+  const code = errorProperty(error, "code");
   return (
     isAgentKitRunSlotBusyError(error) ||
-    (errorProperty(error, "code") === "queue_item_busy" &&
+    ((code === "queue_item_busy" || code === "queued_reply_pending") &&
       errorProperty(error, "retryable") === true)
   );
 }
