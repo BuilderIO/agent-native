@@ -2256,4 +2256,22 @@ describe("GitHub folder freshness", () => {
       syncFolder.changeResource?.({ databaseId: database.id }, recovered),
     ).toEqual(announced);
   });
+
+  it("tells every reader when a refresh changes rows, and no one when it doesn't", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    const refresh = () =>
+      as(() => refreshSource.run({ databaseId: database.id }));
+    const refreshed = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, refreshed),
+    ).toEqual({
+      resourceType: "document",
+      resourceId: database.documentId,
+    });
+    const again = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
+  });
 });
