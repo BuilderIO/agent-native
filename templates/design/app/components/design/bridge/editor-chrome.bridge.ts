@@ -15251,6 +15251,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     );
   }
 
+  function postNodeHtmlPreviewFailed(
+    proposalId: string,
+    reason:
+      | "target-unresolved"
+      | "preview-invalid"
+      | "preview-replacement-failed",
+  ): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:node-html-preview-failed",
+        proposalId: proposalId,
+        reason: reason,
+      },
+      "*",
+    );
+  }
+
   function replaceNodeHtmlPreviewElement(
     session: NodeHtmlPreviewSession,
     nextElement: Element,
@@ -15315,19 +15332,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return;
     }
     var nextElement = parseNodeHtmlPreviewElement(data.html);
-    if (!nextElement) return;
+    if (!nextElement) {
+      postNodeHtmlPreviewFailed(proposalId, "preview-invalid");
+      return;
+    }
     if (
       activeNodeHtmlPreview &&
       activeNodeHtmlPreview.proposalId === proposalId
     ) {
       if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
         postNodeHtmlPreviewApplied(proposalId);
+      } else {
+        postNodeHtmlPreviewFailed(proposalId, "preview-replacement-failed");
       }
       return;
     }
     if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
     var target = resolveNodeHtmlPreviewTarget(data.target);
     if (!target || !target.parentNode || target === document.documentElement) {
+      postNodeHtmlPreviewFailed(proposalId, "target-unresolved");
       return;
     }
     var originalOuterHTML = target.outerHTML;

@@ -85,6 +85,7 @@ import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   formatNodeSelectionQuestion,
   formatNodeRepromptSubmission,
+  NODE_REPROMPT_PREVIEW_FAILED_EVENT,
   inferNodeRepromptSendMode,
   NODE_REPROMPT_PRESENTED_EVENT,
   NODE_REPROMPT_RESOLVED_EVENT,
@@ -1173,6 +1174,33 @@ export function ReviewCanvasPins({
     };
     window.addEventListener(NODE_REPROMPT_PRESENTED_EVENT, onRepromptSettled);
     window.addEventListener(NODE_REPROMPT_RESOLVED_EVENT, onRepromptSettled);
+    const onRepromptPreviewFailed = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          fileId?: string;
+          reason?: string;
+          repromptId?: string;
+        }>
+      ).detail;
+      if (
+        detail?.repromptId !== pendingRepromptId ||
+        detail.fileId !== targetId
+      ) {
+        return;
+      }
+      setPendingRepromptId(null);
+      toast.error(
+        t(
+          detail.reason === "target-unresolved"
+            ? "designEditor.nodeRewrite.previewTargetUnavailable"
+            : "designEditor.nodeRewrite.previewFailed",
+        ),
+      );
+    };
+    window.addEventListener(
+      NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+      onRepromptPreviewFailed,
+    );
     return () => {
       window.removeEventListener(
         NODE_REPROMPT_PRESENTED_EVENT,
@@ -1182,8 +1210,12 @@ export function ReviewCanvasPins({
         NODE_REPROMPT_RESOLVED_EVENT,
         onRepromptSettled,
       );
+      window.removeEventListener(
+        NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+        onRepromptPreviewFailed,
+      );
     };
-  }, [cancelDraft, onClose, pendingRepromptId]);
+  }, [cancelDraft, onClose, pendingRepromptId, t, targetId]);
 
   const threads = useMemo(
     () => buildReviewThreads(comments.data?.comments ?? []),
@@ -2393,6 +2425,8 @@ export function ReviewCanvasPins({
       setAgentSubmitting(true);
       try {
         await callAction("begin-node-rewrite-request", pending);
+        setDraftMode("reprompt");
+        setPendingRepromptId(repromptId);
         const submission = formatNodeRepromptSubmission({
           ...pending,
           subtreeHtml: isRenderedElement(element)
@@ -2413,11 +2447,11 @@ export function ReviewCanvasPins({
         if (!delivery.delivered) {
           throw new Error(delivery.reason ?? "Reprompt was not delivered.");
         }
-        setDraftMode("reprompt");
-        setPendingRepromptId(repromptId);
         setDraftComposerOpen(false);
         toast.success(t("designEditor.nodeRewrite.sent"));
       } catch (error) {
+        setPendingRepromptId(null);
+        setDraftMode("comment");
         await callAction("cancel-node-rewrite-request", {
           designId: resourceId,
           fileId: targetId,

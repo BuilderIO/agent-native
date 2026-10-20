@@ -5,6 +5,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NODE_REPROMPT_PREVIEW_FAILED_EVENT } from "@/lib/node-reprompt";
+
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
@@ -193,6 +195,103 @@ describe("NodeRewriteProposal overview positioning", () => {
     expect(proposal?.textContent).toContain("2 of 3");
     expect(proposal?.textContent).toContain("Second hero");
     expect(mocks.setClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("relays a matching preview failure and disables accepting an unapplied proposal", async () => {
+    const onPreviewFailed = vi.fn();
+    window.addEventListener(
+      NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+      onPreviewFailed,
+    );
+
+    try {
+      await act(async () => {
+        root.render(
+          <NodeRewriteProposal
+            designId="design-1"
+            fileId="screen-1"
+            canvasSelector=".proposal-test-canvas"
+            proposalSnapshot={proposalSnapshot}
+          />,
+        );
+      });
+
+      for (const [source, proposalId] of [
+        [window, "proposal-1"],
+        [iframe.contentWindow, "another-proposal"],
+      ] as const) {
+        await act(async () => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source,
+              data: {
+                type: "agent-native:node-html-preview-failed",
+                proposalId,
+                reason: "target-unresolved",
+              },
+            }),
+          );
+        });
+      }
+      expect(onPreviewFailed).not.toHaveBeenCalled();
+
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:node-html-preview-failed",
+              proposalId: "proposal-1",
+              reason: "target-unresolved",
+            },
+          }),
+        );
+      });
+
+      expect(onPreviewFailed).toHaveBeenCalledTimes(1);
+      expect(onPreviewFailed.mock.calls[0]?.[0]).toMatchObject({
+        detail: {
+          repromptId: "reprompt-1",
+          fileId: "screen-1",
+          reason: "target-unresolved",
+        },
+      });
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:node-html-preview-failed",
+              proposalId: "proposal-1",
+              reason: "future-bridge-reason",
+            },
+          }),
+        );
+      });
+      expect(onPreviewFailed.mock.calls[1]?.[0]).toMatchObject({
+        detail: {
+          repromptId: "reprompt-1",
+          fileId: "screen-1",
+          reason: "unknown",
+        },
+      });
+      const buttons = Array.from(document.querySelectorAll("button"));
+      expect(
+        buttons.find((button) =>
+          button.textContent?.includes("designEditor.nodeRewrite.accept"),
+        )?.disabled,
+      ).toBe(true);
+      expect(
+        buttons.find((button) =>
+          button.textContent?.includes("designEditor.nodeRewrite.reject"),
+        )?.disabled,
+      ).toBe(false);
+    } finally {
+      window.removeEventListener(
+        NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+        onPreviewFailed,
+      );
+    }
   });
 
   it("uses the saved instance selector for preview and restore messages", async () => {

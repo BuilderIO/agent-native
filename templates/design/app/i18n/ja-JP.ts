@@ -2120,6 +2120,10 @@ export default {
       accept: "承認",
       reject: "却下",
       resolveFailed: "この提案を解決できませんでした",
+      previewTargetUnavailable:
+        "選択した要素が見つからず、プレビューを表示できませんでした。要素を選び直して再試行してください。",
+      previewFailed:
+        "プレビューを表示できませんでした。要素を選び直して再試行してください。",
     },
     capabilities: {
       "deterministic-style-edit": "安全なスタイル編集",

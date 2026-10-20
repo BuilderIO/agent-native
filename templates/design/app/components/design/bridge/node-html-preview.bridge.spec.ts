@@ -52,6 +52,49 @@ async function postNodeHtmlPreview(
   );
 }
 
+async function postNodeHtmlPreviewAndWaitForResult(
+  page: Page,
+  proposalId: string,
+  target: Record<string, string>,
+  html = `<button id="preview-${proposalId}">Preview</button>`,
+): Promise<{ proposalId: string; reason?: string; type: string }> {
+  return page.evaluate(
+    ({ proposalId, target, html }) =>
+      new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener("message", onMessage);
+          reject(
+            new Error("Node HTML preview did not acknowledge the request"),
+          );
+        }, 5_000);
+        const onMessage = (event: MessageEvent) => {
+          if (
+            event.data?.proposalId !== proposalId ||
+            (event.data?.type !== "agent-native:node-html-preview-applied" &&
+              event.data?.type !== "agent-native:node-html-preview-failed")
+          ) {
+            return;
+          }
+          window.clearTimeout(timeout);
+          window.removeEventListener("message", onMessage);
+          resolve(event.data);
+        };
+        window.addEventListener("message", onMessage);
+        window.postMessage(
+          {
+            type: "node-html-preview",
+            operation: "preview",
+            proposalId,
+            target,
+            html,
+          },
+          "*",
+        );
+      }),
+    { proposalId, target, html },
+  );
+}
+
 describe("node-html-preview iframe bridge", () => {
   it(
     "falls back from a missing versioned selector to a unique node id",
@@ -184,6 +227,92 @@ describe("node-html-preview iframe bridge", () => {
     },
   );
 
+  it("acknowledges invalid preview markup without changing the target", async () => {
+    const browser = await chromium.launch({ headless: true });
+
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><body>
+        <main><section data-agent-native-node-id="hero">Original hero</section></main>
+      </body></html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      const result = await postNodeHtmlPreviewAndWaitForResult(
+        page,
+        "invalid-preview",
+        { nodeId: "hero" },
+        "<section>First</section><section>Second</section>",
+      );
+
+      expect(result).toMatchObject({
+        type: "agent-native:node-html-preview-failed",
+        proposalId: "invalid-preview",
+        reason: "preview-invalid",
+      });
+      expect(await page.locator("main").textContent()).toBe("Original hero");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("acknowledges a failed variant replacement while retaining the current preview", async () => {
+    const browser = await chromium.launch({ headless: true });
+
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html><html><body>
+        <main><section data-agent-native-node-id="hero">Original hero</section></main>
+      </body></html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      const firstResult = await postNodeHtmlPreviewAndWaitForResult(
+        page,
+        "variant-preview",
+        { nodeId: "hero" },
+      );
+      expect(firstResult.type).toBe("agent-native:node-html-preview-applied");
+      await page.evaluate(() => {
+        const walker = document.createTreeWalker(
+          document,
+          NodeFilter.SHOW_COMMENT,
+        );
+        let comment = walker.nextNode();
+        while (comment) {
+          if (comment.nodeValue?.includes("node-html-preview:start")) {
+            comment.parentNode?.removeChild(comment);
+          }
+          comment = walker.nextNode();
+        }
+      });
+
+      const result = await postNodeHtmlPreviewAndWaitForResult(
+        page,
+        "variant-preview",
+        { nodeId: "hero" },
+        '<button id="next-variant">Next</button>',
+      );
+
+      expect(result).toMatchObject({
+        type: "agent-native:node-html-preview-failed",
+        proposalId: "variant-preview",
+        reason: "preview-replacement-failed",
+      });
+      expect(
+        await page
+          .locator(
+            '[data-agent-native-node-rewrite-proposal="variant-preview"]',
+          )
+          .getAttribute("id"),
+      ).toBe("preview-variant-preview");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it(
     "resolves unique node-id-only targets across supported identity attributes",
     { timeout: 30_000 },
@@ -250,8 +379,17 @@ describe("node-html-preview iframe bridge", () => {
           );
           const repeated = page.locator(`[${attribute}="${nodeId}"]`);
 
-          await postNodeHtmlPreview(page, `ambiguous-${nodeId}`, { nodeId });
+          const result = await postNodeHtmlPreviewAndWaitForResult(
+            page,
+            `ambiguous-${nodeId}`,
+            { nodeId },
+          );
 
+          expect(result).toMatchObject({
+            type: "agent-native:node-html-preview-failed",
+            proposalId: `ambiguous-${nodeId}`,
+            reason: "target-unresolved",
+          });
           expect(await repeated.allTextContents()).toEqual(["First", "Second"]);
           expect(
             await page

@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
   useRealComposer: false,
   uploadImage: vi.fn().mockResolvedValue({
     src: "https://cdn.example.com/review.png",
@@ -75,6 +77,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: mocks.uploadImage,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: mocks.toastSuccess },
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -290,6 +296,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     mocks.callAction.mockClear();
     mocks.setClientAppState.mockClear();
     mocks.sendToAgent.mockClear();
+    mocks.toastError.mockReset();
+    mocks.toastSuccess.mockReset();
     mocks.uploadImage.mockReset().mockResolvedValue({
       src: "https://cdn.example.com/review.png",
     });
@@ -3133,6 +3141,111 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       pinsBeforePreview.length - 1,
     );
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a failed reprompt and keeps its draft available for retry", async () => {
+    const onClose = vi.fn();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    const iframeDocument = document.implementation.createHTMLDocument();
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: iframeDocument,
+    });
+    iframeDocument.body.innerHTML = '<section data-loc="src:1">Hero</section>';
+    iframe.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 600,
+        right: 800,
+        bottom: 600,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={onClose}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          sourceType="inline"
+          sourceVersionHash="hash-1"
+          repromptDraftRequest={{
+            nonce: 1,
+            fileId: "screen-1",
+            target: {
+              nodeId: "stale-node",
+              selector: '[data-loc="src:1"]',
+            },
+            point: { xPct: 50, yPct: 40 },
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    const send = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) =>
+      button.textContent?.includes("designEditor.nodeRewrite.modeRegenerate"),
+    );
+    await act(async () => send?.click());
+
+    const beginCall = mocks.callAction.mock.calls.find(
+      ([name]) => name === "begin-node-rewrite-request",
+    );
+    const pending = beginCall?.[1] as {
+      fileId: string;
+      repromptId: string;
+    };
+    const pins = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+    );
+    const pin = pins[pins.length - 1];
+    expect(pin?.querySelector("svg")).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("design:node-reprompt-preview-failed", {
+          detail: {
+            repromptId: pending.repromptId,
+            fileId: pending.fileId,
+            reason: "future-bridge-reason",
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "designEditor.nodeRewrite.previewFailed",
+    );
+    const retryPins = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+    );
+    const retryPin = retryPins[retryPins.length - 1];
+    expect(retryPin?.querySelector("svg")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => retryPin?.click());
+    expect(
+      document.querySelector<HTMLTextAreaElement>("[data-review-test-textarea]")
+        ?.value,
+    ).toBe("Make the background darker");
   });
 
   it("leaves an overview reprompt for the active visible canvas to consume", async () => {

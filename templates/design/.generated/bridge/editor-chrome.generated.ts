@@ -12159,6 +12159,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
+    function postNodeHtmlPreviewFailed(proposalId, reason) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:node-html-preview-failed",
+          proposalId,
+          reason
+        },
+        "*"
+      );
+    }
     function replaceNodeHtmlPreviewElement(session, nextElement) {
       var parent = session.startMarker.parentNode;
       if (!parent || session.endMarker.parentNode !== parent) return false;
@@ -12210,16 +12220,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var nextElement = parseNodeHtmlPreviewElement(data.html);
-      if (!nextElement) return;
+      if (!nextElement) {
+        postNodeHtmlPreviewFailed(proposalId, "preview-invalid");
+        return;
+      }
       if (activeNodeHtmlPreview && activeNodeHtmlPreview.proposalId === proposalId) {
         if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
           postNodeHtmlPreviewApplied(proposalId);
+        } else {
+          postNodeHtmlPreviewFailed(proposalId, "preview-replacement-failed");
         }
         return;
       }
       if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
       var target = resolveNodeHtmlPreviewTarget(data.target);
       if (!target || !target.parentNode || target === document.documentElement) {
+        postNodeHtmlPreviewFailed(proposalId, "target-unresolved");
         return;
       }
       var originalOuterHTML = target.outerHTML;
