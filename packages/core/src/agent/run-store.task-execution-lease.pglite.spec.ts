@@ -49,6 +49,7 @@ const {
   completeAgentExecutionStep,
   finalizeClaimedBackgroundRunFailure,
   getLastTerminalRunEvent,
+  insertRunEvent,
   insertRunEvents,
   markAgentExecutionStepDispatched,
   markRunAbortedAtSafeBoundary,
@@ -576,6 +577,31 @@ describe("task execution leases", () => {
 });
 
 describe("run event batches", () => {
+  it("marks a required event insert miss terminal only after the run ends", async () => {
+    const runId = "required-run-event-persistence";
+    const eventData = '{"type":"text","text":"event"}';
+    await insertRun(runId, runId, runId);
+
+    await insertRunEvent(runId, 0, eventData, { requireInserted: true });
+    await expect(
+      insertRunEvent(runId, 0, eventData, { requireInserted: true }),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: false,
+    });
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id = ?",
+      [runId],
+    );
+    await expect(
+      insertRunEvent(runId, 1, eventData, { requireInserted: true }),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+  });
+
   it("requires every batch row to be durably present and match on retry", async () => {
     const runId = "run-event-batch-persistence";
     await insertRun(runId, runId, runId);

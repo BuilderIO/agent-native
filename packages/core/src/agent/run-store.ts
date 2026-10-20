@@ -3737,9 +3737,9 @@ export async function insertRunEvent(
     options?.toolInputSource,
   );
   // The reaper must wait for the marker's commit before exposing a successor.
-  const { rowsAffected } = await withFencedExecutionWrite(
-    (tx) =>
-      tx.execute({
+  const { rowsAffected, terminalRun } = await withFencedExecutionWrite(
+    async (tx) => {
+      const { rowsAffected } = await tx.execute({
         sql: options?.requireInserted
           ? `WITH running_run AS MATERIALIZED (
           SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
@@ -3761,11 +3761,21 @@ export async function insertRunEvent(
           storedEventData,
           ...(options?.requireInserted ? [] : [runId]),
         ],
-      }),
+      });
+      if (!options?.requireInserted || rowsAffected === 1)
+        return { rowsAffected, terminalRun: false };
+
+      const run = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ?",
+        args: [runId],
+      });
+      const status = (run.rows[0] as { status?: string } | undefined)?.status;
+      return { rowsAffected, terminalRun: status !== "running" };
+    },
     { runId },
   );
   if (options?.requireInserted && rowsAffected !== 1)
-    throw new AgentRunEventNotPersistedError(runId, seq);
+    throw new AgentRunEventNotPersistedError(runId, seq, terminalRun);
 }
 
 // Stays well under PostgreSQL's 65,535 bind-parameter limit at 4 per row.
