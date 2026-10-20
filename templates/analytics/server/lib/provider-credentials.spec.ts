@@ -483,6 +483,51 @@ describe("analytics provider credentials", () => {
     expect(mocks.oauthCalls).toEqual([]);
   });
 
+  it.each([
+    {
+      label: "null organization ids",
+      contextOrgId: null,
+      connectionOrgId: null,
+    },
+    { label: "empty organization ids", contextOrgId: "", connectionOrgId: "" },
+    {
+      label: "a missing context organization id",
+      contextOrgId: undefined,
+      connectionOrgId: "org-1",
+    },
+    {
+      label: "a missing connection organization id",
+      contextOrgId: "org-1",
+      connectionOrgId: undefined,
+    },
+  ])("rejects org OAuth when it has $label", async (scope) => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "github-org-connection",
+        ownerEmail: "owner@example.test",
+        orgId: scope.connectionOrgId,
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = { accessToken: "org-oauth-token" };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: scope.contextOrgId,
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.oauthCalls).toEqual([]);
+  });
+
   it("allows an organization-owned GitHub OAuth connection for org credentials", async () => {
     mocks.workspaceConnectionResult = {
       available: true,

@@ -536,14 +536,66 @@ describe("guard:beta-e2e-suite", () => {
         rmSync(dir, { recursive: true, force: true });
       }
     };
+    const invokeSavedThread = (inputs: Record<string, unknown>) => {
+      const dir = mkdtempSync(path.join(tmpdir(), "beta-saved-thread-input-"));
+      try {
+        const eventPath = path.join(dir, "event.json");
+        writeFileSync(
+          eventPath,
+          JSON.stringify({
+            repository: { full_name: "BuilderIO/agent-native" },
+            inputs,
+          }),
+        );
+        return spawnSync(
+          tsx,
+          [path.join(repoRoot, "e2e/beta/read-saved-thread.ts")],
+          {
+            cwd: repoRoot,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              GITHUB_EVENT_NAME: "workflow_dispatch",
+              GITHUB_REPOSITORY: "BuilderIO/agent-native",
+              GITHUB_EVENT_PATH: eventPath,
+              BETA_E2E_APPS: "content",
+              GH_TOKEN: "",
+            },
+          },
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const exactTitle =
+      "[chat-reliability] refresh mid-run restores the complete answer";
     const valid = (apps: string) => ({
       diagnostic_run: "123456789",
       apps,
       lane: "authed",
-      grep: "[chat-reliability] refresh mid-run restores the complete answer",
+      grep: exactTitle,
     });
     assert.equal(invoke(valid("content")).status, 0);
     assert.equal(invoke(valid("content,dispatch")).status, 0);
+    const savedThread = invokeSavedThread(valid("content"));
+    assert.equal(savedThread.status, 2, savedThread.stderr);
+    assert.deepEqual(JSON.parse(savedThread.stdout), {
+      status: "unavailable",
+      app: "content",
+      phase: "artifact",
+      code: "github_token_missing",
+    });
+    const savedThreadWithEscapedTitle = invokeSavedThread({
+      ...valid("content"),
+      grep: String.raw`\[chat-reliability\] refresh mid-run restores the complete answer`,
+    });
+    assert.equal(savedThreadWithEscapedTitle.status, 2);
+    assert.deepEqual(JSON.parse(savedThreadWithEscapedTitle.stdout), {
+      status: "unavailable",
+      app: "content",
+      phase: "request",
+      code: "invalid_shape",
+    });
     assert.equal(invoke({ ...valid("slides") }).status, 2);
     assert.equal(invoke({ ...valid("content"), lane: "public" }).status, 2);
     assert.equal(invoke({ ...valid("content"), grep: "other test" }).status, 2);

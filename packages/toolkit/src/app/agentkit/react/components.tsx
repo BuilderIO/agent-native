@@ -4882,6 +4882,41 @@ export function AgentKitChat({
     composerProps?.attachmentsEnabled !== false;
   const hasFiles = (event: ReactDragEvent<HTMLElement>) =>
     Array.from(event.dataTransfer.types).includes("Files");
+  const attachDroppedFiles = (files: File[]) => {
+    if (!files.length) return;
+    window.dispatchEvent(
+      new CustomEvent("agentkit:attach-files", {
+        detail: { threadId, files },
+      }),
+    );
+  };
+  const observeFileDrop = (nativeEvent: DragEvent, files: File[]) => {
+    const eventPath = nativeEvent.composedPath();
+    const lastPathTarget = eventPath.at(-1);
+    let pending = true;
+    const finishDrop = (dropEvent: Event) => {
+      if (!pending) return;
+      const reachedEnd = dropEvent.currentTarget === lastPathTarget;
+      if (
+        !dropEvent.defaultPrevented &&
+        !dropEvent.cancelBubble &&
+        !reachedEnd
+      ) {
+        return;
+      }
+      pending = false;
+      for (const target of eventPath) {
+        target.removeEventListener("drop", finishDrop);
+      }
+      if (dropEvent.defaultPrevented) return;
+      dropEvent.preventDefault();
+      attachDroppedFiles(files);
+    };
+    // Observe each path target so a stopped event can still be claimed there.
+    for (const target of eventPath) {
+      target.addEventListener("drop", finishDrop);
+    }
+  };
   const handleFileDragEnter = (event: ReactDragEvent<HTMLElement>) => {
     if (!canDropFiles || event.defaultPrevented || !hasFiles(event)) return;
     if (
@@ -4916,18 +4951,16 @@ export function AgentKitChat({
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
     if (event.defaultPrevented) return;
-    event.preventDefault();
     const files = Array.from(event.dataTransfer.files);
     if (!files.length) return;
-    window.dispatchEvent(
-      new CustomEvent("agentkit:attach-files", {
-        detail: { threadId, files },
-      }),
-    );
+    observeFileDrop(event.nativeEvent, files);
   };
   const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
     if (!canDropFiles || !hasFiles(event)) return;
+    if (event.defaultPrevented) return;
+    event.preventDefault();
     event.stopPropagation();
+    attachDroppedFiles(Array.from(event.dataTransfer.files));
   };
 
   const clearTranscriptScrollbarTimeout = useCallback(() => {

@@ -351,9 +351,11 @@ async function resolveWorkspaceOAuthProviderCredential(
   ) {
     return null;
   }
+  const contextOrgId = options.ctx.orgId?.trim();
+  const connectionOrgId = resolvedConnection.connection.orgId?.trim();
   if (
     options.ctx.credentialScope === "org" &&
-    resolvedConnection.connection.orgId !== options.ctx.orgId
+    (!contextOrgId || !connectionOrgId || connectionOrgId !== contextOrgId)
   ) {
     return null;
   }
@@ -377,10 +379,10 @@ async function resolveWorkspaceOAuthProviderCredential(
     connectionId: oauth.connectionId ?? resolvedConnection.connection.id,
     connectionLabel:
       oauth.connectionLabel ?? resolvedConnection.connection.label,
-    ...(resolvedConnection.connection.orgId
+    ...(connectionOrgId
       ? {
           scope: "org" as const,
-          scopeId: resolvedConnection.connection.orgId,
+          scopeId: connectionOrgId,
         }
       : {}),
   };

@@ -1156,6 +1156,17 @@ describe("AgentKitChat interactions", () => {
         (event as CustomEvent<{ threadId: string; files: File[] }>).detail,
       );
     };
+    const dispatchFileDrop = async (target: HTMLElement, file: File) => {
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: { types: ["Files"], files: [file], dropEffect: "none" },
+      });
+      await act(async () => {
+        target.dispatchEvent(drop);
+        await Promise.resolve();
+      });
+      return drop;
+    };
 
     try {
       await act(async () => {
@@ -1247,28 +1258,45 @@ describe("AgentKitChat interactions", () => {
       const nestedFile = new File(["nested attachment"], "nested-drop.txt", {
         type: "text/plain",
       });
-      const nestedDrop = new Event("drop", { bubbles: true, cancelable: true });
-      Object.defineProperty(nestedDrop, "dataTransfer", {
-        value: {
-          types: ["Files"],
-          files: [nestedFile],
-          dropEffect: "none",
-        },
-      });
       window.addEventListener("agentkit:attach-files", receiveNestedAttachment);
-      await act(async () => {
-        nestedEditor.dispatchEvent(nestedDrop);
-        await Promise.resolve();
+      const nestedDrop = await dispatchFileDrop(nestedEditor, nestedFile);
+      expect(nestedDrop.defaultPrevented).toBe(true);
+      expect(nestedAttachment).not.toHaveBeenCalled();
+
+      const preventOnlyEditor = document.createElement("div");
+      preventOnlyEditor.addEventListener("drop", (event) => {
+        event.preventDefault();
       });
+      chat?.appendChild(preventOnlyEditor);
+      const preventOnlyFile = new File(["prevent only"], "prevent-only.txt", {
+        type: "text/plain",
+      });
+      const preventOnlyDrop = await dispatchFileDrop(
+        preventOnlyEditor,
+        preventOnlyFile,
+      );
+      expect(preventOnlyDrop.defaultPrevented).toBe(true);
+      expect(nestedAttachment).not.toHaveBeenCalled();
+
+      const stopOnlyEditor = document.createElement("div");
+      stopOnlyEditor.addEventListener("drop", (event) => {
+        event.stopPropagation();
+      });
+      chat?.appendChild(stopOnlyEditor);
+      const stopOnlyFile = new File(["stop only"], "stop-only.txt", {
+        type: "text/plain",
+      });
+      const stopOnlyDrop = await dispatchFileDrop(stopOnlyEditor, stopOnlyFile);
       window.removeEventListener(
         "agentkit:attach-files",
         receiveNestedAttachment,
       );
       expect(container.textContent).not.toContain("Drop files to attach");
+      expect(stopOnlyDrop.defaultPrevented).toBe(true);
       expect(nestedAttachment).toHaveBeenCalledTimes(1);
       expect(nestedAttachment).toHaveBeenCalledWith({
         threadId: "thread-drop",
-        files: [nestedFile],
+        files: [stopOnlyFile],
       });
 
       const oversizedFile = new Proxy(
