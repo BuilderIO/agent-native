@@ -14,6 +14,7 @@ import type {
 } from "@shared/inbox-threads";
 import {
   effectiveInboxPageLimit,
+  INBOX_MAX_PAGE_OFFSET,
   INBOX_SYNC_POLL_MS,
 } from "@shared/inbox-threads";
 import {
@@ -589,7 +590,9 @@ export function inboxThreadsHasNextPage(
 ): boolean {
   // The server will not read past its offset cap, so asking for more pages
   // only returns schema errors. Older mail is reached through All Mail.
-  if (options?.reachedCap) return false;
+  // Loaded count is checked directly: a lower-bound or unread-only total can
+  // leave `reachedCap` unset while the next offset is already at the cap.
+  if (options?.reachedCap || loadedCount >= INBOX_MAX_PAGE_OFFSET) return false;
   if (
     options?.totalIsLowerBound ||
     (options?.complete === false && options.lastPageLength !== undefined)
@@ -612,21 +615,19 @@ export function invalidateInboxThreads(qc: QueryClient) {
 /**
  * Manual refresh, from any view: one explicit sync of every account from Gmail,
  * then the reads are refreshed. No poller is mounted outside the inbox, so the
- * sync is sent here directly. A failed sync is reported by the sync read that
- * the invalidation refetches, which carries the account's error and retry state.
+ * sync is sent here directly. A failed sync goes to `onError` and the reads are
+ * still refreshed, so the sync read shows the account's error and retry state.
  */
 export async function refreshInboxNow(
   qc: QueryClient,
-): Promise<{ synced: true } | { synced: false; error: unknown }> {
-  let outcome: { synced: true } | { synced: false; error: unknown };
+  onError: (error: unknown) => void,
+): Promise<void> {
   try {
     await callAction<InboxSyncResult>("sync-inbox", { force: true });
-    outcome = { synced: true };
   } catch (error) {
-    outcome = { synced: false, error };
+    onError(error);
   }
   await invalidateInboxThreads(qc);
-  return outcome;
 }
 
 export function snapshotInboxThreads(qc: QueryClient) {

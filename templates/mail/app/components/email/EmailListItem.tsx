@@ -348,6 +348,10 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleRowPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
+      // A touch pointer-down is the start of a swipe as often as a tap, and a
+      // swipe must not warm every row the finger crosses. Touch opens go
+      // through the explicit open path.
+      if (event.pointerType === "touch") return;
       // Pointer-downs from inline controls (star, archive, select) bubble here.
       // Triage is not a request to open the thread, so they must not prefetch.
       const control =

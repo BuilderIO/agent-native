@@ -481,6 +481,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Nachricht gesendet.",
       failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
+      failedToRefreshInbox:
+        "Posteingang konnte nicht aktualisiert werden. Bitte versuche es gleich noch einmal.",
       failedToDeleteDraft: "Entwurf konnte nicht gelöscht werden.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

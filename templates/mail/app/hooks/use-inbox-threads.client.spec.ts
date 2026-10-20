@@ -99,11 +99,14 @@ describe("manual refresh and push wake-ups", () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    await refreshInboxNow(queryClient);
+    const onError = vi.fn();
+
+    await refreshInboxNow(queryClient, onError);
 
     expect(callAction).toHaveBeenCalledTimes(1);
     expect(callAction).toHaveBeenCalledWith("sync-inbox", { force: true });
     expect(mutateSyncAction).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
     queryClient.clear();
   });
 
@@ -116,7 +119,7 @@ describe("manual refresh and push wake-ups", () => {
     const wrapper = ({ children }: PropsWithChildren) =>
       createElement(QueryClientProvider, { client: queryClient }, children);
 
-    await refreshInboxNow(queryClient);
+    await refreshInboxNow(queryClient, vi.fn());
     const hook = renderHook(() => useInboxSyncPoller(["first@example.com"]), {
       wrapper,
     });
@@ -142,9 +145,12 @@ describe("manual refresh and push wake-ups", () => {
     });
     await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
 
-    await expect(refreshInboxNow(queryClient)).resolves.toMatchObject({
-      synced: false,
-    });
+    const onError = vi.fn();
+
+    await refreshInboxNow(queryClient, onError);
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(new Error("Gmail is unavailable"));
     await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
 
     hook.unmount();

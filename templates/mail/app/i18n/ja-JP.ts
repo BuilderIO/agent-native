@@ -467,6 +467,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "メッセージを送信しました。",
       failedToSaveDraft: "下書きを保存できませんでした。",
+      failedToRefreshInbox:
+        "受信トレイを更新できませんでした。しばらくしてから再試行してください。",
       failedToDeleteDraft: "下書きを削除できませんでした。",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

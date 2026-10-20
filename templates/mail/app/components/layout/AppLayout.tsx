@@ -2009,7 +2009,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   void queryClient.invalidateQueries({
                     queryKey: LABELS_QUERY_KEY,
                   });
-                  void refreshInboxNow(queryClient);
+                  void refreshInboxNow(queryClient, () =>
+                    toast.error(t("mail.toasts.failedToRefreshInbox")),
+                  );
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}

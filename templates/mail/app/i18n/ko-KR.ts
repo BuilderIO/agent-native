@@ -461,6 +461,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "메시지가 전송되었습니다.",
       failedToSaveDraft: "초안을 저장하지 못했습니다.",
+      failedToRefreshInbox:
+        "받은편지함을 새로 고치지 못했습니다. 잠시 후 다시 시도하세요.",
       failedToDeleteDraft: "초안을 삭제하지 못했습니다.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

@@ -480,6 +480,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Message envoyé.",
       failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
+      failedToRefreshInbox:
+        "Impossible d'actualiser la boîte de réception. Réessayez dans un instant.",
       failedToDeleteDraft: "Échec de la suppression du brouillon.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

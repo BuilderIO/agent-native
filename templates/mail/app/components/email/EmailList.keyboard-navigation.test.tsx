@@ -1486,6 +1486,17 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(warmThreads).toHaveBeenCalledTimes(1);
   });
 
+  it("does not prefetch from a touch pointer-down, since a swipe starts the same way", () => {
+    render(<Harness />);
+    vi.mocked(warmThreads).mockClear();
+
+    fireEvent.pointerDown(rows()[1], { pointerType: "touch" });
+    expect(warmThreads).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(rows()[1], { pointerType: "mouse" });
+    expect(warmThreads).toHaveBeenCalledTimes(1);
+  });
+
   it("prefetches on hover through the cooldown-gated path and opens on click directly", () => {
     vi.useFakeTimers();
     render(<Harness />);

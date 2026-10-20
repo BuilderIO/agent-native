@@ -451,6 +451,7 @@ const messages = {
       failedToSendEmail: "发送邮件失败",
       messageSent: "邮件已发送。",
       failedToSaveDraft: "无法保存草稿。",
+      failedToRefreshInbox: "无法刷新收件箱，请稍后重试。",
       failedToDeleteDraft: "无法删除草稿。",
       failedToScheduleEmailDraftKeptOpen: "定时发送失败 - 草稿仍保持打开",
       finishRecipientInput: "请先添加收件人或清空输入内容，然后再发送。",

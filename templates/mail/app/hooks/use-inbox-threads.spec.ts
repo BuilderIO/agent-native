@@ -750,6 +750,30 @@ describe("inboxThreadsHasNextPage", () => {
     );
   });
 
+  it("stops at the cap when a lower-bound total still reports a full last page", () => {
+    expect(
+      inboxThreadsHasNextPage(2_000, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(false);
+    expect(
+      inboxThreadsHasNextPage(1_950, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        totalIsLowerBound: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stops at the cap when an unread-only total counts rows past it", () => {
+    expect(inboxThreadsHasNextPage(2_000, 2_100)).toBe(false);
+    expect(inboxThreadsHasNextPage(1_950, 2_100)).toBe(true);
+  });
+
   it("is false once every row is loaded", () => {
     expect(inboxThreadsHasNextPage(250, 250)).toBe(false);
   });
