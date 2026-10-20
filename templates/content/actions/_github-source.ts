@@ -1925,9 +1925,10 @@ export async function syncGitHubSource(
       : storageProblem(result.imagesWaiting, now);
     const complete = result.remaining === 0;
     result.state = complete ? "synced" : "partial";
-    // A run that got through some files isn't a finished check: the next read
-    // or background sync carries on at once. One that got nowhere waits its
-    // turn, as a failed check does.
+    // A run that got through some files isn't a finished check, so the
+    // background sync carries the push on; a read does only once no run has
+    // moved it for two minutes. One that got nowhere waits its turn, as a
+    // failed check does.
     const countsAsCheck = complete || (done === 0 && result.trashed === 0);
     const skipped = rememberedSkips(
       skippedFiles.sort((a, b) => (a.path < b.path ? -1 : 1)),
