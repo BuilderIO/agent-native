@@ -301,8 +301,8 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
+import { DatabaseCellComments } from "./database-cell-comments";
 import {
-  DatabaseCellCommentMarker,
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
   type OpenDatabaseItemComments,
@@ -1931,7 +1931,11 @@ function DatabaseTable({
   }
 
   // Opens the row with its Comments showing, from a count or a cell marker.
-  const previewItemComments: OpenDatabaseItemComments = (item, threadId) => {
+  const previewItemComments: OpenDatabaseItemComments = (
+    item,
+    threadId,
+    propertyId,
+  ) => {
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
@@ -1941,18 +1945,19 @@ function DatabaseTable({
         databaseId,
         document.id,
       );
-      runPreviewTransition(
-        () =>
-          void navigate(
-            threadId ? `${path}&comment=${encodeURIComponent(threadId)}` : path,
-          ),
-      );
+      const link = threadId
+        ? `${path}&comment=${encodeURIComponent(threadId)}`
+        : propertyId
+          ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
+          : path;
+      runPreviewTransition(() => void navigate(link));
       return;
     }
     const intent: PageCommentIntent = {
       key: ++previewCommentIntentSequenceRef.current,
       documentId: item.document.id,
       threadId,
+      propertyId,
     };
     if (item.document.id === previewDocumentId) {
       setPreviewCommentIntent(intent);
@@ -3672,7 +3677,12 @@ function DatabaseTable({
           onOpenPage={openItemPage}
         />
       ) : (
-        <DatabaseItemCommentsContext.Provider value={previewItemComments}>
+        // The read-only ChatGPT widget can't read or write Comments.
+        <DatabaseItemCommentsContext.Provider
+          value={
+            document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
+          }
+        >
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
             columnOrderIds={activeView.tableColumnOrderIds ?? []}
@@ -18687,7 +18697,7 @@ function DatabaseTableRow({
           <div
             key={property.definition.id}
             className={cn(
-              "flex min-w-0 hover:bg-muted/25",
+              "group/cell relative flex min-w-0 hover:bg-muted/25",
               databaseTableCellDensityClass(rowDensity),
               wrapCells ? "items-start" : "items-center",
             )}
@@ -18716,10 +18726,15 @@ function DatabaseTableRow({
             ) : (
               value
             )}
-            <DatabaseCellCommentMarker
+            <DatabaseCellComments
               item={item}
-              propertyId={itemProperty.definition.id}
-              propertyName={itemProperty.definition.name}
+              property={itemProperty}
+              rowSelected={selected}
+              besideEditButton={
+                canEdit &&
+                itemProperty.editable &&
+                itemProperty.definition.type === "relation"
+              }
             />
           </div>
         );

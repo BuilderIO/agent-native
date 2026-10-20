@@ -1012,6 +1012,7 @@ const comments = {
   openRowComments_one: "{{count}} commentaire ouvert sur {{title}}",
   openRowComments_many: "{{count}} commentaires ouverts sur {{title}}",
   openRowComments_other: "{{count}} commentaires ouverts sur {{title}}",
+  openRow: "Ouvrir la ligne",
   suggestions: "Suggestions",
   suggestionAdd: "Ajouter",
   suggestionDelete: "Supprimer",

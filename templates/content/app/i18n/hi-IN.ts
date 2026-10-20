@@ -968,6 +968,7 @@ const comments = {
   openPropertyComments_other: "{{name}} पर {{count}} खुली टिप्पणियाँ",
   openRowComments_one: "{{title}} पर {{count}} खुली टिप्पणी",
   openRowComments_other: "{{title}} पर {{count}} खुली टिप्पणियाँ",
+  openRow: "पंक्ति खोलें",
   suggestions: "सुझाव",
   suggestionAdd: "जोड़ें",
   suggestionDelete: "हटाएँ",
