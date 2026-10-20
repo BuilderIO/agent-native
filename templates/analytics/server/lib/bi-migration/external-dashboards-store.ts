@@ -82,6 +82,7 @@ export const EXTERNAL_DASHBOARD_ELEMENT_REASONS = [
   "too_expensive",
   "no_rows",
   "query_failed",
+  "not_verified",
 ] as const;
 
 const ProviderSchema = z.literal("sigma");
@@ -297,6 +298,8 @@ function toSummary(
   const migratedByCurrentUser =
     row.originalMigratorEmail?.trim().toLowerCase() === userEmail;
   const startable = canStartImport(row, migratedByCurrentUser);
+  const failedReimport =
+    row.status === "failed" && row.targetDashboardId !== null;
   return SummarySchema.parse({
     id: row.id,
     provider: row.provider,
@@ -306,12 +309,13 @@ function toSummary(
     status: row.status,
     // Org members see where a migrated source landed so nobody migrates it
     // twice. Opening the dashboard still goes through its own access check.
+    // A failed re-import keeps the dashboard its migrator made earlier.
     targetDashboardId:
-      migratedByCurrentUser || row.status === "migrated"
+      migratedByCurrentUser || row.status === "migrated" || failedReimport
         ? row.targetDashboardId
         : null,
     migratedByEmail:
-      row.status === "migrated" || row.status === "migrating"
+      row.status === "migrated" || row.status === "migrating" || failedReimport
         ? (row.originalMigratorEmail?.trim().toLowerCase() ?? null)
         : null,
     migratedByCurrentUser,

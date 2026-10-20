@@ -49,6 +49,26 @@ describe("assertReadOnlySql", () => {
     );
   });
 
+  it.each([
+    "SELECT 1 # '\n; DELETE FROM t WHERE true; --'",
+    "SELECT 1 #\n; DELETE FROM t",
+    String.raw`SELECT r'\', '; DELETE FROM t WHERE true; --'`,
+    String.raw`SELECT R"\", "; DELETE FROM t WHERE true; --"`,
+  ])("lexes # comments and raw strings as BigQuery does: %s", (sql) => {
+    expect(() => assertReadOnlySql(sql, "bigquery")).toThrow(
+      /single statement/,
+    );
+  });
+
+  it("ignores mutation words in a BigQuery # comment", () => {
+    expect(() =>
+      assertReadOnlySql(
+        "SELECT 1 AS n # DELETE everything\nFROM t",
+        "bigquery",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects a BigQuery string that ends in an escape", () => {
     expect(() =>
       assertReadOnlySql(String.raw`SELECT 'abc\'`, "bigquery"),

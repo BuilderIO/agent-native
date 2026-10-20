@@ -84,9 +84,13 @@ const migrateSchema = z.object({
     ),
 });
 
-// Keeps the whole run inside the 75 s function timeout with Sigma's reads
-// and the dry runs.
+// The function is killed at 75 s with no error, which would leave the claim
+// held for ten minutes. Dry runs stop launching at the deadline, and
+// verification gets what is left after a margin for the writes.
+const MIGRATION_DEADLINE_MS = 55_000;
+const MIGRATION_WRITE_MARGIN_MS = 10_000;
 const MIGRATION_VERIFICATION_BUDGET_MS = 12_000;
+const MIN_VERIFICATION_BUDGET_MS = 1_000;
 
 function dashboardIdFor(args: {
   orgId: string;
@@ -130,7 +134,7 @@ const REVIEW_MESSAGES: Record<SigmaSqlProofFailure | "unsupported", string> = {
   bigquery_dry_run_failed:
     "BigQuery rejected this element's SQL with Analytics' BigQuery access.",
   bigquery_dry_run_unavailable:
-    "BigQuery could not check this element's SQL. Re-import the workbook to try again.",
+    "BigQuery could not check this element's SQL during the import, so it was not imported.",
 };
 
 function makeReviewCallout(
@@ -214,6 +218,10 @@ function migrationDiagnostics(args: {
       diagnostics.push(
         diagnosticFor(element, "yellow", "manual_review_required"),
       );
+    } else if (panel?.status !== "ok") {
+      // Not run within the budget, over the execution cap, or never
+      // reported: the panel is imported but nothing has shown it renders.
+      diagnostics.push(diagnosticFor(element, "yellow", "not_verified"));
     }
   }
   return diagnostics;
@@ -324,6 +332,7 @@ function dashboardUrl(dashboardId: string): string {
  */
 async function proveSigmaWorkbook(
   inspection: SigmaWorkbookInspection,
+  deadline: number,
 ): Promise<Map<string, SigmaSqlProof>> {
   const candidates = summarizeSigmaElementReview({ inspection }).filter(
     (element) => element.importable,
@@ -337,6 +346,7 @@ async function proveSigmaWorkbook(
   const proofs = await proveSigmaPanelSql(
     inspection,
     candidates.map((element) => element.id),
+    { deadline },
   );
   if (![...proofs.values()].some((proof) => proof.ok)) {
     fail("None of this workbook's panels ran on Analytics' BigQuery.", {
@@ -379,6 +389,7 @@ export default defineAction({
     };
   },
   run: async (args) => {
+    const deadline = Date.now() + MIGRATION_DEADLINE_MS;
     const context = await requireSigmaMigrationContext();
     const selection = await resolveSigmaConnectionSelection(args.connectionId);
     if (!selection.selected) {
@@ -438,7 +449,7 @@ export default defineAction({
       }
     }
 
-    const proofs = await proveSigmaWorkbook(inspection);
+    const proofs = await proveSigmaWorkbook(inspection, deadline);
 
     await createExternalDashboard({
       provider: "sigma",
@@ -505,7 +516,16 @@ export default defineAction({
             return proof !== undefined && !isTooExpensive(proof);
           })
           .map(([, id]) => id),
-        { budgetMs: MIGRATION_VERIFICATION_BUDGET_MS, dryRun: false },
+        {
+          budgetMs: Math.max(
+            MIN_VERIFICATION_BUDGET_MS,
+            Math.min(
+              MIGRATION_VERIFICATION_BUDGET_MS,
+              deadline - Date.now() - MIGRATION_WRITE_MARGIN_MS,
+            ),
+          ),
+          dryRun: false,
+        },
       );
       const existing = await getDashboard(id, {
         email: context.email,

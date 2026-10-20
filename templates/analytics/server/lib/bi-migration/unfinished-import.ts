@@ -1,4 +1,4 @@
-import { removeDashboard } from "../dashboards-store.js";
+import { getDashboard, removeDashboard } from "../dashboards-store.js";
 import {
   failExternalDashboard,
   holdExternalDashboardClaim,
@@ -39,12 +39,21 @@ export async function abandonSigmaImport(input: {
   try {
     if (await holdExternalDashboardClaim(claim)) {
       // An earlier run of a taken-over first import may have written this id
-      // too, so delete it even when this run wrote nothing. A dashboard the
+      // too, so its leftover is deleted even when this run wrote nothing,
+      // but only while it is still the importer's private dashboard: once
+      // shared, it is no longer just an import's leftover. A dashboard the
       // delete misses is overwritten or deleted by the next import of the id.
       if (firstImport) {
-        await removeDashboard(input.dashboardId, input.ctx).catch((error) =>
-          console.warn("Failed to delete an unfinished Sigma import", error),
-        );
+        try {
+          if (
+            input.wroteDashboard ||
+            (await isPrivateLeftover(input.dashboardId, input.ctx))
+          ) {
+            await removeDashboard(input.dashboardId, input.ctx);
+          }
+        } catch (error) {
+          console.warn("Failed to delete an unfinished Sigma import", error);
+        }
       }
       await failExternalDashboard({
         ...claim,
@@ -69,4 +78,17 @@ export async function abandonSigmaImport(input: {
   } catch (error) {
     console.warn("Failed to clean up an unfinished Sigma import", error);
   }
+}
+
+async function isPrivateLeftover(
+  dashboardId: string,
+  ctx: { email: string; orgId: string },
+): Promise<boolean> {
+  const dashboard = await getDashboard(dashboardId, ctx);
+  return (
+    dashboard !== null &&
+    dashboard.visibility === "private" &&
+    dashboard.ownerEmail.toLowerCase() === ctx.email.toLowerCase() &&
+    dashboard.orgId === ctx.orgId
+  );
 }

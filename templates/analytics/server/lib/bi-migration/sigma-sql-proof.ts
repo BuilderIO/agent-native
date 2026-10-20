@@ -33,6 +33,7 @@ const DRY_RUN_CONCURRENCY = 4;
 export async function proveSigmaPanelSql(
   inspection: SigmaWorkbookInspection,
   elementIds: readonly string[],
+  options: { deadline?: number } = {},
 ): Promise<Map<string, SigmaSqlProof>> {
   const queriesByElementId = new Map<string, SigmaWorkbookSqlQuery[]>();
   for (const query of inspection.sqlQueries) {
@@ -47,18 +48,20 @@ export async function proveSigmaPanelSql(
     async (elementId) =>
       [
         elementId,
-        await proveOne(queriesByElementId.get(elementId) ?? []),
+        options.deadline !== undefined && Date.now() >= options.deadline
+          ? ({ ok: false, reason: "bigquery_dry_run_unavailable" } as const)
+          : await proveOne(queriesByElementId.get(elementId)),
       ] as const,
   );
   return new Map(proofs);
 }
 
 async function proveOne(
-  queries: SigmaWorkbookSqlQuery[],
+  queries: SigmaWorkbookSqlQuery[] | undefined,
 ): Promise<SigmaSqlProof> {
-  // A panel runs one query; an element Sigma splits into several has no
-  // single statement to import.
-  if (queries.length !== 1) return { ok: false, reason: "query_unavailable" };
+  // A panel runs one query; an element Sigma returned none for, or split
+  // into several, has no single statement to import.
+  if (queries?.length !== 1) return { ok: false, reason: "query_unavailable" };
   const [query] = queries;
   if (!query.sql) {
     const tooLarge =
@@ -103,8 +106,11 @@ async function proveOne(
         : {}),
     };
   }
-  // A timeout or a BigQuery outage says nothing about the SQL itself.
-  const unavailable = dryRun.timedOut === true || (dryRun.status ?? 0) >= 500;
+  // A timeout, rate limit, or BigQuery outage says nothing about the SQL.
+  const unavailable =
+    dryRun.timedOut === true ||
+    dryRun.status === 429 ||
+    (dryRun.status ?? 0) >= 500;
   return {
     ok: false,
     reason: unavailable

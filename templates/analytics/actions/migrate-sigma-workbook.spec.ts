@@ -270,11 +270,11 @@ describe("migrate-sigma-workbook", () => {
       connectionId: "connection_1",
     });
 
-    expect(mocks.proveSql).toHaveBeenCalledWith(expect.anything(), [
-      "element_1",
-      "element_2",
-      "element_3",
-    ]);
+    expect(mocks.proveSql).toHaveBeenCalledWith(
+      expect.anything(),
+      ["element_1", "element_2", "element_3"],
+      { deadline: expect.any(Number) },
+    );
     const [, , config] = mocks.upsertDashboard.mock.calls[0];
     expect(
       config.panels.map((p: { chartType: string }) => p.chartType),
@@ -318,15 +318,17 @@ describe("migrate-sigma-workbook", () => {
     });
   });
 
-  it("flags panels that dry-run but fail or return nothing", async () => {
+  it("flags panels that dry-run but fail, return nothing, or were not run", async () => {
     workbookWith([
       panelElement("element_1", "Revenue"),
       panelElement("element_2", "Pipeline"),
+      panelElement("element_3", "Churn"),
     ]);
     mocks.proveSql.mockResolvedValue(
       new Map([
         ["element_1", { ok: true, sql: "SELECT 1 AS revenue" }],
         ["element_2", { ok: true, sql: "SELECT 2 AS pipeline" }],
+        ["element_3", { ok: true, sql: "SELECT 3 AS churn" }],
       ]),
     );
     claimed();
@@ -334,6 +336,7 @@ describe("migrate-sigma-workbook", () => {
       verifiedPanels({
         [ids[0]]: "empty",
         [ids[1]]: "query-error",
+        [ids[2]]: "unverified",
       })(config, ids),
     );
 
@@ -348,10 +351,14 @@ describe("migrate-sigma-workbook", () => {
         elementDiagnostics: [
           expect.objectContaining({ status: "yellow", reason: "no_rows" }),
           expect.objectContaining({ status: "red", reason: "query_failed" }),
+          expect.objectContaining({
+            status: "yellow",
+            reason: "not_verified",
+          }),
         ],
       }),
     );
-    expect(result).toMatchObject({ status: "completed", flaggedCount: 2 });
+    expect(result).toMatchObject({ status: "completed", flaggedCount: 3 });
   });
 
   it("cleans up through the claim when a step after the claim fails", async () => {

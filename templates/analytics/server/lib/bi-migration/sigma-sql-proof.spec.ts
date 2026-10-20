@@ -91,22 +91,39 @@ describe("proveSigmaPanelSql", () => {
     mocks.dryRun
       .mockResolvedValueOnce({ error: "Table not found", status: 404 })
       .mockResolvedValueOnce({ error: "timed out", timedOut: true })
-      .mockResolvedValueOnce({ error: "backend error", status: 503 });
+      .mockResolvedValueOnce({ error: "backend error", status: 503 })
+      .mockResolvedValueOnce({ error: "quota exceeded", status: 429 });
 
     const proofs = await proveSigmaPanelSql(
       inspectionWith([
         { elementId: "rejected", sql: "SELECT 1", hasError: false },
         { elementId: "slow", sql: "SELECT 2", hasError: false },
         { elementId: "outage", sql: "SELECT 3", hasError: false },
+        { elementId: "throttled", sql: "SELECT 4", hasError: false },
       ]),
-      ["rejected", "slow", "outage"],
+      ["rejected", "slow", "outage", "throttled"],
     );
 
     expect(Object.fromEntries(proofs)).toEqual({
       rejected: { ok: false, reason: "bigquery_dry_run_failed" },
       slow: { ok: false, reason: "bigquery_dry_run_unavailable" },
       outage: { ok: false, reason: "bigquery_dry_run_unavailable" },
+      throttled: { ok: false, reason: "bigquery_dry_run_unavailable" },
     });
+  });
+
+  it("stops dry-running once the run's deadline has passed", async () => {
+    const proofs = await proveSigmaPanelSql(
+      inspectionWith([{ elementId: "a", sql: "SELECT 1", hasError: false }]),
+      ["a"],
+      { deadline: Date.now() - 1 },
+    );
+
+    expect(proofs.get("a")).toEqual({
+      ok: false,
+      reason: "bigquery_dry_run_unavailable",
+    });
+    expect(mocks.dryRun).not.toHaveBeenCalled();
   });
 
   it("fails the whole check when BigQuery is not connected", async () => {

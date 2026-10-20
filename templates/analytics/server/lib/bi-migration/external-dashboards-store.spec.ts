@@ -499,7 +499,15 @@ describe("external dashboard migration store", () => {
         provider: "sigma",
         sourceIds: ["workbook_5"],
       }),
-    ).resolves.toMatchObject([{ status: "failed", canStartImport: false }]);
+    ).resolves.toMatchObject([
+      {
+        status: "failed",
+        canStartImport: false,
+        // The teammate sees whose dashboard it still is.
+        targetDashboardId: "native-dashboard-5",
+        migratedByEmail: "alice@example.com",
+      },
+    ]);
     await expect(
       store.claimExternalDashboard({
         provider: "sigma",

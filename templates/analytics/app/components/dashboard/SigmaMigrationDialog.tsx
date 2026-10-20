@@ -1011,6 +1011,7 @@ function WorkbookTable({
     "migrate-sigma-workbook"
   >("migrate-sigma-workbook");
   const [runs, setRuns] = useState<Record<string, MigrationRun>>({});
+  useEffect(() => setRuns({}), [connectionId]);
   const setRun = useCallback(
     (workbookId: string, run: MigrationRun) =>
       setRuns((current) => ({ ...current, [workbookId]: run })),
@@ -1125,15 +1126,14 @@ function withRun(
   run: MigrationRun | undefined,
   email: string | undefined,
 ): SigmaWorkbook {
-  if (run?.state !== "done" || workbook.status === "migrated" || !email) {
+  if (run?.state !== "done" || workbook.status === "migrated") {
     return workbook;
   }
   return {
     ...workbook,
     status: "migrated",
     dashboardId: run.dashboardId,
-    migratedOwnerEmail: email,
-    migratedOwnerName: null,
+    ...(email ? { migratedOwnerEmail: email, migratedOwnerName: null } : {}),
     canStartImport: false,
     canRecoverMissingDashboard: false,
   };

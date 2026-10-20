@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   failMigration: vi.fn(),
+  getDashboard: vi.fn(),
   holdClaim: vi.fn(),
   listMigrations: vi.fn(),
   removeDashboard: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock("./external-dashboards-store.js", () => ({
   listExternalDashboards: mocks.listMigrations,
 }));
 vi.mock("../dashboards-store.js", () => ({
+  getDashboard: mocks.getDashboard,
   removeDashboard: mocks.removeDashboard,
 }));
 
@@ -34,6 +36,11 @@ beforeEach(() => {
   mocks.failMigration.mockResolvedValue({});
   mocks.listMigrations.mockResolvedValue([]);
   mocks.removeDashboard.mockResolvedValue(undefined);
+  mocks.getDashboard.mockResolvedValue({
+    visibility: "private",
+    ownerEmail: "Alice@example.com",
+    orgId: "org-1",
+  });
 });
 
 describe("abandonSigmaImport", () => {
@@ -84,6 +91,38 @@ describe("abandonSigmaImport", () => {
     expect(mocks.failMigration).toHaveBeenCalledWith(
       expect.objectContaining({ preservePreviousMigration: true }),
     );
+  });
+
+  it("keeps an earlier run's dashboard once it has been shared", async () => {
+    // The id-conflict check refuses to overwrite it, so cleanup must not
+    // delete what that check protected.
+    mocks.getDashboard.mockResolvedValue({
+      visibility: "org",
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+
+    await abandonSigmaImport({
+      ...base,
+      wroteDashboard: false,
+      previousDashboardId: null,
+    });
+
+    expect(mocks.removeDashboard).not.toHaveBeenCalled();
+    expect(mocks.failMigration).toHaveBeenCalled();
+  });
+
+  it("still releases the claim when the leftover check fails", async () => {
+    mocks.getDashboard.mockRejectedValue(new Error("read failed"));
+
+    await abandonSigmaImport({
+      ...base,
+      wroteDashboard: false,
+      previousDashboardId: null,
+    });
+
+    expect(mocks.removeDashboard).not.toHaveBeenCalled();
+    expect(mocks.failMigration).toHaveBeenCalled();
   });
 
   it("never deletes the dashboard a re-import or its retry wrote over", async () => {
