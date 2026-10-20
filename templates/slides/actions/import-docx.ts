@@ -14,7 +14,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded DOCX path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded DOCX path, hosted reference, or exact current attachment name. A single attached upload can be resolved when its name is unclear.",
+      ),
     convertToSlides: z
       .boolean()
       .optional()

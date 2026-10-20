@@ -211,7 +211,7 @@ export async function prepareSlidesChatAttachments(args: {
 
   const uploaded: Array<{
     originalName: string;
-    path: string;
+    path?: string;
     url?: string;
     type: string;
     size?: number;
@@ -242,7 +242,6 @@ export async function prepareSlidesChatAttachments(args: {
         if (isVisualAttachment(attachment)) {
           uploaded.push({
             originalName: attachment.name,
-            path: attachment.url,
             url: attachment.url,
             type: attachment.contentType || "application/octet-stream",
           });
@@ -330,16 +329,25 @@ export async function prepareSlidesChatAttachments(args: {
     return message === args.message ? undefined : { message };
   }
 
-  const fileList = uploaded
+  const filesWithPaths = uploaded.filter(
+    (file): file is typeof file & { path: string } => Boolean(file.path),
+  );
+  const urlOnlyImages = uploaded.filter(
+    (file) => !file.path && Boolean(file.url) && file.type.startsWith("image/"),
+  );
+  const fileList = filesWithPaths
     .map(
       (file) =>
         `- ${file.originalName} (${file.type}${typeof file.size === "number" ? `, ${(file.size / 1024).toFixed(1)}KB` : ""}) at path: ${file.path}${file.url ? `; embeddable URL: ${file.url}` : ""}`,
     )
     .join("\n");
+  const urlOnlyImageList = urlOnlyImages
+    .map((file) => `- ${file.originalName} (embeddable URL: ${file.url})`)
+    .join("\n");
   const failureList = failed
     .map((file) => `- ${file.name}: ${file.reason}`)
     .join("\n");
-  const unembeddableImages = uploaded.filter(
+  const unembeddableImages = filesWithPaths.filter(
     (file) => !file.url && file.type.startsWith("image/"),
   );
   const unembeddableImageList = unembeddableImages
@@ -347,13 +355,13 @@ export async function prepareSlidesChatAttachments(args: {
     .join("\n");
   const attachmentContext = [
     "<slides-chat-attachments>",
-    uploaded.length > 0
+    filesWithPaths.length > 0
       ? [
-          "The user attached file(s) in chat. They have been saved as real server upload paths that Slides import actions can read:",
+          "The user attached file(s) in chat. These are saved server upload paths that Slides import actions can read:",
           fileList,
           "",
           "File handling rules:",
-          "- Pass `filePath` exactly as listed above, or use the attachment's file name. Never shorten, edit, or re-type the path.",
+          "- Pass `filePath` exactly as listed above, or use the attachment's exact file name. If there is only one saved attachment, its reference can be resolved even if its name is unclear. Never shorten, edit, or re-type a path.",
           '- Attachments are reference context by default. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call `view-screen` when the deckId is not already known, then call `import-file` with `{ filePath: "<path>", format: "pdf" or "pptx", deckId: "<deckId>", importIntoDeck: true }`. Verify the result reports `imported: true` and a positive `slideCount`; do not use extraction-only mode or recreate the imported pages with `add-slide`.',
           "- An attachment alone never imports. Use `import-pptx` with `deckId` only for an explicit whole-deck replacement because it replaces all slides.",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
@@ -363,6 +371,13 @@ export async function prepareSlidesChatAttachments(args: {
           "- For short, fully planned deck-generation requests, pass all slides to one create-deck call after extracting source material. For long or live in-app generation, start mutating promptly and add slides sequentially as they are authored.",
           '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
           "- Do not say no PDF/PPTX/DOCX/FIG/image was attached when a matching saved path is listed here.",
+        ].join("\n")
+      : "",
+    urlOnlyImages.length > 0
+      ? [
+          "The user attached image(s) with an embeddable URL but no private import path:",
+          urlOnlyImageList,
+          "Use the URL directly as an image reference or slide image source. Do not pass this URL or filename to `import-file`; no uploaded file reference exists for it.",
         ].join("\n")
       : "",
     unembeddableImages.length > 0

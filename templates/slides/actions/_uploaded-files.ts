@@ -16,26 +16,44 @@ import {
 import { resolveUploadedReference } from "../server/lib/uploaded-reference-storage.js";
 
 /**
- * The model names an attachment by whatever it saw: the reference, the file
- * name, or the URL. The chat hook stamped the reference on the attachment, so
- * a name or URL from this turn's attachments resolves to it.
+ * Resolve a name or URL through the current turn's stamped upload. If the model
+ * cannot reproduce a name and there is only one upload, that reference is
+ * unambiguous and safe to use.
  */
 function stampedReference(
   filePath: string,
   attachments: ActionRunContext["attachments"],
 ): string | null {
   const wanted = filePath.trim();
-  for (const attachment of attachments ?? []) {
-    const stamped = (attachment as { slidesUploadPath?: unknown })
-      .slidesUploadPath;
-    if (
-      typeof stamped === "string" &&
-      (attachment.name === wanted || attachment.url === wanted)
-    ) {
-      return stamped;
+  const candidates = attachments ?? [];
+  const exactMatches = candidates.filter(
+    (attachment) => attachment.name === wanted || attachment.url === wanted,
+  );
+  if (exactMatches.length > 0) {
+    const matchingReferences = exactMatches.map(
+      (attachment) =>
+        (attachment as { slidesUploadPath?: unknown }).slidesUploadPath,
+    );
+    if (matchingReferences.some((reference) => typeof reference !== "string")) {
+      return null;
     }
+    const uniqueReferences = new Set(matchingReferences as string[]);
+    return uniqueReferences.size === 1
+      ? (uniqueReferences.values().next().value ?? null)
+      : null;
   }
-  return null;
+  if (/[/\\:]/.test(wanted)) return null;
+
+  const references = new Set(
+    candidates.flatMap((attachment) => {
+      const stamped = (attachment as { slidesUploadPath?: unknown })
+        .slidesUploadPath;
+      return typeof stamped === "string" ? [stamped] : [];
+    }),
+  );
+  return references.size === 1
+    ? (references.values().next().value ?? null)
+    : null;
 }
 
 /**

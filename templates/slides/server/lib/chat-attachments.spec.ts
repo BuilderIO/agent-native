@@ -486,7 +486,7 @@ describe("prepareSlidesChatAttachments", () => {
     );
   });
 
-  it("surfaces an already-hosted, url-only image instead of silently dropping it", async () => {
+  it("surfaces an already-hosted image URL without presenting it as an import path", async () => {
     const result = await prepareSlidesChatAttachments({
       ownerEmail: "adam@builder.io",
       message: "add this image",
@@ -506,9 +506,19 @@ describe("prepareSlidesChatAttachments", () => {
     expect(result?.message).toContain(
       "embeddable URL: https://cdn.example.com/editor-ai.jpeg",
     );
+    expect(result?.message).not.toContain(
+      "path: https://cdn.example.com/editor-ai.jpeg",
+    );
+    expect(result?.message).toContain(
+      "Do not pass this URL or filename to `import-file`",
+    );
     expect(result?.attachments?.[0]?.url).toBe(
       "https://cdn.example.com/editor-ai.jpeg",
     );
+    expect(
+      (result?.attachments?.[0] as { slidesUploadPath?: string })
+        ?.slidesUploadPath,
+    ).toBeUndefined();
   });
 
   it("ignores an already-hosted attachment whose extension isn't a supported reference type", async () => {

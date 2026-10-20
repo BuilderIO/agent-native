@@ -110,7 +110,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded file path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded path, hosted reference, or exact current attachment name. A single attached upload can be resolved when its name is unclear.",
+      ),
     format: z
       .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])
       .optional()

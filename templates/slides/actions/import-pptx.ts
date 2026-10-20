@@ -321,7 +321,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded PPTX path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded PPTX path, hosted reference, or exact current attachment name. A single attached upload can be resolved when its name is unclear.",
+      ),
     deckId: z
       .string()
       .optional()
