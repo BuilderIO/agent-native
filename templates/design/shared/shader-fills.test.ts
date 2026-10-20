@@ -6,6 +6,9 @@ import {
   clearNodeShader,
   defaultUniformValues,
   ensureShaderRuntime,
+  ensureNativeShaderRuntime,
+  stripGeneratedShaderRuntimes,
+  NATIVE_SHADER_RUNTIME_SOURCE,
   escapeShaderScriptBreakout,
   getShaderFromHtml,
   htmlHasShaderReferences,
@@ -410,6 +413,28 @@ describe("shader runtime embedding", () => {
       1,
     );
     expect(upgraded).toContain("__anShaders");
+  });
+});
+
+describe("native runtime embedding", () => {
+  it("injects one verified runtime and removes only that generated script", () => {
+    const once = ensureNativeShaderRuntime(DOC);
+    expect(once).toContain("data-agent-native-native-shader-runtime");
+    expect(once).toContain(NATIVE_SHADER_RUNTIME_SOURCE);
+    expect(ensureNativeShaderRuntime(once)).toBe(once);
+    const compact = stripGeneratedShaderRuntimes(once);
+    expect(compact).not.toContain("data-agent-native-native-shader-runtime");
+    expect(compact).toContain('<div data-agent-native-node-id="hero"');
+  });
+
+  it("rejects a forged native runtime marker", () => {
+    const forged = DOC.replace(
+      "</body>",
+      '<script data-agent-native-native-shader-runtime data-runtime-version="2">old()</script></body>',
+    );
+    expect(() => ensureNativeShaderRuntime(forged)).toThrow(
+      "unrecognized content",
+    );
   });
 });
 

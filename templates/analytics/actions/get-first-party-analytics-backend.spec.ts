@@ -58,7 +58,9 @@ beforeEach(() => {
 
 describe("get-first-party-analytics-backend", () => {
   it("reports Postgres for every table when the scope has no backend setting", async () => {
-    await expect(action.run({})).resolves.toEqual({
+    const result = await action.run({});
+    expect(action.outputSchema!.parse(result)).toEqual(result);
+    expect(result).toEqual({
       sink: "postgres",
       setting: "absent",
       tables: {
@@ -66,6 +68,9 @@ describe("get-first-party-analytics-backend", () => {
         analytics_event_daily_rollups: "postgres",
         analytics_user_days: "postgres",
         session_recordings: "postgres",
+        analytics_content_items: "postgres",
+        analytics_content_metric_snapshots: "postgres",
+        analytics_content_collection_runs: "postgres",
       },
     });
     expect(mocks.getOrgSetting).toHaveBeenCalledWith(
@@ -89,6 +94,9 @@ describe("get-first-party-analytics-backend", () => {
         analytics_event_daily_rollups: "bigquery",
         analytics_user_days: "bigquery",
         session_recordings: "postgres",
+        analytics_content_items: "postgres",
+        analytics_content_metric_snapshots: "postgres",
+        analytics_content_collection_runs: "postgres",
       },
     });
     expectNoBigQuery();

@@ -680,6 +680,42 @@ export default {
     sameNameCheckFailed: "無法檢查此指標的現有項目。",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "內容檢視使用的每頁每日點擊次數與曝光次數。",
+      serviceAccount: "服務帳戶",
+      copyEmail: "複製電子郵件",
+      grantHint:
+        "在 Search Console 中，為每個資源依序進入「設定 → 使用者和權限」，將此電子郵件新增為使用者。",
+      noServiceAccount: "請先新增 Google 服務帳戶金鑰。",
+      openGoogleCloud: "開啟 Google Cloud",
+      invalidServiceAccount: "無法讀取已儲存的服務帳戶金鑰。",
+      properties: "資源",
+      siteLabel: "資源",
+      pathLabel: "路徑前綴",
+      pathInvalid: "路徑前綴必須以 / 開頭。",
+      addProperty: "新增資源",
+      removeProperty: "移除資源",
+      save: "儲存",
+      collectDaily: "每日收集",
+      adminOnly: "只有組織擁有者和管理員可以變更此設定。",
+      statusCollecting: "收集中",
+      statusNeedsAccess: "需要存取權",
+      statusFailed: "上次執行失敗",
+      runSucceeded: "收集於 {{when}}",
+      runNeedsAccess: "截至 {{when}} 無存取權",
+      runRunning: "自 {{when}} 起收集中",
+      runFailed: "失敗於 {{when}}",
+      unavailable: "無法取得收集狀態：{{message}}",
+      keyUnreadable:
+        "無法讀取已儲存的服務帳戶金鑰。請在 Google Cloud 下重新儲存。",
+      propertyBareDomain: "網域資源請使用 {{suggestion}}。",
+      propertyInvalidDomain: "sc-domain: 後面只填寫網域，例如 {{suggestion}}。",
+      propertyMissingSlash:
+        "網址前置字元資源以 / 結尾。請使用 {{suggestion}}。",
+      propertyUnrecognized:
+        "請使用 sc-domain:example.com，或以 / 結尾的網址前置字元資源。",
+    },
     uploadFile: "上傳檔案",
     googleSheetsExport: "Google Sheets 匯出",
     googleSheetsExportDescription:

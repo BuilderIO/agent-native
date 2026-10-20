@@ -32,7 +32,9 @@ describe("review anchors", () => {
         { selector: "body > main > section", point },
         () => null,
         (selector) =>
-          selector === "body > main > section" ? { xPct: 55, yPct: 35 } : null,
+          selector === "body > main > section"
+            ? { status: "matched", point: { xPct: 55, yPct: 35 } }
+            : { status: "not-found" },
       ),
     ).toMatchObject({
       source: "selector",
@@ -154,7 +156,7 @@ describe("review anchors", () => {
       resolveReviewAnchor(
         anchor,
         () => null,
-        () => null,
+        () => ({ status: "not-found" }),
         "screen-1",
       ),
     ).toMatchObject({ source: "point", point: anchor.screenPoint });
@@ -162,9 +164,38 @@ describe("review anchors", () => {
       resolveReviewAnchor(
         anchor,
         () => null,
-        () => null,
+        () => ({ status: "not-found" }),
         "screen-2",
       ),
     ).toMatchObject({ source: "point", point });
+  });
+
+  it("keeps selector failures distinct while falling back to the stored point", () => {
+    const anchor = { selector: "[", point };
+    const invalid = resolveReviewAnchor(
+      anchor,
+      () => null,
+      () => ({
+        status: "invalid-selector",
+      }),
+    );
+    const missing = resolveReviewAnchor(
+      anchor,
+      () => null,
+      () => ({
+        status: "not-found",
+      }),
+    );
+
+    expect(invalid).toMatchObject({
+      source: "point",
+      point,
+      selectorResolution: "invalid-selector",
+    });
+    expect(missing).toMatchObject({
+      source: "point",
+      point,
+      selectorResolution: "not-found",
+    });
   });
 });

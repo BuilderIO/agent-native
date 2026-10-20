@@ -762,6 +762,8 @@ export interface AgentChatRuntimeTurn<
   readonly runId?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
   readonly events: AsyncIterable<TEvent>;
+  /** Close the local event stream without cancelling the underlying run. */
+  closeEvents?(): Promise<void> | void;
   cancel?(
     input?: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -1356,6 +1358,9 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   const runSlotBusy =
     status === 409 &&
     (explicitCode === "run_slot_busy" ||
+      (explicitCode === "queued_message_already_submitted" &&
+        typeof submittedRunId === "string" &&
+        submittedRunId.length > 0) ||
       (explicitCode === undefined &&
         (activeRunIdValue ||
           (typeof submittedRunId === "string" && submittedRunId.length > 0))));
@@ -1532,14 +1537,19 @@ export function createHttpAgentChatRuntime<
           cleanup();
         }
       })();
+      const closeEvents = () => {
+        controller.abort();
+        cleanup();
+      };
 
       return {
         id: turnId,
         sessionId,
         runId,
         events,
+        closeEvents,
         cancel: async (cancelInput) => {
-          controller.abort();
+          closeEvents();
           if (!options.cancelEndpoint) return { status: "cancelled" };
           const endpoint =
             typeof options.cancelEndpoint === "function"

@@ -260,6 +260,27 @@ describe("createHttpAgentChatRuntime", () => {
     expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/cancel");
   });
 
+  it("closes an unconsumed response stream without cancelling its run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([]));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: "/agent/cancel",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Close the discarded stream",
+    });
+    await turn.closeEvents?.();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal).aborted).toBe(
+      true,
+    );
+  });
+
   it("accepts JSON response text as a simple assistant turn", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ text: "Done" }), {
@@ -455,6 +476,35 @@ describe("createHttpAgentChatRuntime", () => {
       retryable: true,
       activeRunId: "run-active",
       submittedRunId: "run-submitted",
+    });
+  });
+
+  it("maps an accepted queue submission receipt to an AgentKit busy error", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                code: "queued_message_already_submitted",
+                submittedRunId: "run-submitted",
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "Reconnect to the accepted queue submission",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      submittedRunId: "run-submitted",
+      status: 409,
+      retryable: true,
     });
   });
 

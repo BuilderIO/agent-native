@@ -210,6 +210,9 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
+const mockRunManagerFlush = vi.hoisted(() => ({
+  onFlush: undefined as (() => Promise<void>) | undefined,
+}));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -260,11 +263,24 @@ vi.mock("./run-manager.js", async () => {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
       const [runId, threadId, runFn, onComplete, options] = args;
-      return actual.startRun(runId, threadId, runFn, onComplete, {
-        ...options,
-        executionLease: false,
-        persistEvent: async () => {},
-      });
+      return actual.startRun(
+        runId,
+        threadId,
+        (send, signal, control) =>
+          runFn(send, signal, {
+            ...control,
+            flushEvents: async () => {
+              await mockRunManagerFlush.onFlush?.();
+              await control.flushEvents();
+            },
+          }),
+        onComplete,
+        {
+          ...options,
+          executionLease: false,
+          persistEvent: async () => {},
+        },
+      );
     },
     tryClaimRunSlot: mockTryClaimRunSlot,
     getSlotHoldingRunId: mockGetSlotHoldingRunId,
@@ -4142,7 +4158,22 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    const runAction = vi.fn(async () => "sent");
+    let releaseFlush = () => {};
+    let flushStarted = false;
+    let flushCompleted = false;
+    let actionStartedBeforeFlush = false;
+    const flushGate = new Promise<void>((resolve) => {
+      releaseFlush = resolve;
+    });
+    mockRunManagerFlush.onFlush = async () => {
+      flushStarted = true;
+      await flushGate;
+      flushCompleted = true;
+    };
+    const runAction = vi.fn(async () => {
+      actionStartedBeforeFlush = !flushCompleted;
+      return "sent";
+    });
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
     const engine: AgentEngine = {
@@ -4156,6 +4187,7 @@ describe("createProductionAgentHandler", () => {
         yield { type: "stop", reason: "end_turn" };
       },
     };
+    let responseText: Promise<string> | undefined;
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine,
@@ -4220,9 +4252,14 @@ describe("createProductionAgentHandler", () => {
         () => handler(event),
       );
       expect(response).toBeInstanceOf(ReadableStream);
-      if (response instanceof ReadableStream) {
-        await new Response(response).text();
-      }
+      responseText =
+        response instanceof ReadableStream
+          ? new Response(response).text()
+          : Promise.resolve("");
+      await vi.waitFor(() => expect(flushStarted).toBe(true));
+      expect(runAction).not.toHaveBeenCalled();
+      releaseFlush();
+      await responseText;
       await vi.waitFor(() => expect(completedRun).toBeDefined());
 
       expect(resolveApproval).toHaveBeenCalledWith(
@@ -4233,6 +4270,7 @@ describe("createProductionAgentHandler", () => {
       );
       expect(consumeApproval).toHaveBeenCalledOnce();
       expect(runAction).toHaveBeenCalledOnce();
+      expect(actionStartedBeforeFlush).toBe(false);
       const continuedMessages = modelMessages.find((messages) =>
         messages.some(
           (message) =>
@@ -4266,6 +4304,9 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
+      releaseFlush();
+      await responseText?.catch(() => {});
+      mockRunManagerFlush.onFlush = undefined;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -8008,7 +8049,8 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        options.onModelDispatchStarted?.();
         streamCalls += 1;
         if (streamCalls === 1) {
           yield {

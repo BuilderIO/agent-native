@@ -288,7 +288,18 @@ export function unionExportCropRects(
   const top = Math.min(...valid.map((rect) => rect.y));
   const right = Math.max(...valid.map((rect) => rect.x + rect.width));
   const bottom = Math.max(...valid.map((rect) => rect.y + rect.height));
-  return { x: left, y: top, width: right - left, height: bottom - top };
+  const horizontalOwner = valid.find(
+    (rect) => rect.x === left && rect.x + rect.width === right,
+  );
+  const verticalOwner = valid.find(
+    (rect) => rect.y === top && rect.y + rect.height === bottom,
+  );
+  return {
+    x: left,
+    y: top,
+    width: horizontalOwner ? horizontalOwner.width : right - left,
+    height: verticalOwner ? verticalOwner.height : bottom - top,
+  };
 }
 
 export interface ExportCompositeFrame extends ExportCropRect {

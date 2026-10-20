@@ -445,7 +445,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
@@ -457,6 +457,7 @@ jobs:
             inspector-3a,
             inspector-3b,
             inspector-4a,
+            inspector-4c,
             inspector-4b,
             drag-1a,
             drag-1b,
@@ -523,9 +524,10 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 9
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          E2E_LOG_TEST_PROGRESS: "1"
         run: |
           set -euo pipefail
           # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.

@@ -297,6 +297,8 @@ export interface DesignColorPickerProps {
   onRemoveGradientStop?: (id: string) => void;
   documentColors?: string[];
   supportedPaintTypes?: DesignPaintType[];
+  maxGradientStops?: number;
+  showReverseStops?: boolean;
   glslShaderContext?: GlslShaderPanelContext;
   labels?: Partial<DesignColorPickerLabels>;
   allowDesignHistoryHotkeys?: boolean;
@@ -447,6 +449,8 @@ export function DesignColorPicker({
   onGradientTypeChange,
   documentColors,
   supportedPaintTypes,
+  maxGradientStops,
+  showReverseStops,
   glslShaderContext,
   labels,
   allowDesignHistoryHotkeys = false,
@@ -1339,8 +1343,12 @@ export function DesignColorPicker({
         if (!nextOpen) request.onClose();
       }}
       value={request.css}
-      paintType="solid"
-      supportedPaintTypes={SOLID_ONLY}
+      paintType={
+        request.supportedPaintTypes ? inferPaintType(request.css, 100) : "solid"
+      }
+      supportedPaintTypes={request.supportedPaintTypes ?? SOLID_ONLY}
+      maxGradientStops={request.maxGradientStops}
+      showReverseStops={request.showReverseStops}
       onChange={request.onChange}
       onChangeComplete={request.onCommit}
       documentColors={shownDocumentColors}
@@ -1349,7 +1357,7 @@ export function DesignColorPicker({
       opaqueSrgb={request.opaqueSrgb}
       allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
       onDesignHistoryHotkey={onDesignHistoryHotkey}
-      disabled={disabled}
+      disabled={disabled || request.disabled}
       labels={labels}
     />
   );
@@ -1608,6 +1616,8 @@ export function DesignColorPicker({
           <GradientEditor
             value={activeGradient}
             selectedStopId={effectiveSelectedStopId}
+            maxStops={maxGradientStops}
+            showReverseStops={showReverseStops}
             disabled={disabled}
             typeControl={renderGradientType()}
             renderColorPicker={renderNestedColorPicker}

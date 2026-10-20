@@ -30,6 +30,7 @@ export const SEED_BUILTIN_DASHBOARD_IDS = [
   "skills-cli-funnel",
   "google-analytics",
   "node-exporter-full",
+  "content-view",
 ] as const;
 
 export function nativeV2BuiltinDashboardId(templateId: string): string {
@@ -55,6 +56,7 @@ const LEGACY_NATIVE_ID = /^native-(.+)-[0-9a-f]{10}$/;
  * never belonged to one. Seed ids map to themselves.
  */
 export function builtinDashboardIdForLegacyId(id: string): string | null {
+  if (/^content-view-[0-9a-f]{10}$/.test(id)) return "content-view";
   if (LEGACY_DEMO_ID.test(id)) return BUILTIN_DEMO_DASHBOARD_ID;
   if (id === "risk-meeting") return BUILTIN_RISK_MEETING_DASHBOARD_ID;
   const native = LEGACY_NATIVE_ID.exec(id);

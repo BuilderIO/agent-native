@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -116,6 +116,7 @@ import {
   type PlaywrightModule,
 } from "../server/lib/playwright-runtime.js";
 import { degradeWideColorsInHtml } from "../shared/export-color-fallback.js";
+import { parseEffectsFromHtml } from "../shared/native-effects.js";
 
 export function chromiumUnavailableReason(err: unknown): string {
   const detail = err instanceof Error ? err.message : String(err);
@@ -497,6 +498,16 @@ export default defineAction({
     }
 
     const html = await liveContent(file.id, file.content ?? "");
+    const native = parseEffectsFromHtml(html);
+    if (
+      native.errors.length ||
+      native.document?.instances.some((instance) => instance.enabled)
+    ) {
+      fail("Native Design effects require a live editor PNG capture.", {
+        errorCode: "native_export_live_frame_required",
+        statusCode: 422,
+      });
+    }
 
     let playwright: PlaywrightModule;
     try {

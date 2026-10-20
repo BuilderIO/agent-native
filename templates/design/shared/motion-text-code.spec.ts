@@ -3,6 +3,10 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 import {
+  createMotionNativeStyleInstance,
+  motionNativeStylesToTextAnimations,
+} from "./motion-native-style-runtime";
+import {
   MOTION_TEXT_RUNTIME_ATTRIBUTE,
   MOTION_TEXT_SOURCE_ATTRIBUTE,
   MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
@@ -66,9 +70,32 @@ class FakeDocumentFragment {
 class FakeWebAnimation {
   currentTime: number | null = 0;
   paused = false;
+  readonly finished: Promise<void>;
+  private resolveFinished: () => void = () => {};
+  private rejectFinished: (reason: unknown) => void = () => {};
+
+  constructor() {
+    this.finished = new Promise((resolve, reject) => {
+      this.resolveFinished = resolve;
+      this.rejectFinished = reject;
+    });
+    // Nothing awaits a fake that is never finished or cancelled, so its pending promise must not raise.
+    this.finished.catch(() => {});
+  }
 
   pause(): void {
     this.paused = true;
+  }
+
+  finish(): void {
+    this.resolveFinished();
+  }
+
+  // Like a browser, cancelling rejects the finished promise.
+  cancel(): void {
+    this.rejectFinished(
+      new DOMException("The animation was cancelled.", "AbortError"),
+    );
   }
 }
 
@@ -143,6 +170,14 @@ class FakeElement {
     this.childNodes = nodes;
   }
 
+  contains(node: FakeNode): boolean {
+    return this.childNodes.some(
+      (child) =>
+        child === node ||
+        (child instanceof FakeElement && child.contains(node)),
+    );
+  }
+
   getBoundingClientRect(): { top: number } {
     return { top: this.top };
   }
@@ -151,6 +186,30 @@ class FakeElement {
     const handle = new FakeWebAnimation();
     this.animations.push({ keyframes, options, handle });
     return handle;
+  }
+}
+
+const mutationCallbacks: Array<() => void> = [];
+const mutationObservers: FakeMutationObserver[] = [];
+
+class FakeMutationObserver {
+  disconnected = false;
+
+  constructor(
+    private readonly callback: (
+      records: unknown[],
+      observer: FakeMutationObserver,
+    ) => void,
+  ) {
+    mutationObservers.push(this);
+  }
+
+  observe(): void {
+    mutationCallbacks.push(() => this.callback([], this));
+  }
+
+  disconnect(): void {
+    this.disconnected = true;
   }
 }
 
@@ -204,6 +263,7 @@ function executeRuntime(
   runInNewContext(sourceForRuntime(compiled.runtimeMarkup), {
     document: fakeDocument,
     Intl,
+    MutationObserver: FakeMutationObserver,
     window: fakeWindow,
   });
   return {
@@ -1404,5 +1464,418 @@ describe("Motion Text source and runtime", () => {
         document,
       ),
     ).toThrow(/supported inline formatting/);
+  });
+
+  describe("crop and pivot", () => {
+    const rotating: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "left-to-right",
+      property: "rotate",
+      keyframes: [
+        { t: 0, value: "90deg" },
+        { t: 1, value: "0deg" },
+      ],
+    };
+    const unitsOf = (target: FakeElement) =>
+      target.children.filter(
+        (child) =>
+          child.getAttribute("data-agent-native-motion-text-unit") !== null,
+      );
+
+    it("round-trips crop and pivot and drops a false crop", () => {
+      const withControls: MotionTextDocument = {
+        version: 2,
+        animations: [
+          { ...rotating, clipContent: true, originX: 0, originY: 100 },
+        ],
+      };
+      const encoded = encodeMotionTextDocument(withControls);
+
+      expect(decodeMotionTextDocument(encoded)).toEqual({
+        status: "valid",
+        document: withControls,
+      });
+      expect(
+        encodeMotionTextDocument({
+          version: 2,
+          animations: [{ ...rotating, clipContent: false }],
+        }),
+      ).not.toContain("clipContent");
+    });
+
+    it("fills a missing pivot axis with the center and rejects bad values", () => {
+      const decoded = decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [{ ...rotating, originX: 25 }],
+        }),
+      );
+
+      expect(decoded).toMatchObject({
+        status: "valid",
+        document: { animations: [{ originX: 25, originY: 50 }] },
+      });
+      for (const animation of [
+        { ...rotating, originX: 101 },
+        { ...rotating, originY: -1 },
+        { ...rotating, originX: "left" },
+        { ...rotating, clipContent: "yes" },
+      ]) {
+        expect(
+          decodeMotionTextDocument(
+            JSON.stringify({ version: 2, animations: [animation] }),
+          ),
+        ).toMatchObject({
+          status: "invalid",
+          error: { code: "invalid-document" },
+        });
+      }
+    });
+
+    it("crops the target to its box and pivots each unit when requested", () => {
+      const target = textTarget("AB");
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [
+            { ...rotating, clipContent: true, originX: 0, originY: 100 },
+          ],
+        }),
+        target,
+      );
+
+      expect(target.style.clipPath).toBe("inset(0)");
+      expect(unitsOf(target).map((unit) => unit.style.transformOrigin)).toEqual(
+        ["0% 100%", "0% 100%"],
+      );
+    });
+
+    it("lifts the crop once the preview has rewritten the units", () => {
+      mutationCallbacks.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, clipContent: true }],
+        }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      target.replaceChildren(new FakeTextNode("AB"));
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("keeps the crop a newer run requested when an older run's observer fires", () => {
+      mutationCallbacks.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime({
+        version: 2,
+        animations: [{ ...rotating, clipContent: true }],
+      });
+      executeRuntime(animations, target);
+      target.replaceChildren(new FakeTextNode("AB"));
+      executeRuntime(animations, target);
+
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("lifts the crop of a paragraph target once its content is rewritten", () => {
+      mutationCallbacks.length = 0;
+      const target = new FakeElement("p");
+      target.setAttribute("data-agent-native-node-id", "headline");
+      target.appendChild(new FakeTextNode("AB"));
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, unit: "paragraph", clipContent: true }],
+        }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      target.replaceChildren(new FakeTextNode("CD"));
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("lifts the crop when a rerun no longer asks for it", () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, clipContent: true }],
+        }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      executeRuntime(
+        compileMotionTextRuntime({ version: 2, animations: [rotating] }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("");
+    });
+
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const handlesOf = (target: FakeElement) =>
+      unitsOf(target).flatMap((unit) =>
+        unit.animations.map((animation) => animation.handle),
+      );
+
+    it("disconnects the observer of a crop that a rerun replaces", () => {
+      mutationObservers.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime(
+        { version: 2, animations: [{ ...rotating, clipContent: true }] },
+        "once",
+      );
+      executeRuntime(animations, target);
+      const [replaced] = mutationObservers;
+      executeRuntime(animations, target);
+
+      expect(replaced?.disconnected).toBe(true);
+      expect(mutationObservers[1]?.disconnected).toBe(false);
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("disconnects the observer of a crop that a rerun no longer asks for", () => {
+      mutationObservers.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      const [cropObserver] = mutationObservers;
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [rotating] },
+          "once",
+        ),
+        target,
+      );
+
+      expect(cropObserver?.disconnected).toBe(true);
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("lifts the crop once a move that plays once has finished", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      handlesOf(target).forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("keeps the crop of a looping move, which never finishes", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "loop",
+        ),
+        target,
+      );
+
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("keeps the crop of a looping move after its animations are cancelled", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "loop",
+        ),
+        target,
+      );
+
+      handlesOf(target).forEach((handle) => handle.cancel());
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("lifts the crop once every move has settled, even if one was cancelled", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      const [cancelled, ...others] = handlesOf(target);
+      cancelled!.cancel();
+      others.forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("does not let an earlier run's finished move lift the newer run's crop", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      const animations = compileMotionTextRuntime(
+        { version: 2, animations: [{ ...rotating, clipContent: true }] },
+        "once",
+      );
+      executeRuntime(animations, target);
+      const earlier = handlesOf(target);
+      target.replaceChildren(new FakeTextNode("AB"));
+      executeRuntime(animations, target);
+
+      earlier.forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      handlesOf(target).forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("restores a paragraph pivot once a later run stops setting it", () => {
+      const target = new FakeElement("p");
+      target.setAttribute("data-agent-native-node-id", "headline");
+      target.appendChild(new FakeTextNode("AB"));
+      target.style.transformOrigin = "10% 10%";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [
+            { ...rotating, unit: "paragraph", originX: 0, originY: 100 },
+          ],
+        }),
+        target,
+      );
+      expect(target.style.transformOrigin).toBe("0% 100%");
+
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, unit: "paragraph" }],
+        }),
+        target,
+      );
+      expect(target.style.transformOrigin).toBe("10% 10%");
+    });
+
+    it("leaves the target uncropped and the pivot untouched by default", () => {
+      const target = textTarget("AB");
+      executeRuntime(
+        compileMotionTextRuntime({ version: 2, animations: [rotating] }),
+        target,
+      );
+
+      expect(target.style.clipPath).toBeUndefined();
+      expect(unitsOf(target).map((unit) => unit.style.transformOrigin)).toEqual(
+        [undefined, undefined],
+      );
+    });
+  });
+
+  describe("text stagger worked cases", () => {
+    const stagger = (props: Record<string, string | number | boolean>) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "headline",
+      });
+      return compileMotionTextRuntime({
+        version: 2,
+        animations: motionNativeStylesToTextAnimations([
+          { ...base, props: { ...base.props, ...props } },
+        ]),
+      });
+    };
+    const unitsOf = (target: FakeElement) =>
+      target.children.filter(
+        (child) =>
+          child.getAttribute("data-agent-native-motion-text-unit") !== null,
+      );
+
+    it("starts the rightmost word first for word units from right to left", () => {
+      const target = textTarget("Hello big world");
+      executeRuntime(
+        stagger({ textDelayGrouping: "WORD", textDelayOrder: "RIGHT_LEFT" }),
+        target,
+      );
+      const delays = unitsOf(target).map(
+        (unit) => (unit.animations[0]?.options as { delay: number }).delay,
+      );
+
+      expect(unitsOf(target).map((unit) => unit.textContent)).toEqual([
+        "Hello",
+        "big",
+        "world",
+      ]);
+      expect(delays[2]).toBe(0);
+      expect(delays[2]).toBeLessThan(delays[1]!);
+      expect(delays[1]).toBeLessThan(delays[0]!);
+    });
+
+    it("ends in the altered look when switched to out", () => {
+      const target = textTarget("A");
+      executeRuntime(stagger({ animationDirection: "out" }), target);
+
+      expect(unitsOf(target)[0]?.animations[0]?.keyframes).toEqual([
+        { offset: 0, easing: "ease-out", translate: "0px 0px" },
+        { offset: 1, easing: "ease-out", translate: "0px -40px" },
+      ]);
+    });
+
+    it("starts in the altered look when playing in", () => {
+      const target = textTarget("A");
+      executeRuntime(stagger({}), target);
+
+      expect(unitsOf(target)[0]?.animations[0]?.keyframes).toEqual([
+        { offset: 0, easing: "ease-out", translate: "0px -40px" },
+        { offset: 1, easing: "ease", translate: "0px 0px" },
+      ]);
+    });
+
+    it("crops with the move effect shown and not once the move is hidden", () => {
+      const cropped = textTarget("A");
+      executeRuntime(stagger({ clipContent: true }), cropped);
+      expect(cropped.style.clipPath).toBe("inset(0)");
+
+      const hidden = textTarget("A");
+      executeRuntime(
+        stagger({
+          clipContent: true,
+          positionVisible: false,
+          opacityEnabled: true,
+        }),
+        hidden,
+      );
+      expect(unitsOf(hidden)[0]?.animations).toHaveLength(1);
+      expect(hidden.style.clipPath).toBeUndefined();
+    });
   });
 });

@@ -1,0 +1,172 @@
+{
+  "name": "Content",
+  "description": "Blog articles with authors, daily GA4 pageviews, and Search Console clicks and impressions, from Analytics' daily content collection. Reads only Analytics' own tables, so opening it calls no provider.",
+  "filters": [
+    {
+      "id": "timeRange",
+      "type": "select",
+      "label": "Time range",
+      "default": "28d",
+      "options": [
+        {
+          "value": "7d",
+          "label": "Last 7 days"
+        },
+        {
+          "value": "28d",
+          "label": "Last 28 days"
+        },
+        {
+          "value": "90d",
+          "label": "Last 90 days"
+        },
+        {
+          "value": "all",
+          "label": "All time"
+        }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "collection-status",
+      "title": "Collection",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "sql": "WITH latest AS ( SELECT step, status, started_at, window_end, error_message FROM ( SELECT step, status, started_at, window_end, error_message, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs ) ranked WHERE rn = 1 ) SELECT CASE step WHEN 'builder_blog' THEN 'Blog articles' WHEN 'ga4' THEN 'GA4 pageviews' WHEN 'search_console' THEN 'Search Console' ELSE step END AS source, CASE status WHEN 'succeeded' THEN 'Collected' WHEN 'failed' THEN 'Failed' WHEN 'cost_limited' THEN 'Cost-limited' WHEN 'not_configured' THEN 'Not set up' WHEN 'running' THEN 'Running' ELSE status END AS status, started_at AS last_run, window_end AS data_through, error_message AS detail FROM latest ORDER BY CASE step WHEN 'builder_blog' THEN 1 WHEN 'ga4' THEN 2 WHEN 'search_console' THEN 3 ELSE 4 END",
+      "config": {
+        "timeScope": "fixed-window",
+        "description": "Each source's latest daily run. Data through is the last day that source reported; Search Console runs two to three days behind.",
+        "columns": [
+          {
+            "key": "source",
+            "label": "Source"
+          },
+          {
+            "key": "status",
+            "label": "Status"
+          },
+          {
+            "key": "last_run",
+            "label": "Last run",
+            "format": "date"
+          },
+          {
+            "key": "data_through",
+            "label": "Data through"
+          },
+          {
+            "key": "detail",
+            "label": "Detail"
+          }
+        ]
+      }
+    },
+    {
+      "id": "articles",
+      "title": "Articles",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "sql": "WITH latest AS ( SELECT step, status, started_at, window_end, error_message FROM ( SELECT step, status, started_at, window_end, error_message, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs ) ranked WHERE rn = 1 ), totals AS ( SELECT item_id, SUM(value) FILTER (WHERE metric = 'ga4_pageviews') AS pageviews, COUNT(*) FILTER (WHERE metric = 'ga4_pageviews') AS pageview_rows, SUM(value) FILTER (WHERE metric = 'search_console_clicks') AS clicks, SUM(value) FILTER (WHERE metric = 'search_console_impressions') AS impressions, COUNT(*) FILTER (WHERE metric = 'search_console_clicks') AS search_rows FROM analytics_content_metric_snapshots WHERE (metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND metric_date >= '{{timeRangeStart}}' AND metric_date <= '{{timeRangeEnd}}'))) GROUP BY item_id ) SELECT title, href, author, published, pageviews, clicks, impressions, NULLIF(COALESCE(ga4_missing, '') || CASE WHEN ga4_missing IS NOT NULL AND search_missing IS NOT NULL THEN ' · ' ELSE '' END || COALESCE(search_missing, ''), '') AS not_collected FROM ( SELECT i.title, i.url AS href, i.author, i.published_at, substr(i.published_at, 1, 10) AS published, t.pageviews, t.clicks, t.impressions, CASE WHEN COALESCE(t.pageview_rows, 0) > 0 THEN NULL ELSE 'GA4: ' || CASE ga4_run.status WHEN 'failed' THEN 'failed' WHEN 'cost_limited' THEN 'cost-limited' WHEN 'not_configured' THEN 'not set up' WHEN 'running' THEN 'running' WHEN 'succeeded' THEN 'still arriving' ELSE 'not collected yet' END END AS ga4_missing, CASE WHEN COALESCE(t.search_rows, 0) > 0 THEN NULL ELSE 'Search Console: ' || CASE search_run.status WHEN 'failed' THEN 'failed' WHEN 'cost_limited' THEN 'cost-limited' WHEN 'not_configured' THEN 'not set up' WHEN 'running' THEN 'running' WHEN 'succeeded' THEN 'still arriving' ELSE 'not collected yet' END END AS search_missing FROM analytics_content_items i LEFT JOIN totals t ON t.item_id = i.id LEFT JOIN latest ga4_run ON ga4_run.step = 'ga4' LEFT JOIN latest search_run ON search_run.step = 'search_console' WHERE i.source = 'builder_blog' ) articles ORDER BY published_at DESC NULLS LAST LIMIT 1000",
+      "config": {
+        "timeScope": "dashboard",
+        "description": "Every collected blog article. A blank number means that source has no data for the article in this window; Not collected says why.",
+        "sortable": true,
+        "columns": [
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          },
+          {
+            "key": "author",
+            "label": "Author"
+          },
+          {
+            "key": "published",
+            "label": "Published"
+          },
+          {
+            "key": "pageviews",
+            "label": "Pageviews",
+            "format": "number"
+          },
+          {
+            "key": "clicks",
+            "label": "Search clicks",
+            "format": "number"
+          },
+          {
+            "key": "impressions",
+            "label": "Impressions",
+            "format": "number"
+          },
+          {
+            "key": "not_collected",
+            "label": "Not collected"
+          }
+        ]
+      }
+    },
+    {
+      "id": "daily-trend",
+      "title": "Daily pageviews and search clicks",
+      "chartType": "line",
+      "source": "first-party",
+      "width": 3,
+      "sql": "SELECT s.metric_date AS date, SUM(s.value) FILTER (WHERE s.metric = 'ga4_pageviews') AS pageviews, SUM(s.value) FILTER (WHERE s.metric = 'search_console_clicks') AS search_clicks FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric IN ('ga4_pageviews', 'search_console_clicks') AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY s.metric_date ORDER BY s.metric_date",
+      "config": {
+        "timeScope": "dashboard",
+        "xKey": "date",
+        "yKeys": ["pageviews", "search_clicks"],
+        "seriesLabels": {
+          "pageviews": "Pageviews",
+          "search_clicks": "Search clicks"
+        },
+        "description": "All blog articles. A day a source hasn't reported is a gap, not a zero."
+      }
+    },
+    {
+      "id": "search-pages",
+      "title": "Other pages in search",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "sql": "SELECT i.url AS page, i.url AS href, SUM(s.value) FILTER (WHERE s.metric = 'search_console_clicks') AS clicks, SUM(s.value) FILTER (WHERE s.metric = 'search_console_impressions') AS impressions FROM analytics_content_items i JOIN analytics_content_metric_snapshots s ON s.item_id = i.id WHERE i.source = 'search_console' AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY i.url ORDER BY clicks DESC NULLS LAST, impressions DESC NULLS LAST LIMIT 200",
+      "config": {
+        "timeScope": "dashboard",
+        "description": "Search Console pages that aren't collected blog articles.",
+        "sortable": true,
+        "columns": [
+          {
+            "key": "page",
+            "label": "Page",
+            "format": "link",
+            "linkKey": "href"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          },
+          {
+            "key": "clicks",
+            "label": "Search clicks",
+            "format": "number"
+          },
+          {
+            "key": "impressions",
+            "label": "Impressions",
+            "format": "number"
+          }
+        ]
+      }
+    }
+  ]
+}

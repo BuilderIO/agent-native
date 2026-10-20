@@ -460,6 +460,10 @@ function IntegrationDetail({
 
   const connect = async () => {
     if (unavailable || signIn === "token") return;
+    if (integration.id === "hubspot") {
+      setSetupOpen(true);
+      return;
+    }
     // No preset URL (Sigma's is per account): the connect dialog asks for it.
     if (!integration.url.trim()) {
       setSetupOpen(true);

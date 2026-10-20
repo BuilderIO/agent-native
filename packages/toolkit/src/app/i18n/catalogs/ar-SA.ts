@@ -999,7 +999,25 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM، وجهات الاتصال، والشركات، والصفقات، والتذاكر، وتحليلات العملاء",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "عند إعداد HubSpot MCP Auth App تديره مساحة العمل، يمكن لأي عضو ربط حساب HubSpot شخصي باستخدام OAuth وPKCE. وإلا، فأنشئ التطبيق في HubSpot Developer Platform قبل الربط؛ ويظل موصل HubSpot OAuth الحالي متاحًا لإجراءات التطبيق.",
+    "يربط كل شخص حساب HubSpot الخاص به بعد أن يهيّئ مالك مساحة العمل تطبيق HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "إعداد HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "يهيّئ مالك مساحة العمل HubSpot MCP مرة واحدة، ثم يربط كل عضو حسابه الخاص.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "إعداد مساحة العمل مطلوب",
+  "mcpIntegrations.hubspot.setupChecking": "جارٍ التحقق من إعداد مساحة العمل…",
+  "mcpIntegrations.hubspot.setupUnavailable": "حالة الإعداد غير متاحة",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "تعذّر التحقق من إعدادات OAuth لمساحة العمل. حاول مرة أخرى.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "أنشئ HubSpot MCP Auth App، ثم أضف معرّف العميل وسرّه ضمن Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "اطلب من مالك مساحة العمل إنشاء HubSpot MCP Auth App وإضافة معرّف العميل وسرّه ضمن Agent-Native settings → API keys. بعد الإعداد، يمكنك ربط حساب HubSpot الخاص بك.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "انضم إلى مساحة عمل قبل ربط HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "إضافة بيانات اعتماد مساحة العمل",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "تحقق مرة أخرى",
+  "mcpIntegrations.hubspot.retrySetupStatus": "إعادة المحاولة",
   "mcpIntegrations.catalog.pylon.description":
     "البحث في بيانات الدعم في Pylon وتحديثها.",
   "mcpIntegrations.catalog.pylon.useCase":

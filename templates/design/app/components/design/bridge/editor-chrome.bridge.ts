@@ -32,6 +32,10 @@ import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
 import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
+  resolveSourceEquivalentSelector,
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+} from "../../../../shared/source-equivalent-selector";
+import {
   isAutoLayoutDisplay,
   marginHandlesApply,
 } from "../../../../shared/spacing-handle-rule";
@@ -41,6 +45,7 @@ import {
   paintsBox,
   TEXT_LAYER_TAGS,
 } from "../../../../shared/text-layer-rule";
+import { NATIVE_EDITOR_VIEWPORT_CLIP_RULE } from "./native-region-export";
 
 declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
@@ -948,7 +953,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       '@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' +
       // A clipped root is a hidden viewport: the wheel reaches a live page in
       // Interact and moves nothing. Interact owns scrolling, so it is released.
-      "html:not([data-agent-native-interact]){overflow:clip}" +
+      NATIVE_EDITOR_VIEWPORT_CLIP_RULE +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -5847,6 +5852,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     );
   }
 
+  function authoredOpacityForEditor(
+    el: Element,
+    computedOpacity: string,
+  ): string {
+    if (
+      !el.hasAttribute("data-an-native-fill-suppressed") &&
+      !el.hasAttribute("data-an-native-layer-suppressed") &&
+      !el.hasAttribute("data-an-native-scene-suppressed") &&
+      !el.hasAttribute("data-an-native-receiver-suppressed")
+    )
+      return computedOpacity;
+    var saved = el.getAttribute("data-an-native-authored-opacity");
+    var opacity = saved === null || !saved.trim() ? NaN : Number(saved);
+    if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+      throw Object.assign(new Error("Native authored opacity is unavailable"), {
+        code: "native-authored-opacity-unavailable",
+      });
+    return String(opacity);
+  }
+
   type TypedStyleValue =
     | { status: "available"; value: string | undefined }
     | { status: "failed"; error: unknown };
@@ -6045,7 +6070,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
-      var value = cs[property] || cs.getPropertyValue(property);
+      var value =
+        property === "opacity"
+          ? authoredOpacityForEditor(el, cs.opacity)
+          : cs[property] || cs.getPropertyValue(property);
       var inlineValue = hostStyle && hostStyle.getPropertyValue(property);
       if (
         typeof value === "string" &&
@@ -6861,6 +6889,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    computed.opacity = authoredOpacityForEditor(el, cs.opacity);
+    if (!vectorPaintTarget(el)) computed.vectorOpacity = computed.opacity;
     var paintTarget =
       vectorPaintTarget(el) ||
       (el.tagName.toLowerCase() === "path" &&
@@ -7147,7 +7177,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       layers.push({
         backgroundColor: paint.backgroundColor,
         backgroundImage: paint.backgroundImage,
-        opacity: paint.opacity,
+        opacity: authoredOpacityForEditor(node, paint.opacity),
         mixBlendMode: paint.mixBlendMode,
       });
       node = node.parentElement;
@@ -15101,27 +15131,87 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function resolveNodeHtmlPreviewTarget(target: unknown): Element | null {
     if (!target || typeof target !== "object") return null;
+    var selector = (target as { selector?: unknown }).selector;
+    var isSourceEquivalentSelector =
+      typeof selector === "string" &&
+      selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0;
+    var selectorMatch: Element | null = null;
+    if (isSourceEquivalentSelector) {
+      selectorMatch = resolveSourceEquivalentSelector(
+        document,
+        selector as string,
+      );
+    }
     var nodeId = (target as { nodeId?: unknown }).nodeId;
     if (typeof nodeId === "string" && nodeId) {
-      try {
-        var nodeMatch = document.querySelector(
+      var nodeMatches = document.querySelectorAll(
+        [
           '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
-        );
-        if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
-          return nodeMatch;
+          '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-loc="' + escapeAttribute(nodeId) + '"]',
+          '[id="' + escapeAttribute(nodeId) + '"]',
+        ].join(","),
+      );
+      if (nodeMatches.length === 1) {
+        var uniqueNodeMatch = nodeMatches[0];
+        return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch)
+          ? uniqueNodeMatch
+          : null;
+      }
+      if (nodeMatches.length > 1) {
+        if (
+          !selectorMatch &&
+          typeof selector === "string" &&
+          selector &&
+          !isSourceEquivalentSelector
+        ) {
+          try {
+            selectorMatch = document.querySelector(selector);
+          } catch (error) {
+            if (
+              typeof error === "object" &&
+              error !== null &&
+              "name" in error &&
+              error.name !== "SyntaxError"
+            ) {
+              throw error;
+            }
+          }
         }
-      } catch (_err) {}
+        if (
+          selectorMatch &&
+          Array.prototype.indexOf.call(nodeMatches, selectorMatch) !== -1 &&
+          !isLayerInteractionBlocked(selectorMatch)
+        ) {
+          return selectorMatch;
+        }
+        return null;
+      }
     }
-    var selector = (target as { selector?: unknown }).selector;
-    if (typeof selector !== "string" || !selector) return null;
-    try {
-      var selectorMatch = document.querySelector(selector);
-      return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
-        ? selectorMatch
-        : null;
-    } catch (_err) {
-      return null;
+    if (
+      !selectorMatch &&
+      typeof selector === "string" &&
+      selector &&
+      !isSourceEquivalentSelector
+    ) {
+      try {
+        selectorMatch = document.querySelector(selector);
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          error.name !== "SyntaxError"
+        ) {
+          throw error;
+        }
+      }
     }
+    return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
+      ? selectorMatch
+      : null;
   }
 
   function postNodeHtmlPreviewApplied(proposalId: string): void {
@@ -15129,6 +15219,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       {
         type: "agent-native:node-html-preview-applied",
         proposalId: proposalId,
+      },
+      "*",
+    );
+  }
+
+  function postNodeHtmlPreviewFailed(
+    proposalId: string,
+    reason:
+      | "target-unresolved"
+      | "preview-invalid"
+      | "preview-replacement-failed",
+  ): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:node-html-preview-failed",
+        proposalId: proposalId,
+        reason: reason,
       },
       "*",
     );
@@ -15198,19 +15305,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return;
     }
     var nextElement = parseNodeHtmlPreviewElement(data.html);
-    if (!nextElement) return;
+    if (!nextElement) {
+      postNodeHtmlPreviewFailed(proposalId, "preview-invalid");
+      return;
+    }
     if (
       activeNodeHtmlPreview &&
       activeNodeHtmlPreview.proposalId === proposalId
     ) {
       if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
         postNodeHtmlPreviewApplied(proposalId);
+      } else {
+        postNodeHtmlPreviewFailed(proposalId, "preview-replacement-failed");
       }
       return;
     }
     if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
     var target = resolveNodeHtmlPreviewTarget(data.target);
     if (!target || !target.parentNode || target === document.documentElement) {
+      postNodeHtmlPreviewFailed(proposalId, "target-unresolved");
       return;
     }
     var originalOuterHTML = target.outerHTML;
@@ -15291,7 +15404,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           }
         } catch (_err) {}
       }
-      if (matches.size > 1) return null;
+      var hasSourceEquivalentSelector =
+        typeof selector === "string" &&
+        selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX);
+      if (matches.size > 1 && !hasSourceEquivalentSelector) return null;
       if (matches.size === 1) {
         var sourceMatch = Array.from(matches)[0];
         return sourceMatch &&
@@ -15308,6 +15424,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !(typeof sourceId === "string" && sourceId) &&
         !(typeof pendingId === "string" && pendingId)
         ? document.body
+        : null;
+    }
+    if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      var sourceMatch = resolveSourceEquivalentSelector(document, selector);
+      return sourceMatch &&
+        (matches.size === 0 || matches.has(sourceMatch)) &&
+        sourceMatch !== document.documentElement &&
+        (allowDocumentBody || sourceMatch !== document.body) &&
+        !isOverlayElement(sourceMatch) &&
+        !isLayerInteractionBlocked(sourceMatch)
+        ? sourceMatch
         : null;
     }
     try {
@@ -29873,7 +30000,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var measureSelector: string =
         typeof e.data.selector === "string" ? e.data.selector : "";
       var measureTarget: Element | null = null;
-      if (measureSelector) {
+      if (measureSelector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        measureTarget = resolveSourceEquivalentSelector(
+          document,
+          measureSelector,
+        );
+      } else if (measureSelector) {
         try {
           measureTarget = document.querySelector(measureSelector);
         } catch (_err) {

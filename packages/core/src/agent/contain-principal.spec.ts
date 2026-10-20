@@ -41,7 +41,7 @@ describe("containServicePrincipal", () => {
     expect(res).toEqual({ abortedRuns: 2, containmentErrors: [] });
   });
 
-  it("reports a run that is still running after the abort (abortRunDurably swallows write failures)", async () => {
+  it("reports a run that is still running after the abort", async () => {
     statusMock
       .mockResolvedValueOnce("running")
       .mockResolvedValueOnce("aborted");

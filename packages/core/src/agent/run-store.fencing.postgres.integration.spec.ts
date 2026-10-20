@@ -10,6 +10,17 @@ import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  createThread,
+  ensureChatThreadTables,
+  getQueuedSubmissionReceipt,
+  getThread,
+  markQueuedSubmissionSubmitted,
+  mutateThreadQueuedMessages,
+  updateThreadData,
+  type QueuedMessage,
+  type QueuedSubmissionActor,
+} from "../chat-threads/store.js";
 import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
@@ -28,6 +39,11 @@ import {
   renewTaskExecutionLease,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
+import {
+  applySubmittedUserMessage,
+  buildUserMessage,
+  extractThreadMeta,
+} from "./thread-data-builder.js";
 
 const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
 if (process.env.CI && !databaseUrl) {
@@ -230,7 +246,10 @@ async function withTestDatabase<T>(
   const prefix = `execution-fence-${randomUUID().replaceAll("-", "")}`;
   try {
     await withDbExec(executor(sql), () =>
-      withMigrationRuntime(() => ensureRunTables()),
+      withMigrationRuntime(async () => {
+        await ensureRunTables();
+        await ensureChatThreadTables();
+      }),
     );
     await sql`
       CREATE TABLE IF NOT EXISTS agent_harness_test_effects (
@@ -264,6 +283,8 @@ async function withTestDatabase<T>(
     await sql`DROP TRIGGER IF EXISTS agent_harness_reject_step_receipt ON agent_execution_steps`;
     await sql`DROP FUNCTION IF EXISTS agent_harness_reject_step_receipt()`;
     await sql`DELETE FROM agent_harness_test_effects WHERE effect_id LIKE ${`${prefix}%`}`;
+    await sql`DELETE FROM agent_chat_submission_inbox WHERE thread_id LIKE ${`${prefix}%`}`;
+    await sql`DELETE FROM chat_threads WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_steps WHERE thread_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_leases WHERE thread_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_run_events WHERE run_id LIKE ${`${prefix}%`}`;
@@ -406,6 +427,106 @@ describe.skipIf(!databaseUrl)(
           expect(staleEvents).toHaveLength(0);
         } finally {
           await stopBarrierWorker(worker);
+        }
+      });
+    }, 45_000);
+
+    it("does not acknowledge a durable abort before terminal persistence across worker retries", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:abort-thread`;
+        const turnId = `${prefix}:abort-turn`;
+        const runId = `${prefix}:abort-run`;
+        const suffix = randomUUID().replaceAll("-", "");
+        const trigger = `abort_event_gate_${suffix}`;
+        const sequence = `abort_event_failures_${suffix}`;
+
+        await withDbExec(executor(sql), () =>
+          insertRun(runId, threadId, turnId),
+        );
+        try {
+          await sql.unsafe(`CREATE SEQUENCE ${sequence} START WITH 1`);
+          await sql.unsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.run_id = '${runId}'
+                AND (NEW.event_data::jsonb ->> 'type') = 'done'
+                AND (NEW.event_data::jsonb ->> 'reason') = 'user' THEN
+                IF nextval('${sequence}') <= 2 THEN
+                  RAISE EXCEPTION 'injected terminal event failure';
+                END IF;
+              END IF;
+              RETURN NEW;
+            END $$`);
+          await sql.unsafe(`CREATE TRIGGER ${trigger} BEFORE INSERT ON agent_run_events
+            FOR EACH ROW EXECUTE FUNCTION ${trigger}()`);
+
+          const failedAttempt = await runWorker(
+            "durable-abort",
+            threadId,
+            turnId,
+            runId,
+            "user",
+          );
+          expect(failedAttempt.exitCode).toBe(1);
+          const failed = workerJson<{
+            error: string;
+            aborted?: boolean;
+            processId: number;
+            databaseBackendPid: number;
+          }>(failedAttempt);
+          expect(failed.error).toContain("injected terminal event failure");
+          expect(failed.aborted).not.toBe(true);
+
+          const [afterFailure] = await sql`
+            SELECT status, terminal_reason FROM agent_runs WHERE id = ${runId}
+          `;
+          expect(afterFailure).toMatchObject({
+            status: "aborted",
+            terminal_reason: "aborted:user",
+          });
+          const missingTerminal = await sql`
+            SELECT seq FROM agent_run_events
+            WHERE run_id = ${runId}
+              AND (event_data::jsonb ->> 'type') = 'done'
+              AND (event_data::jsonb ->> 'reason') = 'user'
+          `;
+          expect(missingTerminal).toHaveLength(0);
+
+          const retry = await runWorker(
+            "durable-abort",
+            threadId,
+            turnId,
+            runId,
+            "user",
+          );
+          expect(retry.exitCode).toBe(0);
+          const repaired = workerJson<{
+            aborted: boolean;
+            processId: number;
+            databaseBackendPid: number;
+          }>(retry);
+          expect(repaired.aborted).toBe(true);
+          expect(repaired.processId).not.toBe(failed.processId);
+          expect(repaired.databaseBackendPid).not.toBe(
+            failed.databaseBackendPid,
+          );
+
+          const terminalEvents = await sql`
+            SELECT seq, event_data::text AS event_data FROM agent_run_events
+            WHERE run_id = ${runId}
+              AND (event_data::jsonb ->> 'type') = 'done'
+              AND (event_data::jsonb ->> 'reason') = 'user'
+          `;
+          expect(terminalEvents).toHaveLength(1);
+          expect(JSON.parse(terminalEvents[0]!.event_data)).toMatchObject({
+            type: "done",
+            reason: "user",
+          });
+        } finally {
+          await sql.unsafe(
+            `DROP TRIGGER IF EXISTS ${trigger} ON agent_run_events`,
+          );
+          await sql.unsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
+          await sql.unsafe(`DROP SEQUENCE IF EXISTS ${sequence}`);
         }
       });
     }, 45_000);
@@ -608,7 +729,11 @@ describe.skipIf(!databaseUrl)(
                 { requireInserted: true },
               ),
             ),
-          ).rejects.toMatchObject({ code: "stale_execution_fence" });
+          ).rejects.toMatchObject({
+            name: "AgentRunEventNotPersistedError",
+            terminalRun: true,
+            cause: { code: "stale_execution_fence" },
+          });
         } finally {
           await sql`SELECT pg_advisory_unlock(${gateKey})`;
           await Promise.allSettled([claim, cancel]);
@@ -922,6 +1047,156 @@ describe.skipIf(!databaseUrl)(
             ),
         );
         expect(failedAdmission).toEqual({ status: "unknown" });
+      });
+    }, 45_000);
+
+    it("rejects a stale queued-message promoter after cross-process claim takeover", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:queue-thread`;
+        const messageId = `${prefix}:queue-message`;
+        const actor: QueuedSubmissionActor = {
+          email: "queue-owner@example.com",
+          anonymous: false,
+        };
+        const message: QueuedMessage = {
+          id: messageId,
+          threadId,
+          text: "Deliver this queued prompt once",
+        };
+        await createThread(actor.email, { id: threadId });
+        await mutateThreadQueuedMessages(
+          threadId,
+          { type: "append", message },
+          { actor },
+        );
+        await mutateThreadQueuedMessages(threadId, {
+          type: "claim",
+          messageId,
+          claimId: "stalled-promoter",
+        });
+
+        const stalled = startBarrierWorker(
+          "queue-submit",
+          threadId,
+          `${prefix}:turn`,
+          `${prefix}:stalled-run`,
+          messageId,
+          JSON.stringify({
+            message,
+            claimId: "stalled-promoter",
+            actor,
+          }),
+        );
+        try {
+          await stalled.ready;
+
+          const beforeTakeover = await getThread(threadId);
+          expect(beforeTakeover).not.toBeNull();
+          const expiredRepo = JSON.parse(beforeTakeover!.threadData);
+          const queued = expiredRepo.queuedMessages.find(
+            (candidate: QueuedMessage) => candidate.id === messageId,
+          );
+          expect(queued?.promotionClaim?.id).toBe("stalled-promoter");
+          queued.promotionClaim.expiresAt = Date.now() - 1;
+          const expired = await sql`
+            UPDATE chat_threads
+            SET thread_data = ${JSON.stringify(expiredRepo)},
+                updated_at = ${beforeTakeover!.updatedAt + 1}
+            WHERE id = ${threadId} AND updated_at = ${beforeTakeover!.updatedAt}
+          `;
+          expect(expired.count).toBe(1);
+
+          const replacementClaim = await mutateThreadQueuedMessages(threadId, {
+            type: "claim",
+            messageId,
+            claimId: "replacement-promoter",
+          });
+          expect(replacementClaim?.claimedMessage?.promotionClaim?.id).toBe(
+            "replacement-promoter",
+          );
+
+          const replacementRunId = `${prefix}:replacement-run`;
+          const currentThread = await getThread(threadId);
+          expect(currentThread).not.toBeNull();
+          const userMessage = buildUserMessage({
+            text: message.text,
+            runId: replacementRunId,
+            queuedMessageId: messageId,
+          });
+          let submissionFailure: string | undefined;
+          const winnerSaved = await updateThreadData(
+            threadId,
+            "{}",
+            currentThread!.title,
+            currentThread!.preview,
+            currentThread!.messageCount,
+            {
+              transformThreadData: (threadData) => {
+                const result = applySubmittedUserMessage(
+                  JSON.parse(threadData || "{}"),
+                  userMessage,
+                  {
+                    id: messageId,
+                    claimId: "replacement-promoter",
+                    now: Date.now(),
+                  },
+                );
+                if (!("repo" in result)) {
+                  submissionFailure = result.status;
+                  return threadData;
+                }
+                const meta = extractThreadMeta(result.repo);
+                return {
+                  threadData: JSON.stringify(result.repo),
+                  preview: meta.preview || currentThread!.preview,
+                };
+              },
+              afterUpdate: async (tx) => {
+                if (submissionFailure) return;
+                await markQueuedSubmissionSubmitted(tx, {
+                  threadId,
+                  messageId,
+                  runId: replacementRunId,
+                  actor,
+                  message,
+                });
+              },
+            },
+          );
+          expect(winnerSaved).toBe(true);
+          expect(submissionFailure).toBeUndefined();
+
+          stalled.child.stdin.write("continue\n");
+          const stalledResult = await stalled.closed;
+          expect(stalledResult.exitCode).toBe(0);
+          expect(
+            workerJson<{ status: string; updated: boolean }>(stalledResult),
+          ).toMatchObject({ status: "already_claimed", updated: false });
+
+          await expect(
+            getQueuedSubmissionReceipt(threadId, messageId),
+          ).resolves.toMatchObject({
+            state: "submitted",
+            submittedRunId: replacementRunId,
+          });
+          const finalThread = await getThread(threadId);
+          expect(finalThread).not.toBeNull();
+          expect(finalThread?.preview).toBe(message.text);
+          expect(finalThread?.title).toBe(message.text);
+          const finalRepo = JSON.parse(finalThread!.threadData);
+          expect(
+            finalRepo.messages.filter((entry: any) => {
+              const stored = entry?.message ?? entry;
+              return (
+                stored?.role === "user" &&
+                stored.metadata?.custom?.agentNativeQueuedMessageId ===
+                  messageId
+              );
+            }),
+          ).toHaveLength(1);
+        } finally {
+          await stopBarrierWorker(stalled);
+        }
       });
     }, 45_000);
   },

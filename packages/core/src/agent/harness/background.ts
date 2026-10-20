@@ -10,7 +10,7 @@ import type {
   BackgroundAgentTranscriptEvent,
   ListBackgroundAgentRunsOptions,
 } from "../../code-agents/background-run.js";
-import { abortRun } from "../run-manager.js";
+import { abortRunDurably } from "../run-manager.js";
 import { getRunEventsSince } from "../run-store.js";
 import type { AgentChatEvent, RunEvent } from "../types.js";
 import {
@@ -114,14 +114,34 @@ export async function stopAgentHarnessBackgroundRun(
   ) {
     return missingHarnessRunResult(runId);
   }
+  const failures: unknown[] = [];
   if (session.runId) {
-    abortRun(session.runId, "user");
+    try {
+      await abortRunDurably(session.runId, "user", { allowNotStarted: true });
+    } catch (error) {
+      failures.push(error);
+    }
   }
-  await stopLiveAgentHarnessSession({
-    sessionId: session.id,
-    scope: options,
-  });
-  await markAgentHarnessSessionStopped(session.id, "stopped");
+  try {
+    await stopLiveAgentHarnessSession({
+      sessionId: session.id,
+      scope: options,
+    });
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await markAgentHarnessSessionStopped(
+      session.id,
+      failures.length > 0 ? "errored" : "stopped",
+    );
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Agent Harness background stop failed.");
+  }
   return {
     ok: true,
     runId,

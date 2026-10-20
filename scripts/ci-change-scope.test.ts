@@ -1746,24 +1746,27 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /^    timeout-minutes: 9$/m,
-    "all Design core shards keep the exact nine-minute cap",
+    /^    timeout-minutes: 12$/m,
+    "all Design core shards keep the exact twelve-minute cap",
   );
-  const screenHistoryJobTimeout = 9;
+  const screenHistoryJobTimeout = jobTimeout;
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout === 9,
-    `regular Design acceptance shards must keep the exact nine-minute cap (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 12,
+    `regular Design acceptance shards must keep the exact twelve-minute cap (got ${jobTimeout})`,
   );
-  assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
+  assert.ok(
+    jobTimeout < 13,
+    "Design acceptance must stay below thirteen minutes",
+  );
   assert.ok(
     Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 22,
     `changed-spec diagnostics must have the exact twenty-two-minute cap (got ${diagnosticJobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 7 &&
-      jobTimeout >= stepTimeout + 2,
-    `focused Design tests need the exact seven-minute cap and two minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 9 &&
+      jobTimeout >= stepTimeout + 3,
+    `focused Design tests need the exact nine-minute cap and three minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
@@ -1830,6 +1833,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     regressionCases,
     /E2E_REQUIRED_PIN_IDENTITIES="\$required_pin_identities_json"/,
     "the reporter must attest each resolved selector against its manifest title",
+  );
+  assert.match(
+    regressionCases,
+    /^          E2E_LOG_TEST_PROGRESS: "1"$/m,
+    "focused Design tests must log per-case progress before a shard timeout",
   );
   assert.equal(
     DESIGN_E2E_REGRESSION_PINS.length,
