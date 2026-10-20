@@ -117,6 +117,31 @@ describe("manual refresh and push wake-ups", () => {
     queryClient.clear();
   });
 
+  it("does not carry a manual refresh made outside the inbox into a later sync", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    // No poller is mounted on a non-inbox view, so the refresh is not consumed.
+    refreshInboxNow(queryClient);
+    vi.setSystemTime(new Date("2026-01-01T00:01:00Z"));
+
+    const hook = renderHook(() => useInboxSyncPoller(["first@example.com"]), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    expect(mutateSyncAction.mock.calls[0][0]).not.toHaveProperty("force");
+
+    hook.unmount();
+    queryClient.clear();
+    vi.useRealTimers();
+  });
+
   it("syncs right away when a list read reports a pending push", async () => {
     callActionWithRetry.mockResolvedValue({
       ...response(),

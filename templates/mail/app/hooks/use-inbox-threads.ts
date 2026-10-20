@@ -43,8 +43,11 @@ export function inboxThreadsQueryKey(input: ListInboxThreadsInput) {
 const SYNCING_POLL_MS = INBOX_SYNC_POLL_MS.pending;
 const IDLE_POLL_MS = 20_000;
 // Set by a manual refresh; the next sync poll then skips the server's poll
-// window. Consumed once so later background polls keep the cadence.
-let forceNextInboxSync = false;
+// window. It expires quickly and is consumed by the first poll that runs, so a
+// refresh made outside the inbox (where no poller is mounted) cannot force a
+// sync when the user returns later.
+const FORCE_INBOX_SYNC_WINDOW_MS = 5_000;
+let forceInboxSyncUntil = 0;
 const INBOX_THREADS_STALE_TIME_MS = Infinity;
 const INBOX_THREADS_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -416,8 +419,8 @@ export function useInboxSyncPoller(
     queryFn: async ({ queryKey }) => {
       const previous = qc.getQueryData<InboxSyncResult>(queryKey);
       const now = Date.now();
-      const force = forceNextInboxSync;
-      forceNextInboxSync = false;
+      const force = Date.now() < forceInboxSyncUntil;
+      forceInboxSyncUntil = 0;
       const scopedEmails = accountEmails?.map((email) => email.toLowerCase());
       const scopedEmailSet = new Set(scopedEmails);
       const hasAccountScope = scopedEmailSet.size > 0;
@@ -588,7 +591,7 @@ export function invalidateInboxThreads(qc: QueryClient) {
 
 /** Manual refresh and agent refresh: sync every account now, not on its poll window. */
 export function refreshInboxNow(qc: QueryClient) {
-  forceNextInboxSync = true;
+  forceInboxSyncUntil = Date.now() + FORCE_INBOX_SYNC_WINDOW_MS;
   return invalidateInboxThreads(qc);
 }
 
