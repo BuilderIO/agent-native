@@ -26,11 +26,7 @@ import {
 } from "../lib/ai-filter-backfill.js";
 import { purgeExpiredMailAiFilterRuleUndoSnapshots } from "../lib/ai-filter-rule-undo.js";
 import { processAutomationsForAccount } from "../lib/automation-engine.js";
-import {
-  getClientFromAccount,
-  getConnectedAccountsWithErrors,
-  startWatch,
-} from "../lib/google-auth.js";
+import { getClientFromAccount, startWatch } from "../lib/google-auth.js";
 import { runInboxRetention } from "../lib/inbox-retention.js";
 import { ensureSyncAccountRow } from "../lib/inbox-store.js";
 import {
