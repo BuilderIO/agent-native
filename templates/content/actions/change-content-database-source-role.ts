@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -139,10 +139,16 @@ function builderSourceReadBinding(source: SourceRecord) {
   try {
     parsed = JSON.parse(source.metadataJson ?? "{}");
   } catch {
-    throw new Error("Builder source connection metadata is unreadable.");
+    fail("Builder source connection metadata is unreadable.", {
+      errorCode: "builder_source_binding_invalid",
+      statusCode: 412,
+    });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Builder source connection metadata is unreadable.");
+    fail("Builder source connection metadata is unreadable.", {
+      errorCode: "builder_source_binding_invalid",
+      statusCode: 412,
+    });
   }
   const metadata = parsed as Record<string, unknown>;
   return {
