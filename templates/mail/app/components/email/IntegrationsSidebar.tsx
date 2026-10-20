@@ -4,6 +4,7 @@ import {
   useMcpServers,
   type CreateMcpServerArgs,
 } from "@agent-native/core/client/resources";
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { McpIntegrationDialog } from "@agent-native/toolkit/app/resources";
@@ -15,6 +16,7 @@ import {
   IconArrowUp,
 } from "@tabler/icons-react";
 import { useCallback, useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -285,6 +287,7 @@ export function IntegrationsSidebar({
 
 function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const t = useT();
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderId | null>(null);
   const [gongDialogOpen, setGongDialogOpen] = useState(false);
@@ -372,6 +375,9 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
                 mcpConnected={def.id === "gong" && gongConnected}
                 legacyConnected={def.id === "gong" && statuses.gong}
                 canManageMcpSetup={def.id !== "gong" || canManageGong}
+                onManage={() =>
+                  void navigate(buildSettingsRoute("integrations"))
+                }
                 onConfigure={() => {
                   if (def.id === "gong") setGongDialogOpen(true);
                   else setConfiguring(def.id);
@@ -543,6 +549,7 @@ function IntegrationRow({
   mcpConnected = false,
   legacyConnected = false,
   canManageMcpSetup = true,
+  onManage,
   onConfigure,
   onLegacyConfigure,
 }: {
@@ -551,6 +558,7 @@ function IntegrationRow({
   mcpConnected?: boolean;
   legacyConnected?: boolean;
   canManageMcpSetup?: boolean;
+  onManage?: () => void;
   onConfigure: () => void;
   onLegacyConfigure?: () => void;
 }) {
@@ -592,7 +600,7 @@ function IntegrationRow({
                 <>
                   {canManageMcpSetup && (
                     <DropdownMenuItem
-                      onClick={onConfigure}
+                      onClick={mcpConnected ? onManage : onConfigure}
                       className="text-[12px] text-foreground/70"
                     >
                       {mcpConnected

@@ -32,10 +32,19 @@ const mocks = vi.hoisted(() => ({
     gong: false,
     pylon: false,
   },
+  navigate: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => mocks.copy[key] ?? key,
+}));
+
+vi.mock("@agent-native/core/navigation", () => ({
+  buildSettingsRoute: (section: string) => `/settings/${section}`,
+}));
+
+vi.mock("react-router", () => ({
+  useNavigate: () => mocks.navigate,
 }));
 
 vi.mock("@agent-native/core/client/resources", () => ({
@@ -179,5 +188,37 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     expect(
       screen.getByText("Enter the access key and secret as access_key:secret."),
     ).not.toBeNull();
+  });
+
+  it("opens shared MCP settings for a connected Gong server", () => {
+    mocks.mcpServersQuery = {
+      data: {
+        user: [
+          {
+            id: "gong-server",
+            scope: "user",
+            name: "Gong",
+            url: "https://mcp.gong.io/mcp",
+            authMode: "oauth",
+            createdAt: 0,
+            mergedId: "gong-server",
+            status: { state: "connected", toolCount: 3 },
+          },
+        ],
+        org: [],
+        orgId: null,
+        role: null,
+      },
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: /Integrations/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/integrations");
   });
 });

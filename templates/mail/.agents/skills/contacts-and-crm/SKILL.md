@@ -45,7 +45,8 @@ better than guessing an address pattern.
   configured it returns `{ error: "HubSpot API key not configured" }` —
   surface that plainly rather than treating it as "no CRM data exists."
 - **Gong MCP is available to the agent after connecting it from the CRM
-  sidebar.** Workspace setup is only shown to organization owners and admins;
+  sidebar.** Users without a workspace can add a personal connection there. In
+  a workspace, shared setup is only shown to organization owners and admins;
   Gong also requires its tech admin to register the MCP integration. Connected
   Gong tools inherit the authorizing user's Gong permissions. Use those tools
   when available for Gong questions.
