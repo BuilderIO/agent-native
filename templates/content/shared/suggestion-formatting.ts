@@ -151,6 +151,7 @@ function formattingRuns(
       const serialized = serializeInlineTextNodeWithOffsets(
         node,
         spellings.escapedUnderscores.has(node),
+        spellings.escapedTrailingBang.has(node),
       );
       if (!serialized) {
         nonTextPending = true;
@@ -545,8 +546,12 @@ function mapStoredSourceRuns(
           (reopened ??= new Map()).set(position - start, characterIndex);
         }
         if (matches(token, position)) position += token.length;
-        // Inline math is an atom, so a dollar in a parsed text run is literal.
-        else if (token === "\\$" && matches("$", position)) position += 1;
+        else if (
+          ASCII_PUNCTUATION.test(character) &&
+          token === `\\${character}` &&
+          matches(character, position)
+        )
+          position += 1;
         // L7 bridge: a backslash before any punctuation reads as that
         // punctuation.
         else if (

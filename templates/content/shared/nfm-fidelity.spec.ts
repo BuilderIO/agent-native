@@ -105,6 +105,62 @@ describe("NFM round-trip corpus", () => {
 });
 
 describe("canonicalizeNfmWithFidelity", () => {
+  it("refuses closed over-limit math without changing main's text reading", () => {
+    for (const source of [
+      `$${"x".repeat(1_001)}$`,
+      `$\`${"x".repeat(1_001)}\`$`,
+    ]) {
+      expect(lossKinds(source)).toContain("dropped-formatting");
+      expect(() => requireLosslessNfm(source)).toThrow(NfmFidelityError);
+    }
+    for (const source of [
+      `$${"x".repeat(1_000)}$`,
+      `$\`${"x".repeat(1_000)}\`$`,
+      `$${"x".repeat(1_001)}`,
+      `\\$${"x".repeat(1_001)}$`,
+      `\`$${"x".repeat(1_001)}$\``,
+    ]) {
+      expect(lossKinds(source)).toEqual([]);
+    }
+  });
+
+  it("refuses inline images without changing main's link reading", () => {
+    const source = "see ![x](y) here";
+    expect(nfmToDoc(source).content[0].content).toEqual([
+      { type: "text", text: "see !" },
+      {
+        type: "text",
+        text: "x",
+        marks: [{ type: "link", attrs: { href: "y" } }],
+      },
+      { type: "text", text: " here" },
+    ]);
+    expect(lossKinds(source)).toEqual(["dropped-formatting"]);
+    expect(() => requireLosslessNfm(source)).toThrow(NfmFidelityError);
+    for (const literal of [
+      "see \\![x](y) here",
+      "see `![x](y)` here",
+      "see ![x here",
+    ]) {
+      expect(lossKinds(literal)).toEqual([]);
+      const canonical = requireLosslessNfm(literal);
+      expect(requireLosslessNfm(canonical)).toBe(canonical);
+    }
+    expect(lossKinds("![x](y)")).toEqual([]);
+  });
+
+  it("keeps colored empty paragraphs canonical and idempotent", () => {
+    for (const source of [
+      '# H\n{color="red"}',
+      '{color="red"}',
+      '{color="blue_bg"}\ntext',
+    ]) {
+      expect(canonicalizeNfm(source)).toBe(source);
+      expect(canonicalizeNfm(canonicalizeNfm(source))).toBe(source);
+      expect(lossKinds(source)).toEqual([]);
+    }
+  });
+
   it("reports an unreadable body as unparseable, not as an empty page", () => {
     const unreadable = {
       replace() {

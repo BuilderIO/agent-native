@@ -163,6 +163,28 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     canonical: "$x+y$ is math",
   },
   {
+    id: "refuse-over-limit-inline-math",
+    origin: "agent",
+    markdown: `$${"x".repeat(1_001)}$`,
+    unrepresentable:
+      "The inline math matcher cannot represent a closed expression beyond its length limit.",
+    losses: ["dropped-formatting"],
+  },
+  {
+    id: "refuse-inline-image",
+    origin: "agent",
+    markdown: "see ![x](y) here",
+    unrepresentable:
+      "The editor supports image blocks, not images inside a paragraph.",
+    losses: ["dropped-formatting"],
+  },
+  {
+    id: "literal-image-prefix-beside-link",
+    origin: "agent",
+    markdown: String.raw`see \![x](y) here`,
+    canonical: String.raw`see \![x](y) here`,
+  },
+  {
     id: "crlf-line-endings",
     origin: "agent",
     markdown: "A\r\nB\rC",
@@ -746,8 +768,8 @@ export const ROUND_TRIP_CORPUS: readonly RoundTripSample[] = [
     id: "refuse-colored-trailing-empty-block",
     origin: "agent",
     markdown: '# H\n{color="red"}',
-    unrepresentable: "The writer keeps no color on an empty block.",
-    losses: ["reparse-mismatch"],
+    canonical: '# H\n{color="red"}',
+    note: "The color suffix keeps an authored empty paragraph distinct from the editor's terminal filler.",
   },
   {
     id: "refuse-formatted-math",

@@ -12,6 +12,29 @@ import {
 const L = (...lines: string[]) => lines.join("\n");
 
 describe("formatting source ranges", () => {
+  it("maps a literal image prefix beside a link through canonical spelling", () => {
+    for (const source of [String.raw`see \![x](y) here`, "see ![x](y) here"]) {
+      const canonical = String.raw`see \![x](y) here`;
+      expect(canonicalizeNfm(source)).toBe(canonical);
+      const start = source.indexOf("x");
+      expect(suggestionMarkedSourceRanges(source)).toEqual([
+        { from: source.indexOf("["), to: source.indexOf(")") + 1 },
+      ]);
+      expect(
+        suggestionFormattingSourceRange(source, start, start + 1),
+      ).toMatchObject({ from: 5, to: 6 });
+      expect(suggestionFormattingSourceSlice(source, start, start + 1)).toEqual(
+        [
+          {
+            type: "text",
+            text: "x",
+            marks: [{ type: "link", attrs: { href: "y" } }],
+          },
+        ],
+      );
+    }
+  });
+
   it.each([
     ["**Echo**", "bold"],
     ["*Echo*", "italic"],

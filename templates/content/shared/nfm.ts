@@ -1,4 +1,8 @@
-import { matchInlineMathAt } from "./inline-math.js";
+import {
+  isEscapedInlineDelimiter,
+  matchInlineMathAt,
+  MAX_INLINE_MATH_LENGTH,
+} from "./inline-math.js";
 import { registryBlockSpecByTag } from "./nfm-registry.js";
 
 export interface PMMark {
@@ -370,6 +374,17 @@ function serializeInline(
   for (let index = parts.length - 1; index >= 0; index--) {
     if (nodes[index]!.type === "notionInlineAtom")
       parts[index] = serializeInlineAtom(nodes[index]!, following);
+    else if (
+      nodes[index]!.type === "text" &&
+      parts[index]!.endsWith("!") &&
+      following === "["
+    )
+      parts[index] = serializeInlineTextNode(
+        nodes[index]!,
+        false,
+        escapeUnderscore,
+        true,
+      )!.source;
     following = (parts[index] + following).slice(0, 1);
   }
   const source = parts.join("");
@@ -408,6 +423,7 @@ function serializeInlineTextNode(
   node: PMNode,
   collectOffsets: boolean,
   escapeUnderscore = false,
+  escapeTrailingBang = false,
 ): {
   source: string;
   textOffsets: number[] | null;
@@ -440,16 +456,24 @@ function serializeInlineTextNode(
     }
   } else {
     if (escapeUnderscore) contextualSpellings?.escapedUnderscores.add(node);
+    if (escapeTrailingBang) contextualSpellings?.escapedTrailingBang.add(node);
     const escape = (text: string) => {
       const escaped = escapeInlineText(text);
       return escapeUnderscore ? escaped.replace(/_/g, "\\_") : escaped;
     };
     out = escape(raw);
+    if (escapeTrailingBang && raw.endsWith("!")) out = out.slice(0, -1) + "\\!";
     if (textOffsets) {
       let contentOffset = 0;
       textOffsets = [contentOffset];
       for (let index = 0; index < raw.length; index += 1) {
         contentOffset += escape(raw[index]!).length;
+        if (
+          escapeTrailingBang &&
+          index === raw.length - 1 &&
+          raw[index] === "!"
+        )
+          contentOffset++;
         textOffsets.push(contentOffset);
       }
     }
@@ -505,11 +529,17 @@ function serializeInlineTextNode(
 export function serializeInlineTextNodeWithOffsets(
   node: PMNode,
   escapeUnderscore = false,
+  escapeTrailingBang = false,
 ): {
   source: string;
   textOffsets: number[];
 } | null {
-  const serialized = serializeInlineTextNode(node, true, escapeUnderscore);
+  const serialized = serializeInlineTextNode(
+    node,
+    true,
+    escapeUnderscore,
+    escapeTrailingBang,
+  );
   return serialized?.textOffsets
     ? { source: serialized.source, textOffsets: serialized.textOffsets }
     : null;
@@ -870,6 +900,44 @@ function mergeAdjacentText(nodes: PMNode[]): PMNode[] {
 // which no page needs, the text reads as written and the loss is reported.
 const MAX_INLINE_DEPTH = 32;
 
+// Fidelity must name closed math the bounded matcher cannot represent. Index
+// its closers once: searching to the end from every unmatched `$` is quadratic.
+function indexOverLimitMath(input: string): Set<number> {
+  const starts = new Set<number>();
+  let plainClose = -1;
+  let githubClose = -1;
+  let lineEnd = input.length;
+  for (let at = input.length - 1; at >= 0; at--) {
+    const ch = input[at];
+    if (ch === "\n" || ch === "\r") lineEnd = at;
+    if (ch === "`" && input[at + 1] === "$") githubClose = at;
+    if (ch !== "$") continue;
+    const escaped = isEscapedInlineDelimiter(input, at);
+    if (!escaped) {
+      if (input[at + 1] === "`") {
+        if (githubClose - at - 2 > MAX_INLINE_MATH_LENGTH) starts.add(at);
+      } else if (
+        input[at + 1] &&
+        input[at + 1] !== "$" &&
+        !/\s/.test(input[at + 1]) &&
+        plainClose < lineEnd &&
+        plainClose - at - 1 > MAX_INLINE_MATH_LENGTH
+      ) {
+        starts.add(at);
+      }
+    }
+    if (
+      !escaped &&
+      input[at - 1] !== "$" &&
+      input[at + 1] !== "$" &&
+      !/\s/.test(input[at - 1] ?? "") &&
+      !/\d/.test(input[at + 1] ?? "")
+    )
+      plainClose = at;
+  }
+  return starts;
+}
+
 function parseInline(input: string, depth = 0): PMNode[] {
   if (depth > MAX_INLINE_DEPTH) {
     // Without a character that opens a construct, text reads as itself.
@@ -885,6 +953,7 @@ function parseInline(input: string, depth = 0): PMNode[] {
   let linkCloses: LinkCloses | null = null;
   let nextIndex: ((needle: string, from: number) => number) | null = null;
   let mentionCloses: MentionCloseTrie | null = null;
+  let overLimitMath: Set<number> | null = null;
   const flush = () => {
     if (buf) {
       out.push(textNode(buf, []));
@@ -919,6 +988,12 @@ function parseInline(input: string, depth = 0): PMNode[] {
       i = inlineMath.to;
       continue;
     }
+    if (
+      ch === "$" &&
+      activeLossSink &&
+      (overLimitMath ??= indexOverLimitMath(input)).has(i)
+    )
+      reportLoss("dropped-formatting", input.slice(i, i + 200));
 
     if (ch === "`") {
       // A run with no closer stays text, and so does each backtick of it
@@ -1090,6 +1165,8 @@ function parseInline(input: string, depth = 0): PMNode[] {
       };
       const link = matchLink(input, i, linkCloses, codeRuns);
       if (link) {
+        if (buf.endsWith("!") && !isEscapedInlineDelimiter(input, i - 1))
+          reportLoss("dropped-formatting", input.slice(i - 1, link.end));
         flush();
         const inner = parseInline(link.text, depth + 1);
         addMark(inner, { type: "link", attrs: { href: link.href } });
@@ -1340,11 +1417,14 @@ export interface NfmContextualSpellings {
   escapedUnderscores: ReadonlySet<PMNode>;
   /** It opens a paragraph that looked like block syntax, so a `\` precedes it. */
   escapedBlockMarker: ReadonlySet<PMNode>;
+  /** Its literal `!` before a link must not become image syntax. */
+  escapedTrailingBang: ReadonlySet<PMNode>;
 }
 
 let contextualSpellings: {
   escapedUnderscores: Set<PMNode>;
   escapedBlockMarker: Set<PMNode>;
+  escapedTrailingBang: Set<PMNode>;
 } | null = null;
 
 /**
@@ -1358,6 +1438,7 @@ export function nfmContextualSpellings(
   const spellings = {
     escapedUnderscores: new Set<PMNode>(),
     escapedBlockMarker: new Set<PMNode>(),
+    escapedTrailingBang: new Set<PMNode>(),
   };
   const previous = contextualSpellings;
   contextualSpellings = spellings;
@@ -1436,11 +1517,12 @@ function serializeBlock(node: PMNode, indent: number): string[] {
   switch (node.type) {
     case "paragraph": {
       const inline = serializeInline(node.content);
-      if (!inline) return [indentStr(ind) + "<empty-block/>"];
+      const suffix = blockAttrSuffix({ color: node.attrs?.color });
+      if (!inline)
+        return [indentStr(ind) + (suffix.trimStart() || "<empty-block/>")];
       const escaped = escapeLeadingBlockMarker(inline);
       if (escaped !== inline && node.content?.[0])
         contextualSpellings?.escapedBlockMarker.add(node.content[0]);
-      const suffix = blockAttrSuffix({ color: node.attrs?.color });
       // Text one space short of a block marker, like `#`, would become one
       // with the suffix's space, so the suffix goes on without it.
       const joined =
