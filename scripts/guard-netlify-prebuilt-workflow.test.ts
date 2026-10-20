@@ -182,14 +182,26 @@ describe("Netlify offline prebuilt build environment", () => {
       [
         {
           key: "DATABASE_URL",
+          scopes: ["builds", "functions"],
           values: [
-            { context: "production", value: "postgresql://site.invalid/db" },
             { context: "all", value: "postgresql://all.invalid/db" },
+            { context: "production", value: "postgresql://site.invalid/db" },
           ],
         },
         {
           key: "SITE_ONLY",
+          scopes: ["builds"],
           values: [{ context: "all", value: "site-value" }],
+        },
+        {
+          key: "FUNCTION_ONLY",
+          scopes: ["functions"],
+          values: [{ context: "all", value: "runtime-value" }],
+        },
+        {
+          key: "RUNTIME_ONLY",
+          scopes: ["runtime"],
+          values: [{ context: "all", value: "runtime-value" }],
         },
       ],
       "production",
@@ -198,7 +210,24 @@ describe("Netlify offline prebuilt build environment", () => {
 
     assert.equal(environment.DATABASE_URL, "postgresql://site.invalid/db");
     assert.equal(environment.SITE_ONLY, "site-value");
+    assert.equal(environment.FUNCTION_ONLY, undefined);
+    assert.equal(environment.RUNTIME_ONLY, undefined);
     assert.equal(environment.PATH, "/usr/bin");
+  });
+
+  it("keeps unscoped variables available because Netlify defaults them to all scopes", () => {
+    const environment = resolveNetlifyBuildEnvironment(
+      [
+        {
+          key: "LEGACY_BUILD_VALUE",
+          values: [{ context: "all", value: "value" }],
+        },
+      ],
+      "production",
+      {},
+    );
+
+    assert.equal(environment.LEGACY_BUILD_VALUE, "value");
   });
 
   it("fails loudly when the Netlify environment response is unreadable", () => {
@@ -206,6 +235,18 @@ describe("Netlify offline prebuilt build environment", () => {
       () =>
         resolveNetlifyBuildEnvironment({ unavailable: true }, "production", {}),
       /Netlify environment response must be an array/,
+    );
+  });
+
+  it("fails loudly when the Netlify environment scope is malformed", () => {
+    assert.throws(
+      () =>
+        resolveNetlifyBuildEnvironment(
+          [{ key: "BROKEN", scopes: "functions", values: [] }],
+          "production",
+          {},
+        ),
+      /Netlify returned a malformed environment variable/,
     );
   });
 

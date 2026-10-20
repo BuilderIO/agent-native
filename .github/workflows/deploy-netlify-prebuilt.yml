@@ -785,7 +785,7 @@ jobs:
             build_environment_file="$(mktemp "$RUNNER_TEMP/netlify-build-environment.XXXXXX")"
             trap 'rm -f "$build_environment_file"' EXIT
             netlify api getEnvVars \
-              --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\"}" \
+              --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\",\"scope\":\"builds\"}" \
               > "$build_environment_file"
             node --experimental-strip-types scripts/netlify-prebuilt-build.ts \
               --env-file "$build_environment_file" \

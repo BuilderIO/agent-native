@@ -986,6 +986,7 @@ const hasOfflineSecretFreePreviewBuild =
     'netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE" --offline',
   ) &&
   clipsBuild.includes("netlify api getEnvVars") &&
+  clipsBuild.includes('\\"scope\\":\\"builds\\"') &&
   clipsBuild.includes("scripts/netlify-prebuilt-build.ts");
 if (!hasOfflineSecretFreePreviewBuild) {
   issues.push(

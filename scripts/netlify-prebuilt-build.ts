@@ -10,6 +10,7 @@ type NetlifyEnvironmentValue = {
 
 type NetlifyEnvironmentVariable = {
   key?: unknown;
+  scopes?: unknown;
   values?: unknown;
 };
 
@@ -32,9 +33,18 @@ export function resolveNetlifyBuildEnvironment(
         !isRecord(candidate) ||
         typeof candidate.key !== "string" ||
         candidate.key.length === 0 ||
-        !Array.isArray(candidate.values)
+        !Array.isArray(candidate.values) ||
+        (candidate.scopes !== undefined && !Array.isArray(candidate.scopes))
       ) {
         throw new Error("Netlify returned a malformed environment variable.");
+      }
+      if (
+        Array.isArray(candidate.scopes) &&
+        candidate.scopes.some((scope) => typeof scope !== "string")
+      ) {
+        throw new Error(
+          `Netlify returned malformed scopes for ${candidate.key}.`,
+        );
       }
       for (const value of candidate.values) {
         if (!isRecord(value) || typeof value.context !== "string") {
@@ -54,10 +64,12 @@ export function resolveNetlifyBuildEnvironment(
   const siteEnvironment: NodeJS.ProcessEnv = {};
   for (const variable of sortedVariables) {
     const key = variable.key as string;
+    const scopes = variable.scopes as string[] | undefined;
+    if (scopes && !scopes.includes("builds")) continue;
     const values = variable.values as NetlifyEnvironmentValue[];
-    const selected = values.find(
-      (value) => value.context === "all" || value.context === context,
-    );
+    const selected =
+      values.find((value) => value.context === context) ??
+      values.find((value) => value.context === "all");
     if (selected?.value === undefined || selected.value === "") continue;
     if (typeof selected.value !== "string") {
       throw new Error(`Netlify returned a non-string value for ${key}.`);
