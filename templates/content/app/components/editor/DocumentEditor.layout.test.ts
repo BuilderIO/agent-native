@@ -531,24 +531,6 @@ describe("document editor layout", () => {
     );
   });
 
-  it("opens a thread from its highlight in any Blocks field tab", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const tabs = source.slice(
-      source.indexOf("const blockFieldComments = useBlockFieldComments"),
-      source.indexOf("const showDesktopInfoPanel"),
-    );
-
-    expect(tabs).toContain(
-      "onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined",
-    );
-    expect(source.indexOf("const activateCommentThread")).toBeLessThan(
-      source.indexOf("const blockFieldComments = useBlockFieldComments"),
-    );
-  });
-
   it("keeps suggestion history notifications out of the parent render loop", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

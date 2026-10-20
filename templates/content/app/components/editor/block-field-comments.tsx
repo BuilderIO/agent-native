@@ -268,8 +268,10 @@ export function useBlockFieldComments({
   hoveredThreadId: string | null;
   pendingComment: PendingCommentSelection | null;
   showCommentIndicators: boolean;
-  onComment?: BlockFieldCommentHandler;
-  onActivateThread?: (threadId: string) => void;
+  // Required, so every tab's editor gets the same handlers as the body's;
+  // undefined turns them off.
+  onComment: BlockFieldCommentHandler | undefined;
+  onActivateThread: ((threadId: string) => void) | undefined;
   scrollContainerRef: RefObject<HTMLElement | null>;
 }) {
   const [reportedTabs, setReportedTabs] = useState<BlockFieldTabs | null>(null);

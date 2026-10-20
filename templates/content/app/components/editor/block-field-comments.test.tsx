@@ -298,6 +298,7 @@ describe("useBlockFieldComments", () => {
   }[];
   const scrolled: string[] = [];
   const onComment = vi.fn();
+  const onActivateThread = vi.fn();
 
   function Harness({
     threads,
@@ -324,6 +325,7 @@ describe("useBlockFieldComments", () => {
       pendingComment,
       showCommentIndicators: true,
       onComment,
+      onActivateThread,
       scrollContainerRef,
     });
     latest = comments;
@@ -433,6 +435,7 @@ describe("useBlockFieldComments", () => {
     renders = [];
     mocks.editors.clear();
     onComment.mockReset();
+    onActivateThread.mockReset();
     localStorage.clear();
     setFields([content(), notes()]);
   });
@@ -582,6 +585,13 @@ describe("useBlockFieldComments", () => {
     expect(latest.pendingVisible).toBe(false);
     expect(latest.bodyPendingHighlight).toBe(range);
     expect(mocks.editors.get("Notes text")?.pendingHighlight).toBeNull();
+  });
+
+  it("opens a thread from its highlight in a tab", async () => {
+    await render({ threads });
+    const editor = mocks.editors.get("Notes text")!;
+    (editor.onActivateThread as (threadId: string) => void)("notes-1");
+    expect(onActivateThread).toHaveBeenCalledWith("notes-1");
   });
 
   it("names the field when text in its tab is commented on (CMT-1)", async () => {
