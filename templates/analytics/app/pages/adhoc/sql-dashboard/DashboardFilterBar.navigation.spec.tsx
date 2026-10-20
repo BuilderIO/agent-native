@@ -90,7 +90,7 @@ let filterBarMounts: number;
 let submission: { resolve: () => void; signal: AbortSignal };
 let barFilters: DashboardFilter[];
 let saveView: ReturnType<typeof vi.fn<() => void>> | undefined;
-let savePreset: ReturnType<typeof vi.fn<() => void>> | undefined;
+let editPreset: ReturnType<typeof vi.fn<() => void>> | undefined;
 let loadedOwner: string | undefined;
 let queuedUpdate: ReturnType<typeof useFilterSearchParams>[1] | undefined;
 let queuedAdmission: (() => boolean) | undefined;
@@ -112,7 +112,7 @@ function TrackedFilterBar() {
         filters={barFilters}
         loadedDashboardId={loadedOwner}
         onSaveView={saveView}
-        onSavePreset={savePreset}
+        onEditPreset={editPreset}
         views={[
           {
             id: "launch",
@@ -282,7 +282,7 @@ describe("dashboard filter feedback during navigation", () => {
   beforeEach(() => {
     barFilters = filters;
     saveView = undefined;
-    savePreset = undefined;
+    editPreset = undefined;
     loadedOwner = undefined;
     queuedUpdate = undefined;
     queuedAdmission = undefined;
@@ -470,7 +470,7 @@ describe("dashboard filter feedback during navigation", () => {
   it.each(["foreign", "POST", "revoked owner"])(
     "retains a preset name when live admission rejects %s before controls disable",
     async (reason) => {
-      savePreset = vi.fn<() => void>();
+      editPreset = vi.fn<() => void>();
       loadedOwner = "selected";
       const original = "/dashboards/test?id=selected&f_app=chat,slides";
       await render(original, undefined, true, {
@@ -511,7 +511,7 @@ describe("dashboard filter feedback during navigation", () => {
           form.dispatchEvent(
             new Event("submit", { bubbles: true, cancelable: true }),
           );
-          expect(savePreset).not.toHaveBeenCalled();
+          expect(editPreset).not.toHaveBeenCalled();
         });
       });
       act(() => {
@@ -527,11 +527,11 @@ describe("dashboard filter feedback during navigation", () => {
           'input[aria-label="Group name"]',
         )!.value,
       ).toBe(" Review apps ");
-      expect(savePreset).not.toHaveBeenCalled();
+      expect(editPreset).not.toHaveBeenCalled();
       act(() => button("Save").click());
-      expect(savePreset).toHaveBeenCalledExactlyOnceWith("app", {
-        label: "Review apps",
-        values: ["chat", "slides"],
+      expect(editPreset).toHaveBeenCalledExactlyOnceWith("app", {
+        kind: "add",
+        preset: { label: "Review apps", values: ["chat", "slides"] },
       });
       expect(
         document.querySelector('input[aria-label="Group name"]'),
@@ -548,7 +548,7 @@ describe("dashboard filter feedback during navigation", () => {
   it.each(["failure", "cancel", "POST"])(
     "preserves a nonempty preset name after temporary busy %s until manual reopen",
     async (outcome) => {
-      savePreset = vi.fn<() => void>();
+      editPreset = vi.fn<() => void>();
       await render("/dashboards/test?f_app=chat,slides", undefined, true);
       act(() => appTrigger().click());
       act(() => button("Save as group…").click());
@@ -579,7 +579,7 @@ describe("dashboard filter feedback during navigation", () => {
           new Event("submit", { bubbles: true, cancelable: true }),
         ),
       );
-      expect(savePreset).not.toHaveBeenCalled();
+      expect(editPreset).not.toHaveBeenCalled();
       if (outcome === "failure")
         await act(async () => loads[1].reject(new Error("controlled failure")));
       else if (outcome === "cancel") {
@@ -600,7 +600,7 @@ describe("dashboard filter feedback during navigation", () => {
           'input[aria-label="Group name"]',
         )!.value,
       ).toBe("Review apps");
-      expect(savePreset).not.toHaveBeenCalled();
+      expect(editPreset).not.toHaveBeenCalled();
     },
   );
 
@@ -1502,7 +1502,7 @@ describe("dashboard filter feedback during navigation", () => {
     "closes an open %s portal and disables every filter until a foreign navigation fails or is canceled",
     async (portal) => {
       saveView = vi.fn<() => void>();
-      savePreset = vi.fn<() => void>();
+      editPreset = vi.fn<() => void>();
       barFilters = [
         ...filters,
         { id: "day", label: "Day", type: "date", default: "2026-10-01" },
@@ -1586,7 +1586,7 @@ describe("dashboard filter feedback during navigation", () => {
       expect(router.state.navigation.location).toBe(pending);
       expect(loads).toHaveLength(2);
       expect(saveView).not.toHaveBeenCalled();
-      expect(savePreset).not.toHaveBeenCalled();
+      expect(editPreset).not.toHaveBeenCalled();
       expect(mocks.callAction).toHaveBeenCalledTimes(1);
       if (portal === "save view") {
         await act(async () => loads[1].reject(new Error("foreign failed")));
@@ -1609,7 +1609,7 @@ describe("dashboard filter feedback during navigation", () => {
         false,
       );
       expect(saveView).not.toHaveBeenCalled();
-      expect(savePreset).not.toHaveBeenCalled();
+      expect(editPreset).not.toHaveBeenCalled();
       act(() => button("Off").click());
       expect(button("On").disabled).toBe(false);
       expect(
