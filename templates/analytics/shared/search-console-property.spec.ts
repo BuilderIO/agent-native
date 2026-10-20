@@ -1,0 +1,80 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  normalizeSearchConsoleProperty,
+  searchConsolePathPrefixProblem,
+  searchConsolePropertyMessage,
+  searchConsolePropertyProblem,
+} from "./search-console-property";
+
+describe("searchConsolePropertyProblem", () => {
+  it.each([
+    "sc-domain:builder.io",
+    "sc-domain:agent-native.com",
+    "sc-domain:Blog.Example.co.uk",
+    "https://www.builder.io/",
+    "https://www.builder.io/blog/",
+    "http://example.com/",
+  ])("accepts %s", (siteUrl) => {
+    expect(searchConsolePropertyProblem(siteUrl)).toBeNull();
+  });
+
+  it.each([
+    ["builder.io", { kind: "bare_domain", suggestion: "sc-domain:builder.io" }],
+    [
+      "sc-domain:https://www.builder.io/blog/",
+      { kind: "invalid_domain", suggestion: "sc-domain:www.builder.io" },
+    ],
+    [
+      "sc-domain:builder.io/blog",
+      { kind: "invalid_domain", suggestion: "sc-domain:builder.io" },
+    ],
+    ["sc-domain:", { kind: "invalid_domain" }],
+    ["sc-domain:example.com-", { kind: "invalid_domain" }],
+    ["example.com-", { kind: "unrecognized" }],
+    ["https://example.com-/", { kind: "unrecognized" }],
+    [
+      "https://www.builder.io/blog",
+      {
+        kind: "missing_trailing_slash",
+        suggestion: "https://www.builder.io/blog/",
+      },
+    ],
+    ["builder blog", { kind: "unrecognized" }],
+    ["https://", { kind: "unrecognized" }],
+  ])("explains what's wrong with %s", (siteUrl, problem) => {
+    expect(searchConsolePropertyProblem(siteUrl)).toEqual(problem);
+  });
+
+  it("normalizes mixed-case Domain properties", () => {
+    expect(normalizeSearchConsoleProperty(" SC-DOMAIN:Example.com ")).toBe(
+      "sc-domain:example.com",
+    );
+  });
+  it.each([
+    [undefined, false],
+    ["", false],
+    [" /blog/ ", false],
+    ["blog/", true],
+  ])("checks the path prefix %s", (prefix, problem) => {
+    expect(searchConsolePathPrefixProblem(prefix as string | undefined)).toBe(
+      problem,
+    );
+  });
+
+  it("names the property to use instead", () => {
+    const problem = searchConsolePropertyProblem("builder.io")!;
+    expect(searchConsolePropertyMessage("builder.io", problem)).toBe(
+      '"builder.io" isn\'t a Search Console property. For a Domain property, use sc-domain:builder.io.',
+    );
+  });
+});
+
+it("normalizes case-only Domain edits to the saved property", () => {
+  expect(normalizeSearchConsoleProperty(" SC-DOMAIN:Example.test ")).toBe(
+    "sc-domain:example.test",
+  );
+  expect(normalizeSearchConsoleProperty(" https://Example.test/Blog/ ")).toBe(
+    "https://Example.test/Blog/",
+  );
+});

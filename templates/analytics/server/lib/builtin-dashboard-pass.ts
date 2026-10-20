@@ -19,6 +19,7 @@ import {
   withoutInstallTimes,
   type BuiltinDashboardInstall,
 } from "./builtin-dashboards";
+import legacyContentView from "./content-metrics/legacy-content-view.json";
 import { materializeLegacyBuiltinDashboardSettings } from "./legacy-builtin-dashboard-settings";
 import {
   nativeV2DashboardManifests,
@@ -169,6 +170,7 @@ function candidateFilter() {
     or(
       sql`${d.id} LIKE 'demo-node-exporter-%'`,
       sql`${d.id} LIKE 'native-%'`,
+      sql`${d.id} LIKE 'content-view-%'`,
       eq(d.id, "risk-meeting"),
       inArray(d.id, [...SEED_BUILTIN_DASHBOARD_IDS]),
       ...SEED_BUILTIN_DASHBOARD_IDS.map(
@@ -309,10 +311,23 @@ export async function runBuiltinDashboardPass(
       const built = install ? buildBuiltinDashboard(builtinId, install) : null;
       if (config && !built) reasons.push("unrecognized");
       if (config && built) {
+        const shippedConfigs = [built.config];
+        if (builtinId === "content-view") {
+          shippedConfigs.push({
+            ...legacyContentView,
+            catalog: {
+              templateId: "content-view",
+              templateVersion: "2026-06-08",
+            },
+          });
+        }
         const same =
           row.title === built.title &&
-          stable(withoutInstallTimes(config)) ===
-            stable(withoutInstallTimes(built.config));
+          shippedConfigs.some(
+            (shipped) =>
+              stable(withoutInstallTimes(config!)) ===
+              stable(withoutInstallTimes(normalizeDashboardConfig(shipped))),
+          );
         if (!same) {
           reasons.push(
             shippedVersion(config) !== shippedVersion(built.config)

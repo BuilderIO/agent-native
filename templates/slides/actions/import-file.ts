@@ -110,7 +110,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded file path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded path, hosted reference, exact current attachment name, or a generic reference such as 'the attached document' when exactly one compatible attachment is attached. Format-specific references must match the requested format.",
+      ),
     format: z
       .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])
       .optional()
@@ -138,7 +140,15 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, format, deckId, importIntoDeck, maxChars }, ctx) => {
-    const uploaded = await readUserUploadedFile(filePath, ctx);
+    const expectedExtensions =
+      format === "auto"
+        ? undefined
+        : format === "image"
+          ? [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]
+          : [`.${format}`];
+    const uploaded = await readUserUploadedFile(filePath, ctx, {
+      expectedExtensions,
+    });
     const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
     const fileBuffer = uploaded.data;
     const filename = uploaded.filename;

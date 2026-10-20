@@ -12,6 +12,10 @@ export {
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "./action-browser-persist.js";
+export {
   APP_STATUS,
   DEFAULT_APP_STATUS,
   getAppStatus,

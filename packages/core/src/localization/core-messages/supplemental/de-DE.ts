@@ -114,6 +114,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpIdentityError:
     "Die Verbindungsdetails dieser App konnten nicht geladen werden.",
   mcpRetry: "Erneut versuchen",
+  mcpOAuthBackToApp: "Zurück zur App",
   mcpConnect: mcpConnectMessages,
 };
 

@@ -260,6 +260,27 @@ describe("createHttpAgentChatRuntime", () => {
     expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/cancel");
   });
 
+  it("closes an unconsumed response stream without cancelling its run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([]));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: "/agent/cancel",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Close the discarded stream",
+    });
+    await turn.closeEvents?.();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal).aborted).toBe(
+      true,
+    );
+  });
+
   it("accepts JSON response text as a simple assistant turn", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ text: "Done" }), {

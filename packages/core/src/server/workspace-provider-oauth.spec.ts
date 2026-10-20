@@ -657,6 +657,9 @@ describe("workspace provider OAuth", () => {
         ),
         allowedApps: ["analytics"],
         allowedUsers: [email],
+        config: expect.objectContaining({
+          workspaceConnectionScope: "user",
+        }),
       }),
     );
     expect(callbackMocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
@@ -664,6 +667,9 @@ describe("workspace provider OAuth", () => {
         connectionId: "sigma-connection-1",
         appId: "analytics",
         provider: "sigma",
+        config: expect.objectContaining({
+          workspaceConnectionScope: "user",
+        }),
       }),
     );
   });

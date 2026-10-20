@@ -710,6 +710,43 @@ export default {
     sameNameCheckFailed: "इस मेट्रिक की मौजूदा प्रविष्टियों की जाँच नहीं हो सकी।",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "कंटेंट व्यू के लिए हर पेज के रोज़ाना क्लिक और इंप्रेशन।",
+      serviceAccount: "सर्विस अकाउंट",
+      copyEmail: "ईमेल कॉपी करें",
+      grantHint:
+        "Search Console में हर प्रॉपर्टी पर सेटिंग → उपयोगकर्ता और अनुमतियां में जाकर इस ईमेल को उपयोगकर्ता के रूप में जोड़ें।",
+      noServiceAccount: "पहले Google सर्विस अकाउंट की कुंजी जोड़ें।",
+      openGoogleCloud: "Google Cloud खोलें",
+      invalidServiceAccount: "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकती।",
+      properties: "प्रॉपर्टी",
+      siteLabel: "प्रॉपर्टी",
+      pathLabel: "पाथ प्रीफ़िक्स",
+      pathInvalid: "पथ उपसर्ग / से शुरू करें।",
+      addProperty: "प्रॉपर्टी जोड़ें",
+      removeProperty: "प्रॉपर्टी हटाएं",
+      save: "सहेजें",
+      collectDaily: "रोज़ इकट्ठा करें",
+      adminOnly: "केवल संगठन के मालिक और एडमिन इसे बदल सकते हैं।",
+      statusCollecting: "इकट्ठा हो रहा है",
+      statusNeedsAccess: "एक्सेस चाहिए",
+      statusFailed: "पिछला रन विफल रहा",
+      runSucceeded: "{{when}} को इकट्ठा किया गया",
+      runNeedsAccess: "{{when}} तक कोई एक्सेस नहीं",
+      runRunning: "{{when}} से इकट्ठा हो रहा है",
+      runFailed: "{{when}} को विफल",
+      unavailable: "संग्रह की स्थिति उपलब्ध नहीं है: {{message}}",
+      keyUnreadable:
+        "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकी। इसे Google Cloud में फिर से सहेजें।",
+      propertyBareDomain: "डोमेन प्रॉपर्टी के लिए {{suggestion}} का उपयोग करें।",
+      propertyInvalidDomain:
+        "sc-domain: के बाद सिर्फ़ डोमेन लिखें, जैसे {{suggestion}}।",
+      propertyMissingSlash:
+        "URL-प्रीफ़िक्स प्रॉपर्टी / पर खत्म होती हैं। {{suggestion}} का उपयोग करें।",
+      propertyUnrecognized:
+        "sc-domain:example.com या / पर खत्म होने वाली URL-प्रीफ़िक्स प्रॉपर्टी का उपयोग करें।",
+    },
     uploadFile: "फ़ाइल अपलोड करें",
     googleSheetsExport: "Google Sheets निर्यात",
     googleSheetsExportDescription:
