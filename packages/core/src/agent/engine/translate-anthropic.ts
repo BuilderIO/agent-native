@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
-import { toolCallInputFingerprint } from "../tool-call-journal.js";
+import { toolCallInputSignature } from "../tool-call-input-signature.js";
 import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
 import {
   createProviderToolNameMap,
@@ -170,6 +170,11 @@ export function backfillEngineMessagesToolResults(
     name: string;
     input: unknown;
   };
+
+  type ParsedToolInput =
+    | { status: "absent" }
+    | { status: "unreadable" }
+    | { status: "parsed"; value: unknown };
   let pendingToolUses: PendingToolUse[] = [];
 
   const uniqueToolUseId = (id: string) => {
@@ -194,6 +199,18 @@ export function backfillEngineMessagesToolResults(
       content: pendingToolUses.map(interruptedToolResultPart),
     });
     pendingToolUses = [];
+  };
+
+  const parseToolInput = (value: unknown): ParsedToolInput => {
+    if (typeof value !== "string" || value.length === 0) {
+      return { status: "absent" };
+    }
+    try {
+      return { status: "parsed", value: JSON.parse(value) as unknown };
+    } catch (error) {
+      if (error instanceof SyntaxError) return { status: "unreadable" };
+      throw error;
+    }
   };
 
   for (const msg of messages) {
@@ -240,29 +257,29 @@ export function backfillEngineMessagesToolResults(
       const pendingCandidates = (pendingById.get(part.toolCallId) ?? []).filter(
         (pending) => !matchedPendingToolIds.has(pending.id),
       );
-      let resultInput: unknown;
-      let hasResultInput = false;
-      if (typeof part.toolInput === "string" && part.toolInput.length > 0) {
-        try {
-          resultInput = JSON.parse(part.toolInput);
-          hasResultInput = true;
-        } catch {
-          // An unreadable input cannot safely identify a reused provider id.
-        }
-      }
-      const matchingPendingCandidates = hasResultInput
+      const requestedToolName =
+        typeof part.toolName === "string" && part.toolName.trim().length > 0
+          ? part.toolName.trim()
+          : undefined;
+      const namedPendingCandidates = requestedToolName
         ? pendingCandidates.filter(
-            (pending) =>
-              toolCallInputFingerprint(pending.input) ===
-              toolCallInputFingerprint(resultInput),
+            (pending) => pending.name === requestedToolName,
           )
         : pendingCandidates;
+      const parsedToolInput = parseToolInput(part.toolInput);
+      const fingerprintMatches =
+        parsedToolInput.status === "parsed"
+          ? namedPendingCandidates.filter(
+              (pending) =>
+                toolCallInputSignature(pending.input) ===
+                toolCallInputSignature(parsedToolInput.value),
+            )
+          : [];
       const pendingLookup =
-        matchingPendingCandidates.length === 1 ||
-        (hasResultInput && matchingPendingCandidates.length > 1)
-          ? matchingPendingCandidates[0]
-          : !hasResultInput && pendingCandidates.length === 1
-            ? pendingCandidates[0]
+        namedPendingCandidates.length === 1
+          ? namedPendingCandidates[0]
+          : fingerprintMatches.length === 1
+            ? fingerprintMatches[0]
             : undefined;
       if (pendingLookup) matchedPendingToolIds.add(pendingLookup.id);
       const toolName =

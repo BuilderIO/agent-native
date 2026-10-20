@@ -860,6 +860,153 @@ describe("recorded call effects", () => {
     ).toEqual(new Set());
   });
 
+  it("replays one represented legacy result during an internal continuation", () => {
+    const input = { message: "same" };
+    const argumentsHash = actionArgumentsHash(input);
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "first-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "first-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id: "first-call", name: "send", input }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "first-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent",
+          },
+        ],
+      },
+    ];
+    const represented = journalEntriesRepresentedInHistory(journal, history);
+    const consumed = new Set<string>();
+
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        consumed,
+        { input },
+        represented,
+        "continued-step",
+        true,
+      ),
+    ).toMatchObject({ result: "sent" });
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        consumed,
+        { input },
+        represented,
+        "continued-step",
+        true,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("blocks an internal continuation when multiple represented writes match", () => {
+    const input = { message: "same" };
+    const argumentsHash = actionArgumentsHash(input);
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "first-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "first-call",
+        tool: "send",
+        input,
+        result: "sent first",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+      { type: "tool_start", id: "second-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "second-call",
+        tool: "send",
+        input,
+        result: "sent second",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "first-call", name: "send", input },
+          { type: "tool-call", id: "second-call", name: "send", input },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "first-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent first",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "second-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent second",
+          },
+        ],
+      },
+    ];
+    const represented = journalEntriesRepresentedInHistory(journal, history);
+    const ambiguous = journalEntriesAmbiguousInHistory(journal, history);
+
+    expect(represented.size).toBe(2);
+    expect(ambiguous).toEqual(new Set());
+    expect(
+      findAmbiguousLegacyJournalEntryForCall(
+        journal,
+        ambiguous,
+        represented,
+        "send",
+        argumentsHash,
+        input,
+        new Set(),
+        true,
+      ),
+    ).toBeDefined();
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        new Set(),
+        { input },
+        represented,
+        "continued-step",
+        true,
+        ambiguous,
+      ),
+    ).toBeUndefined();
+  });
+
   it("matches reused provider call ids to history occurrences one to one", () => {
     const journal = classifyToolCallJournal([
       {

@@ -441,6 +441,156 @@ describe("engineMessagesToAnthropic", () => {
     ]);
   });
 
+  it("uses a unique provider id when a result input was normalized", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "normalized-call",
+            name: "update-record",
+            input: { label: "Draft" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "normalized-call",
+            toolName: "update-record",
+            toolInput: '{"label":"Normalized draft"}',
+            content: "Updated",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolResult = (result[1]!.content as any[]).find(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolResult).toMatchObject({
+      tool_use_id: "normalized-call",
+      content: "Updated",
+    });
+  });
+
+  it("uses tool names to pair reused ids when their inputs match", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-first",
+            input: { title: "Same" },
+          },
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-second",
+            input: { title: "Same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-second",
+            toolInput: '{"title":"Same"}',
+            content: "Second created",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-first",
+            toolInput: '{"title":"Same"}',
+            content: "First created",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolUses = (result[0]!.content as any[]).filter(
+      (part: any) => part.type === "tool_use",
+    );
+    const toolResults = (result[1]!.content as any[]).filter(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolUses.map((part: any) => [part.id, part.name])).toEqual([
+      ["shared-call-id", "create-first"],
+      ["shared-call-id-2", "create-second"],
+    ]);
+    expect(
+      toolResults.map((part: any) => [part.tool_use_id, part.content]),
+    ).toEqual([
+      ["shared-call-id", "First created"],
+      ["shared-call-id-2", "Second created"],
+    ]);
+  });
+
+  it("leaves results unmatched when a reused id is still ambiguous", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "ambiguous-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+          {
+            type: "tool-call",
+            id: "ambiguous-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "ambiguous-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            content: "Created",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const content = result[1]!.content;
+    const toolResults = content.filter((part) => part.type === "tool-result");
+
+    expect(toolResults).toHaveLength(2);
+    expect(
+      toolResults.every((part) => part.type === "tool-result" && part.isError),
+    ).toBe(true);
+    expect(
+      toolResults.every(
+        (part) =>
+          part.type === "tool-result" &&
+          typeof part.content === "string" &&
+          part.content.includes("Its outcome is UNKNOWN"),
+      ),
+    ).toBe(true);
+    expect(content.at(-1)).toMatchObject({ type: "text" });
+  });
+
   it("backfills tool_name and tool_input from the matching tool_use when omitted", () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "ping" }] },

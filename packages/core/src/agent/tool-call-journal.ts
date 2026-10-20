@@ -8,6 +8,7 @@ import {
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import type { EngineMessage } from "./engine/types.js";
+import { toolCallInputSignature as inputSignature } from "./tool-call-input-signature.js";
 import type {
   AgentChatEvent,
   AgentFileMutationProof,
@@ -220,15 +221,6 @@ const RESULT_SUMMARY_MAX_CHARS = 400;
 
 const NEXT_REQUIRED_ACTION_MAX_CHARS = 900;
 
-function inputSignature(input: unknown): string {
-  if (input == null) return "";
-  try {
-    return JSON.stringify(canonicalizeForSignature(input));
-  } catch {
-    return String(input);
-  }
-}
-
 function replayOutcomeIdentity(entry: ToolCallJournalEntry): string {
   try {
     return JSON.stringify([
@@ -286,42 +278,6 @@ export function isConsistentToolCallInputFingerprint(
     input === undefined ||
     toolCallInputFingerprint(input) === fingerprint
   );
-}
-
-function canonicalizeForSignature(
-  input: unknown,
-  seen = new WeakSet(),
-): unknown {
-  if (input == null) return input;
-  if (typeof input === "bigint") return input.toString();
-  if (typeof input === "function" || typeof input === "symbol") {
-    return String(input);
-  }
-  if (typeof input !== "object") return input;
-
-  if (seen.has(input)) return "[Circular]";
-  seen.add(input);
-  if (Array.isArray(input)) {
-    const output = input.map((value) =>
-      value === undefined
-        ? "[Undefined]"
-        : canonicalizeForSignature(value, seen),
-    );
-    seen.delete(input);
-    return output;
-  }
-
-  const object = input as Record<string, unknown>;
-  const output: Record<string, unknown> = Object.create(null);
-  for (const key of Object.keys(object).sort()) {
-    const value = object[key];
-    output[key] =
-      value === undefined
-        ? "[Undefined]"
-        : canonicalizeForSignature(value, seen);
-  }
-  seen.delete(input);
-  return output;
 }
 
 function displayInputSignature(input: unknown): string {
@@ -622,6 +578,8 @@ export function findReplayableJournalEntry(
   rawWrite?: { input: unknown },
   representedKeys?: ReadonlySet<string>,
   executionStepId?: string,
+  allowRepresentedLegacyReplay = false,
+  ambiguousKeys?: ReadonlySet<string>,
 ): ToolCallJournalEntry | undefined {
   const matches = (candidate: ToolCallJournalEntry) =>
     candidate.tool === toolName &&
@@ -636,25 +594,37 @@ export function findReplayableJournalEntry(
         candidate.argumentsHash === argumentsHash);
   const candidates = journal.completed.filter((candidate) => {
     const represented = representedKeys?.has(candidate.key) === true;
+    const ambiguous = ambiguousKeys?.has(candidate.key) === true;
     const identityMatches =
       executionStepId === undefined
-        ? candidate.executionStepId === undefined && !represented
+        ? candidate.executionStepId === undefined &&
+          !ambiguous &&
+          (!represented || allowRepresentedLegacyReplay)
         : candidate.executionStepId === executionStepId ||
-          (candidate.executionStepId === undefined && !represented);
+          (candidate.executionStepId === undefined &&
+            !ambiguous &&
+            (!represented || allowRepresentedLegacyReplay));
     return identityMatches && matches(candidate);
   });
   const firstCandidate = candidates[0];
+  const hasRepresentedLegacyCandidate = candidates.some(
+    (candidate) =>
+      candidate.executionStepId === undefined &&
+      representedKeys?.has(candidate.key) === true,
+  );
   const candidate =
     candidates.length === 1
       ? firstCandidate
-      : firstCandidate &&
-          candidates.every(
-            (entry) =>
-              replayOutcomeIdentity(entry) ===
-              replayOutcomeIdentity(firstCandidate),
-          )
-        ? candidates.at(-1)
-        : undefined;
+      : hasRepresentedLegacyCandidate
+        ? undefined
+        : firstCandidate &&
+            candidates.every(
+              (entry) =>
+                replayOutcomeIdentity(entry) ===
+                replayOutcomeIdentity(firstCandidate),
+            )
+          ? candidates.at(-1)
+          : undefined;
   const entry = candidate;
   if (entry) consumedKeys?.add(entry.key);
   return entry;
@@ -668,6 +638,7 @@ export function findAmbiguousLegacyJournalEntryForCall(
   argumentsHash: string,
   input: unknown,
   consumedKeys?: ReadonlySet<string>,
+  includeRepresentedDuplicates = false,
 ): ToolCallJournalEntry | undefined {
   const inputFingerprint = toolCallInputFingerprint(input);
   const matchesInput = (entry: ToolCallJournalEntry) =>
@@ -685,6 +656,19 @@ export function findAmbiguousLegacyJournalEntryForCall(
     ambiguousKeys.has(entry.key),
   );
   if (historyAmbiguity) return historyAmbiguity;
+  const availableEntries = matchingEntries.filter(
+    (entry) => !consumedKeys?.has(entry.key),
+  );
+  const representedMatches = availableEntries.filter((entry) =>
+    representedKeys.has(entry.key),
+  );
+  if (
+    includeRepresentedDuplicates &&
+    representedMatches.length > 0 &&
+    availableEntries.length > 1
+  ) {
+    return representedMatches[0];
+  }
   const candidates = matchingEntries.filter(
     (entry) =>
       !ambiguousKeys.has(entry.key) &&

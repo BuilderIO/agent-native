@@ -7162,10 +7162,6 @@ export async function runAgentLoop(opts: {
   const journalEntriesAmbiguous = toolCallJournal
     ? journalEntriesAmbiguousInHistory(toolCallJournal, journalHistory)
     : new Set<string>();
-  const journalEntriesNotReplayable = new Set([
-    ...journalEntriesAlreadyRepresented,
-    ...journalEntriesAmbiguous,
-  ]);
   const journaledPriorToolCalls =
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
@@ -9111,6 +9107,7 @@ export async function runAgentLoop(opts: {
           argumentsHash,
           toolCall.input,
           consumedJournalKeys,
+          internalContinuationTurn,
         ) !== undefined;
       const interruptedCallMatchesStep =
         executionStepAdmission?.status === "execute" &&
@@ -9254,8 +9251,10 @@ export async function runAgentLoop(opts: {
           argumentsHash,
           consumedJournalKeys,
           actionIsReadOnly ? undefined : { input: toolCall.input },
-          journalEntriesNotReplayable,
+          journalEntriesAlreadyRepresented,
           executionStepId,
+          internalContinuationTurn,
+          journalEntriesAmbiguous,
         );
         if (journaled) {
           rollbackRepeatedToolCall();
