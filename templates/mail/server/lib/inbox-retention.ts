@@ -15,6 +15,7 @@ export const INBOX_INACTIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 // Same as the sync claim TTL in inbox-sync.ts: an older claim belongs to a
 // worker that is gone.
 const STALE_CLAIM_MS = 90_000;
+const RETENTION_PAGE_SIZE = 500;
 
 export type ConnectedAccountsResult = {
   accounts: string[];
@@ -51,27 +52,40 @@ export type InboxRetentionSummary = {
 export async function readRetentionPairs(
   now: number,
 ): Promise<RetentionPair[]> {
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT s.owner_email, s.account_email, s.id,
-        MAX(COALESCE(s.last_synced_at, s.created_at)) OVER (PARTITION BY s.owner_email) AS owner_active_at,
-        (s.sync_claim_id IS NOT NULL AND COALESCE(s.sync_claimed_at, 0) >= $1) AS claimed,
-        (to_regclass('public.oauth_tokens') IS NULL OR NOT EXISTS (
-          SELECT 1 FROM public.oauth_tokens o
-          WHERE o.provider = 'google'
-            AND lower(o.owner) = s.owner_email
-            AND lower(o.account_id) = s.account_email
-        )) AS oauth_missing
-      FROM mail_sync_accounts s`,
-    args: [now - STALE_CLAIM_MS],
-  });
-  return rows.map((row: any) => ({
-    ownerEmail: String(row.owner_email),
-    accountEmail: String(row.account_email),
-    syncId: String(row.id),
-    inactive: Number(row.owner_active_at) < now - INBOX_INACTIVE_AFTER_MS,
-    oauthMissing: Boolean(row.oauth_missing),
-    claimed: Boolean(row.claimed),
-  }));
+  const pairs: RetentionPair[] = [];
+  let cursor = "";
+  for (;;) {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT s.owner_email, s.account_email, s.id,
+          (SELECT MAX(COALESCE(o2.last_synced_at, o2.created_at))
+             FROM mail_sync_accounts o2
+             WHERE o2.owner_email = s.owner_email) AS owner_active_at,
+          (s.sync_claim_id IS NOT NULL AND COALESCE(s.sync_claimed_at, 0) >= $1) AS claimed,
+          (to_regclass('public.oauth_tokens') IS NULL OR NOT EXISTS (
+            SELECT 1 FROM public.oauth_tokens o
+            WHERE o.provider = 'google'
+              AND lower(o.owner) = s.owner_email
+              AND lower(o.account_id) = s.account_email
+          )) AS oauth_missing
+        FROM mail_sync_accounts s
+        WHERE s.id > $2
+        ORDER BY s.id
+        LIMIT $3`,
+      args: [now - STALE_CLAIM_MS, cursor, RETENTION_PAGE_SIZE],
+    });
+    for (const row of rows as any[]) {
+      pairs.push({
+        ownerEmail: String(row.owner_email),
+        accountEmail: String(row.account_email),
+        syncId: String(row.id),
+        inactive: Number(row.owner_active_at) < now - INBOX_INACTIVE_AFTER_MS,
+        oauthMissing: Boolean(row.oauth_missing),
+        claimed: Boolean(row.claimed),
+      });
+    }
+    if (rows.length < RETENTION_PAGE_SIZE) return pairs;
+    cursor = String((rows as any[])[rows.length - 1].id);
+  }
 }
 
 // Clears one account's sync progress and its thread rows in one transaction.
