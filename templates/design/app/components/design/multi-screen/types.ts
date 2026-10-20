@@ -181,7 +181,6 @@ export interface MultiScreenCanvasProps {
   selectedPenPathNodeId?: string | null;
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];
   lockedScreenIds?: ReadonlySet<string> | readonly string[];
-  fullViewScreenIds?: string[];
   pendingReviewScreenIds?: ReadonlySet<string> | readonly string[];
   onReviewPendingScreen?: (screenId: string) => void;
   interactMode?: boolean;
@@ -262,6 +261,14 @@ export interface MultiScreenCanvasProps {
   onPrimitiveCreated?: (
     screenId: string,
     nodeId: string,
+    options?: {
+      nextTool?: "move" | "pen";
+      preserveActiveTool?: boolean;
+    },
+  ) => void;
+  onPrimitivesCreated?: (
+    created: ReadonlyArray<{ screenId: string; nodeId: string }>,
+    selected?: { screenId: string; nodeId: string },
     options?: {
       nextTool?: "move" | "pen";
       preserveActiveTool?: boolean;
@@ -634,6 +641,7 @@ export type MultiScreenCanvasCreationProps = Pick<
   | "onActiveToolChange"
   | "onCreatePrimitive"
   | "onPrimitiveCreated"
+  | "onPrimitivesCreated"
   | "onUpdatePenPath"
   | "onPrimitiveReparent"
   | "onCreateScreenFrame"

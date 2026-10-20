@@ -125,7 +125,50 @@ explaining it.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+Per-article content metrics also read through `first-party`:
+`analytics_content_items` (one row per article, with author and publish date),
+`analytics_content_metric_snapshots` (one value per item, day and metric), and
+`analytics_content_collection_runs` (one row per daily collection step). A
+daily job fills them, so a panel over them never calls BigQuery or a provider.
+A missing snapshot means "not collected", never zero: show a step's latest run
+status (`failed`, `cost_limited`, `not_configured`) instead of rendering a gap
+as 0. These tables cannot be joined with `analytics_events` in one query. Turn
+collection on with `configure-content-collection`, check it with
+`get-content-collection`, and rerun a step with `run-content-collection`.
+
+Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
+`search_console_impressions` (per article, plus non-article pages stored as
+`search_console` items). Search Console data is two to three days late, so the
+newest days have no row yet; read them as still arriving. Search Console
+collection stays off until a property owner adds the service account that
+`get-content-collection` returns as `serviceAccount.email`; then set its
+`searchConsoleSites` and turn it on.
+
+The `signups` step writes `signups_first_touch` per article: people who
+first landed on the article and later signed up, on the day of that first
+visit, so a window's days add up to its total. It is the only step that reads
+the warehouse. It stays `not_configured` until `configure-content-collection`
+sets its `signups` tables, `signupSource`, `signupsSince` and
+`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
+run, free) and get the spend approved before turning the step on. Each run
+dry-runs first, stops as `cost_limited` without querying when the estimate is
+over the cap, and runs the join with that cap as BigQuery's billing limit.
+
+The catalog's "Content" dashboard (`content-view`) is the reference for these
+tables: start from its panels before writing new content SQL. Its Articles
+panel shows why a metric is missing (`failed`, `not set up`, `still
+arriving`) in a column next to the blank number; keep that pattern. The
+first-party SQL policy rejects functions outside its allow-list (for example
+`concat_ws`) and reads `CASE (` as a function call, so join a status column
+instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
+(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
+source didn't report would draw as a zero instead of a gap. Content is a
+built-in: turning collection on with `configure-content-collection` lists it
+in the organization's Dashboards at `content-view` (`contentDashboardId` in the
+result). It is read-only; build on it with `duplicate-dashboard`.
+
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
@@ -399,6 +442,9 @@ Program result behind each one, when creating a replacement or a new dashboard:
 | GTM pipeline / cross-sell        | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up                      |
 | Win/loss analysis                | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
 
+Panel `config.description` values and a callout row's `message` support inline
+Markdown links. Use `[label](https://example.com)`; raw HTML is not rendered.
+
 Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
 non-negative count or value. The renderer preserves the SQL row order, shows
 each stage's share of the first stage, and shows the change from the previous
@@ -414,6 +460,26 @@ either". Each bar then splits into those outcomes and the stage leads with the
 share who left the app there. A missing column draws the usual warning; a
 stage whose counts are not numbers or add up to more than shown draws a plain
 bar, and the panel check reports it under `funnelOutcomes`.
+
+To let people click a table row and see its numbers split by app (or another
+column) in a side panel, add `config.breakdowns: [{ column: "app", label:
+"App" }]` and put the column in the panel SQL inside `{{?breakdown}}…{{/breakdown}}`
+blocks in both the select list and the GROUP BY, e.g. `SELECT role{{?breakdown}},
+{{breakdown}}{{/breakdown}}, COUNT(*) AS people … GROUP BY role{{?breakdown}},
+{{breakdown}}{{/breakdown}}`. The column must be a real column in scope at that
+point of the SQL; when a CTE aggregates first, carry it through that CTE. A
+normal load drops the blocks, so the panel costs nothing more until someone
+opens a row; one capped breakdown query then serves every row on the same
+filters. If the panel's rows already carry the column, no block is needed and
+no query runs. For web, desktop or mobile, first-party events carry
+`properties.client_platform` (`web`, `electron`, `mobile`); label `electron`
+Desktop. Rows match their breakdown on every column that is not a number, so
+give a numeric column that names rows (a week, a year, an ID) `format: "text"`
+or `"date"` in `config.columns`; unformatted numbers count as measures. The
+first `format: "number"` column is the group size that sorts, mutes and folds
+groups, so make it a count such as people, not an average or a rate.
+Breakdowns don't work on a pivoted table (`config.pivot`). The
+open breakdown is in `view-screen` as `rowBreakdown`.
 
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
@@ -461,9 +527,10 @@ provider ids, SQL, cached rows, or guessed joins. After deployment, an
 organization owner or admin provisions them with `ensure-native-v2-dashboards`
 by supplying one real Data Program per binding key. The action validates the
 stored program output contract, shares the programs with the organization,
-creates deterministic `native-*-v2-*` dashboard copies, and preserves the
-extension-backed originals and any existing v2 edits. Do not add these to the
-root demo bootstrap or silently auto-bind them to guessed provider schemas.
+and installs the read-only `builtin-<template>` built-ins (see Built-in
+Dashboards). It never touches the extension-backed originals. Do not add these
+to the root demo bootstrap or silently auto-bind them to guessed provider
+schemas.
 
 ## Custom Blocks
 
@@ -804,9 +871,36 @@ state or tracker context, but docs traffic is not app usage and should not appea
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
 
-## Demo Dashboards
+## Built-in Dashboards
 
-`ensure-demo-dashboards` auto-installs a per-user demo on first app open.
+Dashboards that ship with the app are built-ins: served from code, read-only,
+and updated whenever Analytics ships. `get-sql-dashboard` marks one with
+`builtin: { id, version }` and `canEdit: false`, and `list-sql-dashboards`
+with `builtin: true`. They are the Node Exporter demo
+(`builtin-demo-node-exporter`, listed for everyone until they delete it), the
+native v2 patterns (`builtin-<template>`, listed once
+`ensure-native-v2-dashboards` installs them for the org), Risk Meeting
+(`builtin-risk-meeting`, installed for whoever runs
+`ensure-risk-meeting-dashboard`), and the seed dashboards at their seed ids
+(`agent-native-templates-first-party`, `skills-cli-funnel`,
+`google-analytics`, `node-exporter-full`). An install records only its inputs
+(bindings, program ids) in the `analytics-builtin-dashboards` setting, never a
+dashboard row.
+
+To change a built-in, call `duplicate-dashboard` and edit the copy; saving at a
+built-in's id fails with `builtin_dashboard_read_only`. Don't add a built-in by
+writing a row from an ensure action or on app load: that copy stops updating
+the day it's written, which is the problem built-ins exist to solve.
+
+Before built-ins, installs wrote per-user or per-org copies
+(`demo-node-exporter-<hash>`, `native-<template>-<hash>`, `risk-meeting`).
+The deploy pass in `server/lib/builtin-dashboard-pass.ts` (run by
+`migrate-production`) hides a copy only when its config still matches what
+ships and nobody has shared, viewed-and-saved, subscribed to, noted,
+certified, filed, archived or hidden it, and records every copy it checks in
+`analytics_builtin_dashboard_checks`. A hidden copy's id opens the built-in;
+every other copy stays an ordinary dashboard. `scripts/_builtin-dashboards.ts`
+takes `--dry-run` for counts and `--restore` to unhide everything it hid.
 
 ## Building Large First-Party Dashboards (compose-dashboard)
 
@@ -893,6 +987,17 @@ unavailable" placeholder.
   `mutate-dashboard` for existing edits, or `update-dashboard` for new/full
   config saves, and fix the action arguments.
 - Never set `panel.source` to a table name or unsupported backend.
+- Before saving a BigQuery or first-party panel that reads a large table, or
+  adding an email report to a dashboard, check its cost with
+  `estimate-query-cost --dashboardId <id>` (add `--panelId` for one panel). It
+  is a free dry run; tell the user any panel flagged over $1 per run or $50 per
+  month. Dashboard estimates count email reports but not alert rules: before
+  adding an alert, estimate an `analytics_events` query with the alert's
+  filters and its window's `event_date` and `timestamp` bounds, as alerts
+  send both (the dry run skips only partitions the `event_date` filter rules
+  out), using `--source first-party --eventsSource raw` (alerts run as
+  first-party SQL on the raw table) and `--runsPerMonth` set from the poll
+  interval (8640 for every 5 minutes).
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
 - Use `update-dashboard` for new dashboard config saves and full config
   replacements. Use `mutate-dashboard` for existing dashboard edits.

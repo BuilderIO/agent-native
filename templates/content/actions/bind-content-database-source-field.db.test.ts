@@ -898,6 +898,7 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       fieldPaths: ["data.topics"],
       limit: 500,
       offset: 0,
+      requireBoundOAuth: true,
     });
     expect(result.itemValues).toEqual([
       {

@@ -271,6 +271,27 @@ describe("DesignCanvas iframe sandbox policy", () => {
     ).not.toContain("allow-same-origin");
   });
 
+  it("trusts a local launch session only from a local dev editor", () => {
+    // Builder's local web app framing a local `builder.io launch` proxy.
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: false,
+        parentOrigin: "http://localhost:1234",
+        previewUrl: "http://localhost:48752/",
+      }),
+    ).toContain("allow-same-origin");
+    // Same origin is never trusted, even on loopback.
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: false,
+        parentOrigin: "http://localhost:1234",
+        previewUrl: "http://localhost:1234/app",
+      }),
+    ).not.toContain("allow-same-origin");
+  });
+
   it("only grants same-origin access to trusted cross-origin preview URLs", () => {
     expect(
       getDesignCanvasIframeSandbox({
@@ -342,6 +363,9 @@ describe("DesignCanvas iframe sandbox policy", () => {
     expect(
       interact("http://127.0.0.1.evil.example/about", "http://localhost:8080"),
     ).not.toContain("allow-same-origin");
+    // Spike: a local dev editor trusts a local launch session outside
+    // Interact too (see "trusts a local launch session only from a local dev
+    // editor"); upstream keeps it opaque.
     expect(
       getDesignCanvasIframeSandbox({
         externalPreview: true,
@@ -349,7 +373,7 @@ describe("DesignCanvas iframe sandbox policy", () => {
         parentOrigin: "http://localhost:8080",
         previewUrl: "http://localhost:5173/about",
       }),
-    ).not.toContain("allow-same-origin");
+    ).toContain("allow-same-origin");
     expect(
       getDesignCanvasIframeSandbox({
         externalPreview: true,

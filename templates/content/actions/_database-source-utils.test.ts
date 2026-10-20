@@ -70,6 +70,7 @@ describe("Builder body hydration failure evidence", () => {
   it.each([
     ["builder_source_binding_required", 409],
     ["builder_connection_required", 412],
+    ["builder_oauth_reauthorization_required", 400],
   ])("keeps %s retryable", (errorCode, statusCode) => {
     const evidence = builderBodyHydrationFailureEvidence(
       new ActionContractError("Builder source binding is unavailable.", {

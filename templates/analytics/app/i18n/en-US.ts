@@ -855,6 +855,8 @@ export default {
     addEventToSeeResults: "Add an event and select it to see results",
     queryError: "Query error: {{message}}",
     noDataReturned: "No data returned",
+    incompleteResultsWarning:
+      "This result may be incomplete. Missing rows or source data can affect totals.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filter by",
     pickPropertyToFilter: "Pick a property to filter",
@@ -944,6 +946,10 @@ export default {
     dashboardActions: "Dashboard details and actions",
     certifyForAi: "Certify for AI queries",
     certifiedForAi: "Certified for AI queries",
+    duplicateToCustomize: "Duplicate to customize",
+    duplicateToCustomizeHint:
+      "Built-in dashboards update when Analytics ships. Make your own copy to change this one.",
+    duplicateFailed: "Couldn't duplicate this dashboard.",
     certificationSaved: "Dashboard certified for AI queries",
     certificationFailed: "Couldn't certify dashboard: {{message}}",
     details: "Details",
@@ -1066,6 +1072,23 @@ export default {
     columnShowHidden: "Show hidden columns",
     columnName: "Column name",
     columnResize: "Resize column",
+    rowBreakdownBy: "Break down by",
+    rowBreakdownAll: "All",
+    rowBreakdownOther: "Other",
+    rowBreakdownOtherHint:
+      "Smaller groups, and anyone this panel's SQL leaves out",
+    rowBreakdownSmallGroup: "Fewer than {{count}}: read rates with care",
+    rowBreakdownNoValue: "(none)",
+    rowBreakdownEmpty: "No rows for this breakdown.",
+    rowBreakdownUnavailable: "This panel's SQL has no breakdown by {{column}}.",
+    rowBreakdownFromPanel: "From this panel's rows. Nothing was read.",
+    rowBreakdownFromCache: "From cache. Nothing was read.",
+    rowBreakdownAlreadyLoaded: "Already loaded. Nothing was read.",
+    rowBreakdownBytesRead: "Read {{bytes}}",
+    rowBreakdownOverByteCap:
+      "This breakdown would read more than {{gib}} GiB, so it didn't run. Narrow the dashboard's filters or date range and try again.",
+    rowBreakdownTruncated:
+      "The result was cut off, so some groups are missing or counted in Other.",
     deleteSectionTitle: "Delete section?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Delete panel?",
@@ -1203,6 +1226,7 @@ export default {
     notConnected: "Not connected",
     needsReauth: "Needs reauth",
     error: "Error",
+    unknown: "Unknown",
     indexNotImported: "No generated index has been imported.",
     indexUnreadable: "The saved index could not be read. Upload a valid index.",
     indexReadFailed: "Index status could not be loaded.",
@@ -1290,6 +1314,44 @@ export default {
       "Couldn't check for existing entries with this metric.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Daily clicks and impressions per page for the Content view.",
+      serviceAccount: "Service account",
+      copyEmail: "Copy email",
+      grantHint:
+        "Add this email as a user on each property in Search Console, under Settings → Users and permissions.",
+      noServiceAccount: "Add a Google service account key first.",
+      openGoogleCloud: "Open Google Cloud",
+      invalidServiceAccount: "The saved service account key can't be read.",
+      properties: "Properties",
+      siteLabel: "Property",
+      pathLabel: "Path prefix",
+      pathInvalid: "Start the path prefix with /.",
+      addProperty: "Add property",
+      removeProperty: "Remove property",
+      save: "Save",
+      collectDaily: "Collect daily",
+      adminOnly: "Only organization owners and admins can change this.",
+      statusCollecting: "Collecting",
+      statusNeedsAccess: "Needs access",
+      statusFailed: "Last run failed",
+      runSucceeded: "Collected {{when}}",
+      runNeedsAccess: "No access as of {{when}}",
+      runRunning: "Collecting since {{when}}",
+      runFailed: "Failed {{when}}",
+      unavailable: "Collection status is unavailable: {{message}}",
+      keyUnreadable:
+        "Couldn't read the saved service account key. Re-save it under Google Cloud.",
+      propertyBareDomain: "For a Domain property, use {{suggestion}}.",
+      propertyInvalidDomain:
+        "Put only the domain after sc-domain:, as in {{suggestion}}.",
+      propertyMissingSlash:
+        "URL-prefix properties end in /. Use {{suggestion}}.",
+      propertyUnrecognized:
+        "Use sc-domain:example.com, or a URL-prefix property ending in /.",
+    },
     uploadFile: "Upload file",
     googleSheetsExport: "Google Sheets export",
     googleSheetsExportDescription:
@@ -1387,6 +1449,7 @@ export default {
     bigQueryHealthUnavailable:
       "We could not check first-party analytics pressure right now. Reload and try again before changing backends.",
     analyticsEventCount: "Observed events",
+    analyticsRecentEventCount: "Observed events (last 30 days)",
     slowQueries24h: "Slow queries (24h)",
     maxQueryDuration: "Max query time",
     defaultKeyName: "Hosted templates",
@@ -2089,10 +2152,6 @@ export default {
     noMatches: "No definitions match your search.",
     searchPlaceholder: "Search definitions",
     sourceIndex: "Source index",
-    statusApproved: "Approved",
-    statusSuggested: "Suggested",
-    statusUnreviewed: "Unreviewed",
-    unsourced: "No source",
   },
   indexPanel: {
     presetDaily: "Daily at 06:00",

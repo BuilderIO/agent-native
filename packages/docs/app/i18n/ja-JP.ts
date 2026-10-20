@@ -726,6 +726,9 @@ const jaJP = {
     waitlistUnavailable:
       "この環境ではまだ待機リストに登録できません。代わりにホストされたドキュメントサイトをお試しください。",
     launchBuilder: "Builderを起動",
+    newAppPrompt: "新しい Agent-Native アプリを作成してください。",
+    customizeTemplatePrompt:
+      "Agent-Native の {{template}} テンプレートを、私の作業に合うようにカスタマイズしてください。",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",
@@ -2757,7 +2760,9 @@ const jaJP = {
     blueprintInstaller: "Blueprint インストーラー",
     chat: "チャット",
     chatOverview: "概要",
-    chatFirstEdits: "最初の機能",
+    chatFeatures: "機能",
+    chatAgent: "Agent との対話",
+    chatIntegrations: "クロスアプリ利用",
     chatDevelopers: "開発者ガイド",
     calendar: "カレンダー",
     calendarOverview: "概要",

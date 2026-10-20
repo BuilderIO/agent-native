@@ -2,6 +2,7 @@ import { appPath, expandAllLayers } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
+  normalizeStyleAttribute,
   styleOf,
   test,
   type App,
@@ -305,7 +306,7 @@ test.describe("mobile app build", () => {
     expectOnlyChanged(homeBefore, await app.savedNodes(id), []);
   });
 
-  test("step 18: Cmd+D three times on Card produces 4 identically-named copies, each directly above the previous, ending selection on the newest copy", async ({
+  test("Cmd+D three times on Card creates four identically named copies above each other and selects the newest copy", async ({
     app,
   }) => {
     const id = await openSeeded(app, MOBILE_HOME_HTML);
@@ -337,14 +338,42 @@ test.describe("mobile app build", () => {
     ).toEqual(["header", "card", ...copies]);
     const original = before.get("card")!;
     const copiedTitles: string[] = [];
+    const normalizedStyles = await app.page.evaluate(
+      (styleStrings) =>
+        styleStrings.map((styleString) => {
+          const element = document.createElement("div");
+          element.setAttribute("style", styleString ?? "");
+          const properties = Array.from(
+            { length: element.style.length },
+            (_, index) => element.style.item(index),
+          ).sort();
+          return properties.map((property) => [
+            property,
+            element.style.getPropertyValue(property).trim(),
+            element.style.getPropertyPriority(property),
+          ]);
+        }),
+      [
+        original.attrs.style,
+        ...copies.map((copy) => after.get(copy)?.attrs.style ?? ""),
+      ],
+    );
     for (const copy of copies) {
-      expect(after.get(copy)?.attrs.style).toBe(original.attrs.style);
+      expect(
+        await normalizeStyleAttribute(app.page, after.get(copy)?.attrs.style),
+      ).toEqual(await normalizeStyleAttribute(app.page, original.attrs.style));
       const [title] = childrenOf(after, copy);
       copiedTitles.push(title);
       expect(after.get(title)).toMatchObject({
         text: "Sunrise Cafe",
         attrs: { "data-agent-native-layer-name": "Sunrise Cafe" },
       });
+    }
+    for (const [index, style] of normalizedStyles.slice(1).entries()) {
+      expect(
+        style,
+        `copy ${index + 1} keeps every inline CSS declaration and priority`,
+      ).toEqual(normalizedStyles[0]);
     }
     expectOnlyChanged(before, after, [...copies, ...copiedTitles]);
     await expandAllLayers(app.page);
@@ -356,7 +385,7 @@ test.describe("mobile app build", () => {
       .toEqual([0]);
   });
 
-  test("step 20: renaming one duplicate's title in the Layers panel only changes that layer, leaving Header's greeting and the original Card untouched", async ({
+  test("renaming one duplicate's title in Layers changes only that layer and leaves Header's greeting and the original Card untouched", async ({
     app,
   }) => {
     const id = await openSeeded(app, MOBILE_HOME_HTML);
@@ -475,7 +504,7 @@ test.describe("mobile app build", () => {
 });
 
 test.describe("landing page build", () => {
-  test('step 18: alt-dragging HeroImage duplicates it (original stays put, copy moves, copy is selected); one undo ("undo the nudge") removes the copy and restores the original selection', async ({
+  test("Alt-dragging HeroImage duplicates it, keeps the original in place, selects the moved copy, and one undo restores the original selection", async ({
     app,
   }) => {
     const id = await openSeeded(app, LANDING_HTML);

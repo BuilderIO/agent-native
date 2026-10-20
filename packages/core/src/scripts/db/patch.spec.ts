@@ -51,6 +51,7 @@ describe("db-patch", () => {
 
   interface PgHarness {
     written: () => string | undefined;
+    current: () => unknown;
     updateCount: () => number;
   }
 
@@ -58,9 +59,12 @@ describe("db-patch", () => {
     table: string;
     columns: string[];
     selectRows: Record<string, unknown>[];
+    failOnDropView?: boolean;
+    failOnSelect?: boolean;
   }): PgHarness {
     let captured: string | undefined;
     let updates = 0;
+    let current = opts.selectRows[0]?.__val;
 
     const introspectRows = opts.columns.map((c) => ({
       table_name: opts.table,
@@ -69,7 +73,11 @@ describe("db-patch", () => {
 
     const unsafe = vi.fn(async (sql: string, args?: unknown[]) => {
       const lower = sql.toLowerCase();
-      if (lower.includes("temporary view") || lower.startsWith("drop view")) {
+      if (lower.startsWith("drop view")) {
+        if (opts.failOnDropView) throw new Error("DROP VIEW timed out");
+        return [];
+      }
+      if (lower.includes("temporary view")) {
         return [];
       }
       // The agent-SQL guards' catalog checks; answer like a stock database.
@@ -81,11 +89,13 @@ describe("db-patch", () => {
         return introspectRows;
       }
       if (lower.startsWith("select")) {
+        if (opts.failOnSelect) throw new Error("SELECT failed");
         return opts.selectRows;
       }
       if (lower.startsWith("update")) {
         updates++;
         captured = (args?.[0] as string) ?? undefined;
+        current = captured;
         return Object.assign([], { count: 1 });
       }
       return [];
@@ -96,7 +106,15 @@ describe("db-patch", () => {
     const pgSql: any = Object.assign(introspect, {
       unsafe,
       end: vi.fn(),
-      begin: async (fn: any) => fn(tx),
+      begin: async (fn: any) => {
+        const before = current;
+        try {
+          return await fn(tx);
+        } catch (error) {
+          current = before;
+          throw error;
+        }
+      },
     });
 
     vi.doMock("postgres", () => ({ default: () => pgSql }));
@@ -109,6 +127,7 @@ describe("db-patch", () => {
 
     return {
       written: () => captured,
+      current: () => current,
       updateCount: () => updates,
     };
   }
@@ -358,6 +377,67 @@ describe("db-patch", () => {
       expect(out.applied).toBe(1);
       expect(out.results[0].status).toBe("replaced");
       expect(h.written()).toBe("the quick brown fox");
+    });
+
+    it("fails and rolls back when scoped-view teardown fails", async () => {
+      const h = mockPg({
+        table: "documents",
+        columns: ["id", "owner_email", "content"],
+        selectRows: [{ __val: "the quik brown fox" }],
+        failOnDropView: true,
+      });
+      const { default: dbPatch } = await import("./patch.js");
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await expect(
+        dbPatch([
+          "--format",
+          "json",
+          "--table",
+          "documents",
+          "--column",
+          "content",
+          "--where",
+          "id = 'd1'",
+          "--find",
+          "quik",
+          "--replace",
+          "quick",
+        ]),
+      ).rejects.toThrow("DROP VIEW timed out");
+
+      expect(h.updateCount()).toBe(1);
+      expect(h.current()).toBe("the quik brown fox");
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it("preserves the patch error when teardown also fails", async () => {
+      const h = mockPg({
+        table: "documents",
+        columns: ["id", "owner_email", "content"],
+        selectRows: [{ __val: "the quik brown fox" }],
+        failOnDropView: true,
+        failOnSelect: true,
+      });
+      const { default: dbPatch } = await import("./patch.js");
+
+      await expect(
+        dbPatch([
+          "--table",
+          "documents",
+          "--column",
+          "content",
+          "--where",
+          "id = 'd1'",
+          "--find",
+          "quik",
+          "--replace",
+          "quick",
+        ]),
+      ).rejects.toThrow("SELECT failed");
+
+      expect(h.updateCount()).toBe(0);
+      expect(h.current()).toBe("the quik brown fox");
     });
 
     it("reports not-found, applies nothing, and runs no UPDATE when find is absent", async () => {

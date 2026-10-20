@@ -260,6 +260,7 @@ test("8:35 — a frame adopts text typed inside it, keeping the text where it wa
   expectOnlyChanged(before, after, [frame[0]!.id, typed[0]!.id]);
 });
 
+// Text insertion uses the painted surface beneath the cursor to choose a readable default color.
 test("text typed over a light rectangle stays a page child and is readable on the rectangle", async ({
   app,
 }) => {
@@ -293,6 +294,7 @@ test("text typed over a light rectangle stays a page child and is readable on th
   ).toBeGreaterThanOrEqual(4.5);
 });
 
+// Shift+A preserves the frame contents and keeps the Gap value fully visible in the inspector.
 test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout container that keeps the text", async ({
   app,
 }) => {
@@ -320,6 +322,7 @@ test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout con
     ...styleOf(frame),
     display: "flex",
     "flex-direction": "column",
+    "align-items": "flex-start",
     gap: "10px",
   });
   expect(childrenOf(after, frame!.id)).toStrictEqual([text!.id]);

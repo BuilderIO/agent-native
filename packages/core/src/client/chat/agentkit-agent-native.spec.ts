@@ -14,6 +14,7 @@ import {
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../../shared/agent-chat.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import {
@@ -296,6 +297,46 @@ describe("createAgentNativeAgentKitTransport", () => {
       );
     },
   );
+
+  it("keeps an accepted submission receipt without loading its active run", async () => {
+    const fetcher = vi.fn(async () =>
+      json(
+        {
+          data: {
+            code: "queued_message_already_submitted",
+            activeRunId: "run-active",
+            submittedRunId: "run-submitted",
+          },
+        },
+        409,
+      ),
+    ) as typeof fetch;
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+    });
+
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Reconnect to the accepted turn" }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      submittedRunId: "run-submitted",
+      status: 409,
+    });
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    await transport.dispose();
+  });
 
   it.each(["HTTP 503", "network rejection"] as const)(
     "retries capability discovery after a transient %s failure",
@@ -2755,6 +2796,47 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it("matches queued submission metadata to the persisted queue message", async () => {
+    const threadId = "thread-queue-metadata";
+    const metadata = {
+      [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+        context: { browserTabId: "tab-queue-metadata", surface: "app" },
+        smartObjects: [{ id: "object-queue-metadata", kind: "document" }],
+      },
+    };
+    let mutation: Record<string, any> | undefined;
+    const fetcher = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        mutation = JSON.parse(String(init?.body)).mutation;
+        return json({
+          queuedMessages: [mutation?.message],
+          message: mutation?.message,
+        });
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      adapter: { createId: () => "queued-metadata" },
+    });
+
+    await transport.queueMessage?.({
+      threadId,
+      id: "queued-metadata",
+      text: "Continue with this context",
+      metadata,
+      submissionPayload: {
+        threadId,
+        id: "queued-metadata",
+        text: "Continue with this context",
+      },
+    });
+
+    expect(mutation?.message.metadata).toEqual(metadata);
+    expect(mutation?.submissionPayload.metadata).toEqual(metadata);
+    await transport.dispose();
+  });
+
   it.each([
     "data:image/png;base64,INLINE_QUEUE_PIXELS",
     { type: "image", source: { type: "base64", data: "INLINE_QUEUE_PIXELS" } },
@@ -2837,6 +2919,98 @@ describe("createAgentNativeAgentKitTransport", () => {
       { mutation: expect.objectContaining({ type: "append" }) },
     ]);
     await Promise.all([first.dispose(), second.dispose()]);
+  });
+
+  it("preserves the submitted-run receipt returned by a queue append", async () => {
+    const message = {
+      id: "queued-already-submitted",
+      threadId: "thread-queue-receipt",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json({
+          queuedMessages: [],
+          message,
+          alreadySubmitted: true,
+          submittedRunId: "run-submitted",
+        }),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.queueMessage?.({
+        threadId: message.threadId,
+        id: message.id,
+        text: message.text,
+      }),
+    ).resolves.toEqual({
+      message,
+      alreadySubmitted: true,
+      submittedRunId: "run-submitted",
+    });
+
+    await transport.dispose();
+  });
+
+  it("rejects an already-submitted queue response without a run receipt", async () => {
+    const message = {
+      id: "queued-receipt-missing-run",
+      threadId: "thread-queue-receipt",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json({ queuedMessages: [], message, alreadySubmitted: true }),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.queueMessage?.({
+        threadId: message.threadId,
+        id: message.id,
+        text: message.text,
+      }),
+    ).rejects.toThrow("must include submittedRunId");
+
+    await transport.dispose();
+  });
+
+  it("preserves the submitted-run receipt from a queue append busy response", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: vi.fn(async () =>
+        json(
+          {
+            code: "run_slot_busy",
+            activeRunId: "run-active",
+            submittedRunId: "run-submitted",
+            retryable: true,
+          },
+          409,
+        ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.queueMessage?.({
+        threadId: "thread-queue-busy",
+        id: "queued-busy",
+        text: "Run once",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      submittedRunId: "run-submitted",
+      status: 409,
+      retryable: true,
+    });
+
+    await transport.dispose();
   });
 
   it("restores action widgets from durable assistant tool results", async () => {
@@ -3865,6 +4039,57 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(reports).toHaveLength(1);
     await transport.dispose();
   });
+
+  it.each([
+    ["top-level", { submittedRunId: "run-submitted", retryable: true }],
+    [
+      "data envelope",
+      {
+        data: {
+          code: "run_slot_busy",
+          submittedRunId: "run-submitted",
+          retryable: true,
+        },
+      },
+    ],
+    [
+      "nested error",
+      {
+        error: {
+          code: "run_slot_busy",
+          submittedRunId: "run-submitted",
+          retryable: true,
+        },
+      },
+    ],
+  ])(
+    "preserves a submitted-run receipt from the %s busy payload",
+    async (_shape, payload) => {
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: vi.fn(async () => json(payload, 409)) as typeof fetch,
+      });
+
+      await expect(
+        transport.startRun({
+          threadId: "thread-1",
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              parts: [{ type: "text", text: "Reconnect to the accepted turn" }],
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({
+        code: "run_slot_busy",
+        submittedRunId: "run-submitted",
+        status: 409,
+        retryable: true,
+      });
+      await transport.dispose();
+    },
+  );
 
   describe("a prompt the server refused before its run started", () => {
     const reference = {
@@ -8676,6 +8901,163 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("projects SQL lifecycle fields while preserving protocol state and confirmed missing rows", async () => {
+    const threadId = "thread-sql-run-lifecycles";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          runLifecycles: {
+            queriedRunIds: [
+              "run-sql-failure",
+              "run-awaiting-approval",
+              "run-continuation-abort",
+              "run-no-sql-row",
+            ],
+            runs: [
+              {
+                id: "run-sql-failure",
+                status: "errored",
+                startedAt: 1000,
+                completedAt: 2000,
+                errorCode: "run_timeout",
+                abortReason: null,
+                terminalReason: "run_timeout",
+              },
+              {
+                id: "run-awaiting-approval",
+                status: "aborted",
+                startedAt: 3000,
+                completedAt: null,
+                errorCode: null,
+                abortReason: "user_cancelled",
+                terminalReason: "user_cancelled",
+              },
+              {
+                id: "run-continuation-abort",
+                status: "aborted",
+                startedAt: 5000,
+                completedAt: 6000,
+                errorCode: null,
+                abortReason: "run_timeout",
+                terminalReason: "aborted:run_timeout",
+              },
+            ],
+          },
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "run-not-started-notice",
+                  role: "assistant",
+                  status: { type: "complete" },
+                  content: [{ type: "text", text: "The run did not start." }],
+                  metadata: {
+                    runId: "run-sql-failure",
+                    custom: { [RUN_NOT_STARTED_METADATA_KEY]: true },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [],
+              runs: [
+                {
+                  id: "run-sql-failure",
+                  threadId,
+                  status: "completed",
+                  lastSequence: 8,
+                  activeMessageId: "assistant-sql-failure",
+                  startedAt: "2026-09-01T00:00:00.000Z",
+                  completedAt: "2026-09-01T00:01:00.000Z",
+                  metadata: { custom: { preserved: true } },
+                },
+                {
+                  id: "run-awaiting-approval",
+                  threadId,
+                  status: "awaiting_approval",
+                  lastSequence: 4,
+                  startedAt: "2026-09-02T00:00:00.000Z",
+                  completedAt: "2026-09-02T00:01:00.000Z",
+                  error: { code: "stale_error", message: "Old failure" },
+                },
+                {
+                  id: "run-continuation-abort",
+                  threadId,
+                  status: "cancelled",
+                  lastSequence: 6,
+                },
+                {
+                  id: "run-no-sql-row",
+                  threadId,
+                  status: "failed",
+                  lastSequence: 3,
+                  startedAt: "2026-09-03T00:00:00.000Z",
+                  error: { code: "legacy_failure", message: "Legacy state" },
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).not.toContain(
+      "run-not-started-notice",
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-sql-failure",
+        status: "failed",
+        lastSequence: 8,
+        activeMessageId: "assistant-sql-failure",
+        startedAt: new Date(1000).toISOString(),
+        completedAt: new Date(2000).toISOString(),
+        metadata: { custom: { preserved: true } },
+        error: expect.objectContaining({
+          code: "run_timeout",
+          metadata: { terminalReason: "run_timeout" },
+        }),
+      }),
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-awaiting-approval",
+        status: "awaiting_approval",
+        startedAt: new Date(3000).toISOString(),
+      }),
+    );
+    const awaitingApproval = snapshot?.runs?.find(
+      (run) => run.id === "run-awaiting-approval",
+    );
+    expect(awaitingApproval).not.toHaveProperty("completedAt");
+    expect(awaitingApproval).not.toHaveProperty("error");
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-continuation-abort",
+        status: "failed",
+        error: expect.objectContaining({
+          code: "run_timeout",
+          retryable: true,
+        }),
+      }),
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: "run-no-sql-row",
+        status: "failed",
+        startedAt: "2026-09-03T00:00:00.000Z",
+        error: { code: "legacy_failure", message: "Legacy state" },
+      }),
+    );
+    await transport.dispose();
+  });
+
   it.each([
     { serverStatus: "errored", expectedStatus: "failed" },
     { serverStatus: "aborted", expectedStatus: "cancelled" },
@@ -9090,6 +9472,86 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
     expect(queueWrites[1]?.claimId).toBe(queueWrites[0]?.claimId);
     expect(queuedMessages[0]).not.toHaveProperty("promotionClaim");
+    await transport.dispose();
+  });
+
+  it("reattaches a queued promotion when busy includes its submitted run receipt", async () => {
+    const threadId = "thread-submitted-promotion";
+    const queueWrites: Array<Record<string, unknown>> = [];
+    let queuedMessages: Array<Record<string, unknown>> = [
+      {
+        id: "queued-submitted",
+        threadId,
+        text: "Already accepted elsewhere",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    let startRequests = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          queueWrites.push(mutation);
+          if (mutation.type === "claim") {
+            const claimedMessage = {
+              ...queuedMessages[0],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 10_000,
+              },
+            };
+            queuedMessages[0] = claimedMessage;
+            return json({ queuedMessages, claimedMessage });
+          }
+          return json({ queuedMessages });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        if (
+          url.endsWith("/_agent-native/agent-chat") &&
+          init?.method === "POST"
+        ) {
+          startRequests += 1;
+          queuedMessages = [];
+          return json(
+            {
+              data: {
+                code: "run_slot_busy",
+                retryable: true,
+                submittedRunId: "run-submitted",
+              },
+            },
+            409,
+          );
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-submitted",
+      }),
+    ).resolves.toEqual({ runId: "run-submitted", alreadySubmitted: true });
+
+    expect(startRequests).toBe(1);
+    expect(queueWrites).toMatchObject([
+      {
+        type: "claim",
+        messageId: "queued-submitted",
+        claimId: expect.any(String),
+      },
+    ]);
     await transport.dispose();
   });
 

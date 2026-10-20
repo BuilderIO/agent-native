@@ -19,6 +19,7 @@ export function registerMemoryPrivateBlobProvider() {
   let nextId = 0;
   let putsUnavailable = false;
   let deletesUnavailable = false;
+  let deleteCalls = 0;
   const provider: PrivateBlobProvider = {
     id: PROVIDER_ID,
     name: "Content test memory",
@@ -36,12 +37,15 @@ export function registerMemoryPrivateBlobProvider() {
       if (!data) throw new PrivateBlobError("missing", "not_found");
       return { data, handle };
     },
-    delete: async (handle: PrivateBlobHandle) => ({
-      ...(deletesUnavailable
-        ? { deleted: false, reason: "temporary storage failure" }
-        : { deleted: blobs.delete(handle.id) }),
-      provider: PROVIDER_ID,
-    }),
+    delete: async (handle: PrivateBlobHandle) => {
+      deleteCalls += 1;
+      return {
+        ...(deletesUnavailable
+          ? { deleted: false, reason: "temporary storage failure" }
+          : { deleted: blobs.delete(handle.id) }),
+        provider: PROVIDER_ID,
+      };
+    },
   };
   registerPrivateBlobProvider(provider);
   return {
@@ -52,6 +56,7 @@ export function registerMemoryPrivateBlobProvider() {
     setDeletesUnavailable: (value: boolean) => {
       deletesUnavailable = value;
     },
+    getDeleteCalls: () => deleteCalls,
     unregister: () => unregisterPrivateBlobProvider(PROVIDER_ID),
   };
 }

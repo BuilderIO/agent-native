@@ -7,13 +7,15 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, lte } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE = 50;
+const BUILDER_PRIVATE_PAYLOAD_CLEANUP_RETRY_BASE_MS = 30_000;
+const BUILDER_PRIVATE_PAYLOAD_CLEANUP_RETRY_MAX_MS = 6 * 60 * 60 * 1000;
 
 export const BUILDER_EXECUTION_PAYLOAD_BLOB_KEY =
   "__builder.execution.privatePayload";
@@ -248,27 +250,22 @@ export async function enqueueBuilderPrivatePayloadCleanup(
 async function drainBuilderPrivatePayloadCleanupQueue(args: {
   db: ReturnType<typeof getDb>;
   label: string;
-  priorityReference?: string;
   deadlineAt?: number;
   signal?: AbortSignal;
 }) {
   const cleanupQueue = schema.contentDatabaseBuilderBlobCleanup;
 
-  let pending: Array<{ blobReference: string }>;
+  let pending: Array<{ blobReference: string; attemptCount: number }>;
   try {
-    const backlog = await args.db
-      .select({ blobReference: cleanupQueue.blobReference })
+    pending = await args.db
+      .select({
+        blobReference: cleanupQueue.blobReference,
+        attemptCount: cleanupQueue.attemptCount,
+      })
       .from(cleanupQueue)
-      .orderBy(asc(cleanupQueue.createdAt))
+      .where(lte(cleanupQueue.nextAttemptAt, new Date().toISOString()))
+      .orderBy(asc(cleanupQueue.nextAttemptAt), asc(cleanupQueue.createdAt))
       .limit(BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
-    pending = [
-      ...(args.priorityReference
-        ? [{ blobReference: args.priorityReference }]
-        : []),
-      ...backlog.filter(
-        (item) => item.blobReference !== args.priorityReference,
-      ),
-    ].slice(0, BUILDER_PRIVATE_PAYLOAD_CLEANUP_BATCH_SIZE);
   } catch (error) {
     console.error(
       `[builder-private-payload] ${args.label} cleanup queue could not be read`,
@@ -290,6 +287,7 @@ async function drainBuilderPrivatePayloadCleanupQueue(args: {
         console.error(
           `[builder-private-payload] ${args.label} cleanup was declined; retry retained`,
         );
+        await scheduleBuilderPrivatePayloadCleanupRetry(args, queued);
         continue;
       }
       await args.db
@@ -300,7 +298,42 @@ async function drainBuilderPrivatePayloadCleanupQueue(args: {
         `[builder-private-payload] ${args.label} cleanup remains queued`,
         error,
       );
+      await scheduleBuilderPrivatePayloadCleanupRetry(args, queued);
     }
+  }
+}
+
+async function scheduleBuilderPrivatePayloadCleanupRetry(
+  args: {
+    db: ReturnType<typeof getDb>;
+    label: string;
+  },
+  queued: { blobReference: string; attemptCount: number },
+) {
+  const attemptCount = queued.attemptCount + 1;
+  const delayMs = Math.min(
+    BUILDER_PRIVATE_PAYLOAD_CLEANUP_RETRY_BASE_MS *
+      2 ** Math.min(attemptCount - 1, 10),
+    BUILDER_PRIVATE_PAYLOAD_CLEANUP_RETRY_MAX_MS,
+  );
+  try {
+    await args.db
+      .update(schema.contentDatabaseBuilderBlobCleanup)
+      .set({
+        attemptCount,
+        nextAttemptAt: new Date(Date.now() + delayMs).toISOString(),
+      })
+      .where(
+        eq(
+          schema.contentDatabaseBuilderBlobCleanup.blobReference,
+          queued.blobReference,
+        ),
+      );
+  } catch (error) {
+    console.error(
+      `[builder-private-payload] ${args.label} cleanup retry could not be scheduled`,
+      error,
+    );
   }
 }
 
@@ -320,17 +353,11 @@ export async function drainBuilderPrivatePayloadCleanup(
 
 export async function cleanupBuilderPrivatePayload(
   reference: unknown,
-  label: string,
+  _label: string,
 ) {
   if (!isBuilderPrivatePayloadReference(reference)) return;
   const blobReference = reference as string;
-  const db = getDb();
-  await enqueueBuilderPrivatePayloadCleanup(db, blobReference);
-  await drainBuilderPrivatePayloadCleanupQueue({
-    db,
-    label,
-    priorityReference: blobReference,
-  });
+  await enqueueBuilderPrivatePayloadCleanup(getDb(), blobReference);
 }
 
 export function isBuilderPrivatePayloadReference(value: unknown) {

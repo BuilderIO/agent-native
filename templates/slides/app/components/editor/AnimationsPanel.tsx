@@ -59,25 +59,13 @@ import {
   type RevealUnresolvedReason,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
+import {
+  introducedUnresolvedReason,
+  REVEAL_REASON_LABEL_KEY,
+} from "@/lib/slide-animation-quick-pick";
 
 // How long each reveal stays on screen in Play before the next one starts.
 const PREVIEW_STEP_MS = 450;
-
-const REASON_LABEL_KEY: Record<RevealUnresolvedReason, string> = {
-  "stale-path": "animations.issueStalePath",
-  "missing-element": "animations.issueMissingElement",
-  "duplicate-after-expansion": "animations.issueDuplicate",
-};
-
-// Same rule as server/lib/validate-slide-animations.ts: a reveal keeps its identity
-// while its id and target stay the same.
-function revealIdentity(animation: SlideAnimation): string {
-  return JSON.stringify([
-    animation.id,
-    animation.elementIndex,
-    animation.elementPath ?? null,
-  ]);
-}
 
 const ANIM_TYPES: { value: AnimationType; labelKey: string }[] = [
   { value: "appear", labelKey: "animations.appear" },
@@ -191,7 +179,7 @@ function SortableAnimationItem({
           </span>
           {issue && (
             <span className="block text-xs text-destructive">
-              {t(REASON_LABEL_KEY[issue])}
+              {t(REVEAL_REASON_LABEL_KEY[issue])}
             </span>
           )}
         </button>
@@ -397,19 +385,7 @@ export function AnimationsPanel({
   // goes through.
   const commitAnimations = useCallback(
     (next: SlideAnimation[]): boolean => {
-      const alreadyUnresolved = new Set(
-        outcomes.flatMap((outcome, index) =>
-          outcome.ok ? [] : [revealIdentity(animations[index]!)],
-        ),
-      );
-      const [failed] = resolveRevealSteps(storedRoot, next).flatMap(
-        (outcome, index) => {
-          if (outcome.ok) return [];
-          return alreadyUnresolved.has(revealIdentity(next[index]!))
-            ? []
-            : [outcome.reason];
-        },
-      );
+      const failed = introducedUnresolvedReason(storedRoot, animations, next);
       if (failed) {
         setRefusedChange(failed);
         return false;
@@ -419,7 +395,7 @@ export function AnimationsPanel({
       onUpdateSlide({ animations: next });
       return true;
     },
-    [animations, onUpdateSlide, outcomes, storedRoot],
+    [animations, onUpdateSlide, storedRoot],
   );
 
   const handleDragEnd = useCallback(
@@ -673,13 +649,14 @@ export function AnimationsPanel({
       <div className="shrink-0 space-y-2 border-t border-border p-4">
         {refusedChange ? (
           <p role="alert" className="text-sm text-destructive">
-            {t(REASON_LABEL_KEY[refusedChange])}{" "}
+            {t(REVEAL_REASON_LABEL_KEY[refusedChange])}{" "}
             {t("animations.changeNotApplied")}
           </p>
         ) : (
           shownPlayReason && (
             <p role="alert" className="text-sm text-destructive">
-              {t(REASON_LABEL_KEY[shownPlayReason])} {t("animations.blocked")}
+              {t(REVEAL_REASON_LABEL_KEY[shownPlayReason])}{" "}
+              {t("animations.blocked")}
             </p>
           )
         )}

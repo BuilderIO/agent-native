@@ -1,7 +1,9 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
+  runWithRequestContext,
 } from "@agent-native/core/server";
 import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
 import { z } from "zod";
@@ -110,8 +112,15 @@ export default defineAction({
     });
     let outcome: SourceIndexRunOutcome;
     try {
-      const { bundle: builtBundle } =
-        await buildDbtSourceIndexFromGitHub(repository);
+      const { bundle: builtBundle } = await runWithRequestContext(
+        {
+          ...(getRequestContext() ?? {}),
+          userEmail: admin.userEmail,
+          orgId,
+          credentialScope: "org",
+        },
+        () => buildDbtSourceIndexFromGitHub(repository),
+      );
       // Computed before the write so a bad source fails the run instead of
       // leaving a stored index with no recorded revisions.
       // Check the new build before the write, then report its final source IDs

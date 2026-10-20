@@ -3,24 +3,98 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-16
+## 2026-10-19
 
 ### Fixed
 
+- Screen Memory can transcribe desktop recordings without a separate FFmpeg install.
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-18
+
+### Fixed
+
+- Workflow generation reports a failure when the agent session is rejected and allows a retry when its state is stale.
+
+## 2026-10-17
+
+### Added
+
+- Agents can see a clip's animations and transitions frame by frame in one contact-sheet image instead of requesting each frame separately.
+
+### Improved
+
+- Desktop recordings include balanced audio and compress large clips without extra setup
+
+### Fixed
+
+- Clips waits for meeting startup and cleanup to settle before quitting
+- Dictation explains when meeting capture is using the microphone.
+- Meeting notes keep the final spoken phrase on stop and pause reliably while the microphone is still starting.
+
+## 2026-10-16
+
+### Added
+
+- Paste a YouTube link to make a clip that plays in YouTube's player, with timed comments, chapters, and an imported transcript that follows playback.
+- Replacing a transcript, by importing a file or regenerating it, now keeps the old one to restore from Earlier transcripts in the transcript panel, and an import or restore can be undone right away from its toast.
+- Select a timeline range to cut or delete the middle of a recording.
+
+### Improved
+
+- Clips detects browser meetings more reliably and keeps notes until the meeting stop and transcript save are confirmed.
+- Clips detects browser meetings sooner, asks before starting when the active tab is unclear, and retries failed stops.
+- Desktop dictation confirms when text is pasted or copied and keeps transcripts available when saving fails.
+- Meeting notes recover when a recording upload fails
+- Recordings show the silence warning only until microphone audio is detected.
+- Select and remove a precise timeline range by holding R while dragging.
+- Stepping forward through a clip that hasn't played gets quick after the first few presses, and no longer flashes the previous frame.
+- Storage setup explains Builder.io's free video storage and one-click setup, and opens custom keys in a new tab.
+- The agent now asks you to approve each workspace invitation it sends, each member it removes, and each role it changes.
+
+### Fixed
+
+- An agent upload too large for free hosted storage is now refused before it starts, with the size limit that applies.
+- Agents connected to Clips over MCP can now import a transcript file, instead of getting an unknown-tool error.
+- Clips keeps meeting transcripts recoverable while a save or notes finalization is still in progress.
+- Dictation handles repeat shortcuts and microphone errors more clearly, preserves history on retry, keeps late transcript text during resume and stop, and ignores stale text after a long pause.
+- Earlier screen time starts from the confirmed capture time and recovers more reliably after temporary failures.
+- Earlier screen time requests now recover after temporary recording and cleanup failures.
+- Earlier screen time now retries after temporary recording or upload failures.
+- Imported transcripts keep a timestamped line that contains an arrow, and prose with angle brackets such as `a<b and c>d`, instead of misreading them as cue timings or markup.
+- Recording cards no longer show a context warning when no context was requested
+- Rewind keeps transcripts aligned and can be retried after an update fails
 - The menu bar shows only the Clips icon while idle.
 
 ## 2026-10-15
 
 ### Added
 
+- The desktop camera bubble can remove your background, and clicks on the transparent area pass through to the apps behind it.
 - Step through a paused clip frame by frame with the comma and period keys, and comments keep the exact frame they were left on.
 
 ### Improved
 
+- People using a screen reader can hear what “None” means before choosing it.
+- Rewind explains what local screen history it keeps, when time and storage limits apply, who can access it, and why choosing None does not stop recording.
 - The recording countdown starts when it appears and plays smoothly while Clips prepares a recording.
 
 ### Fixed
 
+- Clips keeps showing a warning when it cannot remove earlier screen time after a failed recording, until cleanup succeeds.
+- Clips keeps saving earlier screen time when local storage is unavailable, and still removes it if a recording stops unexpectedly.
+- Clips retries temporary save failures, releases timed out earlier screen time exports for another attempt, and keeps cleanup from delaying new exports.
+- Earlier screen time now works with window and camera recordings when Rewind is on.
+- Earlier screen time requests are cleaned up safely after a recording start fails
+- Earlier screen time stays attached when a recording takes longer to save.
+- Earlier screen time stays available while you choose a window and start a recording.
+- Earlier screen time stays tied to the device that recorded the Clip
+- Failed recordings no longer leave an unfinished earlier screen-time request.
+- Clips retries removing earlier screen time from recordings that fail to stop, even after the app restarts.
+- You can delete saved Rewind history in Settings even when Rewind is off.
 - Camera permission denials now show the right recovery guidance
 - The Dictionary scrolls through long lists and stays closed during dictation, Archive and Trash show counts, and selection checkboxes stay visible over dark previews.
 - The Share and copy-link buttons now match in color.
@@ -123,12 +197,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Transcript cleanup with your own Gemini key works again: Google retired the model it used.
 - The Clips download page explains when it cannot locate its workspace path.
 - The Clips download page stays open and offers a retry when release information is unavailable.
 - Agents can read clip transcripts and inspect video frames from shared links, with clear guidance when a private clip needs a Share with agents link.
 - Agents now get clear recovery steps when clip frames are still processing or stored media cannot be fetched.
 
 ## 2026-10-08
+
+### Added
+
+- Chapters now appear as a clickable list under the description on the recording page and on share links, and owners can edit them as text.
 
 ### Improved
 
@@ -1560,29 +1639,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Changed
 
 - The Chrome extension option now only appears on supported Clips hosts unless a custom deployment explicitly enables it.
-
-## 2026-06-23
-
-### Added
-
-- Clips for Slack is here — connect a workspace under Settings, then paste any public clip link in Slack and it unfurls as a playable video
-- Skip or cancel the recording countdown with buttons beside the number
-
-### Improved
-
-- Made the play button on shared and embedded clips scale with the player size so it's no longer oversized in small previews like Slack unfurls
-- Public clip share links now show whether they'll play inline in Slack, with a one-click link to connect a workspace
-- Removed Select button from library — hover a clip to select it
-- Screen recordings now capture at a crisp 1080p bitrate instead of a compressed, fuzzy one
-- The recording-start sound is now a softer, more modern chime
-
-### Fixed
-
-- Clips shared in Slack no longer show a 'Could not start playback' error in the inline preview — they autoplay muted where allowed and play on click otherwise
-- Dragging the desktop camera bubble now glides to a stop at the screen edge instead of jittering or snapping back
-- Screen + camera recordings now keep the presenter's face in the thumbnail shown on the library card, video poster, and Slack unfurl
-- Shared video links now play for anyone without signing in
-- The desktop camera bubble now looks sharp the instant it opens instead of staying blurry for the first several seconds
-- The desktop recording widget now grows downward only when you hover it, so its buttons stay in place instead of shifting up under your cursor
 
 For the full list of updates, see the [changelog folder](./changelog/).

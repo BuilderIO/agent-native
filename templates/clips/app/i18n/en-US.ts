@@ -614,6 +614,14 @@ const messages = {
       "Line {{line}}: this time is earlier than the one before it.",
     errorPastEnd: "Line {{line}}: this time is after the end of the video.",
   },
+  transcriptHistory: {
+    title: "Earlier transcripts",
+    automatic: "Automatic",
+    restore: "Restore",
+    restored: "Transcript restored",
+    restoreFailed: "Couldn't restore transcript",
+    undo: "Undo",
+  },
   thumbnailPicker: {
     failedCapture: "Failed to capture frame",
     failedGif: "Failed to generate GIF — try a shorter range",
@@ -1309,6 +1317,15 @@ const messages = {
     playClip: "Play clip",
     unsupportedFormat:
       "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
+    youtubeLoading: "Loading YouTube's player",
+    youtubeUnavailable: "This YouTube video is private or has been removed.",
+    youtubeEmbedBlocked:
+      "This video's owner doesn't allow it to play outside YouTube.",
+    youtubeInvalid: "This YouTube link doesn't point to a playable video.",
+    youtubePlaybackFailed: "YouTube couldn't play this video here.",
+    youtubeApiUnavailable:
+      "YouTube's player didn't load. Check your connection or content blocker, then reload.",
+    watchOnYouTube: "Watch on YouTube",
   },
   searchBar: {
     placeholder: "Search recordings…",
@@ -1582,12 +1599,28 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Add chapters",
+    editLabel: "Edit chapters",
+    placeholder: "0:00 Introduction\n1:30 Next section",
+    errorLineShape:
+      'Line {{line}}: put a time then a title, e.g. "0:48 Saved note dates".',
+    errorBadTime: 'Line {{line}}: "{{value}}" isn\'t a time like 0:48.',
+    errorDuplicate: "Line {{line}}: there's already a chapter at {{value}}.",
+    errorPastEnd: "Line {{line}}: {{value}} is past the end of the clip.",
+    changedWhileEditing:
+      "Chapters changed while you were editing. Check your lines, then Save again to replace them.",
+  },
   chapters: {
     title: "Chapters",
     addHere: "Add here",
     empty: "No chapters yet.",
     remove: "Remove chapter",
     saveFailed: "Failed to save chapters",
+    changedElsewhere:
+      "Chapters were changed elsewhere, so your last change wasn't saved.",
+    unreadable:
+      "Some saved chapters can't be read, so changes can't be saved here. Ask the agent to replace the chapters.",
     duplicateAtPoint: "A chapter already exists at this point",
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",
@@ -1777,7 +1810,7 @@ const messages = {
     unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
     takeScreenshot: "Take screenshot",
-    importLoom: "Import Loom",
+    importLoom: "Import video",
     importing: "Importing...",
     import: "Import",
     recordNew: "Record new",
@@ -1923,6 +1956,8 @@ const messages = {
     storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
     loomImported: "Loom imported",
     couldNotImportLoom: "Could not import that Loom.",
+    youtubeImported: "YouTube video added",
+    couldNotImportVideo: "Could not import that video.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copied",
@@ -2022,12 +2057,12 @@ const messages = {
       "This recording is still processing, so Clips kept your copy here. Wait for it, or upload it again.",
   },
   importRoute: {
-    pageTitle: "Import Loom — Clips",
-    title: "Import Loom",
+    pageTitle: "Import video — Clips",
+    title: "Import video",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Import",
     helperText:
-      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+      "Works great with Loom and YouTube. You can also paste a link to any other screen recording or video file.",
     stageFetching: "Pulling in your video…",
     stageUploading: "Uploading the raw footage…",
     stageTranscript: "Making speech and on-screen visuals agent-readable…",

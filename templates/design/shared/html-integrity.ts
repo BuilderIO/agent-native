@@ -13,6 +13,10 @@ import {
   MAX_CACHED_CONTENT_CHARS,
   memoizeByContent,
 } from "./memoize-by-content.js";
+import {
+  NATIVE_EFFECT_SCRIPT_TYPE,
+  parseEffectsFromHtml,
+} from "./native-effects.js";
 
 export const DESIGN_HTML_INTEGRITY_ERROR_CODE = "DESIGN_HTML_INTEGRITY";
 
@@ -27,6 +31,7 @@ export type DesignHtmlIntegrityIssue =
   | "raw-text-balance"
   | "managed-marker-orphaned"
   | "managed-marker-duplicated"
+  | "native-effect-manifest-invalid"
   | "attribute-unterminated"
   | "expression-invalid"
   | "script-invalid"
@@ -77,6 +82,8 @@ const DOCUMENT_SHAPE_MESSAGES: Partial<
     "an editor-managed <style>/<script> marker is no longer attached to its element — it was likely split by a partial edit",
   "managed-marker-duplicated":
     "an editor-managed <style>/<script> block appears more than once; there must be exactly one of each",
+  "native-effect-manifest-invalid":
+    "the native effect manifest is invalid or contains duplicate definitions or instances",
   "url-backed-screen-replaced":
     "this screen's content is its live route URL, and the write would replace it with document markup — that permanently unbinds the screen from the running app. Edit the app's own source instead",
   "runtime-cloak-missing":
@@ -1400,7 +1407,20 @@ export function assertDesignHtmlEditIntegrity(args: {
   if (!edit || (edit.openingTag && edit.attributeNames.includes("x-cloak"))) {
     assertDesignHtmlEditIntegrityOfHtml(args);
   }
+  assertNativeEffectManifestIntegrity(args.nextContent, args.filename);
   rememberValidatedContent(args.nextContent);
+}
+
+function assertNativeEffectManifestIntegrity(
+  content: string,
+  filename?: string,
+): void {
+  if (!content.includes(NATIVE_EFFECT_SCRIPT_TYPE)) return;
+  if (parseEffectsFromHtml(content).errors.length) {
+    throw new DesignHtmlIntegrityError("native-effect-manifest-invalid", {
+      filename,
+    });
+  }
 }
 
 function assertDesignHtmlEditIntegrityOfHtml(args: {
@@ -1497,6 +1517,7 @@ export function assertDesignHtmlCreateIntegrity(args: {
 }): DesignHtmlIntegrityIssueDetail[] {
   if ((args.fileType || "html").toLowerCase() !== "html") return [];
   if (!args.content.trim()) return [];
+  assertNativeEffectManifestIntegrity(args.content, args.filename);
   const result = inspectDesignHtmlDocumentIntegrity(args.content);
   if (!result.valid) {
     throw new DesignHtmlIntegrityError(result.issue ?? "document-root", {

@@ -109,6 +109,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "完全な接続ページを開く",
   mcpIdentityError: "このアプリの接続情報を読み込めませんでした。",
   mcpRetry: "再試行",
+  mcpOAuthBackToApp: "アプリに戻る",
   mcpConnect: mcpConnectMessages,
 };
 

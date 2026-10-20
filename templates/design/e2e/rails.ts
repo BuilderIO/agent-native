@@ -60,6 +60,9 @@ export class App {
       });
     }
     page.on("load", () => {
+      // Vite's dev optimizer can reload one route while recovering stale deps.
+      if (new URL(page.url()).searchParams.has("__an_vite_dev_recovery"))
+        return;
       if (expectedLoads > 0) {
         expectedLoads -= 1;
         return;
@@ -534,6 +537,25 @@ export function styleOf(node: SavedNode | undefined) {
     if (property?.trim()) style[property.trim()] = value.join(":").trim();
   }
   return style;
+}
+
+export async function normalizeStyleAttribute(
+  page: Page,
+  style: string | undefined,
+) {
+  if (style === undefined) return null;
+  return page.evaluate((value) => {
+    const element = document.createElement("div");
+    element.setAttribute("style", value);
+    return Object.fromEntries(
+      Array.from(element.style)
+        .sort()
+        .map((property) => [
+          property,
+          element.style.getPropertyValue(property),
+        ]),
+    );
+  }, style);
 }
 
 export const test = base.extend<{ app: App }>({

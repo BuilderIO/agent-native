@@ -249,7 +249,7 @@ describe("shouldAdaptAutoTextColorForCrossScreenMove (pure decision)", () => {
 });
 
 describe("adaptAutoTextColorForCrossScreenNode (HTML-string level, no live doc)", () => {
-  it("rewrites marker-carrying board text's forced white to inherit against an INLINE light background", () => {
+  it("sets a contrasting color for marker-carrying board text on an INLINE light background", () => {
     const html = `<!DOCTYPE html>
 <html><head></head>
 <body style="background-color: #ffffff;">
@@ -261,10 +261,10 @@ describe("adaptAutoTextColorForCrossScreenNode (HTML-string level, no live doc)"
     const el = doc.querySelector(
       '[data-agent-native-node-id="txt_1"]',
     ) as HTMLElement;
-    expect(el.style.color).toBe("inherit");
+    expect(el.style.color).toBe("#000000");
   });
 
-  it("rewrites pre-marker default-white text to inherit when the destination has an INLINE light background", () => {
+  it("sets a contrasting color for pre-marker default-white text on an INLINE light background", () => {
     const html = `<!DOCTYPE html>
 <html><head></head>
 <body style="background-color: #ffffff;">
@@ -275,7 +275,7 @@ describe("adaptAutoTextColorForCrossScreenNode (HTML-string level, no live doc)"
     const el = doc.querySelector(
       '[data-agent-native-node-id="txt_2"]',
     ) as HTMLElement;
-    expect(el.style.color).toBe("inherit");
+    expect(el.style.color).toBe("#000000");
   });
 
   it("leaves default-white text untouched when the destination has an INLINE dark background", () => {
@@ -317,7 +317,7 @@ describe("adaptAutoTextColorForCrossScreenNode (HTML-string level, no live doc)"
     const el = doc.querySelector(
       '[data-agent-native-node-id="txt_3c"]',
     ) as HTMLElement;
-    expect(el.style.color).toBe("inherit");
+    expect(el.style.color).toBe("#000000");
   });
 
   it("prefers a supplied LIVE document's computed style, correctly resolving a <style>-block dark background", () => {

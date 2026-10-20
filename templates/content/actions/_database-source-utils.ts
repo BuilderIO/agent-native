@@ -75,6 +75,7 @@ import {
   enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
+import { isBuilderExecutionClaimStale } from "./_builder-cms-execution-lease.js";
 import {
   BuilderCmsContentEntryReadError,
   readBuilderCmsContentEntryResult,
@@ -999,6 +1000,7 @@ class BuilderBodyHydrationError extends Error {
 
 const RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS = new Set([
   "builder_connection_required",
+  "builder_oauth_reauthorization_required",
   "builder_source_binding_invalid",
   "builder_source_binding_required",
   "builder_source_connection_mismatch",
@@ -6335,6 +6337,43 @@ async function deleteSourceChangeSetRecords(args: {
 
   const references = new Set<string>();
   await db.transaction(async (tx) => {
+    const [source] = await tx
+      .select({ databaseId: schema.contentDatabaseSources.databaseId })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+    if (!source) return;
+    await lockContentDatabaseMutation(
+      tx as unknown as ReturnType<typeof getDb>,
+      source.databaseId,
+    );
+    const candidates = await tx
+      .select({
+        state: schema.contentDatabaseSourceExecutions.state,
+        updatedAt: schema.contentDatabaseSourceExecutions.updatedAt,
+      })
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        and(
+          executionWhere,
+          inArray(schema.contentDatabaseSourceExecutions.state, [
+            "running",
+            "response_received",
+            "reconciliation_required",
+          ]),
+        ),
+      );
+    const now = new Date().toISOString();
+    const activeExecutions = candidates.filter(
+      (execution) =>
+        execution.state !== "running" ||
+        !isBuilderExecutionClaimStale(execution.updatedAt, now),
+    );
+    if (activeExecutions.length > 0) {
+      fail(
+        "Cannot replace source records while a Builder execution is running or awaiting reconciliation.",
+        { errorCode: "builder_execution_running", statusCode: 409 },
+      );
+    }
     const deletedExecutions = await tx
       .delete(schema.contentDatabaseSourceExecutions)
       .where(executionWhere)

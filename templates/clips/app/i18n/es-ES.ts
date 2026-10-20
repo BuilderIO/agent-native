@@ -698,6 +698,14 @@ const messages = {
     errorOutOfOrder: "Línea {{line}}: esta hora es anterior a la anterior.",
     errorPastEnd: "Línea {{line}}: esta hora es posterior al final del vídeo.",
   },
+  transcriptHistory: {
+    title: "Transcripciones anteriores",
+    automatic: "Automática",
+    restore: "Restaurar",
+    restored: "Transcripción restaurada",
+    restoreFailed: "No se pudo restaurar la transcripción",
+    undo: "Deshacer",
+  },
   thumbnailPicker: {
     failedCapture: "No se pudo capturar el fotograma",
     failedGif: "No se pudo generar GIF; pruebe con un rango más corto",
@@ -1410,6 +1418,15 @@ const messages = {
     playClip: "Reproducir clip",
     unsupportedFormat:
       "Este navegador no puede reproducir este video. Prueba a abrir el enlace en Chrome, Edge o Firefox.",
+    youtubeLoading: "Cargando el reproductor de YouTube",
+    youtubeUnavailable: "Este vídeo de YouTube es privado o se ha eliminado.",
+    youtubeEmbedBlocked:
+      "El propietario de este vídeo no permite reproducirlo fuera de YouTube.",
+    youtubeInvalid: "Este enlace de YouTube no lleva a un vídeo reproducible.",
+    youtubePlaybackFailed: "YouTube no ha podido reproducir este vídeo aquí.",
+    youtubeApiUnavailable:
+      "El reproductor de YouTube no se ha cargado. Revisa tu conexión o tu bloqueador de contenido y vuelve a cargar la página.",
+    watchOnYouTube: "Ver en YouTube",
   },
   searchBar: {
     placeholder: "Buscar grabaciones…",
@@ -1693,15 +1710,31 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Añadir capítulos",
+    editLabel: "Editar capítulos",
+    placeholder: "0:00 Introducción\n1:30 Siguiente sección",
+    errorLineShape:
+      'Línea {{line}}: pon una hora y luego un título, p. ej. "0:48 Fechas de notas guardadas".',
+    errorBadTime: 'Línea {{line}}: "{{value}}" no es una hora como 0:48.',
+    errorDuplicate: "Línea {{line}}: ya hay un capítulo en {{value}}.",
+    errorPastEnd: "Línea {{line}}: {{value}} está después del final del clip.",
+    changedWhileEditing:
+      "Los capítulos cambiaron mientras los editabas. Revisa tus líneas y vuelve a guardar para reemplazarlos.",
+  },
   chapters: {
-    title: "Chapters",
-    addHere: "Add here",
-    empty: "No chapters yet.",
-    remove: "Remove chapter",
-    saveFailed: "Failed to save chapters",
-    duplicateAtPoint: "A chapter already exists at this point",
-    defaultTitle: "Chapter {{count}}",
-    seekTo: "Seek to {{time}}",
+    title: "Capítulos",
+    addHere: "Añadir aquí",
+    empty: "Aún no hay capítulos.",
+    remove: "Eliminar capítulo",
+    saveFailed: "No se pudieron guardar los capítulos",
+    changedElsewhere:
+      "Los capítulos se cambiaron en otro lugar, así que tu último cambio no se guardó.",
+    unreadable:
+      "Algunos capítulos guardados no se pueden leer, así que aquí no se pueden guardar cambios. Pide al agente que reemplace los capítulos.",
+    duplicateAtPoint: "Ya hay un capítulo en este punto",
+    defaultTitle: "Capítulo {{count}}",
+    seekTo: "Ir a {{time}}",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z)",
@@ -1830,7 +1863,7 @@ const messages = {
     unmuteMicrophone: "Activar micrófono",
     uploadVideo: "Upload video",
     takeScreenshot: "Hacer captura de pantalla",
-    importLoom: "Import Loom",
+    importLoom: "Importar vídeo",
     importing: "Importing...",
     import: "Import",
     recordNew: "Nueva grabación",
@@ -1981,6 +2014,8 @@ const messages = {
       "Se necesita almacenamiento para completar la importación de Loom",
     loomImported: "Loom imported",
     couldNotImportLoom: "No se pudo importar ese Loom.",
+    youtubeImported: "Vídeo de YouTube añadido",
+    couldNotImportVideo: "No se pudo importar ese vídeo.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Enlace copiado",
@@ -2083,12 +2118,12 @@ const messages = {
       "Esta grabación aún se está procesando, así que Clips conservó tu copia aquí. Espera o súbela de nuevo.",
   },
   importRoute: {
-    pageTitle: "Importar Loom — Clips",
-    title: "Importar Loom",
+    pageTitle: "Importar vídeo — Clips",
+    title: "Importar vídeo",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importar",
     helperText:
-      "Funciona muy bien con Loom. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
+      "Funciona muy bien con Loom y YouTube. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
     stageFetching: "Trayendo tu vídeo…",
     stageUploading: "Subiendo el material original…",
     stageTranscript:

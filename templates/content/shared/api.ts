@@ -146,6 +146,7 @@ export interface DocumentUpdateRequest {
   editorSessionId?: string;
   editorEditGeneration?: number;
   editorSnapshotTitle?: string;
+  editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
   description?: string;
   icon?: IconValue | string | null;
@@ -371,19 +372,25 @@ export interface ContentDatabaseSort {
   direction: ContentDatabaseSortDirection;
 }
 
+export const CONTENT_DATABASE_FILTER_OPERATORS = [
+  "contains",
+  "equals",
+  "does_not_equal",
+  "greater_than",
+  "less_than",
+  "greater_than_or_equal",
+  "less_than_or_equal",
+  "before",
+  "after",
+  "between",
+  "is_checked",
+  "is_unchecked",
+  "is_empty",
+  "is_not_empty",
+] as const;
+
 export type ContentDatabaseFilterOperator =
-  | "contains"
-  | "equals"
-  | "does_not_equal"
-  | "greater_than"
-  | "less_than"
-  | "before"
-  | "after"
-  | "between"
-  | "is_checked"
-  | "is_unchecked"
-  | "is_empty"
-  | "is_not_empty";
+  (typeof CONTENT_DATABASE_FILTER_OPERATORS)[number];
 
 export interface ContentDatabaseFilter {
   key: "name" | (string & {});
@@ -583,6 +590,22 @@ export interface ContentDatabaseItem {
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
   rowRevision?: string;
+  /** Open Comment threads on this row, when it has any the viewer can read. */
+  comments?: ContentDatabaseItemComments;
+}
+
+export interface ContentDatabaseItemComments {
+  /** Open threads on the row's Page, whatever each one targets. */
+  open: number;
+  /** Open threads on each Property, keyed by Property ID. */
+  properties: Record<
+    string,
+    {
+      open: number;
+      /** The most recently started open thread on that Property. */
+      latestThreadId: string;
+    }
+  >;
 }
 
 export interface ContentDatabaseMutationTarget {

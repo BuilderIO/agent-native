@@ -209,12 +209,16 @@ function sourceStateLabel(status: BrainSourceStatus, t: Translate): string {
       return t("dataStatus.connected");
     case "configured":
       return t("dataStatus.configuredUnverified");
+    case "checking":
+      return t("indexPanel.dbtChecking");
     case "not-connected":
       return t("dataStatus.notConnected");
     case "needs-reauth":
       return t("dataStatus.needsReauth");
     case "error":
       return t("dataStatus.error");
+    case "unknown":
+      return t("dataStatus.unknown");
   }
 }
 
@@ -305,17 +309,20 @@ function SourceStatusRowView({
   const t = useT();
   const formatters = useFormatters();
   const actionLabel =
-    row.status === "needs-reauth"
-      ? t("dataSources.reconnect")
-      : row.status === "connected" ||
-          row.status === "configured" ||
-          row.status === "error"
-        ? t("dataSources.manage")
-        : t("dataSources.connect");
+    row.status === "unknown"
+      ? t("dataSources.manage")
+      : row.status === "needs-reauth"
+        ? t("dataSources.reconnect")
+        : row.status === "connected" ||
+            row.status === "configured" ||
+            row.status === "error"
+          ? t("dataSources.manage")
+          : t("dataSources.connect");
   // Only sources with a data-source card have a page to act on.
   const showLink =
     row.status !== null &&
     row.status !== "connected" &&
+    row.status !== "unknown" &&
     getDataSourceById(row.id) !== undefined;
 
   return (

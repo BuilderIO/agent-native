@@ -86,6 +86,7 @@ let previewReview: typeof import("./preview-builder-source-review.js").default;
 let prepareExecution: typeof import("./prepare-builder-source-execution.js").default;
 let validateExecution: typeof import("./validate-builder-source-execution.js").default;
 let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
+let replaceSourceMetadata: typeof import("./_database-source-utils.js").replaceSourceMetadata;
 let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
 let cleanupBuilderPrivatePayload: typeof import("./_builder-cms-blob-custody.js").cleanupBuilderPrivatePayload;
 let unregisterBuilderPayloadCleanupSweep: () => void;
@@ -108,6 +109,7 @@ beforeAll(async () => {
     .default;
   disconnectSource = (await import("./disconnect-content-database-source.js"))
     .default;
+  ({ replaceSourceMetadata } = await import("./_database-source-utils.js"));
   realExecutionDeps = (await import("./execute-builder-source-execution.js"))
     .realExecutionDeps;
   cleanupBuilderPrivatePayload = (
@@ -1586,14 +1588,11 @@ describe("Builder source review execution gates", () => {
       .delete(schema.contentDatabaseSourceExecutions)
       .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
 
-    privateBlobs.setDeletesUnavailable(true);
-    try {
-      await asOwner(() =>
-        cleanupBuilderPrivatePayload(blobReference, "test cleanup"),
-      );
-    } finally {
-      privateBlobs.setDeletesUnavailable(false);
-    }
+    const deleteCallsBeforeEnqueue = privateBlobs.getDeleteCalls();
+    await asOwner(() =>
+      cleanupBuilderPrivatePayload(blobReference, "test cleanup"),
+    );
+    expect(privateBlobs.getDeleteCalls()).toBe(deleteCallsBeforeEnqueue);
     const queued = await getDb()
       .select()
       .from(schema.contentDatabaseBuilderBlobCleanup)
@@ -1624,6 +1623,133 @@ describe("Builder source review execution gates", () => {
       );
     expect(retried).toHaveLength(0);
     expect(privateBlobs.blobs.has(blobId)).toBe(false);
+  });
+
+  it("lets newer cleanup entries pass rows with scheduled retries", async () => {
+    const db = getDb();
+    await db.update(schema.contentDatabaseBuilderBlobCleanup).set({
+      attemptCount: 0,
+      nextAttemptAt: "2099-01-01T00:00:00.000Z",
+    });
+
+    const oldReferences = Array.from({ length: 50 }, (_, index) =>
+      JSON.stringify({
+        kind: "agent-native.builder-private-payload",
+        version: 1,
+        binding: { ownerEmail: OWNER, sourceId: `cleanup-fairness-${counter}` },
+        sha256: "unused-in-cleanup-test",
+        handle: {
+          id: `missing-cleanup-blob-${counter}-${index}`,
+          provider: "content-test-memory",
+          opaque: true,
+          encrypted: false,
+        },
+      }),
+    );
+    const newestId = `available-cleanup-blob-${counter}`;
+    const newestReference = JSON.stringify({
+      kind: "agent-native.builder-private-payload",
+      version: 1,
+      binding: { ownerEmail: OWNER, sourceId: `cleanup-fairness-${counter}` },
+      sha256: "unused-in-cleanup-test",
+      handle: {
+        id: newestId,
+        provider: "content-test-memory",
+        opaque: true,
+        encrypted: false,
+      },
+    });
+    privateBlobs.blobs.set(newestId, new Uint8Array());
+    await db.insert(schema.contentDatabaseBuilderBlobCleanup).values([
+      ...oldReferences.map((blobReference, index) => ({
+        blobReference,
+        createdAt: new Date(Date.now() - 10_000 + index).toISOString(),
+      })),
+      {
+        blobReference: newestReference,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 5_000 });
+    const retriedRows = await db
+      .select()
+      .from(schema.contentDatabaseBuilderBlobCleanup)
+      .where(eq(schema.contentDatabaseBuilderBlobCleanup.attemptCount, 1));
+    expect(retriedRows).toHaveLength(50);
+    expect(
+      retriedRows.every((row) => Date.parse(row.nextAttemptAt) > Date.now()),
+    ).toBe(true);
+
+    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 5_000 });
+    const newestRow = await db
+      .select()
+      .from(schema.contentDatabaseBuilderBlobCleanup)
+      .where(
+        eq(
+          schema.contentDatabaseBuilderBlobCleanup.blobReference,
+          newestReference,
+        ),
+      );
+    expect(newestRow).toHaveLength(0);
+    expect(privateBlobs.blobs.has(newestId)).toBe(false);
+  });
+
+  it("preserves an active execution checkpoint when replacing source records", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    const db = getDb();
+    const executionId = `replace-source-active-${counter}`;
+    const checkpoint = JSON.stringify({
+      response: { checkpoint: "preserved" },
+    });
+    await db.insert(schema.contentDatabaseSourceExecutions).values({
+      id: executionId,
+      ownerEmail: OWNER,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      adapter: "builder-cms",
+      pushMode: "autosave",
+      state: "response_received",
+      idempotencyKey: `builder-cms:${seeded.sourceId}:${seeded.changeSetId}:autosave`,
+      summary: "Builder response received.",
+      payloadJson: checkpoint,
+      attemptToken: "active-attempt",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    const [source] = await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, seeded.sourceId));
+
+    await expect(
+      replaceSourceMetadata({
+        database,
+        source,
+        sourceType: "builder-cms",
+        sourceName: "Builder CMS replacement",
+        sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+        now: new Date().toISOString(),
+      }),
+    ).rejects.toThrow(
+      /while a Builder execution is running or awaiting reconciliation/,
+    );
+
+    const [execution] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+    expect(execution).toMatchObject({
+      state: "response_received",
+      attemptToken: "active-attempt",
+      payloadJson: checkpoint,
+    });
   });
 
   it("preserves legacy duplicate gates and blocks their canonical claim", async () => {
