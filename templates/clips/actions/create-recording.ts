@@ -42,6 +42,7 @@ import {
 import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
+import { failStorageSetupRequired } from "./lib/storage-setup-error.js";
 
 /** The `sourceAppName` the native mobile app (packages/mobile-app) sends. */
 const MOBILE_APP_SOURCE_NAME = "Agent-Native Mobile";
@@ -325,12 +326,15 @@ export default defineAction({
         storageSetupRequired: failure.failureCode === "storage_setup_required",
         updatedAt: failedAt,
       });
+      if (failure.failureCode === "storage_setup_required") {
+        failStorageSetupRequired();
+      }
       throw createError({
         statusCode: 503,
         statusMessage: reason,
         data: {
           errorCode: failure.failureCode,
-          retryable: failure.failureCode !== "storage_setup_required",
+          retryable: true,
         },
       });
     };

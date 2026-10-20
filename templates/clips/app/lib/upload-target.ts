@@ -167,9 +167,7 @@ export async function openUploadTarget(options: {
     details?: { denyReason?: string };
   } | null;
   const denialCode = body?.details?.denyReason ?? body?.errorCode;
-  const storageSetupRequired =
-    (res.status === 402 || res.status === 403) &&
-    STORAGE_SETUP_DENIAL_CODES.has(denialCode ?? "");
+  const storageSetupRequired = STORAGE_SETUP_DENIAL_CODES.has(denialCode ?? "");
   // Storage read as connected but the server opened no upload (an expired
   // grant, an outage, a lost session, another account): stop before capture.
   options.onCreateFailed?.({

@@ -13,6 +13,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
+import { UploadTargetError } from "@/lib/upload-target";
 
 import {
   buildRecordingErrorToastOptions,
@@ -20,6 +21,7 @@ import {
   localizedRecordingErrorMessage,
   openUrlFromUserGesture,
   recordingErrorToastRecoveryAction,
+  recordingStartErrorMessage,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
@@ -81,6 +83,18 @@ describe("record route lifecycle shell", () => {
         "Localized storage status copy",
       ),
     ).toBe("The upload failed.");
+  });
+
+  it("shows a recording-start failure when upload-target creation fails", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("upload_target_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe("Could not start recording.");
   });
 
   it("does not redirect a queued upload when storage is already configured", () => {

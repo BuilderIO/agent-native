@@ -252,6 +252,30 @@ const MAC_MICROPHONE_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 const STORAGE_SETUP_REQUIRED_ERROR = "STORAGE_SETUP_REQUIRED";
 
+export function recordingStartErrorMessage(
+  error: unknown,
+  messages: {
+    storageStatusUnavailable: string;
+    couldNotStartRecording: string;
+  },
+): string {
+  if (error instanceof UploadTargetError) {
+    switch (error.code) {
+      case "storage_setup_required":
+        return STORAGE_SETUP_REQUIRED_ERROR;
+      case "session_expired":
+        return "SESSION_EXPIRED";
+      case "storage_status_unavailable":
+        return messages.storageStatusUnavailable;
+      case "upload_target_unavailable":
+        return messages.couldNotStartRecording;
+    }
+  }
+  return error instanceof Error
+    ? error.message
+    : messages.couldNotStartRecording;
+}
+
 type BrowserDocumentPolicy = {
   allowsFeature?: (feature: string) => boolean;
 };
@@ -1898,16 +1922,10 @@ export default function RecordRoute() {
         setUiState("countdown");
       } catch (err) {
         if (isStale()) return;
-        const message =
-          err instanceof UploadTargetError
-            ? err.code === "storage_setup_required"
-              ? STORAGE_SETUP_REQUIRED_ERROR
-              : err.code === "session_expired"
-                ? "SESSION_EXPIRED"
-                : t("storageSetup.statusUnavailable")
-            : err instanceof Error
-              ? err.message
-              : t("recordRoute.couldNotStartRecording");
+        const message = recordingStartErrorMessage(err, {
+          storageStatusUnavailable: t("storageSetup.statusUnavailable"),
+          couldNotStartRecording: t("recordRoute.couldNotStartRecording"),
+        });
         const pickerDismissed = isDismissedCapturePicker(err, message);
         await liveTranscription.stopAndWait().catch(() => "");
         const orphan = pendingRef.current;

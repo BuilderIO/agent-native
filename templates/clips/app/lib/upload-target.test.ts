@@ -105,11 +105,16 @@ describe("openUploadTarget", () => {
   });
 
   it.each([
-    { status: 403, errorCode: "disabled" },
-    { status: 402, errorCode: "exhausted" },
+    { status: 403, errorCode: "disabled", denyReason: "disabled" },
+    { status: 402, errorCode: "exhausted", denyReason: "exhausted" },
+    {
+      status: 503,
+      errorCode: "storage_setup_required",
+      denyReason: undefined,
+    },
   ])(
     "routes the $errorCode storage denial back to setup",
-    async ({ status, errorCode }) => {
+    async ({ status, errorCode, denyReason }) => {
       const onCreateFailed = vi.fn();
       const { result, dropRow } = open(
         async () =>
@@ -117,7 +122,7 @@ describe("openUploadTarget", () => {
             {
               error: "Storage is unavailable.",
               errorCode,
-              details: { denyReason: errorCode },
+              ...(denyReason ? { details: { denyReason } } : {}),
             },
             { status },
           ),
