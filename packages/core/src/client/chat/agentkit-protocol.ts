@@ -2187,7 +2187,16 @@ export function createAgentKitProtocolAdapter(
     const existingRun = start.attachReplayedRun
       ? findRun(threadId, runId)
       : undefined;
-    if (existingRun) {
+    // A live run absorbs a replayed start, and so does a finished run for the
+    // same turn. Any other reuse of a finished run's id is a duplicate, so it
+    // falls through to indexRun, which rejects it. A runtime alias is a
+    // continuation that changes turn, so it always attaches.
+    const isAlias =
+      existingRun !== undefined && runs.get(runId) !== existingRun;
+    if (
+      existingRun &&
+      (isAlias || !existingRun.terminal || existingRun.turn.id === turn.id)
+    ) {
       // A duplicate queued submission is answered with the run that already
       // took it, replayed from its first event. This adapter reads that run
       // already, so the replay is drained rather than indexed a second time.
