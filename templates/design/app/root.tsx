@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import {
   getEmbedAuthToken,
+  isEmbedAuthActive,
   setAgentNativeApiDisabled,
 } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
@@ -287,7 +288,7 @@ export function computeSessionBypass(pathname: string): boolean {
  */
 function supportsUnsupportedDeviceNotice(pathname: string): boolean {
   return (
-    !getEmbedAuthToken() &&
+    !isEmbedAuthActive() &&
     !pathname.startsWith("/present/") &&
     !pathname.startsWith("/visual-edit")
   );

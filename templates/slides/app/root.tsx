@@ -9,6 +9,7 @@ import {
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
   getEmbedAuthToken,
+  isEmbedAuthActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
@@ -371,7 +372,7 @@ export default function Root() {
         i18n={{ catalog: i18nCatalog }}
         sessionBypass={sessionBypass}
         unsupportedDevice={
-          sessionBypass
+          sessionBypass || isEmbedAuthActive()
             ? undefined
             : {
                 appName: "Slides",
