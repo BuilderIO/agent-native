@@ -68,7 +68,7 @@ export function assertSourceAllowsPageEdit(
     change === "trash"
       ? `This page follows a file in GitHub. Delete the file${file}, and Content moves the page to Trash after the push.`
       : change === "move"
-        ? `This page follows a file in GitHub${file}, so it stays in its collection.`
+        ? `This page follows a file${file}, so it stays in its collection.`
         : `This page follows a file in GitHub and is view only here. Edit the file${file}; Content updates after each push.`,
     { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
   );

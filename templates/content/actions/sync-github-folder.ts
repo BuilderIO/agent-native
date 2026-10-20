@@ -69,12 +69,16 @@ export default defineAction({
       budgetMs: SYNC_BUDGET_MS,
     });
     if (sync.state !== "unchanged" && sync.state !== "busy") {
-      await writeAppState("refresh-signal", { ts: Date.now() });
+      await afterSync("refresh signal", () =>
+        writeAppState("refresh-signal", { ts: Date.now() }),
+      );
     }
     return {
       database: serializeDatabase(database),
       sync,
-      source: await getContentDatabaseSourceSnapshot(database),
+      source: await afterSync("source read", () =>
+        getContentDatabaseSourceSnapshot(database),
+      ),
       summary: githubSyncSummary(linked.sourceName, sync),
     };
   },
@@ -84,3 +88,19 @@ export default defineAction({
       ? documentChangeResource(result.database.documentId)
       : null,
 });
+
+/**
+ * The sync has already written its rows, so a failed read or signal after it
+ * mustn't report the whole sync as failed.
+ */
+async function afterSync<T>(
+  step: string,
+  run: () => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await run();
+  } catch (error) {
+    console.warn(`[sync-github-folder] ${step} failed after the sync`, error);
+    return null;
+  }
+}
