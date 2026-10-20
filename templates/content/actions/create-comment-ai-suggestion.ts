@@ -60,16 +60,15 @@ const payloadSchema = z.object({
 
 /**
  * Earlier pending proposals the requester got in this thread are replaced by
- * a revision instead of stacking up. Only requests made before this one count,
- * so a retry builds the same list and its creation receipt still matches. The
- * one exception is this request's own edits in the other shape: a retry that
- * turns one edit into several, or several into one, replaces what the earlier
- * attempt created.
+ * a revision instead of stacking up: those from requests made before this one,
+ * and those an earlier attempt of this request created. Edits from this
+ * attempt never count, so replaying it builds the same list and its creation
+ * receipt still matches.
  */
 async function supersededSuggestionIds(
   request: Awaited<ReturnType<typeof requireCommentAiRequest>>,
   ctx: Parameters<typeof listSuggestions.run>[1],
-  asProposal: boolean,
+  attemptId: string,
 ) {
   const earlier = await getDb()
     .select({ id: schema.commentAiRequests.id })
@@ -99,7 +98,7 @@ async function supersededSuggestionIds(
         suggestion.metadata?.sourceThreadId === request.threadId &&
         (earlierIds.has(String(suggestion.metadata?.commentAiRequestId)) ||
           (suggestion.metadata?.commentAiRequestId === request.id &&
-            Boolean(suggestion.proposalId) !== asProposal)),
+            suggestion.metadata?.commentAiAttemptId !== attemptId)),
     )
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .slice(-100)
@@ -166,7 +165,7 @@ export default defineAction({
       const supersedes = await supersededSuggestionIds(
         request,
         ctx,
-        operations.length > 1,
+        args.attemptId,
       );
       const proposal = {
         ...(supersedes.length ? { supersedes } : {}),
@@ -188,13 +187,14 @@ export default defineAction({
         model: request.model,
       };
       // A Content suggestion holds exactly one edit, so separate changes become
-      // one proposal. The receipt links its first edit.
+      // one proposal. The receipt links its first edit. Each attempt creates
+      // under its own key, because a retry may propose different edits.
       const suggestion =
         operations.length === 1
           ? await createSuggestion.run(
               {
                 ...proposal,
-                idempotencyKey: `comment-ai:${request.id}:suggestion`,
+                idempotencyKey: `comment-ai:${args.attemptId}:suggestion`,
                 operations,
                 metadata,
               },
@@ -204,7 +204,7 @@ export default defineAction({
               await createSuggestionProposal.run(
                 {
                   ...proposal,
-                  idempotencyKey: `comment-ai:${request.id}:proposal`,
+                  idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
                   suggestions: operations.map((operation) => ({
                     summary: markdownSuggestionOperationSummary(operation),
                     operations: [{ ...operation, ordinal: 0 }],

@@ -390,8 +390,7 @@ describe("comment AI dedicated action boundaries", () => {
         resourceType: "document",
         resourceId: "page-1",
         baseRevision: "suggestion-revision",
-        idempotencyKey:
-          "comment-ai:11111111-1111-4111-8111-111111111111:suggestion",
+        idempotencyKey: "comment-ai:attempt-1:suggestion",
         operations: [
           expect.objectContaining({
             before: expect.objectContaining({ changedText: "Before" }),
@@ -462,8 +461,7 @@ describe("comment AI dedicated action boundaries", () => {
       expect(proposal).toMatchObject({
         resourceId: "page-1",
         summary: "Hyphenate Open-source",
-        idempotencyKey:
-          "comment-ai:11111111-1111-4111-8111-111111111111:proposal",
+        idempotencyKey: "comment-ai:attempt-1:proposal",
       });
       expect(
         proposal.suggestions.map(
@@ -538,43 +536,57 @@ describe("comment AI dedicated action boundaries", () => {
     );
   });
 
-  it("replaces this request's single edit when a retry proposes several", async () => {
-    state.request.intent = "suggest";
-    state.source.document.content = "Open source and Open source again.";
-    state.earlierRequests = [];
-    // The first attempt created its edit but failed before recording it.
-    state.request.attemptCount = 2;
-    const fromThisRequest = (id: string, proposalId: string | null) => ({
-      id,
-      proposalId,
-      adapterKind: "content-document",
-      authorEmail: "agent@example.test",
-      createdAt: "2026-09-08T00:00:01.000Z",
-      metadata: {
-        sourceThreadId: "thread-1",
-        commentAiRequestId: state.request.id,
-      },
-    });
-    mocks.listSuggestions.mockResolvedValue({
-      suggestions: [
-        fromThisRequest("first-attempt", null),
-        fromThisRequest("own-proposal-edit", "proposal-1"),
-      ],
-    });
+  it.each([
+    ["several edits", ["Open source and", "Open source again"], "proposal"],
+    ["the same single edit", ["Open source and"], "suggestion"],
+  ])(
+    "replaces an earlier attempt's edit when a retry proposes %s",
+    async (_shape, finds, kind) => {
+      state.request.intent = "suggest";
+      state.source.document.content = "Open source and Open source again.";
+      state.earlierRequests = [];
+      // The first attempt created its edit but failed before recording it.
+      state.request.attemptCount = 2;
+      const fromThisRequest = (id: string, commentAiAttemptId: string) => ({
+        id,
+        proposalId: null,
+        adapterKind: "content-document",
+        authorEmail: "agent@example.test",
+        createdAt: "2026-09-08T00:00:01.000Z",
+        metadata: {
+          sourceThreadId: "thread-1",
+          commentAiRequestId: state.request.id,
+          commentAiAttemptId,
+        },
+      });
+      mocks.listSuggestions.mockResolvedValue({
+        suggestions: [
+          fromThisRequest("first-attempt", "attempt-1"),
+          // A replay of this attempt must build the same list.
+          fromThisRequest("this-attempt", "attempt-2"),
+        ],
+      });
 
-    await run(createSuggestion as any, {
-      summary: "Hyphenate both",
-      edits: [
-        { find: "Open source and", replace: "Open-source and" },
-        { find: "Open source again", replace: "Open-source again" },
-      ],
-    });
+      await run(createSuggestion as any, {
+        attemptId: "attempt-2",
+        summary: "Hyphenate",
+        edits: finds.map((find) => ({
+          find,
+          replace: find.replace(" ", "-"),
+        })),
+      });
 
-    expect(mocks.createProposal).toHaveBeenCalledWith(
-      expect.objectContaining({ supersedes: ["first-attempt"] }),
-      ctx,
-    );
-  });
+      const create =
+        kind === "proposal" ? mocks.createProposal : mocks.createSuggestion;
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: `comment-ai:attempt-2:${kind}`,
+          supersedes: ["first-attempt"],
+        }),
+        ctx,
+      );
+    },
+  );
 
   it("keeps a suggestion request recoverable when feedback changes before its receipt", async () => {
     state.request.intent = "suggest";
