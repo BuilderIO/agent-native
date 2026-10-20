@@ -2330,6 +2330,25 @@ describe("applyVisualEdit", () => {
     );
   });
 
+  it("resolves versioned source paths against the code projection", () => {
+    const html = `<main><section data-loc="shared">First</section><section data-loc="shared">Second</section></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        nodeId: "shared",
+        selector:
+          "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><section data-loc="shared">First</section><section data-loc="shared" style="color: #111">Second</section></main>`,
+    );
+  });
+
   it("applies edits from runtime html/body-rooted selectors against fragment HTML", () => {
     const html = `<main><section><button>One</button></section><section><button>Two</button></section></main>`;
     const patch = applyVisualEdit(html, {

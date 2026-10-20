@@ -2082,6 +2082,10 @@ export default {
       accept: "قبول",
       reject: "رفض",
       resolveFailed: "تعذّر حسم هذا الاقتراح",
+      previewTargetUnavailable:
+        "تعذّر العثور على العنصر المحدد، لذا لم يتم عرض هذه المعاينة. حدّد العنصر مرة أخرى لإعادة المحاولة.",
+      previewFailed:
+        "تعذّر عرض هذه المعاينة. حدّد العنصر مرة أخرى لإعادة المحاولة.",
     },
     capabilities: {
       "deterministic-style-edit": "تعديل نمط آمن",
