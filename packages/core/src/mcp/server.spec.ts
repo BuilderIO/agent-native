@@ -6905,6 +6905,54 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(uncoded.result.content[0].text).toBe("Error: No such note");
   });
 
+  it("gives an external agent the details a fail() attached, as text and structured content", async () => {
+    const { fail } = await import("../action.js");
+    const failingConfig = {
+      ...compactSurfaceConfig,
+      actions: {
+        ...compactSurfaceConfig.actions,
+        "import-transcript": {
+          tool: { description: "Import a transcript" },
+          run: async () => {
+            fail("A transcript import is already running", {
+              errorCode: "import_in_progress",
+              statusCode: 409,
+              details: { importId: "imp_1", apiKey: "SENSITIVE_VALUE" },
+            });
+          },
+        },
+      },
+    };
+
+    const response = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 262,
+        method: "tools/call",
+        params: { name: "import-transcript", arguments: {} },
+      },
+      { headers: await mcpAppsFullCatalogHeaders(), config: failingConfig },
+    );
+
+    expect(response.result.isError).toBe(true);
+    expect(response.result.content).toEqual([
+      {
+        type: "text",
+        text:
+          "Error: A transcript import is already running (errorCode: import_in_progress)\n" +
+          'Error details: {"importId":"imp_1","apiKey":"[REDACTED]"}',
+      },
+    ]);
+    expect(response.result.structuredContent).toEqual({
+      error: {
+        message: "A transcript import is already running",
+        errorCode: "import_in_progress",
+        details: { importId: "imp_1", apiKey: "[REDACTED]" },
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("SENSITIVE_VALUE");
+  });
+
   it("blocks compact MCP Apps callers from invoking hidden tools by name", async () => {
     const out = await callWeb(
       {

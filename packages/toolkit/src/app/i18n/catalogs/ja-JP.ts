@@ -185,10 +185,21 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "無料クレジットを有効化",
   "onboarding.creditsFinePrint":
     "無料の Builder.io アカウントが作成されます。続行することで、当社の",
-  "onboarding.creditsConnectExisting": "既存の Builder.io アカウントを接続",
   "onboarding.creditsMoreInfo": "詳細情報",
-  "onboarding.creditsSkipBody":
-    "スキップする場合は、AI とストレージを使用するために独自のキーを接続する必要があります。",
+  "onboarding.creditsSubtitle":
+    "Builder.io から、このアプリ向けの LLM、Jev、ストレージなどの無料クレジットをワンクリックで入手できます。",
+  "onboarding.creditsLearnMore": "詳しく見る",
+  "onboarding.creditsSkip": "スキップ",
+  "onboarding.creditsSkipConfirmTitle": "よろしいですか？",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native アプリでは、ほとんどの機能を使うために LLM の接続が必要です。LLM がないと、ほとんどの機能は動作しません。",
+  "onboarding.creditsSkipGoBack": "戻る",
+  "onboarding.creditsSkipAnyway": "それでもスキップ",
+  "onboarding.creditsUseCustomKeys": "カスタムキーを使用",
+  "onboarding.creditsAboutLabel": "無料クレジットについて",
+  "onboarding.creditsActivating": "無料クレジットを有効化しています",
+  "onboarding.creditsActivatingTooltip":
+    "Builder は、LLM、Jev、ストレージなどの無料クレジットを提供します。自分のキーがなくても、このアプリの AI 機能を使えます。",
   "onboarding.builderConnect": "Builder.io に接続",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
@@ -227,7 +238,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.webSearch.label": "ウェブ検索",
-  "onboarding.capability.webSearch.keySummary": "Builder が管理するウェブ検索",
+  "onboarding.capability.webSearch.keySummary": "ウェブ検索",
   "onboarding.capability.webSearch.why":
     "ウェブ上の最新の公開情報を検索します。Builder 管理の検索では付属の Builder AI クレジットを使うため、別の検索 API キーは不要です。",
   "onboarding.capability.systemOne.why":

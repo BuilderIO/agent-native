@@ -75,6 +75,25 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
   [false, "Agents are leaving browser tabs for the next session."],
   [false, "Open a browser tab for a quick check."],
 ];
+const MOUNTED_NAVIGATION_PATH_REGEX_CASES = [
+  [
+    true,
+    "The path-only /chat/thread-one command was incorrectly stripped to /thread-one under the /chat mount.",
+  ],
+  [
+    true,
+    "Don't strip the mount prefix from a path-only local navigation command.",
+  ],
+  [
+    true,
+    "Keep navigation.path router-local and put the mounted URL in publicPath.",
+  ],
+  [false, "The app is mounted under /chat."],
+  [false, "Navigate to the new chat thread."],
+  [false, "The public URL for the share page is /chat/share/abc."],
+];
+const MOUNTED_NAVIGATION_PATH_RE =
+  /\b(?:path[- ]only|navigation\.path)\b[^.!?\n]{0,140}\b(?:strip(?:ped|ping)?|normaliz(?:e|ed|ing)|rewrit(?:e|es|ten|ing)|infer(?:red|ring)?|treat(?:ed|ing)?)\b[^.!?\n]{0,120}\b(?:mount|prefix|public|local)\b|\b(?:mount|prefix|public)\b[^.!?\n]{0,100}\b(?:path[- ]only|navigation\.path)\b[^.!?\n]{0,120}\b(?:strip(?:ped|ping)?|normaliz(?:e|ed|ing)|rewrit(?:e|s|ten|ing)|infer(?:red|ring)?|treat(?:ed|ing)?)\b|\b(?:keep|use)\s+(?:`?navigation\.path`?\s+)?router[- ]local\b[^.!?\n]{0,100}\bpublicPath\b|\b(?:don['’]?t|do not|never|must not)\s+strip\b[^.!?\n]{0,100}\b(?:mount|prefix)\b[^.!?\n]{0,60}\bpath[- ]only\b/i;
 
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
@@ -2870,6 +2889,42 @@ const FEEDBACK_REPLY_DETAIL_PATTERN = {
 const FEEDBACK_OPEN_WITHOUT_QUESTION_RE =
   /\b(?:why (?:are you )?(?:saying|replying|marking)[\s\S]{0,80}\b(?:open|in progress)\b|should be asking for what you need(?: for each)?|ask for clarification when needed)\b/i;
 
+const COMMUNITY_PR_CONTEXT_RE =
+  /\b(?:community|outside|external|open[- ]source|first[- ]time)\s+(?:prs?|pull requests?|contribut\w*)\b|\bcontributors?'?s?\b(?!\s+(?:guide|guidelines|docs?|covenant|agreement|license))|\bcommunity-prs\b/i;
+const COMMUNITY_PR_CORRECTION_RE =
+  /\b(?:why (?:did|would|are|were) you|you (?:forgot|didn't|did not|rebased|force[- ]pushed|closed|tagged|pinged|@-?mentioned|mentioned|dropped|lost|removed)|forgot to|should(?:n't| not) have|sounds? (?:harsh|curt|cold|demanding|rude|robotic|bossy)|too (?:harsh|curt|cold|demanding|bossy|blunt)|(?:no ?one|nobody) (?:has |had )?(?:replied|responded|answered)|(?:has|have)(?:n't| not) (?:had|gotten|got) (?:a |any )?(?:reply|response))/gi;
+
+// "You closed it correctly, thanks" uses the same verbs as a correction.
+const COMMUNITY_PR_PRAISE_RE =
+  /\b(?:correctly|right call|good call|well done|nice work|great job)\b/i;
+
+/** A correction about handling an outside PR: the cue and the context sit close together. */
+function hasCommunityPrCorrection(message) {
+  const input = textForPattern(message);
+  if (!COMMUNITY_PR_CONTEXT_RE.test(input)) return false;
+  return [...input.matchAll(COMMUNITY_PR_CORRECTION_RE)].some((match) => {
+    const sentenceStart =
+      Math.max(
+        input.lastIndexOf(".", match.index),
+        input.lastIndexOf("!", match.index),
+        input.lastIndexOf("?", match.index),
+        input.lastIndexOf("\n", match.index),
+      ) + 1;
+    const sentenceEnd = input.slice(match.index).search(/[.!?\n]/);
+    const sentence = input.slice(
+      sentenceStart,
+      sentenceEnd < 0 ? undefined : match.index + sentenceEnd,
+    );
+    return (
+      !COMMUNITY_PR_PRAISE_RE.test(sentence) &&
+      COMMUNITY_PR_CONTEXT_RE.test(
+        input.slice(Math.max(0, match.index - 200), match.index + 200),
+      )
+    );
+  });
+}
+const COMMUNITY_PR_HANDLING_PATTERN = { matches: hasCommunityPrCorrection };
+
 function matchesPattern(pattern, text) {
   return pattern.matches
     ? pattern.matches(text)
@@ -3237,6 +3292,41 @@ const FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES = [
   [false, "I asked which Figma file link to use."],
 ];
 
+const COMMUNITY_PR_HANDLING_REGEX_CASES = [
+  [
+    true,
+    "Why did you rebase the contributor's branch? Merge main into it instead.",
+  ],
+  [true, "That reply on the community PR sounds harsh. Thank them first."],
+  [true, "You forgot to credit the contributor in the squash commit."],
+  [true, "The outside PR from last week still hasn't had a reply."],
+  [
+    true,
+    "You tagged Steve on the external PR again; his review arrives on its own.",
+  ],
+  [true, "nobody replied to that community PR for two weeks"],
+  [true, "Why are you asking this contributor to rerun CI again?"],
+  [
+    true,
+    `The outside PR is ready. ${"x".repeat(150)} You forgot to say what shipped.`,
+  ],
+  [false, "Don't post on any outside PR or issue."],
+  [false, "You closed the contributor's duplicate PR correctly, thanks."],
+  [
+    true,
+    "Thanks, but you forgot to credit the contributor in the squash commit.",
+  ],
+  [false, "You forgot to update the contributor guide."],
+  [
+    false,
+    `You forgot to run the linter. ${"x".repeat(250)} The outside PR is fine.`,
+  ],
+  [false, "Never @-mention or request Builder reviewers on outside PRs."],
+  [false, "The contributor's PR looks good; merge it."],
+  [false, "You forgot to run the tests."],
+  [false, "Why did you close the Linear issue?"],
+];
+
 const FEEDBACK_CHANNEL_COVERAGE_RE =
   /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,140}\b(?:reports?|parent(?:\s+messages?)?|messages?)\b[^.!?\n]{0,100}\b(?:in|from|within)\s+(?:the\s+)?#?[\w-]+/i;
 const FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES = [
@@ -3316,6 +3406,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...MOUNTED_NAVIGATION_PATH_REGEX_CASES.filter(
+      ([expected, message]) =>
+        MOUNTED_NAVIGATION_PATH_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
       ([expected, message]) =>
         matchesPattern(FEEDBACK_REPLY_DETAIL_PATTERN, message) !== expected,
@@ -3325,6 +3421,12 @@ if (process.argv.includes("--self-test")) {
     ...FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_OPEN_WITHOUT_QUESTION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...COMMUNITY_PR_HANDLING_REGEX_CASES.filter(
+      ([expected, message]) =>
+        matchesPattern(COMMUNITY_PR_HANDLING_PATTERN, message) !== expected,
     ),
   );
   failures.push(
@@ -3633,7 +3735,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -3799,6 +3901,13 @@ const PATTERNS = [
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
   },
   {
+    key: "mounted-navigation-path",
+    label: "Had to correct mounted vs router-local navigation paths",
+    fixedBy:
+      ".agents/skills/context-awareness (local path and publicPath contract, 2026-10-19)",
+    re: MOUNTED_NAVIGATION_PATH_RE,
+  },
+  {
     key: "ai-gate-bypass",
     label: "Had to repeat that prompts must not send without connected AI",
     fixedBy:
@@ -3895,6 +4004,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (direct question when reporter-side evidence blocks a fix, 2026-10-12)",
     re: FEEDBACK_OPEN_WITHOUT_QUESTION_RE,
+  },
+  {
+    key: "community-pr-handling",
+    label: "Had to correct how an outside contributor's PR was handled",
+    fixedBy:
+      ".agents/skills/community-prs (owner, time limits, credit, and reply voice, 2026-10-15)",
+    ...COMMUNITY_PR_HANDLING_PATTERN,
   },
   {
     key: "pr-review-handoff",

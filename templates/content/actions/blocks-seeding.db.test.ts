@@ -1637,6 +1637,60 @@ describe("primary Blocks value reflects the body, never the title (finding: word
   });
 });
 
+describe("renaming a Blocks field from its tab", () => {
+  it("keeps the description, visibility and page body a name-only rename leaves out", async () => {
+    const { databaseId, documentId } = await createDatabaseRow();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now: new Date().toISOString(),
+    });
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await configureDocumentPropertyAction.run({
+        id: primaryId,
+        documentId,
+        databaseId,
+        name: "Poem",
+        type: "blocks",
+      });
+      const created = await configureDocumentPropertyAction.run({
+        documentId,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+        description: "Margin notes for this poem",
+        visibility: "hide_when_empty",
+      });
+      const id = created.properties.find(
+        (property: any) => property.definition.name === "Notes",
+      )!.definition.id;
+
+      await configureDocumentPropertyAction.run({
+        id,
+        documentId,
+        databaseId,
+        name: "Margins",
+        type: "blocks",
+      });
+    });
+
+    const definitions = await blocksDefinitions(databaseId);
+    const renamed = definitions.find(
+      (definition) => definition.name === "Margins",
+    );
+    expect(renamed).toMatchObject({
+      description: "Margin notes for this poem",
+      visibility: "hide_when_empty",
+    });
+    const body = definitions.find((definition) => definition.id === primaryId);
+    expect(body?.name).toBe("Poem");
+    expect(JSON.parse(body!.optionsJson ?? "{}")).toMatchObject({
+      blocks: { primary: true },
+    });
+  });
+});
+
 describe("rollups resolve Blocks fields from their backing stores", () => {
   it("rolls up primary Blocks values from linked document bodies", async () => {
     const { databaseId, documentId } = await createDatabaseRow();

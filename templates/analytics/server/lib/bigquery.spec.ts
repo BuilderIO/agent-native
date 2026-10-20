@@ -1007,6 +1007,18 @@ describe("runQuery cancellation", () => {
     expect(failure).toBeInstanceOf(BigQueryDryRunPreparationError);
     expect((failure as Error).message).not.toContain(privateDetail.message);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(failure).toMatchObject({ notConfigured: false });
+  });
+
+  it("marks missing credentials as not configured", async () => {
+    getBigQueryAccessToken.mockRejectedValueOnce(
+      new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured"),
+    );
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>());
+
+    await expect(
+      dryRunQuerySchema("SELECT 1", { wrapPreparationErrors: true }),
+    ).rejects.toMatchObject({ notConfigured: true });
   });
 
   it("forwards abort signals to token setup without wrapping aborts", async () => {

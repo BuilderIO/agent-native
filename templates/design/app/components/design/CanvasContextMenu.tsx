@@ -31,6 +31,7 @@ import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 import { CanvasMenuItem, MENU_CONTENT_CLASS } from "./context-menu-item";
+import type { MotionMenuProperty } from "./edit-panel/motion-controls";
 import { IconText } from "./inspector/design-icons";
 import { formatShortcutLabel } from "./keyboard-shortcuts";
 import type { CanvasLayerHitCandidate } from "./types";
@@ -102,11 +103,24 @@ export type CanvasAgentPreset =
   | "states"
   | "responsive";
 
+export type CanvasMotionChoice = MotionMenuProperty | "ready-made";
+
+/** The add-motion submenu: only the controls listed here are offered. */
+export interface CanvasMotionMenu {
+  basic: readonly MotionMenuProperty[];
+  more: readonly MotionMenuProperty[];
+  onSelect: (choice: CanvasMotionChoice) => void;
+}
+
 export interface CanvasContextMenuLabels {
   selectLayer: string;
   editWithAgent: string;
   arrange: string;
   transform: string;
+  addMotion: string;
+  motionMore: string;
+  motionReadyMade: string;
+  motionProperty: Record<MotionMenuProperty, string>;
   group: string;
   booleanOperations: string;
   subtract: string;
@@ -240,6 +254,7 @@ export interface CanvasContextMenuProps {
   canToggleComments?: boolean;
   hiddenActions?: readonly CanvasContextMenuAction[];
   disabledActions?: readonly CanvasContextMenuAction[];
+  motionMenu?: CanvasMotionMenu;
   labels?: Partial<CanvasContextMenuLabels>;
   shortcuts?: Partial<CanvasContextMenuShortcuts>;
   getCanvasPoint?: (point: { clientX: number; clientY: number }) => {
@@ -290,6 +305,20 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   editWithAgent: "Edit with Agent",
   arrange: "Arrange",
   transform: "Transform",
+  addMotion: "Add animation",
+  motionMore: "More",
+  motionReadyMade: "Animation style",
+  motionProperty: {
+    translate: "Position",
+    scale: "Scale",
+    rotate: "Rotation",
+    opacity: "Opacity",
+    "border-radius": "Corner radius",
+    "background-color": "Fill",
+    "border-color": "Stroke color",
+    "border-width": "Stroke weight",
+    "box-shadow": "Drop shadow",
+  },
   group: "Group selection",
   booleanOperations: "Boolean operations",
   subtract: "Subtract",
@@ -480,6 +509,7 @@ export const CanvasContextMenu = forwardRef<
     canToggleComments = true,
     hiddenActions = [],
     disabledActions = [],
+    motionMenu,
     labels: labelsProp,
     shortcuts: shortcutsProp,
     getCanvasPoint,
@@ -1081,6 +1111,49 @@ export const CanvasContextMenu = forwardRef<
                   />
                 </ContextMenuSubContent>
               </ContextMenuSub>
+              {motionMenu ? (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    {labels.addMotion}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent
+                    className={cn(MENU_CONTENT_CLASS, "w-52")}
+                  >
+                    {motionMenu.basic.map((property) => (
+                      <CanvasMenuItem
+                        key={property}
+                        label={labels.motionProperty[property]}
+                        onSelect={() => motionMenu.onSelect(property)}
+                      />
+                    ))}
+                    {motionMenu.more.length > 0 ? (
+                      <ContextMenuSub>
+                        <ContextMenuSubTrigger>
+                          {labels.motionMore}
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent
+                          className={cn(MENU_CONTENT_CLASS, "w-52")}
+                        >
+                          {motionMenu.more.map((property) => (
+                            <CanvasMenuItem
+                              key={property}
+                              label={labels.motionProperty[property]}
+                              onSelect={() => motionMenu.onSelect(property)}
+                            />
+                          ))}
+                        </ContextMenuSubContent>
+                      </ContextMenuSub>
+                    ) : null}
+                    {motionMenu.basic.length + motionMenu.more.length > 0 ? (
+                      <CanvasMenuSeparator />
+                    ) : null}
+                    <CanvasMenuItem
+                      label={labels.motionReadyMade}
+                      onSelect={() => motionMenu.onSelect("ready-made")}
+                    />
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              ) : null}
             </ContextMenuGroup>
 
             {appendedItems ? (

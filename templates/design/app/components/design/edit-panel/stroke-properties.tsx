@@ -371,6 +371,23 @@ function StrokeLayerControl({
   );
 }
 
+/** The inside stroke the add-stroke button gives a layer with no border. */
+export function addBorderPatch(
+  styles: Record<string, string>,
+): Record<string, string> {
+  const existingBorderColor = styles.borderColor || styles.color;
+  return {
+    borderWidth: "1px",
+    borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
+    borderColor: cssColorOrFallback(
+      withCssColorOpacity(existingBorderColor || "", 100) ??
+        existingBorderColor,
+      DEFAULT_STROKE_COLOR,
+    ),
+    ...insideStrokeBoxSizing(styles),
+  };
+}
+
 export function StrokeProperties({
   element,
   onStyleChange,
@@ -485,22 +502,7 @@ export function StrokeProperties({
       return;
     }
     if (!borderVisible) {
-      const existingBorderColor = styles.borderColor || styles.color;
-      const borderColor = cssColorOrFallback(
-        withCssColorOpacity(existingBorderColor || "", 100) ??
-          existingBorderColor,
-        DEFAULT_STROKE_COLOR,
-      );
-      commitStylePatch(
-        {
-          borderWidth: "1px",
-          borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
-          borderColor,
-          ...insideStrokeBoxSizing(styles),
-        },
-        onStyleChange,
-        onStylesChange,
-      );
+      commitStylePatch(addBorderPatch(styles), onStyleChange, onStylesChange);
       return;
     }
     if (outlineVisible) {

@@ -172,10 +172,21 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "啟用免費額度",
   "onboarding.creditsFinePrint":
     "這將建立一個免費的 Builder.io 帳戶。繼續表示您同意我們的",
-  "onboarding.creditsConnectExisting": "連線至現有 Builder.io 帳戶",
   "onboarding.creditsMoreInfo": "更多資訊",
-  "onboarding.creditsSkipBody":
-    "如果您跳過，您將需要連線自己的密鑰才能使用 AI 和儲存空間。",
+  "onboarding.creditsSubtitle":
+    "從 Builder.io 一鍵取得適用於此應用程式的 LLM、Jev、儲存空間等免費額度。",
+  "onboarding.creditsLearnMore": "瞭解更多",
+  "onboarding.creditsSkip": "跳過",
+  "onboarding.creditsSkipConfirmTitle": "確定要跳過嗎？",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native 應用程式需要連接 LLM 才能使用大部分功能。沒有 LLM，大部分功能都無法運作。",
+  "onboarding.creditsSkipGoBack": "返回",
+  "onboarding.creditsSkipAnyway": "仍然跳過",
+  "onboarding.creditsUseCustomKeys": "使用自訂金鑰",
+  "onboarding.creditsAboutLabel": "關於免費額度",
+  "onboarding.creditsActivating": "正在啟用免費額度",
+  "onboarding.creditsActivatingTooltip":
+    "Builder 提供 LLM、Jev、儲存空間等免費額度，無需自備金鑰即可使用此應用程式的 AI 功能。",
   "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
@@ -210,7 +221,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
   "onboarding.capability.webSearch.label": "網頁搜尋",
-  "onboarding.capability.webSearch.keySummary": "由 Builder 管理的網頁搜尋",
+  "onboarding.capability.webSearch.keySummary": "網頁搜尋",
   "onboarding.capability.webSearch.why":
     "搜尋網頁上的最新公開資訊。Builder 管理的搜尋使用隨附的 Builder AI 點數，因此不需要另外設定搜尋 API 金鑰。",
   "onboarding.capability.systemOne.why":

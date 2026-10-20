@@ -189,10 +189,21 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsActivate": "Kostenlose Credits aktivieren",
   "onboarding.creditsFinePrint":
     "Dies erstellt ein kostenloses Builder.io-Konto. Mit dem Fortfahren akzeptierst du unsere",
-  "onboarding.creditsConnectExisting": "Vorhandenes Builder.io-Konto verbinden",
   "onboarding.creditsMoreInfo": "Weitere Informationen",
-  "onboarding.creditsSkipBody":
-    "Falls du auslässt, musst du deine eigenen Schlüssel verbinden, um KI und Speicher zu verwenden.",
+  "onboarding.creditsSubtitle":
+    "Hol dir kostenlose Credits für LLMs, Jev, Speicher und mehr für diese App mit einem Klick von Builder.io.",
+  "onboarding.creditsLearnMore": "Mehr erfahren",
+  "onboarding.creditsSkip": "Überspringen",
+  "onboarding.creditsSkipConfirmTitle": "Bist du sicher?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native-Apps brauchen ein verbundenes LLM, um die meisten Funktionen zu nutzen. Ohne eines funktioniert das meiste nicht.",
+  "onboarding.creditsSkipGoBack": "Zurück",
+  "onboarding.creditsSkipAnyway": "Trotzdem überspringen",
+  "onboarding.creditsUseCustomKeys": "Eigene Schlüssel verwenden",
+  "onboarding.creditsAboutLabel": "Über kostenlose Credits",
+  "onboarding.creditsActivating": "Gratis-Credits werden aktiviert",
+  "onboarding.creditsActivatingTooltip":
+    "Builder stellt kostenlose Credits für LLMs, Jev, Speicher und mehr bereit, damit du die KI-Funktionen dieser App ohne eigene Schlüssel nutzen kannst.",
   "onboarding.builderConnect": "Builder.io verbinden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
@@ -231,8 +242,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
   "onboarding.capability.webSearch.label": "Websuche",
-  "onboarding.capability.webSearch.keySummary":
-    "Von Builder verwaltete Websuche",
+  "onboarding.capability.webSearch.keySummary": "Websuche",
   "onboarding.capability.webSearch.why":
     "Durchsuche aktuelle öffentliche Webquellen. Die von Builder verwaltete Suche nutzt enthaltene Builder-KI-Credits, daher ist kein separater Such-API-Schlüssel erforderlich.",
   "onboarding.capability.systemOne.why":

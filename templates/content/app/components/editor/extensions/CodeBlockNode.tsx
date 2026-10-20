@@ -18,6 +18,6 @@ export const CodeBlock = CodeBlockLowlight.extend({
   },
 }).configure({
   lowlight,
-  HTMLAttributes: { class: "notion-code-block" },
+  HTMLAttributes: { class: "content-code-block" },
   defaultLanguage: null,
 });

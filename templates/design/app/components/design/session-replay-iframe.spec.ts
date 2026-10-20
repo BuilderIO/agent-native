@@ -12,7 +12,7 @@ describe("Design session replay iframe wiring", () => {
     const designCanvas = source("./DesignCanvas.tsx");
 
     expect(designCanvas).toContain(
-      "return injectSessionReplayIframeBootstrap(frameDocument);",
+      "injectSessionReplayIframeBootstrap(frameDocument)",
     );
     expect(designCanvas).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
   });
