@@ -26,6 +26,7 @@ jobs:
       test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
       fast_tests: ${{ steps.scope.outputs.fast_tests }}
       content: ${{ steps.scope.outputs.content }}
+      content_db: ${{ steps.scope.outputs.content_db }}
       content_convergence: ${{ steps.scope.outputs.content_convergence }}
       core_integration: ${{ steps.scope.outputs.core_integration }}
       plan_e2e: ${{ steps.scope.outputs.plan_e2e }}
@@ -525,6 +526,7 @@ jobs:
         timeout-minutes: 7
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          E2E_LOG_TEST_PROGRESS: "1"
         run: |
           set -euo pipefail
           # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
@@ -1120,7 +1122,7 @@ jobs:
   content-db-tests:
     name: Content DB tests
     needs: change-scope
-    if: needs.change-scope.outputs.content == 'true' || needs.change-scope.outputs.content_convergence == 'true'
+    if: needs.change-scope.outputs.content_db == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1177,10 +1179,41 @@ jobs:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
 
+  content-convergence-tests:
+    name: Content convergence
+    needs: change-scope
+    if: needs.change-scope.outputs.content_convergence == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_DB: content_migration_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d content_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
       # Two tabs on one page against the production build, with the realtime
       # stream refused as a serverless function refuses it.
       - name: Restore Playwright browser cache
-        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -1188,12 +1221,10 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
       - name: Build Content for the two-tab convergence lane
         id: convergence-build
-        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
         run: |
           docker exec "${{ job.services.postgres.id }}" createdb -U postgres content_convergence
           pnpm --filter content build

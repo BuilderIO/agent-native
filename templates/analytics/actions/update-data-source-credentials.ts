@@ -3,6 +3,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards";
 import {
   credentialKeys,
   credentialProviderConfigs,
@@ -17,19 +18,12 @@ import {
   type CredentialContext,
 } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
-import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-import {
-  getScopedSettingRecord,
-  putScopedSettingRecord,
-  resolveRequestScope,
-} from "../server/lib/scoped-settings";
 
 const GA4_CREDENTIAL_KEYS = new Set([
   "GA4_PROPERTY_ID",
   "GOOGLE_APPLICATION_CREDENTIALS_JSON",
 ]);
 const GA_DASHBOARD_ID = "google-analytics";
-const SQL_DASHBOARD_KEY = `sql-dashboard-${GA_DASHBOARD_ID}`;
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
 function validateCredential(key: string, value: string): string | null {
@@ -145,14 +139,13 @@ export default defineAction({
     );
     if (savedGaCred) {
       try {
-        const scope = resolveRequestScope();
-        const existing = await getScopedSettingRecord(scope, SQL_DASHBOARD_KEY);
-        if (!existing) {
-          const seed = loadDashboardSeed(GA_DASHBOARD_ID);
-          if (seed) {
-            await putScopedSettingRecord(scope, SQL_DASHBOARD_KEY, seed);
-          }
-        }
+        await installBuiltinDashboardOnce(
+          {
+            email: ctx.userEmail,
+            orgId: saveScope === "org" ? (ctx.orgId ?? null) : null,
+          },
+          GA_DASHBOARD_ID,
+        );
       } catch (err) {
         console.warn(
           "[credentials] failed to seed google-analytics dashboard:",

@@ -605,14 +605,16 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         )}
       >
         {attribute === "color" ? (
-          <span className={colorName ? `notion-block-color--${colorName}` : ""}>
+          <span
+            className={colorName ? `content-block-color--${colorName}` : ""}
+          >
             A
           </span>
         ) : (
           <span
             className={cn(
               "size-5 rounded border border-border",
-              colorName && `notion-block-bg--${colorName}`,
+              colorName && `content-block-bg--${colorName}`,
             )}
           />
         )}
@@ -678,7 +680,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           if (!range || range.from === range.to) return DecorationSet.empty;
           return DecorationSet.create(state.doc, [
             Decoration.inline(range.from, range.to, {
-              class: "notion-selection-fill",
+              class: "content-selection-fill",
             }),
           ]);
         },

@@ -282,7 +282,7 @@ describe("NFM container export", () => {
     for (const format of ["html", "pdf"] as const) {
       const html = exportedBody(markdown, format);
       expect(html).toMatch(/<span class="nfm-callout-icon"><svg[^>]*>/);
-      expect(html).toContain('stroke="#337ea9"');
+      expect(html).toContain('stroke="#1447e6"');
       expect(html).toContain("<p>Heads up</p>");
       expect(html).not.toContain("&quot;library&quot;");
     }
@@ -300,7 +300,7 @@ describe("NFM container export", () => {
       }),
     );
     expect(html).toContain("tabler-icon-star-filled");
-    expect(html).toContain("color:#c4554d");
+    expect(html).toContain("color:#c10007");
   });
 
   it("renders uploaded callout images with safe URLs and escaped alt text", () => {

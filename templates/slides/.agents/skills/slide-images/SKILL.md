@@ -1,15 +1,16 @@
 ---
 name: slide-images
 description: >-
-  Source and generate images for slides with Assets-owned style grounding and
-  provenance. Use when a slide needs a new visual, logo, or approved media.
+  Source and generate images for slides. Use when a slide needs a new visual,
+  logo, or approved media; use Assets only for its requested brand library or
+  an Assets-exclusive capability.
 ---
 
 # Slide Images
 
-Images for slides are generated or sourced through the Slides actions and the
-Assets app. The runtime agent must use the Assets-grounded path described below;
-the local CLI is only a developer entry point.
+Images are generated through Slides' local provider by default. Use Assets only
+when the user requests its brand library or an Assets-exclusive capability;
+local images are not Assets-grounded or stored in its library.
 
 When a chat attachment has an embeddable URL, add it to the current slide with
 `update-slide` using `<img src="…">`, then call `view-screen` and re-read the
@@ -19,10 +20,10 @@ slide with `get-deck` to confirm it persisted.
 
 | Script | Purpose | Example |
 |--------|---------|---------|
-| `generate-image` | Local helper for the Assets-grounded generation action | `pnpm action generate-image --prompt "hero image" --count 3` |
+| `generate-image` | Generate locally; use Assets only with `--use-brand-library` | `pnpm action generate-image --prompt "hero image" --count 3` |
 | `search-images` | Search Google Images via the configured provider | `pnpm action search-images --q "Acme logo transparent" --count 5` |
 | `search-logos` | Resolve company domains and canonical logo URLs | `pnpm action search-logos --q "Acme"` |
-| `image-gen-status` | Check configured image providers | `pnpm action image-gen-status` |
+| `image-gen-status` | Check local image providers; Assets is opt-in | `pnpm action image-gen-status` |
 
 ## Image Generation Flow
 
@@ -32,26 +33,32 @@ legacy image action directly:
 1. Resolve the deck's active design system, its `imageStyle`, the current slide
    role, and any approved Creative Context references.
 2. Call `generate-image-api` with the prompt plus bounded deck and slide
-   context. Assets chooses the library, preset, style anchors, model, and
-   fallback behavior while preserving provenance.
+   context. It uses the local provider by default. Set `useBrandLibrary: true`
+   only when the user requests Assets' library or an Assets-exclusive
+   capability.
 3. Show each returned variation as an inline rendered preview using markdown
    image syntax (`![Variation 1](url)`), not a plain link (`[Variation 1](url)`)
    — the chat renders `![]()` as an actual image but `[]()` as a bare link.
-4. Preserve the returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
+4. Preserve `assetId`, `runId`, `previewUrl`, and `downloadUrl` when Assets
+   returns them.
 5. For direct insertion, call `generate-image-api` with `insertIntoSlide: true`,
    `deckId`, and `slideId`. Only say the image was added when it returns
-   `inserted: true`; a preview URL is not proof of a slide write.
+   `inserted: true`; a preview URL is not proof of a slide write. If it returns
+   `inserted: false`, report the insertion error and keep using the returned
+   image URL; do not regenerate solely because insertion failed.
 6. For preview-only variations, place the chosen URL with `update-slide`, then
    re-read the deck with `get-deck` using `compact=false` and confirm the
    persisted HTML contains the image source before reporting success.
-7. For feedback, refine the same asset rather than starting an unrelated run.
+7. For feedback on an Assets image, refine the same asset. For a local image,
+   keep refinement local and replace only the affected slide image.
 
 ### Context to pass
 
 The image brief should include the visual role, subject, composition/crop,
 format, must-preserve content, and exclusions. Pass `deckId`, `slideId`, and
-`slideContent` so Assets can ground the result in the actual slide. Do not use
-generic style references to override a linked design system or preset.
+`slideContent` so the local provider or requested Assets generation can use the
+actual slide context. Do not use generic style references to override a linked
+design system or preset.
 
 `search-images` and `search-logos` remain bounded lookup tools for finding
 existing media. They are not a substitute for the active design system or a

@@ -233,7 +233,11 @@ const allowEmptyResultHelp =
   "Set true only when the user expects an edited panel to have no rows right now; the save then reports verified:false. It never overrides missing columns or query errors.";
 
 const agentInputSchema = z.object({
-  dashboardId: z.string().min(1).describe("Dashboard id."),
+  dashboardId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Dashboard id. Omit only when requesting returnTypes."),
   operations: z
     .array(mutationOperationSchema)
     .max(MAX_DASHBOARD_MUTATION_OPERATIONS)
@@ -250,6 +254,10 @@ const agentInputSchema = z.object({
     .boolean()
     .optional()
     .describe("Include the full resulting config only when needed."),
+  returnTypes: z
+    .boolean()
+    .optional()
+    .describe("With no dashboardId, return the `code` API and examples."),
 });
 
 function resolveScope() {

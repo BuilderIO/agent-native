@@ -70,6 +70,7 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { installNativeWorkerBroker } from "@/components/design/bridge/native-worker-broker";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -173,7 +174,10 @@ import {
   inlineDesignStylesheets,
   useDesignStylesheets,
 } from "./design-canvas/linked-stylesheets";
-import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import {
+  withLocalRuntimes,
+  withNativeShaderRuntime,
+} from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import {
   applyMotionPathEdit,
@@ -237,6 +241,7 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
+import { setNativePreviewIframeRef } from "./native-preview-iframe-lifecycle";
 import { PIXEL_GRID_BACKGROUND_IMAGE, PIXEL_GRID_ZOOM } from "./pixel-grid";
 import {
   getIframePaintRetentionStyle,
@@ -255,6 +260,7 @@ import type {
   RuntimeVerificationRequest,
   TextEditingState,
 } from "./types";
+import { useNativeShaderApprovals } from "./use-native-shader-approvals";
 
 function getSingleScreenZoomTransform(
   zoom: number,
@@ -384,6 +390,8 @@ function isAllowedFusionOrigin(
   }
   return host === "builder.io" || host.endsWith(".builder.io");
 }
+
+if (typeof window !== "undefined") installNativeWorkerBroker(window);
 
 const EDITABLE_FOCUS_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-agent-native-text-editing]';
@@ -1352,11 +1360,17 @@ function runtimeDocumentNeedsReload(
   const scriptSignature = (html: string) => {
     const headEnd = html.search(/<\/head\s*>/i);
     const boundary = headEnd === -1 ? 0 : headEnd;
-    return Array.from(
-      html.matchAll(SCRIPT_ELEMENT_RE),
-      (match) =>
-        `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`,
-    ).join("\n");
+    return Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => {
+      if (
+        /\btype\s*=\s*["']application\/x-agent-native-effects["']/i.test(
+          match[0],
+        )
+      )
+        return null;
+      return `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`;
+    })
+      .filter((signature) => signature !== null)
+      .join("\n");
   };
   return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
@@ -1618,6 +1632,13 @@ export function DesignCanvas({
   const { resolvedTheme } = useTheme();
   const browserOrigin = useBrowserOrigin();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const replacedFrameRef = useRef<HTMLIFrameElement>(null);
+  const setIframeRef = useCallback((next: HTMLIFrameElement | null) => {
+    setNativePreviewIframeRef(iframeRef, next);
+  }, []);
+  const setReplacedFrameRef = useCallback((next: HTMLIFrameElement | null) => {
+    setNativePreviewIframeRef(replacedFrameRef, next);
+  }, []);
   const canvasFocusProbeRequestIdRef = useRef(0);
   const pendingCanvasFocusProbeRef = useRef<{
     requestId: number;
@@ -1666,6 +1687,12 @@ export function DesignCanvas({
     frameId: number;
   } | null>(null);
   const runtimeVerificationIframeRef = useRef<HTMLIFrameElement>(null);
+  const setRuntimeVerificationIframeRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setNativePreviewIframeRef(runtimeVerificationIframeRef, next);
+    },
+    [],
+  );
   const embeddedCanvasPanSessionRef = useRef<EmbeddedCanvasPanSession | null>(
     null,
   );
@@ -2588,6 +2615,13 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
+  const syncNativeShaderApprovals = useNativeShaderApprovals({
+    designId,
+    fileId: screenId,
+    enabled:
+      !externalPreviewUrl &&
+      content.includes("application/x-agent-native-effects"),
+  });
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -3643,7 +3677,10 @@ export function DesignCanvas({
     if (isEmbeddedFrame) {
       frameDocument = appendContentSizeReporter(frameDocument);
     }
-    return injectSessionReplayIframeBootstrap(frameDocument);
+    return withNativeShaderRuntime(
+      injectSessionReplayIframeBootstrap(frameDocument),
+      true,
+    );
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -5473,6 +5510,17 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "text-editing-state") {
+        // Selecting in a fusion frame moves keyboard focus to the canvas, and
+        // a cross-origin frame cannot take it back itself, so the text edit it
+        // just started would get no keystrokes. The parent can focus the frame.
+        if (e.data.active === true && sourceType === "fusion") {
+          const editingFrame = Array.from(
+            document.querySelectorAll("iframe"),
+          ).find((frame) => frame.contentWindow === e.source);
+          if (editingFrame && document.activeElement !== editingFrame) {
+            editingFrame.focus({ preventScroll: true });
+          }
+        }
         const activatedSourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
         const owner = capturedOwnerRef.current;
@@ -8359,6 +8407,7 @@ export function DesignCanvas({
           {replacedFrame ? (
             <iframe
               key={replacedFrame.key}
+              ref={setReplacedFrameRef}
               srcDoc={replacedFrame.srcDoc}
               name={replacedFrame.name}
               sandbox={replacedFrame.sandbox}
@@ -8375,7 +8424,7 @@ export function DesignCanvas({
           ) : null}
           <iframe
             key={iframeElementIdentity}
-            ref={iframeRef}
+            ref={setIframeRef}
             src={externalPreviewUrl ?? undefined}
             srcDoc={
               externalPreviewUrl ? undefined : privateScreenshotPreview.html
@@ -8398,6 +8447,8 @@ export function DesignCanvas({
               requestCanvasFocusProbe(event.currentTarget);
             }}
             onLoad={(event) => {
+              if (!externalPreviewUrl)
+                syncNativeShaderApprovals(event.currentTarget);
               pendingCanvasFocusProbeRef.current = null;
               if (!externalPreviewUrl && designId) {
                 connectPrivateReplayScreenshotPreview(
@@ -8468,7 +8519,7 @@ export function DesignCanvas({
       {runtimeVerificationUrl && browserOrigin ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
-          ref={runtimeVerificationIframeRef}
+          ref={setRuntimeVerificationIframeRef}
           src={runtimeVerificationUrl}
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: true,

@@ -201,6 +201,15 @@ describe("call-agent action", () => {
       "The receiver owns provider, schema, query, join, and SQL decisions",
     );
     expect(tool.description).toContain(
+      "use the current app's image-generation action or provider when it has one",
+    );
+    expect(tool.description).toContain(
+      'Call Assets (agent="assets") only when the user explicitly requests its brand library',
+    );
+    expect(tool.description).toContain(
+      "Assets being available, convenient, or able to enrich imagery is not enough to delegate",
+    );
+    expect(tool.description).toContain(
       "never expose or call a direct action to work around",
     );
     expect(tool.description).toContain(

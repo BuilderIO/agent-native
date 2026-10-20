@@ -16,7 +16,7 @@ Reach for this skill any time you touch the recorder: the record button, the in-
 
 ## Data model touched
 
-- **`recordings`** — the row gets created as soon as the user presses Record or imports a source. Native/file recordings transition `uploading` → `processing` → `ready` (or `failed`). `videoUrl`, `durationMs`, `videoSizeBytes`, `width`, `height`, `hasAudio`, `hasCamera` are populated as the upload streams in. Loom imports use `import-loom-recording` and become ready with either a Clips-hosted MP4 or a Loom embed when MP4 export is unavailable.
+- **`recordings`** — the row gets created as soon as the user presses Record or imports a source. Native/file recordings transition `uploading` → `processing` → `ready` (or `failed`). `videoUrl`, `durationMs`, `videoSizeBytes`, `width`, `height`, `hasAudio`, `hasCamera` are populated as the upload streams in. Loom imports use `import-loom-recording` and become ready with either a Clips-hosted MP4 or a Loom embed when MP4 export is unavailable. YouTube imports go through the same action and are always embeds.
 - **`recordings.storage_mode`** — pins each video recording to `own` or `hosted`; null is legacy. Own storage takes precedence when available. Existing hosted recordings keep using the private Clips bucket even if the user connects Builder later.
 - **`application_state.record-intent`** — the agent writes this when it wants to start a recording. The UI reads and clears it, then prompts for permission.
 - **`application_state.navigation`** — set to `{ view: "record" }` while the recorder is active.
@@ -45,6 +45,8 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 ## Agent file upload
 
 An outside agent (MCP or CLI) with a local video file calls `create-recording-upload` with an explicit `visibility`, the file's `mimeType` and `sizeBytes`, and ideally `durationMs`/`width`/`height`. It creates the row through `create-recording` and returns a `chunkUrl`, an `Authorization: Bearer` upload ticket, `chunkSizeBytes` (3 MiB), `totalChunks`, `shareUrl`, and `next`. The agent POSTs the chunks in order with `&index=N&isFinal=0`, and the last with `isFinal=1`, which finalizes exactly as a browser upload does. Don't call `finalize-recording` separately.
+
+The size limit depends on where the clip is stored: `MAX_UPLOAD_BYTES` (2 GiB) with connected storage, and `maxClipBytes` (250 MB by default, `CLIPS_HOSTED_STORAGE_MAX_CLIP_BYTES`) on free hosted storage. The action passes `sizeBytes` through `create-recording` to `resolveClipsVideoStorage`, which refuses a file over the hosted limit with 413 `upload_too_large` before it reserves a hosted grant, so a refusal never leaves a grant held by no recording. The message and `details.maxUploadBytes` give the caller's limit. `create-recording`'s schema caps `sizeBytes` at `MAX_UPLOAD_BYTES`, and the chunk route still enforces the limit on the bytes actually received.
 
 `chunkUrl` is `/api/uploads/:id/agent-chunk`, a public-path sibling of the browser's session-only chunk route that runs the same `handleRecordingChunk` (like `/api/clip-intake`). The ticket (`server/lib/recording-upload-ticket.ts`) is stored as a SHA-256 hash in the owner's `settings` row, opens only its own recording, and lasts six hours as a backstop; the real bounds are finalize and the one-hour idle reaper. The route accepts it only while that recording is `uploading`, so it stops working once the last chunk is accepted; a retried last chunk gets a 409 saying the clip is finished, not an invitation to upload again. A missing or bad ticket is refused before the recording or its chunks are touched. The action reserves the ticket before it creates the recording, and enforces the cap of 20 unfinished uploads per owner in that same write: at the cap it refuses with 429, and a refused or failed reservation leaves no recording behind. If creating the recording then fails, the action releases the ticket before rethrowing. Issuing never evicts a ticket whose recording is still `uploading`, or one reserved in the last 10 minutes whose recording is not created yet; a ticket whose recording finished or no longer exists frees its slot. The chunk route takes the org from the recording row, not the ticket.
 
@@ -120,7 +122,7 @@ repoints the row only after verified output is stored; any transcode, audio
 verification, upload, or concurrent-update failure leaves the original URL and
 format untouched.
 
-## Loom import
+## Loom and YouTube import
 
 Direct-video and downloadable Loom MP4 imports use the same pinned storage
 resolution, hosted byte limit, and allowance as recorder uploads. A Loom import
@@ -144,6 +146,21 @@ Embed-backed Loom imports render a Loom iframe and hide the native Clips editor.
 Reuploaded Loom imports support Clips-native trimming, exports, frame extraction,
 and upload-based transcription; ask the user to upload the original video file
 when those capabilities are needed for an embed-backed import.
+
+YouTube links (watch, Shorts, youtu.be, embed) also go through
+`import-loom-recording`. Clips never downloads a YouTube video: the action reads
+YouTube's public oEmbed for the title and thumbnail and creates a `ready` clip
+that plays in YouTube's embedded player. Comments, reactions, chapters, and
+transcript highlighting follow YouTube's playback. oEmbed has no duration, so
+the clip starts with `durationMs` 0 and the first editor to open it records the
+length YouTube's player reports (`set-embed-duration`). A YouTube clip has no
+frames, editing, downloads, or transcription; add its transcript with
+`import-transcript`. Private, removed, and embed-disabled videos fail the import
+with a specific error, and a video that becomes unavailable later shows
+YouTube's reason in the player with a Watch on YouTube link. YouTube's player
+policy forbids drawing anything over its player, so the Clips controls sit below
+it and the clip shows no on-video captions or comment bubbles; never add an
+overlay to the YouTube player.
 
 ## Browser diagnostics and recorder install options
 

@@ -1468,8 +1468,21 @@ const overrides = {
     plainText: "일반 텍스트",
     searchLanguages: "언어 검색...",
     noBlocksFields: "Blocks 필드가 없습니다. 속성 메뉴에서 추가하세요.",
-    reorderField: "{{name}} 순서 변경",
-    toggleField: "{{name}} 전환",
+    addBlockField: "필드 추가",
+    blockFieldChanged: "마지막으로 본 이후 변경됨",
+    blockFieldTabs: "필드",
+    blockFieldMenu: "{{name}} 옵션",
+    blockFieldMenuScope: "이 컬렉션의 모든 행에 공통",
+    blockFieldName: "필드 이름",
+    renameBlockField: "이름 바꾸기",
+    renameBlockFieldFailed: "필드 이름을 바꾸지 못했습니다",
+    deleteBlockField: "삭제",
+    deleteBlockFieldFailed: "필드를 삭제하지 못했습니다",
+    deleteBlockFieldQuestion: "‘{{name}}’을(를) 삭제할까요?",
+    deleteBlockFieldDescription:
+      "이 컬렉션의 모든 행에서 ‘{{name}}’과(와) 그 텍스트가 삭제됩니다. 되돌릴 수 없습니다.",
+    deleteBlockFieldBodyWarning:
+      "‘{{name}}’은(는) 페이지 본문이므로 모든 행의 본문 텍스트도 삭제됩니다.",
   },
   comments: {
     add: "댓글 추가...",

@@ -81,6 +81,7 @@ const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
   ),
 );
 const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockListTranscriptVersions = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -181,12 +182,20 @@ vi.mock("../server/lib/seekable-media-state.js", () => ({
     mockIsSeekableRepairPending(...args),
 }));
 
+vi.mock("../server/lib/transcript-versions.js", () => ({
+  listTranscriptVersions: (...args: unknown[]) =>
+    mockListTranscriptVersions(...args),
+}));
+
 vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
   countRecordingViews: (recordingId: string) =>
     mockCountRecordingViews(recordingId),
 }));
 
+vi.mock("../server/lib/user-identities.js", () => ({
+  hydrateCommentAuthorNames: async (comments: unknown[]) => comments,
+}));
 vi.mock("../shared/browser-diagnostics.js", () => ({
   parseBrowserDiagnosticsRow: vi.fn(() => null),
 }));
@@ -208,6 +217,7 @@ vi.mock("../shared/transcript-status.js", () => ({
   })),
 }));
 
+import { normalizeTranscriptSegments } from "../shared/transcript-segments.js";
 import action from "./get-recording-player-data";
 
 describe("get-recording-player-data direct public access", () => {
@@ -440,6 +450,80 @@ describe("get-recording-player-data view count", () => {
     },
   );
 
+  it.each([
+    ["owner", true],
+    ["admin", true],
+    ["editor", true],
+    ["viewer", false],
+  ] as const)(
+    "lists replaced transcripts to a %s only if they can edit",
+    async (role, listed) => {
+      const versions = [
+        {
+          id: "version-1",
+          replacedAt: "2026-10-16T12:00:00.000Z",
+          reason: "import",
+          source: null,
+          language: "en",
+          preview: "Automatic words.",
+        },
+      ];
+      mockListTranscriptVersions.mockReset();
+      mockListTranscriptVersions.mockImplementation(async () => versions);
+      mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "public",
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      let transcriptRead = false;
+      mockPlayerQuery.build = () => {
+        const query: Record<string, unknown> = {};
+        query.from = () => query;
+        query.where = () => query;
+        query.orderBy = async () => [];
+        query.limit = async () => {
+          if (transcriptRead) return [];
+          transcriptRead = true;
+          return [
+            {
+              recordingId: "rec-1",
+              status: "ready",
+              fullText: "Imported words.",
+              segmentsJson: "[]",
+              language: "en",
+              source: "imported",
+              importId: "import-1",
+            },
+          ];
+        };
+        query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+        return query;
+      };
+
+      const result = await action.run({ recordingId: "rec-1" });
+
+      if (listed) {
+        expect(result.transcript?.versions).toEqual(versions);
+        expect(mockListTranscriptVersions).toHaveBeenCalledWith(
+          mockDb,
+          "rec-1",
+        );
+      } else {
+        expect(result.transcript).not.toHaveProperty("versions");
+        expect(mockListTranscriptVersions).not.toHaveBeenCalled();
+      }
+      mockListTranscriptVersions.mockReset();
+    },
+  );
+
   it("reports zero views without failing the player payload", async () => {
     const result = await action.run({ recordingId: "rec-1" });
 
@@ -553,5 +637,127 @@ describe("get-recording-player-data view count", () => {
       "/api/thumbnail/rec-1?animated=1",
     );
     expect(result.recording.videoSizeBytes).toBe(1234);
+  });
+});
+
+describe("get-recording-player-data for agents reading a YouTube clip", () => {
+  const comment = {
+    id: "comment-1",
+    recordingId: "rec-yt",
+    threadId: "comment-1",
+    parentId: null,
+    authorEmail: "viewer@example.com",
+    authorName: "Viewer",
+    content: "This is where it breaks",
+    mentionsJson: "[]",
+    videoTimestampMs: 12_000,
+    emojiReactionsJson: "{}",
+    resolved: false,
+    createdAt: "2026-10-16T00:00:00.000Z",
+    updatedAt: "2026-10-16T00:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+    mockIsSeekableRepairPending.mockResolvedValue(false);
+    mockCountRecordingViews.mockResolvedValue(0);
+    mockShareLimit.mockResolvedValue([]);
+    mockPlayerQuery.build = () => {
+      let table: unknown;
+      const query: Record<string, unknown> = {};
+      query.from = (source: unknown) => {
+        table = source;
+        return query;
+      };
+      query.where = () => query;
+      query.orderBy = async () =>
+        (table as { videoTimestampMs?: string })?.videoTimestampMs ===
+        "recordingComments.videoTimestampMs"
+          ? [comment]
+          : [];
+      query.limit = async () => [];
+      return query;
+    };
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-yt",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        sourceAppName: "YouTube",
+        sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+      },
+    });
+    vi.mocked(normalizeTranscriptSegments).mockReturnValue([
+      { startMs: 8_000, endMs: 11_000, text: "Now paste the link." },
+      { startMs: 11_000, endMs: 14_000, text: "And it fails here." },
+      { startMs: 40_000, endMs: 42_000, text: "Unrelated." },
+    ]);
+  });
+
+  afterEach(() => {
+    mockPlayerQuery.build = null;
+    vi.mocked(normalizeTranscriptSegments).mockReturnValue([]);
+  });
+
+  it("says frames aren't available and gives each comment its transcript", async () => {
+    const result = await action.run({ recordingId: "rec-yt" }, {
+      caller: "mcp",
+    } as any);
+
+    expect(result.media).toMatchObject({
+      embedProvider: "youtube",
+      framesAvailable: false,
+      note: expect.stringContaining("frames aren't available"),
+    });
+    expect(result.comments[0]).toMatchObject({
+      videoTimestampMs: 12_000,
+      transcriptContext: {
+        startMs: 8_000,
+        endMs: 14_000,
+        text: "Now paste the link. And it fails here.",
+      },
+    });
+  });
+
+  it("withholds frames from a hosted clip until it is ready", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-native",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "processing",
+        chaptersJson: "[]",
+        sourceAppName: null,
+        sourceWindowTitle: null,
+        videoUrl: "/api/video/rec-native",
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-native" }, {
+      caller: "mcp",
+    } as any);
+
+    expect(result.media).toMatchObject({
+      embedProvider: null,
+      framesAvailable: false,
+      note: expect.stringContaining("still processing"),
+    });
+  });
+
+  it("keeps the browser player's payload unchanged", async () => {
+    const result = await action.run({ recordingId: "rec-yt" });
+
+    expect(result).not.toHaveProperty("media");
+    expect(result.comments[0]).not.toHaveProperty("transcriptContext");
   });
 });

@@ -1517,8 +1517,21 @@ const overrides = {
     searchLanguages: "Buscar linguagens...",
     noBlocksFields:
       "Nenhum campo Blocks. Adicione um pelo menu de propriedades.",
-    reorderField: "Reordenar {{name}}",
-    toggleField: "Alternar {{name}}",
+    addBlockField: "Adicionar campo",
+    blockFieldChanged: "Alterado desde a última vez que você viu",
+    blockFieldTabs: "Campos",
+    blockFieldMenu: "Opções de {{name}}",
+    blockFieldMenuScope: "Compartilhado por todas as linhas desta coleção",
+    blockFieldName: "Nome do campo",
+    renameBlockField: "Renomear",
+    renameBlockFieldFailed: "Não foi possível renomear o campo",
+    deleteBlockField: "Excluir",
+    deleteBlockFieldFailed: "Não foi possível excluir o campo",
+    deleteBlockFieldQuestion: "Excluir “{{name}}”?",
+    deleteBlockFieldDescription:
+      "Isso exclui “{{name}}” e o texto dele de todas as linhas desta coleção. Não é possível desfazer.",
+    deleteBlockFieldBodyWarning:
+      "“{{name}}” é o corpo da página, então o texto principal de cada linha também será excluído.",
   },
   comments: {
     add: "Adicionar comentário...",

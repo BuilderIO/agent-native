@@ -13,6 +13,7 @@ import {
   _assertSafeCommunityArchiveListing,
   _communityTemplateTarballUrl,
   _communityTemplateTrustMessage,
+  _copyDir,
   _fixPackageJsonName,
   _fixWebManifestName,
   _ensureScaffoldEmailBrandingConfig,
@@ -37,6 +38,8 @@ import {
   _validateCommunityArchive,
   _workspaceAppNameForTemplateSelection,
 } from "./create.js";
+import { createAgentSymlink } from "./setup-agents.js";
+import { resolveTarExecutable } from "./tar-command.js";
 
 let tmpDir: string;
 
@@ -523,6 +526,78 @@ describe("createApp", { timeout: 30000 }, () => {
     }
   });
 
+  it.skipIf(process.platform === "win32")(
+    "preserves an in-tree dangling directory symlink while copying a directory",
+    () => {
+      const source = path.join(tmpDir, "source");
+      const destination = path.join(tmpDir, "destination");
+      const sourceTarget = path.join(source, "missing-target");
+      const sourceLink = path.join(source, "shortcut");
+      const destinationTarget = path.join(destination, "missing-target");
+      const destinationLink = path.join(destination, "shortcut");
+
+      fs.mkdirSync(sourceTarget, { recursive: true });
+      fs.mkdirSync(destinationTarget, { recursive: true });
+      fs.mkdirSync(source, { recursive: true });
+      createAgentSymlink("missing-target", sourceLink, "dir");
+      fs.rmSync(sourceTarget, { recursive: true });
+
+      expect(() => _copyDir(source, destination)).not.toThrow();
+      expect(fs.lstatSync(destinationLink).isSymbolicLink()).toBe(true);
+      expect(fs.statSync(destinationLink).isDirectory()).toBe(true);
+      expect(fs.readdirSync(destinationLink)).toEqual([]);
+    },
+  );
+
+  it("fails rather than guessing the type of a dangling in-tree symlink on Windows", () => {
+    const source = path.join(tmpDir, "source");
+    const destination = path.join(tmpDir, "destination");
+    const destinationLink = path.join(destination, "shortcut");
+    const sourceEntry = {
+      name: "shortcut",
+      isSymbolicLink: () => true,
+    } as fs.Dirent;
+    const originalPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform",
+    );
+
+    fs.mkdirSync(source);
+    const readdir = vi.spyOn(fs, "readdirSync").mockReturnValue([sourceEntry]);
+    const readlink = vi
+      .spyOn(fs, "readlinkSync")
+      .mockReturnValue("missing-file");
+    const danglingStat = Object.assign(new Error("ENOENT"), {
+      code: "ENOENT",
+    });
+    const stat = vi.spyOn(fs, "statSync").mockImplementation(() => {
+      throw danglingStat;
+    });
+    const createSymlink = vi
+      .spyOn(fs, "symlinkSync")
+      .mockImplementation(() => undefined);
+    Object.defineProperty(process, "platform", {
+      ...originalPlatform,
+      value: "win32",
+    });
+
+    try {
+      expect(() => _copyDir(source, destination)).toThrow(
+        /target type is unknown/,
+      );
+      expect(createSymlink).not.toHaveBeenCalled();
+      expect(() => fs.lstatSync(destinationLink)).toThrow();
+    } finally {
+      createSymlink.mockRestore();
+      stat.mockRestore();
+      readlink.mockRestore();
+      readdir.mockRestore();
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    }
+  });
+
   it("creates .gitignore from _gitignore", async () => {
     await createApp("my-app", { template: "blank" });
     const gitignore = path.join(tmpDir, "my-app", ".gitignore");
@@ -922,9 +997,11 @@ describe("community template selections", () => {
         "dir",
       );
       fs.symlinkSync("AGENTS.md", path.join(clipsRoot, "CLAUDE.md"));
-      execFileSync("tar", ["czf", archivePath, "-C", archiveRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", archiveRoot, "repo"],
+        { stdio: "pipe" },
+      );
 
       const extracted = path.join(tmpDir, "extracted");
       fs.mkdirSync(extracted);
@@ -1017,15 +1094,19 @@ describe("community template selections", () => {
         "../.agents/skills",
         path.join(nestedApp, ".claude", "skills"),
       );
-      execFileSync("tar", ["czf", archivePath, "-C", fixtureRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", fixtureRoot, "repo"],
+        { stdio: "pipe" },
+      );
       expect(() => _validateCommunityArchive(archivePath)).not.toThrow();
 
       fs.symlinkSync("../../outside", path.join(repoRoot, "outside"));
-      execFileSync("tar", ["czf", archivePath, "-C", fixtureRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", fixtureRoot, "repo"],
+        { stdio: "pipe" },
+      );
       expect(() => _validateCommunityArchive(archivePath)).toThrow(
         "may only contain Agent-Native's canonical internal symlinks",
       );

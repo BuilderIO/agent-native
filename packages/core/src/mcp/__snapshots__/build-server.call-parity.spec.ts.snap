@@ -1989,15 +1989,9 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
       },
     },
     {
-      "marker": {
-        "actionName": "dir-proxy-error",
-        "owner": "oauth@example.com",
-      },
-    },
-    {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "isError": false,
+        "isError": true,
         "parameters": {},
         "toolCategory": "write",
         "toolDescription": "Proxied MCP error",
@@ -2046,7 +2040,7 @@ data: {"result":{"_meta":{"agent-native/openLink":{"label":"Open","webUrl":"http
     },
     {
       "body": "event: message
-data: {"result":{"_meta":{"agent-native/widgetSource":{"toolName":"dir-proxy-error","sourceTicket":"minted-ticket"},"agent-native/embedStart":{"startUrl":"https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1","expiresAt":1735689600000},"openai/outputTemplate":"ui://mail/shell-v69","openai/toolInvocation/invoking":"Opening Mail widget","openai/toolInvocation/invoked":"Mail widget ready"},"content":[{"type":"text","text":"[dir-proxy-error] Upstream failed"}],"structuredContent":{"isError":false,"detail":"upstream detail"}},"jsonrpc":"2.0","id":"dir-proxy-error"}
+data: {"result":{"content":[{"type":"text","text":"[dir-proxy-error] Upstream failed"}],"isError":true},"jsonrpc":"2.0","id":"dir-proxy-error"}
 
 ",
       "status": 200,
@@ -2162,6 +2156,9 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
         "jsonrpc": "2.0",
         "result": {
           "_meta": {
+            "agent-native/embedStart": {
+              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket",
+            },
             "io.modelcontextprotocol/serverInfo": {
               "description": "Mail app",
               "name": "agent-native-mail",
@@ -2177,7 +2174,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
           "resultType": "complete",
           "structuredContent": {
             "ok": true,
-            "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket",
           },
         },
       },
@@ -2203,8 +2199,8 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
     {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "errorMessage": "Do not know how to serialize a BigInt",
-        "errorType": "TypeError",
+        "errorMessage": "The action result is not JSON data, so it could not be shown.",
+        "errorType": "result_not_json",
         "isError": true,
         "parameters": {},
         "toolCategory": "read",
@@ -2228,7 +2224,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
           },
           "content": [
             {
-              "text": "Error: Do not know how to serialize a BigInt",
+              "text": "Error: The action result is not JSON data, so it could not be shown.",
               "type": "text",
             },
           ],
@@ -2351,7 +2347,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
           },
           "content": [
             {
-              "text": "bigint-write completed for big-1.",
+              "text": "bigint-write completed. Its result could not be checked for embed credentials, so it is not shown.",
               "type": "text",
             },
           ],
@@ -4393,9 +4389,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-text-
     },
     {
       "proxyTextRead": 1,
-    },
-    {
-      "proxyTextRead": 2,
     },
     {
       "mcpToolCall": {

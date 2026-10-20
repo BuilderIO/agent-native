@@ -79,7 +79,14 @@ exception is the legacy `@app_events` table, which keeps a test identity's
 `$exception` rows marked `JSON_VALUE(data, '$.test_identity') = 'true'`;
 exclude those from any metric over it.
 
-Before a large or historical first-party query, call
+When the user rules out BigQuery, skip the health check below, which queries
+BigQuery on a BigQuery-backed scope. Call `get-first-party-analytics-backend`
+to see which tables Postgres serves, then pass `backend: "postgres"` to
+`query-agent-native-analytics`. If it fails with
+`first_party_backend_not_postgres`, this scope reads those tables only from
+BigQuery: say so and let the user decide.
+
+Otherwise, before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
 `healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
 1M+ events, repeated slow queries, or a timeout/30-second query. Treat that
@@ -102,6 +109,22 @@ confirmation. The worker excludes `http.response` by default and uses
 BigQuery `insertId` values for retry-safe writes. After cutover, `/track`
 writes and event queries use BigQuery; public-key metadata, derived exception
 issues, and session-replay data remain in SQL.
+
+After cutover, an org admin can point charts at a scheduled warehouse events
+model with `configure-first-party-events-model`; run `check` first, which
+dry-runs as the app and saves nothing. With a model set, a first-party query
+reads `analytics_events` from the model only when its WHERE filters
+`event_name` to named events (`= 'x'` or `IN (...)`, ANDed, no OR or NOT),
+because the model has no `http.response` rows; its result carries
+`eventsSource` and `sourceGeneration` (the model build it read). Unfiltered
+queries, `SELECT *`, and queries that name `public_key_id` or `context`, read
+`http.response`, or read `properties` other than through `JSON_VALUE`,
+`JSON_EXTRACT_SCALAR`, `JSON_VALUE_ARRAY`, or `JSON_EXTRACT_STRING_ARRAY` stay
+on the raw table, as do alerts and onboarding journeys;
+`eventsSource.modelSkipped` says why. A model result trails the newest events
+by up to one rebuild, so for the last few minutes give the model's age from
+`get-analytics-source-generation` (a metadata read, no query) rather than
+calling the count complete.
 
 Example pageviews query for a local calendar day:
 

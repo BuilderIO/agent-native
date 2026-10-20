@@ -1774,8 +1774,21 @@ const overrides = {
     searchLanguages: "Buscar lenguajes...",
     noBlocksFields:
       "No hay campos Blocks. Añade uno desde el menú de propiedades.",
-    reorderField: "Reordenar {{name}}",
-    toggleField: "Alternar {{name}}",
+    addBlockField: "Añadir campo",
+    blockFieldChanged: "Ha cambiado desde la última vez que lo viste",
+    blockFieldTabs: "Campos",
+    blockFieldMenu: "Opciones de {{name}}",
+    blockFieldMenuScope: "Compartido por todas las filas de esta colección",
+    blockFieldName: "Nombre del campo",
+    renameBlockField: "Cambiar nombre",
+    renameBlockFieldFailed: "No se pudo cambiar el nombre del campo",
+    deleteBlockField: "Eliminar",
+    deleteBlockFieldFailed: "No se pudo eliminar el campo",
+    deleteBlockFieldQuestion: "¿Eliminar «{{name}}»?",
+    deleteBlockFieldDescription:
+      "Se eliminarán «{{name}}» y su texto de todas las filas de esta colección. No se puede deshacer.",
+    deleteBlockFieldBodyWarning:
+      "«{{name}}» es el cuerpo de la página, así que también se eliminará el texto principal de cada fila.",
   },
   comments: {
     add: "Añadir comentario...",

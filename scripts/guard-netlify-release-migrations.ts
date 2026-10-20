@@ -142,18 +142,22 @@ export function validateBetaPrebuiltReleaseEnvironment(
     "export AGENT_NATIVE_RELEASE_MIGRATIONS=1",
     "export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
   ];
-  const warmRuntimeExports = [
-    "export AGENT_NATIVE_ENABLE_KEEP_WARM=1",
+  const betaRuntimeExports = [
     "export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
     "export AGENT_NATIVE_HOSTED_HARNESS=true",
   ];
   const issues: string[] = [];
-  for (const entry of warmRuntimeExports) {
+  for (const entry of betaRuntimeExports) {
     if (!betaBuild.includes(entry)) {
       issues.push(
         `${file}: beta build must export ${entry.replace(/^export /, "")} inside its beta-only build block`,
       );
     }
+  }
+  if (/\bexport\s+AGENT_NATIVE_ENABLE_KEEP_WARM\b/.test(betaBuild)) {
+    issues.push(
+      `${file}: beta build must leave AGENT_NATIVE_ENABLE_KEEP_WARM unset so keep-warm stays opt-in`,
+    );
   }
   if (!nonClipsBlockMatch) {
     issues.push(

@@ -169,6 +169,17 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "templates/slides/server/plugins/config.ts",
 ]);
 
+const CONTENT_DB_CORE_FILES = new Set([
+  "packages/core/src/application-state/store.ts",
+  "packages/core/src/server/database-identity.ts",
+  "packages/core/src/server/release-migrations.ts",
+  "packages/core/src/server/release-schema.ts",
+  "packages/core/src/server/request-context.ts",
+  "packages/core/src/sharing/indexes.ts",
+]);
+
+const CONTENT_DB_CORE_PATH_PREFIXES = ["packages/core/src/db/"] as const;
+
 // The two-tab convergence lane also covers its own harness and the build it
 // serves; other Content e2e specs and unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
@@ -185,11 +196,36 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/e2e/two-tab-convergence.spec.ts",
 ]);
 
+const CONTENT_CONVERGENCE_CORE_FILES = new Set([
+  "packages/core/src/application-state/emitter.ts",
+  "packages/core/src/collab/client.ts",
+  "packages/core/src/client/client-status-requests.ts",
+  "packages/core/src/client/use-db-sync.ts",
+  "packages/core/src/client/use-session.ts",
+  "packages/core/src/db/client.ts",
+  "packages/core/src/db/ddl-guard.ts",
+  "packages/core/src/db/migration-policy.ts",
+  "packages/core/src/db/request-pool-context.ts",
+  "packages/core/src/db/store-registry.ts",
+  "packages/core/src/server/collab-plugin.ts",
+  "packages/core/src/server/core-routes-plugin.ts",
+  "packages/core/src/server/http-route.ts",
+  "packages/core/src/server/poll-events.ts",
+  "packages/core/src/server/poll.ts",
+  "packages/core/src/server/request-context.ts",
+  "packages/core/src/sharing/access.ts",
+]);
+
+const CONTENT_CONVERGENCE_CORE_PATH_PREFIXES = [
+  "packages/core/src/collab/",
+] as const;
+
 const CHECK_NAMES = [
   "lint",
   "typecheck",
   "fast_tests",
   "content",
+  "content_db",
   "content_convergence",
   "core_integration",
   "plan_e2e",
@@ -963,8 +999,18 @@ function isDesignDndRuntimePath(path: string): boolean {
 }
 
 function isContentConvergenceRuntimePath(path: string): boolean {
-  if (CONTENT_CONVERGENCE_FILES.has(path)) return true;
+  if (CONTENT_CONVERGENCE_FILES.has(path)) {
+    return true;
+  }
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  if (
+    CONTENT_CONVERGENCE_CORE_FILES.has(path) ||
+    CONTENT_CONVERGENCE_CORE_PATH_PREFIXES.some((prefix) =>
+      path.startsWith(prefix),
+    )
+  ) {
+    return true;
+  }
 
   // Most Toolkit changes are chat and shell UI that cannot lose page text.
   const toolkitEditorSource =
@@ -984,6 +1030,14 @@ function isContentConvergenceRuntimePath(path: string): boolean {
     /\.(?:[cm]?[jt]sx?|json)$/u.test(path);
 
   return toolkitEditorSource || contentAppSource || contentSharedRuntimeSource;
+}
+
+function isContentDbCoreRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    CONTENT_DB_CORE_FILES.has(path) ||
+    CONTENT_DB_CORE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
 }
 
 function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
@@ -1124,14 +1178,17 @@ function buildChecks(
   const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
     PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
   );
-  const contentConvergenceChanged =
-    changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
+  const contentConvergenceChanged = changedPaths.some(
+    isContentConvergenceRuntimePath,
+  );
+  const contentDbCoreChanged = changedPaths.some(isContentDbCoreRuntimePath);
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
     fast_tests: workspaceChanged || instructionsChanged,
     content: contentChanged || coreChanged || schedulingChanged,
+    content_db: contentChanged || contentDbCoreChanged,
     content_convergence: contentConvergenceChanged,
     core_integration: coreChanged || toolkitChanged,
     plan_e2e: coreChanged || planChanged,
