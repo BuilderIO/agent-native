@@ -753,7 +753,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     );
   });
 
-  it("12. versioned mirror-tip write does not overwrite a divergent live document", async () => {
+  it("12. versioned mirror-tip write conflicts with a divergent live document", async () => {
     await applyText(
       FILE_ID,
       buildDoc(" other-editors-live-only-edit-"),
@@ -763,21 +763,22 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     const mirrorState = buildDoc(" mirror-state-");
     designFilesStore.rows.get(FILE_ID)!.content = mirrorState;
 
-    const result = await updateFileAction.run({
-      id: FILE_ID,
-      content: buildDoc(" upload-based-on-mirror-state-"),
-      syncCollab: false,
-      expectedVersionHash: sourceContentHash(mirrorState),
-      operationSource: "screen-image-upload",
-      operationRevision: 1,
-    } as never);
+    let rejection: unknown = null;
+    try {
+      await updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(" upload-based-on-mirror-state-"),
+        syncCollab: false,
+        expectedVersionHash: sourceContentHash(mirrorState),
+        operationSource: "screen-image-upload",
+        operationRevision: 1,
+      } as never);
+    } catch (error) {
+      rejection = error;
+    }
 
-    expect(result).toEqual({
-      id: FILE_ID,
-      designId: "design_1",
-      updated: true,
-      skippedStaleMirror: true,
-    });
+    expect((rejection as Error)?.message).toMatch(/changed since it was read/);
+    expect((rejection as { statusCode?: number })?.statusCode).toBe(409);
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(mirrorState);
     expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
       buildDoc(" other-editors-live-only-edit-"),

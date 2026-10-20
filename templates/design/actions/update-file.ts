@@ -465,20 +465,11 @@ export default defineAction({
               persistedFile.contentOperationResultHash === persistedContentHash;
           }
 
-          // SQL-mirror-only skip path: when the caller explicitly opted OUT of
-          // collab sync (syncCollab: false) and supplied an expectedVersionHash
-          // that no longer matches the LIVE collab text, and a live collab doc
-          // actually exists for this file, the caller's `content` was computed
-          // from a base that a live editor has since moved past. Overwriting the
-          // SQL mirror column with that stale content here would silently regress
-          // it out from under the live document (which stays the source of
-          // truth) the next time it's read back out of SQL. Skip the content
-          // write instead of throwing: filename/fileType updates in the same call
-          // still proceed, and the caller gets `skippedStaleMirror: true` back
-          // instead of a thrown error, because they explicitly said they weren't
-          // trying to sync into collab in the first place. Every other
-          // expectedVersionHash combination (syncCollab true/default, or no live
-          // collab state, or a matching hash, or no hash at all) is UNCHANGED.
+          // A versioned mirror-only save still needs a conflict when a live
+          // editor moved past its base. Returning a successful skipped result
+          // would let the save queue acknowledge content that was never stored.
+          // Keep the legacy unversioned mirror-tip behavior below; queued editor
+          // saves carry an operation source and revision and take the loud path.
           //
           // Own-edit false-positive fix: a single client's own edit reaches the
           // live collab doc via TWO independent, unordered paths — the Yjs
@@ -505,11 +496,12 @@ export default defineAction({
               liveContent !== content &&
               sourceContentHash(liveContent) !== expectedVersionHash
             ) {
-              if (syncCollab === false && collabExists) {
-                if (
-                  hasVersionedContentOperation ||
-                  persistedContentHash !== expectedVersionHash
-                ) {
+              if (
+                syncCollab === false &&
+                collabExists &&
+                !hasVersionedContentOperation
+              ) {
+                if (persistedContentHash !== expectedVersionHash) {
                   skipContentWrite = true;
                   skippedStaleMirror = true;
                 }
