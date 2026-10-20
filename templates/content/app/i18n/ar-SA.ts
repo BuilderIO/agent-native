@@ -432,6 +432,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "للعرض فقط. تتبع هذه الصفحة ملفًا في GitHub وتتحدث بعد كل دفع.",
+  githubSourceOpenFile: "فتح في GitHub",
   textColor: "لون النص",
   backgroundColor: "لون الخلفية",
   defaultColor: "افتراضي",
@@ -536,6 +539,7 @@ const editor = {
     imageDownloadStarted: "بدأ تنزيل الصورة.",
     imageLinkHint: "يعمل مع أي صورة من الويب",
     imagePreview: "معاينة الصورة",
+    imageUnavailable: "الصورة غير متاحة",
     imageView: "عرض الصورة",
     link: "رابط",
     loadingAssetsPicker: "جارٍ تحميل منتقي الأصول",
@@ -1221,6 +1225,7 @@ const history = {
   historyGroupAgent: "تشغيل الوكيل",
   historyGroupHuman: "جلسة تحرير",
   historyGroupLegacy: "تعديلات سابقة",
+  historyGroupGitHub: "تمت المزامنة من GitHub",
   historyGroupOperation: "عملية",
   historyGroupRestore: "استعادة",
   historyLoadError: "تعذر تحميل سجل الإصدارات.",

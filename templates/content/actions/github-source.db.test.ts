@@ -1,0 +1,1458 @@
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq, isNull } from "drizzle-orm";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import { GITHUB_SOURCE_MAX_MARKDOWN_BYTES } from "../shared/github-source.js";
+
+// An in-memory GitHub: commits are full snapshots of repository files, and
+// blob SHAs come from content, so identical files share one like they do in Git.
+const github = vi.hoisted(() => {
+  const blobSha = (content: string) => {
+    let hash = 5381;
+    for (let index = 0; index < content.length; index++) {
+      hash = (hash * 33 + content.charCodeAt(index)) >>> 0;
+    }
+    return `blob${hash.toString(16)}${content.length.toString(16)}`;
+  };
+  const state = {
+    commits: new Map<string, Map<string, string>>(),
+    head: "",
+    renames: [] as Array<{ from: string; to: string }>,
+    failure: null as Error | null,
+    blobReads: 0,
+    uploads: 0,
+    noStorage: false,
+    /** Runs once, during the next blob read, to race something against a sync. */
+    duringBlobRead: null as null | (() => Promise<void>),
+  };
+  let commitCount = 0;
+  return {
+    state,
+    blobSha,
+    reset() {
+      state.commits.clear();
+      state.head = "";
+      state.renames = [];
+      state.failure = null;
+      state.blobReads = 0;
+      state.uploads = 0;
+      state.noStorage = false;
+      state.duringBlobRead = null;
+    },
+    commit(files: Record<string, string>, renames: typeof state.renames = []) {
+      commitCount += 1;
+      const sha = `commit${commitCount.toString().padStart(4, "0")}`;
+      state.commits.set(sha, new Map(Object.entries(files)));
+      state.head = sha;
+      state.renames = renames;
+      return sha;
+    },
+  };
+});
+
+vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("../server/lib/github-source-client.js")
+    >();
+  const { GitHubSourceError } = original;
+  const findBlob = (sha: string) => {
+    for (const files of github.state.commits.values()) {
+      for (const content of files.values()) {
+        if (github.blobSha(content) === sha) return content;
+      }
+    }
+    return null;
+  };
+  return {
+    ...original,
+    readGitHubDefaultBranch: async () => "main",
+    readGitHubBranchHead: async (
+      target: { branch: string },
+      etag?: string | null,
+    ) => {
+      if (github.state.failure) throw github.state.failure;
+      if (target.branch !== "main") {
+        throw new GitHubSourceError("branch_not_found", "No such branch.");
+      }
+      const current = `"etag-${github.state.head}"`;
+      if (etag === current) return { status: "not-modified" as const };
+      return { status: "ok" as const, sha: github.state.head, etag: current };
+    },
+    readGitHubFolderTree: async (target: {
+      commitSha: string;
+      path: string;
+    }) => {
+      const files = github.state.commits.get(target.commitSha);
+      if (!files) throw new GitHubSourceError("unavailable", "No commit.");
+      const prefix = target.path ? `${target.path}/` : "";
+      const entries = [...files]
+        .filter(([path]) => path.startsWith(prefix))
+        .map(([path, content]) => ({
+          path: path.slice(prefix.length),
+          type: "blob" as const,
+          sha: github.blobSha(content),
+          size: content.length,
+        }));
+      if (target.path && entries.length === 0) {
+        throw new GitHubSourceError("folder_not_found", "No such folder.");
+      }
+      return entries;
+    },
+    readGitHubBlob: async (target: { sha: string }) => {
+      github.state.blobReads += 1;
+      const during = github.state.duringBlobRead;
+      github.state.duringBlobRead = null;
+      await during?.();
+      const content = findBlob(target.sha);
+      if (content === null)
+        throw new GitHubSourceError("unavailable", "No blob.");
+      // A stand-in for a file whose bytes aren't UTF-8.
+      if (content.startsWith("BINARY"))
+        return new Uint8Array([0xff, 0xfe, 0xfd]);
+      return new TextEncoder().encode(content);
+    },
+    readGitHubRenames: async () => github.state.renames,
+  };
+});
+
+// Lets a test fail the steps that run after a sync has written its rows.
+const afterSyncFailure = vi.hoisted(() => ({ signal: false, source: false }));
+
+vi.mock("@agent-native/core/application-state", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/application-state")
+    >();
+  return {
+    ...actual,
+    writeAppState: async (...args: Parameters<typeof actual.writeAppState>) => {
+      if (afterSyncFailure.signal) throw new Error("app state unavailable");
+      return actual.writeAppState(...args);
+    },
+  };
+});
+
+vi.mock("./_database-source-utils.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-source-utils.js")>();
+  return {
+    ...actual,
+    getContentDatabaseSourceSnapshot: async (
+      ...args: Parameters<typeof actual.getContentDatabaseSourceSnapshot>
+    ) => {
+      if (afterSyncFailure.source) throw new Error("source read failed");
+      return actual.getContentDatabaseSourceSnapshot(...args);
+    },
+  };
+});
+
+vi.mock("@agent-native/core/file-upload", () => ({
+  getActiveFileUploadProviderForRequest: async () =>
+    github.state.noStorage ? null : { id: "test" },
+  uploadFile: async (input: { filename: string }) => {
+    if (github.state.noStorage) return null;
+    github.state.uploads += 1;
+    return {
+      url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
+      provider: "test",
+    };
+  },
+}));
+
+// guard:allow-unscoped — isolated test database for the GitHub folder source.
+const path = join(
+  tmpdir(),
+  `content-github-source-${process.pid}-${Date.now()}.pglite`,
+);
+const owner = `github-owner-${Date.now()}@example.com`;
+const FOLDER_URL = "https://github.com/acme/site/tree/main/docs";
+
+let getDb: typeof import("../server/db/index.js").getDb;
+let schema: typeof import("../server/db/schema.js");
+let createDatabase: typeof import("./create-content-database.js").default;
+let linkFolder: typeof import("./link-github-folder.js").default;
+let syncFolder: typeof import("./sync-github-folder.js").default;
+let getSource: typeof import("./get-content-database-source.js").default;
+let editDocument: typeof import("./edit-document.js").default;
+let updateDocument: typeof import("./update-document.js").default;
+let duplicateItem: typeof import("./duplicate-database-item.js").default;
+let getDatabase: typeof import("./get-content-database.js").default;
+let addItem: typeof import("./add-database-item.js").default;
+let attachSource: typeof import("./attach-content-database-source.js").default;
+let bindSourceField: typeof import("./bind-content-database-source-field.js").default;
+let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
+let deleteDocument: typeof import("./delete-document.js").default;
+let restoreDocument: typeof import("./restore-document.js").default;
+let moveDocument: typeof import("./move-document.js").default;
+let deleteCollection: typeof import("./delete-content-database.js").default;
+let restoreCollection: typeof import("./restore-content-database.js").default;
+let restoreVersion: typeof import("./restore-document-version.js").default;
+let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocumentBody;
+let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
+let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
+let spaceId: string;
+
+const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
+  await runWithRequestContext({ userEmail: owner }, run);
+
+beforeAll(async () => {
+  process.env.DATABASE_URL = `pglite:${path}`;
+  const db = await import("../server/db/index.js");
+  getDb = db.getDb;
+  schema = db.schema;
+  await (await import("../server/plugins/db.js")).default(undefined as never);
+  createDatabase = (await import("./create-content-database.js")).default;
+  linkFolder = (await import("./link-github-folder.js")).default;
+  syncFolder = (await import("./sync-github-folder.js")).default;
+  getSource = (await import("./get-content-database-source.js")).default;
+  editDocument = (await import("./edit-document.js")).default;
+  updateDocument = (await import("./update-document.js")).default;
+  duplicateItem = (await import("./duplicate-database-item.js")).default;
+  getDatabase = (await import("./get-content-database.js")).default;
+  addItem = (await import("./add-database-item.js")).default;
+  attachSource = (await import("./attach-content-database-source.js")).default;
+  bindSourceField = (await import("./bind-content-database-source-field.js"))
+    .default;
+  disconnectSource = (await import("./disconnect-content-database-source.js"))
+    .default;
+  ({ syncGitHubSource } = await import("./_github-source.js"));
+  deleteDocument = (await import("./delete-document.js")).default;
+  restoreDocument = (await import("./restore-document.js")).default;
+  moveDocument = (await import("./move-document.js")).default;
+  deleteCollection = (await import("./delete-content-database.js")).default;
+  restoreCollection = (await import("./restore-content-database.js")).default;
+  restoreVersion = (await import("./restore-document-version.js")).default;
+  ({ mutateDocumentBody, documentRevisionToken } =
+    await import("./_document-edit-mutation.js"));
+  await as(() =>
+    import("./_content-spaces.js").then((m) =>
+      m.provisionContentSpaces(getDb(), owner),
+    ),
+  );
+  const spaces = await as(async () =>
+    (await import("./list-content-spaces.js")).default.run({}),
+  );
+  spaceId = spaces.spaces[0].id;
+}, 120_000);
+
+afterAll(() => {
+  rmSync(path, { recursive: true, force: true });
+});
+
+beforeEach(() => {
+  github.reset();
+});
+
+let collectionCount = 0;
+async function newCollection() {
+  collectionCount += 1;
+  const created = await as(() =>
+    createDatabase.run({
+      spaceId,
+      title: `Docs ${collectionCount}`,
+      idempotencyKey: `github-collection-${collectionCount}`,
+    }),
+  );
+  return created.database;
+}
+
+async function rows(databaseId: string) {
+  return getDb()
+    .select({
+      itemId: schema.contentDatabaseItems.id,
+      documentId: schema.documents.id,
+      title: schema.documents.title,
+      content: schema.documents.content,
+      sourcePath: schema.documents.sourcePath,
+      sourceMode: schema.documents.sourceMode,
+      bodyRevision: schema.documents.bodyRevision,
+      updatedAt: schema.documents.updatedAt,
+      trashedAt: schema.documents.trashedAt,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+    )
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+}
+
+async function page(documentId: string) {
+  const [document] = await getDb()
+    .select({
+      title: schema.documents.title,
+      trashedAt: schema.documents.trashedAt,
+      sourceMode: schema.documents.sourceMode,
+      sourcePath: schema.documents.sourcePath,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  return document;
+}
+
+async function liveRows(databaseId: string) {
+  return (await rows(databaseId))
+    .filter((row) => !row.trashedAt)
+    .sort((a, b) => (a.sourcePath! < b.sourcePath! ? -1 : 1));
+}
+
+async function columns(databaseId: string) {
+  return getDb()
+    .select({
+      id: schema.documentPropertyDefinitions.id,
+      name: schema.documentPropertyDefinitions.name,
+      type: schema.documentPropertyDefinitions.type,
+      optionsJson: schema.documentPropertyDefinitions.optionsJson,
+    })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+}
+
+async function value(documentId: string, propertyId: string) {
+  const [row] = await getDb()
+    .select({ valueJson: schema.documentPropertyValues.valueJson })
+    .from(schema.documentPropertyValues)
+    .where(
+      and(
+        eq(schema.documentPropertyValues.documentId, documentId),
+        eq(schema.documentPropertyValues.propertyId, propertyId),
+      ),
+    );
+  return row ? JSON.parse(row.valueJson) : undefined;
+}
+
+async function history(documentId: string) {
+  return getDb()
+    .select({
+      actorKind: schema.documentVersions.actorKind,
+      origin: schema.documentVersions.origin,
+      operation: schema.documentVersions.operation,
+      content: schema.documentVersions.content,
+    })
+    .from(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, documentId));
+}
+
+async function sourceId(databaseId: string) {
+  const [source] = await getDb()
+    .select({ id: schema.contentDatabaseSources.id })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  return source!.id;
+}
+
+const GUIDE = `---
+title: Getting started
+status: Published
+order: 1
+tags: [intro, guide]
+published: 2026-09-01
+featured: true
+---
+
+Read the [FAQ](faq.md) next.
+
+![Diagram](images/diagram.png)
+`;
+
+const FAQ = `# Frequently asked
+
+Answers *live* here.
+`;
+
+const BASE_FILES = {
+  "docs/getting-started.md": GUIDE,
+  "docs/faq.md": FAQ,
+  "docs/notes/untitled-notes.md": "Just a body with no heading.\n",
+  "docs/demo.mdx": "<Demo />\n",
+  "docs/images/diagram.png": "PNGDATA",
+  "docs/.github/template.md": "# Hidden\n",
+  "README.md": "# Outside the folder\n",
+};
+
+async function linkBaseFolder() {
+  github.commit(BASE_FILES);
+  const database = await newCollection();
+  const linked = await as(() =>
+    linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+  );
+  return { database, linked };
+}
+
+describe("GitHub folder source", () => {
+  it("previews a folder without linking anything", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const preview = await as(() =>
+      linkFolder.run({
+        databaseId: database.id,
+        url: FOLDER_URL,
+        dryRun: true,
+      }),
+    );
+    expect(preview).toMatchObject({
+      dryRun: true,
+      canLink: true,
+      preview: {
+        location: { owner: "acme", repo: "site", branch: "main", path: "docs" },
+        markdownFiles: 3,
+        skipped: [{ path: "demo.mdx", reason: "mdx" }],
+      },
+    });
+    const fields = Object.fromEntries(
+      preview.preview.fields.map((field) => [field.key, field.type]),
+    );
+    expect(fields).toEqual({
+      status: "select",
+      order: "number",
+      tags: "multi_select",
+      published: "date",
+      featured: "checkbox",
+    });
+    expect(
+      preview.preview.fields.find((field) => field.key === "tags")?.examples,
+    ).toContain("intro, guide");
+    // Agents over MCP read the summary, so it carries the preview itself.
+    expect(preview.summary).toContain("tags (multi select)");
+    expect(preview.summary).toContain(
+      "1 skipped: demo.mdx (MDX isn't supported)",
+    );
+    expect(await rows(database.id)).toHaveLength(0);
+    const [source] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    expect(source).toBeUndefined();
+  });
+
+  it("links an empty collection: rows, titles, typed columns, images and links", async () => {
+    const { database, linked } = await linkBaseFolder();
+    expect(linked).toMatchObject({
+      dryRun: false,
+      sync: { state: "synced", created: 3 },
+    });
+    const pages = await liveRows(database.id);
+    expect(pages.map((page) => [page.sourcePath, page.title])).toEqual([
+      ["docs/faq.md", "Frequently asked"],
+      ["docs/getting-started.md", "Getting started"],
+      ["docs/notes/untitled-notes.md", "Untitled notes"],
+    ]);
+    expect(pages.every((page) => page.sourceMode === "github")).toBe(true);
+
+    const guide = pages.find(
+      (page) => page.sourcePath === "docs/getting-started.md",
+    )!;
+    const faq = pages.find((page) => page.sourcePath === "docs/faq.md")!;
+    expect(guide.content).toContain(`/page/${faq.documentId}`);
+    expect(guide.content).toContain("https://files.example.test/1/diagram.png");
+    expect(github.state.uploads).toBe(1);
+
+    const byName = Object.fromEntries(
+      (await columns(database.id)).map((column) => [column.name, column]),
+    );
+    expect(byName.order?.type).toBe("number");
+    expect(byName.tags?.type).toBe("multi_select");
+    expect(await value(guide.documentId, byName.order!.id)).toBe(1);
+    expect(await value(guide.documentId, byName.featured!.id)).toBe(true);
+    const tagOptions = JSON.parse(byName.tags!.optionsJson).options.map(
+      (option: { name: string }) => option.name,
+    );
+    expect(tagOptions).toEqual(["intro", "guide"]);
+
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github).toMatchObject({
+      owner: "acme",
+      repo: "site",
+      branch: "main",
+      path: "docs",
+      syncedCommitSha: github.state.head,
+      files: 3,
+      skipped: [{ path: "demo.mdx", reason: "mdx" }],
+      problem: null,
+    });
+    expect(status.source?.metadata.github?.syncedAt).toEqual(
+      expect.any(String),
+    );
+
+    const [fieldRow] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceFields.sourceId, status.source!.id),
+          eq(schema.contentDatabaseSourceFields.sourceFieldKey, "order"),
+        ),
+      );
+    expect(fieldRow).toMatchObject({ writeOwner: "source", readOnly: 1 });
+  });
+
+  it("refuses to link a collection that already has rows", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const now = new Date().toISOString();
+    const documentId = `existing-row-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      spaceId,
+      ownerEmail: owner,
+      parentId: database.documentId,
+      title: "Existing row",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `existing-item-${Date.now()}`,
+        ownerEmail: owner,
+        databaseId: database.id,
+        documentId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const preview = await as(() =>
+      linkFolder.run({
+        databaseId: database.id,
+        url: FOLDER_URL,
+        dryRun: true,
+      }),
+    );
+    expect(preview).toMatchObject({ canLink: false });
+    await expect(
+      as(() => linkFolder.run({ databaseId: database.id, url: FOLDER_URL })),
+    ).rejects.toThrow("already has rows");
+  });
+
+  it("refuses the link when a row arrives while it reads GitHub", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const discovered = await as(() =>
+      getDatabase.run({ databaseId: database.id }),
+    );
+    const contract =
+      "mutationContract" in discovered ? discovered.mutationContract : null;
+    github.state.duringBlobRead = async () => {
+      await as(() =>
+        addItem.run({
+          target: contract!.target,
+          expectedSchemaRevision: contract!.schemaRevision,
+          idempotencyKey: "github-row-during-link",
+          title: "Local draft",
+        }),
+      );
+    };
+
+    await expect(
+      as(() => linkFolder.run({ databaseId: database.id, url: FOLDER_URL })),
+    ).rejects.toThrow("already has rows");
+    const sources = await getDb()
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    expect(sources).toEqual([]);
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "Local draft",
+    ]);
+  });
+
+  it("writes nothing when the branch hasn't moved or a commit only reformats", async () => {
+    const { database } = await linkBaseFolder();
+    const before = await liveRows(database.id);
+    const historyBefore = await history(before[0]!.documentId);
+
+    const unchanged = await as(() =>
+      syncFolder.run({ databaseId: database.id }),
+    );
+    expect(unchanged.sync.state).toBe("unchanged");
+
+    const readsBefore = github.state.blobReads;
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\n\nAnswers _live_ here.   \n",
+    });
+    const reformatted = await as(() =>
+      syncFolder.run({ databaseId: database.id }),
+    );
+    expect(reformatted.sync).toMatchObject({
+      state: "synced",
+      updated: 0,
+      unchanged: 3,
+    });
+    expect(github.state.blobReads).toBe(readsBefore + 1);
+    const after = await liveRows(database.id);
+    expect(after.map((row) => [row.bodyRevision, row.updatedAt])).toEqual(
+      before.map((row) => [row.bodyRevision, row.updatedAt]),
+    );
+    expect(await history(before[0]!.documentId)).toEqual(historyBefore);
+  });
+
+  it("reports a finished sync when the steps after it fail", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    afterSyncFailure.signal = true;
+    afterSyncFailure.source = true;
+    try {
+      const synced = await as(() =>
+        syncFolder.run({ databaseId: database.id }),
+      );
+      expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
+      expect(synced.source).toBeNull();
+      expect(synced.followUpFailed).toEqual(["refresh_signal", "source_read"]);
+      expect(synced.summary).toContain("they show them once they reload");
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      afterSyncFailure.signal = false;
+      afterSyncFailure.source = false;
+      warn.mockRestore();
+    }
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    expect(faq.content).toContain("Answers moved to the forum.");
+  });
+
+  it("updates an edited file in place and records the change in History", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
+    expect(synced.followUpFailed).toEqual([]);
+    const [updated] = (await liveRows(database.id)).filter(
+      (row) => row.documentId === faq.documentId,
+    );
+    expect(updated!.content).toContain("Answers moved to the forum.");
+    expect(updated!.bodyRevision).toBeGreaterThan(faq.bodyRevision);
+    const entries = await history(faq.documentId);
+    expect(
+      entries.some((entry) => entry.content.includes("Answers moved")),
+    ).toBe(true);
+    expect(
+      entries.every(
+        (entry) =>
+          entry.actorKind === "source" &&
+          entry.origin === "github" &&
+          entry.operation === "sync-github-source",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a renamed file's page, and moves a deleted file's page to Trash", async () => {
+    const { database } = await linkBaseFolder();
+    const pages = await liveRows(database.id);
+    const faq = pages.find((row) => row.sourcePath === "docs/faq.md")!;
+    const notes = pages.find(
+      (row) => row.sourcePath === "docs/notes/untitled-notes.md",
+    )!;
+    await getDb()
+      .insert(schema.documentComments)
+      .values({
+        id: `comment-${Date.now()}`,
+        ownerEmail: owner,
+        documentId: faq.documentId,
+        threadId: `thread-${Date.now()}`,
+        content: "Keep this answer short.",
+        authorEmail: owner,
+      });
+
+    const {
+      "docs/faq.md": faqText,
+      "docs/notes/untitled-notes.md": _notes,
+      ...rest
+    } = BASE_FILES;
+    github.commit({ ...rest, "docs/help/faq.md": faqText }, [
+      { from: "docs/faq.md", to: "docs/help/faq.md" },
+    ]);
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({
+      state: "synced",
+      renamed: 1,
+      trashed: 1,
+    });
+
+    const after = await liveRows(database.id);
+    expect(after.map((row) => row.sourcePath)).toEqual([
+      "docs/getting-started.md",
+      "docs/help/faq.md",
+    ]);
+    expect(
+      after.find((row) => row.sourcePath === "docs/help/faq.md")!.documentId,
+    ).toBe(faq.documentId);
+    const comments = await getDb()
+      .select()
+      .from(schema.documentComments)
+      .where(eq(schema.documentComments.documentId, faq.documentId));
+    expect(comments).toHaveLength(1);
+    const [trashed] = await getDb()
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, notes.documentId));
+    expect(trashed!.trashedAt).toEqual(expect.any(String));
+  });
+
+  it("keeps a page as last synced while its file is too large to read, then updates it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": `# Every answer\n\n${"x".repeat(GITHUB_SOURCE_MAX_MARKDOWN_BYTES)}\n`,
+    });
+    const grown = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(grown.sync).toMatchObject({ state: "synced", trashed: 0 });
+    expect(await page(faq.documentId)).toMatchObject({
+      title: "Frequently asked",
+      trashedAt: null,
+    });
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.skipped).toContainEqual({
+      path: "faq.md",
+      reason: "too-large",
+    });
+
+    github.commit({ ...BASE_FILES, "docs/faq.md": "# Short answers\n" });
+    const shrunk = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(shrunk.sync).toMatchObject({
+      state: "synced",
+      updated: 1,
+      trashed: 0,
+    });
+    expect(await page(faq.documentId)).toMatchObject({
+      title: "Short answers",
+    });
+  });
+
+  it("lets a page restored out of its collection keep its own edits when its file changes", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    // A page put under an ordinary one before moves were refused goes to
+    // Trash with it, and comes back released from the collection.
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+    await as(() => restoreDocument.run({ id: holderId }));
+    expect(await page(faq.documentId)).toMatchObject({
+      trashedAt: null,
+      sourceMode: null,
+    });
+    await as(() =>
+      updateDocument.run({ id: faq.documentId, title: "My own FAQ" }),
+    );
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(await page(faq.documentId)).toMatchObject({ title: "My own FAQ" });
+    const followed = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    );
+    expect(followed?.documentId).not.toBe(faq.documentId);
+    expect(followed?.content).toContain("Answers moved to the forum.");
+  });
+
+  it("leaves a page alone that a restore releases while a sync reads its file", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    // The restore releases the page after the sync planned its file.
+    github.state.duringBlobRead = async () => {
+      await as(() => restoreDocument.run({ id: holderId }));
+    };
+    await as(() => syncFolder.run({ databaseId: database.id }));
+
+    expect(await page(faq.documentId)).toMatchObject({
+      trashedAt: null,
+      sourceMode: null,
+    });
+    const [released] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, faq.documentId));
+    expect(released?.content).not.toContain("forum");
+    const records = await getDb()
+      .select({ id: schema.contentDatabaseSourceRows.id })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.documentId, faq.documentId));
+    expect(records).toEqual([]);
+    const followed = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    );
+    expect(followed?.documentId).not.toBe(faq.documentId);
+    expect(followed?.content).toContain("Answers moved to the forum.");
+  });
+
+  it("doesn't count a page a restore releases as moved to Trash", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+
+    // The FAQ's file leaves, and the restore releases its page while the
+    // sync reads the guide.
+    const { "docs/faq.md": _faq, ...rest } = BASE_FILES;
+    github.commit({
+      ...rest,
+      "docs/getting-started.md": `${GUIDE}\nOne more step.\n`,
+    });
+    github.state.duringBlobRead = async () => {
+      await as(() => restoreDocument.run({ id: holderId }));
+    };
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+
+    expect(synced.sync).toMatchObject({ updated: 1, trashed: 0 });
+    expect(await page(faq.documentId)).toMatchObject({
+      trashedAt: null,
+      sourceMode: null,
+    });
+  });
+
+  it("doesn't count a page already in Trash as moved there when its file leaves", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+    const trashedAt = (await page(faq.documentId))?.trashedAt;
+    expect(trashedAt).toBeTruthy();
+
+    const { "docs/faq.md": _faq, ...rest } = BASE_FILES;
+    github.commit(rest);
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+
+    expect(synced.sync).toMatchObject({ trashed: 0 });
+    expect((await page(faq.documentId))?.trashedAt).toBe(trashedAt);
+    const records = await getDb()
+      .select({ id: schema.contentDatabaseSourceRows.id })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.documentId, faq.documentId));
+    expect(records).toEqual([]);
+  });
+
+  it("restores a page whose file left as an ordinary page outside the collection, with its sub-pages", async () => {
+    const { database } = await linkBaseFolder();
+    const notes = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/notes/untitled-notes.md",
+    )!;
+    const now = new Date().toISOString();
+    const subPageId = `notes-sub-page-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: subPageId,
+      spaceId,
+      ownerEmail: owner,
+      parentId: notes.documentId,
+      title: "My notes on the notes",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const { "docs/notes/untitled-notes.md": _notes, ...rest } = BASE_FILES;
+    github.commit(rest);
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({ trashed: 1 });
+    expect((await page(subPageId))!.trashedAt).toEqual(expect.any(String));
+
+    await as(() => restoreDocument.run({ id: notes.documentId }));
+    expect(await page(notes.documentId)).toMatchObject({
+      trashedAt: null,
+      sourceMode: null,
+      sourcePath: null,
+    });
+    expect(await page(subPageId)).toMatchObject({ trashedAt: null });
+    expect(
+      (await rows(database.id)).map((row) => row.documentId),
+    ).not.toContain(notes.documentId);
+    await as(() =>
+      updateDocument.run({ id: notes.documentId, title: "Kept notes" }),
+    );
+
+    github.commit({ ...rest, "docs/extra.md": "# Extra\n" });
+    const later = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(later.sync).toMatchObject({ created: 1, trashed: 0 });
+    expect(await page(notes.documentId)).toMatchObject({
+      title: "Kept notes",
+      trashedAt: null,
+    });
+  });
+
+  it("restores a row trashed before the link outside the linked collection", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const now = new Date().toISOString();
+    const documentId = `trashed-row-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      spaceId,
+      ownerEmail: owner,
+      parentId: database.documentId,
+      title: "Old draft",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `trashed-item-${Date.now()}`,
+        ownerEmail: owner,
+        databaseId: database.id,
+        documentId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await as(() => deleteDocument.run({ id: documentId }));
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+
+    await as(() => restoreDocument.run({ id: documentId }));
+    expect(await page(documentId)).toMatchObject({ trashedAt: null });
+    expect(
+      (await rows(database.id)).map((row) => row.documentId),
+    ).not.toContain(documentId);
+    expect((await liveRows(database.id)).map((row) => row.sourcePath)).toEqual([
+      "docs/faq.md",
+      "docs/getting-started.md",
+      "docs/notes/untitled-notes.md",
+    ]);
+  });
+
+  it("keeps a linked collection's rows when the whole collection comes back from Trash", async () => {
+    const { database } = await linkBaseFolder();
+    const before = (await liveRows(database.id)).map((row) => row.documentId);
+    await as(() => deleteCollection.run({ databaseId: database.id }));
+    await as(() => restoreCollection.run({ databaseId: database.id }));
+    const after = await liveRows(database.id);
+    expect(after.map((row) => row.documentId)).toEqual(before);
+    expect(after.every((row) => row.sourceMode === "github")).toBe(true);
+  });
+
+  it("follows a rename Git didn't report through identical contents or the frontmatter id", async () => {
+    github.commit({
+      "docs/a.md": "# Alpha\n\nSame text.\n",
+      "docs/b.md": "---\nid: page-b\n---\n# Beta\n",
+      // The same contents twice: each copy keeps a page of its own.
+      "docs/c.md": "# Alpha\n\nSame text.\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    const before = await liveRows(database.id);
+
+    github.commit({
+      "docs/renamed-a.md": "# Alpha\n\nSame text.\n",
+      "docs/renamed-b.md": "---\nid: page-b\n---\n# Beta, edited\n",
+      "docs/renamed-c.md": "# Alpha\n\nSame text.\n",
+    });
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({ renamed: 3, trashed: 0, created: 0 });
+    const after = await liveRows(database.id);
+    expect(after.map((row) => row.documentId).sort()).toEqual(
+      before.map((row) => row.documentId).sort(),
+    );
+    expect(
+      after.find((row) => row.sourcePath === "docs/renamed-b.md")!.title,
+    ).toBe("Beta, edited");
+  });
+
+  it("widens a column to text when a value stops fitting, keeping earlier values", async () => {
+    github.commit({
+      "docs/one.md": "---\norder: 1\n---\n# One\n",
+      "docs/two.md": "---\norder: 2\n---\n# Two\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/one.md": "---\norder: 1\n---\n# One\n",
+      "docs/two.md": "---\norder: TBD\n---\n# Two\n",
+    });
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    // A frontmatter-only change still counts as an update.
+    expect(synced.sync).toMatchObject({ updated: 1, unchanged: 1 });
+    const order = (await columns(database.id)).find(
+      (column) => column.name === "order",
+    )!;
+    expect(order.type).toBe("text");
+    const [one, two] = await liveRows(database.id);
+    expect(await value(one!.documentId, order.id)).toBe("1");
+    expect(await value(two!.documentId, order.id)).toBe("TBD");
+  });
+
+  it("stops at its time budget and resumes where it left off", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+      "docs/4.md": "# Four\n",
+    });
+    const id = await sourceId(database.id);
+    const partial = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 0 }),
+    );
+    expect(partial).toMatchObject({ state: "partial", remaining: 4 });
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github).toMatchObject({
+      pendingCommitSha: github.state.head,
+      progress: { done: 0, total: 4 },
+    });
+    expect(status.source?.freshness).toBe("stale");
+
+    const resumed = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+    );
+    expect(resumed).toMatchObject({ state: "synced", updated: 3, created: 1 });
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+      "Four",
+    ]);
+  });
+
+  it("keeps GitHub pages view only for agents and records specific problems", async () => {
+    const { database } = await linkBaseFolder();
+    const [page] = await liveRows(database.id);
+    await expect(
+      as(() =>
+        editDocument.run({
+          id: page!.documentId,
+          find: "Answers",
+          replace: "Nope",
+        }),
+      ),
+    ).rejects.toThrow("view only here");
+    await expect(
+      as(() =>
+        updateDocument.run({ id: page!.documentId, title: "Renamed here" }),
+      ),
+    ).rejects.toThrow("view only here");
+    await expect(
+      as(() => updateDocument.run({ id: page!.documentId, icon: "📘" })),
+    ).resolves.toBeTruthy();
+    await expect(
+      as(() => duplicateItem.run({ itemId: page!.itemId })),
+    ).rejects.toThrow("rows come from the files there");
+    const discovered = await as(() =>
+      getDatabase.run({ databaseId: database.id }),
+    );
+    const contract =
+      "mutationContract" in discovered ? discovered.mutationContract : null;
+    expect(contract).toBeTruthy();
+    await expect(
+      as(() =>
+        addItem.run({
+          target: contract!.target,
+          expectedSchemaRevision: contract!.schemaRevision,
+          idempotencyKey: "github-new-row",
+          title: "Local draft",
+        }),
+      ),
+    ).rejects.toThrow("rows come from the files there");
+    expect(await liveRows(database.id)).toHaveLength(3);
+
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    github.commit({ ...BASE_FILES, "docs/faq.md": "# Changed\n" });
+    github.state.failure = new GitHubSourceError(
+      "forbidden",
+      "GitHub refused access: Resource not accessible by integration",
+    );
+    const failed = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(failed.sync).toMatchObject({
+      state: "error",
+      problem: { code: "forbidden" },
+    });
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source).toMatchObject({
+      syncState: "error",
+      freshness: "stale",
+    });
+    expect(status.source?.metadata.github?.problem?.code).toBe("forbidden");
+
+    github.state.failure = null;
+    const recovered = await as(() =>
+      syncFolder.run({ databaseId: database.id }),
+    );
+    expect(recovered.sync.state).toBe("synced");
+    const healthy = await as(() => getSource.run({ databaseId: database.id }));
+    expect(healthy.source?.metadata.github?.problem).toBeNull();
+  });
+
+  it("keeps History restores, shared body edits and Trash off GitHub pages", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    await expect(
+      as(() => deleteDocument.run({ id: faq.documentId })),
+    ).rejects.toThrow("Delete the file");
+
+    const [version] = await getDb()
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, faq.documentId));
+    await expect(
+      as(() =>
+        restoreVersion.run({
+          documentId: faq.documentId,
+          versionId: version!.id,
+          expectedUpdatedAt: faq.updatedAt,
+        }),
+      ),
+    ).rejects.toThrow("view only here");
+
+    await expect(
+      as(() =>
+        mutateDocumentBody({
+          documentId: faq.documentId,
+          baseRevision: documentRevisionToken(faq.bodyRevision, faq.content),
+          idempotencyKey: "github-body-edit",
+          edits: [{ find: "Answers", replace: "Nope" }],
+          ctx: { caller: "mcp", userEmail: owner },
+        }),
+      ),
+    ).rejects.toThrow("view only here");
+    const [after] = (await liveRows(database.id)).filter(
+      (row) => row.documentId === faq.documentId,
+    );
+    expect(after).toMatchObject({ content: faq.content, trashedAt: null });
+  });
+
+  it("stops a sync that a disconnect overtakes before it writes", async () => {
+    const { database } = await linkBaseFolder();
+    const before = await liveRows(database.id);
+    const { "docs/notes/untitled-notes.md": _notes, ...rest } = BASE_FILES;
+    github.commit({ ...rest, "docs/faq.md": "# Changed in GitHub\n" });
+    github.state.duringBlobRead = async () => {
+      await as(() => disconnectSource.run({ databaseId: database.id }));
+    };
+
+    await expect(
+      as(() => syncFolder.run({ databaseId: database.id })),
+    ).rejects.toThrow("isn't linked to a GitHub folder");
+    // Disconnecting clears each page's file path, so compare by page.
+    const bodies = (pages: Awaited<ReturnType<typeof liveRows>>) =>
+      pages
+        .map((row) => [row.documentId, row.content])
+        .sort(([a], [b]) => (a! < b! ? -1 : 1));
+    const after = await liveRows(database.id);
+    expect(bodies(after)).toEqual(bodies(before));
+    expect(after.every((row) => row.sourceMode === null)).toBe(true);
+  });
+
+  it("stops a sync that a relink of the same folder overtakes", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    github.state.duringBlobRead = async () => {
+      await as(() => disconnectSource.run({ databaseId: database.id }));
+      for (const row of await liveRows(database.id)) {
+        await as(() => deleteDocument.run({ id: row.documentId }));
+      }
+      await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+    };
+
+    await expect(
+      as(() => syncFolder.run({ databaseId: database.id })),
+    ).rejects.toThrow("the folder was linked again");
+    const live = await liveRows(database.id);
+    expect(live).toHaveLength(3);
+    expect(
+      live.find((row) => row.sourcePath === "docs/faq.md")!.content,
+    ).toContain("Answers moved to the forum.");
+    // Every file's record points at its row in the new link, not an old page.
+    const records = await getDb()
+      .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        eq(
+          schema.contentDatabaseSourceRows.sourceId,
+          await sourceId(database.id),
+        ),
+      );
+    expect(records.map((record) => record.documentId).sort()).toEqual(
+      live.map((row) => row.documentId).sort(),
+    );
+  });
+
+  it("keeps a GitHub page in its collection when someone tries to move it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const elsewhere = await newCollection();
+    await expect(
+      as(() =>
+        moveDocument.run({
+          id: faq.documentId,
+          parentId: elsewhere.documentId,
+        }),
+      ),
+    ).rejects.toThrow("so it stays in its collection");
+    await expect(
+      as(() => moveDocument.run({ id: faq.documentId, parentId: null })),
+    ).rejects.toThrow("so it stays in its collection");
+    expect(
+      (await liveRows(database.id)).map((row) => row.documentId),
+    ).toContain(faq.documentId);
+  });
+
+  it("names GitHub once when a page's file link can't be built", async () => {
+    const { assertSourceAllowsPageEdit } =
+      await import("./_document-source.js");
+    expect(() =>
+      assertSourceAllowsPageEdit(
+        {
+          sourceMode: "github",
+          sourceRootPath: "not a folder",
+          sourcePath: "docs/faq.md",
+        },
+        "move",
+      ),
+    ).toThrow(
+      /^This page follows a file in GitHub, so it stays in its collection\.$/,
+    );
+  });
+
+  it("skips a file that isn't UTF-8 text and syncs the rest", async () => {
+    github.commit({
+      "docs/good.md": "# Good\n",
+      "docs/bad.md": "BINARY",
+    });
+    const database = await newCollection();
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked.sync).toMatchObject({ state: "synced", created: 1 });
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "Good",
+    ]);
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.skipped).toEqual([
+      { path: "bad.md", reason: "not-text" },
+    ]);
+  });
+
+  it("adds images once file storage is set up, without a new commit", async () => {
+    github.state.noStorage = true;
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const preview = await as(() =>
+      linkFolder.run({
+        databaseId: database.id,
+        url: FOLDER_URL,
+        dryRun: true,
+      }),
+    );
+    expect(preview.preview).toMatchObject({ images: 1, storageReady: false });
+    expect(preview.summary).toContain(
+      "won't show until file storage is set up",
+    );
+
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked.sync).toMatchObject({
+      state: "synced",
+      created: 3,
+      imagesWaiting: 1,
+      problem: { code: "storage_unavailable" },
+    });
+    const guideBefore = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/getting-started.md",
+    )!;
+    expect(guideBefore.content).not.toContain("files.example.test");
+    const waiting = await as(() => getSource.run({ databaseId: database.id }));
+    expect(waiting.source?.metadata.github).toMatchObject({
+      imagesWaiting: 1,
+      problem: { code: "storage_unavailable" },
+    });
+
+    const still = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(still.sync).toMatchObject({
+      state: "unchanged",
+      imagesWaiting: 1,
+      problem: { code: "storage_unavailable" },
+    });
+
+    github.state.noStorage = false;
+    const filled = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(filled.sync).toMatchObject({
+      state: "synced",
+      updated: 1,
+      unchanged: 2,
+      imagesWaiting: 0,
+      problem: null,
+    });
+    const guide = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/getting-started.md",
+    )!;
+    expect(guide.documentId).toBe(guideBefore.documentId);
+    expect(guide.content).toContain("https://files.example.test/1/diagram.png");
+    const healthy = await as(() => getSource.run({ databaseId: database.id }));
+    expect(healthy.source?.metadata.github).toMatchObject({
+      imagesWaiting: 0,
+      problem: null,
+    });
+    const settled = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(settled.sync.state).toBe("unchanged");
+  });
+
+  it("keeps general source settings off a GitHub link, and disconnecting frees its pages", async () => {
+    const { database } = await linkBaseFolder();
+    const id = await sourceId(database.id);
+    await expect(
+      as(() =>
+        attachSource.run({ databaseId: database.id, sourceType: "mock-local" }),
+      ),
+    ).rejects.toThrow("source settings can't change here");
+    const [field] = await getDb()
+      .select({ id: schema.contentDatabaseSourceFields.id })
+      .from(schema.contentDatabaseSourceFields)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceFields.sourceId, id),
+          eq(schema.contentDatabaseSourceFields.mappingType, "property"),
+        ),
+      );
+    await expect(
+      as(() =>
+        bindSourceField.run({
+          databaseId: database.id,
+          sourceFieldId: field!.id,
+          propertyId: null,
+        }),
+      ),
+    ).rejects.toThrow("source settings can't change here");
+
+    await as(() => disconnectSource.run({ databaseId: database.id }));
+    const pages = await liveRows(database.id);
+    expect(pages).toHaveLength(3);
+    expect(pages.every((page) => page.sourceMode === null)).toBe(true);
+    await expect(
+      as(() =>
+        updateDocument.run({ id: pages[0]!.documentId, title: "Mine now" }),
+      ),
+    ).resolves.toBeTruthy();
+  });
+
+  it("leaves unlinked collections alone", async () => {
+    const database = await newCollection();
+    await expect(
+      as(() => syncFolder.run({ databaseId: database.id })),
+    ).rejects.toThrow("isn't linked to a GitHub folder");
+    const [source] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.databaseId, database.id),
+          isNull(schema.contentDatabaseSources.lastError),
+        ),
+      );
+    expect(source).toBeUndefined();
+  });
+});

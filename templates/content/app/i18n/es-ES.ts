@@ -447,6 +447,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Solo lectura. Esta página sigue un archivo de GitHub y se actualiza después de cada push.",
+  githubSourceOpenFile: "Abrir en GitHub",
   textColor: "Color de texto",
   backgroundColor: "Color de fondo",
   defaultColor: "Predeterminado",
@@ -557,6 +560,7 @@ const editor = {
     imageDownloadStarted: "Se inició la descarga de la imagen.",
     imageLinkHint: "Funciona con cualquier imagen de la web.",
     imagePreview: "Vista previa de la imagen",
+    imageUnavailable: "Imagen no disponible",
     imageView: "Vista de imagen",
     link: "Enlace",
     loadingAssetsPicker: "Cargando selector de recursos",
@@ -1502,6 +1506,7 @@ const history = {
   historyGroupAgent: "Ejecución del agente",
   historyGroupHuman: "Sesión de edición",
   historyGroupLegacy: "Ediciones anteriores",
+  historyGroupGitHub: "Sincronizado desde GitHub",
   historyGroupOperation: "Operación",
   historyGroupRestore: "Restauración",
   historyLoadError: "No se pudo cargar el historial de versiones.",

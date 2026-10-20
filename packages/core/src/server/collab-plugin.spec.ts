@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LiveCopyError, type LiveCopyBinding } from "../collab/live-copy.js";
 import {
   createCollabSourceSeeder,
   createCollabPlugin,
+  liveCopyErrorStatus,
   normalizeCollabAccess,
 } from "./collab-plugin.js";
 
@@ -137,6 +139,71 @@ describe("createCollabPlugin lazy seeding configuration", () => {
         access: { mode: "all-authenticated" },
       }),
     ).not.toThrow();
+  });
+});
+
+describe("createCollabPlugin live copies", () => {
+  const binding = {} as LiveCopyBinding;
+  const access = { mode: "all-authenticated" as const };
+
+  it("refuses the removed onContentSync option instead of ignoring it", () => {
+    expect(() =>
+      createCollabPlugin({
+        access,
+        onContentSync: async () => undefined,
+      } as Parameters<typeof createCollabPlugin>[0]),
+    ).toThrow(/no longer accepts onContentSync/);
+  });
+
+  it("requires autoSeed: false and a text content type", () => {
+    expect(() => createCollabPlugin({ access, liveCopy: binding })).toThrow(
+      /requires autoSeed: false/,
+    );
+    expect(() =>
+      createCollabPlugin({
+        access,
+        liveCopy: binding,
+        autoSeed: false,
+        contentType: "json",
+      }),
+    ).toThrow(/contentType: "json"/);
+    expect(() =>
+      createCollabPlugin({
+        table: `live_copy_${Date.now()}`,
+        access,
+        liveCopy: binding,
+        autoSeed: false,
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["write_refused", undefined, 409],
+    ["not_live_copy", undefined, 409],
+    ["not_seeded", "absent", 409],
+    ["version_conflict", "5", 409],
+    ["state_too_large", "9000000", 413],
+    ["malformed_state", "base64", 422],
+    ["unsupported_content", "notes", 422],
+    ["derive_refused", "unsupported_node", 422],
+    ["build_refused", "empty", 422],
+    ["derive_failed", "queue_full", 503],
+    ["derive_failed", "unavailable", 503],
+    ["build_failed", "queue_timeout", 503],
+    ["derive_failed", "deadline_exceeded", 503],
+    ["derive_failed", "memory_exceeded", 503],
+    ["build_failed", "worker_crashed", 503],
+    ["derive_failed", "startup_failed", 503],
+    ["derive_failed", "output_too_large", 413],
+    ["derive_failed", "task_threw", 500],
+    ["derive_failed", "invalid_output", 500],
+    ["build_failed", "invalid_update", 500],
+  ] as const)("maps %s (%s) to HTTP %i", (code, reason, status) => {
+    expect(
+      liveCopyErrorStatus(
+        new LiveCopyError(code, "doc", "message", reason ? { reason } : {}),
+      ),
+    ).toBe(status);
   });
 });
 
