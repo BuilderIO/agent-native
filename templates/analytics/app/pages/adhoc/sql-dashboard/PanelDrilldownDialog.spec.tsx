@@ -295,7 +295,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     );
     await act(async () => downloadButton!.click());
     const csv = await (createObjectURL.mock.calls[0]?.[0] as Blob).text();
-    expect(csv.split("\n").at(-1)).toContain(
+    expect(csv.split("\n").slice(-1)[0]).toContain(
       "sqlDashboard.drilldownCsvTruncatedUnknownTotal",
     );
     expect(csv).not.toContain("total");
