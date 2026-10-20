@@ -18,10 +18,10 @@ const IGNORED_PROJECT_DIRS = {
  * `<glob>/package.json` with any leading `./` dropped, `!` excludes unless it
  * opens a negated extglob `!(…)`, node_modules and bower_components never
  * count, and a hidden directory counts only when a glob names it. With
- * `rules: "npm"`, for package.json workspaces, a leading `!` always excludes
- * and only node_modules is skipped. `bases` are the directories a walk starts
- * from (each glob's leading literal segments), and `mayContain` tells it
- * whether a directory can hold a match.
+ * `rules: "npm"`, package.json workspace patterns apply in order, so a later
+ * positive pattern can re-include a path; only node_modules is skipped.
+ * `bases` are the directories a walk starts from (each glob's leading literal
+ * segments), and `mayContain` tells it whether a directory can hold a match.
  */
 export function workspaceMemberMatcher(
   patterns: string[],
@@ -39,12 +39,19 @@ export function workspaceMemberMatcher(
     });
   const excludes = (pattern: string) =>
     pattern.startsWith("!") && !(rules === "pnpm" && pattern.startsWith("!("));
-  const included = patterns
-    .filter((pattern) => !excludes(pattern))
-    .map(manifestGlob);
-  const excluded = patterns
-    .filter(excludes)
-    .map((pattern) => manifestGlob(pattern.slice(1)));
+  const ordered = patterns.map((pattern) => {
+    const excluded = excludes(pattern);
+    return {
+      excluded,
+      glob: manifestGlob(excluded ? pattern.slice(1) : pattern),
+    };
+  });
+  const included = ordered
+    .filter((pattern) => !pattern.excluded)
+    .map((pattern) => pattern.glob);
+  const excluded = ordered
+    .filter((pattern) => pattern.excluded)
+    .map((pattern) => pattern.glob);
   const ignored = (dir: string) =>
     dir.split("/").some((part) => IGNORED_PROJECT_DIRS[rules].includes(part));
   return {
@@ -62,6 +69,13 @@ export function workspaceMemberMatcher(
     ),
     lists: (dir) => {
       const manifest = path.posix.join(dir, "package.json");
+      if (rules === "npm") {
+        let listed = false;
+        for (const pattern of ordered) {
+          if (pattern.glob.match(manifest)) listed = !pattern.excluded;
+        }
+        return !ignored(dir) && listed;
+      }
       return (
         !ignored(dir) &&
         included.some((glob) => glob.match(manifest)) &&

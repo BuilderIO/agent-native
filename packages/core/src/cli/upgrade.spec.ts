@@ -368,6 +368,37 @@ describe("detectUpgradeProject + doctor", () => {
     ]);
   });
 
+  it("re-includes npm workspace members when a later pattern matches", () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        workspaces: ["apps/*", "!apps/internal", "apps/internal"],
+      },
+      apps: {
+        internal: {
+          name: "internal",
+          dependencies: { "@agent-native/core": "^0.8.0" },
+        },
+        web: { name: "web" },
+      },
+    });
+    fs.rmSync(path.join(root, "pnpm-workspace.yaml"));
+
+    const project = detectUpgradeProject(root)!;
+
+    expect(
+      project.packageFiles.map((file) => path.relative(root, file)),
+    ).toEqual([
+      "package.json",
+      "apps/internal/package.json",
+      "apps/web/package.json",
+    ]);
+    expect(
+      buildUpgradeDoctorReport(project).bumps.map((bump) => bump.name),
+    ).toEqual(["@agent-native/core"]);
+  });
+
   it("reads npm workspace globs as npm does: a backslash, a leading slash, leading !s and bower_components", () => {
     const root = makeTempProject({
       kind: "workspace",
