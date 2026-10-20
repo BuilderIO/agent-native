@@ -144,7 +144,31 @@ collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
 `searchConsoleSites` and turn it on.
 
+The `signups` step writes `signups_first_touch` per article: people who
+first landed on the article and later signed up, on the day of that first
+visit, so a window's days add up to its total. It is the only step that reads
+the warehouse. It stays `not_configured` until `configure-content-collection`
+sets its `signups` tables, `signupSource`, `signupsSince` and
+`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
+run, free) and get the spend approved before turning the step on. Each run
+dry-runs first, stops as `cost_limited` without querying when the estimate is
+over the cap, and runs the join with that cap as BigQuery's billing limit.
+
+The catalog's "Content" dashboard (`content-view`) is the reference for these
+tables: start from its panels before writing new content SQL. Its Articles
+panel shows why a metric is missing (`failed`, `not set up`, `still
+arriving`) in a column next to the blank number; keep that pattern. The
+first-party SQL policy rejects functions outside its allow-list (for example
+`concat_ws`) and reads `CASE (` as a function call, so join a status column
+instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
+(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
+source didn't report would draw as a zero instead of a gap. Content is a
+built-in: turning collection on with `configure-content-collection` lists it
+in the organization's Dashboards at `content-view` (`contentDashboardId` in the
+result). It is read-only; build on it with `duplicate-dashboard`.
+
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
@@ -467,8 +491,9 @@ visualizations outside these contracts may remain Custom Blocks.
 
 ## Sigma workbook import
 
-The dashboard menu opens the Sigma import flow, where users can browse and
-preview workbooks. Imports remain disabled for elements whose source project
+The dashboard menu opens the Sigma import flow: a searchable table of every
+workbook the user can see in Sigma, with the owner of each migrated one and a
+Migrate button on the rest. Imports remain disabled for elements whose source project
 Analytics cannot verify: Sigma's connection API reports provider type and
 metadata but does not expose a BigQuery project identifier. Do not call
 `migrate-sigma-workbook` for an unverified source or treat an Analytics
@@ -488,6 +513,16 @@ Analytics dialog. Analytics saves those values under Analytics-specific
 encrypted organization secrets and links them to an Analytics-only connection.
 Credential values must never pass through agent chat, action arguments, logs,
 source, or screenshots.
+
+Each Sigma workbook migrates to at most one Analytics dashboard per
+organization. `list-sigma-workbooks` reads migration status only for workbooks
+the caller's Sigma connection returns, so status follows Sigma access. For a
+migrated workbook it returns the dashboard id, link, and owner email and
+display name to every org member, and the title and `canOpen: true` only when the caller can open
+the dashboard. Point users at that dashboard, or its owner for access, instead
+of importing again. Anyone whose Sigma login can open a workbook may retry its
+failed import or take over an import stuck for ten minutes; only the person who
+migrated a workbook may re-import it.
 
 If Sigma adds verifiable source mapping in the future, the planned import will
 create a private snapshot in the user's personal `Sigma` folder. Other source
@@ -768,6 +803,10 @@ When the user asks to change an existing panel on the open dashboard:
    `verified: false`, an error, or the user saying the change is not visible,
    call `inspect-dashboard-panel` for that panel, fix what it reports, and
    verify again. Never describe a visible change you have not verified.
+   An edit that changes a panel's query also returns `cost`: what one refresh
+   of the changed panels scans and costs at the default filters, and per month
+   for the dashboard's email reports. The summary repeats it; when it says the
+   cost is over a threshold, tell the user the number.
    `update-dashboard`, `compose-dashboard`, and `restore-dashboard-revision`
    return the same fields. Editing a dashboard you can only view fails with
    `dashboard_forbidden` before any SQL runs.

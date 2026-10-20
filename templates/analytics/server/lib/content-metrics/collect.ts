@@ -9,6 +9,7 @@ import { contentRunFailureFromError, type ContentStep } from "./step.js";
 import { builderBlogStep } from "./steps/builder-blog.js";
 import { ga4Step } from "./steps/ga4.js";
 import { searchConsoleStep } from "./steps/search-console.js";
+import { signupsStep } from "./steps/signups.js";
 import {
   closeStaleContentRuns,
   completeContentRun,
@@ -24,6 +25,7 @@ const STEPS: Record<ContentCollectionStepId, ContentStep> = {
   builder_blog: builderBlogStep,
   ga4: ga4Step,
   search_console: searchConsoleStep,
+  signups: signupsStep,
 };
 
 export type ContentStepRunSummary = {

@@ -305,7 +305,11 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Contact enrichment & company data",
       hubspotDescription: "CRM contacts, deals & tickets",
-      gongDescription: "Recent calls & conversation intelligence",
+      gongDescription: "Gong call history",
+      gongAccessCheckFailed: "Couldn't check whether you can connect to Gong.",
+      gongKeyPlaceholder: "Gong API key",
+      gongKeyFormatHint:
+        "Enter the access key and secret as access_key:secret.",
       pylonDescription: "Support issues & account data",
       gongCalls: "Gong Calls",
       deals: "Deals",

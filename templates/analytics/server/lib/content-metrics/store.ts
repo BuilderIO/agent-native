@@ -483,6 +483,9 @@ export async function completeContentRun(
             runId: sql`excluded.run_id`,
             collectedAt: sql`excluded.collected_at`,
           },
+          // Steps re-send whole windows (signups recomputes 90 days daily),
+          // so an unchanged value writes nothing and keeps the run that set it.
+          setWhere: sql`${schema.analyticsContentMetricSnapshots.value} IS DISTINCT FROM excluded.value OR ${schema.analyticsContentMetricSnapshots.source} IS DISTINCT FROM excluded.source`,
         });
     }
 

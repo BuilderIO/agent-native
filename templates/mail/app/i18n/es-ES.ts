@@ -314,7 +314,12 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enriquecimiento de contactos y datos de empresa",
       hubspotDescription: "Contactos, negocios y tickets de CRM",
-      gongDescription: "Llamadas recientes e inteligencia conversacional",
+      gongDescription: "Historial de llamadas de Gong",
+      gongAccessCheckFailed:
+        "No se pudo comprobar si tienes permiso para conectar Gong.",
+      gongKeyPlaceholder: "Clave de API de Gong",
+      gongKeyFormatHint:
+        "Introduce la clave de acceso y el secreto con el formato access_key:secret.",
       pylonDescription: "Incidencias de soporte y datos de cuenta",
       gongCalls: "Llamadas de Gong",
       deals: "Negocios",

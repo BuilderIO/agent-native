@@ -2352,6 +2352,30 @@ export function preparedCallArguments(call: PreparedActionCall): unknown {
 }
 
 /**
+ * Whether `call` needs a person's approval before it runs, by the action's
+ * `needsApproval`. Every surface that can run an action decides with this, so
+ * a predicate means the same thing to the agent loop, MCP, and HTTP.
+ */
+export async function preparedCallNeedsApproval(
+  entry: {
+    needsApproval?:
+      | boolean
+      | ((args: any, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+): Promise<boolean> {
+  const gate = entry.needsApproval;
+  if (typeof gate !== "function") return gate === true;
+  try {
+    return Boolean(await gate(preparedCallArguments(call), ctx));
+  } catch {
+    // coercion-ok: a predicate that cannot decide fails closed and asks.
+    return true;
+  }
+}
+
+/**
  * @internal Executes a prepared call: `entry.run` receives its own copy of the
  * prepared arguments, which the action's input validation and classification
  * take as prepared instead of repeating. With `outcome`, the run is observed

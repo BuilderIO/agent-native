@@ -5,9 +5,11 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js";
 import {
   contentCollectionConfigSchema,
   searchConsoleSiteSchema,
+  signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
 } from "../server/lib/content-metrics/config.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
@@ -18,6 +20,8 @@ import {
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
 import { cliBoolean } from "./schema-helpers.js";
 
+const CONTENT_VIEW_DASHBOARD_ID = "content-view";
+
 export default defineAction({
   mcpAnnotations: {
     readOnlyHint: false,
@@ -25,7 +29,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values.",
+    "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values. Turning collection on also lists the built-in Content dashboard in the organization's Dashboards; the result's contentDashboardId opens it at /dashboards/<id>.",
   schema: z.object({
     enabled: cliBoolean.describe("Whether the daily collection runs."),
     builderBlog: cliBoolean
@@ -46,9 +50,14 @@ export default defineAction({
       .describe(
         'Search Console properties to collect, replacing the saved list, e.g. [{"siteUrl":"sc-domain:example.com","pathPrefix":"/blog/"}].',
       ),
+    signups: signupsSettingsUpdateSchema
+      .optional()
+      .describe(
+        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own, as Source signups), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
   }),
   run: async (
-    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites },
+    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites, signups },
     ctx,
   ) => {
     const admin = await requireAnalyticsAdminContext({
@@ -68,13 +77,23 @@ export default defineAction({
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,
       },
+      signups: { ...saved.signups, ...signups },
     });
     if (enabled && config.searchConsole.enabled) {
       z.array(searchConsoleSiteSchema)
         .max(20)
         .parse(config.searchConsole.sites);
     }
+    if (enabled) {
+      await installBuiltinDashboardOnce(
+        { email: admin.userEmail, orgId: admin.orgId },
+        CONTENT_VIEW_DASHBOARD_ID,
+      );
+    }
     await writeContentCollection(scope, { enabled, config });
-    return readContentCollectionStatus(admin.orgId, admin.userEmail);
+    return {
+      ...(await readContentCollectionStatus(admin.orgId, admin.userEmail)),
+      contentDashboardId: enabled ? CONTENT_VIEW_DASHBOARD_ID : null,
+    };
   },
 });

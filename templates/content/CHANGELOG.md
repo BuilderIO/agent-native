@@ -5,6 +5,16 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-19
 
+### Improved
+
+- Database views can filter one property more than once, number filters add ≥ and ≤, and filter chips name their operator, like "Status: is not done".
+
+### Fixed
+
+- Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
+- Starting a comment puts the cursor in the comment box, ready to type.
+- Table row and column options now appear for the row or column under the pointer, Escape selects the cell before leaving the editor, wide tables keep their add-column control on screen on phones, and a tap near a table's edge on a touch screen edits the cell there instead of adding a row or column
+
 ### Changed
 
 - Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
@@ -32,6 +42,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Opening a page in a new tab while another tab is still saving no longer sends a second save or files a copy to History.
+- Typing steadily in one tab no longer makes another open tab show "This page changed elsewhere" after its edits saved.
 - Reopening a page after someone else renamed it no longer adds a copy of your edits to Version History
 
 ## 2026-10-12

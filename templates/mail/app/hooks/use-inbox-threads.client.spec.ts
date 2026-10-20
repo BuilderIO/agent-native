@@ -16,6 +16,8 @@ const { callAction, callActionWithRetry, mutateSyncAction, useActionMutation } =
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
   callActionWithRetry,
+  currentActionQueryCacheBinding: () => undefined,
+  recordActionQueryBrowserPersist: () => {},
   useActionMutation,
 }));
 

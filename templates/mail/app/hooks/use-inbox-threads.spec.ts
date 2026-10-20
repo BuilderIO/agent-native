@@ -1,6 +1,11 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
+// Snapshot ids start from the page-load clock; these cases spell ids from 0.
+vi.hoisted(() => {
+  vi.useFakeTimers({ now: 0, toFake: ["Date"] });
+});
+
 import {
   type InboxSyncAccountProgress,
   type InboxOverview,
@@ -30,6 +35,8 @@ import {
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "./use-inbox-threads";
+
+vi.useRealTimers();
 
 describe("isUnauthorizedError", () => {
   it("is true for a 401 or 403 action error", () => {
