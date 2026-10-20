@@ -7175,7 +7175,7 @@ function DatabaseAdvancedFilterGroupControl({
       createDatabaseFilterForField(key, label, properties, {
         filterGroupId: groupId,
         parentFilterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
-        filterGroupMode: contentDatabaseFilterGroupMode(
+        filterGroupMode: databaseFilterGroupModeForNewRule(
           filters,
           groupId,
           filterMode,
@@ -17423,12 +17423,29 @@ function createDatabaseAdvancedFilterForField(
 ): DatabaseFilter {
   return createDatabaseFilterForField(key, label, properties, {
     filterGroupId: DATABASE_ADVANCED_FILTER_GROUP_ID,
-    filterGroupMode: contentDatabaseFilterGroupMode(
+    filterGroupMode: databaseFilterGroupModeForNewRule(
       filters,
       DATABASE_ADVANCED_FILTER_GROUP_ID,
       filterMode,
     ),
   });
+}
+
+// A rule added to a group takes the group's current mode. A new group starts
+// with "and": the view's All/Any combines it with its neighbors, not its rules.
+export function databaseFilterGroupModeForNewRule(
+  filters: DatabaseFilter[],
+  groupId: string,
+  filterMode: DatabaseFilterMode,
+): DatabaseFilterMode {
+  const groupExists = filters.some(
+    (filter) =>
+      filter.filterGroupId === groupId ||
+      filter.parentFilterGroupId === groupId,
+  );
+  return groupExists
+    ? contentDatabaseFilterGroupMode(filters, groupId, filterMode)
+    : "and";
 }
 
 function isAdvancedDatabaseFilter(filter: DatabaseFilter) {

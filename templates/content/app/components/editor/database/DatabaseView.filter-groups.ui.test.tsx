@@ -13,6 +13,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
 
 import {
   DatabaseActiveConstraintsBar,
+  databaseFilterGroupModeForNewRule,
   databaseViewWithFilterGroupMode,
   databaseViewWithFilterMode,
 } from "./DatabaseView";
@@ -207,5 +208,25 @@ describe("advanced filter groups", () => {
     // second group gets the advanced filter's And.
     expect(textNodes("Where")).toHaveLength(3);
     expect(buttons("And")).toHaveLength(2);
+  });
+
+  it("starts a new group with And and adds rules to an existing group in its mode", () => {
+    const filters = [
+      nameFilter("launch", { ...advanced, filterGroupMode: "or" }),
+      nameFilter("draft", nested),
+    ];
+
+    // A view set to Any still gives a new group And.
+    expect(databaseFilterGroupModeForNewRule([], "advanced", "or")).toBe("and");
+    expect(
+      databaseFilterGroupModeForNewRule(filters, "advanced-new", "or"),
+    ).toBe("and");
+    expect(databaseFilterGroupModeForNewRule(filters, "advanced", "and")).toBe(
+      "or",
+    );
+    // A group without a stored mode keeps the view's mode it inherits.
+    expect(
+      databaseFilterGroupModeForNewRule(filters, "advanced-nested", "or"),
+    ).toBe("or");
   });
 });
