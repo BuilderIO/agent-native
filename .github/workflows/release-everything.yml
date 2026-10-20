@@ -211,6 +211,16 @@ jobs:
               })).data;
             }
 
+            async function dispatchAndWait(workflow, ref, inputs, label, timeoutMs) {
+              const run = await dispatch(workflow, ref, inputs);
+              try {
+                await waitForRun(run, label, timeoutMs);
+                return { run, error: null };
+              } catch (error) {
+                return { run, error };
+              }
+            }
+
             async function listAutoPublishRuns() {
               const response = await github.rest.actions.listWorkflowRuns({
                 owner,
@@ -940,47 +950,92 @@ jobs:
             }
 
             // Downstream workflows own these reserved tags after dispatch.
-            const [desktop, clips, production, docs] = await Promise.all([
-              publicationError
-                ? null
-                : dispatch("desktop-release.yml", workflowRef, {
-                    channel: "production",
-                    version: desktopVersion,
-                    source_ref: releaseSha,
-                  }),
-              publicationError
-                ? null
-                : dispatch("clips-desktop-release.yml", workflowRef, {
-                    channel: "production",
-                    version: clipsVersion,
-                    source_ref: releaseSha,
-                  }),
-              dispatch("deploy-production-sites-prebuilt.yml", siteWorkflowRef, {
-                sites: productionSites.join(","),
-                source_ref: releaseSha,
-                beta_e2e: "false",
-                smoke: "true",
-              }),
-              dispatch("deploy-docs-production.yml", siteWorkflowRef, {
-                source_ref: releaseSha,
-                smoke: "true",
-              }),
-            ]);
-
+            // Each child waits independently so one ambiguous dispatch cannot
+            // abandon siblings that GitHub already accepted.
             const downstream = await Promise.allSettled([
-              desktop && waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
-              clips && waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
-              waitForRun(production, "Production site fleet", 120 * 60_000),
-              waitForRun(docs, "Agent-Native docs production site", 120 * 60_000),
+              publicationError
+                ? Promise.resolve(null)
+                : dispatchAndWait(
+                    "desktop-release.yml",
+                    workflowRef,
+                    {
+                      channel: "production",
+                      version: desktopVersion,
+                      source_ref: releaseSha,
+                    },
+                    "Agent-Native desktop stable release",
+                    120 * 60_000,
+                  ),
+              publicationError
+                ? Promise.resolve(null)
+                : dispatchAndWait(
+                    "clips-desktop-release.yml",
+                    workflowRef,
+                    {
+                      channel: "production",
+                      version: clipsVersion,
+                      source_ref: releaseSha,
+                    },
+                    "Clips desktop stable release",
+                    120 * 60_000,
+                  ),
+              dispatchAndWait(
+                "deploy-production-sites-prebuilt.yml",
+                siteWorkflowRef,
+                {
+                  sites: productionSites.join(","),
+                  source_ref: releaseSha,
+                  beta_e2e: "false",
+                  smoke: "true",
+                },
+                "Production site fleet",
+                120 * 60_000,
+              ),
+              dispatchAndWait(
+                "deploy-docs-production.yml",
+                siteWorkflowRef,
+                {
+                  source_ref: releaseSha,
+                  smoke: "true",
+                },
+                "Agent-Native docs production site",
+                120 * 60_000,
+              ),
             ]);
             const failures = publicationError ? [publicationError.message] : [];
-            const outcomes = downstream.map((result, index) => {
-              if (![desktop, clips, production, docs][index]) {
-                return "skipped: stable npm publication failed";
+            const targetLabels = [
+              "Agent-Native desktop stable release",
+              "Clips desktop stable release",
+              "Production site fleet",
+              "Agent-Native docs production site",
+            ];
+            const childResults = downstream.map((result, index) => {
+              if (result.status === "rejected") {
+                const error = result.reason instanceof Error
+                  ? result.reason.message
+                  : String(result.reason);
+                failures.push(`${targetLabels[index]} dispatch failed: ${error}`);
+                return { run: null, error, dispatchFailed: true, skipped: false };
               }
-              if (result.status === "fulfilled") return "released";
-              failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
-              return "failed";
+              if (result.value === null) {
+                return { run: null, error: null, dispatchFailed: false, skipped: true };
+              }
+              if (result.value.error) {
+                const error = result.value.error instanceof Error
+                  ? result.value.error.message
+                  : String(result.value.error);
+                failures.push(`${targetLabels[index]} failed: ${error}`);
+                return { run: result.value.run, error, dispatchFailed: false, skipped: false };
+              }
+              return { run: result.value.run, error: null, dispatchFailed: false, skipped: false };
+            });
+            const [desktop, clips, production, docs] = childResults.map(
+              (result) => result.run,
+            );
+            const outcomes = childResults.map((result) => {
+              if (result.skipped) return "skipped: stable npm publication failed";
+              if (result.dispatchFailed) return "failed: dispatch";
+              return result.error ? "failed" : "released";
             });
             if (downstreamNotificationFailureUrl) {
               failures.push(

@@ -269,6 +269,90 @@ describe("release everything workflow", () => {
     assert.equal(invalidStatusLookups, 0);
   });
 
+  it("waits for accepted sibling releases when one dispatch is unconfirmed", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const fanoutStart = source.indexOf(
+      "const downstream = await Promise.allSettled([",
+    );
+    const fanoutEnd = source.indexOf("]);", fanoutStart);
+    assert(fanoutStart >= 0 && fanoutEnd > fanoutStart);
+    const fanout = source.slice(fanoutStart, fanoutEnd);
+    assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 4);
+
+    const helperStart = source.indexOf("async function dispatchAndWait(");
+    const helperEnd = source.indexOf(
+      "\n\nasync function listAutoPublishRuns",
+      helperStart,
+    );
+    assert(helperStart >= 0 && helperEnd > helperStart);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createDispatchAndWait = new AsyncFunction(
+      "dispatch",
+      "waitForRun",
+      `${source.slice(helperStart, helperEnd)}\nreturn dispatchAndWait;`,
+    ) as (
+      dispatch: (
+        workflow: string,
+        ref: string,
+        inputs: Workflow,
+      ) => Promise<{ id: number; url: string }>,
+      waitForRun: (
+        run: { id: number; url: string },
+        label: string,
+        timeoutMs: number,
+      ) => Promise<void>,
+    ) => (
+      workflow: string,
+      ref: string,
+      inputs: Workflow,
+      label: string,
+      timeoutMs: number,
+    ) => Promise<{
+      run: { id: number; url: string };
+      error: unknown;
+    }>;
+    const waits: number[] = [];
+    const dispatchAndWait = await createDispatchAndWait(
+      async (workflow) => {
+        if (workflow === "unconfirmed.yml") {
+          throw new Error("Could not confirm sibling dispatch");
+        }
+        const id = Number(workflow.match(/child-(\d)/)?.[1]);
+        return { id, url: `https://example.test/runs/${id}` };
+      },
+      async (run) => {
+        waits.push(run.id);
+        if (run.id === 2) throw new Error("sibling run failed");
+      },
+    );
+    const settled = await Promise.allSettled([
+      dispatchAndWait(
+        "unconfirmed.yml",
+        "main",
+        {},
+        "Unconfirmed child",
+        60_000,
+      ),
+      ...[1, 2, 3].map((id) =>
+        dispatchAndWait(`child-${id}.yml`, "main", {}, `Child ${id}`, 60_000),
+      ),
+    ]);
+
+    assert.deepEqual(
+      settled.map((result) => result.status),
+      ["rejected", "fulfilled", "fulfilled", "fulfilled"],
+    );
+    assert.deepEqual(waits, [1, 2, 3]);
+    const failedSibling = settled[2];
+    assert.equal(failedSibling.status, "fulfilled");
+    if (failedSibling.status === "fulfilled") {
+      assert.equal(failedSibling.value.run.id, 2);
+      assert.match(String(failedSibling.value.error), /sibling run failed/);
+    }
+  });
+
   it("adds correlation inputs and run titles to coordinated child workflows", () => {
     for (const child of [
       autoPublishWorkflow,
@@ -363,9 +447,15 @@ describe("release everything workflow", () => {
       source,
       /const workflowRef = coreVersionChanged \? packageRef : "main"/,
     );
-    assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
+    assert.match(
+      source,
+      /dispatchAndWait\(\s*"desktop-release\.yml",\s*workflowRef/,
+    );
     assert.match(source, /version: desktopVersion/);
-    assert.match(source, /dispatch\("clips-desktop-release\.yml", workflowRef/);
+    assert.match(
+      source,
+      /dispatchAndWait\(\s*"clips-desktop-release\.yml",\s*workflowRef/,
+    );
     assert.match(source, /version: clipsVersion/);
     assert.doesNotMatch(
       source,
@@ -399,11 +489,11 @@ describe("release everything workflow", () => {
     assert.match(source, /name !== "fw"/);
     assert.match(
       source,
-      /dispatch\("deploy-docs-production\.yml", siteWorkflowRef/,
+      /dispatchAndWait\(\s*"deploy-docs-production\.yml",\s*siteWorkflowRef/,
     );
     assert.match(
       source,
-      /waitForRun\(docs, "Agent-Native docs production site", 120 \* 60_000\)/,
+      /"Agent-Native docs production site",\s*120 \* 60_000/,
     );
     assert.match(
       source,
@@ -857,15 +947,15 @@ describe("release everything workflow", () => {
     );
     assert.match(
       source,
-      /dispatch\("deploy-production-sites-prebuilt\.yml", siteWorkflowRef, \{\s*sites: productionSites\.join\(","\),\s*source_ref: releaseSha,/,
+      /dispatchAndWait\(\s*"deploy-production-sites-prebuilt\.yml",\s*siteWorkflowRef,\s*\{\s*sites: productionSites\.join\(","\),\s*source_ref: releaseSha,/,
     );
     assert.match(
       source,
-      /publicationError\s*\? null\s*: dispatch\("desktop-release\.yml"/,
+      /publicationError\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"desktop-release\.yml"/,
     );
     assert.match(
       source,
-      /publicationError\s*\? null\s*: dispatch\("clips-desktop-release\.yml"/,
+      /publicationError\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"clips-desktop-release\.yml"/,
     );
     assert.match(
       source,
