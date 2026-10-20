@@ -25,7 +25,7 @@ const actionSchema = z.intersection(
 
 export default defineAction({
   description:
-    "Set one Content collection property to the same value on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent. To give rows different values, use patch-database-items.",
+    "Set one Content collection property to the same value on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent. To give rows different values, use patch-database-items. Outside the app's UI, Blocks fields can't be written in bulk: each row needs its own expectedBlocksFieldRevision, so use set-document-property per row.",
   mcpTool: true,
   schema: actionSchema,
   run: async (args, ctx) => {

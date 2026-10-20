@@ -461,8 +461,14 @@ describe("flushOpenDocumentEditorToSql", () => {
       documentId: "doc-1",
       ownerEmail: "owner@example.com",
     });
-    await vi.advanceTimersByTimeAsync(20_200);
+    let settled = false;
+    void flush.then(() => {
+      settled = true;
+    });
+    // Best-effort: the short wait, not the confirmed-save deadline.
+    await vi.advanceTimersByTimeAsync(4_200);
 
+    expect(settled).toBe(true);
     await expect(flush).resolves.toBeUndefined();
     expect(mocks.appStatePut).toHaveBeenCalledWith(
       "legacy-viewer-or-editor@example.com",

@@ -499,24 +499,21 @@ await runPool(
       value: plannedBodies.get(row.index),
     };
     // Blocks writes from outside the app must name the field revision. A new
-    // row's body starts at 0. A resumed run can meet a body an earlier run
-    // already wrote; the conflict names the current revision, and the planned
-    // body is the same, so write it again there.
+    // row's body starts at 0. A conflict means the body already has text (an
+    // earlier run wrote it, or someone edited it since), so leave it alone.
     try {
       await callAction(cookie, "set-document-property", {
         ...body,
         expectedBlocksFieldRevision: 0,
       });
     } catch (error) {
-      const current =
-        /Blocks field revision conflict: expected \d+, current (\d+)/.exec(
+      if (
+        !/Blocks field revision conflict: expected \d+, current \d+/.test(
           String(error?.message),
-        )?.[1];
-      if (current === undefined) throw error;
-      await callAction(cookie, "set-document-property", {
-        ...body,
-        expectedBlocksFieldRevision: Number(current),
-      });
+        )
+      ) {
+        throw error;
+      }
     }
     manifest.bodies.push(row.index);
     if (manifest.bodies.length % 25 === 0) saveManifest(manifest);

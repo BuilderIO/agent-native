@@ -258,8 +258,11 @@ function serializeInlineTextNode(
     }
   }
   // Code text is fenced in backticks, so only plain text can start with
-  // whitespace NFM would read as indentation or a blank line.
-  const leadingWhitespace = out.startsWith("\t") || /^\s+$/.test(out);
+  // whitespace NFM would read as indentation or a blank line. A span can't
+  // hold a raw newline (it would cross lines and fail to parse back), so text
+  // containing one is left as it was.
+  const leadingWhitespace =
+    !out.includes("\n") && (out.startsWith("\t") || /^\s+$/.test(out));
 
   const wrap = (prefix: string, suffix: string) => {
     out = prefix + out + suffix;

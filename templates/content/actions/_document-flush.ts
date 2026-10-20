@@ -12,8 +12,12 @@ import {
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 const FLUSH_POLL_INTERVAL_MS = 200;
-// Hosted poll-live collaboration delivers mailbox events on a 12-second cadence.
+// Hosted poll-live collaboration delivers mailbox events on a 12-second
+// cadence, so an editor that must confirm its save gets that long.
 const FLUSH_TIMEOUT_MS = 20_000;
+// A legacy editor can't confirm, so asking it is best-effort and keeps the
+// short wait instead of holding up agent turns and document operations.
+const BEST_EFFORT_FLUSH_TIMEOUT_MS = 4000;
 
 function parseAwarenessState(state: string): {
   canFlushDocument?: unknown;
@@ -78,6 +82,9 @@ export async function flushOpenDocumentEditorToSql(args: {
   const acknowledgementRequired = flushCandidates.some(
     (candidate) => candidate.required,
   );
+  const timeoutMs = acknowledgementRequired
+    ? FLUSH_TIMEOUT_MS
+    : BEST_EFFORT_FLUSH_TIMEOUT_MS;
   const activeSessionEmails = flushCandidates
     .map((candidate) => candidate.sessionEmail)
     .filter((email): email is string => !!email);
@@ -107,7 +114,7 @@ export async function flushOpenDocumentEditorToSql(args: {
   };
   const writes = await Promise.allSettled(
     targetSessions.map(async (session) => {
-      const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+      const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         if (
           await appStateCompareAndSet(session, flushKey, null, flushValue, {
@@ -117,6 +124,8 @@ export async function flushOpenDocumentEditorToSql(args: {
           return;
         }
         const occupied = await appStateGet(session, flushKey);
+        // A finished acknowledgement may belong to a flush still waiting out
+        // the full deadline, so only the longer timeout makes it stale.
         if (
           occupied &&
           (occupied.status === "success" || occupied.status === "error") &&
@@ -142,7 +151,7 @@ export async function flushOpenDocumentEditorToSql(args: {
     throw new Error("Could not ask the open document editor to save.");
   }
 
-  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   let flushError: string | null = null;
   let acknowledged = false;
   while (Date.now() < deadline) {

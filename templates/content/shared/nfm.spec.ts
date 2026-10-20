@@ -933,6 +933,28 @@ describe("bug fixes — reliability sweep", () => {
 
       expect(docToNfm(doc)).toBe("**One** \tTwo`<br>`");
     });
+
+    it.each([
+      ["a newline", "\n"],
+      ["a space and a newline", " \n"],
+      ["a tab and a newline", "\t\n"],
+    ])("never wraps text with %s in a span", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const texts = (nfmToDoc(serialized).content ?? []).flatMap((node) =>
+        (node.content ?? []).map((child) => child.text ?? ""),
+      );
+
+      expect(serialized).not.toContain("<span>");
+      expect(texts.join("")).not.toContain("span>");
+    });
   });
 
   describe("dual inline colors", () => {
