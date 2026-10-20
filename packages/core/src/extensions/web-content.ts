@@ -66,9 +66,9 @@ export interface WebContentResult {
   content?: string;
   fullContent?: string;
   /** Format of `fullContent`: the requested `saveContentFormat` when
-   * extraction succeeded, or `"raw"` when extraction failed and `fullContent`
-   * fell back to the original response body. Callers must not label the
-   * latter as the requested text/markdown format. */
+   * extraction produced usable text, or `"raw"` when it failed or the
+   * extracted markdown/text was empty and `fullContent` is the original
+   * response body. Callers must not label the latter as text/markdown. */
   fullContentFormat?: "raw" | "markdown" | "text";
   contentLength?: number;
   links?: WebContentLink[];
@@ -201,9 +201,12 @@ export async function processWebContent(
           options.saveContentFormat === "markdown",
       )
     : null;
-  const htmlExtractionFailed = Boolean(shouldExtract && extracted === null);
   const realExtractedText = extracted?.markdown || extracted?.text || "";
   const hasRealExtractedContent = realExtractedText.length > 0;
+  // A non-null extraction with empty markdown and text is not success: text
+  // mode would keep `""` (`??` does not fall through), and save would write
+  // an empty file while still labeling text/markdown.
+  const noUsableExtractedText = shouldExtract && !hasRealExtractedContent;
   const baseContent = contentForMode(mode, options.body, extracted);
   // `baseContent` is the raw body for responseMode "raw", for a failed
   // extraction, and when markdown/text came back empty. Those bytes must not
@@ -214,19 +217,18 @@ export async function processWebContent(
     ? "extracted"
     : "raw";
   const rawBodyFallback = mode !== "raw" && !hasExtractedContent;
+  const savedExtractedText =
+    options.saveContentFormat === "text"
+      ? extracted?.text || ""
+      : realExtractedText;
   const fullContent = options.saveContentFormat
-    ? options.saveContentFormat === "text"
-      ? (extracted?.text ?? (extracted ? "" : options.body))
-      : extracted?.markdown ||
-        extracted?.text ||
-        (extracted ? "" : options.body)
+    ? savedExtractedText || options.body
     : undefined;
-  // When extraction failed, `fullContent` is the raw response body, not the
-  // requested text/markdown. Label it `raw` so the save path preserves the
-  // original content type instead of writing raw HTML under a Markdown/text
-  // label.
+  // Empty extracted text is the raw response body, not the requested
+  // text/markdown. Label it `raw` so the save path keeps the original
+  // content type instead of writing an empty file under a Markdown/text label.
   const fullContentFormat = options.saveContentFormat
-    ? extracted
+    ? savedExtractedText
       ? options.saveContentFormat
       : "raw"
     : undefined;
@@ -258,7 +260,7 @@ export async function processWebContent(
 
   if (mode === "links") {
     result.links = extracted?.links ?? [];
-    if (htmlExtractionFailed) {
+    if (noUsableExtractedText) {
       applyFallbackBody(result, options.body, maxChars);
     }
     return result;
@@ -266,14 +268,14 @@ export async function processWebContent(
 
   if (mode === "metadata") {
     if (options.includeLinks) result.links = extracted?.links ?? [];
-    if (htmlExtractionFailed) {
+    if (noUsableExtractedText) {
       applyFallbackBody(result, options.body, maxChars);
     }
     return result;
   }
 
   if (mode === "matches") {
-    if (htmlExtractionFailed) {
+    if (noUsableExtractedText) {
       applyFallbackBody(result, options.body, maxChars);
     }
     const matchResult = findWebContentMatches({
@@ -731,7 +733,9 @@ function contentForMode(
   extracted: ExtractedHtml | null,
 ): string {
   if (mode === "raw") return raw;
-  if (mode === "text") return extracted?.text ?? raw;
+  // `??` would keep an empty string from a non-null extraction and surface
+  // a blank text result for markup-only pages.
+  if (mode === "text") return extracted?.text || raw;
   if (mode === "markdown" || mode === "matches") {
     return extracted?.markdown || extracted?.text || raw;
   }

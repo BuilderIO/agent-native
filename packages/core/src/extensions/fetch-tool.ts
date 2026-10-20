@@ -571,9 +571,15 @@ export function createFetchToolEntry(
                   "HTML extraction did not produce saved content",
                 );
               }
+              // Empty markdown/text is a raw fallback, same as a null
+              // extraction. Format that body as raw so a markup-only page is
+              // not saved as an empty text/markdown file.
+              const savingRawFallback =
+                processed.fullContentFormat === "raw" ||
+                processed.rawBodyFallback === true;
               fileContent = formatWebContentResult({
                 ...processed,
-                mode: saveContentFormat,
+                mode: savingRawFallback ? "raw" : saveContentFormat,
                 content: processed.fullContent,
                 fullContent: undefined,
                 fullContentFormat: undefined,
@@ -582,13 +588,17 @@ export function createFetchToolEntry(
                 omittedMatches: undefined,
                 searchSource: undefined,
                 searchTruncated: undefined,
+                rawBodyFallback: savingRawFallback
+                  ? undefined
+                  : processed.rawBodyFallback,
                 truncated: false,
               });
-              // When extraction failed, `fullContent` is the raw response
-              // body; preserve the original HTML content type and label the
-              // saved format as `raw` instead of the requested text/markdown.
-              savedContentFormat =
-                processed.fullContentFormat ?? saveContentFormat;
+              // When extraction failed or yielded no usable text, `fullContent`
+              // is the raw response body; preserve the original content type
+              // and label the saved format as `raw`.
+              savedContentFormat = savingRawFallback
+                ? "raw"
+                : (processed.fullContentFormat ?? saveContentFormat);
               // When extraction failed, `fullContent` is the raw response
               // body; preserve the original response media type (e.g.
               // `application/xhtml+xml`) instead of relabeling it `text/html`.

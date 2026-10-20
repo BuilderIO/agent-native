@@ -242,6 +242,44 @@ describe("processWebContent", () => {
     expect(textResult.fullContentFormat).toBe("raw");
   });
 
+  it("uses the raw body in text mode when extraction yields no usable text", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const body =
+      "<!doctype html><html><body><div id='only-markup-token'></div></body></html>";
+
+    const result = await processWebContent({
+      url: "https://example.com/empty",
+      body,
+      contentType: "text/html",
+      responseMode: "text",
+    });
+
+    expect(result.content).toBe(body);
+    expect(result.rawBodyFallback).toBe(true);
+  });
+
+  it.each(["markdown", "text"] as const)(
+    "saves the raw body instead of an empty %s file when extraction yields no usable text",
+    async (saveContentFormat) => {
+      const { processWebContent } = await import("./web-content.js");
+      const body =
+        "<!doctype html><html><body><div id='only-markup-token'></div></body></html>";
+
+      const result = await processWebContent({
+        url: "https://example.com/empty",
+        body,
+        contentType: "text/html",
+        responseMode: saveContentFormat,
+        saveContentFormat,
+      });
+
+      expect(result.fullContent).toBe(body);
+      expect(result.fullContentFormat).toBe("raw");
+      expect(result.rawBodyFallback).toBe(true);
+      expect(result.contentType).toBe("text/html");
+    },
+  );
+
   it("labels the saved fullContent with the requested format when extraction succeeds", async () => {
     const { processWebContent } = await import("./web-content.js");
     const result = await processWebContent({
