@@ -14,6 +14,7 @@ vi.mock("./registry.js", () => ({
 
 describe("hydrateOwnedImageUrl", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -128,14 +129,20 @@ describe("hydrateOwnedImageUrl", () => {
   });
 
   it("uses one absolute deadline across successive image reads", async () => {
+    vi.useFakeTimers();
     findProviderMock.mockResolvedValue({ id: "owned-storage" });
     const budget = {
       deadlineAt: Date.now() + 100,
       remainingBytes: 10_000,
     };
+    let notifyFetchStarted: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => {
+      notifyFetchStarted = resolve;
+    });
     const fetchMock = vi.fn(
       async (_url: URL, init: RequestInit) =>
         await new Promise<Response>((_resolve, reject) => {
+          notifyFetchStarted?.();
           init.signal?.addEventListener(
             "abort",
             () => reject(new Error("aborted")),
@@ -145,13 +152,17 @@ describe("hydrateOwnedImageUrl", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(
-      hydrateOwnedImageUrl(
-        "https://storage.example/slow.jpg",
-        "image/jpeg",
-        budget,
-      ),
-    ).resolves.toEqual({ kind: "failed", code: "request-time-limit" });
+    const slowRead = hydrateOwnedImageUrl(
+      "https://storage.example/slow.jpg",
+      "image/jpeg",
+      budget,
+    );
+    await fetchStarted;
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(slowRead).resolves.toEqual({
+      kind: "failed",
+      code: "request-time-limit",
+    });
     await expect(
       hydrateOwnedImageUrl(
         "https://storage.example/next.jpg",
