@@ -7202,14 +7202,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             // Only reveal a thread's active run to viewers/editors of the
-            // thread. Present unauthorized users (or unknown threads) as idle
-            // rather than 404 so thread existence isn't leaked and the client
-            // polls benignly.
+            // thread. Present unauthorized users (or unknown threads) as
+            // unreadable rather than 404 so thread existence isn't leaked.
             if (!(await canViewThread(threadId))) {
               return {
                 active: false,
                 threadId,
-                status: "idle",
+                status: "unknown",
                 heartbeatAt: null,
                 lastProgressAt: null,
               };

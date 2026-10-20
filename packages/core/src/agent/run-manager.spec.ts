@@ -4658,6 +4658,16 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("preserves SQL lookup failures instead of reporting an empty thread", async () => {
+    vi.mocked(getRunByThread).mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(
+      getActiveRunForThreadAsync("thread-unreadable"),
+    ).rejects.toThrow("database unavailable");
+  });
+
   it("returns recently-completed SQL runs from /runs/active so reconnect can replay them", async () => {
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-recent-completed",

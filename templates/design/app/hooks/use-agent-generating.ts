@@ -15,6 +15,7 @@ const GENERATION_HANDOFF_TIMEOUT_MS = 5 * 60_000;
 const GENERATION_STATUS_POLL_START_DELAY_MS = 3_000;
 const GENERATION_STATUS_POLL_INTERVAL_MS = 5_000;
 const GENERATION_STATUS_IDLE_CONFIRMATIONS = 2;
+const STORED_RUN_IDLE_CONFIRMATIONS = 4;
 const TERMINAL_RUN_STATUSES = new Set([
   "completed",
   "errored",
@@ -68,6 +69,7 @@ interface TrackGenerationOptions {
   previousRunBaselineVerified?: boolean;
   currentRunId?: string;
   currentTurnId?: string;
+  resumingStoredRun?: boolean;
 }
 
 interface PreviousRunBaseline {
@@ -86,6 +88,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   const statusPollGenerationRef = useRef(0);
   const generationIdlePollCountRef = useRef(0);
   const generationRunObservedRef = useRef(false);
+  const resumingStoredRunRef = useRef(false);
+  const storedRunIdlePollCountRef = useRef(0);
   const startFailedPendingRef = useRef(false);
   const waitingForContinuationRef = useRef(false);
   const requireActiveRunRef = useRef(false);
@@ -131,6 +135,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     activeTabIdRef.current = null;
     generationIdlePollCountRef.current = 0;
     generationRunObservedRef.current = false;
+    resumingStoredRunRef.current = false;
+    storedRunIdlePollCountRef.current = 0;
     startFailedPendingRef.current = false;
     waitingForContinuationRef.current = false;
     requireActiveRunRef.current = false;
@@ -147,6 +153,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   const startGenerationTimeout = useCallback(
     (tabId: string | null) => {
       clearGenerationTimeout();
+      if (resumingStoredRunRef.current) return;
       timeoutRef.current = window.setTimeout(
         () => {
           if (activeTabIdRef.current === tabId) {
@@ -250,6 +257,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       const isFirstObservedRun = !generationRunObservedRef.current;
       const isNewRun = hasRunId && runId !== currentRunIdRef.current;
       generationRunObservedRef.current = true;
+      resumingStoredRunRef.current = false;
+      storedRunIdlePollCountRef.current = 0;
       requireActiveRunRef.current = false;
       if (hasRunId) {
         currentRunIdRef.current = runId!;
@@ -412,6 +421,18 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           }
           if ((isRunning || isTerminal) && typeof state.runId !== "string") {
             throw new Error("Agent run state did not include a run ID");
+          }
+          if (resumingStoredRunRef.current && isIdle && state.runId == null) {
+            storedRunIdlePollCountRef.current += 1;
+            if (
+              storedRunIdlePollCountRef.current >= STORED_RUN_IDLE_CONFIRMATIONS
+            ) {
+              callbacksRef.current.onStale?.(tabId);
+              reset();
+              return;
+            }
+          } else {
+            storedRunIdlePollCountRef.current = 0;
           }
           const abortReason =
             state.status !== "aborted"
@@ -607,6 +628,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           }
         } catch {
           generationIdlePollCountRef.current = 0;
+          storedRunIdlePollCountRef.current = 0;
         }
         if (
           statusPollGenerationRef.current === generation &&
@@ -635,6 +657,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       setGenerating(true);
       generationIdlePollCountRef.current = 0;
       generationRunObservedRef.current = false;
+      resumingStoredRunRef.current = trackOptions.resumingStoredRun === true;
+      storedRunIdlePollCountRef.current = 0;
       waitingForContinuationRef.current = false;
       startFailedPendingRef.current = false;
       continuationSourceRunIdRef.current = null;
@@ -675,6 +699,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             previousRunIdRef.current = baseline?.runId ?? null;
             currentRunIdRef.current = baseline?.currentRunId ?? null;
             currentTurnIdRef.current = baseline?.currentTurnId ?? null;
+            resumingStoredRunRef.current = Boolean(baseline?.currentRunId);
+            storedRunIdlePollCountRef.current = 0;
             requireActiveRunRef.current =
               baseline?.verified !== true && currentRunIdRef.current === null;
             callbacksRef.current.onAdoptRunningTab?.(eventTabId);

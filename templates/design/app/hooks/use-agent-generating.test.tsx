@@ -215,6 +215,104 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("keeps polling a restored run through transient status read failures", async () => {
+    const onComplete = vi.fn();
+    const onRunConfirmed = vi.fn();
+    const onStale = vi.fn();
+    const unavailable = { ok: false };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(unavailable)
+      .mockResolvedValueOnce(unavailable)
+      .mockResolvedValueOnce(unavailable)
+      .mockResolvedValueOnce(unavailable)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active: true,
+          status: "running",
+          runId: "restored-run",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onRunConfirmed={onRunConfirmed}
+          onStopped={vi.fn()}
+          onStale={onStale}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        currentRunId: "restored-run",
+        resumingStoredRun: true,
+      });
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onStale).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(latest!.generating).toBe(true);
+    expect(onRunConfirmed).toHaveBeenCalledWith(
+      "design_tab",
+      "restored-run",
+      undefined,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("marks a restored run stale only after repeated authoritative idle reads", async () => {
+    const onComplete = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ active: false, status: "idle" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe onComplete={onComplete} onStale={onStale} onStopped={vi.fn()} />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        currentRunId: "missing-run",
+        resumingStoredRun: true,
+      });
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(18_000);
+    });
+    expect(latest!.generating).toBe(false);
+    expect(onStale).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("waits across a continuation handoff and idle gap", async () => {
     const onComplete = vi.fn();
     const onStopped = vi.fn();

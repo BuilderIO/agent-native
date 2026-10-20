@@ -28,6 +28,20 @@ describe("readPreviousRunBaseline", () => {
     ).toEqual({ runId: null, verified: true });
   });
 
+  it("does not verify an unreadable thread as an empty run baseline", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ active: false, status: "unknown" }),
+      }),
+    );
+
+    const baseline = await readPreviousRunBaseline("thread-1");
+
+    expect(baseline).toEqual({ runId: null, verified: false });
+  });
+
   it("uses the latest run id instead of a stale stored id", async () => {
     vi.stubGlobal(
       "fetch",
