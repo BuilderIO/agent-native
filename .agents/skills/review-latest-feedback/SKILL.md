@@ -21,7 +21,25 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. It names every verified `✅` scope and its evidence, every open scope, and each `🎫` action and owner (or why a mark does not apply). Add and read back root `✅` as soon as direct post-change proof verifies a scope, and root `🎫` as soon as another person or team must act. An `👀` alone never completes the status. Preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
+Output is fixes. For every unheld in-scope report root this task owns, keep one concise, current same-actor status reply after the latest human message. It names every verified `✅` scope and its evidence, every open scope, and each `🎫` action and owner (or why a mark does not apply). Add and read back root `✅` as soon as direct post-change proof verifies a scope, and root `🎫` as soon as another person or team must act. An `👀` alone never completes the status. Preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on held, person-assigned, or `:mag:` items.
+
+### Read the root marks as history; use the reply for current status
+
+- `👀` records this workflow's claim. It does not mean the report is still open.
+- `✅` records a scope that passed direct post-change proof. Add it as soon as
+  any scope passes, even when another scope remains open; name the verified
+  scope and evidence in the status reply.
+- `🎫` records a distinct action another person must take, including a reporter
+  request. Keep the reaction as history after that action is completed,
+  answered, or abandoned; the current reply must say whether the action is
+  still open or historical.
+- Every owned root needs one current same-actor reply after the latest human
+  reply. Reuse it while the disposition and evidence remain current; do not
+  send a duplicate progress reply on every sweep. The reply names verified
+  scopes, open scopes, human actions and owners, and why either `✅` or `🎫` is
+  absent. An eye-only root is correct when no scope is verified and no separate
+  human action is pending; say whether the next step is this workflow's
+  investigation or no further action.
 
 ## Slack channels and ownership
 
@@ -34,43 +52,92 @@ channel. For a permalink, its channel ID identifies only where the exact linked
 root must appear; it does not limit the cutoff or channel scope. For an
 explicitly narrowed sweep, verify that the active request names every selected
 channel, then record its exact text and IDs in the separate scope-confirmation
-file. `#dev-agent-native-feedback` is not excluded.
+file. A request can select exactly two channels by linking one report in the
+first and directly asking for “the same in” the second, without saying “only.”
+The checker permits one adjacent-transposition typo in that target only when it
+uniquely matches a selected canonical channel; it rejects incidental or quoted
+mentions and prefixes. See [`channel-inventory.md`](references/channel-inventory.md)
+for the scope gate and its confirmation requirements. `#dev-agent-native-feedback`
+is not excluded.
 
 In every scoped channel, run the complete bot-inclusive `slack_search_public`
 scan with only the channel filter and that channel's inclusive lower bound.
-Exhaust every cursor; `slack_read_channel` cannot replace this inventory. Resolve
-each row to its true parent. Read each report's full thread, attachments, and
-root reactions before classifying, claiming, or skipping it. Follow
+Freeze one `windowEndTs` at sweep start and use it for every channel and
+owned-mark search. Messages newer than it belong to the next scheduled sweep;
+never move the boundary to chase arrivals. Exhaust every cursor;
+`slack_read_channel` cannot replace this inventory. Resolve
+each row to its true parent and read the root reactions before opening the thread.
+If another actor owns any workflow mark (`👀`, `✅`, or `🎫`), or this actor owns
+`:mag:`, apply the held-thread boundary below: do not read the thread, react, or
+reply. Otherwise read the report's full thread and attachments before
+classifying or claiming it. Follow
 [`channel-inventory.md`](references/channel-inventory.md) for exact query
-arguments, raw-page receipts, cap recovery, root classification, all-history
-searches for this actor's `👀`, `✅`, and `🎫`, and checker requirements.
+arguments, raw-page receipts, cap recovery, root classification, fixed-window
+source scans, bounded ownership searches for this actor's `👀`, `✅`, and `🎫`,
+and checker requirements. Owned-mark searches use Slack's exact syntax
+`hasmy::eyes:`, `hasmy::white_check_mark:`, or `hasmy::ticket:` with the channel
+filter and the same inclusive `after` and `before` as that channel's source
+scan. Do not widen a finite catch-up request into an all-history audit. A root
+older than `after` is in scope only when an in-window reply links to it. A
+missing trailing colon is not a valid ownership query.
 
 Only the invoking Slack actor's root marks are owned here. Another task's eye
 plus its current open status remains theirs; an explicit handoff naming this
 task and scope is required to transfer investigation. An eye is a permanent
 claim, not proof of open or completed work. A mark on a reply never claims or
-checks off its parent. Before exit, reconcile every owned root in the full
-inventory, including older marks: latest human reply, current status reply,
-verified scopes, open scopes, human/team actions, and exact root reactions.
-Never let a high eye count hide an unchecked verified scope or a missing
-current reply.
+checks off its parent. Before exit, reconcile every in-window root carrying
+this actor's `👀`, `✅`, or `🎫` found by the bounded searches. Also reconcile an
+older root when an in-window reply links to it. For every owned root, compare
+the latest human reply, current status, verified scopes, open scopes, human
+actions, and exact root reactions.
+Never let a high eye count hide a verified scope without `✅` or a missing
+current status reply.
+
+**Held-thread boundary:** A direct root reaction read showing another person's
+`👀`, `✅`, or `🎫` means the thread belongs to that workflow; this actor's
+`:mag:` means this actor opted out. Record the exact root, reaction owners, and
+one reason (`foreign_workflow_mark` or `mag_opt_out`) in `ownershipSkip`, with
+`Skipped` disposition. When this actor owns both `:mag:` and a workflow mark,
+use `mag_opt_out` and preserve the exact root reaction-owner record as history.
+Do not open/read that thread, inspect reply reactions, add or remove reactions,
+or post a reply. Apply the same skip to channel reply
+rows linked to that root. A linked pre-window root without source text remains
+`unclassified`; do not infer its original report from the reply. This explicit
+exception keeps ownership boundaries intact while allowing the rest of the
+window to be reconciled. A foreign `👀` without current status is still held;
+do not read it to decide whether its owner is active.
 
 Only Steve's `:mag:` and `:yes-party:` count (`U0GCV21HC`). When Steve invokes,
-exhaust `hasmy::mag:` and `hasmy::yes-party:` searches; otherwise inspect root
-reactions. `:mag:` opts out and wins over `:yes-party:`. The latter authorizes
-only an otherwise review-only item; it never overrides an assignment or another
+exhaust `hasmy::mag:` and `hasmy::yes-party:` searches within each channel's
+same inclusive cutoff; otherwise inspect root reactions in the requested
+window. `:mag:` opts out and wins over `:yes-party:`. The latter authorizes only
+an otherwise review-only item; it never overrides an assignment or another
 task's claim.
 
 ## Phase 0: claim and reconcile
 
 Resolve known duplicates before claiming. Check ownership, then add and read
 back this task's root `👀` before investigating an eligible unowned report.
-Reconcile every root this actor already owns, including eyes, checks, and
-handoffs from prior runs, before discovering new questions. Keep one concise
-canonical status by the same actor after the latest human message; read back the
-visible reply and root reactions after each write. Use
+Reconcile only owned roots inside this invocation's fixed window and older
+roots explicitly linked by an in-window reply. Never expand a finite sweep to
+all historical roots just because this actor owns an old mark; widen the range
+only when the invocation explicitly requests it or hands off exact roots. Finish
+this bounded reconciliation before discovering new questions. Keep one
+concise canonical status by the same actor after the latest human message; read
+back the visible reply and root reactions after each write. Use
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
 status and reaction rules.
+
+**Bounded exit gate:** enumerate the complete candidate set from the fixed
+source window, the three matching owned-mark searches, and older roots linked
+by in-window replies. For every unheld owned root, compare the latest human
+message, current status reply, verified scopes, open scopes, and root marks.
+Add and read back `✅` for each newly verified scope and `🎫` for each distinct
+pending human action; the status reply must follow the latest human message and
+name current evidence, remaining work, and owners. An `👀` with a verified
+scope missing `✅`, a pending human action missing `🎫`, or no current status is
+unfinished. Finish the complete bounded set once, then stop; do not chase
+unrelated historical marks.
 
 Split reports into distinct scopes. Add root `✅` as soon as any named scope
 passes direct post-change proof, even while its PR is open; say **Verified
@@ -97,11 +164,14 @@ action and owner. Use **Skipped** only for non-defects.
 
 Phase 0 handles new human replies on owned roots first; never hide a newer
 reporter reply behind a mark. Then find prior unanswered questions using the
-exact bot disclosure and the saved channel reply cursor. On a first run, scan
-available history. Exhaust pages, use a one-day overlap for date-only cursors,
-resolve every hit to its parent, and read the full thread after checking
-reactions. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md)
-for exact searches, legacy identity handling, and answer criteria.
+exact bot disclosure and the saved channel reply cursor, bounded by this
+invocation's fixed window. On a first run, use the same default five-day window;
+never scan all available history to initialize the cursor. Exhaust pages, use a
+one-day overlap for date-only cursors, resolve every hit to its parent, and read
+the full thread after checking reactions. An older root is eligible only when
+an in-window reply links to it. Follow
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
+searches, legacy identity handling, and answer criteria.
 
 A valid answer is a human post after the question, without this workflow's
 disclosure, that addresses the question. Rebuild the evidence and attempt the
@@ -327,15 +397,17 @@ send one concise disposition covering done, remaining, and next action/owner.
 Do not reply again to announce merge, publication, or live beta; answer direct
 reporter follow-ups. End Slack replies with `this was sent from a bot.`.
 
-Replies are one or two sentences: the change or question, its limit, and the next step. Never explain reactions, ledgers, or tickets. Never send **Open**/**pending** or a symptom recap. Ask for reporter input only when it changes the next step; never request supplied evidence or internal access. Keep hashes, branches, CI, publisher, and run details in the recap.
+Reporter-facing replies are one or two sentences: the change or question, its limit, and the next step. Do not explain workflow mechanics, ledgers, or external tracker tickets. Never send **Open**/**pending** or a symptom recap. Ask for reporter input only when it changes the next step; never request supplied evidence or internal access. Keep hashes, branches, CI, publisher, and run details in the recap.
 
-That brevity rule is for a reporter-facing reply. Separately, every root this
-actor marks with `👀`, `✅`, or `🎫` still needs the current same-actor status
-reply required by the Slack reaction reference. One concise reply may serve both
-purposes when it answers the reporter and records the current disposition,
-verified/open scopes, owner/action, and any missing-proof reason. A Slack `🎫`
-reaction tracks a distinct unfinished human/team action; it does not mean an
-external tracker ticket was created or assigned. Never imply that it was.
+Every root this actor marks with `👀`, `✅`, or `🎫` also needs the current
+same-actor status reply required by the Slack reaction reference. One concise
+reply may serve both purposes when it answers the reporter and records the
+current disposition, verified/open scopes, owner/action, and any reason a mark
+is absent. This status requirement takes precedence over the reporter-facing
+brevity rule only for those facts; do not explain ledger mechanics or external
+tracker tickets. A Slack `🎫` reaction tracks a distinct human action, not an
+external ticket, and remains as history after the action closes. Never imply
+that an external ticket was created or assigned.
 
 Keep publisher and beta checks in the internal recap after the disposition;
 they do not trigger a second reporter reply.

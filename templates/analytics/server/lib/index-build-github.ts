@@ -69,6 +69,11 @@ async function readHeadCommit(
       }),
     );
   if (!result.response.ok) {
+    if (result.response.status === 404) {
+      throw new Error(
+        "GitHub could not find this repository or the current authorization cannot access it (HTTP 404). Verify the owner and repository name, and that the connected account has access.",
+      );
+    }
     throw new Error(
       `GitHub commit lookup failed with HTTP ${result.response.status}.`,
     );
