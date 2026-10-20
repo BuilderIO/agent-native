@@ -1940,18 +1940,17 @@ function DatabaseTable({
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     if (activeView.openPagesIn === "full_page") {
-      // A full page links to a thread, not to a new comment on a Property.
       const path = databaseItemPagePath(
         item.document.id,
         databaseId,
         document.id,
       );
-      runPreviewTransition(
-        () =>
-          void navigate(
-            threadId ? `${path}&comment=${encodeURIComponent(threadId)}` : path,
-          ),
-      );
+      const link = threadId
+        ? `${path}&comment=${encodeURIComponent(threadId)}`
+        : propertyId
+          ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
+          : path;
+      runPreviewTransition(() => void navigate(link));
       return;
     }
     const intent: PageCommentIntent = {

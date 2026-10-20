@@ -7776,6 +7776,7 @@ function PageEditorSessionBody({
     ],
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
+  const handledPropertyCommentLinkRef = useRef<string | null>(null);
 
   const startPropertyComment = useCallback(
     (property: DocumentProperty) => {
@@ -7911,6 +7912,35 @@ function PageEditorSessionBody({
     handledCommentDeepLinkRef.current = deepLinkKey;
     activateCommentThread(threadId, true);
   }, [activateCommentThread, documentId, location.search, threads]);
+
+  // A Collection that opens rows as full pages links here to start a comment
+  // on one Property, as the row's peek does on a touch screen.
+  useEffect(() => {
+    const propertyId = new URLSearchParams(location.search).get(
+      "commentProperty",
+    );
+    if (!propertyId) {
+      handledPropertyCommentLinkRef.current = null;
+      return;
+    }
+    const linkKey = `${documentId}:${propertyId}`;
+    if (handledPropertyCommentLinkRef.current === linkKey || !pageProperties) {
+      return;
+    }
+    handledPropertyCommentLinkRef.current = linkKey;
+    const property = pageProperties.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    if (property && canComment) startPropertyComment(property);
+    else handleUtilityPanelChange("comments");
+  }, [
+    canComment,
+    documentId,
+    handleUtilityPanelChange,
+    location.search,
+    pageProperties,
+    startPropertyComment,
+  ]);
 
   const handledCommentIntentRef = useRef<number | null>(null);
   useEffect(() => {
