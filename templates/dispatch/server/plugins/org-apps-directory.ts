@@ -179,38 +179,42 @@ export const orgAppsHandler = defineEventHandler(
       userEmail ? `user:${userEmail}` : "organization",
       includeDirectoryApp ? "include-self" : "exclude-self",
       preferLocalUrls ? "local" : "hosted",
-    ].join("|");
+    ];
     let apps: DiscoveredAppLike[];
     try {
-      apps = await directoryCache.get(cacheKey, async () =>
-        runWithRequestContext(
-          {
-            orgId: localOrg.orgId,
-            ...(userEmail ? { userEmail } : {}),
-          },
-          async () => {
-            const startedAt = Date.now();
-            const visibleWorkspaceApps = isOrganizationPrincipal
-              ? await listOrganizationVisibleWorkspaceApps()
-              : await listWorkspaceApps({
-                  includeAgentCards: false,
-                  audience: "all",
-                });
-            const allowedWorkspaceAppIds = new Set(
-              visibleWorkspaceApps
-                .filter(
-                  (app) =>
-                    app.status === "ready" &&
-                    (app.visibility === "org" ||
-                      (app.visibility === "private" &&
-                        !!userEmail &&
-                        app.owner?.trim().toLowerCase() === userEmail)) &&
-                    app.orgEnabled !== false &&
-                    typeof app.url === "string" &&
-                    app.url.trim().length > 0,
-                )
-                .map((app) => app.id),
-            );
+      apps = await runWithRequestContext(
+        {
+          orgId: localOrg.orgId,
+          ...(userEmail ? { userEmail } : {}),
+        },
+        async () => {
+          const startedAt = Date.now();
+          const visibleWorkspaceApps = isOrganizationPrincipal
+            ? await listOrganizationVisibleWorkspaceApps()
+            : await listWorkspaceApps({
+                includeAgentCards: false,
+                audience: "all",
+              });
+          const allowedWorkspaceAppIds = new Set(
+            visibleWorkspaceApps
+              .filter(
+                (app) =>
+                  app.status === "ready" &&
+                  (app.visibility === "org" ||
+                    (app.visibility === "private" &&
+                      !!userEmail &&
+                      app.owner?.trim().toLowerCase() === userEmail)) &&
+                  app.orgEnabled !== false &&
+                  typeof app.url === "string" &&
+                  app.url.trim().length > 0,
+              )
+              .map((app) => app.id),
+          );
+          const scopedCacheKey = [
+            ...cacheKey,
+            JSON.stringify([...allowedWorkspaceAppIds].sort()),
+          ].join("|");
+          return directoryCache.get(scopedCacheKey, async () => {
             const discovered = await discoverOrgDirectoryAgents(
               includeDirectoryApp ? undefined : SELF_APP_ID,
               { preferLocalUrls, allowedWorkspaceAppIds },
@@ -246,8 +250,8 @@ export const orgAppsHandler = defineEventHandler(
               url: agent.url,
               source: agent.source,
             }));
-          },
-        ),
+          });
+        },
       );
     } catch (error) {
       const reason =

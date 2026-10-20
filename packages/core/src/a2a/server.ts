@@ -638,6 +638,7 @@ export function mountA2A(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
+      setResponseHeader(event, "cache-control", "private, no-store");
       const protocol =
         getRequestHeader(event, "x-forwarded-proto") ||
         (event.url?.protocol?.replace(":", "") ?? "http");
@@ -646,9 +647,11 @@ export function mountA2A(
 
       let skills = filterPublicAgentCardSkills(config);
       let description = config.description;
+      let profileResolved = false;
       if (
         config.authenticatedSkills?.length ||
-        config.resolveAuthenticatedProfile
+        config.resolveAuthenticatedProfile ||
+        config.resolvePublicProfile
       ) {
         const bearer = extractBearerToken(
           getRequestHeader(event, "authorization"),
@@ -674,6 +677,7 @@ export function mountA2A(
               if (profile) {
                 description = profile.description ?? description;
                 skills = addAgentProfileExamples(skills, profile);
+                profileResolved = true;
               }
             }
           } catch (error) {
@@ -685,6 +689,14 @@ export function mountA2A(
               error: "A2A identity verification is temporarily unavailable",
             };
           }
+        }
+      }
+
+      if (!profileResolved) {
+        const profile = await config.resolvePublicProfile?.();
+        if (profile) {
+          description = profile.description ?? description;
+          skills = addAgentProfileExamples(skills, profile);
         }
       }
 

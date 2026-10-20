@@ -1470,19 +1470,24 @@ export async function preloadJevContextWithStatus(options: {
     options.appRequest ?? request,
     JEV_APP_SELECTION_LIMIT,
   );
-  const appDirectoryStatus: OrgDirectoryStatus =
-    appDiscovery?.directory ??
-    (appDiscoveryReadStatus === "failed"
-      ? { status: "unavailable", reason: "discovery-failed" }
-      : { status: "unavailable", reason: "discovery-timed-out" });
-  appSelection = {
-    status:
-      appDiscoveryReadStatus ??
-      (appDirectoryStatus.status === "available" ? "no-match" : "unavailable"),
-    directoryStatus: appDirectoryStatus.status,
-    selectedIds: [],
-    latencyMs: 0,
-  };
+  const appDirectoryStatus: OrgDirectoryStatus | undefined = appEnabled
+    ? (appDiscovery?.directory ??
+      (appDiscoveryReadStatus === "failed"
+        ? { status: "unavailable", reason: "discovery-failed" }
+        : { status: "unavailable", reason: "discovery-timed-out" }))
+    : undefined;
+  if (appDirectoryStatus) {
+    appSelection = {
+      status:
+        appDiscoveryReadStatus ??
+        (appDirectoryStatus.status === "available"
+          ? "no-match"
+          : "unavailable"),
+      directoryStatus: appDirectoryStatus.status,
+      selectedIds: [],
+      latencyMs: 0,
+    };
+  }
   const candidates = [
     ...runtimeCandidates,
     ...memoryContext.candidates,
@@ -1490,6 +1495,14 @@ export async function preloadJevContextWithStatus(options: {
     ...appCandidates,
   ];
   if (candidates.length === 0) {
+    if (appDirectoryStatus && appSelection) {
+      appSelectionContext = renderRelevantAppsContext({
+        agents: discoveredApps,
+        selectedIds: [],
+        selectionStatus: appSelection.status,
+        directoryStatus: appDirectoryStatus,
+      });
+    }
     trackAnalyticsJevContext({
       appId: options.appId,
       jevConfigured: hasJev,
@@ -1498,7 +1511,10 @@ export async function preloadJevContextWithStatus(options: {
       candidates,
       selectedIds: [],
     });
-    return finish("", 0);
+    const result = finish("", 0);
+    return appDiscoveryReadStatus
+      ? { ...result, status: appDiscoveryReadStatus }
+      : result;
   }
 
   const categoryFor = (candidate: JevPromptCandidate) => {
@@ -1607,35 +1623,37 @@ export async function preloadJevContextWithStatus(options: {
     ]),
   ).slice(0, JEV_APP_SELECTION_LIMIT);
   const appRankingStatus = rankings.get("app")?.status;
-  const appSelectionStatus =
-    selectedAppIds.length > 0
-      ? "selected"
-      : appRankingStatus === "failed" || appRankingStatus === "timed_out"
-        ? appRankingStatus
-        : appRankingStatus === "unavailable" && hasJev
-          ? "unavailable"
-          : isRanked(
-                appRankingStatus ? { status: appRankingStatus } : undefined,
-              )
-            ? "no-match"
-            : hasJev && degraded
-              ? degraded
-              : (appDiscoveryReadStatus ??
-                (appDirectoryStatus.status === "available"
-                  ? "no-match"
-                  : "unavailable"));
-  appSelection = {
-    status: appSelectionStatus,
-    directoryStatus: appDirectoryStatus.status,
-    selectedIds: selectedAppIds,
-    latencyMs: Date.now() - appDiscoveryStartedAt,
-  };
-  appSelectionContext = renderRelevantAppsContext({
-    agents: discoveredApps,
-    selectedIds: selectedAppIds,
-    selectionStatus: appSelection.status,
-    directoryStatus: appDirectoryStatus,
-  });
+  if (appDirectoryStatus) {
+    const appSelectionStatus =
+      selectedAppIds.length > 0
+        ? "selected"
+        : appRankingStatus === "failed" || appRankingStatus === "timed_out"
+          ? appRankingStatus
+          : appRankingStatus === "unavailable" && hasJev
+            ? "unavailable"
+            : isRanked(
+                  appRankingStatus ? { status: appRankingStatus } : undefined,
+                )
+              ? "no-match"
+              : hasJev && degraded
+                ? degraded
+                : (appDiscoveryReadStatus ??
+                  (appDirectoryStatus.status === "available"
+                    ? "no-match"
+                    : "unavailable"));
+    appSelection = {
+      status: appSelectionStatus,
+      directoryStatus: appDirectoryStatus.status,
+      selectedIds: selectedAppIds,
+      latencyMs: Date.now() - appDiscoveryStartedAt,
+    };
+    appSelectionContext = renderRelevantAppsContext({
+      agents: discoveredApps,
+      selectedIds: selectedAppIds,
+      selectionStatus: appSelection.status,
+      directoryStatus: appDirectoryStatus,
+    });
+  }
   const selected = new Set(jevSelectedIds);
   const analyticsCandidates =
     candidatesByCategory.get("analytics-reference") ?? [];

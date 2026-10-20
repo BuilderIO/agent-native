@@ -210,10 +210,21 @@ describe("mountA2A auth", () => {
       description: "Private workspace app description",
       whenToUse: ["List records from my workspace"],
     }));
+    const resolvePublicProfile = vi.fn(async () => ({
+      description: "Public workspace app description",
+      whenToUse: ["List records from the public workspace"],
+    }));
     const handler = await mountedAgentCardHandler({
       ...config,
       description: "Package app description",
-      skills: [],
+      skills: [
+        {
+          id: "list-records",
+          name: "List records",
+          description: "List records in the current app.",
+          readOnly: false,
+        },
+      ],
       authenticatedSkills: [
         {
           id: "list-records",
@@ -222,6 +233,7 @@ describe("mountA2A auth", () => {
           readOnly: false,
         },
       ],
+      resolvePublicProfile,
       resolveAuthenticatedProfile,
     });
 
@@ -231,8 +243,16 @@ describe("mountA2A auth", () => {
       path: "/",
       context: {},
     });
-    expect(anonymousCard.description).toBe("Package app description");
-    expect(anonymousCard.skills).toEqual([]);
+    expect(anonymousCard.description).toBe("Public workspace app description");
+    expect(anonymousCard.skills[0]?.examples).toEqual([
+      "List records from the public workspace",
+    ]);
+    expect(resolvePublicProfile).toHaveBeenCalledOnce();
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "cache-control",
+      "private, no-store",
+    );
     expect(resolveAuthenticatedProfile).not.toHaveBeenCalled();
 
     const token = await new jose.SignJWT({ sub: "alice@example.test" })
@@ -240,6 +260,7 @@ describe("mountA2A auth", () => {
       .setIssuedAt()
       .setExpirationTime("15m")
       .sign(new TextEncoder().encode("shared-global-secret"));
+    setResponseHeaderMock.mockClear();
     const authenticatedCard = await handler({
       method: "GET",
       headers: {
@@ -251,9 +272,15 @@ describe("mountA2A auth", () => {
       context: {},
     });
 
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "cache-control",
+      "private, no-store",
+    );
     expect(resolveAuthenticatedProfile).toHaveBeenCalledWith({
       userEmail: "alice@example.test",
     });
+    expect(resolvePublicProfile).toHaveBeenCalledOnce();
     expect(authenticatedCard.description).toBe(
       "Private workspace app description",
     );

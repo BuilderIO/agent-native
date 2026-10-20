@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
+  agentHandleNumberVariant,
   discoverAgents,
   discoverAgentsWithDirectoryStatus,
   discoverOrgDirectoryAgents,
@@ -75,6 +76,14 @@ vi.mock("../settings/index.js", () => ({
 }));
 
 describe("agent discovery", () => {
+  it("preserves the deprecated plural handle helper for public subpath imports", () => {
+    expect(agentHandleNumberVariant("reports")).toBe("report");
+    expect(agentHandleNumberVariant("report")).toBe("reports");
+    expect(agentHandleNumberVariant("Reports")).toBe("report");
+    expect(agentHandleNumberVariant("address")).toBeNull();
+    expect(agentHandleNumberVariant("  ")).toBeNull();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     resourceListMock.mockResolvedValue([]);

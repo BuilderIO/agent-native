@@ -2067,16 +2067,17 @@ describe("slackAdapter", () => {
     expect(deliveryBodies[0].blocks).toEqual(blocks);
   });
 
-  it("renders HTTPS Markdown images as Slack image blocks and leaves other URLs inline", async () => {
+  it("keeps Markdown image URLs as clickable links instead of Slack image blocks", async () => {
     const adapter = slackAdapter();
     const formatted = adapter.formatAgentResponse?.(
       "Before ![chart](https://example.test/chart.png) after ![private](http://example.test/private.png)",
     );
 
+    expect(formatted?.text).toContain("<https://example.test/chart.png|chart>");
     expect(formatted?.text).toContain(
       "!<http://example.test/private.png|private>",
     );
-    expect(formatted?.text).not.toContain("https://example.test/chart.png");
+    expect(formatted?.platformContext).not.toHaveProperty("imageUrls");
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const delivered: any[] = [];
     vi.stubGlobal(
@@ -2097,17 +2098,18 @@ describe("slackAdapter", () => {
       timestamp: 1,
       platformContext: { channelId: "C123", threadTs: "123.456" },
     });
-    expect(delivered[0].blocks).toContainEqual({
-      type: "image",
-      image_url: "https://example.test/chart.png",
-      alt_text: "chart",
-    });
+    expect(delivered[0].blocks).toContainEqual(
+      expect.objectContaining({
+        type: "section",
+        text: { type: "mrkdwn", text: expect.stringContaining("chart") },
+      }),
+    );
     expect(delivered[0].blocks).not.toContainEqual(
-      expect.objectContaining({ image_url: "http://example.test/private.png" }),
+      expect.objectContaining({ type: "image" }),
     );
   });
 
-  it("sends image-only replies once, preserves alt text, and caps valid blocks at 50", async () => {
+  it("sends image-only Markdown replies once as visible links", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const delivered: any[] = [];
     vi.stubGlobal(
@@ -2120,13 +2122,10 @@ describe("slackAdapter", () => {
         );
       }),
     );
-    const images = Array.from(
-      { length: 55 },
-      (_, index) => `![alt ${index}](https://example.test/${index}.png)`,
-    );
-    images.push(`![too long](https://example.test/${"x".repeat(3001)})`);
     const adapter = slackAdapter();
-    const formatted = adapter.formatAgentResponse?.(images.join("\n"))!;
+    const formatted = adapter.formatAgentResponse?.(
+      "![QR code](https://example.test/qr.png)",
+    )!;
     await adapter.sendResponse?.(formatted, {
       platform: "slack",
       externalThreadId: "C123:123.456",
@@ -2135,18 +2134,13 @@ describe("slackAdapter", () => {
       platformContext: { channelId: "C123", threadTs: "123.456" },
     });
     expect(delivered).toHaveLength(1);
-    expect(delivered[0].text).toBe("Image");
-    expect(delivered[0].blocks).toHaveLength(50);
-    expect(delivered[0].blocks[0]).toEqual({
-      type: "image",
-      image_url: "https://example.test/0.png",
-      alt_text: "alt 0",
-    });
-    expect(
-      delivered[0].blocks.some((block: any) =>
-        block.image_url?.includes("x".repeat(100)),
-      ),
-    ).toBe(false);
+    expect(delivered[0].text).toBe("<https://example.test/qr.png|QR code>");
+    expect(delivered[0].blocks).toEqual([
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: "<https://example.test/qr.png|QR code>" },
+      },
+    ]);
   });
 
   it("splits Slack section blocks by UTF-8 bytes, not JS character length", async () => {

@@ -236,6 +236,7 @@ export interface A2AConfig {
   version?: string;
   skills: AgentSkill[];
   authenticatedSkills?: AgentSkill[];
+  resolvePublicProfile?: () => Promise<AgentProfileMetadata>;
   resolveAuthenticatedProfile?: (identity: {
     userEmail: string;
     orgId?: string;

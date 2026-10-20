@@ -209,6 +209,7 @@ import {
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
+  type FrameworkToolGroup,
 } from "../framework-tools.js";
 import {
   verifyInternalToken,
@@ -488,7 +489,6 @@ import {
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
   buildAuthenticatedAgentA2ASkills,
-  addAgentProfileExamples,
   resolveArtifactBaseUrl,
   unverifiedA2AUserError,
 } from "./agent-chat/action-filters-a2a.js";
@@ -1343,6 +1343,16 @@ export function resolveAgentCheckpointPaths(
   return resolved;
 }
 
+export function disabledGroupsForA2APrompt(
+  disabledGroups: ReadonlySet<FrameworkToolGroup>,
+  a2aAgentDelegationEnabled: boolean,
+): ReadonlySet<FrameworkToolGroup> {
+  if (a2aAgentDelegationEnabled || disabledGroups.has("workspaceApps")) {
+    return disabledGroups;
+  }
+  return new Set([...disabledGroups, "workspaceApps"]);
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -1363,7 +1373,6 @@ export function createAgentChatPlugin(
         getAppConfig().app.workspaceId ??
         getAppConfig().app.packageName ??
         "app";
-      const appAgentProfile = await getWorkspaceAppProfile(appProfileAppId);
 
       // Never make route readiness wait on an org-global stale-run sweep.
       // `/runs/active` reaps the requested run on demand, and the periodic
@@ -1410,7 +1419,10 @@ export function createAgentChatPlugin(
       // consumer below reads a single shape. Conflicting old/new values throw
       // here rather than booting with a surface nobody chose.
       const frameworkTools = resolveFrameworkTools(options);
-      const disabledFrameworkGroups = frameworkTools.disabledGroups;
+      const disabledFrameworkGroups = disabledGroupsForA2APrompt(
+        frameworkTools.disabledGroups,
+        a2aAgentDelegationEnabled,
+      );
 
       // Same treatment for the MCP mount: one resolved shape, folding the
       // deprecated `disableMcp` / `mcpServerInfo` / `connectorCatalog` /
@@ -2486,20 +2498,14 @@ export function createAgentChatPlugin(
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
         description:
-          appAgentProfile?.description ??
           getAppConfig().app.description ??
           `Agent-Native ${options?.appId ?? "app"} agent`,
-        skills: addAgentProfileExamples(
-          buildPublicAgentA2ASkills(externalActions),
-          appAgentProfile,
+        skills: buildPublicAgentA2ASkills(externalActions),
+        authenticatedSkills: buildAuthenticatedAgentA2ASkills(
+          externalFullActions ?? externalActions,
+          mcpOptions,
         ),
-        authenticatedSkills: addAgentProfileExamples(
-          buildAuthenticatedAgentA2ASkills(
-            externalFullActions ?? externalActions,
-            mcpOptions,
-          ),
-          appAgentProfile,
-        ),
+        resolvePublicProfile: () => getWorkspaceAppProfile(appProfileAppId),
         resolveAuthenticatedProfile: ({ userEmail, orgId }) =>
           getWorkspaceAppProfile(appProfileAppId, { userEmail, orgId }),
         publicSkillsOnly: true,
@@ -2753,7 +2759,10 @@ export function createAgentChatPlugin(
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups, skillReadTool },
+            {
+              disabledFrameworkGroups,
+              skillReadTool,
+            },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -3557,7 +3566,13 @@ export function createAgentChatPlugin(
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups, skillReadTool },
+              {
+                disabledFrameworkGroups: disabledGroupsForA2APrompt(
+                  disabledFrameworkGroups,
+                  false,
+                ),
+                skillReadTool,
+              },
             );
             const schemaBlock = lazyContext
               ? ""

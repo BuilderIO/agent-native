@@ -250,6 +250,53 @@ describe("org apps directory handler", () => {
     );
   });
 
+  it("rechecks workspace access before reusing a cached directory", async () => {
+    const qr = {
+      id: "qr",
+      status: "ready",
+      visibility: "org",
+      orgEnabled: true,
+      url: "https://qr.example.test",
+    };
+    listOrganizationVisibleWorkspaceAppsMock
+      .mockResolvedValueOnce([qr])
+      .mockResolvedValueOnce([]);
+    discoverOrgDirectoryAgentsMock.mockResolvedValue(
+      availableAgents([
+        {
+          id: "qr",
+          name: "QR",
+          description: "Generate QR codes",
+          url: qr.url,
+          color: "#000000",
+          source: "workspace",
+        },
+      ]),
+    );
+
+    const first = await request(
+      "https://dispatch.example.test/_agent-native/org/apps",
+      {},
+      "org-only",
+    );
+    expect(
+      (await first.json()).apps.map((app: { id: string }) => app.id),
+    ).toEqual(["qr"]);
+
+    const afterAccessRevoked = await request(
+      "https://dispatch.example.test/_agent-native/org/apps",
+      {},
+      "org-only",
+    );
+    expect(
+      (await afterAccessRevoked.json()).apps.map(
+        (app: { id: string }) => app.id,
+      ),
+    ).toEqual([]);
+    expect(listOrganizationVisibleWorkspaceAppsMock).toHaveBeenCalledTimes(2);
+    expect(discoverOrgDirectoryAgentsMock).toHaveBeenCalledTimes(2);
+  });
+
   it("lets a verified user see only their own private workspace apps", async () => {
     const discovered = ["own-private", "other-private"].map((id) => ({
       id,

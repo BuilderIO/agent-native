@@ -1060,6 +1060,13 @@ function isAbsoluteHttpUrl(value: string): boolean {
   }
 }
 
+/** @deprecated Agent routing now matches normalized handles and declared aliases. */
+export function agentHandleNumberVariant(handle: string): string | null {
+  const value = handle.trim().toLowerCase();
+  if (!value || value.endsWith("ss")) return null;
+  return value.endsWith("s") ? value.slice(0, -1) : `${value}s`;
+}
+
 export async function findAgent(
   idOrName: string,
   selfAppId?: string,

@@ -410,17 +410,9 @@ export function slackAdapter(
         | undefined;
       const placeholderRef = opts?.placeholderRef;
 
-      const imageUrls = (message.platformContext as any)?.imageUrls;
       const hasProvidedBlocks = Array.isArray(blocks) && blocks.length > 0;
-      const imageOnly =
-        !message.text.trim() &&
-        Array.isArray(imageUrls) &&
-        imageUrls.length > 0 &&
-        !hasProvidedBlocks;
       const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
-      const firstChunk =
-        chunks[0] ??
-        (hasProvidedBlocks ? "Response" : imageOnly ? "Image" : "");
+      const firstChunk = chunks[0] ?? (hasProvidedBlocks ? "Response" : "");
       if (!firstChunk) {
         if (threadTs) {
           setSlackAssistantStatus(token, channelId, threadTs, "");
@@ -448,10 +440,9 @@ export function slackAdapter(
 
       const finalBlocks =
         blocks ??
-        buildResponseBlocks(imageOnly ? "" : firstChunk, {
+        buildResponseBlocks(firstChunk, {
           threadDeepLinkUrl: (message.platformContext as any)
             ?.threadDeepLinkUrl,
-          imageUrls,
         });
 
       const baseBody: Record<string, unknown> = {
@@ -679,19 +670,15 @@ export function slackAdapter(
       text: string,
       opts?: { threadDeepLinkUrl?: string },
     ): OutgoingMessage {
-      const imageUrls: { url: string; alt: string }[] = [];
-      const textWithoutImages = text.replace(
+      const textWithImageLinks = text.replace(
         /!\[([^\]]*)\]\((https:\/\/[^\s)]+)\)/g,
-        (_match, alt: string, url: string) => {
-          imageUrls.push({ url, alt });
-          return "";
-        },
+        "[$1]($2)",
       );
       return {
-        text: markdownToSlackMrkdwn(textWithoutImages),
+        text: markdownToSlackMrkdwn(textWithImageLinks),
         platformContext: opts?.threadDeepLinkUrl
-          ? { threadDeepLinkUrl: opts.threadDeepLinkUrl, imageUrls }
-          : { imageUrls },
+          ? { threadDeepLinkUrl: opts.threadDeepLinkUrl }
+          : {},
       };
     },
 
@@ -1148,7 +1135,7 @@ function setSlackAssistantStatus(
 
 function buildResponseBlocks(
   text: string,
-  opts: { threadDeepLinkUrl?: string; imageUrls?: unknown },
+  opts: { threadDeepLinkUrl?: string },
 ): unknown[] {
   const sectionChunks = text.trim()
     ? splitMessage(text, SLACK_SECTION_TEXT_MAX_LENGTH)
@@ -1157,23 +1144,6 @@ function buildResponseBlocks(
     type: "section",
     text: { type: "mrkdwn", text: chunk },
   }));
-  if (Array.isArray(opts.imageUrls)) {
-    for (const image of opts.imageUrls) {
-      if (
-        image &&
-        typeof image.url === "string" &&
-        image.url.startsWith("https://") &&
-        image.url.length <= 3000
-      ) {
-        blocks.push({
-          type: "image",
-          image_url: image.url,
-          alt_text:
-            typeof image.alt === "string" && image.alt ? image.alt : "Image",
-        });
-      }
-    }
-  }
   if (opts.threadDeepLinkUrl) {
     blocks.push({
       type: "actions",

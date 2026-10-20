@@ -772,6 +772,47 @@ describe("preloadJevContextForPrompt", () => {
       ).resolves.toMatchObject({ context: "", status: "timed_out" });
     });
 
+    it("preserves unavailable discovery when the preload has no candidates", async () => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [],
+        directory: { status: "unavailable", reason: "network" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request: "Find a workspace app for QR codes",
+        appDiscoveryOnly: true,
+      });
+
+      expect(result).toMatchObject({
+        context: "",
+        status: "ok",
+        appSelection: {
+          status: "unavailable",
+          directoryStatus: "unavailable",
+        },
+      });
+      expect(result.relevantAppsContext).toContain(
+        'directory-status="unavailable (network)"',
+      );
+      expect(result.relevantAppsContext).toContain(
+        "The workspace app directory is not currently available.",
+      );
+    });
+
+    it("does not report a directory outage when workspace apps are disabled", async () => {
+      const result = await preloadJevContextWithStatus({
+        request: "How many active users last month?",
+        workspaceAppsEnabled: false,
+        candidates: [reference],
+        fallbackCandidateIds: [reference.id],
+      });
+
+      expect(result.context).toContain("Metric: active users.");
+      expect(result.appSelection).toBeUndefined();
+      expect(result.relevantAppsContext).toBeUndefined();
+      expect(mocks.discoverAgentsWithDirectoryStatus).not.toHaveBeenCalled();
+    });
+
     it("surfaces a timed-out app ranker to the model and diagnostics", async () => {
       mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
         agents: [qrRoutingApps[0]!],
