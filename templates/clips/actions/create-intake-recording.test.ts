@@ -208,6 +208,40 @@ describe("create-intake-recording", () => {
     expect(mocks.release).toHaveBeenCalledWith("intake-id-long-enough");
   });
 
+  it("returns a typed failure when the cleaned intake claim cannot be released", async () => {
+    mocks.create.mockRejectedValue(
+      new ActionContractError("Storage is temporarily unavailable.", {
+        errorCode: "hosted_storage_unavailable",
+        statusCode: 503,
+        details: {
+          retryable: true,
+          cleanupConfirmed: true,
+        },
+      }),
+    );
+    mocks.release.mockRejectedValueOnce(new Error("intake update failed"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      action.run({
+        intakeId: "intake-id-long-enough",
+        intakeToken: "token",
+        recordingPlatform: "web",
+      }),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "intake_creation_release_failed",
+      statusCode: 503,
+      details: {
+        retryable: false,
+        cleanupConfirmed: true,
+        intakeClaimReleased: false,
+      },
+    });
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledWith("intake-id-long-enough");
+  });
+
   it("keeps the intake claimed when create returns an untyped error", async () => {
     mocks.create.mockRejectedValue(new Error("Unknown create failure"));
 

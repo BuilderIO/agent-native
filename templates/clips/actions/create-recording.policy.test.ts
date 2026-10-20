@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({
   insert: vi.fn(),
+  findById: vi.fn(),
   update: vi.fn(),
   updateSet: vi.fn(),
   snapshot: vi.fn(async () => false),
@@ -13,6 +14,7 @@ const calls = vi.hoisted(() => ({
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
   resolveStorage: vi.fn(),
+  requireOrgAccess: vi.fn(),
   track: vi.fn(),
   authUserId: null as string | null,
 }));
@@ -41,6 +43,11 @@ vi.mock("@agent-native/core/tracking", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     insert: () => ({ values: (...args: unknown[]) => calls.insert(...args) }),
+    select: () => ({
+      from: () => ({
+        where: () => ({ limit: () => calls.findById() }),
+      }),
+    }),
     update: () => ({
       set: (...args: unknown[]) => {
         calls.updateSet(...args);
@@ -51,7 +58,10 @@ vi.mock("../server/db/index.js", () => ({
     }),
   }),
   schema: {
-    recordings: { id: "recordings.id", storageMode: "recordings.storageMode" },
+    recordings: {
+      id: "recordings.id",
+      storageMode: "recordings.storageMode",
+    },
   },
 }));
 vi.mock("drizzle-orm", async (importOriginal) => ({
@@ -70,7 +80,8 @@ vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
   getDefaultRecordingVisibility: async () => "private",
   nanoid: () => "rec-1",
-  requireOrganizationAccess: async () => ({ organizationId: "org-1" }),
+  requireOrganizationAccess: (...args: unknown[]) =>
+    calls.requireOrgAccess(...args),
   stringifySpaceIds: () => "[]",
 }));
 vi.mock("./lib/recording-scope.js", () => ({
@@ -99,8 +110,10 @@ describe("create-recording policy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     calls.insert.mockResolvedValue(undefined);
+    calls.findById.mockResolvedValue([]);
     calls.update.mockResolvedValue(undefined);
     calls.snapshot.mockResolvedValue(false);
+    calls.requireOrgAccess.mockResolvedValue({ organizationId: "org-1" });
     calls.authUserId = null;
     calls.bufferedFallbackAvailable = true;
     calls.streamingEnabled = false;
@@ -283,7 +296,66 @@ describe("create-recording policy", () => {
     expect(calls.snapshot).toHaveBeenCalledOnce();
     expect(calls.resolveStorage).toHaveBeenCalledOnce();
     expect(calls.uploadProvider).toHaveBeenCalledOnce();
+    expect(calls.findById).toHaveBeenCalledOnce();
     expect(calls.writeState).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an insert failure when a row may have committed", async () => {
+    calls.insert.mockRejectedValueOnce(
+      new Error("insert acknowledgement lost"),
+    );
+    calls.findById.mockResolvedValueOnce([{ id: "rec-1" }]);
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "recording_create_failed",
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: false,
+      },
+    });
+    expect(calls.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("preserves organization access denials as non-retryable 403s", async () => {
+    calls.requireOrgAccess.mockRejectedValueOnce(
+      Object.assign(new Error("Organization not found or access denied"), {
+        statusCode: 403,
+      }),
+    );
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "organization_access_denied",
+      statusCode: 403,
+      details: { retryable: false, cleanupConfirmed: true },
+    });
+    expect(calls.insert).not.toHaveBeenCalled();
   });
 
   it("keeps the intake claim unsafe when a hosted reservation cannot be released after insert failure", async () => {
@@ -358,6 +430,98 @@ describe("create-recording policy", () => {
         failureCode: "upload_state_initialization_failed",
       }),
     );
+  });
+
+  it("keeps upload-state failures typed when the failed status update also fails", async () => {
+    calls.writeState
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("state store unavailable"));
+    calls.update.mockRejectedValueOnce(
+      new Error("recording update unavailable"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "upload_state_initialization_failed",
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: true,
+      },
+    });
+    expect(calls.releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it("preserves typed upload failures when failed-row persistence fails", async () => {
+    calls.bufferedFallbackAvailable = false;
+    calls.update.mockRejectedValueOnce(
+      new Error("recording update unavailable"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "streaming_upload_unavailable",
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: true,
+      },
+    });
+    expect(calls.releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it("preserves typed upload failures when failed app state cannot be written", async () => {
+    calls.bufferedFallbackAvailable = false;
+    calls.writeState
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("state store unavailable"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "streaming_upload_unavailable",
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: true,
+      },
+    });
   });
 
   it("keeps a transient Builder signed-URL authorization failure retryable", async () => {

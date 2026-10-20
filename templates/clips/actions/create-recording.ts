@@ -187,6 +187,21 @@ export default defineAction({
       };
     })().catch((error: unknown) => {
       if (isActionContractError(error)) throw error;
+      const details =
+        error && typeof error === "object"
+          ? (error as Record<string, unknown>)
+          : {};
+      const statusCode = details.statusCode ?? details.status;
+      if (statusCode === 401 || statusCode === 403) {
+        fail("Organization not found or access denied.", {
+          errorCode:
+            statusCode === 401
+              ? "authentication_required"
+              : "organization_access_denied",
+          statusCode,
+          details: { retryable: false, cleanupConfirmed: true },
+        });
+      }
       console.warn("[create-recording] preparation failed:", error);
       fail("Recording could not be prepared. Refresh and try again.", {
         errorCode: "recording_preparation_failed",
@@ -270,16 +285,51 @@ export default defineAction({
         updatedAt: now,
       });
     } catch (error) {
-      let cleanupConfirmed = true;
+      let recordingAbsentConfirmed = false;
+      try {
+        const [recording] = await db
+          .select({ id: schema.recordings.id })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, id))
+          .limit(1);
+        recordingAbsentConfirmed = !recording;
+      } catch (lookupError) {
+        console.error(
+          "[create-recording] row absence could not be confirmed after insert failure",
+          lookupError,
+        );
+      }
+
+      let reservationCleanupConfirmed = true;
       try {
         await releaseHostedReservation();
       } catch (releaseError) {
-        cleanupConfirmed = false;
+        reservationCleanupConfirmed = false;
         console.error(
           "[create-recording] hosted allowance could not be released after row creation failed",
           releaseError,
         );
       }
+      if (!recordingAbsentConfirmed) {
+        try {
+          await db
+            .update(schema.recordings)
+            .set({
+              status: "failed",
+              failureCode: "recording_create_failed",
+              failureReason: "Recording creation could not be confirmed.",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(schema.recordings.id, id));
+        } catch (updateError) {
+          console.error(
+            "[create-recording] failed row could not be marked after insert failure",
+            updateError,
+          );
+        }
+      }
+      const cleanupConfirmed =
+        recordingAbsentConfirmed && reservationCleanupConfirmed;
       console.warn("[create-recording] row creation failed:", error);
       fail("Recording could not be created. Refresh and try again.", {
         errorCode: "recording_create_failed",
@@ -287,6 +337,7 @@ export default defineAction({
         details: {
           retryable: cleanupConfirmed,
           cleanupConfirmed,
+          ...(!recordingAbsentConfirmed ? { recordingId: id } : {}),
         },
       });
     }
@@ -328,15 +379,24 @@ export default defineAction({
           releaseError,
         );
       }
-      await db
-        .update(schema.recordings)
-        .set({
-          status: "failed",
-          failureCode: "upload_state_initialization_failed",
-          failureReason: "Recording upload state could not be initialized.",
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(schema.recordings.id, id));
+      try {
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureCode: "upload_state_initialization_failed",
+            failureReason: "Recording upload state could not be initialized.",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.recordings.id, id));
+      } catch (updateError) {
+        console.error(
+          "[create-recording] failed upload state could not be persisted",
+          updateError,
+        );
+      }
+      // The intake caller can trash this known row even if persisting its
+      // failed status was the operation that broke.
       fail("Recording upload state could not be initialized.", {
         errorCode: "upload_state_initialization_failed",
         statusCode: 503,
@@ -364,15 +424,22 @@ export default defineAction({
       uploadCleanupConfirmed = true,
     ): Promise<never> => {
       const failedAt = new Date().toISOString();
-      await db
-        .update(schema.recordings)
-        .set({
-          status: "failed",
-          failureCode: failure.failureCode,
-          failureReason: reason,
-          updatedAt: failedAt,
-        })
-        .where(eq(schema.recordings.id, id));
+      try {
+        await db
+          .update(schema.recordings)
+          .set({
+            status: "failed",
+            failureCode: failure.failureCode,
+            failureReason: reason,
+            updatedAt: failedAt,
+          })
+          .where(eq(schema.recordings.id, id));
+      } catch (updateError) {
+        console.error(
+          "[create-recording] failed status could not be persisted after upload failure",
+          updateError,
+        );
+      }
       // Intake retries may remove this row only when the provider session and
       // its hosted reservation are both safe to discard.
       let cleanupConfirmed = uploadCleanupConfirmed;
@@ -398,14 +465,22 @@ export default defineAction({
         platform: recordingPlatform,
         ...failure,
       });
-      await writeAppState(`recording-upload-${id}`, {
-        recordingId: id,
-        status: "failed",
-        progress: 0,
-        failureReason: reason,
-        storageSetupRequired: failure.failureCode === "storage_setup_required",
-        updatedAt: failedAt,
-      });
+      try {
+        await writeAppState(`recording-upload-${id}`, {
+          recordingId: id,
+          status: "failed",
+          progress: 0,
+          failureReason: reason,
+          storageSetupRequired:
+            failure.failureCode === "storage_setup_required",
+          updatedAt: failedAt,
+        });
+      } catch (stateError) {
+        console.warn(
+          "[create-recording] failed upload state could not be written:",
+          stateError,
+        );
+      }
       if (failure.failureCode === "storage_setup_required") {
         failStorageSetupRequired({
           recordingId: id,

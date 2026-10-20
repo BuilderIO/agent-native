@@ -195,7 +195,26 @@ export default defineAction({
             details.retryable = false;
           }
         }
-        if (cleanupConfirmed) await releaseClipIntakeCreation(intakeId);
+        if (cleanupConfirmed) {
+          try {
+            await releaseClipIntakeCreation(intakeId);
+          } catch (releaseError) {
+            console.warn(
+              "[clip-intake] cleaned recording but could not reopen intake:",
+              releaseError,
+            );
+            fail(error.message, {
+              errorCode: "intake_creation_release_failed",
+              statusCode: 503,
+              details: {
+                ...details,
+                cleanupConfirmed: true,
+                retryable: false,
+                intakeClaimReleased: false,
+              },
+            });
+          }
+        }
         fail(error.message, {
           errorCode: error.errorCode,
           statusCode: error.statusCode,
