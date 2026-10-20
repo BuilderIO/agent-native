@@ -724,12 +724,14 @@ describe("content collection", () => {
             handle: "post-a1",
             day: "2026-10-11",
             signups: 2,
+            source_signups: 1,
           },
           {
             data_through: "2026-10-13",
             handle: "POST-A1",
             day: "2026-10-13",
             signups: 1,
+            source_signups: 0,
           },
           {
             data_through: "2026-10-13",
@@ -755,6 +757,22 @@ describe("content collection", () => {
       expect(sql).toContain("`example-project.analytics.events`");
       expect(sql).toContain("TIMESTAMP('2026-07-17')");
       expect(sql).toContain("DATE '2026-10-14'");
+      expect(sql).toContain(
+        "JSON_VALUE(data, '$.signupSource') = 'example-app'",
+      );
+      expect(
+        (await snapshots("signups_first_touch_source")).map((row) => [
+          row.external_id,
+          row.metric_date,
+          row.value,
+        ]),
+      ).toEqual([
+        ["a1", "2026-10-10", 0],
+        ["a1", "2026-10-11", 1],
+        ["a1", "2026-10-12", 0],
+        ["a1", "2026-10-13", 0],
+        ["a2", "2026-10-13", 0],
+      ]);
       expect(await snapshots("signups_first_touch")).toEqual([
         {
           external_id: "a1",

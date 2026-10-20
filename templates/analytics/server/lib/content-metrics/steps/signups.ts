@@ -10,6 +10,8 @@ import { BUILDER_BLOG_ORIGIN } from "./builder-blog.js";
 import { BACKFILL_DAYS, DailyMetricValues, utcDate } from "./daily-metrics.js";
 
 export const SIGNUPS_FIRST_TOUCH_METRIC = "signups_first_touch";
+/** The same first-touch signups, only those from the saved `signupSource`. */
+export const SOURCE_SIGNUPS_FIRST_TOUCH_METRIC = "signups_first_touch_source";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Far more than any day's article and signup pairs; reaching it is a failure. */
@@ -86,10 +88,10 @@ export function buildSignupsQuery(
   const blog = new URL(BUILDER_BLOG_ORIGIN);
   const blogPattern = `%${blog.hostname.replace(/^www\./, "")}${blog.pathname}%`;
   const sql = `WITH signups AS (
-  SELECT JSON_VALUE(data, '$.visitorId') AS visitor_id, JSON_VALUE(data, '$.userId') AS user_id
+  SELECT JSON_VALUE(data, '$.visitorId') AS visitor_id, JSON_VALUE(data, '$.userId') AS user_id,
+    LOGICAL_OR(JSON_VALUE(data, '$.signupSource') = '${config.signupSource}') AS from_source
   FROM \`${config.signupEventsTable}\`
   WHERE createdDate >= TIMESTAMP('${signupsFrom}') AND event = 'signup'
-    AND JSON_VALUE(data, '$.signupSource') = '${config.signupSource}'
     AND COALESCE(JSON_VALUE(data, '$.visitorId'), '') != ''
   GROUP BY 1, 2
 ), visits AS (
@@ -100,12 +102,13 @@ export function buildSignupsQuery(
 ), fresh AS (
   SELECT FORMAT_DATE('%F', MAX(day)) AS data_through FROM visits
 ), counts AS (
-  SELECT v.handle, FORMAT_DATE('%F', v.day) AS day, COUNT(DISTINCT s.user_id) AS signups
+  SELECT v.handle, FORMAT_DATE('%F', v.day) AS day, COUNT(DISTINCT s.user_id) AS signups,
+    COUNT(DISTINCT IF(s.from_source, s.user_id, NULL)) AS source_signups
   FROM visits v JOIN signups s ON s.visitor_id = v.visitor_id
   WHERE v.handle IS NOT NULL
   GROUP BY 1, 2
 )
-SELECT f.data_through, c.handle, c.day, c.signups FROM fresh f LEFT JOIN counts c ON TRUE`;
+SELECT f.data_through, c.handle, c.day, c.signups, c.source_signups FROM fresh f LEFT JOIN counts c ON TRUE`;
   return { sql, startDate, endDate };
 }
 
@@ -205,11 +208,17 @@ export const signupsStep: ContentStep = {
         SIGNUPS_FIRST_TOUCH_METRIC,
         Number(row.signups),
       );
+      values.add(
+        article,
+        row.day,
+        SOURCE_SIGNUPS_FIRST_TOUCH_METRIC,
+        Number(row.source_signups),
+      );
     }
 
     const snapshots = values.snapshots({
       items: articles,
-      metrics: [SIGNUPS_FIRST_TOUCH_METRIC],
+      metrics: [SIGNUPS_FIRST_TOUCH_METRIC, SOURCE_SIGNUPS_FIRST_TOUCH_METRIC],
       startDate: query.startDate,
       lastReturnedDate: dataThrough,
     });
