@@ -8,11 +8,22 @@ const mocks = vi.hoisted(() => ({
   getBrowserTabId: vi.fn(() => "tab-1"),
   readClientAppState: vi.fn().mockResolvedValue(null),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
-  useChangeVersion: vi.fn(() => 0),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => mocks);
+vi.mock("@agent-native/core/client/hooks", async () => ({
+  ...mocks,
+  useChangeVersions: (
+    await import("../../../core/src/client/use-change-version.js")
+  ).useChangeVersions,
+  useChangeVersion: (
+    await import("../../../core/src/client/use-change-version.js")
+  ).useChangeVersion,
+}));
 
+import {
+  _resetChangeVersionStoreForTests,
+  bumpChangeVersion,
+} from "../../../core/src/client/use-change-version.js";
 import {
   normalizeCreativeContextState,
   useCreativeContextState,
@@ -26,6 +37,7 @@ beforeEach(() => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  _resetChangeVersionStoreForTests();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -95,5 +107,50 @@ describe("useCreativeContextState", () => {
 
     expect(mocks.readClientAppState).not.toHaveBeenCalled();
     expect(container.querySelector("output")?.dataset.loading).toBe("false");
+  });
+
+  it("ignores unrelated app state changes while disabled", async () => {
+    let renders = 0;
+    function Probe() {
+      renders += 1;
+      useCreativeContextState({ enabled: false });
+      return createElement("output");
+    }
+
+    await act(async () => root.render(createElement(Probe)));
+    const settledRenders = renders;
+    await act(async () => {
+      bumpChangeVersion("app-state", 1);
+      bumpChangeVersion("app-state:native-render-contexts-v1", 1);
+      bumpChangeVersion("app-state:creative-context", 1);
+      bumpChangeVersion("app-state:*", 1);
+    });
+
+    expect(renders).toBe(settledRenders);
+    expect(mocks.readClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("refreshes only for creative context or keyless app state changes", async () => {
+    let renders = 0;
+    function Probe() {
+      renders += 1;
+      useCreativeContextState();
+      return createElement("output");
+    }
+
+    await act(async () => root.render(createElement(Probe)));
+    expect(mocks.readClientAppState).toHaveBeenCalledTimes(1);
+    const settledRenders = renders;
+    await act(async () => {
+      bumpChangeVersion("app-state", 1);
+      bumpChangeVersion("app-state:native-render-contexts-v1", 1);
+    });
+    expect(renders).toBe(settledRenders);
+    expect(mocks.readClientAppState).toHaveBeenCalledTimes(1);
+
+    await act(async () => bumpChangeVersion("app-state:creative-context", 1));
+    expect(mocks.readClientAppState).toHaveBeenCalledTimes(2);
+    await act(async () => bumpChangeVersion("app-state:*", 1));
+    expect(mocks.readClientAppState).toHaveBeenCalledTimes(3);
   });
 });

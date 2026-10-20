@@ -216,7 +216,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Line Height Enter returns a real Text-tool range to the editor",
   },
   {
-    shard: "inspector-4b",
+    shard: "inspector-1a",
     file: "text-range-visibility.spec.ts",
     title:
       "multi-selected text leaves share inspector styles, edits save to both, and one undo restores both",
@@ -390,7 +390,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Align uses a Group's bounds while Position stays Frame-relative",
   },
   {
-    shard: "inspector-4a",
+    shard: "inspector-3a",
     file: "pasted-svg-image-inspector.spec.ts",
     title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },
@@ -539,7 +539,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "pasted SVG is an editable sized layer and image scale mode writes object-fit",
   },
   {
-    shard: "inspector-4b",
+    shard: "inspector-1b",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "closing an edited pasted SVG restores authored fill opacity through history and reload",
