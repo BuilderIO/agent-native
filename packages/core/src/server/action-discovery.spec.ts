@@ -755,6 +755,9 @@ describe("action discovery", () => {
     expect(registry["restore-resource-version"].frameworkGroup).toBe("history");
     expect(registry["set-feature-flag"].frameworkGroup).toBe("featureFlags");
     expect(registry["change-password"].frameworkGroup).toBe("userProfile");
+    expect(registry["search-automation-accounts"].frameworkGroup).toBe(
+      "automation",
+    );
     expect(registry["upload-image"].frameworkGroup).toBeUndefined();
     expect(registry["call-mcp-tool"].frameworkGroup).toBeUndefined();
   });

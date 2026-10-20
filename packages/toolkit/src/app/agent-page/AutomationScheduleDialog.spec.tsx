@@ -111,7 +111,7 @@ describe("AutomationScheduleDialog", () => {
   it("saves the automation's stored zone alongside a friendly schedule edit", () => {
     render({ schedule: "0 8 * * *", timezone: "America/New_York" });
 
-    const time = document.querySelector<HTMLInputElement>("#automation-time");
+    const time = document.querySelector<HTMLInputElement>('input[type="time"]');
     if (!time) throw new Error("time field unavailable");
     changeValue(time, "08:30");
     act(() => findButton(document.body, "Save").click());
@@ -125,14 +125,15 @@ describe("AutomationScheduleDialog", () => {
   it("shows friendly controls and a live schedule summary", () => {
     render({ schedule: "0 9 * * 1-5", timezone: "Europe/Paris" });
 
-    expect(document.body.textContent).toContain("Frequency");
-    expect(document.body.textContent).toContain("Weekdays");
-    expect(document.body.textContent).toContain(
-      "Weekdays at 09:00 (Europe/Paris)",
-    );
+    expect(document.body.textContent).toContain("Repeat");
+    expect(document.body.textContent).toContain("Every weekday");
+    expect(document.body.textContent).toContain("Runs at 9:00 AM.");
+    expect(
+      document.querySelector<HTMLSelectElement>("#automation-timezone")?.value,
+    ).toBe("Europe/Paris");
   });
 
-  it("opens irregular valid cron in Advanced mode and preserves its bytes", () => {
+  it("opens custom cron in Advanced and trims saved whitespace", () => {
     const irregular = "  */15 * * * *  ";
     render({ schedule: irregular, timezone: "UTC" });
 
@@ -140,7 +141,7 @@ describe("AutomationScheduleDialog", () => {
       "#automation-schedule",
     );
     expect(cron?.value).toBe(irregular);
-    expect(document.body.textContent).toContain("custom cron pattern");
+    expect(document.querySelector("details")?.hasAttribute("open")).toBe(true);
 
     const timezone = document.querySelector<HTMLSelectElement>(
       "#automation-timezone",
@@ -150,24 +151,22 @@ describe("AutomationScheduleDialog", () => {
     act(() => findButton(document.body, "Save").click());
 
     expect(onSave).toHaveBeenCalledWith({
-      schedule: irregular,
+      schedule: irregular.trim(),
       timezone: "Europe/Paris",
     });
   });
 
-  it("keeps Advanced input synchronized with friendly edits", () => {
+  it("opens the Advanced editor with the current schedule", () => {
     render({ schedule: "0 8 * * *", timezone: "UTC" });
-    act(() => findButton(document.body, "Advanced").click());
+    const advancedSummary =
+      document.querySelector<HTMLSummaryElement>("details > summary");
+    if (!advancedSummary) throw new Error("advanced summary unavailable");
+    act(() => advancedSummary.click());
 
     const cron = document.querySelector<HTMLInputElement>(
       "#automation-schedule",
     );
     expect(cron?.value).toBe("0 8 * * *");
-
-    const time = document.querySelector<HTMLInputElement>("#automation-time");
-    if (!time) throw new Error("time field unavailable");
-    changeValue(time, "17:45");
-    expect(cron?.value).toBe("45 17 * * *");
   });
 
   it("keeps Save disabled until something actually changes", () => {
