@@ -704,6 +704,53 @@ describe("engineMessagesToAnthropic", () => {
     );
   });
 
+  it("does not use a legacy call for an unknown result step when inputs differ", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "legacy-call-id",
+            name: "create-record",
+            input: { title: "Original" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "legacy-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Different"}',
+            executionStepId: "unknown-step",
+            content: "Unmatched result",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const content = result[1]!.content;
+
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "legacy-call-id",
+        isError: true,
+        content: expect.stringContaining("Its outcome is UNKNOWN"),
+      }),
+    );
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Unmatched result"),
+      }),
+    );
+  });
+
   it("backfills tool_name and tool_input from the matching tool_use when omitted", () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "ping" }] },

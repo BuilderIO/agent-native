@@ -7,7 +7,11 @@ import {
 } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
-import type { EngineMessage } from "./engine/types.js";
+import type {
+  EngineMessage,
+  EngineToolCallPart,
+  EngineToolResultPart,
+} from "./engine/types.js";
 import { toolCallInputSignature as inputSignature } from "./tool-call-input-signature.js";
 import type {
   AgentChatEvent,
@@ -44,6 +48,94 @@ export interface ToolCallJournalEntry {
 export interface ToolCallJournal {
   completed: ToolCallJournalEntry[];
   interrupted: ToolCallJournalEntry[];
+}
+
+export function toolCallIdentityKey(
+  id?: string,
+  executionStepId?: string,
+): string | undefined {
+  if (executionStepId !== undefined)
+    return JSON.stringify(["step", executionStepId]);
+  return id === undefined ? undefined : JSON.stringify(["id", id]);
+}
+
+export function matchToolCallResultsInHistory(
+  history: readonly EngineMessage[],
+): Array<{ call: EngineToolCallPart; result: EngineToolResultPart }> {
+  const calls: Array<{ part: EngineToolCallPart; order: number }> = [];
+  const results: Array<{ part: EngineToolResultPart; order: number }> = [];
+  const callsByStep = new Map<string, typeof calls>();
+  const resultsByStep = new Map<string, typeof results>();
+  const callsById = new Map<string, typeof calls>();
+  const resultsById = new Map<string, typeof results>();
+  let order = 0;
+
+  for (const message of history) {
+    for (const part of message.content) {
+      if (message.role === "assistant" && part.type === "tool-call") {
+        const call = { part, order };
+        calls.push(call);
+        if (part.executionStepId !== undefined) {
+          const matches = callsByStep.get(part.executionStepId) ?? [];
+          matches.push(call);
+          callsByStep.set(part.executionStepId, matches);
+        }
+        const matches = callsById.get(part.id) ?? [];
+        matches.push(call);
+        callsById.set(part.id, matches);
+      } else if (message.role !== "assistant" && part.type === "tool-result") {
+        const result = { part, order };
+        results.push(result);
+        if (part.executionStepId !== undefined) {
+          const matches = resultsByStep.get(part.executionStepId) ?? [];
+          matches.push(result);
+          resultsByStep.set(part.executionStepId, matches);
+        }
+        const matches = resultsById.get(part.toolCallId) ?? [];
+        matches.push(result);
+        resultsById.set(part.toolCallId, matches);
+      }
+      order++;
+    }
+  }
+
+  const matched: Array<{
+    call: EngineToolCallPart;
+    result: EngineToolResultPart;
+  }> = [];
+  for (const { part: result, order: resultOrder } of results) {
+    let call: (typeof calls)[number] | undefined;
+    if (result.executionStepId !== undefined) {
+      const candidates = callsByStep.get(result.executionStepId) ?? [];
+      if (
+        candidates.length !== 1 ||
+        (resultsByStep.get(result.executionStepId)?.length ?? 0) !== 1
+      ) {
+        continue;
+      }
+      call = candidates[0];
+    } else {
+      const candidates = callsById.get(result.toolCallId) ?? [];
+      if (
+        candidates.length !== 1 ||
+        candidates[0]?.part.executionStepId !== undefined ||
+        (resultsById.get(result.toolCallId)?.length ?? 0) !== 1
+      ) {
+        continue;
+      }
+      call = candidates[0];
+    }
+
+    if (
+      !call ||
+      call.order >= resultOrder ||
+      call.part.name !== result.toolName
+    ) {
+      continue;
+    }
+    matched.push({ call: call.part, result });
+  }
+  return matched;
 }
 
 export function journalEntriesRepresentedInHistory(
@@ -486,77 +578,114 @@ export function isJournalEmpty(journal: ToolCallJournal): boolean {
 export type JournalCallEffect = "none" | "committed" | "unknown";
 
 /**
- * What each call of the journal recorded having done, by call id: no side
- * effect, a completed one, or an outcome it could not confirm. A call that
- * recorded none of these, as calls before effects were recorded did, or that
- * never finished, is absent.
+ * What each call recorded having done, keyed by execution step where present
+ * and otherwise by an unambiguous legacy provider ID.
  */
 export function journalCallEffects(
   journal: ToolCallJournal,
   events: readonly AgentChatEvent[],
+  history: readonly EngineMessage[] = [],
 ): Map<string, JournalCallEffect> {
   const effects = new Map<string, JournalCallEffect>();
+  const identityKey = (id?: string, executionStepId?: string) =>
+    journalCallIdentityKeyIfUnambiguous(id, executionStepId, events, history);
   // The journal drops a call that changed nothing, so its own record says so.
   for (const event of events) {
     if (
       event.type === "tool_done" &&
-      event.id &&
       event.completedSideEffect === false &&
       event.outcomeUnknown !== true
     ) {
-      effects.set(event.id, "none");
+      const key = identityKey(event.id, event.executionStepId);
+      if (key) effects.set(key, "none");
     }
   }
   for (const entry of journal.completed) {
-    if (entry.id !== undefined && entry.committed) {
-      effects.set(entry.id, "committed");
+    if (entry.committed) {
+      const key = identityKey(entry.id, entry.executionStepId);
+      if (key) effects.set(key, "committed");
     }
   }
   for (const entry of journal.interrupted) {
-    if (entry.id !== undefined && entry.outcomeUnknown) {
-      effects.set(entry.id, "unknown");
+    if (entry.outcomeUnknown) {
+      const key = identityKey(entry.id, entry.executionStepId);
+      if (key) effects.set(key, "unknown");
     }
   }
   return effects;
 }
 
 /**
- * The identity each call of a turn recorded running with, by call id, for a
- * result found by that id in the turn's `history`. A call that recorded none,
- * as calls before identities did, is absent, and so is every id that more
- * than one call of the turn used, in the journal or in the history: which of
- * them a result belongs to cannot be told by its id.
+ * The prepared identity for each call, keyed by its execution step where
+ * present and otherwise by an unambiguous legacy provider ID.
  */
 export function journalCallIdentities(
   events: readonly AgentChatEvent[],
   history: readonly EngineMessage[],
 ): Map<string, string> {
-  const journalCalls = new Map<string, number>();
-  const historyCalls = new Map<string, number>();
-  const count = (calls: Map<string, number>, id: string) =>
-    calls.set(id, (calls.get(id) ?? 0) + 1);
+  const identities = new Map<string, string>();
   for (const event of events) {
-    if (event.type === "tool_start" && event.id) count(journalCalls, event.id);
+    if (event.type === "tool_done" && event.argumentsHash) {
+      const key = journalCallIdentityKeyIfUnambiguous(
+        event.id,
+        event.executionStepId,
+        events,
+        history,
+      );
+      if (key) identities.set(key, event.argumentsHash);
+    }
+  }
+  return identities;
+}
+
+function journalCallIdentityKeyIfUnambiguous(
+  id: string | undefined,
+  executionStepId: string | undefined,
+  events: readonly AgentChatEvent[],
+  history: readonly EngineMessage[],
+): string | undefined {
+  if (executionStepId !== undefined) {
+    const journalMatches = events.filter(
+      (event) =>
+        event.type === "tool_start" &&
+        event.executionStepId === executionStepId,
+    ).length;
+    const historyMatches = history.reduce(
+      (count, message) =>
+        count +
+        (message.role === "assistant"
+          ? message.content.filter(
+              (part) =>
+                part.type === "tool-call" &&
+                part.executionStepId === executionStepId,
+            ).length
+          : 0),
+      0,
+    );
+    return journalMatches <= 1 && historyMatches <= 1
+      ? toolCallIdentityKey(id, executionStepId)
+      : undefined;
+  }
+  if (id === undefined) return undefined;
+
+  let journalMatches = 0;
+  let historyMatches = 0;
+  for (const event of events) {
+    if (event.type !== "tool_start" || event.id !== id) continue;
+    if (event.executionStepId !== undefined) return undefined;
+    journalMatches++;
   }
   for (const message of history) {
     if (message.role !== "assistant") continue;
     for (const part of message.content) {
-      if (part.type === "tool-call") count(historyCalls, part.id);
+      if (part.type !== "tool-call" || part.id !== id) continue;
+      if (part.executionStepId !== undefined) return undefined;
+      historyMatches++;
     }
   }
-  const identities = new Map<string, string>();
-  for (const event of events) {
-    if (
-      event.type === "tool_done" &&
-      event.id &&
-      event.argumentsHash &&
-      (journalCalls.get(event.id) ?? 0) <= 1 &&
-      (historyCalls.get(event.id) ?? 0) <= 1
-    ) {
-      identities.set(event.id, event.argumentsHash);
-    }
-  }
-  return identities;
+  return journalMatches <= 1 && historyMatches <= 1
+    ? toolCallIdentityKey(id)
+    : undefined;
 }
 
 /**

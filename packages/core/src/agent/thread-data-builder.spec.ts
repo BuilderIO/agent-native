@@ -817,6 +817,50 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("leaves a step-identified result unresolved when multiple legacy starts match", () => {
+    const input = { sql: "select 1" };
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          id: "legacy-first",
+          tool: "query",
+          input,
+        },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          id: "legacy-second",
+          tool: "query",
+          input,
+        },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_done",
+          executionStepId: "unmatched-step",
+          tool: "query",
+          input,
+          result: "ambiguous result",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-ambiguous-legacy-step");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls.map((part: { outcome?: string }) => part.outcome)).toEqual(
+      ["unknown", "unknown"],
+    );
+  });
+
   it("keeps two cards when one id is reused across different tools", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "tool_start", id: "dup", tool: "query" } },

@@ -96,4 +96,68 @@ describe("buildTurnResumeContext", () => {
       "Current record written",
     ]);
   });
+
+  it("preserves a legacy call when a step-identified ledger call reuses its id", () => {
+    const callId = "provider-call-reused";
+    const executionStepId = "current-turn-write";
+    const resumed = buildTurnResumeContext({
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Write both records" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: callId,
+              name: "write-record",
+              input: { value: "legacy" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: callId,
+              toolName: "write-record",
+              toolInput: '{"value":"legacy"}',
+              content: "Legacy record written",
+            },
+          ],
+        },
+      ],
+      journal: null,
+      events: [
+        {
+          type: "tool_start",
+          id: callId,
+          tool: "write-record",
+          input: { value: "step-identified" },
+          executionStepId,
+        },
+        {
+          type: "tool_done",
+          id: callId,
+          tool: "write-record",
+          input: { value: "step-identified" },
+          result: "Step-identified record written",
+          executionStepId,
+        },
+      ],
+    });
+    const calls = resumed.messages.flatMap(({ content }) =>
+      content.flatMap((part) => (part.type === "tool-call" ? [part] : [])),
+    );
+    const results = resumed.messages.flatMap(({ content }) =>
+      content.flatMap((part) => (part.type === "tool-result" ? [part] : [])),
+    );
+
+    expect(calls.map(({ input }) => input)).toEqual([
+      { value: "legacy" },
+      { value: "step-identified" },
+    ]);
+    expect(results.map(({ content }) => content)).toEqual([
+      "Legacy record written",
+      "Step-identified record written",
+    ]);
+  });
 });

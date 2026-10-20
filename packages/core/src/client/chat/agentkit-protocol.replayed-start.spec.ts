@@ -24,7 +24,10 @@ function replayedEvents(
       let yielded = false;
       return {
         async next() {
-          if (yielded) return { done: true as const, value: undefined };
+          if (yielded) {
+            onDrained();
+            return { done: true as const, value: undefined };
+          }
           yielded = true;
           return {
             done: false as const,

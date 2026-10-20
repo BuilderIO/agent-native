@@ -443,7 +443,11 @@ export function buildAssistantMessage(
           })
         : candidates;
       const candidateMatches =
-        candidates.length > 0 ? candidates : legacyCandidates;
+        candidates.length > 0
+          ? candidates
+          : executionStepId && legacyCandidates.length !== 1
+            ? []
+            : legacyCandidates;
       const idCandidates =
         eventToolCallId === undefined
           ? candidateMatches

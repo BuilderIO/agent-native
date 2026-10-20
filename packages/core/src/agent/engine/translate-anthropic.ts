@@ -294,7 +294,8 @@ export function backfillEngineMessagesToolResults(
           ? stepMatches[0]
           : stepMatches.length > 1
             ? undefined
-            : legacyPendingCandidates.length === 1
+            : legacyPendingCandidates.length === 1 &&
+                (!part.executionStepId || fingerprintMatches.length === 1)
               ? legacyPendingCandidates[0]
               : fingerprintMatches.length === 1
                 ? fingerprintMatches[0]

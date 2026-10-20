@@ -427,6 +427,8 @@ import {
   journalEntriesRepresentedInHistory,
   journalCallEffects,
   journalCallIdentities,
+  matchToolCallResultsInHistory,
+  toolCallIdentityKey,
   toolCallInputFingerprint,
   type JournalCallEffect,
 } from "./tool-call-journal.js";
@@ -4735,10 +4737,12 @@ function historyResultInvalidatesReads(
   part: EngineToolResultPart,
   readOnly: boolean,
   priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
+  identityKey?: string,
 ): boolean {
+  const effect = identityKey ? priorCallEffects.get(identityKey) : undefined;
   if (
     part.outcome === "unknown" ||
-    (priorCallEffects.get(part.toolCallId) ?? "none") !== "none"
+    (effect !== undefined && effect !== "none")
   ) {
     return true;
   }
@@ -4755,10 +4759,9 @@ function preparedToolCallKey(toolName: string, argumentsHash: string): string {
 }
 
 /**
- * A continued turn's earlier tool results, in order, each with the latest call
- * before it that has its id, and the key its result may be reused under: the
- * identity it recorded running with. A call that recorded none, or whose id
- * another call shares, has no key and is never reused.
+ * A continued turn's earlier tool results, in order, with their uniquely
+ * matching call and the key their result may be reused under: the identity it
+ * recorded running with. A call without an attributable identity is never reused.
  */
 function* historyToolResults(
   turnMessages: readonly EngineMessage[],
@@ -4766,27 +4769,25 @@ function* historyToolResults(
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallIdentities: ReadonlyMap<string, string>,
 ) {
-  const calls = new Map<
-    string,
-    { name: string; key?: string; readOnly: boolean; dedupe: boolean }
-  >();
-  for (const message of turnMessages) {
-    for (const part of message.content) {
-      if (message.role === "assistant" && part.type === "tool-call") {
-        const argumentsHash = priorCallIdentities.get(part.id);
-        calls.set(part.id, {
-          name: part.name,
-          ...(argumentsHash
-            ? { key: preparedToolCallKey(part.name, argumentsHash) }
-            : {}),
-          readOnly: readOnlyCalls.has(part),
-          dedupe: actions[part.name]?.dedupe !== false,
-        });
-      } else if (message.role !== "assistant" && part.type === "tool-result") {
-        const call = calls.get(part.toolCallId);
-        if (call) yield { part, call };
-      }
-    }
+  for (const { call: part, result } of matchToolCallResultsInHistory(
+    turnMessages,
+  )) {
+    const identityKey = toolCallIdentityKey(part.id, part.executionStepId);
+    const argumentsHash = identityKey
+      ? priorCallIdentities.get(identityKey)
+      : undefined;
+    yield {
+      part: result,
+      call: {
+        name: part.name,
+        identityKey,
+        ...(argumentsHash
+          ? { key: preparedToolCallKey(part.name, argumentsHash) }
+          : {}),
+        readOnly: readOnlyCalls.has(part),
+        dedupe: actions[part.name]?.dedupe !== false,
+      },
+    };
   }
 }
 
@@ -4810,7 +4811,14 @@ function seedReadOnlyToolResultsFromHistory(
     readOnlyCalls,
     priorCallIdentities,
   )) {
-    if (historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)) {
+    if (
+      historyResultInvalidatesReads(
+        part,
+        call.readOnly,
+        priorCallEffects,
+        call.identityKey,
+      )
+    ) {
       cache.clear();
       continue;
     }
@@ -4867,7 +4875,14 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
     readOnlyCalls,
     priorCallIdentities,
   )) {
-    if (historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)) {
+    if (
+      historyResultInvalidatesReads(
+        part,
+        call.readOnly,
+        priorCallEffects,
+        call.identityKey,
+      )
+    ) {
       repeats.clear();
       reusableReadKeys.clear();
       continue;
@@ -5075,6 +5090,7 @@ function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
 function seedUnknownOutcomes(
   outcomes: UnknownOutcomes,
   messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   priorCallIdentities: ReadonlyMap<string, string>,
@@ -5091,46 +5107,33 @@ function seedUnknownOutcomes(
   const turnMessages = messages.slice(turnStart);
 
   const fromHistory = noUnknownOutcomes();
-  const pendingToolCalls = new Map<
-    string,
-    { name: string; readOnly: boolean }
-  >();
-  for (const message of turnMessages) {
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type !== "tool-call") continue;
-        pendingToolCalls.set(part.id, {
-          name: part.name,
-          readOnly: readOnlyCalls.has(part),
-        });
-      }
-      continue;
-    }
-
-    for (const part of message.content) {
-      if (part.type !== "tool-result") continue;
-      const call = pendingToolCalls.get(part.toolCallId);
-      if (!call) continue;
-      // What the call's run recorded decides, however it prepares now. Only
-      // a call that recorded nothing is judged by its result, by `main`'s
-      // rule for a write, and holds back writes alone.
-      const effect = priorCallEffects.get(part.toolCallId);
-      if (
-        effect
-          ? effect === "unknown"
-          : !call.readOnly &&
-            (part.outcome === "unknown" ||
-              isInterruptedToolResult(part.content) ||
-              (part.isError === true &&
-                typeof part.content === "string" &&
-                isToolCallTimeoutResult(part.content)))
-      ) {
-        noteUnknownOutcome(
-          fromHistory,
-          call.name,
-          effect && priorCallIdentities.get(part.toolCallId),
-        );
-      }
+  for (const { part, call } of historyToolResults(
+    turnMessages,
+    actions,
+    readOnlyCalls,
+    priorCallIdentities,
+  )) {
+    // What the call's run recorded decides, however it prepares now. Only a
+    // call that recorded none is judged by its result; writes alone hold back
+    // the turn.
+    const effect = call.identityKey
+      ? priorCallEffects.get(call.identityKey)
+      : undefined;
+    if (
+      effect
+        ? effect === "unknown"
+        : !call.readOnly &&
+          (part.outcome === "unknown" ||
+            isInterruptedToolResult(part.content) ||
+            (part.isError === true &&
+              typeof part.content === "string" &&
+              isToolCallTimeoutResult(part.content)))
+    ) {
+      noteUnknownOutcome(
+        fromHistory,
+        call.name,
+        effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
+      );
     }
   }
 
@@ -7248,13 +7251,20 @@ export async function runAgentLoop(opts: {
     signal,
     toolTimeoutMsFor,
   );
+  const currentTurnHistory = messages.slice(
+    findCurrentTurnStartForContinuation(messages),
+  );
   const priorCallEffects =
     journalRead.status === "read" && journalRead.toolCallJournal
-      ? journalCallEffects(journalRead.toolCallJournal, journalRead.events)
+      ? journalCallEffects(
+          journalRead.toolCallJournal,
+          journalRead.events,
+          currentTurnHistory,
+        )
       : new Map<string, JournalCallEffect>();
   const priorCallIdentities = journalCallIdentities(
     journalRead.status === "read" ? journalRead.events : [],
-    messages.slice(findCurrentTurnStartForContinuation(messages)),
+    currentTurnHistory,
   );
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
@@ -7274,6 +7284,7 @@ export async function runAgentLoop(opts: {
   seedUnknownOutcomes(
     unknownOutcomes,
     messages,
+    actions,
     historyReadOnlyCalls,
     priorCallEffects,
     priorCallIdentities,
@@ -9044,7 +9055,7 @@ export async function runAgentLoop(opts: {
               toolCallJournal,
               toolCall.name,
               argumentsHash,
-              preparedCallArguments(intent),
+              originalToolCall.input,
               messages.slice(findCurrentTurnStartForContinuation(messages)),
               consumedInterruptedJournalKeys,
             )
@@ -9115,9 +9126,13 @@ export async function runAgentLoop(opts: {
               consumedJournalKeys,
               internalContinuationTurn,
             ) !== undefined));
+      const legacyInterruptedCallMatchesStep =
+        legacyInterruptedStep.status === "matched" &&
+        legacyInterruptedStepId === executionStepId;
       const interruptedCallMatchesStep =
         executionStepAdmission?.status === "execute" &&
-        executionStepAdmission.wasDispatched &&
+        (executionStepAdmission.wasDispatched ||
+          legacyInterruptedCallMatchesStep) &&
         (actionIsReadOnly || actionRetrySafe) &&
         interruptedStepId === executionStepId;
       if (

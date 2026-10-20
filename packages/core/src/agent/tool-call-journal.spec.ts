@@ -14,6 +14,8 @@ import {
   journalEntriesRepresentedInHistory,
   journalCallEffects,
   journalCallIdentities,
+  matchToolCallResultsInHistory,
+  toolCallIdentityKey,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
@@ -727,19 +729,21 @@ describe("recorded call effects", () => {
     },
   ];
 
-  it("names each call that recorded no effect, committed, or left an unknown outcome, by id", () => {
+  it("names each call that recorded no effect, committed, or left an unknown outcome", () => {
     expect(journalCallEffects(classifyToolCallJournal(events), events)).toEqual(
       new Map([
-        ["slow", "none"],
-        ["check", "committed"],
-        ["lost", "unknown"],
+        [toolCallIdentityKey("slow"), "none"],
+        [toolCallIdentityKey("check"), "committed"],
+        [toolCallIdentityKey("lost"), "unknown"],
       ]),
     );
   });
 
-  it("names the identity each call recorded running with, by id", () => {
+  it("names the identity each call recorded running with", () => {
     expect(journalCallIdentities(events, [])).toEqual(
-      new Map([["check", actionArgumentsHash({ mode: "check" })]]),
+      new Map([
+        [toolCallIdentityKey("check"), actionArgumentsHash({ mode: "check" })],
+      ]),
     );
   });
 
@@ -769,7 +773,9 @@ describe("recorded call effects", () => {
         [...page("a", 1), ...page("b", 2)],
         [call("a"), call("b"), call("a")],
       ),
-    ).toEqual(new Map([["b", actionArgumentsHash({ page: 2 })]]));
+    ).toEqual(
+      new Map([[toolCallIdentityKey("b"), actionArgumentsHash({ page: 2 })]]),
+    );
     // Distinct ids keep theirs.
     expect(
       journalCallIdentities(
@@ -778,10 +784,165 @@ describe("recorded call effects", () => {
       ),
     ).toEqual(
       new Map([
-        ["a", actionArgumentsHash({ page: 1 })],
-        ["b", actionArgumentsHash({ page: 2 })],
+        [toolCallIdentityKey("a"), actionArgumentsHash({ page: 1 })],
+        [toolCallIdentityKey("b"), actionArgumentsHash({ page: 2 })],
       ]),
     );
+  });
+
+  it("keeps journal identities attached to repeated provider IDs by execution step", () => {
+    const repeatedCall = (executionStepId: string): EngineMessage => ({
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          id: "provider-id",
+          name: "write",
+          input: {},
+          executionStepId,
+        },
+      ],
+    });
+    const stepEvents = [
+      {
+        type: "tool_start" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        executionStepId: "step-one",
+      },
+      {
+        type: "tool_done" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        result: "one",
+        argumentsHash: actionArgumentsHash({ step: 1 }),
+        completedSideEffect: true,
+        executionStepId: "step-one",
+      },
+      {
+        type: "tool_start" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        executionStepId: "step-two",
+      },
+      {
+        type: "tool_done" as const,
+        id: "provider-id",
+        tool: "write",
+        input: {},
+        result: "two",
+        argumentsHash: actionArgumentsHash({ step: 2 }),
+        completedSideEffect: true,
+        executionStepId: "step-two",
+      },
+    ];
+    const history = [repeatedCall("step-one"), repeatedCall("step-two")];
+
+    expect(journalCallIdentities(stepEvents, history)).toEqual(
+      new Map([
+        [
+          toolCallIdentityKey("provider-id", "step-one"),
+          actionArgumentsHash({ step: 1 }),
+        ],
+        [
+          toolCallIdentityKey("provider-id", "step-two"),
+          actionArgumentsHash({ step: 2 }),
+        ],
+      ]),
+    );
+    expect(
+      journalCallEffects(
+        classifyToolCallJournal(stepEvents),
+        stepEvents,
+        history,
+      ),
+    ).toEqual(
+      new Map([
+        [toolCallIdentityKey("provider-id", "step-one"), "committed"],
+        [toolCallIdentityKey("provider-id", "step-two"), "committed"],
+      ]),
+    );
+    expect(
+      journalCallIdentities(
+        [stepEvents[0]!, stepEvents[1]!],
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "provider-id",
+                name: "write",
+                input: {},
+              },
+            ],
+          },
+        ],
+      ),
+    ).toEqual(
+      new Map([
+        [
+          toolCallIdentityKey("provider-id", "step-one"),
+          actionArgumentsHash({ step: 1 }),
+        ],
+      ]),
+    );
+  });
+
+  it("matches history results by execution step and rejects ambiguous ID fallback", () => {
+    const call = (executionStepId: string) => ({
+      type: "tool-call" as const,
+      id: "provider-id",
+      name: "read",
+      input: {},
+      executionStepId,
+    });
+    const result = (executionStepId: string) => ({
+      type: "tool-result" as const,
+      toolCallId: "provider-id",
+      toolName: "read",
+      toolInput: "{}",
+      content: executionStepId,
+      executionStepId,
+    });
+    const history: EngineMessage[] = [
+      { role: "assistant", content: [call("step-one"), call("step-two")] },
+      { role: "user", content: [result("step-two"), result("step-one")] },
+    ];
+
+    expect(matchToolCallResultsInHistory(history)).toEqual([
+      { call: call("step-two"), result: result("step-two") },
+      { call: call("step-one"), result: result("step-one") },
+    ]);
+    expect(
+      matchToolCallResultsInHistory([
+        { role: "assistant", content: [call("step-one")] },
+        { role: "user", content: [result("unmatched-step")] },
+      ]),
+    ).toEqual([]);
+
+    const legacyCall = {
+      type: "tool-call" as const,
+      id: "legacy-id",
+      name: "read",
+      input: {},
+    };
+    const legacyResult = {
+      type: "tool-result" as const,
+      toolCallId: "legacy-id",
+      toolName: "read",
+      toolInput: "{}",
+      content: "legacy",
+    };
+    expect(
+      matchToolCallResultsInHistory([
+        { role: "assistant", content: [legacyCall, legacyCall] },
+        { role: "user", content: [legacyResult] },
+      ]),
+    ).toEqual([]);
   });
 
   it("replays only a committed call prepared to the same arguments, once", () => {

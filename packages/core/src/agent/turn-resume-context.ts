@@ -31,7 +31,7 @@ export function buildTurnResumeContext(options: {
       const ledgerCallIds = new Set(
         ledgerMessages.flatMap(({ content }) =>
           content.flatMap((part) =>
-            part.type === "tool-call" ? [part.id] : [],
+            part.type === "tool-call" && !part.executionStepId ? [part.id] : [],
           ),
         ),
       );

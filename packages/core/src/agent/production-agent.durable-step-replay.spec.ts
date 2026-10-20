@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import type {
@@ -330,6 +331,72 @@ describe("durable execution step replay", () => {
         id: "provider-id-after-reconnect",
         executionStepId: "stable-read-step",
         result: "Document contents",
+      }),
+    );
+  });
+
+  it("matches a legacy interrupted call before schema defaults change its arguments", async () => {
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "legacy-provider-id",
+        tool: "create-deck",
+        input: {},
+      },
+    ];
+    const actionRun = vi.fn(
+      async (input: { id: string }) => `Deck ${input.id}`,
+    );
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed-provider-id", {})], [text("The deck is ready.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            schema: z.object({ id: z.string().default("default-deck") }),
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+              },
+            },
+            retrySafe: true,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledWith(
+      { id: "default-deck" },
+      expect.anything(),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "resumed-provider-id",
+        executionStepId: "legacy-provider-id",
+        result: "Deck default-deck",
       }),
     );
   });
