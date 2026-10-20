@@ -74,7 +74,11 @@ function Segmented<T extends string | number>({
               ? "border-database-blue bg-database-blue/5 text-database-blue"
               : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
-          onClick={() => onChange(option.value)}
+          // Pressing the current choice again changes nothing, so Start keeps
+          // the checkbox or status field it shows.
+          onClick={() => {
+            if (option.value !== value) onChange(option.value);
+          }}
         >
           {option.label}
         </button>
