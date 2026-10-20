@@ -4,6 +4,7 @@ import type { ContentDatabaseItem, DocumentProperty } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -50,6 +51,11 @@ const status: DocumentProperty = {
   value: "In progress",
   editable: true,
 } as DocumentProperty;
+const due: DocumentProperty = {
+  definition: { id: "due", name: "Due", type: "text", options: {} },
+  value: "Friday",
+  editable: true,
+} as DocumentProperty;
 
 function row(
   access: { canComment: boolean; canEdit: boolean },
@@ -89,6 +95,9 @@ let root: ReturnType<typeof createRoot>;
 let client: QueryClient;
 let stored: ReturnType<typeof comment>[];
 let listFails: boolean;
+// When set, a resolve fails once `failResolve` is called.
+let resolveFails: boolean;
+let failResolve: () => void;
 const openComments = vi.fn();
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -112,6 +121,11 @@ const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     return json({ id: "posted", threadId: "posted" });
   }
   if (url.includes("update-comment")) {
+    if (resolveFails) {
+      return new Promise<Response>((resolve) => {
+        failResolve = () => resolve(new Response("{}", { status: 500 }));
+      });
+    }
     stored = stored.map((entry) =>
       entry.id === body.id
         ? { ...entry, resolved: Number(body.resolved) }
@@ -129,6 +143,8 @@ beforeEach(() => {
   openComments.mockReset();
   stored = [];
   listFails = false;
+  resolveFails = false;
+  vi.mocked(toast.error).mockClear();
   client = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   });
@@ -307,6 +323,41 @@ describe("Comments on a Collection table cell", () => {
     expect(document.activeElement).toBe(startButton());
   });
 
+  it("keeps the card on a thread whose resolve fails", async () => {
+    stored = [comment("t-status", "status")];
+    resolveFails = true;
+    await render(
+      cell(
+        row(
+          { canComment: true, canEdit: true },
+          {
+            open: 1,
+            properties: { status: { open: 1, latestThreadId: "t-status" } },
+          },
+        ),
+      ),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-database-cell-comments]")!
+        .click(),
+    );
+    await settle();
+    await act(async () => button(card()!, "comments.resolve")!.click());
+    await settle();
+    expect(calls("update-comment")).toHaveLength(1);
+    // The card keeps the thread on screen until the server answers.
+    expect(
+      card()?.querySelector('[data-thread-card="t-status"]'),
+    ).not.toBeNull();
+    await act(async () => failResolve());
+    await settle();
+    expect(toast.error).toHaveBeenCalled();
+    expect(
+      card()?.querySelector('[data-thread-card="t-status"]'),
+    ).not.toBeNull();
+  });
+
   it("keeps unsent text when the cell's own button is clicked again, and closes an empty card", async () => {
     // happy-dom doesn't run Radix's outside-click dismissal, which the card
     // skips for the cell's own buttons; the browser pass covers that part.
@@ -322,6 +373,33 @@ describe("Comments on a Collection table cell", () => {
     await setRichEditorValue(richEditor(card()!)!, "Should this be Done?");
     await act(async () => startButton().click());
     await settle();
+    expect(richEditor(card()!)?.textContent).toContain("Should this be Done?");
+  });
+
+  it("opens no second card in the row while one holds unsent text", async () => {
+    const item = row({ canComment: true, canEdit: true });
+    await render(
+      <>
+        {cell(item)}
+        <div className="group/cell relative flex">
+          <span>Friday</span>
+          <DatabaseCellComments item={item} property={due} />
+        </div>
+      </>,
+    );
+    const [statusStart, dueStart] =
+      container.querySelectorAll<HTMLButtonElement>(
+        "[data-database-cell-comment-start]",
+      );
+    await act(async () => statusStart!.click());
+    await settle();
+    await setRichEditorValue(richEditor(card()!)!, "Should this be Done?");
+    await act(async () => dueStart!.click());
+    await settle();
+    const cards = document.body.querySelectorAll(
+      "[data-database-cell-comment-card]",
+    );
+    expect(cards).toHaveLength(1);
     expect(richEditor(card()!)?.textContent).toContain("Should this be Done?");
   });
 
@@ -434,6 +512,10 @@ describe("Comments on a Collection table cell", () => {
     await act(async () => marker().click());
     await settle();
     expect(card()).toBeNull();
+    expect(toast.error).toHaveBeenCalledWith(
+      "empty.genericError",
+      expect.anything(),
+    );
 
     // Someone else resolved the thread since the row was read.
     listFails = false;

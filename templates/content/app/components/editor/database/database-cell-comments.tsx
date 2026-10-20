@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import {
   Tooltip,
@@ -30,7 +31,10 @@ import {
 } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
-import { CommentDraftProvider } from "../comment-drafts";
+import {
+  CommentDraftProvider,
+  useCommentPanelSession,
+} from "../comment-drafts";
 import { CommentIconButton } from "../CommentRow";
 import {
   CommentsSidebar,
@@ -50,6 +54,10 @@ type CellCommentCard = {
 };
 
 const NO_THREADS: CommentThread[] = [];
+
+// Cards holding unsent text. While one does, no other cell opens a card,
+// which would replace the row's saved draft with an empty one.
+const cardsHoldingText = new Set<MutableRefObject<boolean>>();
 
 /** Who can start, and who can resolve, Comments on a row's Page. */
 export function databaseItemCommentAccess(item: ContentDatabaseItem) {
@@ -132,8 +140,8 @@ export function DatabaseCellComments({
   if (!summary && !canComment && !card) return null;
 
   const open = (mode: CellCommentCard["mode"], opener: HTMLButtonElement) => {
-    // A card holding unsent text stays as it is.
-    if (keepOpenRef.current) return;
+    // A card holding unsent text stays as it is, and no other card opens.
+    if (cardsHoldingText.size > 0) return;
     if (card?.mode === mode) {
       close();
       return;
@@ -363,7 +371,14 @@ function DatabaseCellCommentCard({
     if (mode === "read") {
       const marked = item.comments?.properties[propertyId]?.open ?? 0;
       void refetch()
-        .then(({ data }) => {
+        .then(({ data, error }) => {
+          // With nothing cached either, the card closes; say why.
+          if (!data && error) {
+            toast.error(t("empty.genericError"), {
+              description: error instanceof Error ? error.message : undefined,
+            });
+            return;
+          }
           const open = data?.filter(
             (thread) =>
               thread.property?.propertyId === propertyId && !thread.resolved,
@@ -403,10 +418,27 @@ function DatabaseCellCommentCard({
   const postedThread = postedThreadId
     ? propertyThreads.find((thread) => thread.threadId === postedThreadId)
     : undefined;
+  // A thread being resolved stays on screen until the server confirms it,
+  // so a failed resolve leaves it in the card with its error.
+  const { isResolving } = useCommentPanelSession();
+  const resolvingIds = propertyThreads
+    .filter((thread) => isResolving(thread.threadId))
+    .map((thread) => thread.threadId)
+    .join(" ");
+  const shownThreads = useMemo(() => {
+    if (!resolvingIds) return propertyThreads;
+    const resolving = new Set(resolvingIds.split(" "));
+    return propertyThreads.map((thread) =>
+      thread.resolved && resolving.has(thread.threadId)
+        ? { ...thread, resolved: false }
+        : thread,
+    );
+  }, [propertyThreads, resolvingIds]);
   // Resolving the last thread, or the one just posted, closes the card, as
   // does a read that found none or failed.
   const settled =
     !pendingComment &&
+    !resolvingIds &&
     (postedThreadId
       ? postedThread?.resolved === true
       : mode === "read" && listedSinceOpen && openThreads.length === 0);
@@ -423,8 +455,10 @@ function DatabaseCellCommentCard({
     propertyThreads.some((thread) => replyDrafts.isSubmitting(thread.threadId));
   useEffect(() => {
     keepOpenRef.current = unsent;
+    if (unsent) cardsHoldingText.add(keepOpenRef);
     return () => {
       keepOpenRef.current = false;
+      cardsHoldingText.delete(keepOpenRef);
     };
   }, [keepOpenRef, unsent]);
 
@@ -438,7 +472,7 @@ function DatabaseCellCommentCard({
       replyDrafts={replyDrafts}
       documentId={documentId}
       // While composing, the card shows only the new comment.
-      threads={pendingComment ? NO_THREADS : propertyThreads}
+      threads={pendingComment ? NO_THREADS : shownThreads}
       visibleThreadId={postedThreadId}
       documentProperties={item.properties}
       isLoading={
