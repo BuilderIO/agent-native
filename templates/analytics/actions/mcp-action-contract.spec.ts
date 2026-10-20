@@ -42,6 +42,7 @@ const DIRECT_MCP_READS = [
   "builder-blog-articles",
   "data-source-status",
   "estimate-onboarding-journey-cost",
+  "estimate-query-cost",
   "find-data",
   "query-dbt-semantic-metric",
   "get-analysis",

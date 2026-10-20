@@ -5,11 +5,16 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
   deleteNotification,
   notifyWithDelivery,
 } from "../notifications/index.js";
 import { ForbiddenError } from "../sharing/access.js";
+import {
+  USAGE_ALERT_MIGRATIONS,
+  USAGE_ALERT_MIGRATIONS_TABLE,
+} from "./migrations.js";
 import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
@@ -245,6 +250,10 @@ export const usageAlertsStore = defineStore({
         }
       },
     },
+    ...fromMigrationEntries(
+      USAGE_ALERT_MIGRATIONS_TABLE,
+      USAGE_ALERT_MIGRATIONS,
+    ),
   ],
 });
 

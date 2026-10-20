@@ -104,8 +104,8 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(outlineSource).toContain("transform: frame?.transform");
     expect(outlineSource).toContain("frame.transformOrigin.x + pad");
     expect(editorSource).toContain("frame={selectedElementFrame}");
-    expect(editorSource).toContain(
-      "isSelectedElementDraggable && selectedElementFrame",
+    expect(editorSource).toMatch(
+      /onResizeStart=\{\s*!readOnly\s*&&\s*selectedElementMeasurementIsCurrent\s*&&\s*isSelectedElementDraggable\s*&&\s*selectedElementFrame/,
     );
     expect(editorSource).toContain("data-slide-move-handle");
     expect(editorSource).toContain(

@@ -386,29 +386,45 @@ describe("IntegrationDetailPage", () => {
     );
   });
 
-  it.each(["hubspot", "canva"])(
-    "preserves the supported personal OAuth flow for %s members",
-    async (id) => {
-      servers([], "member");
-      await render(id, MEMBER);
-      const { action } = await renderHeader();
-      expect(action?.textContent).toBe("Connect");
-      expect(container.textContent).not.toContain(
-        "An admin needs to set this up",
-      );
-      await act(async () => action?.click());
-      expect(oauth.navigateToMcpOAuthStart).toHaveBeenCalledTimes(1);
-      const url = new URL(
-        oauth.navigateToMcpOAuthStart.mock.calls[0]![0] as string,
-        "http://localhost",
-      );
-      expect(url.searchParams.get("scope")).toBe("user");
-      expect(url.searchParams.get("url")).toBe(
-        `https://mcp.${id}.com${id === "canva" ? "/mcp" : ""}`,
-      );
-      expect(createServer).not.toHaveBeenCalled();
-    },
-  );
+  it("opens the readiness-gated setup dialog for HubSpot OAuth", async () => {
+    servers([], "member");
+    await render("hubspot", MEMBER);
+    const { action } = await renderHeader();
+    expect(action?.textContent).toBe("Connect");
+
+    await act(async () => action?.click());
+
+    expect(oauth.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    const props = dialogMocks.McpIntegrationDialog.mock.calls.at(-1)?.[0] as {
+      open: boolean;
+      initialIntegrationId: string | null;
+    };
+    expect(props).toMatchObject({
+      open: true,
+      initialIntegrationId: "hubspot",
+    });
+    expect(createServer).not.toHaveBeenCalled();
+  });
+
+  it("preserves the supported personal OAuth flow for Canva members", async () => {
+    const id = "canva";
+    servers([], "member");
+    await render(id, MEMBER);
+    const { action } = await renderHeader();
+    expect(action?.textContent).toBe("Connect");
+    expect(container.textContent).not.toContain(
+      "An admin needs to set this up",
+    );
+    await act(async () => action?.click());
+    expect(oauth.navigateToMcpOAuthStart).toHaveBeenCalledTimes(1);
+    const url = new URL(
+      oauth.navigateToMcpOAuthStart.mock.calls[0]![0] as string,
+      "http://localhost",
+    );
+    expect(url.searchParams.get("scope")).toBe("user");
+    expect(url.searchParams.get("url")).toBe("https://mcp.canva.com/mcp");
+    expect(createServer).not.toHaveBeenCalled();
+  });
 
   it("locks sharing for members", async () => {
     servers([], "member");

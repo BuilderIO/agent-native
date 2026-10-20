@@ -53,6 +53,7 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
+import { CssSyntaxError, parse as parseCss } from "postcss";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -191,6 +192,73 @@ export function mergeComponentSwapOverrides(
   markup = setAttributeOnMarkup(markup, "data-agent-native-node-id", nodeId);
 
   return { markup, overriddenProps, droppedProps, defaultedProps };
+}
+
+const INSTANCE_PLACEMENT_PROPERTIES = [
+  "position",
+  "inset",
+  "left",
+  "top",
+  "right",
+  "bottom",
+] as const;
+
+function codePointText(codePoint: number, reference: string): string {
+  return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+    ? String.fromCodePoint(codePoint)
+    : reference;
+}
+
+function decodeAttributeText(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (reference, hex: string) =>
+      codePointText(Number.parseInt(hex, 16), reference),
+    )
+    .replace(/&#([0-9]+);/g, (reference, decimal: string) =>
+      codePointText(Number.parseInt(decimal, 10), reference),
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+export function keepInstancePlacement(
+  markup: string,
+  instanceStyle: CodeLayerNode["style"],
+): string {
+  const openTag = markup.slice(0, findOpenTagEnd(markup));
+  const authoredStyle = decodeAttributeText(
+    /\sstyle\s*=\s*(["'])([\s\S]*?)\1/i.exec(openTag)?.[2] ?? "",
+  );
+  const placement = INSTANCE_PLACEMENT_PROPERTIES.flatMap((property) => {
+    const value = instanceStyle[property];
+    return value ? [`${property}:${value}`] : [];
+  });
+  const rest: string[] = [];
+  let authoredDeclarations: ReturnType<typeof parseCss>;
+  try {
+    authoredDeclarations = parseCss(authoredStyle);
+  } catch (error) {
+    if (!(error instanceof CssSyntaxError)) throw error;
+    fail(
+      `The replacement component's inline style is malformed: ${error.reason}. Fix its style attribute and retry the swap.`,
+      { errorCode: "invalid_inline_style", statusCode: 422 },
+    );
+  }
+  authoredDeclarations.walkDecls((declaration) => {
+    if (
+      !(INSTANCE_PLACEMENT_PROPERTIES as readonly string[]).includes(
+        declaration.prop.toLowerCase(),
+      )
+    ) {
+      rest.push(declaration.toString());
+    }
+  });
+  const style = [...placement, ...rest].join(";");
+  if (style === authoredStyle) return markup;
+  return setAttributeOnMarkup(markup, "style", style);
 }
 
 async function persistEdit(file: {
@@ -485,7 +553,7 @@ export default defineAction({
 
     const patchedContent =
       html.slice(0, node.source.start) +
-      mergedMarkup +
+      keepInstancePlacement(mergedMarkup, node.style) +
       html.slice(node.source.end);
 
     if (patchedContent === html) {

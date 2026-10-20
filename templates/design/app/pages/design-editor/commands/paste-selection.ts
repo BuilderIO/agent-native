@@ -19,7 +19,10 @@ import type {
   ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
 import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
-import type { DesignClipboardScreenEntry } from "@/lib/design-import";
+import type {
+  DesignClipboardScreenEntry,
+  RelativePositionOffset,
+} from "@/lib/design-import";
 import {
   extractLayerPosition,
   insertClonedHtmlLayers,
@@ -55,6 +58,7 @@ import {
   resolvePastePlacementForSelection,
   resolvePasteSourceAnchor,
 } from "@/pages/design-editor/paste-placement";
+import { effectiveRelativePositionOffset } from "@/pages/design-editor/relative-position-offset";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
@@ -212,7 +216,11 @@ function cloneLayerPositionForRepeat(
 function clipboardRepeatLayerLayout(args: {
   position?: string;
   left?: string;
+  right?: string;
   top?: string;
+  bottom?: string;
+  parentDirection?: string;
+  relativeOffset?: RelativePositionOffset | null;
   unknownPosition?: boolean;
 }): ClipboardRepeatLayerLayout {
   const position = args.position?.trim().toLowerCase();
@@ -223,11 +231,26 @@ function clipboardRepeatLayerLayout(args: {
       : { kind: "unavailable" };
   }
   if (position === "relative") {
+    const hasSourceOffset = Object.prototype.hasOwnProperty.call(
+      args,
+      "relativeOffset",
+    );
+    const relativeOffset = hasSourceOffset
+      ? args.relativeOffset
+      : effectiveRelativePositionOffset(
+          {
+            left: args.left,
+            right: args.right,
+            top: args.top,
+            bottom: args.bottom,
+          },
+          args.parentDirection,
+        );
     return {
       kind: "flow",
-      position: isPixelPosition(args.left, args.top),
+      position: relativeOffset ?? null,
       positionMode: "relative",
-      unknownPosition: false,
+      unknownPosition: relativeOffset === null,
     };
   }
   return {
@@ -254,15 +277,41 @@ function clipboardRepeatSourceLayout(
     const snapshotStyles = entry.portableStyleSnapshot?.nodes.find(
       (node) => node.path.length === 0,
     )?.styles;
-    const position =
-      root.style.getPropertyValue("position") || snapshotStyles?.position;
+    const hasRelativeOffsetMetadata = Object.prototype.hasOwnProperty.call(
+      entry,
+      "sourceRelativeOffset",
+    );
+    const position = hasRelativeOffsetMetadata
+      ? "relative"
+      : root.style.getPropertyValue("position") || snapshotStyles?.position;
     const left = root.style.left || snapshotStyles?.left;
+    const right = root.style.right || snapshotStyles?.right;
     const top = root.style.top || snapshotStyles?.top;
+    const bottom = root.style.bottom || snapshotStyles?.bottom;
     const unknownPosition = !position;
+    const hasRelativeShorthand = [
+      "inset",
+      "inset-block",
+      "inset-block-end",
+      "inset-block-start",
+      "inset-inline",
+      "inset-inline-end",
+      "inset-inline-start",
+    ].some(
+      (property) =>
+        root.style.getPropertyValue(property) || snapshotStyles?.[property],
+    );
     return clipboardRepeatLayerLayout({
       position,
       left,
+      right,
       top,
+      bottom,
+      ...(hasRelativeOffsetMetadata
+        ? { relativeOffset: entry.sourceRelativeOffset }
+        : hasRelativeShorthand
+          ? { relativeOffset: null }
+          : {}),
       unknownPosition,
     });
   } catch {
@@ -273,7 +322,20 @@ function clipboardRepeatSourceLayout(
 function clipboardRepeatSelectedCloneLayout(args: {
   html?: string;
   inlineStyles?: Record<string, string>;
+  computedStyles?: Record<string, string>;
+  parentDirection?: string;
 }): ClipboardRepeatLayerLayout {
+  if (args.computedStyles?.position) {
+    return clipboardRepeatLayerLayout({
+      position: args.computedStyles.position,
+      left: args.computedStyles.left,
+      right: args.computedStyles.right,
+      top: args.computedStyles.top,
+      bottom: args.computedStyles.bottom,
+      parentDirection: args.parentDirection,
+      unknownPosition: false,
+    });
+  }
   if (args.html !== undefined) {
     if (typeof window === "undefined") return { kind: "unavailable" };
     try {
@@ -287,7 +349,9 @@ function clipboardRepeatSelectedCloneLayout(args: {
       return clipboardRepeatLayerLayout({
         position: root.style.position,
         left: root.style.left,
+        right: root.style.right,
         top: root.style.top,
+        bottom: root.style.bottom,
         unknownPosition: !root.style.position,
       });
     } catch {
@@ -297,7 +361,10 @@ function clipboardRepeatSelectedCloneLayout(args: {
   return clipboardRepeatLayerLayout({
     position: args.inlineStyles?.position,
     left: args.inlineStyles?.left,
+    right: args.inlineStyles?.right,
     top: args.inlineStyles?.top,
+    bottom: args.inlineStyles?.bottom,
+    parentDirection: args.parentDirection,
   });
 }
 
@@ -312,7 +379,10 @@ function positionsFromSelectedClipboardClone(
   }
   if (
     sourceLayouts.some((layout) => layout.kind === "unavailable") ||
-    selectedCloneLayout.kind === "unavailable"
+    selectedCloneLayout.kind === "unavailable" ||
+    (selectedCloneLayout.kind === "flow" &&
+      selectedCloneLayout.positionMode === "relative" &&
+      selectedCloneLayout.unknownPosition)
   ) {
     return null;
   }
@@ -320,16 +390,36 @@ function positionsFromSelectedClipboardClone(
     layout.kind === "unavailable" ? null : layout.position,
   );
   const hasSourcePosition = sourcePositions.some(Boolean);
+  if (
+    sourceLayouts.some(
+      (layout) =>
+        layout.kind === "flow" &&
+        layout.positionMode === "relative" &&
+        layout.unknownPosition,
+    )
+  ) {
+    return null;
+  }
   const unknownPositionInMixedRoots =
     hasSourcePosition &&
     sourceLayouts.some(
-      (layout) => layout.kind === "flow" && layout.unknownPosition,
+      (layout) =>
+        layout.kind === "flow" &&
+        layout.positionMode !== "relative" &&
+        layout.unknownPosition,
     );
   if (unknownPositionInMixedRoots) return null;
   const naturalFlowRoots = sourceLayouts.map(
     (layout) => layout.kind === "flow",
   );
-  if (naturalFlowRoots.every(Boolean) && selectedCloneLayout.kind === "flow") {
+  const allUnpositionedFlowRoots = sourceLayouts.every(
+    (layout) => layout.kind === "flow" && layout.positionMode !== "relative",
+  );
+  if (
+    allUnpositionedFlowRoots &&
+    naturalFlowRoots.every(Boolean) &&
+    selectedCloneLayout.kind === "flow"
+  ) {
     return undefined;
   }
   const selectedClonePosition = selectedCloneLayout.position;
@@ -466,13 +556,7 @@ function positionsFromSource(
   cascadeOffset = 0,
 ) {
   if (cascadeOffset === 0) return undefined;
-  if (
-    sourceLayouts.some(
-      (layout) =>
-        layout.kind === "unavailable" ||
-        (layout.kind === "flow" && layout.unknownPosition),
-    )
-  ) {
+  if (sourceLayouts.some((layout) => layout.kind === "unavailable")) {
     return undefined;
   }
   return sourceLayouts.map((layout) =>
@@ -821,6 +905,7 @@ export async function runPasteSelection(
     const sourceParentAnchor = sourceParentNodeId
       ? { selector: "", sourceId: sourceParentNodeId }
       : null;
+    const sourceLayouts = entries.map(clipboardRepeatSourceLayout);
     const sourcePositions = entries.map((entry) =>
       extractLayerPosition(entry.html),
     );
@@ -865,20 +950,19 @@ export async function runPasteSelection(
     const selectedCloneLayout = selectedPastedLayer
       ? clipboardRepeatSelectedCloneLayout({
           inlineStyles: selectedElement?.inlineStyles,
+          computedStyles: selectedElement?.computedStyles,
+          parentDirection: selectedElement?.relativeContainingBlockDirection,
         })
       : null;
     const selectedSourcePositions = selectedPastedLayer
       ? positionsFromSelectedClipboardClone(
-          entries.map(clipboardRepeatSourceLayout),
+          sourceLayouts,
           selectedPastedLayer.entryIndex,
           selectedCloneLayout ?? { kind: "unavailable" },
           cascadeOffset,
         )
       : directlyCopiedAnchor
-        ? positionsFromSource(
-            entries.map(clipboardRepeatSourceLayout),
-            cascadeOffset,
-          )
+        ? positionsFromSource(sourceLayouts, cascadeOffset)
         : undefined;
     if (selectedSourcePositions === null) {
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
@@ -902,6 +986,10 @@ export async function runPasteSelection(
                   y: position.y + index * 16,
                   space: "visual" as const,
                 };
+          }
+          const layout = sourceLayouts[index];
+          if (layout?.kind === "flow" && layout.positionMode === "relative") {
+            return undefined;
           }
           return source
             ? {
@@ -1162,10 +1250,15 @@ export async function runPasteSelection(
               selectedNode.source.start,
               selectedNode.source.end,
             ),
+            computedStyles: selectedElement?.computedStyles,
+            parentDirection: selectedElement?.relativeContainingBlockDirection,
           })
         : selectedPastedLayer
           ? clipboardRepeatSelectedCloneLayout({
               inlineStyles: selectedElement?.inlineStyles,
+              computedStyles: selectedElement?.computedStyles,
+              parentDirection:
+                selectedElement?.relativeContainingBlockDirection,
             })
           : null;
     const selectedSourcePositions = selectedClipboardRoot
@@ -1234,6 +1327,7 @@ export async function runPasteSelection(
   const sourcePositions = entries.map((entry) =>
     extractLayerPosition(entry.html),
   );
+  const sourceLayouts = entries.map(clipboardRepeatSourceLayout);
   const positionedSources = sourcePositions.filter(
     (source): source is { x: number; y: number } => Boolean(source),
   );
@@ -1315,6 +1409,10 @@ export async function runPasteSelection(
             y: position.y + index * 16,
             space: "visual" as const,
           };
+    }
+    const layout = sourceLayouts[index];
+    if (layout?.kind === "flow" && layout.positionMode === "relative") {
+      return undefined;
     }
     if (rootFallbackPlacement) {
       return {

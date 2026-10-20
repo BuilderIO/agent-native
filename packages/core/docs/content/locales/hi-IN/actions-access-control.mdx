@@ -167,11 +167,13 @@ export default defineAction({
 
 यह legacy `parameters`-स्टाइल actions और schema-आधारित actions दोनों के लिए उसी तरह काम करता है। यह in-app एजेंट, sub-agents, A2A, और MCP कॉलर्स के लिए भी उसी तरह काम करता है, क्योंकि हर एजेंट सतह उसी लूप से होकर गुज़रती है।
 
+[HTTP API](/docs/http-api) से किए गए calls approval नहीं दे सकते। जब किसी call को approval चाहिए, तो route उसे `409` और `errorCode: "approval_required"` के साथ मना कर देता है, चाहे कॉलर के पास bearer token हो, API key हो, MCP OAuth token हो, org service token हो, या A2A पहचान हो। कोई service identity कभी approve नहीं कर सकती। ऐसा call सीधे केवल ऐप का अपना signed-in UI चलाता है, क्योंकि उसे इस्तेमाल करने वाला व्यक्ति ही approve कर रहा होता है। ब्राउज़र call एक अल्पकालिक UI capability से साबित करता है कि वह उसी UI से आया है। जो call इसके बिना खुद को ऐप बताता है, उसे `errorCode: "ui_capability_required"` के साथ `403` मिलता है, और ऐप का client capability बनाकर एक बार फिर कोशिश करता है। अगर आप चाहते हैं कि किसी एजेंट के calls approve हों, तो उसे [MCP](/docs/external-agents) से कनेक्ट करें या उसे ऐप की agent chat में पूछने दें।
+
 ### लूप कैसे रुकता है {#loop}
 
 जब एजेंट किसी गेटेड action को कॉल करता है और यह विशिष्ट कॉल पहले से अनुमोदित **नहीं** है, तो लूप `run()` को execute **नहीं** करता। इसके बजाय यह:
 
-1. गेट को resolve करता है। किसी predicate के लिए, लूप `needsApproval(input, ctx)` को कॉल करता है। अगर वह कॉल कोई error throw करती है, तो लूप इसे `true` परिणाम जैसा ही treat करता है, इसलिए action को अनुमोदन की आवश्यकता होती है।
+1. गेट को resolve करता है। लूप पहले कॉल तैयार करता है: वह arguments को validate करता है और schema के defaults व coercions लागू करता है। कोई invalid कॉल यहीं अपने validation error के साथ रुक जाती है, और किसी से अनुमोदन नहीं माँगा जाता। किसी predicate के लिए, लूप फिर तैयार किए गए arguments के साथ `needsApproval(args, ctx)` को कॉल करता है, यानी वही arguments जो `run()` को मिलते। अगर वह कॉल कोई error throw करती है, तो लूप इसे `true` परिणाम जैसा ही treat करता है, इसलिए action को अनुमोदन की आवश्यकता होती है।
 2. एक `tool_start` इवेंट emit करता है (ताकि UI कॉल दिखाए) जिसके तुरंत बाद एक **`approval_required`** इवेंट आता है, फिर turn को रोक देता है। action का side effect कभी नहीं होता।
 
 `approval_required` इवेंट में वह सब कुछ होता है जो client को एक affordance render करने के लिए चाहिए:
@@ -408,7 +410,7 @@ export default defineAction({
 | --------------------------------- | -------------------------------------------------------------- | ----------------------------------- |
 | `access`                          | क्या कॉलर के पास घोषित भूमिका या membership है?                | सभी छह dispatch साइट्स              |
 | `authorize`                       | क्या यह कॉलर बिल्कुल भी ऑपरेशन कर सकता है?                     | सभी छह dispatch साइट्स              |
-| `needsApproval`                   | क्या किसी मानव को इस विशिष्ट अनुमत कॉल को अनुमोदित करना चाहिए? | केवल एजेंट लूप                      |
+| `needsApproval`                   | क्या किसी मानव को इस विशिष्ट अनुमत कॉल को अनुमोदित करना चाहिए? | हर सतह                              |
 | `accessFilter()`/`assertAccess()` | यह अनुमत कॉलर कौन-सी rows देख या लिख सकता है?                  | `run()` के अंदर, प्रति query या row |
 
 एक प्रतिबंधित write action को आमतौर पर `authorize` और एक row जांच दोनों चाहिए होते हैं। पहला non-coaches को ऑपरेशन से बाहर रखता है। दूसरा किसी coach को किसी दूसरे org के plan से बाहर रखता है। row जांच `assertAccess()` है, या `access` जब row की id कोई input field हो। `needsApproval` एक अलग axis है। यह कभी प्रतिबंधित नहीं करता कि कौन कॉल कर सकता है, केवल यह कि क्या एजेंट बिना निगरानी के आगे बढ़ सकता है।

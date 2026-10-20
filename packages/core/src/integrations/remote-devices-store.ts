@@ -5,6 +5,11 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import {
+  REMOTE_DEVICE_MIGRATIONS,
+  REMOTE_DEVICE_MIGRATIONS_TABLE,
+} from "./remote-device-migrations.js";
 import type {
   PublicRemoteDevice,
   RemoteComputerCapabilities,
@@ -75,6 +80,10 @@ export const remoteDevicesStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      REMOTE_DEVICE_MIGRATIONS_TABLE,
+      REMOTE_DEVICE_MIGRATIONS,
+    ),
   ],
 });
 

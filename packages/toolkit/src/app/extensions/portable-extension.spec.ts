@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   buildAgentNativeExtensionHtml,
   createHttpAgentNativeExtensionStorage,
   createLocalStorageAgentNativeExtensionStorage,
@@ -10,17 +11,79 @@ import {
   normalizeAgentNativeExtensionSandbox,
 } from "./portable-extension.js";
 
+function runtimeScript(html: string): string {
+  const scripts = Array.from(
+    html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi),
+    (match) => match[1],
+  );
+  const script = scripts.find((value) => value.includes("var messageTypes ="));
+  if (!script) throw new Error("Portable extension runtime script not found");
+  return script;
+}
+
+function executeRuntime(linkNonce?: string): string {
+  const html = buildAgentNativeExtensionHtml({
+    extensionId: "ext-1",
+    content: "<div></div>",
+    ...(linkNonce ? { linkNonce } : {}),
+  });
+  window.eval(runtimeScript(html));
+  return html;
+}
+
+function createTestPort() {
+  const listeners = new Set<(event: MessageEvent) => void>();
+  const messages: unknown[] = [];
+  const port = {
+    addEventListener(type: string, listener: EventListener) {
+      if (type === "message") {
+        listeners.add(listener as (event: MessageEvent) => void);
+      }
+    },
+    removeEventListener(type: string, listener: EventListener) {
+      if (type === "message") {
+        listeners.delete(listener as (event: MessageEvent) => void);
+      }
+    },
+    start() {},
+    postMessage(message: unknown) {
+      messages.push(message);
+    },
+  };
+  return {
+    port: port as unknown as MessagePort,
+    messages,
+    dispatch(data: unknown) {
+      for (const listener of listeners) listener({ data } as MessageEvent);
+    },
+  };
+}
+
+function postHostMessage(data: unknown, source: MessageEventSource | null) {
+  window.dispatchEvent(new MessageEvent("message", { data, source }));
+}
+
 describe("portable extension runtime", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("builds sandbox iframe HTML with host bridge helpers", () => {
+  afterEach(() => {
+    window.dispatchEvent(new Event("pagehide"));
+    delete (window as any).agentNative;
+    delete (window as any).extensionData;
+    delete (window as any).__agentNativeExtensionHostPort;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("builds sandbox iframe HTML with isolated external links", () => {
     const html = buildAgentNativeExtensionHtml({
       extensionId: "ext-1",
       slotId: "crm.sidebar",
       title: "Customer notes",
       content: '<div x-data="{ ready: true }">Hello</div>',
+      linkNonce: "test-link-nonce",
       slotContext: { customerId: "cus_123" },
     });
 
@@ -30,6 +93,10 @@ describe("portable extension runtime", () => {
     expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
     expect(html).toContain("recordCrossOriginIframes: true");
     expect(html).toContain("agentNative.host.ready");
+    expect(html).toContain("link.getAttribute('href')");
+    expect(html).toContain("agent-native-extension.hello-link-channel");
+    expect(html).not.toContain("agent-native-extension.reseed-link-channel");
+    expect(html).toContain("agent-native-extension.open-external-link");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");
     expect(html).toContain("var bodyRect = body.getBoundingClientRect()");
@@ -88,6 +155,7 @@ describe("portable extension runtime", () => {
     const html = buildAgentNativeExtensionHtml({
       extensionId: "ext-1",
       content: "<div></div>",
+      linkNonce: "test-link-nonce",
       slotContext: { label: "</script><script>alert(1)</script>" },
     });
 
@@ -95,7 +163,185 @@ describe("portable extension runtime", () => {
     expect(html).not.toContain("</script><script>alert");
   });
 
-  it("removes allow-same-origin from extension sandbox values", () => {
+  it("preserves callers that build extension HTML without link routing", () => {
+    const html = buildAgentNativeExtensionHtml({
+      extensionId: "ext-1",
+      content: "<div></div>",
+    });
+
+    expect(html).toContain("<div></div>");
+    expect(html).not.toContain("data-link-nonce=");
+    expect(html).toContain("agentNative.host.ready");
+    expect(html).not.toContain("agent-native-extension.hello-link-channel");
+  });
+
+  it("keeps the legacy source-checked window host bridge without a nonce", async () => {
+    vi.useFakeTimers();
+    const sent: unknown[] = [];
+    vi.spyOn(window, "postMessage").mockImplementation((message: unknown) => {
+      sent.push(message);
+    });
+    const html = executeRuntime();
+    expect(html).not.toContain("agent-native-extension.hello-link-channel");
+
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: "agentNative.host.ready" }),
+    );
+
+    const forgedInit = {
+      type: "agentNative.host.init",
+      context: { source: "untrusted" },
+    };
+    postHostMessage(forgedInit, {} as Window);
+    expect((window as any).agentNative.init).toBeNull();
+
+    postHostMessage(
+      {
+        type: "agentNative.host.init",
+        context: { source: "host" },
+        actions: [{ name: "save" }],
+      },
+      window,
+    );
+    expect((window as any).agentNative.contextSnapshot).toEqual({
+      source: "host",
+    });
+    expect((window as any).agentNative.actionsSnapshot).toEqual([
+      { name: "save" },
+    ]);
+
+    const contextPromise = (window as any).agentNative.context();
+    const contextRequest = sent.find(
+      (message: any) => message.type === "agentNative.host.getContext",
+    ) as any;
+    expect(contextRequest).toBeTruthy();
+    postHostMessage(
+      {
+        type: "agentNative.host.context",
+        requestId: contextRequest.requestId,
+        context: { customerId: "cus_1" },
+      },
+      window,
+    );
+    await expect(contextPromise).resolves.toEqual({ customerId: "cus_1" });
+
+    const actionPromise = (window as any).agentNative.action("save", {
+      value: 7,
+    });
+    const actionRequest = sent.find(
+      (message: any) => message.type === "agentNative.host.runAction",
+    ) as any;
+    expect(actionRequest).toMatchObject({ name: "save", args: { value: 7 } });
+    postHostMessage(
+      {
+        type: "agentNative.host.actionResult",
+        requestId: actionRequest.requestId,
+        result: { saved: true },
+      },
+      window,
+    );
+    await expect(actionPromise).resolves.toEqual({ saved: true });
+
+    const storagePromise = (window as any).extensionData.get("notes", "n1");
+    const storageRequest = sent.find(
+      (message: any) =>
+        message.type === AGENT_NATIVE_EXTENSION_MESSAGE_TYPES.STORAGE_REQUEST,
+    ) as any;
+    expect(storageRequest).toMatchObject({
+      op: "get",
+      collection: "notes",
+      id: "n1",
+    });
+    postHostMessage(
+      {
+        type: AGENT_NATIVE_EXTENSION_MESSAGE_TYPES.STORAGE_RESPONSE,
+        requestId: storageRequest.requestId,
+        result: { id: "n1" },
+      },
+      window,
+    );
+    await expect(storagePromise).resolves.toEqual({ id: "n1" });
+  });
+
+  it("keeps nonce host traffic on the private MessagePort", async () => {
+    vi.useFakeTimers();
+    const windowPost = vi.spyOn(window, "postMessage");
+    const html = executeRuntime("private-link-nonce");
+    expect(html).toContain('data-link-nonce="private-link-nonce"');
+
+    postHostMessage(
+      {
+        type: "agentNative.host.init",
+        context: { source: "window" },
+      },
+      window,
+    );
+    expect((window as any).agentNative.init).toBeNull();
+
+    const host = createTestPort();
+    (window as any).__agentNativeExtensionHostPort = host.port;
+    window.dispatchEvent(new Event("agent-native-extension-host-port-ready"));
+    expect(host.messages).toContainEqual(
+      expect.objectContaining({ type: "agentNative.host.ready" }),
+    );
+    expect(windowPost).not.toHaveBeenCalled();
+
+    host.dispatch({
+      type: "agentNative.host.init",
+      context: { source: "port" },
+    });
+    expect((window as any).agentNative.contextSnapshot).toEqual({
+      source: "port",
+    });
+
+    const contextPromise = (window as any).agentNative.context();
+    const contextRequest = host.messages.find(
+      (message: any) => message.type === "agentNative.host.getContext",
+    ) as any;
+    expect(contextRequest).toBeTruthy();
+    host.dispatch({
+      type: "agentNative.host.context",
+      requestId: contextRequest.requestId,
+      context: { customerId: "cus_2" },
+    });
+    await expect(contextPromise).resolves.toEqual({ customerId: "cus_2" });
+    expect(windowPost).not.toHaveBeenCalled();
+  });
+
+  it("reattaches nonce host traffic after a BFCache restore", async () => {
+    executeRuntime("private-link-nonce");
+
+    const firstHost = createTestPort();
+    (window as any).__agentNativeExtensionHostPort = firstHost.port;
+    window.dispatchEvent(new Event("agent-native-extension-host-port-ready"));
+    expect(firstHost.messages).toContainEqual(
+      expect.objectContaining({ type: "agentNative.host.ready" }),
+    );
+
+    const pagehide = new Event("pagehide");
+    Object.defineProperty(pagehide, "persisted", { value: true });
+    window.dispatchEvent(pagehide);
+    window.dispatchEvent(new Event("pageshow"));
+
+    const restoredHost = createTestPort();
+    (window as any).__agentNativeExtensionHostPort = restoredHost.port;
+    window.dispatchEvent(new Event("agent-native-extension-host-port-ready"));
+
+    const contextPromise = (window as any).agentNative.context();
+    const contextRequest = restoredHost.messages.find(
+      (message: any) => message.type === "agentNative.host.getContext",
+    ) as any;
+    expect(contextRequest).toBeTruthy();
+    restoredHost.dispatch({
+      type: "agentNative.host.context",
+      requestId: contextRequest.requestId,
+      context: { restored: true },
+    });
+
+    await expect(contextPromise).resolves.toEqual({ restored: true });
+  });
+
+  it("keeps legacy popups and limits them to the legacy sandbox mode", () => {
     expect(
       normalizeAgentNativeExtensionSandbox(
         "allow-scripts allow-same-origin allow-popups",
@@ -103,6 +349,50 @@ describe("portable extension runtime", () => {
     ).toBe("allow-scripts allow-popups allow-downloads");
     expect(normalizeAgentNativeExtensionSandbox(undefined)).toContain(
       "allow-scripts",
+    );
+    expect(normalizeAgentNativeExtensionSandbox(undefined)).toBe(
+      "allow-scripts allow-forms allow-popups allow-downloads",
+    );
+    expect(
+      normalizeAgentNativeExtensionSandbox(undefined, { mode: "nonce" }),
+    ).toBe("allow-scripts allow-forms allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation allow-top-navigation-by-user-activation allow-top-navigation-to-custom-protocol",
+        { mode: "nonce" },
+      ),
+    ).toBe("allow-scripts allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox",
+      ),
+    ).toBe("allow-scripts allow-popups allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "ALLOW-SCRIPTS ALLOW-POPUPS ALLOW-POPUPS-TO-ESCAPE-SANDBOX",
+      ),
+    ).toBe("allow-scripts allow-popups allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "ALLOW-SCRIPTS ALLOW-POPUPS ALLOW-POPUPS-TO-ESCAPE-SANDBOX",
+        { mode: "nonce" },
+      ),
+    ).toBe("allow-scripts allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(undefined, { mode: "legacy" }),
+    ).toBe("allow-scripts allow-forms allow-popups allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox",
+        { mode: "legacy" },
+      ),
+    ).toBe("allow-scripts allow-popups allow-downloads");
+    expect(
+      normalizeAgentNativeExtensionSandbox(
+        "allow-scripts allow-top-navigation-by-user-activation",
+      ),
+    ).toBe(
+      "allow-scripts allow-top-navigation-by-user-activation allow-downloads",
     );
     expect(normalizeAgentNativeExtensionSandbox("allow-forms")).toContain(
       "allow-downloads",

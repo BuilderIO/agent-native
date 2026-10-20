@@ -101,6 +101,11 @@ import {
   COMPONENT_REF_ATTR,
   COMPONENT_SOURCE_NODE_ID_ATTR,
 } from "../shared/component-model.js";
+import { catalogShader } from "../shared/native-effect-catalog-kit.js";
+import {
+  applyNativeEffectToHtml,
+  parseEffectsFromHtml,
+} from "../shared/native-effects.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import action from "./apply-component-prop-edit.js";
 
@@ -955,6 +960,65 @@ describe("apply-component-prop-edit linked path", () => {
     expect(copy).toContain(`data-agent-native-node-id="an-instance-copy-file:`);
     expect(copy).toContain(`${COMPONENT_REF_ATTR}="button"`);
     expect(result.changes).toHaveLength(2);
+  });
+
+  it("prunes deleted native Fill targets in linked structure snapshots before the atomic write", async () => {
+    const definition = catalogShader({
+      id: "linked-pruning-proof",
+      name: "Pruning",
+      kind: "generator",
+      properties: {},
+      fragment: () => "return vec4f(0.0);",
+    });
+    const files = structureLiveFiles();
+    for (const file of files) {
+      const prefix = file.id === "main-file" ? "main" : "copy";
+      for (const suffix of ["a", "a", "b"]) {
+        const applied = applyNativeEffectToHtml(file.content, {
+          nodeId: `${prefix}-${suffix}`,
+          definition,
+          placement: "fill",
+        });
+        expect(applied.errors).toEqual([]);
+        file.content = applied.html;
+      }
+    }
+    mocks.resolveSourceWorkspace.mockResolvedValue({
+      designId,
+      sourceType: "inline",
+      canEdit: true,
+      files,
+      boardFileId: null,
+    });
+    const before = files[0].content;
+    const after = before.replace(
+      '<div data-agent-native-node-id="main-a">A</div>',
+      "",
+    );
+    expect(after).not.toBe(before);
+    const result = await action.run({
+      designId,
+      fileId: "main-file",
+      nodeId: "main-root",
+      edit: { kind: "structure", before, after },
+      source: { expectedFiles: expectedFor(files) },
+    });
+    expect(result).toMatchObject({ persisted: true, ctaRequired: false });
+    expect(mocks.writeInlineSourceFilesBatch).toHaveBeenCalledOnce();
+    const batch = mocks.writeInlineSourceFilesBatch.mock.calls[0][0];
+    expect(batch.files).toHaveLength(2);
+    for (const { file, content } of batch.files) {
+      const parsed = parseEffectsFromHtml(content);
+      expect(parsed.errors).toEqual([]);
+      const expectedId = file.id === "main-file" ? "main-b" : "copy-b";
+      expect(
+        parsed.document?.instances.map((instance) => instance.nodeId),
+      ).toEqual([expectedId]);
+      const original = parseEffectsFromHtml(
+        files.find((item) => item.id === file.id)!.content,
+      ).document!;
+      expect(parsed.document?.instances[0]).toEqual(original.instances[2]);
+    }
   });
 
   it("refuses a stale structure snapshot before writing any file", async () => {

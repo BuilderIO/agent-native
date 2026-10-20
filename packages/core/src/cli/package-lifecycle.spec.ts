@@ -12,6 +12,7 @@ import {
   type LoadedLifecyclePackage,
   type PackageLifecycleIO,
 } from "./package-lifecycle.js";
+import { resolveTarExecutable } from "./tar-command.js";
 
 const tempDirs: string[] = [];
 
@@ -251,6 +252,11 @@ describe("package lifecycle CLI", () => {
       "npm",
       "pack",
       "@agent-native/remote-example",
+    ]);
+    expect(calls.map(([command]) => command)).toEqual([
+      "npm",
+      resolveTarExecutable(),
+      resolveTarExecutable(),
     ]);
     loaded.cleanup?.();
   });

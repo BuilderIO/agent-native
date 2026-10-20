@@ -42,8 +42,13 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * UNDERSTAND THE ASK rule plus the mutate-dashboard examples (~400t) replaced a
  * skill read on every small panel edit. Deleting the AGENTS.md skills list the
  * skills summary already carries paid back ~650t.
+ *
+ * 18,300 -> 18,750: the dbt Semantic Layer routing the answer-quality fix
+ * requires (AGENTS.md routing bullets and the dbt readiness guidance line, plus
+ * the query-dbt-semantic-metric, bigquery, find-data, and data-source-status
+ * descriptions that route to it), ~440t. Trimming it would remove the fix.
  */
-const BASELINE_BUDGET_TOKENS = 18_300;
+const BASELINE_BUDGET_TOKENS = 18_750;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;
@@ -73,6 +78,8 @@ const LAZY_TOOLS = [
   "provider-api-request",
   "provider-corpus-job",
   "query-staged-dataset",
+  "query-dbt-semantic-metric",
+  "data-source-status",
   "update-dashboard",
   "compose-dashboard",
   "generate-chart",
@@ -358,9 +365,16 @@ describe("Analytics first-request baseline", () => {
   });
 
   it("leaves every dropped tool one tool-search away", () => {
-    const found = searchToolRegistry(leanRegistry, { names: LAZY_TOOLS });
+    const batches = Array.from(
+      { length: Math.ceil(LAZY_TOOLS.length / 20) },
+      (_, index) => LAZY_TOOLS.slice(index * 20, (index + 1) * 20),
+    );
     const callable = new Set(
-      found.results.filter((result) => result.callable).map((r) => r.name),
+      batches.flatMap((names) =>
+        searchToolRegistry(leanRegistry, { names })
+          .results.filter((result) => result.callable)
+          .map((result) => result.name),
+      ),
     );
 
     expect(LAZY_TOOLS.filter((name) => !callable.has(name))).toEqual([]);

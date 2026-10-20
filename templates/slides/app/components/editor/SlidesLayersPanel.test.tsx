@@ -34,6 +34,7 @@ describe("SlidesLayersPanel", () => {
         labels={{
           title: "Layers",
           close: "Close layers panel",
+          search: "Search layers",
           expand: "Expand layer",
           collapse: "Collapse layer",
         }}
@@ -91,6 +92,7 @@ describe("SlidesLayersPanel", () => {
         labels={{
           title: "Layers",
           close: "Close layers panel",
+          search: "Search layers",
           expand: "Expand layer",
           collapse: "Collapse layer",
         }}
@@ -129,6 +131,7 @@ describe("SlidesLayersPanel", () => {
         labels={{
           title: "Layers",
           close: "Close layers panel",
+          search: "Search layers",
           expand: "Expand layer",
           collapse: "Collapse layer",
         }}
@@ -160,6 +163,7 @@ describe("SlidesLayersPanel", () => {
         labels={{
           title: "Layers",
           close: "Close layers panel",
+          search: "Search layers",
           expand: "Expand layer",
           collapse: "Collapse layer",
         }}
@@ -199,6 +203,7 @@ describe("SlidesLayersPanel", () => {
         labels={{
           title: "Layers",
           close: "Close layers panel",
+          search: "Search layers",
           expand: "Expand layer",
           collapse: "Collapse layer",
         }}
@@ -229,5 +234,42 @@ describe("SlidesLayersPanel", () => {
       "parent",
       "child",
     ]);
+  });
+
+  it("filters the tree by label and keeps the ancestors of a match", () => {
+    const { container, getByLabelText, getAllByLabelText } = render(
+      <SlidesLayersPanel
+        layers={[
+          {
+            id: "group",
+            label: "Features",
+            children: [{ id: "a", label: "Feature 1" }],
+          },
+          { id: "title", label: "Product Launch" },
+        ]}
+        selectedIds={[]}
+        onSelectLayer={vi.fn()}
+        onMoveLayer={vi.fn()}
+        onClose={vi.fn()}
+        labels={{
+          title: "Layers",
+          close: "Close layers panel",
+          search: "Search layers",
+          expand: "Expand layer",
+          collapse: "Collapse layer",
+        }}
+      />,
+    );
+
+    fireEvent.click(getAllByLabelText("Search layers")[0]);
+    fireEvent.change(getByLabelText("Search layers", { selector: "input" }), {
+      target: { value: "feature 1" },
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("[data-layer-node-id]")).map(
+        (node) => node.getAttribute("data-layer-node-id"),
+      ),
+    ).toEqual(["group", "a"]);
   });
 });

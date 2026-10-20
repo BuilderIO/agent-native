@@ -1347,7 +1347,9 @@ describe("EmailList keyboard navigation interactions", () => {
     press("ArrowDown");
     press(key);
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/all/thread-middle");
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      "/all/thread-middle?accountEmail=synthetic%40example.test",
+    );
   });
 
   it.each([

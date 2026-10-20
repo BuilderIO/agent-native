@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  DashboardSaveQueueConflictError,
   createDashboardSaveQueue,
   type DashboardSaveOutcome,
 } from "./dashboard-save-queue";
@@ -58,8 +59,13 @@ describe("dashboard save queue", () => {
       changed: true,
       updatedAt: "v1",
       revisionId: "rev1",
+      config: { panels: ["first-row-b", "second-row"] },
     });
-    await expect(second).resolves.toEqual({ isLatest: true, changed: false });
+    await expect(second).resolves.toEqual({
+      isLatest: true,
+      changed: false,
+      config: { panels: ["second-row"] },
+    });
   });
 
   it("keeps a queued save's base when it was edited from another version", async () => {
@@ -94,7 +100,184 @@ describe("dashboard save queue", () => {
     await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
     expect(save).toHaveBeenLastCalledWith({ panels: ["a", "b"] }, "v0");
     secondSave.resolve({ changed: true });
-    await expect(second).resolves.toEqual({ isLatest: true, changed: true });
+    await expect(second).resolves.toEqual({
+      isLatest: true,
+      changed: true,
+      config: { panels: ["a", "b"] },
+    });
     expect(queue.pending()).toBe(0);
+  });
+
+  it("reapplies a later edit without carrying a failed queued edit", async () => {
+    const firstSave = deferred();
+    const secondSave = deferred();
+    const { save, queue } = queueOf(firstSave, secondSave);
+    const base = { panels: ["saved"] };
+    const failedUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "failed"],
+    });
+    const laterUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "later"],
+    });
+    const firstConfig = failedUpdate(base);
+
+    const first = queue.enqueue(firstConfig, "v0", failedUpdate, base);
+    const second = queue.enqueue(
+      laterUpdate(firstConfig),
+      "v0",
+      laterUpdate,
+      firstConfig,
+    );
+
+    firstSave.reject(new Error("Resize failed"));
+    await expect(first).rejects.toThrow("Resize failed");
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenLastCalledWith(
+        { panels: ["saved", "later"] },
+        "v0",
+      );
+    });
+    secondSave.resolve({ changed: true, updatedAt: "v1" });
+
+    await expect(second).resolves.toMatchObject({ isLatest: true });
+  });
+
+  it("reapplies a new edit after failure against the last confirmed config", async () => {
+    const firstSave = deferred();
+    const secondSave = deferred();
+    const save =
+      vi.fn<
+        (
+          config: { width: number; height: number },
+          expectedUpdatedAt: string | undefined,
+        ) => Promise<DashboardSaveOutcome>
+      >();
+    save
+      .mockReturnValueOnce(firstSave.promise)
+      .mockReturnValueOnce(secondSave.promise);
+    const queue = createDashboardSaveQueue(save);
+    const base = { width: 1, height: 2 };
+    const failedResize = { ...base, width: 2 };
+    const resizeWidth = (current: typeof base) => ({ ...current, width: 2 });
+
+    const first = queue.enqueue(failedResize, "v0", resizeWidth, base);
+    firstSave.reject(new Error("Resize failed"));
+    await expect(first).rejects.toThrow("Resize failed");
+    expect(queue.confirmed()).toEqual(base);
+
+    const resizeHeight = (current: typeof base) => ({ ...current, height: 3 });
+    const second = queue.enqueue(
+      { ...failedResize, height: 3 },
+      "v0",
+      resizeHeight,
+      { ...failedResize, height: 3 },
+    );
+
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenLastCalledWith({ width: 1, height: 3 }, "v0");
+    });
+    secondSave.resolve({ changed: true, updatedAt: "v1" });
+    await expect(second).resolves.toMatchObject({
+      isLatest: true,
+      config: { width: 1, height: 3 },
+    });
+  });
+
+  it("does not save a diverged config after an earlier queued save fails", async () => {
+    const firstSave = deferred();
+    const { save, queue } = queueOf(firstSave);
+    const base = { panels: ["saved"] };
+    const failedUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "failed"],
+    });
+    const firstConfig = failedUpdate(base);
+    const adoptedConfig = { panels: ["saved", "failed", "remote"] };
+    const laterUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "later"],
+    });
+
+    const first = queue.enqueue(firstConfig, "v0", failedUpdate, base);
+    const second = queue.enqueue(
+      laterUpdate(adoptedConfig),
+      "v0",
+      laterUpdate,
+      adoptedConfig,
+    );
+
+    firstSave.reject(new Error("Resize failed"));
+    await expect(first).rejects.toThrow("Resize failed");
+    await expect(second).rejects.toBeInstanceOf(
+      DashboardSaveQueueConflictError,
+    );
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not save a diverged config after an earlier queued save succeeds", async () => {
+    const firstSave = deferred();
+    const { save, queue } = queueOf(firstSave);
+    const base = { panels: ["saved"] };
+    const firstUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "first"],
+    });
+    const firstConfig = firstUpdate(base);
+    const adoptedConfig = { panels: ["saved", "first", "remote"] };
+    const laterUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "later"],
+    });
+
+    const first = queue.enqueue(firstConfig, "v0", firstUpdate, base);
+    const second = queue.enqueue(
+      laterUpdate(adoptedConfig),
+      "v0",
+      laterUpdate,
+      adoptedConfig,
+    );
+
+    firstSave.resolve({ changed: true, updatedAt: "v1" });
+    await expect(first).resolves.toMatchObject({
+      isLatest: false,
+      config: firstConfig,
+    });
+    expect(queue.confirmed()).toEqual(firstConfig);
+    await expect(second).rejects.toBeInstanceOf(
+      DashboardSaveQueueConflictError,
+    );
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("recognizes a confirmed snapshot while a later save is pending", async () => {
+    const firstSave = deferred();
+    const secondSave = deferred();
+    const { save, queue } = queueOf(firstSave, secondSave);
+    const base = { panels: ["saved"] };
+    const firstConfig = { panels: ["saved", "first"] };
+    const secondUpdate = (current: { panels: string[] }) => ({
+      panels: [...current.panels, "second"],
+    });
+
+    const first = queue.enqueue(
+      firstConfig,
+      "v0",
+      (current) => ({ panels: [...current.panels, "first"] }),
+      base,
+    );
+    const second = queue.enqueue(
+      { panels: [...firstConfig.panels, "second"] },
+      "v0",
+      secondUpdate,
+      firstConfig,
+    );
+
+    expect(queue.isLocalSnapshot({ panels: ["saved", "first"] })).toBe(true);
+    firstSave.resolve({ changed: true, updatedAt: "v1" });
+    await expect(first).resolves.toMatchObject({ isLatest: false });
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+
+    expect(queue.pending()).toBe(1);
+    expect(queue.isLocalSnapshot({ panels: ["saved", "first"] })).toBe(true);
+    expect(queue.isLocalSnapshot({ panels: ["remote"] })).toBe(false);
+
+    secondSave.resolve({ changed: true, updatedAt: "v2" });
+    await expect(second).resolves.toMatchObject({ isLatest: true });
   });
 });

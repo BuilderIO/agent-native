@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RunChunkControl } from "../agent/run-manager.js";
+import type { CurrentTurnRunEvent } from "../agent/run-store.js";
 import { startIntervalJob } from "../server/interval-job.js";
 import {
   getRequestOrgId,
@@ -19,6 +21,16 @@ import {
   MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
 } from "./event-queue.js";
 
+function createRunChunkControl(signal: AbortSignal): RunChunkControl {
+  return {
+    turnSignal: signal,
+    chunkSignal: signal,
+    chunkBoundaryReason: () => null,
+    beginChunk: () => signal,
+    flushEvents: async () => {},
+  };
+}
+
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceFingerprintAllOwnersMock = vi.hoisted(() => vi.fn());
 // The fingerprint of the rows a scan read; the default matches the default
@@ -37,13 +49,14 @@ const getThreadMock = vi.hoisted(() =>
     messageCount: 0,
   })),
 );
-const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const subscribeAllMock = vi.hoisted(() => vi.fn());
 const emitMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const getCurrentTurnRunEventsForThreadMock = vi.hoisted(() => vi.fn());
 const conditionResource = (
   name: string,
   eventName: string,
@@ -402,6 +415,11 @@ vi.mock("../agent/production-agent.js", () => ({
 
 vi.mock("../usage/store.js", () => ({
   recordUsage: recordUsageMock,
+}));
+
+vi.mock("../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/run-store.js")>()),
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsForThreadMock,
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
@@ -1119,6 +1137,36 @@ Respond to the fanout event.`,
     triggerQueueMocks.reset();
     resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
     scanFingerprintMock.mockResolvedValue("fingerprint-unchanged");
+    getCurrentTurnRunEventsForThreadMock.mockImplementation(
+      async (threadId: string, turnId?: string) =>
+        startRunMock.mock.results.flatMap((result, index) => {
+          if (result.type !== "return") return [];
+          const run = result.value as {
+            runId: string;
+            threadId: string;
+            turnId?: string;
+            events?: Array<{
+              seq: number;
+              event: CurrentTurnRunEvent["event"];
+            }>;
+          };
+          const options = startRunMock.mock.calls[index]?.[4] as
+            | { turnId?: string }
+            | undefined;
+          const runTurnId = run.turnId ?? options?.turnId ?? run.runId;
+          if (
+            run.threadId !== threadId ||
+            (turnId !== undefined && runTurnId !== turnId)
+          ) {
+            return [];
+          }
+          return (run.events ?? []).map(({ seq, event }) => ({
+            runId: run.runId,
+            seq,
+            event,
+          }));
+        }),
+    );
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({
       execute: dbExecuteMock,
@@ -1179,13 +1227,16 @@ Respond to the event.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: { status: string }) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
         const activeRun = {
           runId,
           threadId,
+          turnId: options?.turnId ?? runId,
           status: "running",
           abort,
           events: [
@@ -1200,16 +1251,20 @@ Respond to the event.`,
             },
           ],
         };
-        void Promise.resolve().then(async () => {
+        const finalized = Promise.resolve().then(async () => {
           try {
-            await runFn(vi.fn(), abort.signal);
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
             activeRun.status = "completed";
           } catch {
             activeRun.status = "errored";
           }
           await onComplete?.(activeRun);
         });
-        return activeRun;
+        return { ...activeRun, finalized };
       },
     );
     recordUsageMock.mockResolvedValue(undefined);

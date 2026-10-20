@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
-// oracle: none — this checks the editor's toolbar wiring, not measured Figma behavior.
+// This test checks the editor's toolbar wiring using source text.
 // The hooks have no render harness, so the gates inside them are pinned as text.
 describe("DesignEditor floating toolbar wiring", () => {
   const editorSource = readDesignEditorSource();

@@ -11,6 +11,7 @@ import {
   _fixWebManifestName,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
+  _getGitHubTemplateRefCandidates,
   _getOtelDependencyVersion,
   _getToolkitDependencyVersion,
   _postProcessStandalone,
@@ -34,6 +35,7 @@ import {
   readProvenance,
   resolveTargets,
   runTemplate,
+  _useLocalTemplate,
 } from "./template-sync.js";
 import { BUILDER_CODE_STARTER_SKILLS } from "./workspace-skill-policy.js";
 import { workspacifyApp } from "./workspacify.js";
@@ -542,6 +544,24 @@ describe("agent-native template commands", () => {
     expect(await runTemplate(["status"], dirty.io)).toBe(0);
     expect(dirty.text()).toContain("locally modified files: 1");
   }, 180_000);
+
+  it("uses a bundled tree only when its ref matches the installed core", () => {
+    const currentRef = _getGitHubTemplateRefCandidates()[0]!;
+    const olderRef = "@agent-native/core@0.209.1";
+    const target = {
+      appDir: tmpDir,
+      appName: "my-app",
+      shape: "standalone" as const,
+      provenance: {
+        templateSource: "bundled" as const,
+        templateRef: olderRef,
+      },
+    };
+
+    expect(currentRef).not.toBe(olderRef);
+    expect(_useLocalTemplate(target, olderRef)).toBe(false);
+    expect(_useLocalTemplate(target, currentRef)).toBe(true);
+  });
 
   it("syncing against an unchanged upstream is a no-op that advances the baseline", async () => {
     const { appDir } = await scaffoldInRepo();

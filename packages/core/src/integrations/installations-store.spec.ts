@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   queries: [] as Array<string | { sql: string; args?: unknown[] }>,
@@ -19,6 +21,8 @@ function sqlOf(input: string | { sql: string }): string {
 }
 
 async function execute(input: string | { sql: string; args?: unknown[] }) {
+  const ledger = storeLedgerResult(sqlOf(input));
+  if (ledger) return ledger;
   state.queries.push(input);
   const sql = sqlOf(input);
   const args = typeof input === "string" ? [] : (input.args ?? []);

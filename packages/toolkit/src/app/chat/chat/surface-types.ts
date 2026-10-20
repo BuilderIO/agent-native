@@ -217,6 +217,8 @@ export interface AssistantChatProps {
   suggestions?: AgentSuggestionInput[];
   /** Initial empty-thread suggestion behavior; never disables or replaces runtime follow-ups. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
+  /** Exclude providers whose connection flow is handled by the host app. */
+  mcpSuggestionExcludedIntegrationIds?: readonly string[];
   /** Where suggestions appear. Context chips use a next-action bar at the thread base. */
   suggestionPlacement?:
     | "empty-state"

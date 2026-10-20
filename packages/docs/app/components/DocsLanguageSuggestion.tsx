@@ -13,6 +13,7 @@ import {
   DEFAULT_DOCS_LOCALE,
   browserDocsLocale,
   docsLocaleOptionLabel,
+  isCampaignPathname,
   routeLocaleFromPathname,
   sitePathForLocale,
   type DocsLocale,
@@ -27,16 +28,19 @@ interface SuggestionState {
 }
 
 export function shouldSuggestDocsLocale({
+  pathname,
   routeLocale,
   browserLocale,
   storedPreference,
   dismissedTarget,
 }: {
+  pathname: string;
   routeLocale: DocsLocale;
   browserLocale: DocsLocale;
   storedPreference: LocalePreference | null;
   dismissedTarget: string | null;
 }) {
+  if (isCampaignPathname(pathname)) return false;
   if (routeLocale !== DEFAULT_DOCS_LOCALE) return false;
   if (browserLocale === DEFAULT_DOCS_LOCALE) return false;
   if (storedPreference && storedPreference !== "system") return false;
@@ -84,6 +88,7 @@ export default function DocsLanguageSuggestion() {
       routeLocaleFromPathname(location.pathname) ?? DEFAULT_DOCS_LOCALE;
     const browserLocale = browserDocsLocale();
     const nextSuggestion = shouldSuggestDocsLocale({
+      pathname: location.pathname,
       routeLocale,
       browserLocale,
       storedPreference: readStoredPreference(),
