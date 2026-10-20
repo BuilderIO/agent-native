@@ -297,7 +297,8 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const canManageGong = canManageGongConnection(mcpServers);
   const canCreateOrgMcp = Boolean(mcpServers?.orgId && canManageGong);
   const gongConnected = hasConnectedGongMcpServer(mcpServers);
-  const canRetryGongAccessCheck = mcpServersQuery.isError && canManageGong;
+  const canRetryGongAccessCheck =
+    mcpServersQuery.isError && (!mcpServers || canManageGong);
   const handleCreateMcpServer = useCallback(
     async (args: CreateMcpServerArgs) => {
       if (args.scope === "org" && !canCreateOrgMcp) {

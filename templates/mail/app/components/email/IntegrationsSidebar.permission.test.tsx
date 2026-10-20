@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 describe("Gong permission lookup in the integrations sidebar", () => {
-  it("keeps Gong hidden when a permission lookup fails without known access", () => {
+  it("offers permission lookup retry without exposing Gong before access is known", () => {
     const refetch = vi.fn();
     mocks.mcpServersQuery = {
       data: undefined,
@@ -140,11 +140,14 @@ describe("Gong permission lookup in the integrations sidebar", () => {
 
     renderSidebar();
 
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't check whether you can connect to Gong.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refetch).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Add integrations" }));
     expect(screen.queryByText("Gong call history")).toBeNull();
-    expect(refetch).not.toHaveBeenCalled();
   });
 
   it("shows a retryable error when a known manager's lookup fails", () => {
@@ -166,11 +169,11 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     expect(refetch).toHaveBeenCalledOnce();
   });
 
-  it("silently hides Gong for a confirmed workspace member", () => {
+  it("silently hides Gong for a confirmed workspace member after refetch failure", () => {
     mocks.mcpServersQuery = {
       data: { user: [], org: [], orgId: "org-1", role: "member" },
-      isSuccess: true,
-      isError: false,
+      isSuccess: false,
+      isError: true,
       isFetching: false,
       refetch: vi.fn(),
     };

@@ -197,6 +197,7 @@ export function McpIntegrationDialog({
   >(null);
   const mcpApi = useMcpServersApi();
   const mcpServersQuery = useMcpServers({ defer: true });
+  const hasMcpServerData = mcpServersQuery.data !== undefined;
   const defaultIntegrations = useMemo(
     () => integrations ?? getDefaultMcpIntegrations(),
     [integrations],
@@ -234,7 +235,7 @@ export function McpIntegrationDialog({
 
   useEffect(() => {
     if (!open) return;
-    if (initialIntegrationId && !mcpServersQuery.isSuccess) return;
+    if (initialIntegrationId && !hasMcpServerData) return;
     const initialIntegration = initialIntegrationId
       ? defaultIntegrations.find(
           (integration) => integration.id === initialIntegrationId,
@@ -285,7 +286,7 @@ export function McpIntegrationDialog({
     open,
     safeDefaultScope,
     showCatalog,
-    mcpServersQuery.isSuccess,
+    hasMcpServerData,
   ]);
 
   useEffect(() => {
