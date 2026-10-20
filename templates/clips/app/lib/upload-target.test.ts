@@ -4,6 +4,8 @@ import {
   abandonUploadTarget,
   hostedUploadLimits,
   openUploadTarget,
+  prepareCaptureAfterUploadTarget,
+  UploadTargetError,
 } from "./upload-target";
 
 describe("openUploadTarget", () => {
@@ -19,6 +21,9 @@ describe("openUploadTarget", () => {
       expectedOwnerEmail?: string;
     }) => Promise<Response>,
     ownerEmail: string | null = "me@example.com",
+    onCreateFailed?: NonNullable<
+      Parameters<typeof openUploadTarget>[0]["onCreateFailed"]
+    >,
   ) {
     const dropRow = vi.fn();
     const result = openUploadTarget({
@@ -35,6 +40,7 @@ describe("openUploadTarget", () => {
       }),
       create,
       dropRow,
+      onCreateFailed,
     });
     return { result, dropRow };
   }
@@ -96,6 +102,63 @@ describe("openUploadTarget", () => {
       kind: "http",
       status: 503,
     });
+  });
+
+  it.each([
+    { status: 403, errorCode: "disabled" },
+    { status: 402, errorCode: "exhausted" },
+  ])(
+    "routes the $errorCode storage denial back to setup",
+    async ({ status, errorCode }) => {
+      const onCreateFailed = vi.fn();
+      const { result, dropRow } = open(
+        async () =>
+          Response.json(
+            {
+              error: "Storage is unavailable.",
+              errorCode,
+              details: { denyReason: errorCode },
+            },
+            { status },
+          ),
+        "me@example.com",
+        onCreateFailed,
+      );
+
+      await expect(result).rejects.toMatchObject({
+        code: "storage_setup_required",
+      });
+      expect(dropRow).toHaveBeenCalledWith("srv-1");
+      expect(onCreateFailed).toHaveBeenCalledWith({
+        kind: "http",
+        status,
+        storageSetupRequired: true,
+      });
+    },
+  );
+
+  it("keeps unrelated authorization denials separate from storage setup", async () => {
+    const { result } = open(async () =>
+      Response.json(
+        { error: "Forbidden", errorCode: "forbidden" },
+        { status: 403 },
+      ),
+    );
+
+    await expect(result).rejects.toMatchObject({ code: "session_expired" });
+  });
+
+  it("does not prepare capture when upload-target creation rejects", async () => {
+    const failure = new UploadTargetError("storage_setup_required");
+    const resolveTarget = async (): Promise<typeof target | null> => {
+      throw failure;
+    };
+    const prepareCapture = vi.fn(async (_target: typeof target) => {});
+
+    await expect(
+      prepareCaptureAfterUploadTarget(resolveTarget, prepareCapture),
+    ).rejects.toBe(failure);
+    expect(prepareCapture).not.toHaveBeenCalled();
   });
 
   it("drops the row a lost response may have left, then stops", async () => {

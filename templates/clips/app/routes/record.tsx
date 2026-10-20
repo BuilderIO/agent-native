@@ -131,6 +131,7 @@ import {
   abandonUploadTarget,
   hostedUploadLimits,
   openUploadTarget,
+  prepareCaptureAfterUploadTarget,
   type CreatedUploadTarget,
   UploadTargetError,
 } from "@/lib/upload-target";
@@ -1821,7 +1822,10 @@ export default function RecordRoute() {
                   ? { status: cause.status }
                   : { message: cause.message }),
               });
-              if (cause.kind === "http" && cause.status === 503) {
+              if (
+                cause.kind === "http" &&
+                (cause.status === 503 || cause.storageSetupRequired)
+              ) {
                 void queryClient.invalidateQueries({
                   queryKey: VIDEO_STORAGE_STATUS_KEY,
                 });
@@ -1832,7 +1836,16 @@ export default function RecordRoute() {
         if (intake) {
           // An intake upload has no local-only fallback, so it is opened
           // before the countdown and its failures are shown right away.
-          const info = await resolveTarget();
+          const info = await prepareCaptureAfterUploadTarget(
+            resolveTarget,
+            async (target) => {
+              if (!isStale()) {
+                // Own the copy before the countdown, so no chunk is ever
+                // written to a copy another tab could see as abandoned.
+                await holdLocalCopy(applyUploadTarget(engine, target));
+              }
+            },
+          );
           if (isStale()) {
             const userCancelled = cancelledStartSessionRef.current === session;
             if (userCancelled) cancelledStartSessionRef.current = null;
@@ -1859,11 +1872,15 @@ export default function RecordRoute() {
           if (!info) {
             throw new UploadTargetError("storage_status_unavailable");
           }
-          // Own the copy before the countdown, so no chunk is ever written to
-          // a copy another tab could see as abandoned.
-          await holdLocalCopy(applyUploadTarget(engine, info));
         } else {
-          const info = await resolveTarget();
+          const info = await prepareCaptureAfterUploadTarget(
+            resolveTarget,
+            async (target) => {
+              if (!isStale()) {
+                await holdLocalCopy(applyUploadTarget(engine, target));
+              }
+            },
+          );
           if (isStale()) {
             if (info) dropRow(info.id);
             await engine.cancel("recording_interrupted").catch(() => {});
@@ -1872,8 +1889,6 @@ export default function RecordRoute() {
           if (!info) {
             throw new UploadTargetError("storage_status_unavailable");
           }
-          // Recording starts only after storage has accepted the upload row.
-          await holdLocalCopy(applyUploadTarget(engine, info));
           void saveBugReportContextRef.current(info.id);
         }
         void protectLocalCopyStorage();

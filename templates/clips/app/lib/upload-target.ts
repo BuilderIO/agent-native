@@ -49,6 +49,27 @@ export class UploadTargetError extends Error {
   }
 }
 
+const STORAGE_SETUP_DENIAL_CODES = new Set([
+  "storage_setup_required",
+  "unverified",
+  "disposable",
+  "ip_velocity",
+  "global_daily_cap",
+  "global_storage_cap",
+  "disabled",
+  "exhausted",
+]);
+
+/** Runs capture preparation only after the server accepts an upload target. */
+export async function prepareCaptureAfterUploadTarget<T>(
+  resolveTarget: () => Promise<T | null>,
+  prepareCapture: (target: T) => Promise<void>,
+): Promise<T | null> {
+  const target = await resolveTarget();
+  if (target) await prepareCapture(target);
+  return target;
+}
+
 /** Open the server upload a take streams into. A take cannot start without it. */
 export async function openUploadTarget(options: {
   intake: boolean;
@@ -65,7 +86,7 @@ export async function openUploadTarget(options: {
   onCreateFailed?: (
     cause:
       | { kind: "network"; message: string }
-      | { kind: "http"; status: number },
+      | { kind: "http"; status: number; storageSetupRequired?: boolean },
   ) => void;
 }): Promise<CreatedUploadTarget | null> {
   const { intake } = options;
@@ -138,10 +159,28 @@ export async function openUploadTarget(options: {
     } | null;
     throw new Error(body?.error ?? `create-recording failed (${res.status})`);
   }
+  // Action failures include the storage denial reason as an errorCode and in
+  // details.denyReason. Status alone cannot distinguish those from auth errors.
+  // coercion-ok: non-JSON failures have no denial code and use the status fallback.
+  const body = (await res.json().catch(() => null)) as {
+    errorCode?: string;
+    details?: { denyReason?: string };
+  } | null;
+  const denialCode = body?.details?.denyReason ?? body?.errorCode;
+  const storageSetupRequired =
+    (res.status === 402 || res.status === 403) &&
+    STORAGE_SETUP_DENIAL_CODES.has(denialCode ?? "");
   // Storage read as connected but the server opened no upload (an expired
   // grant, an outage, a lost session, another account): stop before capture.
-  options.onCreateFailed?.({ kind: "http", status: res.status });
+  options.onCreateFailed?.({
+    kind: "http",
+    status: res.status,
+    ...(storageSetupRequired ? { storageSetupRequired: true } : {}),
+  });
   options.dropRow(serverId!);
+  if (storageSetupRequired) {
+    throw new UploadTargetError("storage_setup_required");
+  }
   if (res.status === 401 || res.status === 403) {
     throw new UploadTargetError("session_expired");
   }
