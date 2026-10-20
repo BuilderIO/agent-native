@@ -10,8 +10,9 @@ import {
 /**
  * Record a Sigma import that did not finish, and delete the dashboard it wrote
  * when that dashboard would otherwise be left behind. Only a first import's
- * dashboard is deleted: a re-import or recovery wrote over the migrator's own
- * dashboard, which the mapping row still tracks.
+ * dashboard is deleted. When the claimed record already had a dashboard (a
+ * re-import, a recovery, or a retry of either), this run wrote over the
+ * migrator's own dashboard, which the mapping row still tracks.
  *
  * Dashboard ids include the importer's email. So when another person has
  * taken over the claim, this run's dashboard is never theirs and is deleted;
@@ -23,7 +24,8 @@ export async function abandonSigmaImport(input: {
   failureCode: ExternalDashboardFailureCode;
   dashboardId: string;
   wroteDashboard: boolean;
-  firstImport: boolean;
+  /** The claimed record's targetDashboardId, not the request's flags. */
+  previousDashboardId: string | null;
   ctx: { email: string; orgId: string };
 }): Promise<void> {
   let claimLost: unknown = null;
@@ -45,7 +47,7 @@ export async function abandonSigmaImport(input: {
     claimLost = error;
   }
 
-  if (input.wroteDashboard && input.firstImport) {
+  if (input.wroteDashboard && input.previousDashboardId === null) {
     let orphaned = true;
     if (claimLost) {
       const [migration] = await listExternalDashboards({

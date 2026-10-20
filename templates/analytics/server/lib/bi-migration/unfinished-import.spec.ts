@@ -49,7 +49,7 @@ describe("abandonSigmaImport", () => {
     await abandonSigmaImport({
       ...base,
       wroteDashboard: true,
-      firstImport: true,
+      previousDashboardId: null,
     });
 
     expect(mocks.failMigration).toHaveBeenCalledWith({
@@ -69,7 +69,7 @@ describe("abandonSigmaImport", () => {
     await abandonSigmaImport({
       ...base,
       wroteDashboard: false,
-      firstImport: true,
+      previousDashboardId: null,
     });
 
     expect(mocks.failMigration).toHaveBeenCalledWith(
@@ -78,11 +78,13 @@ describe("abandonSigmaImport", () => {
     expect(mocks.removeDashboard).not.toHaveBeenCalled();
   });
 
-  it("never deletes the dashboard a re-import wrote over", async () => {
+  it("never deletes the dashboard a re-import or its retry wrote over", async () => {
+    // A plain retry of a failed re-import claims a record that still has its
+    // dashboard, so the request's flags alone would call it a first import.
     await abandonSigmaImport({
       ...base,
       wroteDashboard: true,
-      firstImport: false,
+      previousDashboardId: "sigma-alice-workbook_1",
     });
 
     expect(mocks.removeDashboard).not.toHaveBeenCalled();
@@ -96,7 +98,11 @@ describe("abandonSigmaImport", () => {
     ]);
 
     await expect(
-      abandonSigmaImport({ ...base, wroteDashboard: true, firstImport: true }),
+      abandonSigmaImport({
+        ...base,
+        wroteDashboard: true,
+        previousDashboardId: null,
+      }),
     ).rejects.toBe(expired);
     expect(mocks.removeDashboard).toHaveBeenCalledWith(
       "sigma-alice-workbook_1",
@@ -113,7 +119,11 @@ describe("abandonSigmaImport", () => {
     ]);
 
     await expect(
-      abandonSigmaImport({ ...base, wroteDashboard: true, firstImport: true }),
+      abandonSigmaImport({
+        ...base,
+        wroteDashboard: true,
+        previousDashboardId: null,
+      }),
     ).rejects.toBe(expired);
     expect(mocks.removeDashboard).not.toHaveBeenCalled();
   });
@@ -123,7 +133,11 @@ describe("abandonSigmaImport", () => {
     mocks.failMigration.mockRejectedValue(outage);
 
     await expect(
-      abandonSigmaImport({ ...base, wroteDashboard: true, firstImport: true }),
+      abandonSigmaImport({
+        ...base,
+        wroteDashboard: true,
+        previousDashboardId: null,
+      }),
     ).rejects.toBe(outage);
     expect(mocks.removeDashboard).not.toHaveBeenCalled();
   });

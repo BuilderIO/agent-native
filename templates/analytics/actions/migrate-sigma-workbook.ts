@@ -567,7 +567,7 @@ export default defineAction({
         failureCode,
         dashboardId: id,
         wroteDashboard: dashboardWriteSucceeded,
-        firstImport: !args.remigrate && !args.recoverMissingDashboard,
+        previousDashboardId: claim.record.targetDashboardId,
         ctx: { email: context.email, orgId: context.orgId },
       });
       throw error;
