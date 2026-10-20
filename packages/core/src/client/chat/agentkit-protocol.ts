@@ -1564,9 +1564,18 @@ export function createAgentKitProtocolAdapter(
   function indexRun(
     run: ProtocolRun,
     runtimeRunId = run.turn.runId ?? run.runId,
-  ): void {
+    allowReplay = false,
+  ): ProtocolRun {
     const existingRun = runs.get(run.runId);
     if (existingRun && existingRun !== run) {
+      if (
+        allowReplay &&
+        existingRun.threadId === run.threadId &&
+        existingRun.turn.id !== undefined &&
+        existingRun.turn.id === run.turn.id
+      ) {
+        return existingRun;
+      }
       throw new Error(`Duplicate AgentKit run id: ${run.runId}`);
     }
     if (runtimeRunId && runtimeRunId !== run.runId) {
@@ -1591,6 +1600,7 @@ export function createAgentKitProtocolAdapter(
       runtimeRunAliases.set(aliasKey, run);
     }
     runs.set(run.runId, run);
+    return run;
   }
 
   async function resolveRuntimeRunOwner(
@@ -2089,7 +2099,11 @@ export function createAgentKitProtocolAdapter(
         : {}),
       listeners: new Set(),
     };
-    indexRun(run, turn.runId ?? input.runId);
+    const indexedRun = indexRun(run, turn.runId ?? input.runId, true);
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun;
+    }
     if (restoreRead) run.initialAuthorityRead = restoreRead;
     if (state && "pendingConnectionRequestId" in state) {
       run.restoredPendingConnectionRequestId = state.pendingConnectionRequestId;
@@ -2115,6 +2129,7 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
     turnMetadata: Record<string, unknown> | undefined,
     observability?: Record<string, unknown>,
+    start: { attachReplayedRun?: boolean } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
     const runMetadata = mergeTrustedProtocolMetadata(
@@ -2169,8 +2184,29 @@ export function createAgentKitProtocolAdapter(
         "The AgentKit adapter was disposed during turn creation.",
       );
     }
+    const existingRun = start.attachReplayedRun
+      ? findRun(threadId, runId)
+      : undefined;
+    if (existingRun) {
+      await closeDiscardedTurnEvents(turn);
+      if (
+        existingRun.runId === runId &&
+        (existingRun.turn.id === undefined || existingRun.turn.id !== turn.id)
+      ) {
+        throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
+      touchRun(existingRun);
+      ensurePump(existingRun);
+      // A runtime alias resolves to the run that owns it, which may use a
+      // different protocol id; the caller must address that run.
+      return existingRun.runId;
+    }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    indexRun(run, turn.runId);
+    const indexedRun = indexRun(run, turn.runId, true);
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun.runId;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -2187,6 +2223,13 @@ export function createAgentKitProtocolAdapter(
     if (disposedSessions.has(session)) return;
     disposedSessions.add(session);
     await session.dispose?.();
+  }
+
+  async function closeDiscardedTurnEvents(
+    turn: AgentChatRuntimeTurn,
+  ): Promise<void> {
+    const iterator = turn.events[Symbol.asyncIterator]();
+    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {
@@ -3873,7 +3916,16 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
-        return openStartedRun(input.threadId, session, turn, turnMetadata);
+        return openStartedRun(
+          input.threadId,
+          session,
+          turn,
+          turnMetadata,
+          undefined,
+          {
+            attachReplayedRun: true,
+          },
+        );
       };
       if (!queuePromotionKey) {
         return { runId: await createRun(), capabilities };

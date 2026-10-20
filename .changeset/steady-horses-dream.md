@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Give tool calls stable turn-scoped identities so recovery can replay completed work without swallowing a later intentional repeat.
+Give tool calls stable turn-scoped identities and safely attach duplicate queued submissions to their live run.
