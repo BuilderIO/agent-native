@@ -384,9 +384,10 @@ include implementation, CI, or publisher details. For a beta-eligible app PR
 linked to an owned feedback thread, wait until its merge is confirmed in
 `origin/main` and the matching run selects the affected site. Post one short
 update in the same thread with the PR link: "[PR link] is merged and expected on beta within 24
-hours." If the site is current, verify it and say: "[PR link] is merged and on
-beta." This is an expectation, not a guarantee. Keep checking. If publishing
-fails, is blocked, or the site is still not current after 24 hours, correct the
+hours." This is an expectation, not a guarantee. Normal `/ship` does not wait
+for publication to finish, verify the beta site, or continue checking it. If
+`/ship-and-monitor` or a specifically requested beta check later finds a
+publish failure or a site that is still not current after 24 hours, correct the
 update in that thread. Use `🎫` only when another person or team must act. Keep
 publisher details in the ship ledger. Send Slack replies or reactions only
 when `review-latest-feedback` was requested or already owns the action. This
