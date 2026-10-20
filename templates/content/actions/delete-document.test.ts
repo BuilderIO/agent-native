@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getDb } from "../server/db/index.js";
+
 vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("drizzle-orm")>();
   return {
@@ -71,6 +73,9 @@ const { schema } = vi.hoisted(() => ({
       sourceId: "contentDatabaseSourceExecutions.sourceId",
       ownerEmail: "contentDatabaseSourceExecutions.ownerEmail",
       payloadJson: "contentDatabaseSourceExecutions.payloadJson",
+    },
+    contentDatabaseBuilderBlobCleanup: {
+      blobReference: "contentDatabaseBuilderBlobCleanup.blobReference",
     },
     contentDatabaseSourceChangeReviews: {
       sourceId: "contentDatabaseSourceChangeReviews.sourceId",
@@ -162,6 +167,7 @@ describe("deleteDocumentRecursive", () => {
   let db: any;
   let transactionDepth: number;
   let operationsOutsideTransaction: string[];
+  let insertCalls: Array<{ table: string; values: unknown }>;
 
   beforeEach(() => {
     mutationLock.mockReset();
@@ -177,6 +183,7 @@ describe("deleteDocumentRecursive", () => {
     };
     transactionDepth = 0;
     operationsOutsideTransaction = [];
+    insertCalls = [];
 
     db = {
       select: () => ({
@@ -202,6 +209,16 @@ describe("deleteDocumentRecursive", () => {
           };
         },
       }),
+      insert: (table: Record<string, string>) => ({
+        values: (values: unknown) => ({
+          onConflictDoNothing: async () => {
+            const name = tableNameFor(Object.values(table)[0] as string);
+            if (transactionDepth === 0)
+              operationsOutsideTransaction.push(`insert:${name}`);
+            insertCalls.push({ table: name, values });
+          },
+        }),
+      }),
       update: () => ({
         set: () => ({
           where: async () => [],
@@ -216,6 +233,7 @@ describe("deleteDocumentRecursive", () => {
         }
       },
     };
+    vi.mocked(getDb).mockReturnValue(db);
   });
 
   function seedBuilderSourceBlobs() {
@@ -256,12 +274,29 @@ describe("deleteDocumentRecursive", () => {
     ];
   }
 
-  it("cleans only matching deleted Builder blobs after transaction acknowledgement", async () => {
+  it("queues only matching deleted Builder blobs without inline deletion", async () => {
     seedBuilderSourceBlobs();
     await deleteDocumentRecursive(db, "database-doc", "owner-a@example.com");
     expect(
-      deletePrivateBlob.mock.calls.map(([handle]) => handle.id).sort(),
-    ).toEqual(["execution"]);
+      new Set(
+        insertCalls
+          .filter((call) => call.table === "contentDatabaseBuilderBlobCleanup")
+          .flatMap((call) => {
+            const rows = Array.isArray(call.values)
+              ? call.values
+              : [call.values];
+            return rows.map(
+              (row) =>
+                (
+                  JSON.parse(
+                    (row as { blobReference: string }).blobReference,
+                  ) as { handle: { id: string } }
+                ).handle.id,
+            );
+          }),
+      ),
+    ).toEqual(new Set(["execution"]));
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
   });
 
   it("retains deleted-row blob references when commit acknowledgement is uncertain", async () => {
