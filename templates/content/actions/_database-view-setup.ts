@@ -163,9 +163,10 @@ function validateTablePatch(
     values: readonly string[] | undefined,
     allowed: ReadonlySet<string>,
     field: string,
+    { unique = true }: { unique?: boolean } = {},
   ) => {
     if (!values) return;
-    uniqueReferences(values, field);
+    if (unique) uniqueReferences(values, field);
     const invalid = values.find((value) => !allowed.has(value));
     if (invalid) {
       setupError(
@@ -183,10 +184,13 @@ function validateTablePatch(
     columnIds,
     "sorts",
   );
+  // A view may filter one property more than once ("Rank is not empty" and
+  // "Rank ≤ 25"), so filter keys only need to exist.
   assertReferences(
     patch.filters?.map((filter) => filter.key),
     columnIds,
     "filters",
+    { unique: false },
   );
   assertReferences(
     patch.columnWidths ? Object.keys(patch.columnWidths) : undefined,
