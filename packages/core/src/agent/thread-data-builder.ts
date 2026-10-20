@@ -1346,16 +1346,7 @@ export function resumeThreadHistoryForRequest(
   const messages = threadDataToEngineMessages(threadData, {
     includeToolCalls: true,
   });
-  let turnStart = messages.length - 1;
-  while (
-    turnStart >= 0 &&
-    !(
-      messages[turnStart]!.role === "user" &&
-      messages[turnStart]!.content.some((part) => part.type === "text")
-    )
-  ) {
-    turnStart--;
-  }
+  const turnStart = lastUserPromptIndex(messages);
   if (turnStart < 0) return { messages, foundTurnPrompt: false };
   return {
     messages: [
@@ -1364,6 +1355,18 @@ export function resumeThreadHistoryForRequest(
     ],
     foundTurnPrompt: true,
   };
+}
+
+export function lastUserPromptIndex(messages: EngineMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (
+      messages[index]!.role === "user" &&
+      messages[index]!.content.some((part) => part.type === "text")
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 /**

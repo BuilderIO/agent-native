@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Give tool calls stable turn-scoped identities and safely attach duplicate queued submissions to their live run.
+Keep tool-call replay scoped to the turn so reused provider IDs preserve prior results, and safely attach duplicate queued submissions to their live run.
