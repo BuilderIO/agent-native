@@ -66,6 +66,7 @@ GitHub OAuth
 Google Calendar
 Google Fonts
 Google OAuth
+Google Search Console
 Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate

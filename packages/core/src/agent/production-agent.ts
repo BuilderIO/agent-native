@@ -45,6 +45,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallNeedsApproval,
   recordInvalidActionCall,
   type ActionAutomationContext,
   type ActionCallIntent,
@@ -8827,29 +8828,16 @@ export async function runAgentLoop(opts: {
           ? await opts.consumeApproval(approvalBinding())
           : requestedApproval;
       if (actionEntry.needsApproval && !wasApproved) {
-        let mustApprove = false;
-        try {
-          mustApprove =
-            typeof actionEntry.needsApproval === "function"
-              ? Boolean(
-                  await actionEntry.needsApproval(
-                    preparedCallArguments(intent),
-                    {
-                      userEmail: getRequestUserEmail(),
-                      orgId: getRequestOrgId() ?? null,
-                      appId: opts.appId,
-                      caller: opts.actionCaller ?? "tool",
-                      automation: opts.automation,
-                      networkProtocol: opts.networkProtocol,
-                      networkId: opts.networkId,
-                      networkPeer: opts.networkPeer,
-                    },
-                  ),
-                )
-              : actionEntry.needsApproval === true;
-        } catch {
-          mustApprove = true;
-        }
+        let mustApprove = await preparedCallNeedsApproval(actionEntry, intent, {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId() ?? null,
+          appId: opts.appId,
+          caller: opts.actionCaller ?? "tool",
+          automation: opts.automation,
+          networkProtocol: opts.networkProtocol,
+          networkId: opts.networkId,
+          networkPeer: opts.networkPeer,
+        });
         if (
           mustApprove &&
           actionEntry.allowPersistentApproval !== false &&

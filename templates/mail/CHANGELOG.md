@@ -3,6 +3,20 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-20
+
+### Improved
+
+- Connected Gong settings now open the shared integration manager.
+- Gong connection details now match the call data available in Mail.
+- Improve Gong setup with a click-to-connect flow and permission gating
+- Mail lets you retry when it cannot check your Gong access.
+- The inbox and recently opened threads now open instantly from a cache on your device, cleared when you sign out, then refresh in the background.
+
+### Fixed
+
+- Cached conversations stay with the mailbox they belong to.
+
 ## 2026-10-19
 
 ### Changed

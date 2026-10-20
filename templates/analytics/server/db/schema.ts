@@ -1136,6 +1136,7 @@ export const analyticsContentCollectionRuns = table(
     status: text("status").notNull(),
     windowStart: text("window_start"),
     windowEnd: text("window_end"),
+    configFingerprint: text("config_fingerprint"),
     startedAt: text("started_at").notNull(),
     finishedAt: text("finished_at"),
     rowCount: integer("row_count"),

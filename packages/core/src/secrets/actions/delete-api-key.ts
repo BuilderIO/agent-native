@@ -42,6 +42,10 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     if (!email) fail("Not authenticated.", { statusCode: 401 });

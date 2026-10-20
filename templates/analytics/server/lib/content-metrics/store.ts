@@ -60,6 +60,7 @@ export type ContentRunOutcome = {
   rowCount: number;
   windowStart?: string | null;
   windowEnd?: string | null;
+  configFingerprint?: string | null;
   bytesProcessed?: number | null;
   bytesCap?: number | null;
   costUsd?: number | null;
@@ -482,6 +483,9 @@ export async function completeContentRun(
             runId: sql`excluded.run_id`,
             collectedAt: sql`excluded.collected_at`,
           },
+          // Steps re-send whole windows (signups recomputes 90 days daily),
+          // so an unchanged value writes nothing and keeps the run that set it.
+          setWhere: sql`${schema.analyticsContentMetricSnapshots.value} IS DISTINCT FROM excluded.value OR ${schema.analyticsContentMetricSnapshots.source} IS DISTINCT FROM excluded.source`,
         });
     }
 
@@ -493,6 +497,7 @@ export async function completeContentRun(
         rowCount: outcome.rowCount,
         windowStart: outcome.windowStart ?? null,
         windowEnd: outcome.windowEnd ?? null,
+        configFingerprint: outcome.configFingerprint ?? null,
         bytesProcessed: outcome.bytesProcessed ?? null,
         bytesCap: outcome.bytesCap ?? null,
         costUsd: outcome.costUsd ?? null,

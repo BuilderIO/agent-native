@@ -118,6 +118,10 @@ export default defineAction({
       .optional()
       .describe("Workspace user group IDs allowed to use the connection."),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {

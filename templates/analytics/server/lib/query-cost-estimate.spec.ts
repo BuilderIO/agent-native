@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   dryRun: vi.fn(),
+  countReports: vi.fn(async () => 0),
   renderFirstParty: vi.fn(),
   PreparationError: class BigQueryDryRunPreparationError extends Error {
     notConfigured: boolean;
@@ -22,16 +23,23 @@ vi.mock("./dashboard-panel-runner.js", () => ({
     `redacted:${error instanceof Error ? error.message : String(error)}`,
 }));
 
+vi.mock("./dashboard-report-subscriptions.js", () => ({
+  countEnabledDashboardReportSubscriptions: mocks.countReports,
+}));
+
 vi.mock("./first-party-analytics.js", () => ({
   renderFirstPartyAnalyticsBigQueryEstimateSql: mocks.renderFirstParty,
 }));
 
 import {
   costFromBytes,
+  describeReportSchedules,
   estimateBigQuerySql,
   estimateFirstPartySql,
   estimateResolvedPanel,
+  estimateResolvedPanels,
   MIN_BILLED_BYTES_PER_QUERY,
+  scheduledDashboardRuns,
   totalCost,
   usdForBytes,
 } from "./query-cost-estimate.js";
@@ -83,7 +91,95 @@ describe("query cost math", () => {
         costFromBytes(TIB, null),
         { status: "not_bigquery", reason: "ga4" },
       ]),
-    ).toEqual({ estimatedBytes: 2 * TIB, usdPerRun: 12.5, usdPerMonth: 187.5 });
+    ).toEqual({
+      estimatedBytes: 2 * TIB,
+      usdPerRun: 12.5,
+      usdPerMonth: 187.5,
+      overPerRunThreshold: true,
+      overPerMonthThreshold: true,
+    });
+  });
+});
+
+describe("scheduledDashboardRuns", () => {
+  it("prices one run a day per enabled report in the caller's tenant", async () => {
+    mocks.countReports.mockResolvedValueOnce(2);
+    await expect(scheduledDashboardRuns("d1", scope)).resolves.toEqual({
+      reportSchedules: 2,
+      runsPerMonth: 60,
+    });
+    expect(mocks.countReports).toHaveBeenCalledWith("d1", {
+      email: scope.userEmail,
+      orgId: scope.orgId,
+    });
+  });
+
+  it("has no monthly runs without a report", async () => {
+    mocks.countReports.mockResolvedValueOnce(0);
+    await expect(scheduledDashboardRuns("d1", scope)).resolves.toEqual({
+      reportSchedules: 0,
+      runsPerMonth: null,
+    });
+  });
+
+  it("names whose reports it counted", () => {
+    expect(describeReportSchedules(2, "org-1")).toBe(
+      "2 enabled daily email reports in your org",
+    );
+    expect(describeReportSchedules(1, null)).toBe(
+      "1 enabled daily email report of yours",
+    );
+  });
+});
+
+describe("estimateResolvedPanels", () => {
+  const panel = {
+    panelId: "slow",
+    title: "Slow",
+    source: "bigquery",
+    query: "SELECT 1",
+  };
+
+  it("starts no dry run once the deadline has passed", async () => {
+    const [estimate] = await estimateResolvedPanels(
+      [panel],
+      scope,
+      null,
+      Date.now() - 1,
+    );
+    expect(mocks.dryRun).not.toHaveBeenCalled();
+    expect(estimate).toMatchObject({
+      panelId: "slow",
+      status: "failed",
+      failure: "timeout",
+    });
+  });
+
+  it("stops waiting on a panel when the deadline passes mid-estimate", async () => {
+    vi.useFakeTimers();
+    try {
+      let dryRunSignal: AbortSignal | undefined;
+      mocks.dryRun.mockImplementationOnce(
+        (_sql: string, options: { signal?: AbortSignal }) => {
+          dryRunSignal = options.signal;
+          return new Promise(() => {});
+        },
+      );
+
+      const pending = estimateResolvedPanels(
+        [panel],
+        scope,
+        null,
+        Date.now() + 40_000,
+      );
+      await vi.advanceTimersByTimeAsync(41_000);
+      const [estimate] = await pending;
+
+      expect(estimate).toMatchObject({ status: "failed", failure: "timeout" });
+      expect(dryRunSignal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
