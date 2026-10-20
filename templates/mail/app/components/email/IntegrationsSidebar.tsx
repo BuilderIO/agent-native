@@ -69,6 +69,7 @@ interface IntegrationDef {
   name: string;
   descriptionKey: string;
   keyPlaceholder?: string;
+  keyPlaceholderKey?: string;
   helpUrl?: string;
   helpSteps?: string[];
   logo: React.ReactNode;
@@ -141,6 +142,8 @@ const INTEGRATIONS: IntegrationDef[] = [
     id: "gong",
     name: "Gong",
     descriptionKey: "mail.integrations.gongDescription",
+    keyPlaceholderKey: "mail.integrations.gongKeyPlaceholder",
+    helpUrl: "https://app.gong.io/company/api",
     logo: (
       <svg
         viewBox="0 0 42 42"
@@ -311,9 +314,11 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     const connectedCount = [
       statuses.apollo,
       statuses.hubspot,
-      statuses.gong || gongConnected,
+      canManageGong && (statuses.gong || gongConnected),
       statuses.pylon,
     ].filter(Boolean).length;
+    const visibleIntegrationCount =
+      INTEGRATIONS.length - Number(!canManageGong);
     return (
       <div className="px-4 py-2">
         <button
@@ -321,7 +326,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
           className="text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
         >
           {connectedCount > 0
-            ? `Integrations (${connectedCount}/${INTEGRATIONS.length})`
+            ? `Integrations (${connectedCount}/${visibleIntegrationCount})`
             : "Add integrations"}
         </button>
       </div>
@@ -345,16 +350,23 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
         {INTEGRATIONS.filter((def) => def.id !== "gong" || canManageGong).map(
           (def) => {
             const connected =
-              def.id === "gong" ? gongConnected : statuses[def.id];
+              def.id === "gong"
+                ? statuses.gong || gongConnected
+                : statuses[def.id];
             return (
               <IntegrationRow
                 key={def.id}
                 def={def}
                 connected={connected}
+                mcpConnected={def.id === "gong" && gongConnected}
+                legacyConnected={def.id === "gong" && statuses.gong}
                 onConfigure={() => {
                   if (def.id === "gong") setGongDialogOpen(true);
                   else setConfiguring(def.id);
                 }}
+                onLegacyConfigure={
+                  def.id === "gong" ? () => setConfiguring("gong") : undefined
+                }
               />
             );
           },
@@ -488,11 +500,17 @@ function AddIntegrationButton() {
 function IntegrationRow({
   def,
   connected,
+  mcpConnected = false,
+  legacyConnected = false,
   onConfigure,
+  onLegacyConfigure,
 }: {
   def: IntegrationDef;
   connected: boolean;
+  mcpConnected?: boolean;
+  legacyConnected?: boolean;
   onConfigure: () => void;
+  onLegacyConfigure?: () => void;
 }) {
   const t = useT();
   const { disconnect } = useIntegration(def.id);
@@ -513,34 +531,66 @@ function IntegrationRow({
           <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
-          {def.id !== "gong" && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors">
-                      <IconSettings className="h-3.5 w-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-36">
-                <DropdownMenuItem
-                  onClick={() => onConfigure()}
-                  className="text-[12px] text-foreground/70"
-                >
-                  {t("mail.integrations.updateKey")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => disconnect.mutate()}
-                  className="text-[12px] text-destructive/80"
-                >
-                  {t("mail.integrations.disconnect")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label={t("mail.toolbar.settings")}
+                    className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+                  >
+                    <IconSettings className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-36">
+              {def.id === "gong" ? (
+                <>
+                  <DropdownMenuItem
+                    onClick={onConfigure}
+                    className="text-[12px] text-foreground/70"
+                  >
+                    {mcpConnected
+                      ? t("mail.toolbar.settings")
+                      : t("mail.integrations.connect")}
+                  </DropdownMenuItem>
+                  {legacyConnected && (
+                    <>
+                      <DropdownMenuItem
+                        onClick={onLegacyConfigure}
+                        className="text-[12px] text-foreground/70"
+                      >
+                        {t("mail.integrations.updateKey")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => disconnect.mutate()}
+                        className="text-[12px] text-destructive/80"
+                      >
+                        {t("mail.integrations.disconnect")}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => onConfigure()}
+                    className="text-[12px] text-foreground/70"
+                  >
+                    {t("mail.integrations.updateKey")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => disconnect.mutate()}
+                    className="text-[12px] text-destructive/80"
+                  >
+                    {t("mail.integrations.disconnect")}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : (
         <button
@@ -592,7 +642,11 @@ function IntegrationKeyEntry({
             setApiKey(e.target.value);
             if (connect.error) connect.reset();
           }}
-          placeholder={def.keyPlaceholder}
+          placeholder={
+            def.keyPlaceholderKey
+              ? t(def.keyPlaceholderKey)
+              : def.keyPlaceholder
+          }
           autoFocus
           className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
         />
@@ -650,6 +704,7 @@ function IntegrationNotice({
   error: unknown;
   providerId: ProviderId;
 }) {
+  const t = useT();
   const authErr = isAuthError(error);
   const [reconnecting, setReconnecting] = useState(false);
   const def = INTEGRATIONS.find((i) => i.id === providerId)!;
@@ -681,7 +736,11 @@ function IntegrationNotice({
               setApiKey(e.target.value);
               if (connect.error) connect.reset();
             }}
-            placeholder={def.keyPlaceholder}
+            placeholder={
+              def.keyPlaceholderKey
+                ? t(def.keyPlaceholderKey)
+                : def.keyPlaceholder
+            }
             autoFocus
             className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
           />
@@ -1079,14 +1138,7 @@ function GongSection({ email }: { email: string }) {
   if (!calls || calls.length === 0) {
     if (error)
       return (
-        <div
-          className="mx-4 border-t border-border/30 px-0 py-3"
-          aria-live="polite"
-        >
-          <p className="text-[11px] text-muted-foreground/70">
-            {t("mail.error.loadTitle")}
-          </p>
-        </div>
+        <IntegrationNotice email={email} error={error} providerId="gong" />
       );
     return null;
   }

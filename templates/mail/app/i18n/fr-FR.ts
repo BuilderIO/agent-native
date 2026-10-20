@@ -318,6 +318,7 @@ const messages = {
       apolloDescription: "Enrichissement des contacts et données d’entreprise",
       hubspotDescription: "Contacts CRM, affaires et tickets",
       gongDescription: "Interrogez l’agent sur les appels et les affaires Gong",
+      gongKeyPlaceholder: "Clé API Gong",
       pylonDescription: "Tickets de support et données de compte",
       gongCalls: "Appels Gong",
       deals: "Affaires",

@@ -306,6 +306,7 @@ const messages = {
       apolloDescription: "Contact enrichment & company data",
       hubspotDescription: "CRM contacts, deals & tickets",
       gongDescription: "Ask the agent about Gong calls and deals",
+      gongKeyPlaceholder: "Gong API key",
       pylonDescription: "Support issues & account data",
       gongCalls: "Gong Calls",
       deals: "Deals",

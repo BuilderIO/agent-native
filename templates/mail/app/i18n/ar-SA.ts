@@ -307,6 +307,7 @@ const messages = {
       apolloDescription: "إثراء جهات الاتصال وبيانات الشركة",
       hubspotDescription: "جهات اتصال CRM والصفقات والتذاكر",
       gongDescription: "اسأل الوكيل عن مكالمات Gong والصفقات",
+      gongKeyPlaceholder: "مفتاح API لـ Gong",
       pylonDescription: "مشكلات الدعم وبيانات الحساب",
       gongCalls: "مكالمات Gong",
       deals: "الصفقات",

@@ -319,6 +319,7 @@ const messages = {
       apolloDescription: "Kontaktanreicherung und Unternehmensdaten",
       hubspotDescription: "CRM-Kontakte, Deals und Tickets",
       gongDescription: "Frage den Agenten nach Gong-Anrufen und Deals",
+      gongKeyPlaceholder: "Gong-API-Schlüssel",
       pylonDescription: "Supportfälle und Kontodaten",
       gongCalls: "Gong-Anrufe",
       deals: "Deals",
