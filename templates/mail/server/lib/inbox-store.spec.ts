@@ -120,7 +120,7 @@ import {
   recordInboxPushInvalidation,
   resetSyncAccountProgress,
   SyncClaimLostError,
-  deleteInboxThreadRow,
+  tryDeleteInboxThreadRow,
   inboxRowToItem,
   markThreadsOutOfInboxBeforeSync,
   upsertInboxThreadRows,
@@ -582,7 +582,7 @@ describe("sync write fences", () => {
   });
 
   it("fences incremental deletes to the start of the Gmail read", async () => {
-    await deleteInboxThreadRow(
+    await tryDeleteInboxThreadRow(
       "owner@example.com",
       "acct1@example.com",
       "t1",

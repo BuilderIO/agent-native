@@ -162,25 +162,25 @@ describe("trimInboxThreadRows (PGlite)", () => {
   });
 });
 
-describe("deleteInboxThreadRow (PGlite)", () => {
+describe("tryDeleteInboxThreadRow (PGlite)", () => {
   it("reports a row updated after the read as not removed, and an absent row as removed", async () => {
     const owner = "o@example.com";
     const account = "a@example.com";
     await insertThreads([thread(owner, account, "t1", NOW, false)]);
     await setRowTimes("t1", NOW + 1_000);
 
-    expect(await stores.deleteInboxThreadRow(owner, account, "t1", NOW)).toBe(
-      false,
-    );
+    expect(
+      await stores.tryDeleteInboxThreadRow(owner, account, "t1", NOW),
+    ).toBe("skipped");
     expect(await countRows(owner, account)).toBe(1);
 
     expect(
-      await stores.deleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
-    ).toBe(true);
+      await stores.tryDeleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
+    ).toBe("removed");
     expect(await countRows(owner, account)).toBe(0);
     expect(
-      await stores.deleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
-    ).toBe(true);
+      await stores.tryDeleteInboxThreadRow(owner, account, "t1", NOW + 2_000),
+    ).toBe("removed");
   });
 });
 

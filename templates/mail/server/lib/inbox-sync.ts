@@ -22,9 +22,10 @@ import {
 import { classifyAutomated } from "./inbox-classify.js";
 import { mergeSyncStatuses, statusFromRow } from "./inbox-status.js";
 import {
+  appendHydratePendingIds,
   claimSyncAccount,
   countInboxThreads,
-  deleteInboxThreadRow,
+  tryDeleteInboxThreadRow,
   ensureSyncAccountRow,
   INBOX_THREAD_CAP,
   markThreadsOutOfInboxBeforeSync,
@@ -307,6 +308,9 @@ async function hydrateAndApply(
   connected: Set<string>,
   claimId: string,
   lane: "interactive" | "incremental" | "backfill",
+  // Ids whose delete the write guard skipped (a row updated after the read).
+  // Required: dropping them would leave the stale row cached for good.
+  requeueSkipped: (threadIds: string[]) => Promise<void> | void,
   onChanged?: () => void,
   // When given, a thread whose read fails (not a 404) is recorded here with its
   // failure kind and the rest still apply, instead of the whole call throwing.
@@ -346,17 +350,27 @@ async function hydrateAndApply(
       if (derived) upserts.push(derived);
       else deletes.push({ id: part.id, readStartedAt });
     }
-    await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
-      if (upserts.length > 0) await upsertInboxThreadRows(upserts, tx);
-      for (const { id, readStartedAt } of deletes)
-        await deleteInboxThreadRow(
-          ownerEmail,
-          accountEmail,
-          id,
-          readStartedAt,
-          tx,
-        );
-    });
+    const skipped = await withSyncClaim(
+      ownerEmail,
+      accountEmail,
+      claimId,
+      async (tx) => {
+        if (upserts.length > 0) await upsertInboxThreadRows(upserts, tx);
+        const skippedIds: string[] = [];
+        for (const { id, readStartedAt } of deletes) {
+          const outcome = await tryDeleteInboxThreadRow(
+            ownerEmail,
+            accountEmail,
+            id,
+            readStartedAt,
+            tx,
+          );
+          if (outcome === "skipped") skippedIds.push(id);
+        }
+        return skippedIds;
+      },
+    );
+    if (skipped.length > 0) await requeueSkipped(skipped);
     if (upserts.length > 0 || deletes.length > 0) onChanged?.();
   }
 }
@@ -421,6 +435,8 @@ async function runFullSyncStep(
       connected,
       claimId,
       lane,
+      (skipped) =>
+        appendHydratePendingIds(ownerEmail, accountEmail, claimId, skipped),
       onChanged,
     );
   }
@@ -693,6 +709,8 @@ async function runReconciliationStep(
       connected,
       claimId,
       "backfill",
+      (skipped) =>
+        appendHydratePendingIds(ownerEmail, accountEmail, claimId, skipped),
       onChanged,
     );
     pendingIds = pendingIds.slice(idsToHydrate.length);
@@ -1018,6 +1036,8 @@ async function runIncrementalSyncStep(
   // the whole read (quota, network) is rethrown only after the archive cleanup
   // and the pending lists below are saved, so it cannot block either.
   const hydrateFailed = new Map<string, string>();
+  // Deletes the write guard skipped: requeued so the stale row is retried.
+  const hydrateSkipped: string[] = [];
   let hydrateError: unknown = null;
   if (hydrateNow.length > 0) {
     try {
@@ -1034,6 +1054,9 @@ async function runIncrementalSyncStep(
         connected,
         claimId,
         "incremental",
+        (skipped) => {
+          hydrateSkipped.push(...skipped);
+        },
         onChanged,
         hydrateFailed,
       );
@@ -1050,14 +1073,14 @@ async function runIncrementalSyncStep(
   const archiveSkipped: string[] = [];
   await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
     for (const threadId of archivedOnly) {
-      const removed = await deleteInboxThreadRow(
+      const removed = await tryDeleteInboxThreadRow(
         ownerEmail,
         accountEmail,
         threadId,
         readStartedAt,
         tx,
       );
-      if (removed === false) archiveSkipped.push(threadId);
+      if (removed === "skipped") archiveSkipped.push(threadId);
     }
     await purgeArchivedInboxThreadRows(
       ownerEmail,
@@ -1088,6 +1111,7 @@ async function runIncrementalSyncStep(
     ...new Set([
       ...hydrateUntried.filter((id) => !priorFailedHydrate.has(id)),
       ...stillInbox,
+      ...hydrateSkipped,
     ]),
   ];
   // Overlap ids leave the archive list only once their hydration succeeded.

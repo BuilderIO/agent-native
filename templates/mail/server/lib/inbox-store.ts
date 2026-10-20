@@ -841,13 +841,20 @@ export async function upsertInboxThreadRows(
     });
 }
 
-export async function deleteInboxThreadRow(
+/**
+ * "removed": the row is gone (deleted now, or already absent).
+ * "skipped": a row written after `readStartedAt` survived the guard, so the
+ * caller must keep the thread queued; dropping it leaves the row cached.
+ */
+export type DeleteOutcome = "removed" | "skipped";
+
+export async function tryDeleteInboxThreadRow(
   ownerEmail: string,
   accountEmail: string,
   threadId: string,
   readStartedAt?: number,
   db: any = getDb(),
-): Promise<boolean> {
+): Promise<DeleteOutcome> {
   const id = threadRowId(ownerEmail, accountEmail, threadId);
   const conditions = [eq(schema.mailInboxThreads.id, id)];
   if (readStartedAt !== undefined) {
@@ -857,15 +864,47 @@ export async function deleteInboxThreadRow(
     .delete(schema.mailInboxThreads)
     .where(and(...conditions))
     .returning({ id: schema.mailInboxThreads.id });
-  if (deleted.length > 0) return true;
-  // false means a row written after the read survived the guard, so the caller
-  // must keep the thread queued; an already-absent row counts as removed.
+  if (deleted.length > 0) return "removed";
   const remaining = await db
     .select({ id: schema.mailInboxThreads.id })
     .from(schema.mailInboxThreads)
     .where(eq(schema.mailInboxThreads.id, id))
     .limit(1);
-  return remaining.length === 0;
+  return remaining.length === 0 ? "removed" : "skipped";
+}
+
+/**
+ * Queues thread ids for hydration on a later step, merged into the stored
+ * pending list under the sync claim fence.
+ */
+export async function appendHydratePendingIds(
+  ownerEmail: string,
+  accountEmail: string,
+  claimId: string,
+  threadIds: readonly string[],
+): Promise<void> {
+  if (threadIds.length === 0) return;
+  await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
+    const id = rowId(ownerEmail, accountEmail);
+    const [current] = await tx
+      .select({ json: schema.mailSyncAccounts.hydratePendingIdsJson })
+      .from(schema.mailSyncAccounts)
+      .where(eq(schema.mailSyncAccounts.id, id))
+      .limit(1);
+    const merged = [
+      ...new Set([
+        ...parseJsonArray<string>(current?.json ?? null, []),
+        ...threadIds,
+      ]),
+    ];
+    await tx
+      .update(schema.mailSyncAccounts)
+      .set({
+        hydratePendingIdsJson: JSON.stringify(merged),
+        updatedAt: Date.now(),
+      })
+      .where(eq(schema.mailSyncAccounts.id, id));
+  });
 }
 
 export async function markThreadsOutOfInboxBeforeSync(

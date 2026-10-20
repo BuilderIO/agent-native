@@ -40,7 +40,7 @@ const mocks = vi.hoisted(() => {
     resetSyncAccountProgress: vi.fn(),
     readInboxPushGeneration: vi.fn(),
     upsertInboxThreadRows: vi.fn(),
-    deleteInboxThreadRow: vi.fn(),
+    tryDeleteInboxThreadRow: vi.fn(),
     markThreadsOutOfInboxBeforeSync: vi.fn(),
     countInboxThreads: vi.fn(),
     readInboxThreadIds: vi.fn(),
@@ -109,7 +109,7 @@ vi.mock("./inbox-store.js", () => ({
   resetSyncAccountProgress: mocks.resetSyncAccountProgress,
   readInboxPushGeneration: mocks.readInboxPushGeneration,
   upsertInboxThreadRows: mocks.upsertInboxThreadRows,
-  deleteInboxThreadRow: mocks.deleteInboxThreadRow,
+  tryDeleteInboxThreadRow: mocks.tryDeleteInboxThreadRow,
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   countInboxThreads: mocks.countInboxThreads,
   readInboxThreadIds: mocks.readInboxThreadIds,
@@ -276,7 +276,7 @@ beforeEach(() => {
     },
   );
   mocks.upsertInboxThreadRows.mockResolvedValue(undefined);
-  mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
+  mocks.tryDeleteInboxThreadRow.mockResolvedValue("removed");
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
   mocks.readInboxPushGeneration.mockResolvedValue(0);
@@ -1176,14 +1176,14 @@ describe("syncInboxAccount — incremental sync", () => {
     releaseBatch();
     await syncPromise;
 
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "t1",
       expect.any(Number),
       expect.anything(),
     );
-    expect(mocks.deleteInboxThreadRow.mock.calls[0][3]).toBeLessThanOrEqual(
+    expect(mocks.tryDeleteInboxThreadRow.mock.calls[0][3]).toBeLessThanOrEqual(
       batchCalledAt,
     );
   });
@@ -1566,7 +1566,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       undefined,
       "incremental",
     );
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "t9",
@@ -1602,7 +1602,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
     const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
     expect(first.backfillPending).toBe(true);
     expect(currentRow.hydratePendingIds).toEqual(["t9"]);
 
@@ -1626,8 +1626,8 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(mocks.gmailBatchGetThreads.mock.calls[0][1]).toEqual(["gone"]);
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledTimes(1);
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "gone",
@@ -1669,11 +1669,11 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     // A local write landed on "kept" after the Gmail read began, so the guarded
     // delete skips it on the first step only.
     let concurrentWrite = true;
-    mocks.deleteInboxThreadRow.mockImplementation(
+    mocks.tryDeleteInboxThreadRow.mockImplementation(
       async (_owner, _account, threadId: string) => {
-        if (threadId === "kept" && concurrentWrite) return false;
+        if (threadId === "kept" && concurrentWrite) return "skipped" as const;
         fakeRows = fakeRows.filter((row) => row.threadId !== threadId);
-        return true;
+        return "removed" as const;
       },
     );
 
@@ -1688,6 +1688,55 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
     expect(fakeRows).toEqual([]);
     expect(currentRow.archivePendingIds).toEqual([]);
+    expect(second.backfillPending).toBeUndefined();
+  });
+
+  it("requeues a hydrated 404 thread whose delete the write guard skipped, then removes it next step", async () => {
+    currentRow = baseRow({ historyId: "1000", archiveHistoryId: "1000" });
+    fakeRows = [{ threadId: "gone" }];
+    const inbox = [
+      {
+        id: "1001",
+        messagesDeleted: [{ message: { id: "g-m1", threadId: "gone" } }],
+      },
+    ];
+    mocks.gmailListHistory.mockImplementation(
+      async (
+        _token: string,
+        params: { labelId?: string; startHistoryId: string },
+      ) => ({
+        history:
+          params.labelId === "INBOX"
+            ? inbox.filter(
+                (record) => BigInt(record.id) > BigInt(params.startHistoryId),
+              )
+            : [],
+        historyId: "1001",
+      }),
+    );
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[]) =>
+        requested.map((id) => ({ id, data: null, error: "HTTP 404 gone" })),
+    );
+    let concurrentWrite = true;
+    mocks.tryDeleteInboxThreadRow.mockImplementation(
+      async (_owner, _account, threadId: string) => {
+        if (concurrentWrite) return "skipped" as const;
+        fakeRows = fakeRows.filter((row) => row.threadId !== threadId);
+        return "removed" as const;
+      },
+    );
+
+    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(currentRow.hydratePendingIds).toEqual(["gone"]);
+    expect(first.backfillPending).toBe(true);
+
+    concurrentWrite = false;
+    const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(fakeRows).toEqual([]);
+    expect(currentRow.hydratePendingIds).toEqual([]);
     expect(second.backfillPending).toBeUndefined();
   });
 
@@ -1737,14 +1786,14 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(result.state).toBe("ready");
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "good",
       expect.any(Number),
       {},
     );
-    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "bad",
@@ -1815,7 +1864,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(result.state).toBe("ready");
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "gone",
@@ -1878,7 +1927,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "gone",
@@ -1903,7 +1952,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(result.state).toBe("ready");
     expect(result.degraded).toEqual({ count: 1, kind: "FetchError" });
     expect(result.backfillPending).toBeUndefined();
-    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
     expect(currentRow.degraded.verify).toEqual(["t1"]);
     expect(JSON.stringify(result)).not.toContain("socket hang up");
   });
@@ -2117,7 +2166,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(currentRow.archivePendingIds).toEqual(["x"]);
     expect(first.backfillPending).toBeUndefined();
     expect(first.degraded?.count).toBe(1);
-    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
 
     hydrateFails = false;
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
@@ -2148,7 +2197,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "t1",
@@ -2208,7 +2257,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       .flatMap((call) => call[1]);
     expect(hydrated).toEqual(["new"]);
     expect(currentRow.archivePendingIds).toEqual(["t1", "t2"]);
-    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
   });
 
   it("removes the cached thread of a permanently deleted message after a 404", async () => {
@@ -2221,7 +2270,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+    expect(mocks.tryDeleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
       "dead",
@@ -2246,7 +2295,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
     expect(mocks.gmailBatchGetThreads.mock.calls[1][2]).toBe("metadata");
   });
 
@@ -2287,7 +2336,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
         };
       },
     );
-    mocks.deleteInboxThreadRow.mockImplementation(
+    mocks.tryDeleteInboxThreadRow.mockImplementation(
       async (_owner, _account, threadId: string) => {
         fakeRows = fakeRows.filter((row) => row.threadId !== threadId);
       },
@@ -2475,7 +2524,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
           };
         },
       );
-      mocks.deleteInboxThreadRow.mockImplementation(
+      mocks.tryDeleteInboxThreadRow.mockImplementation(
         async (_owner, _account, threadId: string) => {
           fakeRows = fakeRows.filter((row) => row.threadId !== threadId);
         },
