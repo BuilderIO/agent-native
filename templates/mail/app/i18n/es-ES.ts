@@ -443,6 +443,7 @@ const messages = {
       tryDifferentKeywords: "Prueba con otras palabras clave",
       nothingHere: "Nada aquí todavía",
       loadingMore: "Cargando más...",
+      openAllMailForOlder: "Abrir todo el correo para mensajes más antiguos",
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",
@@ -474,6 +475,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",
+      failedToRefreshInbox:
+        "No se pudo actualizar la bandeja de entrada. Inténtalo de nuevo en un momento.",
       failedToDeleteDraft: "No se pudo eliminar el borrador.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

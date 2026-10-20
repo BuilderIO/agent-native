@@ -1,3 +1,9 @@
+## 0.1.10
+
+### Patch Changes
+
+- 966838d: Update scheduling package docs after removing the legacy scheduling template.
+
 ## 0.1.9
 
 ### Patch Changes

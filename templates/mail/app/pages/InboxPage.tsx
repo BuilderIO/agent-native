@@ -565,6 +565,10 @@ export function InboxPage() {
       ]),
     [inboxThreads.data?.items, inboxExtraPages],
   );
+  const inboxReachedCap =
+    inboxExtraPages[inboxExtraPages.length - 1]?.data?.reachedCap ??
+    inboxThreads.data?.reachedCap ??
+    false;
   const inboxHasNextPage =
     isInboxView && inboxThreads.data !== undefined
       ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total, {
@@ -575,6 +579,7 @@ export function InboxPage() {
             inboxExtraPages[inboxExtraPages.length - 1]?.data?.items.length ??
             inboxThreads.data.items.length,
           pageSize: INBOX_PAGE_SIZE,
+          reachedCap: inboxReachedCap,
           totalIsLowerBound: inboxThreads.data.tabs.find(
             (tab) => tab.id === inboxThreads.data.activeTabId,
           )?.totalIsLowerBound,
@@ -1123,6 +1128,7 @@ export function InboxPage() {
             }
             refetchEmails={refetchEmails}
             hasNextPage={hasNextPage}
+            reachedCap={isInboxView && inboxReachedCap}
             fetchNextPage={fetchNextPage}
             isFetchingNextPage={isFetchingNextPage}
             isFetchNextPageError={isFetchNextPageError}

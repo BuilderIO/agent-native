@@ -104,63 +104,19 @@ export default {
     sigmaRetryConnection: "कनेक्शन जाँचें और फिर कोशिश करें।",
     sigmaRetry: "फिर कोशिश करें",
     sigmaNoWorkbooks: "कोई Sigma वर्कबुक उपलब्ध नहीं है।",
-    sigmaWorkbook: "वर्कबुक",
-    sigmaChooseWorkbook: "वर्कबुक चुनें",
-    sigmaStatusNotImported: "आयात नहीं किया गया",
-    sigmaStatusImporting: "आयात हो रहा है",
-    sigmaStatusImported: "आयात किया गया",
-    sigmaStatusFailed: "आयात विफल हुआ",
+    sigmaSearchWorkbooks: "वर्कबुक खोजें…",
+    sigmaNoMatchingWorkbooks: "कोई मेल खाती वर्कबुक नहीं",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "अभी तक कोई मेल खाती वर्कबुक लोड नहीं हुई। बाकी खोजने के लिए और वर्कबुक लोड करें।",
+    sigmaOpenMigratedDashboard: "आयात किया गया डैशबोर्ड नए टैब में खोलें",
+    sigmaOwnedBy: "स्वामी",
+    sigmaMigratingTooltip: "{{name}} द्वारा माइग्रेट किया जा रहा है",
+    sigmaMigrate: "माइग्रेट करें",
+    sigmaMigrateComingSoon: "जल्द आ रहा है",
     sigmaArchived: "संग्रहीत",
-    sigmaPreviewTitle: "वर्कबुक की सामग्री",
-    sigmaPreviewFailed: "इस वर्कबुक का पूर्वावलोकन नहीं हो सका",
-    sigmaRetryPreview: "वर्कबुक पूर्वावलोकन लोड करने के लिए फिर कोशिश करें।",
-    sigmaImportableCount: "{{count}} आयात योग्य",
-    sigmaUnsupportedCount: "{{count}} असमर्थित",
-    sigmaImportable: "आयात योग्य",
-    sigmaUnsupported: "असमर्थित",
-    sigmaNoElements: "वर्कबुक में कोई एलिमेंट नहीं मिला।",
-    sigmaPreviewOnly:
-      "अभी केवल पूर्वावलोकन: Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके। यह मैपिंग उपलब्ध होने तक आयात बंद रहेगा।",
-    sigmaPreviewTruncated: "{{total}} में से {{shown}} एलिमेंट दिखाए गए हैं।",
-    sigmaImportWorkbook: "वर्कबुक आयात करें",
-    sigmaImporting: "वर्कबुक आयात हो रही है…",
-    sigmaImportInProgress: "इस वर्कबुक का आयात पहले से चल रहा है।",
-    sigmaMigrationFailed: "वर्कबुक आयात नहीं हो सकी। फिर कोशिश करें।",
-    sigmaMigrationResultInvalid:
-      "आयात का जवाब अधूरा था। स्थिति देखने के लिए वर्कबुक सूची फिर से लोड करें।",
-    sigmaImportComplete: "डैशबोर्ड बनाया गया",
-    sigmaImportSummary:
-      "{{imported}} एलिमेंट आयात किए गए; {{unsupported}} असमर्थित एलिमेंट समीक्षा कॉलआउट के रूप में रखे गए।",
-    sigmaAlreadyImported: "यह वर्कबुक पहले ही आयात की जा चुकी है।",
-    sigmaImportedNoDashboard:
-      "डैशबोर्ड आयात किया गया, लेकिन इसे इस खाते से खोला नहीं जा सकता।",
-    sigmaReviewRequiredCount: "{{count}} की समीक्षा ज़रूरी है",
-    sigmaBetaRepresentationWarning:
-      "इस बीटा आयात में कुछ विज़ुअलाइज़ेशन Sigma से अलग दिख सकते हैं।",
-    sigmaReasonUnsupportedElement: "यह एलिमेंट प्रकार आयात के लिए समर्थित नहीं है।",
-    sigmaReasonUnsupportedSource:
-      "यह एलिमेंट ऐसे स्रोत का उपयोग करता है जो आयात के लिए समर्थित नहीं है।",
-    sigmaReasonSourceMappingRequired:
-      "Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके, इसलिए यह SQL अभी आयात नहीं हो सकता।",
-    sigmaReasonSourceUnavailable:
-      "Sigma ने इस स्रोत कनेक्शन तक पहुँच की अनुमति नहीं दी। इसकी अनुमतियाँ जाँचें।",
-    sigmaReasonQueryUnavailable:
-      "Sigma ने इस एलिमेंट के लिए आयात योग्य क्वेरी नहीं दी।",
-    sigmaReasonUnsafeSql: "इस क्वेरी पैटर्न को सुरक्षित रूप से आयात नहीं किया जा सकता।",
-    sigmaReasonVisualizationReview:
-      "डेटा आयात किया जा सकता है, लेकिन बाद में विज़ुअलाइज़ेशन जाँचें।",
-    sigmaRetryOwnerOnly:
-      "केवल इस आयात को शुरू करने वाला व्यक्ति इसे फिर से आज़मा सकता है।",
-    sigmaImportedByTeammate: "टीम के किसी सदस्य ने आयात किया",
-    sigmaFlaggedCount: "{{count}} समीक्षा के लिए चिह्नित",
     sigmaMoreWorkbooksFailed: "और वर्कबुक लोड नहीं हो सकीं",
     sigmaLoadingMore: "वर्कबुक लोड हो रही हैं…",
     sigmaLoadMore: "और वर्कबुक लोड करें",
-    sigmaOpenDashboard: "डैशबोर्ड खोलें",
-    sigmaReviewWithAgent: "एजेंट से समीक्षा कराएँ",
-    sigmaReviewContext: "आयात किया गया Sigma डैशबोर्ड",
-    sigmaReviewPrompt:
-      "आयात किए गए Sigma डैशबोर्ड {{name}} की समीक्षा करें। आयात किए गए पैनल और असमर्थित एलिमेंट जाँचें, फिर सुधार सुझाएँ।",
   },
   sidebar: {
     collapseSidebar: "साइडबार समेटें",

@@ -3346,6 +3346,84 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("attaches a replayed start through a runtime alias to the run that owns it", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish the release?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    async function* completedEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: "turn-1",
+          runId: "runtime-run-1",
+          sessionId: "thread-1",
+          events: approvalEvents(),
+        })
+        .mockResolvedValueOnce({
+          id: "turn-2",
+          runId: "runtime-run-2",
+          sessionId: "thread-1",
+          events: completedEvents(),
+        }),
+      continueTurn: async () => ({
+        id: "turn-3",
+        runId: "runtime-run-2",
+        sessionId: "thread-1",
+        events: completedEvents(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const stream = transport.subscribeToRun({ threadId: "thread-1", runId });
+    const iterator = stream[Symbol.asyncIterator]();
+    let approvalSeen = false;
+    while (!approvalSeen) {
+      const next = await iterator.next();
+      expect(next.done).toBe(false);
+      approvalSeen = next.value?.type === "approval.requested";
+    }
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
+    });
+    expect(resumed?.runId).not.toBe("runtime-run-2");
+
+    const replay = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+
+    expect(replay.runId).toBe(resumed!.runId);
+  });
+
   it("omits a missing runtime run id from initial run metadata", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };

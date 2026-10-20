@@ -4,6 +4,7 @@ import {
   markdownSuggestionOperations,
   markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
+  markdownSuggestionOperationsForFindReplaceEdits,
   markdownSuggestionOperationsForReplacements,
   suggestionDiffParts,
 } from "./suggestion-diff.js";
@@ -185,6 +186,38 @@ describe("suggestion decomposition", () => {
       anchor: { from: start, to: start + 3 },
     });
     expect(proposedFrom(before, operations)).toBe("The quick fox can sprint.");
+  });
+
+  it("keeps adjacent finds apart when whole words would join them", () => {
+    // Both finds split "two", so expanding either change to the whole word
+    // would overlap the other. Each stays inside its own find instead.
+    const before = "one two three";
+    const operations = markdownSuggestionOperationsForFindReplaceEdits({
+      before,
+      edits: [
+        { find: "one tw", replace: "one TW", start: 0 },
+        { find: "o three", replace: "O three", start: 6 },
+      ],
+    });
+    expect(operations.map(({ anchor }) => [anchor.from, anchor.to])).toEqual([
+      [0, 6],
+      [6, 13],
+    ]);
+
+    for (const order of [operations, [...operations].reverse()]) {
+      let current = before;
+      for (const operation of order.map(
+        (value) => JSON.parse(JSON.stringify(value)) as typeof value,
+      )) {
+        const range = resolveMarkdownSuggestionRange(current, operation);
+        expect(range, `operation ${operation.ordinal}`).not.toBeNull();
+        current =
+          current.slice(0, range!.from) +
+          operation.after.changedText +
+          current.slice(range!.to);
+      }
+      expect(current).toBe("one TWO three");
+    }
   });
 
   it("keeps selected sentence replacements granular", () => {
