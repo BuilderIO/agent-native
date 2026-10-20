@@ -165,7 +165,27 @@ surfaced `view-screen` action. If no such action is available, it falls back to
 the current tab's `navigation` state. The scaffold action returns navigation;
 extend it with concise, relevant visible-record details when the app has them.
 The agent can use the injected snapshot directly and call `view-screen` again
-when it needs a fresh read after context has changed.
+when it needs fresh record data; the screen it describes stays the one the turn
+was sent from (see below).
+
+### Turn snapshot
+
+Each chat message carries its tab's `navigation`, `__url__`, `settings-view`,
+and `selection` values from the moment it was sent. For the whole turn —
+including a queued message that starts later, background workers, and
+continuations — server reads of those keys for that tab return the sent values,
+so `<current-screen>`, `view-screen`, and any action that defaults to "the
+current" item agree with what the user saw. Records are still read fresh.
+
+- Register app-owned per-tab screen keys (selections, focused objects) once in
+  `app/root.tsx`: `registerAgentScreenStateKeys(["design-selection"])` from
+  `@agent-native/core/client/application-state`. The key must be written as
+  `<key>:<tabId>`.
+- Don't register state that should stay live (playback position, open panels,
+  progress, modes).
+- The turn reads live state again once it writes `navigate` or `__set_url__`
+  for that tab, or writes a registered key. Until the tab applies the command,
+  a read right after navigating can still show the previous screen.
 
 ### 4. The `navigate` Action
 
