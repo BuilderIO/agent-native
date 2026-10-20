@@ -112,7 +112,11 @@ export const CommentComposer = forwardRef<
   };
 
   useEffect(() => {
-    if (autoFocus) innerRef.current?.focus();
+    const textarea = innerRef.current;
+    if (!autoFocus || !textarea) return;
+    textarea.focus();
+    // Editing opens with the comment's text; keep typing after it.
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }, [autoFocus]);
 
   useAutoResizeCommentTextarea(innerRef, value, rows);

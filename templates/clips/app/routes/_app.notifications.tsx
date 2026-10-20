@@ -193,6 +193,9 @@ export default function NotificationsRoute() {
             </div>
             <div className="flex items-end gap-2">
               <CommentComposer
+                // A reply to another notification gets its own composer, so
+                // the cursor moves to it.
+                key={replyFor.id}
                 value={replyText}
                 onChange={setReplyText}
                 onMentionAdd={(mention) =>

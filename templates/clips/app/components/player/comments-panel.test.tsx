@@ -3,7 +3,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 import {
   collectCommentSubtreeIds,
@@ -1041,6 +1049,11 @@ describe("CommentsPanel reply composer", () => {
   });
 
   it("prefills and saves an author's comment inline", async () => {
+    const setSelectionRange = vi.spyOn(
+      HTMLTextAreaElement.prototype,
+      "setSelectionRange",
+    );
+    onTestFinished(() => setSelectionRange.mockRestore());
     renderPanel("author@example.com");
 
     const menuTrigger = container.querySelector<HTMLButtonElement>(
@@ -1063,6 +1076,12 @@ describe("CommentsPanel reply composer", () => {
     );
     expect(editor?.value).toBe(rootComment.content);
     expect(document.activeElement).toBe(editor);
+    // happy-dom moves the caret to the end whenever the value is set, so check
+    // the call a browser needs.
+    expect(setSelectionRange).toHaveBeenCalledWith(
+      rootComment.content.length,
+      rootComment.content.length,
+    );
 
     act(() => {
       if (!editor) return;
