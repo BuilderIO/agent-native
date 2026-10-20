@@ -3384,17 +3384,22 @@ async function updateRunAborted(
       return { rowsAffected, appendTerminalEvent: true };
     }
     const current = await tx.execute({
-      sql: `SELECT status, terminal_reason FROM agent_runs WHERE id = ?`,
+      sql: `SELECT status, terminal_reason, in_flight_since FROM agent_runs WHERE id = ?`,
       args: [runId],
     });
     const currentRun = current.rows[0] as
-      | { status?: string; terminal_reason?: string | null }
+      | {
+          status?: string;
+          terminal_reason?: string | null;
+          in_flight_since?: number | string | null;
+        }
       | undefined;
     return {
       rowsAffected,
       appendTerminalEvent:
         currentRun?.status === "aborted" &&
-        currentRun.terminal_reason === `aborted:${reason ?? "user"}`,
+        currentRun.terminal_reason === `aborted:${reason ?? "user"}` &&
+        (!requireSafeBoundary || currentRun.in_flight_since == null),
     };
   });
   if (abortResult.appendTerminalEvent) {

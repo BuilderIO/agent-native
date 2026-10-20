@@ -1060,7 +1060,10 @@ export function startRun(
               publication.reject(error);
             }
           }
-          if (terminalRun) pendingEventWrites.length = 0;
+          if (terminalRun) {
+            pendingEventWrites.length = 0;
+            openEventBatch = null;
+          }
           throw error;
         }
         pendingEventWrites.shift();

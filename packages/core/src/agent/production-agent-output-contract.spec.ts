@@ -656,6 +656,47 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
 });
 
 describe("runAgentLoop — one prepared invocation", () => {
+  it("rechecks cancellation immediately before dispatching a model request", async () => {
+    const controller = new AbortController();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn() as AgentEngine["stream"],
+    };
+    const beforeModelDispatch = vi.fn(async () => controller.abort());
+    const onOutcome = vi.fn();
+
+    const usage = await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "Test app.",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: vi.fn(),
+      signal: controller.signal,
+      beforeModelDispatch,
+      onOutcome,
+    });
+
+    expect(beforeModelDispatch).toHaveBeenCalledOnce();
+    expect(engine.stream).not.toHaveBeenCalled();
+    expect(usage.llmCalls).toBeUndefined();
+    expect(onOutcome).toHaveBeenCalledWith({
+      state: "canceled",
+      message: "Agent run was aborted.",
+    });
+  });
+
   // The raw call `{}` asks for nothing; the default it validates to writes.
   function defaultedApprovalPublish(counter: { writes: number }) {
     return defineAction({

@@ -5855,7 +5855,7 @@ describe("run manager soft timeout", () => {
     }
   });
 
-  it("drops queued events when the run has already become terminal", async () => {
+  it("drops queued events and closes the open batch when the run is terminal", async () => {
     const terminalEventError = new AgentRunEventNotPersistedError(
       "run-batch-terminal",
       0,
@@ -5864,25 +5864,58 @@ describe("run manager soft timeout", () => {
     const priorInsertRunEvents = vi
       .mocked(insertRunEvents)
       .getMockImplementation();
-    vi.mocked(insertRunEvents).mockRejectedValueOnce(terminalEventError);
+    vi.mocked(insertRunEvents).mockClear();
+    vi.mocked(insertRunEvents).mockRejectedValue(terminalEventError);
     const published: AgentChatEvent[] = [];
+    const publicationErrors: unknown[] = [];
+    let markFirstPublicationRejected!: () => void;
+    let releaseSecondPublication!: () => void;
+    const firstPublicationRejected = new Promise<void>((resolve) => {
+      markFirstPublicationRejected = resolve;
+    });
+    const secondPublicationAllowed = new Promise<void>((resolve) => {
+      releaseSecondPublication = resolve;
+    });
 
     try {
       const run = startRun(
         "run-batch-terminal",
         "thread-batch-terminal",
         async (send) => {
-          send({ type: "text", text: "not persisted" });
+          try {
+            await send({ type: "text", text: "not persisted" });
+          } catch (error) {
+            publicationErrors.push(error);
+          }
+          markFirstPublicationRejected();
+          await secondPublicationAllowed;
+          try {
+            await send({ type: "text", text: "also not persisted" });
+          } catch (error) {
+            publicationErrors.push(error);
+          }
         },
         undefined,
         { softTimeoutMs: 0 },
       );
       run.subscribers.add(({ event }) => published.push(event));
 
+      await firstPublicationRejected;
+      await expect(run.flushEvents?.()).rejects.toBe(terminalEventError);
+      releaseSecondPublication();
       await expect(run.finalized).rejects.toBe(terminalEventError);
+      expect(insertRunEvents).toHaveBeenCalledTimes(2);
+      expect(publicationErrors).toEqual([
+        terminalEventError,
+        terminalEventError,
+      ]);
       expect(published).not.toContainEqual({
         type: "text",
         text: "not persisted",
+      });
+      expect(published).not.toContainEqual({
+        type: "text",
+        text: "also not persisted",
       });
       await expect(run.flushEvents?.()).resolves.toBeUndefined();
     } finally {

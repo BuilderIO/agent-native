@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Surface durable cancellation persistence failures instead of reporting success.
+Surface durable cancellation persistence failures and stop Agent Teams runs before their next model dispatch.

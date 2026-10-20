@@ -6716,6 +6716,7 @@ export async function runAgentLoop(opts: {
   send: (event: AgentChatEvent) => void | Promise<void>;
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
+  beforeModelDispatch?: () => Promise<void>;
   unknownWriteToolNames?: Set<string>;
   /** The request's unknown outcomes, which each of its loops feeds and holds by. */
   unknownOutcomes?: UnknownOutcomes;
@@ -7479,8 +7480,17 @@ export async function runAgentLoop(opts: {
         };
 
         opts.onModelSettings?.(model, effectiveReasoningEffort);
-        usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         notifyModelInputObserver(opts.onModelInput, engineMessages);
+        // Context preparation above can await; keep stop checks at dispatch.
+        await opts.beforeModelDispatch?.();
+        if (signal.aborted) {
+          reportOutcome({
+            state: "canceled",
+            message: "Agent run was aborted.",
+          });
+          return usage;
+        }
+        usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();

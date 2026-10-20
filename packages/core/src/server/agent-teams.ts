@@ -2715,6 +2715,33 @@ export async function processAgentTeamRun(
                     actions: messageAwareActions,
                     send: wrappedSend,
                     beforeWrite: control.flushEvents,
+                    beforeModelDispatch: async () => {
+                      const current = await withCurrentAgentTeamRunAttempt(
+                        opts.taskId,
+                        claimedAttempts,
+                        async () => {
+                          const currentTask = await loadTask(opts.taskId);
+                          return {
+                            allowed:
+                              currentTask?.status === "running" &&
+                              currentTask.stopRequestedAt === undefined,
+                            task: currentTask,
+                          };
+                        },
+                      );
+                      if (current.current && current.value.allowed) return;
+
+                      const currentTask = current.current
+                        ? current.value.task
+                        : await loadTask(opts.taskId);
+                      const reason =
+                        currentTask &&
+                        (currentTask.stopRequestedAt !== undefined ||
+                          isCancelledAgentTask(currentTask))
+                          ? (currentTask.stopRequestedReason ?? "user")
+                          : "superseded";
+                      markLeaseLost(reason);
+                    },
                     signal,
                     finalResponseGuard: createTaskMessageFinalGuard(
                       opts.taskId,

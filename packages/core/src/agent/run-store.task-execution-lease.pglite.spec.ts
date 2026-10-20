@@ -438,6 +438,46 @@ describe("task execution leases", () => {
     ).rejects.toMatchObject({ code: "stale_execution_fence" });
   });
 
+  it("does not repair an already-aborted run while its in-flight marker is set", async () => {
+    const threadId = "thread-safe-abort-in-flight-marker";
+    const turnId = "turn-safe-abort-in-flight-marker";
+    const runId = "run-safe-abort-in-flight-marker";
+    await insertRun(runId, threadId, turnId);
+    const markerSince = Date.now();
+    await pglite.query(
+      `UPDATE agent_runs
+          SET status = 'aborted', abort_reason = 'user', completed_at = ?,
+              terminal_reason = 'aborted:user', in_flight_since = ?
+          WHERE id = ?`,
+      [markerSince, markerSince, runId],
+    );
+
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      false,
+    );
+    const eventsWhileInFlight = await pglite.query(
+      `SELECT seq FROM agent_run_events WHERE run_id = ?`,
+      [runId],
+    );
+    expect(eventsWhileInFlight.rows).toHaveLength(0);
+
+    await pglite.query(
+      `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`,
+      [runId],
+    );
+    await expect(markRunAbortedAtSafeBoundary(runId, "user")).resolves.toBe(
+      true,
+    );
+    const repairedEvents = await pglite.query(
+      `SELECT seq, event_data FROM agent_run_events WHERE run_id = ?`,
+      [runId],
+    );
+    expect(repairedEvents.rows).toHaveLength(1);
+    expect(
+      JSON.parse(String(repairedEvents.rows[0]?.event_data)),
+    ).toMatchObject({ type: "done" });
+  });
+
   it("does not let a late process failure overwrite the reaper's terminal result", async () => {
     const threadId = "thread-reaper-before-process-failure";
     const turnId = "reaper-before-process-failure";

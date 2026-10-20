@@ -534,6 +534,7 @@ let persistedToolStartEventWrites = 0;
 let failNextExecutionLeaseClaim = false;
 const startRunWork: Promise<void>[] = [];
 const activeRunMocks = new Map<string, any>();
+const activeRunAbortControllers = new Map<string, AbortController>();
 vi.mock("../agent/run-manager.js", () => ({
   startRun: (
     runId: string,
@@ -606,14 +607,11 @@ vi.mock("../agent/run-manager.js", () => ({
           await Promise.all(pendingEventWrites);
         },
       };
-      const signal = {
-        aborted: false,
-        addEventListener() {},
-        removeEventListener() {},
-      };
+      const abortController = new AbortController();
+      activeRunAbortControllers.set(runId, abortController);
       let status: "completed" | "errored" = "completed";
       try {
-        await runFn(send, signal, control);
+        await runFn(send, abortController.signal, control);
       } catch {
         status = "errored";
       }
@@ -625,7 +623,7 @@ vi.mock("../agent/run-manager.js", () => ({
         events,
         status,
         subscribers: new Set(),
-        abort: new AbortController(),
+        abort: abortController,
         startedAt: Date.now(),
       };
       activeRunMocks.set(runId, run);
@@ -664,6 +662,7 @@ vi.mock("../agent/run-manager.js", () => ({
         }
       } finally {
         activeRunMocks.delete(runId);
+        activeRunAbortControllers.delete(runId);
       }
     })();
     startRunWork.push(work);
@@ -679,7 +678,10 @@ vi.mock("../agent/run-manager.js", () => ({
       finalized: work,
     };
   },
-  abortRun: abortRunMock,
+  abortRun: (...args: any[]) => {
+    abortRunMock(...args);
+    activeRunAbortControllers.get(String(args[0]))?.abort(args[1]);
+  },
   abortRunDurably: abortRunDurablyMock,
   getActiveRunForThreadAsync: getActiveRunForThreadAsyncMock,
   getRun: getRunMock,
@@ -3012,6 +3014,68 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
       "failed",
     );
+  });
+
+  it("rechecks Stop after async setup immediately before a model request", async () => {
+    const taskId = "stop-during-observability-setup";
+    await seedTask(taskId);
+
+    let releaseObservability!: () => void;
+    let markObservabilityStarted!: () => void;
+    const observabilityStarted = new Promise<void>((resolve) => {
+      markObservabilityStarted = resolve;
+    });
+    const observabilityGate = new Promise<void>((resolve) => {
+      releaseObservability = resolve;
+    });
+    getObservabilityConfigMock.mockImplementationOnce(async () => {
+      markObservabilityStarted();
+      await observabilityGate;
+      return { enabled: true };
+    });
+
+    const engine = { ...resolveConfig().engine, stream: vi.fn() } as any;
+    runAgentLoopMock.mockImplementation(async (loopOpts: any) => {
+      await loopOpts.beforeModelDispatch?.();
+      if (!loopOpts.signal.aborted) loopOpts.engine.stream({});
+    });
+    // The stop is persisted by another worker and cannot abort this process's
+    // in-memory signal; the model-boundary check must observe the SQL marker.
+    abortRunDurablyMock.mockImplementationOnce(async () => true);
+
+    const processing = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => ({ ...resolveConfig(), engine }),
+    });
+    let stopping: Promise<unknown> | undefined;
+
+    try {
+      await observabilityStarted;
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+
+      stopping = runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      );
+      await expect(stopping).resolves.toEqual({ ok: true });
+      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+        status: "errored",
+        summary: "Task stopped.",
+        terminalProgressStatus: "cancelled",
+      });
+
+      releaseObservability();
+      await expect(processing).resolves.toMatchObject({ ok: true });
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+      expect(abortRunMock).toHaveBeenCalledWith(
+        `run-task-${taskId}-a1-c0`,
+        "user",
+      );
+    } finally {
+      releaseObservability();
+      await Promise.allSettled([processing, ...(stopping ? [stopping] : [])]);
+    }
   });
 
   it("keeps Stop authoritative when the run finalizer races its abort", async () => {

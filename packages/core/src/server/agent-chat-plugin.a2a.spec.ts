@@ -197,6 +197,7 @@ vi.mock("./social-og-image.js", () => ({
 
 import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js";
 import { EngineError } from "../agent/engine/types.js";
+import * as runManagerModule from "../agent/run-manager.js";
 import { replayCompletedTurn } from "../agent/run-manager.js";
 import { markRunAborted } from "../agent/run-store.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
@@ -510,6 +511,46 @@ describe("A2A shared run lifecycle", () => {
       finishRun();
       releaseRunner?.();
       process.off("unhandledRejection", recordUnhandled);
+    }
+  });
+
+  it("reports run finalization and durable abort failures together", async () => {
+    const taskController = new AbortController();
+    const finalizationError = new Error("run finalization unavailable");
+    const persistenceError = new Error("abort persistence unavailable");
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const startRun = vi.spyOn(runManagerModule, "startRun").mockReturnValue({
+      runId: "task-cancel-dual-failure",
+      threadId: "task-cancel-dual-failure",
+      turnId: "task-cancel-dual-failure",
+      events: [],
+      status: "running",
+      abort: new AbortController(),
+      finalized: Promise.reject(finalizationError),
+    } as any);
+    taskController.abort("canceled-by-task-claim");
+
+    try {
+      let thrown: unknown;
+      try {
+        await runA2AAgentLoopWithRunManager(
+          runOptions("task-cancel-dual-failure"),
+          {},
+          { backgroundFunction: false },
+          { runner: vi.fn() as any },
+          taskController.signal,
+        );
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(AggregateError);
+      expect((thrown as AggregateError).errors).toEqual([
+        finalizationError,
+        persistenceError,
+      ]);
+    } finally {
+      startRun.mockRestore();
     }
   });
 
