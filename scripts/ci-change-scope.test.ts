@@ -1378,6 +1378,15 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   const changedSpecRegressions = step("Run changed Design E2E specs");
   const preAuthReplaySmoke = step("Run pre-auth session replay smoke");
+  const designE2eWorkflow = readFileSync(
+    ".github/workflows/design-e2e.yml",
+    "utf8",
+  );
+  // source-read-ok: the Design setup budget is a source-level contract.
+  const designGlobalSetup = readFileSync(
+    "templates/design/e2e/global-setup.ts",
+    "utf8",
+  );
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
   );
@@ -1393,13 +1402,32 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     preAuthReplaySmoke,
-    /^        timeout-minutes: 18$/m,
-    "the pre-auth browser smoke must leave time for global setup and webServer startup",
+    /^        timeout-minutes: 20$/m,
+    "the pre-auth browser smoke must leave time for setup, webServer startup, and a full retry",
   );
   assert.match(
-    readFileSync(".github/workflows/design-e2e.yml", "utf8"),
+    designE2eWorkflow,
+    /^    timeout-minutes: 75$/m,
+    "the standalone Design job must cover sequential shard and loopback steps plus setup and artifacts",
+  );
+  assert.match(
+    designE2eWorkflow,
     /^      - name: Run chat attachment and sizing loopback E2E\n        if: matrix\.shard == 1\n        working-directory: templates\/design\n        timeout-minutes: 21$/m,
     "the loopback attachment suite must budget global setup and webServer startup",
+  );
+  assert.match(
+    designE2eWorkflow,
+    /^      - name: Run shard\n        id: run-shard\n        if: matrix\.shard != 'runtime-budget'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
+    "the standalone shard budget must remain explicit",
+  );
+  assert.deepEqual(
+    [
+      ...designGlobalSetup.matchAll(
+        /homeComposer\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(homeDeadline, ([^)]+)\)/g,
+      ),
+    ].map(([, budget]) => budget),
+    ["HOME_WARMUP_BUDGET_MS", "HOME_WARMUP_BUDGET_MS"],
+    "both home warmup attempts must use the remaining home budget",
   );
   assert.match(
     changedSpecRegressions,
@@ -3529,6 +3557,7 @@ test(
         ".github/workflows/ci.yml",
         ".github/workflows/design-e2e.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
+        "templates/design/e2e/global-setup.ts",
         "templates/design/e2e/css-style-helpers.ts",
         "templates/design/e2e/css-style-helpers.spec.ts",
         "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",

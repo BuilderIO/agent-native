@@ -479,7 +479,7 @@ export default async function globalSetup(config: FullConfig) {
         });
         await homeComposer.waitFor({
           state: "visible",
-          timeout: timeoutBefore(homeDeadline, 30_000),
+          timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
         });
         homeComposerWarmed = true;
       } catch (error) {
@@ -494,7 +494,7 @@ export default async function globalSetup(config: FullConfig) {
             });
             await homeComposer.waitFor({
               state: "visible",
-              timeout: timeoutBefore(homeDeadline, 30_000),
+              timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
             });
             homeComposerWarmed = true;
           } catch (recoveryError) {

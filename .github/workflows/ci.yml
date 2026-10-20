@@ -912,7 +912,7 @@ jobs:
 
       - name: Run pre-auth session replay smoke
         working-directory: templates/design
-        timeout-minutes: 18
+        timeout-minutes: 20
         env:
           E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
           E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
