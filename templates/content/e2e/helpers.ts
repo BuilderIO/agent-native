@@ -53,6 +53,16 @@ export const RECOVERY_UI = [
   "Something went wrong",
 ];
 
+/**
+ * Actions that need approval run over HTTP only for the signed-in app UI, which
+ * proves itself with this capability cookie. A spec that calls one directly
+ * mints it first, as the app's client does before its writes.
+ */
+export async function presentUiCapability(page: Page): Promise<void> {
+  const response = await page.request.get("/_agent-native/ui-capability");
+  expect(response.ok(), `ui-capability (${response.status()})`).toBe(true);
+}
+
 export async function postAction<T = Record<string, unknown>>(
   page: Page,
   name: string,

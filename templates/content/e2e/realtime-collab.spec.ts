@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
-import { getDocument } from "./helpers";
+import { getDocument, presentUiCapability } from "./helpers";
 
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
@@ -114,6 +114,7 @@ test.describe("real-time collaboration between two signed-in users", () => {
         [editorEmail, "editor"],
         [viewerEmail, "viewer"],
       ]) {
+        await presentUiCapability(owner);
         await runAction(owner, "share-resource", {
           resourceType: "document",
           resourceId: documentId,
@@ -214,6 +215,7 @@ test.describe("real-time collaboration between two signed-in users", () => {
         content: "Paragraph one.\n\nParagraph two.\n\nParagraph three.\n",
       });
       documentId = String(created.id);
+      await presentUiCapability(owner);
       await runAction(owner, "share-resource", {
         resourceType: "document",
         resourceId: documentId,
