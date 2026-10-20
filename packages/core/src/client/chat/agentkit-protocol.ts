@@ -2189,26 +2189,29 @@ export function createAgentKitProtocolAdapter(
       : undefined;
     if (existingRun) {
       const isRuntimeAlias = existingRun.runId !== runId;
-      if (
-        isRuntimeAlias &&
-        (existingRun.turn.id === undefined || existingRun.turn.id !== turn.id)
-      ) {
+      const isSameRuntimeTurn =
+        existingRun.turn.id !== undefined && existingRun.turn.id === turn.id;
+      if (isRuntimeAlias && !isSameRuntimeTurn && !existingRun.terminal) {
         await closeDiscardedTurnEvents(turn);
         throw new Error(`Duplicate AgentKit run id: ${runId}`);
       }
-      await closeDiscardedTurnEvents(turn);
-      touchRun(existingRun);
-      ensurePump(existingRun);
-      // An alias is weaker than the protocol ID and is safe to reuse only for
-      // the turn that established it.
-      return existingRun.runId;
+      if (!isRuntimeAlias || isSameRuntimeTurn) {
+        await closeDiscardedTurnEvents(turn);
+        touchRun(existingRun);
+        ensurePump(existingRun);
+        // An alias is weaker than the protocol ID and is safe to reuse only for
+        // the turn that established it.
+        return existingRun.runId;
+      }
     }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    const indexedRun = indexRun(
-      run,
-      turn.runId,
-      start.attachReplayedRun === true,
-    );
+    let indexedRun: ProtocolRun;
+    try {
+      indexedRun = indexRun(run, turn.runId, start.attachReplayedRun === true);
+    } catch (error) {
+      await closeDiscardedTurnEvents(turn);
+      throw error;
+    }
     if (indexedRun !== run) {
       await closeDiscardedTurnEvents(turn);
       return indexedRun.runId;
