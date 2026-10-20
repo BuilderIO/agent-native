@@ -1909,7 +1909,7 @@ function AgentPanelInner({
               return (
                 <div
                   key={tab.id}
-                  className="agent-tab-group relative flex shrink-0 items-center"
+                  className="agent-tab-group relative flex min-w-[56px] max-w-[150px] shrink items-center"
                 >
                   <div
                     role="tab"
@@ -1925,7 +1925,7 @@ function AgentPanelInner({
                       switchMode("chat");
                     })}
                     className={cn(
-                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                      "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                       isActive
                         ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2048,7 +2048,7 @@ function AgentPanelInner({
                     return (
                       <div
                         key={tab.id}
-                        className="agent-tab-group relative shrink-0"
+                        className="agent-tab-group relative min-w-[56px] max-w-[150px] shrink"
                       >
                         <div
                           role="button"
@@ -2059,7 +2059,7 @@ function AgentPanelInner({
                             setActiveTabId(tab.id),
                           )}
                           className={cn(
-                            "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                            "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                             isActive
                               ? "bg-accent text-foreground"
                               : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2152,7 +2152,7 @@ function AgentPanelInner({
                               return (
                                 <div
                                   key={tab.id}
-                                  className="agent-tab-group relative shrink-0"
+                                  className="agent-tab-group relative min-w-[56px] max-w-[150px] shrink"
                                 >
                                   <div
                                     role="button"
@@ -2163,7 +2163,7 @@ function AgentPanelInner({
                                       setActiveTabId(tab.id),
                                     )}
                                     className={cn(
-                                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                                      "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                                       isActive
                                         ? "bg-accent text-foreground"
                                         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2282,7 +2282,7 @@ function AgentPanelInner({
                         {childTabs.map((tab) => (
                           <div
                             key={tab.id}
-                            className="agent-tab-group relative shrink-0"
+                            className="agent-tab-group relative min-w-[48px] max-w-[140px] shrink"
                           >
                             <div
                               role="button"
@@ -2297,7 +2297,7 @@ function AgentPanelInner({
                                 setActiveTabId(tab.id),
                               )}
                               className={cn(
-                                "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer min-w-[48px] max-w-[140px]",
+                                "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
                                 tab.id === activeTabId
                                   ? "bg-accent text-foreground"
                                   : "text-muted-foreground hover:bg-accent hover:text-foreground",

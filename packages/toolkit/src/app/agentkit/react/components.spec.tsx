@@ -463,17 +463,19 @@ describe("AgentKitChat", () => {
     expect(styles).toMatch(
       /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="area"\][\s\S]*padding-inline: 0;/,
     );
-    expect(styles).toMatch(
-      /\[data-agent-composer-slot="model-button"\] \{[\s\S]*max-inline-size: 11rem;/,
-    );
+    const modelButtonRule = styles.match(
+      /\.agentkit-composer \[data-agent-composer-slot="model-button"\] \{([^}]*)\}/,
+    )?.[1];
+    expect(modelButtonRule).toContain("max-inline-size: 11rem;");
+    expect(modelButtonRule).toContain("flex: 0 1 auto;");
     expect(styles).toMatch(
       /\[data-agent-composer-slot="mode-button"\] \{[\s\S]*min-inline-size: 3\.5rem;/,
     );
     expect(styles).toMatch(
-      /@media \(max-width: 40rem\)[\s\S]*\[data-agent-composer-slot="model-button"\][\s\S]*max-inline-size: 7\.5rem;/,
+      /@container \(max-width: 24rem\)[\s\S]*\[data-agent-composer-slot="model-button"\][\s\S]*max-inline-size: 7\.5rem;/,
     );
     expect(styles).toMatch(
-      /@media \(max-width: 40rem\)[\s\S]*\.agent-composer-model-effort[\s\S]*display: none;/,
+      /@container \(max-width: 24rem\)[\s\S]*\.agent-composer-model-effort[\s\S]*display: none;/,
     );
     const composerPopoverRule = styles.match(
       /\[data-agent-native-composer-popover="true"\] \{([^}]*)\}/,
