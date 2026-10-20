@@ -1585,6 +1585,33 @@ describe("GitHub folder freshness", () => {
     ]);
   });
 
+  it("keeps the files it skipped when a later read in the same sync fails", async () => {
+    github.commit({ "docs/0.md": "BINARY", "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({ "docs/0.md": "BINARY 2", "docs/1.md": "# One, edited\n" });
+    // The changed file that isn't text is read and skipped; the next read fails.
+    github.state.duringBlobRead = async () => {
+      github.state.duringBlobRead = async () => {
+        throw new Error("socket hang up");
+      };
+    };
+    const id = await sourceId(database.id);
+    const first = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+    );
+    expect(first).toMatchObject({ state: "error" });
+
+    github.state.blobReads = 0;
+    const retried = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+    );
+    expect(retried).toMatchObject({ state: "synced", updated: 1 });
+    expect(github.state.blobReads).toBe(1);
+  });
+
   it("counts every skipped file, though it keeps only 50 of their paths", async () => {
     github.commit({
       "docs/1.md": "# One\n",

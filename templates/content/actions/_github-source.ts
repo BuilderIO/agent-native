@@ -1674,6 +1674,9 @@ export async function syncGitHubSource(
   // Counts what this run writes. A run that fails partway still reports the
   // rows it changed first, so readers hear about them.
   const result = emptyResult("synced", null);
+  // Files this run read and had to skip. A run that fails partway keeps
+  // them too, so the next one doesn't read them again.
+  let readSkipsSoFar: GitHubReadSkip[] | null = null;
   const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
     ...emptyResult("error", state.pendingCommitSha, problem),
     created: result.created,
@@ -1861,6 +1864,7 @@ export async function syncGitHubSource(
     result.commitSha = head.sha;
     result.unchanged = planned.length - work.length - stillSkipped.length;
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
+    readSkipsSoFar = readSkips;
     let done = 0;
     for (const file of work) {
       if (outOfTime()) break;
@@ -2020,7 +2024,12 @@ export async function syncGitHubSource(
       );
     }
     await release(
-      (current) => ({ ...current, checkedAt: now, problem }),
+      (current) => ({
+        ...current,
+        checkedAt: now,
+        problem,
+        ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),
+      }),
       () => ({
         syncState: "error",
         freshness: "stale",
