@@ -4,6 +4,7 @@ import {
   estimateTextWidth,
   isCategoryAxis,
   planCategoryAxis,
+  spanLabelX,
   trimToWidth,
 } from "../../shared/chart-axis-labels";
 import {
@@ -12,6 +13,7 @@ import {
   type DashboardFunnelOutcomeSummary,
 } from "../../shared/dashboard-funnel";
 import { formatDollars } from "../../shared/format-dollars";
+import { isSafeSvgHexColor } from "../../shared/svg-color";
 import {
   FUNNEL_OUTCOME_REPORT_COLORS,
   FUNNEL_OUTCOME_SEGMENTS,
@@ -29,6 +31,18 @@ export type ReportChartType =
   | "funnel";
 
 export type ReportChartEvent = { index: number; label: string; color?: string };
+
+/** A data note's shaded runs of x values, titled once over the first; an edge is drawn only where the note starts or ends on the chart. */
+export type ReportChartBand = {
+  label: string;
+  color: string;
+  runs: Array<{
+    startIndex: number;
+    endIndex: number;
+    startEdge: boolean;
+    endEdge: boolean;
+  }>;
+};
 
 export type ReportChartAxis = "left" | "right";
 
@@ -97,7 +111,6 @@ export const REPORT_CHART_FONT_FAMILY = OG_FONT_FAMILY;
 const BROWSER_FONT_FAMILY =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
 
-const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
 const NEUTRAL_COLOR = "#71717a";
 
 function escapeXml(value: unknown): string {
@@ -109,12 +122,8 @@ function escapeXml(value: unknown): string {
 }
 
 function safeColor(value: string | undefined, fallback: string): string {
-  const candidate = value?.trim();
-  if (candidate && HEX_COLOR.test(candidate)) return candidate;
-  const fallbackCandidate = fallback?.trim();
-  if (fallbackCandidate && HEX_COLOR.test(fallbackCandidate)) {
-    return fallbackCandidate;
-  }
+  if (isSafeSvgHexColor(value)) return value.trim();
+  if (isSafeSvgHexColor(fallback)) return fallback.trim();
   return NEUTRAL_COLOR;
 }
 
@@ -484,27 +493,39 @@ type PlacedEventLabel = {
   anchor: "start" | "end";
 };
 
-type EventLabelLayout = {
+type BandSpan = { left: number; right: number; label: string; color: string };
+
+const BAND_TITLE_INSET = 4;
+
+type LabelRowLayout = {
   labels: PlacedEventLabel[];
   /** Days with no clear rows left: drawn as a rule and dot, without text. */
   unlabeled: Array<{ x: number; color?: string }>;
-  /** Counts the unlabeled days, so a dropped label shows. */
+  /** Each starts at its band's left edge, or ends at its right edge near the chart's. */
+  bandTitles: Array<{ x: number; color: string; lines: string[]; row: number }>;
+  /** Counts the unlabeled days and untitled bands, so a dropped label shows. */
   notice: { text: string; row: number } | null;
   rowCount: number;
 };
 
+const countOf = (count: number, noun: string) =>
+  count === 0 ? [] : [`${count} ${noun}${count === 1 ? "" : "s"}`];
+
 /**
- * Puts each day's lines on the first rows where they clear the labels already
- * there, never on top of one. Labels open toward the side with room, so one
- * near the right edge is never cut off by the chart boundary. A day that finds
- * no room tries one compact line, then goes unlabeled and is counted.
+ * Puts each day's lines, then each band's title, on the first rows where they
+ * clear the labels already there, never on top of one. Labels open toward the
+ * side with room, so one near the right edge is never cut off by the chart
+ * boundary. A label that finds no room tries one compact line, then goes
+ * unlabeled and is counted. Band titles go last: each note is also written out
+ * under the chart, and a key date's label is nowhere else.
  */
-function layoutEventLabels(
+function layoutLabelRows(
   groups: readonly EventGroup[],
+  bands: readonly BandSpan[],
   centerFor: (index: number) => number,
   chartLeft: number,
   chartRight: number,
-): EventLabelLayout {
+): LabelRowLayout {
   const rows: Array<Array<[number, number]>> = [];
   const maxWidth = (chartRight - chartLeft) / 2;
   const clear = (row: number, span: [number, number]) =>
@@ -512,37 +533,71 @@ function layoutEventLabels(
       ([start, end]) =>
         span[1] + EVENT_LABEL_GAP <= start || span[0] >= end + EVENT_LABEL_GAP,
     );
-  const place = (x: number, lines: string[]) => {
-    const width = Math.max(
-      ...lines.map((line) => estimateTextWidth(line, EVENT_LABEL_FONT_SIZE)),
-    );
-    const anchor: "start" | "end" =
-      x + 5 + width > chartRight ? "end" : "start";
-    const span: [number, number] =
-      anchor === "end" ? [x - 5 - width, x] : [x, x + 5 + width];
-    for (let row = 0; row + lines.length <= EVENT_LABEL_MAX_ROWS; row += 1) {
-      if (lines.every((_, offset) => clear(row + offset, span))) {
-        lines.forEach((_, offset) => (rows[row + offset] ??= []).push(span));
-        return { x, lines, row, anchor };
+  const claim = (span: [number, number], lineCount: number) => {
+    for (let row = 0; row + lineCount <= EVENT_LABEL_MAX_ROWS; row += 1) {
+      const taken = Array.from({ length: lineCount }, (_, line) => row + line);
+      if (taken.every((line) => clear(line, span))) {
+        taken.forEach((line) => (rows[line] ??= []).push(span));
+        return row;
       }
     }
     return null;
   };
+  const widthOf = (lines: string[]) =>
+    Math.max(
+      ...lines.map((line) => estimateTextWidth(line, EVENT_LABEL_FONT_SIZE)),
+    );
+  const placeEvent = (x: number, lines: string[]) => {
+    const width = widthOf(lines);
+    const anchor: "start" | "end" =
+      x + 5 + width > chartRight ? "end" : "start";
+    const row = claim(
+      anchor === "end" ? [x - 5 - width, x] : [x, x + 5 + width],
+      lines.length,
+    );
+    return row === null ? null : { x, lines, row, anchor };
+  };
+  const placeBandTitle = (band: BandSpan, lines: string[]) => {
+    const width = widthOf(lines);
+    const x = spanLabelX(
+      band.left,
+      band.right,
+      width,
+      chartLeft,
+      chartRight,
+      BAND_TITLE_INSET,
+    );
+    const row = claim([x, x + width], lines.length);
+    return row === null ? null : { x, lines, row, color: band.color };
+  };
 
   const labels: PlacedEventLabel[] = [];
-  const unlabeled: EventLabelLayout["unlabeled"] = [];
+  const unlabeled: LabelRowLayout["unlabeled"] = [];
   for (const group of groups) {
     const x = centerFor(group.index);
     const placed =
-      place(x, eventLabelLines(group.labels, maxWidth)) ??
-      place(x, [compactEventLabel(group.labels, maxWidth)]);
+      placeEvent(x, eventLabelLines(group.labels, maxWidth)) ??
+      placeEvent(x, [compactEventLabel(group.labels, maxWidth)]);
     if (placed) labels.push({ ...placed, color: group.color });
     else unlabeled.push({ x, color: group.color });
   }
+  const bandTitles: LabelRowLayout["bandTitles"] = [];
+  let untitled = 0;
+  for (const band of bands) {
+    const placed =
+      placeBandTitle(band, eventLabelLines([band.label], maxWidth)) ??
+      placeBandTitle(band, [compactEventLabel([band.label], maxWidth)]);
+    if (placed) bandTitles.push(placed);
+    else untitled += 1;
+  }
 
-  let notice: EventLabelLayout["notice"] = null;
-  if (unlabeled.length > 0) {
-    const text = `+${unlabeled.length} ${unlabeled.length === 1 ? "date" : "dates"} not labeled`;
+  let notice: LabelRowLayout["notice"] = null;
+  const dropped = [
+    ...countOf(unlabeled.length, "date"),
+    ...countOf(untitled, "note"),
+  ];
+  if (dropped.length > 0) {
+    const text = `+${dropped.join(" and ")} not labeled`;
     const span: [number, number] = [
       chartRight - estimateTextWidth(text, EVENT_LABEL_FONT_SIZE),
       chartRight,
@@ -552,7 +607,7 @@ function layoutEventLabels(
     (rows[row] ??= []).push(span);
     notice = { text, row };
   }
-  return { labels, unlabeled, notice, rowCount: rows.length };
+  return { labels, unlabeled, bandTitles, notice, rowCount: rows.length };
 }
 
 function renderCartesianChartSvg({
@@ -568,12 +623,14 @@ function renderCartesianChartSvg({
   stacked,
   fit,
   events,
+  bands,
 }: {
   title: string;
   subtitle: string;
   labels: string[];
   series: ResolvedSeries[];
   events?: ReportChartEvent[];
+  bands?: ReportChartBand[];
   type: "bar" | "line" | "area" | "combo";
   width: number;
   height: number;
@@ -628,8 +685,38 @@ function renderCartesianChartSvg({
     fit && series.length > 1 ? layoutLegend(legendSeries, plotWidth) : null;
   const slot = plotWidth / Math.max(labels.length, 1);
   const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
-  const eventLayout = layoutEventLabels(
+  const placedBands = (bands ?? []).flatMap((band) => {
+    const runs = band.runs.flatMap((run) =>
+      run.startIndex >= 0 &&
+      run.endIndex < labels.length &&
+      run.startIndex <= run.endIndex
+        ? [
+            {
+              ...run,
+              left: chartLeft + slot * run.startIndex,
+              right: chartLeft + slot * (run.endIndex + 1),
+            },
+          ]
+        : [],
+    );
+    return runs.length > 0
+      ? [
+          {
+            label: band.label,
+            color: safeColor(band.color, theme.tickColor),
+            runs,
+          },
+        ]
+      : [];
+  });
+  const eventLayout = layoutLabelRows(
     groupEventsByIndex(events ?? [], labels.length),
+    placedBands.map(({ label, color, runs: [first] }) => ({
+      left: first.left,
+      right: first.right,
+      label,
+      color,
+    })),
     centerFor,
     chartLeft,
     chartRight,
@@ -641,7 +728,7 @@ function renderCartesianChartSvg({
     : legendLayout
       ? legendTop + (legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 30
       : header.headerBottom + 34;
-  // Event labels get their own rows above the plot so they never sit on the data.
+  // Key-date labels and band titles get their own rows above the plot so they never sit on the data.
   const chartTop =
     eventsTop +
     (eventLayout.rowCount > 0
@@ -864,6 +951,16 @@ function renderCartesianChartSvg({
       : ""
   }`;
 
+  const bandFills = placedBands
+    .flatMap(({ color, runs }) =>
+      runs.map(({ left, right, startEdge, endEdge }) => {
+        const edge = (x: number) =>
+          `<line x1="${formatCoord(x)}" x2="${formatCoord(x)}" y1="${chartTop}" y2="${chartBottom}" stroke="${color}" stroke-opacity="0.55" stroke-width="1"/>`;
+        return `<rect x="${formatCoord(left)}" y="${chartTop}" width="${formatCoord(right - left)}" height="${formatCoord(plotHeight)}" fill="${color}" fill-opacity="0.1"/>${startEdge ? edge(left) : ""}${endEdge ? edge(right) : ""}`;
+      }),
+    )
+    .join("");
+
   const rowTopFor = (row: number) => eventsTop + row * EVENT_LABEL_ROW_HEIGHT;
   const placedEvents = eventLayout.labels.map((event) => ({
     ...event,
@@ -904,6 +1001,11 @@ function renderCartesianChartSvg({
         ),
       ),
     ),
+    ...eventLayout.bandTitles.flatMap(({ x, color, row, lines }) =>
+      lines.map((line, offset) =>
+        eventText(x, rowTopFor(row + offset), "start", color, line),
+      ),
+    ),
     ...(eventLayout.notice
       ? [
           eventText(
@@ -920,7 +1022,6 @@ function renderCartesianChartSvg({
         `<circle cx="${x.toFixed(1)}" cy="${chartBottom}" r="5" fill="${color}" stroke="${theme.background}" stroke-width="2"/>`,
     ),
   ].join("");
-
   const legendEntries = legendLayout
     ? legendLayout.rows
         .map((row, rowIndex) => {
@@ -954,6 +1055,7 @@ function renderCartesianChartSvg({
   ${legend}
   <g font-family="${fontFamily}">
     ${grid}
+    ${bandFills}
     ${axis}
     ${marks}
     ${xLabels}
@@ -1386,8 +1488,10 @@ export function renderReportChartSvg({
   height,
   stacked,
   events,
+  bands,
 }: {
   events?: ReportChartEvent[];
+  bands?: ReportChartBand[];
   title?: string;
   subtitle?: string;
   labels: string[];
@@ -1437,5 +1541,6 @@ export function renderReportChartSvg({
     stacked: stacked ?? false,
     fit: true,
     events,
+    bands,
   });
 }

@@ -8,6 +8,7 @@ import {
 } from "../db/ddl-guard.js";
 import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { isRecordingStoreMigration } from "../db/runtime-facts.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
@@ -1210,7 +1211,9 @@ export const resourcesStore = defineStore({
           `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
         ).catch((err) => {
           // At release, fail so the ledger never records an index that was not built.
-          if (isMigrationAuthorizedRuntime()) throw err;
+          if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+            throw err;
+          }
           // An index is an optimization, not a correctness requirement: a
           // concurrent creator or a permissions edge must not fail table init and
           // take the app down with it. The scan it avoids is slow, not wrong — but
@@ -1238,7 +1241,9 @@ export const resourcesStore = defineStore({
           "resources_path_pattern_idx",
           `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
         ).catch((err) => {
-          if (isMigrationAuthorizedRuntime()) throw err;
+          if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+            throw err;
+          }
           // coercion-ok: absence of an index degrades latency, never correctness
           console.warn(
             "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",

@@ -9,11 +9,16 @@ import {
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { isOrgMember } from "../org/membership.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import {
+  WORKSPACE_CONNECTIONS_MIGRATIONS,
+  WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+} from "./migrations.js";
 
 export interface WorkspaceUserGroup {
   id: string;
@@ -196,6 +201,7 @@ async function ensureWorkspaceUserGroupNameTrigger(
 
 export const workspaceUserGroupsStore = defineStore({
   id: "workspace_user_groups",
+  after: ["workspace_connections"],
   // Hosted requests never created these tables on main, release-owned or not.
   releaseOnly: true,
   migrations: [
@@ -232,6 +238,10 @@ export const workspaceUserGroupsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+      WORKSPACE_CONNECTIONS_MIGRATIONS.filter((entry) => entry.version >= 8),
+    ),
   ],
 });
 

@@ -55,14 +55,10 @@ export interface StorageSetupCardProps {
   onSkip?: () => void;
   title?: string;
   description?: string;
+  showBuilderStorageOffer?: boolean;
   connectedDescription?: string;
   connectSource?: string;
   connectFlow?: string;
-  /**
-   * Open the S3 settings form in a new tab so the page holding an unsaved
-   * recording never navigates away.
-   */
-  openSettingsInNewTab?: boolean;
   /**
    * The recording waiting on storage, so each step event can be tied to it:
    * the local id of a copy recorded without storage, or the server id of a
@@ -77,10 +73,10 @@ export function StorageSetupCard({
   onSkip,
   title = "Connect storage",
   description,
+  showBuilderStorageOffer = true,
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
-  openSettingsInNewTab = false,
   recordingAttemptId,
   outputId,
 }: StorageSetupCardProps) {
@@ -337,9 +333,16 @@ export function StorageSetupCard({
       <div>
         <h2 className="text-lg font-semibold">{title}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {connected
-            ? connectedDescription
-            : (description ?? t("storageSetup.description"))}
+          {connected ? (
+            connectedDescription
+          ) : (
+            <>
+              {description ?? t("storageSetup.description")}
+              {showBuilderStorageOffer
+                ? ` ${t("storageSetup.builderStorageOffer")}`
+                : null}
+            </>
+          )}
         </p>
       </div>
 
@@ -374,17 +377,16 @@ export function StorageSetupCard({
             <Button asChild variant="secondary" className="w-full">
               <a
                 href={storageSetupHref}
+                target="_blank"
+                rel="noopener noreferrer"
                 onClick={() =>
                   trackStorageStep("onboarding_method_clicked", {
                     ...stepProperties,
                     method_id: "s3",
                   })
                 }
-                {...(openSettingsInNewTab
-                  ? { target: "_blank", rel: "noopener noreferrer" }
-                  : {})}
               >
-                {t("settings.s3Title")}
+                {t("storageSetup.customKeys")}
               </a>
             </Button>
           </>

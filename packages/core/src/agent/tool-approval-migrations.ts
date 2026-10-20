@@ -50,6 +50,10 @@ export const AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL = `ALTER TABLE agent_tool_a
 
 export const AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL = `ALTER TABLE agent_tool_approval_policies ADD COLUMN IF NOT EXISTS tool_revision TEXT`;
 
+// Nullable: a row written before calls bound their arguments matches none,
+// so its call is asked again rather than run unbound.
+export const AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL = `ALTER TABLE agent_tool_approvals ADD COLUMN IF NOT EXISTS arguments_hash TEXT`;
+
 export const AGENT_TOOL_APPROVAL_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,

@@ -417,9 +417,11 @@ Always run `refresh-list` after any create, update, or delete operation.
   discoverability, the read-only public chat). Read it before touching
   descriptions, external ingest, or a document's visibility.
 - **`references/databases.md`** — full behavioral reference for Content
-  collections: property types, Blocks fields, and every view type (table,
-  list, gallery, board, calendar, timeline, form). Read it before building or
-  modifying collection views, properties, or forms.
+  collections: property types, Blocks fields (what people call tabs, page
+  tabs, document tabs, or sections on a row's page), and every view type
+  (table, list, gallery, board, calendar, timeline, form). Read it before
+  building or modifying collection views, properties, or forms, or when someone
+  asks about a page's tabs.
 
 Also read on demand, outside this skill:
 

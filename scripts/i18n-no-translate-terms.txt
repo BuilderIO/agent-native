@@ -56,6 +56,7 @@ dbQuery / dbExec
 Debian / Ubuntu
 Deno Deploy
 Dispatch hub
+event_name, other_event
 GET /api/auth/user
 getSession callback
 gh · ffmpeg · stripe
@@ -63,6 +64,7 @@ GitHub
 GitHub OAuth
 Google Calendar
 Google OAuth
+Google Search Console
 Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate

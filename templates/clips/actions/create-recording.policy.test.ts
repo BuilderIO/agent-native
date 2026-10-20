@@ -140,6 +140,36 @@ describe("create-recording policy", () => {
     ).resolves.toMatchObject({ maxClipDurationMs: 10 * 60 * 1000 });
   });
 
+  it("hands a known file size to storage resolution and creates nothing when it is refused", async () => {
+    const refusal = Object.assign(new Error("This video is 300 MB"), {
+      statusCode: 413,
+      errorCode: "upload_too_large",
+    });
+    calls.resolveStorage.mockRejectedValueOnce(refusal);
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", sizeBytes: 300 * 1024 * 1024 },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toBe(refusal);
+    expect(calls.resolveStorage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: "new",
+        recordingId: "rec-1",
+        sizeBytes: 300 * 1024 * 1024,
+      }),
+    );
+    expect(calls.insert).not.toHaveBeenCalled();
+    expect(calls.writeState).not.toHaveBeenCalled();
+  });
+
   it("saves the new recording's policy before initializing its upload", async () => {
     const action = createRecording as unknown as {
       run: (

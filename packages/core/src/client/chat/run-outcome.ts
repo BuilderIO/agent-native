@@ -218,8 +218,13 @@ export type ServerRunState =
       readonly startedAt?: number;
       readonly dispatchMode?: string;
       readonly terminalReason?: string | null;
+      /** Present only when the caller requested a durable connection check. */
+      readonly pendingConnectionRequestId?: string | null;
     }
-  | { readonly status: "missing" };
+  | {
+      readonly status: "missing";
+      readonly pendingConnectionRequestId?: null;
+    };
 
 export type RunAuthorityRead =
   | { readonly kind: "read"; readonly state: ServerRunState }

@@ -39,6 +39,45 @@ export function trimToWidth(
   return kept ? `${kept}${ellipsis}` : "";
 }
 
+/**
+ * Like `trimToWidth`, but cuts only between words, so a shortened title never
+ * ends on a fragment. Just the ellipsis when not even the first word fits.
+ */
+export function trimToWholeWords(
+  value: string,
+  fontSize: number,
+  maxWidth: number,
+  ellipsis = "...",
+): string {
+  if (estimateTextWidth(value, fontSize) <= maxWidth) return value;
+  const room = maxWidth - estimateTextWidth(ellipsis, fontSize);
+  let kept = "";
+  for (const word of value.trim().split(/\s+/)) {
+    const next = kept ? `${kept} ${word}` : word;
+    if (estimateTextWidth(next, fontSize) > room) break;
+    kept = next;
+  }
+  return `${kept.replace(/[\s,;:–—-]+$/, "")}${ellipsis}`;
+}
+
+/**
+ * Left x of a `width`-wide label for the span [left, right]: just inside the
+ * span's left edge, or ending at its right edge when it would run past `max`,
+ * and always within [min, max].
+ */
+export function spanLabelX(
+  left: number,
+  right: number,
+  width: number,
+  min: number,
+  max: number,
+  inset: number,
+): number {
+  const x =
+    left + inset + width <= max - inset ? left + inset : right - inset - width;
+  return Math.max(min + inset, Math.min(x, max - inset - width));
+}
+
 const ISO_DATE_VALUE = /^\d{4}-\d{2}(-\d{2})?([ T]\d{2}:\d{2}.*)?$/;
 // YYYYMMDD, as GA4's BigQuery export writes `event_date`. Requiring a real month
 // and day keeps an eight-digit id from passing as a date.

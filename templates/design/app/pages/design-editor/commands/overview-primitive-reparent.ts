@@ -18,6 +18,7 @@ import {
   codeLayerPatchMessage,
   elementInfoFromCodeLayerNode,
 } from "@/pages/design-editor/code-layer-state";
+import { adaptAutoTextColorForCrossScreenNode } from "@/pages/design-editor/cross-screen-text-color";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type {
   ContentHistoryEntry,
@@ -34,6 +35,7 @@ import {
   warnIfPoisonedBoardCoordsNormalized,
 } from "@/pages/design-editor/html-layer-positioning";
 import {
+  getLivePreviewDocument,
   isFlowDisplay,
   readLiveLayerMoveLayout,
 } from "@/pages/design-editor/live-layer-move-layout";
@@ -456,6 +458,18 @@ export function runOverviewPrimitiveReparent(
     warnIfPoisonedBoardCoordsNormalized(targetScreenId, normalized);
     return normalized.html;
   })();
+  const liveDestination = getLivePreviewDocument({
+    activeBreakpointWidthState,
+    activeFileId: activeFileId ?? undefined,
+    boardFileId,
+    fileId: targetScreenId,
+    overviewScreens,
+  });
+  const adaptedDestContent = adaptAutoTextColorForCrossScreenNode(
+    nextDestContent,
+    destNodeAttrId,
+    liveDestination.status === "resolved" ? liveDestination.document : null,
+  );
 
   const contentUndoStackTopBeforeReparent = contentUndoStackRef
     ? captureContentUndoStackTop(contentUndoStackRef.current)
@@ -465,7 +479,7 @@ export function runOverviewPrimitiveReparent(
       fileId: sourceScreenId,
       previousContent: sourceContent,
     });
-    prepareAcceptedSourceContent(nextDestContent, {
+    prepareAcceptedSourceContent(adaptedDestContent, {
       fileId: targetScreenId,
       previousContent: destContent,
     });
@@ -485,7 +499,7 @@ export function runOverviewPrimitiveReparent(
     {
       fileId: targetScreenId,
       before: destContent,
-      after: nextDestContent,
+      after: adaptedDestContent,
     },
   ];
   recordContentHistoryEntry({ changes: reparentHistoryChanges });
@@ -502,7 +516,7 @@ export function runOverviewPrimitiveReparent(
   );
   const targetPublication = applyFileContentUpdate(
     targetScreenId,
-    nextDestContent,
+    adaptedDestContent,
     {
       recordHistory: false,
       historyBeforeContent: destContent,
@@ -519,7 +533,7 @@ export function runOverviewPrimitiveReparent(
   reparentHistoryChanges[0].after = sourcePublication.content;
   reparentHistoryChanges[1].after = targetPublication.content;
 
-  const submittedProjection = buildCodeLayerProjection(nextDestContent, {
+  const submittedProjection = buildCodeLayerProjection(adaptedDestContent, {
     source: { kind: "design-file", fileId: targetScreenId },
   });
   const movedNodeCandidate = submittedProjection.nodes.find(

@@ -162,6 +162,53 @@ describe("importAuthoredCssAnimations", () => {
     );
   });
 
+  it("imports multiple supported properties as parallel timeline tracks", () => {
+    const css = `.hero {
+  animation-name: hero-enter;
+  animation-duration: 900ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+@keyframes hero-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  50% { opacity: 0.5; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0px); }
+}`;
+    const result = importAuthoredCssAnimations(css, resolveHero);
+
+    expect(result).toMatchObject({
+      status: "valid",
+      durationMs: 900,
+      tracks: [
+        {
+          targetNodeId: "node-hero",
+          property: "opacity",
+          durationMs: 900,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-out" },
+            { t: 0.5, value: "0.5", ease: "ease-out" },
+            { t: 1, value: "1" },
+          ],
+        },
+        {
+          targetNodeId: "node-hero",
+          property: "transform",
+          durationMs: 900,
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "ease-out" },
+            { t: 0.5, value: "translateY(6px)", ease: "ease-out" },
+            { t: 1, value: "translateY(0px)" },
+          ],
+        },
+      ],
+    });
+    if (result.status !== "valid") return;
+
+    const remainder = removeAuthoredCssSourceRanges(css, result.rangesToRemove);
+    expect(remainder).not.toContain("animation-name: hero-enter;");
+    expect(remainder).toContain("@keyframes hero-enter");
+  });
+
   it("removes compact animation declarations without deleting unrelated declarations", () => {
     const css =
       ".hero { color: red; animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; }\n@keyframes pulse { from { opacity: 0; } to { opacity: 1; } }";
@@ -228,12 +275,28 @@ describe("importAuthoredCssAnimations", () => {
       ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { to { opacity: 1; } }",
     ],
     [
-      "multiple keyframe properties",
-      ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; color: red; } to { opacity: 1; } }",
+      "unsupported property beside a supported property",
+      ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; filter: blur(0); } to { opacity: 1; filter: blur(2px); } }",
+    ],
+    [
+      "duplicate property declarations at one stop",
+      ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; opacity: 0.2; } to { opacity: 1; } }",
+    ],
+    [
+      "a property missing a static endpoint",
+      ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; } }",
+    ],
+    [
+      "duplicate animation declarations",
+      ".hero { animation-name: pulse; animation-duration: 1s; animation-duration: 2s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }",
     ],
     [
       "runtime values",
       ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: var(--start); } to { opacity: 1; } }",
+    ],
+    [
+      "unresolved imported stylesheets",
+      '@import url("./theme.css"); .hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }',
     ],
     [
       "unsupported property",
@@ -276,6 +339,25 @@ describe("importAuthoredCssAnimations", () => {
       ".hero { animation-name: pulse; animation-duration: 1s; animation-fill-mode: both; } @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }";
     const result = importAuthoredCssAnimations(css, () => resolution);
     expect(result.status).toBe("unsupported");
+    expect(result).not.toHaveProperty("rangesToRemove");
+  });
+
+  it("keeps the 64-track import limit when one animation creates parallel tracks", () => {
+    const animationRules = Array.from({ length: 33 }, (_, index) => {
+      const selector = `.hero-${index}`;
+      return `${selector} { animation-name: hero-enter; animation-duration: 1s; animation-fill-mode: both; }`;
+    });
+    const css = `${animationRules.join("\n")}
+@keyframes hero-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0px); } }`;
+    const result = importAuthoredCssAnimations(css, (selector) => ({
+      status: "resolved",
+      targetNodeId: selector.slice(1),
+    }));
+
+    expect(result.status).toBe("unsupported");
+    if (result.status === "unsupported") {
+      expect(result.reason).toMatch(/64 tracks/);
+    }
     expect(result).not.toHaveProperty("rangesToRemove");
   });
 });

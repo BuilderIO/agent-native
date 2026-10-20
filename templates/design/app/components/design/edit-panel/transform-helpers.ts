@@ -1,3 +1,6 @@
+import type { ElementInfo } from "../types";
+import { authoredStyleValue } from "./interaction-state-helpers";
+
 const ROTATE_FN_PATTERN =
   /rotate[Zz]?\(\s*([+-]?[\d.]+(?:e[+-]?\d+)?)(deg|rad|turn|grad)?\s*\)/i;
 
@@ -28,6 +31,17 @@ export function parseRotationValue(transform: string | undefined): number {
     }
   }
   return 0;
+}
+
+export function sharedRotationValue(
+  elements: readonly ElementInfo[],
+): number | undefined {
+  const rotations = elements.map((element) =>
+    parseRotationValue(authoredStyleValue(element, "transform")),
+  );
+  return rotations.every((rotation) => rotation === rotations[0])
+    ? rotations[0]
+    : undefined;
 }
 
 export function parseScaleValue(value: string | undefined): [number, number] {

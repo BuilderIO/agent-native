@@ -8,6 +8,8 @@ import {
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import ts from "typescript";
+
 import { coreMessagesForLocale } from "../packages/core/src/localization/core-messages.js";
 import defaultEnglishMessages from "../packages/core/src/localization/default-messages.js";
 import {
@@ -1015,6 +1017,50 @@ function isGenericTypeParameterFragment(
   );
 }
 
+function isGenericTypeArgumentFragment(
+  getSourceFile: () => ts.SourceFile,
+  start: number,
+  end: number,
+  value: string,
+): boolean {
+  const match = /^\s*,\s*([A-Z][\w$]*)\s*$/.exec(value);
+  if (!match) return false;
+  const sourceFile = getSourceFile();
+  const name = match[1];
+  if (!name) return false;
+  const nameStart = start + value.indexOf(name);
+  const nameEnd = nameStart + name.length;
+  const afterName = sourceFile.text[nameEnd];
+  if (afterName !== "<" && afterName !== ">" && afterName !== ",") {
+    return false;
+  }
+
+  let found = false;
+  const visit = (node: ts.Node) => {
+    const typeArguments = (
+      node as ts.Node & { typeArguments?: ts.NodeArray<ts.TypeNode> }
+    ).typeArguments;
+    if (
+      typeArguments &&
+      start >= typeArguments.pos &&
+      end <= typeArguments.end &&
+      typeArguments.some((argument) => {
+        const argumentStart = argument.getStart(sourceFile);
+        return (
+          argumentStart === nameStart &&
+          argument.getText(sourceFile).startsWith(name)
+        );
+      })
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
 function readRawLiteralBaseline() {
   return readLineBaseline(rawLiteralBaselinePath);
 }
@@ -1149,10 +1195,34 @@ export function checkRawVisibleLiteralFile(
     return issues;
   }
 
+  let sourceFile: ts.SourceFile | undefined;
+  const getSourceFile = () =>
+    (sourceFile ??= ts.createSourceFile(
+      rel,
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      rel.endsWith(".tsx")
+        ? ts.ScriptKind.TSX
+        : rel.endsWith(".jsx")
+          ? ts.ScriptKind.JSX
+          : rel.endsWith(".js")
+            ? ts.ScriptKind.JS
+            : ts.ScriptKind.TS,
+    ));
+
   for (const match of text.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) {
     const index = match.index ?? 0;
     const value = match[1] ?? "";
-    if (!isGenericTypeParameterFragment(text, index, value)) {
+    if (
+      !isGenericTypeParameterFragment(text, index, value) &&
+      !isGenericTypeArgumentFragment(
+        getSourceFile,
+        index + 1,
+        index + match[0].length - 1,
+        value,
+      )
+    ) {
       report(index, value);
     }
   }

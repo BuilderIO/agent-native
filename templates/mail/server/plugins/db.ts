@@ -471,6 +471,11 @@ ALTER TABLE mail_gmail_quota_budgets
 CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
       ON mail_gmail_token_accounts(expires_at);`,
     },
+    {
+      version: 39,
+      name: "mail-sync-history-pending",
+      sql: `ALTER TABLE mail_sync_accounts ADD COLUMN IF NOT EXISTS history_pending INTEGER`,
+    },
   ],
   { table: "mail_migrations" },
 );

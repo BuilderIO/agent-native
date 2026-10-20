@@ -146,7 +146,7 @@ useEffect(
 
 ### `recorder.onReport()` {#on-report}
 
-`recorder.onReport()` 把报告发送到某个目标。它接受一个监听器，并返回一个用于移除它的函数。监听器会收到所有以 `"manual"` 以外的原因生成的报告。这包括“报告问题”（`"user"`）、未捕获的错误（`"error"`）和测试（`"test"`）。
+`recorder.onReport()` 把报告发送到某个目标。它接受一个监听器，并返回一个用于移除它的函数。监听器会收到所有以 `"manual"` 以外的原因生成的报告。这包括未捕获的错误（`"error"`）和测试（`"test"`）。应用仍可通过直接挂载导出的 `ReportProblemDialog` 来发送原因是 `"user"` 的报告。
 
 ```ts
 recorder.onReport((report) => posthog.capture("problem_report", report));
@@ -211,16 +211,6 @@ configureRecorder({
 
 ## 报告目标 {#destinations}
 
-### 报告问题 {#report-a-problem}
-
-每个应用都有**报告问题**。它位于侧边栏底部、智能体面板的选项菜单以及命令菜单（⌘K）中。
-
-- 它会询问是否附上应用在最近两分钟内做过的事，并预览数量、失败和最初的几个事件。每次都会询问。
-- 用户同意后，完整报告会存为只有该用户能读取的私有文件。应用的智能体会收到一份简短摘要和该文件的引用。
-- 智能体通过 `read-problem-report` action 读取报告的更多内容，可按事件类型或时间筛选。
-- 当页面没有智能体聊天时，按钮会改为复制摘要和引用。
-- 报告需要文件存储。没有文件存储时，对话框会提示报告未附上，且不会发送任何内容。
-
 ### Sentry {#sentry}
 
 当应用通过 Agent-Native 配置了浏览器端 Sentry（参见[错误报告](/docs/observability#sentry)）时，每个 Sentry 错误事件都会获得：
@@ -242,7 +232,7 @@ configureRecorder({
 
 ## 隐私 {#privacy}
 
-- **数据留在浏览器中。** 只有当某个目标发送报告时，报告才会离开浏览器：用户同意后的“报告问题”、用户开始的 Clips 录制、Sentry，或开发者注册的监听器。
+- **数据留在浏览器中。** 只有当某个目标发送报告时，报告才会离开浏览器：用户开始的 Clips 录制、Sentry，或开发者注册的监听器。 直接挂载的 `ReportProblemDialog` 也会发送报告，但仅在用户提交后发送。
 - **机密信息会被移除。** 名称看起来像机密信息的字段（`password`、`token`、`secret`、`apiKey`、`authorization`、`cookie`、`session`、`card`、`cvv`）会显示为 `"[redacted]"`。任何值中看起来像令牌的文本，例如 JWT、Bearer 令牌和提供商 API 密钥，也会被替换为 `[redacted]`。这些与 core 用于错误报告的脱敏器相同。
 - **值有大小上限。** 字符串会在 200 个字符处截断，每个事件在约 2 KB 处截断。截断处会注明丢弃了什么。请求体和响应体从不会被记录。
 - **它会遗忘。** 它只保留时间窗口内的内容，且不超过上限。页面重新加载和退出登录时都会清空。

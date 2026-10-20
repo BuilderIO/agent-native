@@ -248,6 +248,18 @@ describe("live-body writer gate", () => {
         await expect(
           gate.liveBodyWriterGateForRow(row, { transaction: getDbExec() }),
         ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
+        await expect(
+          gate.liveBodyWriterGate("switched", {
+            db: tx,
+            transaction: getDbExec(),
+          }),
+        ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
+        await expect(
+          gate.isLiveBodyWriterPage("switched", {
+            db: tx,
+            transaction: getDbExec(),
+          }),
+        ).resolves.toBe(false);
       });
     });
   });

@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -14,8 +15,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 
 import {
+  buildRecordingErrorToastOptions,
   isStorageStatusUnavailable,
   localizedRecordingErrorMessage,
+  openUrlFromUserGesture,
+  recordingErrorToastRecoveryAction,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
@@ -25,6 +29,26 @@ import {
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
 } from "./record";
+
+function stubDocumentCapturePolicy(
+  allowsFeature: (feature: string) => boolean,
+): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    document,
+    "permissionsPolicy",
+  );
+  Object.defineProperty(document, "permissionsPolicy", {
+    configurable: true,
+    value: { allowsFeature },
+  });
+  return () => {
+    if (descriptor) {
+      Object.defineProperty(document, "permissionsPolicy", descriptor);
+    } else {
+      Reflect.deleteProperty(document, "permissionsPolicy");
+    }
+  };
+}
 
 describe("record route lifecycle shell", () => {
   let container: HTMLDivElement;
@@ -40,6 +64,7 @@ describe("record route lifecycle shell", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -425,6 +450,666 @@ describe("record route lifecycle shell", () => {
 
     act(() => retry?.click());
     expect(onTryAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps generic app-frame camera denials on device recovery", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const openedWindow = { opener: window } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(openedWindow);
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Camera access is blocked by the browser, macOS, or this app frame."
+          mode="camera"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Clips could not start the camera. Allow camera access, then try again.",
+    );
+    expect(container.textContent).toContain(
+      "Allow Camera for this site first.",
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const cameraSettings = buttons.find(
+      (button) => button.textContent?.trim() === "Camera",
+    );
+    expect(cameraSettings).toBeDefined();
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(false);
+
+    act(() => cameraSettings?.click());
+    expect(open).toHaveBeenCalledWith(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+      "_blank",
+    );
+    expect(openedWindow.opener).toBeNull();
+    open.mockRestore();
+  });
+
+  it("reserves the tab recovery path for explicit Permissions-Policy errors", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Camera access is blocked by Permissions-Policy."
+          mode="camera"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "This recorder is embedded somewhere that blocks capture permissions.",
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(true);
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Camera"),
+    ).toBe(false);
+  });
+
+  it("does not reopen a top-level Permissions-Policy denial in the same tab", () => {
+    const error = "Screen capture is blocked by Permissions-Policy.";
+    const options = buildRecordingErrorToastOptions(
+      error,
+      { mode: "screen", micDeviceId: null },
+      (key) => key,
+      vi.fn(() => true),
+      vi.fn(),
+    );
+
+    expect(
+      recordingErrorToastRecoveryAction(error, "screen", "/record?mode=screen"),
+    ).toBeNull();
+    expect(options.action).toBeUndefined();
+    expect(options.description).toBe(
+      "Something blocked the recorder before it could start.",
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error={error}
+          mode="screen"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Something blocked the recorder before it could start.",
+    );
+    expect(container.textContent).not.toContain("Open Clips directly");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(false);
+  });
+
+  it("offers tab recovery for embedded camera denials when policy state is unknown", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Camera access is blocked by the browser, macOS, or this app frame."
+          mode="camera"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(true);
+    expect(container.textContent).not.toContain(
+      "Allow Camera for this site first.",
+    );
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Camera"),
+    ).toBe(false);
+  });
+
+  it("keeps embedded camera denials on device recovery when policy allows capture", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const restorePolicy = stubDocumentCapturePolicy(() => true);
+
+    try {
+      act(() => {
+        root.render(
+          <RecordingErrorCard
+            error="Camera access is blocked by the browser, macOS, or this app frame."
+            mode="camera"
+            micDeviceId={null}
+            canRetryUpload={false}
+            canDownloadRecording={false}
+            onDownloadRecording={vi.fn()}
+            onTryAgain={vi.fn()}
+          />,
+        );
+      });
+
+      const buttons = Array.from(container.querySelectorAll("button"));
+      expect(
+        buttons.some(
+          (button) => button.textContent === "recordRoute.openRecorderInTab",
+        ),
+      ).toBe(false);
+      expect(container.textContent).toContain(
+        "Open this site's browser settings, allow Camera, then reload Clips.",
+      );
+    } finally {
+      restorePolicy();
+    }
+  });
+
+  it("offers embedded tab recovery when capture policy inspection throws", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const restorePolicy = stubDocumentCapturePolicy(() => {
+      throw new Error("Policy inspection is unavailable.");
+    });
+
+    try {
+      act(() => {
+        root.render(
+          <RecordingErrorCard
+            error="Camera access is blocked by the browser, macOS, or this app frame."
+            mode="camera"
+            micDeviceId={null}
+            canRetryUpload={false}
+            canDownloadRecording={false}
+            onDownloadRecording={vi.fn()}
+            onTryAgain={vi.fn()}
+          />,
+        );
+      });
+
+      const buttons = Array.from(container.querySelectorAll("button"));
+      expect(
+        buttons.some(
+          (button) => button.textContent === "recordRoute.openRecorderInTab",
+        ),
+      ).toBe(true);
+      expect(container.textContent).not.toContain(
+        "Allow Camera for this site first.",
+      );
+    } finally {
+      restorePolicy();
+    }
+  });
+
+  it("uses tab recovery for embedded unknown-policy toast actions", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const directUrl = "https://clips.test/record?mode=camera";
+
+    expect(
+      recordingErrorToastRecoveryAction(
+        "Camera access is blocked by the browser, macOS, or this app frame.",
+        "camera",
+        directUrl,
+      ),
+    ).toEqual({
+      labelKey: "recordRoute.openRecorderInTab",
+      url: directUrl,
+    });
+  });
+
+  it("uses tab recovery for explicit policy toast actions", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const directUrl = "https://clips.test/record?mode=screen";
+
+    expect(
+      recordingErrorToastRecoveryAction(
+        "Screen capture blocked by Permissions-Policy.",
+        "screen",
+        directUrl,
+      ),
+    ).toEqual({
+      labelKey: "recordRoute.openRecorderInTab",
+      url: directUrl,
+    });
+  });
+
+  it("uses tab recovery for embedded screen-capture toast actions", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const directUrl = "https://clips.test/record?mode=screen";
+
+    expect(
+      recordingErrorToastRecoveryAction(
+        "Screen capture is blocked by this app frame.",
+        "screen",
+        directUrl,
+      ),
+    ).toEqual({
+      labelKey: "recordRoute.openRecorderInTab",
+      url: directUrl,
+    });
+  });
+
+  it("keeps app-frame screen toast guidance out of macOS settings", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const options = buildRecordingErrorToastOptions(
+      "Screen capture is blocked by this app frame.",
+      { mode: "screen", micDeviceId: null },
+      (key) => key,
+      vi.fn(() => true),
+      vi.fn(),
+    );
+
+    expect(options.action?.label).toBe("recordRoute.openRecorderInTab");
+    expect(options.description).toContain(
+      "The web client is running Clips inside a frame.",
+    );
+    expect(options.description).not.toContain("System Settings");
+  });
+
+  it("keeps generic embedded screen denial away from macOS settings", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const openRecoveryUrl = vi.fn(() => true);
+    const options = buildRecordingErrorToastOptions(
+      "Screen capture is blocked by the browser.",
+      { mode: "screen+camera", micDeviceId: "default" },
+      (key) => key,
+      openRecoveryUrl,
+      vi.fn(),
+    );
+
+    expect(options.action?.label).toBe("recordRoute.openRecorderInTab");
+    expect(options.description).toContain(
+      "The web client is running Clips inside a frame.",
+    );
+    expect(options.description).not.toContain("System Settings");
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Screen capture is blocked by the browser."
+          mode="screen+camera"
+          micDeviceId="default"
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(true);
+    expect(
+      buttons.some((button) =>
+        ["Screen", "Camera", "Mic"].includes(button.textContent?.trim() ?? ""),
+      ),
+    ).toBe(false);
+  });
+
+  it("wires toast tab recovery to the selected recorder URL", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const originalUrl = window.location.href;
+    try {
+      window.history.replaceState({}, "", "/record?spaceId=space-1");
+      const expectedUrl = new URL(window.location.href);
+      expectedUrl.searchParams.set("mode", "screen");
+      expectedUrl.searchParams.set("surface", "window");
+      const openRecoveryUrl = vi.fn(() => true);
+      const onPopupBlocked = vi.fn();
+      const options = buildRecordingErrorToastOptions(
+        "Screen capture blocked by Permissions-Policy.",
+        { mode: "screen", displaySurface: "window", micDeviceId: null },
+        (key) => key,
+        openRecoveryUrl,
+        onPopupBlocked,
+      );
+
+      expect(options.action?.label).toBe("recordRoute.openRecorderInTab");
+      options.action?.onClick();
+      expect(openRecoveryUrl).toHaveBeenCalledWith(
+        expectedUrl.toString(),
+        false,
+      );
+      expect(onPopupBlocked).not.toHaveBeenCalled();
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
+  it("preserves the failed mode and surface in card tab recovery", () => {
+    const originalUrl = window.location.href;
+    const openedWindow = { opener: window } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(openedWindow);
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+
+    try {
+      window.history.replaceState({}, "", "/record?spaceId=space-1");
+      act(() => {
+        root.render(
+          <RecordingErrorCard
+            error="Screen capture is blocked by this app frame."
+            mode="screen"
+            displaySurface="window"
+            micDeviceId={null}
+            canRetryUpload={false}
+            canDownloadRecording={false}
+            onDownloadRecording={vi.fn()}
+            onTryAgain={vi.fn()}
+          />,
+        );
+      });
+
+      const openInTab = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      );
+      act(() => openInTab?.click());
+
+      const openedUrl = new URL(String(open.mock.calls[0]?.[0]));
+      expect(open.mock.calls[0]?.[1]).toBe("_blank");
+      expect(openedWindow.opener).toBeNull();
+      expect(openedUrl.searchParams.get("mode")).toBe("screen");
+      expect(openedUrl.searchParams.get("surface")).toBe("window");
+      expect(openedUrl.searchParams.get("spaceId")).toBe("space-1");
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
+  it("keeps app-frame screen denials away from macOS guidance and settings", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Screen capture is blocked by this app frame."
+          mode="screen+camera"
+          micDeviceId="default"
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "This recorder is embedded somewhere that blocks capture permissions.",
+    );
+    expect(container.textContent).toContain(
+      "The web client is running Clips inside a frame.",
+    );
+    expect(container.textContent).not.toContain("System Settings");
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(true);
+    expect(
+      buttons.some((button) =>
+        ["Screen", "Camera", "Mic"].includes(button.textContent?.trim() ?? ""),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps macOS settings for top-level generic screen denials", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const error =
+      "Screen recording is blocked by the browser, macOS, or this app frame.";
+    const options = buildRecordingErrorToastOptions(
+      error,
+      { mode: "screen", micDeviceId: null },
+      (key) => key,
+      vi.fn(() => true),
+      vi.fn(),
+    );
+
+    expect(options.action?.label).toBe("recordRoute.openSettings");
+    expect(options.description).toContain(
+      "System Settings > Privacy & Security",
+    );
+
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error={error}
+          mode="screen"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "macOS is blocking screen recording",
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Screen"),
+    ).toBe(true);
+    expect(
+      buttons.some(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the embedded error route in place when tab recovery is blocked", () => {
+    const originalUrl = window.location.href;
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const popupToast = vi.spyOn(toast, "error");
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+
+    try {
+      window.history.replaceState({}, "", "/record?mode=screen");
+      const errorUrl = window.location.href;
+      act(() => {
+        root.render(
+          <RecordingErrorCard
+            error="Screen capture is blocked by this app frame."
+            mode="screen"
+            micDeviceId={null}
+            canRetryUpload={false}
+            canDownloadRecording={false}
+            onDownloadRecording={vi.fn()}
+            onTryAgain={vi.fn()}
+          />,
+        );
+      });
+
+      const openInTab = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "recordRoute.openRecorderInTab",
+      );
+      act(() => openInTab?.click());
+
+      expect(open).toHaveBeenCalledWith(
+        expect.stringContaining("mode=screen"),
+        "_blank",
+      );
+      expect(window.location.href).toBe(errorUrl);
+      expect(popupToast).toHaveBeenCalledWith("clipsSettings.popupBlocked");
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
+  it("reports a blocked popup from a toast tab action", () => {
+    vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+    const originalUrl = window.location.href;
+    const onPopupBlocked = vi.fn();
+    const openRecoveryUrl = vi.fn(() => false);
+
+    try {
+      window.history.replaceState({}, "", "/record?spaceId=space-1");
+      const options = buildRecordingErrorToastOptions(
+        "Screen capture blocked by Permissions-Policy.",
+        { mode: "screen", displaySurface: "window", micDeviceId: null },
+        (key) => key,
+        openRecoveryUrl,
+        onPopupBlocked,
+      );
+
+      options.action?.onClick();
+
+      expect(openRecoveryUrl).toHaveBeenCalledWith(
+        expect.stringContaining("mode=screen"),
+        false,
+      );
+      expect(onPopupBlocked).toHaveBeenCalledTimes(1);
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
+  it("requests current-frame fallback when a settings toast popup is blocked", () => {
+    vi.stubGlobal(
+      "navigator",
+      new Proxy(navigator, {
+        get(target, property) {
+          return property === "platform"
+            ? "MacIntel"
+            : Reflect.get(target, property, target);
+        },
+      }),
+    );
+    const openRecoveryUrl = vi.fn(() => false);
+    const onPopupBlocked = vi.fn();
+    const options = buildRecordingErrorToastOptions(
+      "Camera permission denied.",
+      { mode: "camera", micDeviceId: null },
+      (key) => key,
+      openRecoveryUrl,
+      onPopupBlocked,
+    );
+
+    expect(options.action?.label).toBe("recordRoute.openSettings");
+    options.action?.onClick();
+
+    expect(openRecoveryUrl).toHaveBeenCalledWith(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+      true,
+    );
+    expect(onPopupBlocked).not.toHaveBeenCalled();
+  });
+
+  it("navigates the current frame when a settings popup is blocked", () => {
+    const originalUrl = window.location.href;
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    try {
+      window.history.replaceState({}, "", "/record");
+      const settingsUrl = new URL("/settings", window.location.href).toString();
+
+      expect(openUrlFromUserGesture(settingsUrl)).toBe(false);
+      expect(open).toHaveBeenCalledWith(settingsUrl, "_blank");
+      expect(window.location.href).toBe(settingsUrl);
+    } finally {
+      window.history.replaceState({}, "", originalUrl);
+    }
   });
 
   it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {

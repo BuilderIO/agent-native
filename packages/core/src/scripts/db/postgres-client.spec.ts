@@ -43,3 +43,57 @@ describe("createPostgresScriptClient (postgres.js)", () => {
     );
   });
 });
+
+describe("withPostgresStatementDeadline", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reduces statement_timeout as the transaction uses its budget", async () => {
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(125);
+    const unsafe = vi.fn(async () => []);
+    const { withPostgresStatementDeadline } =
+      await import("./postgres-client.js");
+    const client = withPostgresStatementDeadline({ unsafe }, 100);
+
+    await client.unsafe("UPDATE notes SET title = 'first'");
+    await client.unsafe("UPDATE notes SET title = 'second'");
+
+    expect(unsafe).toHaveBeenNthCalledWith(
+      1,
+      "SET LOCAL statement_timeout = 90",
+    );
+    expect(unsafe).toHaveBeenNthCalledWith(
+      2,
+      "UPDATE notes SET title = 'first'",
+      undefined,
+      undefined,
+    );
+    expect(unsafe).toHaveBeenNthCalledWith(
+      3,
+      "SET LOCAL statement_timeout = 68",
+    );
+    expect(unsafe).toHaveBeenNthCalledWith(
+      4,
+      "UPDATE notes SET title = 'second'",
+      undefined,
+      undefined,
+    );
+  });
+
+  it("rejects a statement after the transaction budget expires", async () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(100).mockReturnValueOnce(200);
+    const unsafe = vi.fn(async () => []);
+    const { withPostgresStatementDeadline } =
+      await import("./postgres-client.js");
+    const client = withPostgresStatementDeadline({ unsafe }, 100);
+
+    await expect(
+      client.unsafe("UPDATE notes SET title = 'late'"),
+    ).rejects.toThrow("Database transaction timed out after 100ms.");
+    expect(unsafe).not.toHaveBeenCalled();
+  });
+});

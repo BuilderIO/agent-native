@@ -91,7 +91,7 @@ type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
 
 export async function liveBodyWriterGate(
   docId: string,
-  options: { db?: ContentDb } = {},
+  options: { db?: ContentDb; transaction?: DbExec } = {},
 ): Promise<LiveBodyWriterGate> {
   const db = options.db ?? getDb();
   const [row] = await db
@@ -99,13 +99,13 @@ export async function liveBodyWriterGate(
     .from(schema.documents)
     .where(eq(schema.documents.id, docId))
     .limit(1);
-  return liveBodyWriterGateForRow(row);
+  return liveBodyWriterGateForRow(row, options);
 }
 
 /** True when `docId`'s body must be written through its live copy. */
 export async function isLiveBodyWriterPage(
   docId: string,
-  options: { db?: ContentDb } = {},
+  options: { db?: ContentDb; transaction?: DbExec } = {},
 ): Promise<boolean> {
   return (await liveBodyWriterGate(docId, options)).writePath === "live_copy";
 }

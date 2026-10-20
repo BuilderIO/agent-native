@@ -66,7 +66,7 @@ describe("pre-agent-turn autosave", () => {
 });
 
 describe("post-agent-turn autosave", () => {
-  it("runs only for an explicit successful side effect and passes scope and run", async () => {
+  it("runs only for an explicit completed side effect and passes scope and run", async () => {
     const autosave = vi.fn();
     const run = makeRun([
       { type: "tool_done", tool: "read-deck", result: "ok" },
@@ -84,7 +84,25 @@ describe("post-agent-turn autosave", () => {
     expect(autosave).toHaveBeenCalledWith(scope, run);
   });
 
-  it("skips missing, failed, and non-side-effect tool completions", async () => {
+  it("runs for a call that failed after its changes were saved", async () => {
+    const autosave = vi.fn();
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "update-deck",
+        result: "failed",
+        isError: true,
+        completedSideEffect: true,
+      },
+    ]);
+
+    await runPostAgentTurnAutosave(autosave, scope, run);
+
+    expect(autosave).toHaveBeenCalledOnce();
+    expect(run.events[0]?.event).toMatchObject({ isError: true });
+  });
+
+  it("skips missing, unsaved, and non-side-effect tool completions", async () => {
     const autosave = vi.fn();
 
     await runPostAgentTurnAutosave(
@@ -101,19 +119,6 @@ describe("post-agent-turn autosave", () => {
           tool: "update-deck",
           result: "blocked",
           completedSideEffect: false,
-        },
-      ]),
-    );
-    await runPostAgentTurnAutosave(
-      autosave,
-      scope,
-      makeRun([
-        {
-          type: "tool_done",
-          tool: "update-deck",
-          result: "failed",
-          isError: true,
-          completedSideEffect: true,
         },
       ]),
     );
