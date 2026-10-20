@@ -911,7 +911,7 @@ async function importPdfPagesWithFidelity(args: {
       ? ""
       : firstPageText;
 
-    const imported = await appendDeckSlides(
+    const appendedDeck = await appendDeckSlides(
       deckId,
       title,
       slides,
@@ -926,7 +926,7 @@ async function importPdfPagesWithFidelity(args: {
 
     return {
       format: "pdf",
-      title: imported.title,
+      title: appendedDeck.title,
       pageCount: slides.length,
       slideCount: slides.length,
       aspectRatio,
@@ -934,8 +934,8 @@ async function importPdfPagesWithFidelity(args: {
       imported: true,
       ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
       ...(sidecarWarning ? { warning: sidecarWarning } : {}),
-      ...(imported.postCommitWarnings.length > 0
-        ? { postCommitWarnings: imported.postCommitWarnings }
+      ...(appendedDeck.postCommitWarnings.length > 0
+        ? { postCommitWarnings: appendedDeck.postCommitWarnings }
         : {}),
     };
   });
