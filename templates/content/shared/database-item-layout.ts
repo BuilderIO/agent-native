@@ -389,6 +389,48 @@ export function dropDeletedContentDatabaseItemLayoutReferences(
 }
 
 /**
+ * The layout a full-view save stores. References the view already saved
+ * stay, hidden or retyped or not; a new reference the rows can't show (the
+ * wrong type, or hidden) is dropped, as is any reference to a deleted
+ * property. A full save never fails over a slot.
+ */
+export function savableContentDatabaseItemLayout(
+  layout: ContentDatabaseItemLayout,
+  saved: ContentDatabaseItemLayout | null,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+  hiddenPropertyIds: readonly string[] = [],
+): ContentDatabaseItemLayout {
+  const hidden = new Set(hiddenPropertyIds);
+  const showable = pruneContentDatabaseItemLayout(
+    layout,
+    properties.filter((property) => !hidden.has(property.definition.id)),
+  );
+  const savedLeading =
+    saved?.leading.kind === layout.leading.kind &&
+    saved.leading.propertyId === layout.leading.propertyId;
+  const meta = (slot: "line3" | "trailing") =>
+    layout[slot].filter(
+      (id) => saved?.[slot].includes(id) || showable[slot].includes(id),
+    );
+  return dropDeletedContentDatabaseItemLayoutReferences(
+    {
+      leading: savedLeading ? layout.leading : showable.leading,
+      titleWeight: layout.titleWeight,
+      line2: {
+        propertyId:
+          saved?.line2.propertyId === layout.line2.propertyId
+            ? layout.line2.propertyId
+            : showable.line2.propertyId,
+        lines: layout.line2.lines,
+      },
+      line3: meta("line3"),
+      trailing: meta("trailing"),
+    },
+    properties,
+  );
+}
+
+/**
  * The layout someone starts editing from on a view with no saved layout. It
  * matches the default rows: page icon, title, and the first few properties.
  */

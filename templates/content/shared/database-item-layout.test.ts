@@ -11,6 +11,7 @@ import {
   normalizeContentDatabaseItemLayout,
   pruneContentDatabaseItemLayout,
   resolveContentDatabaseItemLayout,
+  savableContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
   withSavedContentDatabaseItemLayout,
 } from "./database-item-layout";
@@ -183,6 +184,53 @@ describe("always-hidden properties", () => {
       ...layout,
       leading: { kind: "page_icon", propertyId: null },
       trailing: ["due"],
+    });
+  });
+});
+
+describe("savableContentDatabaseItemLayout", () => {
+  const saved: ContentDatabaseItemLayout = {
+    leading: { kind: "checkbox", propertyId: "done" },
+    titleWeight: "bold",
+    line2: { propertyId: "pitch", lines: 2 },
+    line3: ["due"],
+    trailing: [],
+  };
+  // Since that save, Done became text, Pitch was hidden in the view, and
+  // Due was deleted.
+  const now = [property("done", "text"), pitch, notes, stage, owner];
+
+  it("keeps saved references while their properties are hidden or retyped", () => {
+    expect(
+      savableContentDatabaseItemLayout(
+        { ...saved, titleWeight: "regular" },
+        saved,
+        now,
+        ["pitch"],
+      ),
+    ).toEqual({ ...saved, titleWeight: "regular", line3: [] });
+  });
+
+  it("drops new references the rows can't show", () => {
+    expect(
+      savableContentDatabaseItemLayout(
+        {
+          leading: { kind: "status", propertyId: "pitch" },
+          titleWeight: "bold",
+          line2: { propertyId: "owner", lines: 1 },
+          line3: ["notes", "owner", "deleted"],
+          trailing: ["pitch", "stage"],
+        },
+        saved,
+        now,
+        ["pitch"],
+      ),
+    ).toEqual({
+      leading: { kind: "page_icon", propertyId: null },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: ["owner"],
+      trailing: ["stage"],
     });
   });
 });

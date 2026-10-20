@@ -23,6 +23,7 @@ import {
   itemLayoutLeadingCandidates,
   normalizeContentDatabaseItemLayout,
   pruneContentDatabaseItemLayout,
+  savableContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
 import { contentDatabaseFilterOperatorsForType } from "../shared/database-query.js";
@@ -333,19 +334,25 @@ function itemLayoutProperties(definitions: readonly PropertyDefinitionRow[]) {
 }
 
 /**
- * Drops slot references a full-view save carries to properties that no
- * longer exist, such as one deleted since the client loaded.
+ * Checks the layout a full-view save carries against the view's saved one:
+ * new slot references the rows can't show are dropped, saved ones stay.
  */
-export function withExistingItemLayoutReferences<
-  T extends { itemLayout?: unknown },
->(view: T, definitions: readonly PropertyDefinitionRow[]): T {
+export function withSavableItemLayout<
+  T extends { itemLayout?: unknown; hiddenPropertyIds?: unknown },
+>(
+  view: T,
+  savedLayout: unknown,
+  definitions: readonly PropertyDefinitionRow[],
+): T {
   const layout = normalizeContentDatabaseItemLayout(view.itemLayout);
   return layout
     ? {
         ...view,
-        itemLayout: dropDeletedContentDatabaseItemLayoutReferences(
+        itemLayout: savableContentDatabaseItemLayout(
           layout,
+          normalizeContentDatabaseItemLayout(savedLayout),
           itemLayoutProperties(definitions),
+          Array.isArray(view.hiddenPropertyIds) ? view.hiddenPropertyIds : [],
         ),
       }
     : view;
@@ -743,10 +750,13 @@ export async function runReplaceContentDatabaseViews(input: {
             typeof candidate === "object" &&
             (candidate as { id?: unknown }).id === view.id,
         );
-        return withExistingItemLayoutReferences(
+        const savedView =
           saved && typeof saved === "object"
-            ? { ...(saved as Record<string, unknown>), ...view }
-            : view,
+            ? (saved as Record<string, unknown>)
+            : null;
+        return withSavableItemLayout(
+          savedView ? { ...savedView, ...view } : view,
+          savedView?.itemLayout,
           context.definitions,
         );
       });

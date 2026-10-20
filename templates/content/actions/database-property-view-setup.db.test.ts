@@ -579,6 +579,30 @@ describe("ordinary property and table-view setup", () => {
     await replace("replace-default", (view) => ({ ...view, itemLayout: null }));
     expect((await saved()).layout).toBeNull();
 
+    // A full save can't add a reference the rows can't show. It's dropped
+    // instead of failing the save.
+    const withWrongTypes = (view: SavedView) => ({
+      ...view,
+      itemLayout: {
+        leading: { kind: "checkbox", propertyId: propertyIds.Pitch },
+        titleWeight: "bold",
+        line2: { propertyId: propertyIds.Done, lines: 1 },
+        line3: [propertyIds.Done],
+        trailing: [propertyIds.Due],
+      },
+    });
+    const showable = {
+      leading: { kind: "page_icon", propertyId: null },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: [propertyIds.Done],
+      trailing: [propertyIds.Due],
+    };
+    await replace("replace-wrong-types", withWrongTypes);
+    expect((await saved()).layout).toEqual(showable);
+    await legacySave(withWrongTypes);
+    expect((await saved()).layout).toEqual(showable);
+
     // A deleted property in a saved slot doesn't block unrelated edits.
     await update("due-at-end", "ideas", {
       itemLayoutPreset: "checklist",
@@ -599,6 +623,9 @@ describe("ordinary property and table-view setup", () => {
     // the property was hidden keeps it for when it's shown again, through
     // full saves and unrelated agent edits; references to properties that no
     // longer exist are dropped.
+    await update("pitch-on-line3", "ideas", {
+      itemLayout: { line3: [propertyIds.Pitch] },
+    });
     await asOwner(async () =>
       configureProperty.run({
         operation: "update",
