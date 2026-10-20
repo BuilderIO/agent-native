@@ -189,6 +189,8 @@ export interface ClientActionCallOptions {
   headers?: Record<string, string>;
   /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
   uiOnly?: boolean;
+  /** Sees each HTTP response, e.g. to pass to `recordActionQueryBrowserPersist`. */
+  onResponse?: (response: Response) => void;
 }
 
 function resolveUserTimezone(): string | undefined {
@@ -840,6 +842,7 @@ export function callAction<
     includeRequestSource: false,
     headers: options.headers,
     uiOnly: options.uiOnly,
+    onResponse: options.onResponse,
   });
 }
 
@@ -855,6 +858,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
     headers: options.headers,
     responseType: "blob",
     uiOnly: options.uiOnly,
+    onResponse: options.onResponse,
   });
 }
 
@@ -1196,6 +1200,41 @@ export function revokeBrowserPersistableActionQuery(query: Query): void {
   browserPersistableActionQueryBindings.delete(query);
 }
 
+/** The persisted-cache binding to capture when a fetch starts, for `recordActionQueryBrowserPersist`. */
+export function currentActionQueryCacheBinding(): object | undefined {
+  return actionQueryCacheBindingToken;
+}
+
+/**
+ * Lets an `["action", ...]` query filled by a hand-written `queryFn` or
+ * `setQueryData` join the browser's persisted query cache the way a
+ * `useActionQuery` result does: only when its response carried the persist
+ * header, and only into the binding that was active when the fetch began, so a
+ * result fetched for one user is never written into another user's record.
+ */
+export function recordActionQueryBrowserPersist(
+  query: Query,
+  response: Response | undefined,
+  bindingTokenAtFetch: object | undefined,
+): void {
+  if (
+    response?.headers.get(ACTION_BROWSER_PERSIST_HEADER) !==
+    ACTION_BROWSER_PERSIST_ALLOW
+  ) {
+    revokeBrowserPersistableActionQuery(query);
+    return;
+  }
+  browserPersistableActionQueries.add(query);
+  if (
+    bindingTokenAtFetch !== undefined &&
+    actionQueryCacheBindingToken === bindingTokenAtFetch
+  ) {
+    browserPersistableActionQueryBindings.set(query, bindingTokenAtFetch);
+  } else {
+    browserPersistableActionQueryBindings.delete(query);
+  }
+}
+
 const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
 
 /**
@@ -1273,16 +1312,14 @@ export function useActionQuery<
       const query = client.getQueryCache().find({ queryKey, exact: true });
       const bindingTokenAtFetch = actionQueryCacheBindingToken;
       assertActionCircuitClosed(key);
-      let browserPersist = false;
+      let lastResponse: Response | undefined;
       let result: R;
       try {
         result = await actionFetch<R>(actionName, "GET", params, {
           signal,
           batch: canBatchActionQueryFetch(query),
           onResponse: (response) => {
-            browserPersist =
-              response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
-              ACTION_BROWSER_PERSIST_ALLOW;
+            lastResponse = response;
           },
         });
       } catch (error) {
@@ -1303,22 +1340,11 @@ export function useActionQuery<
       resetActionFailureCircuit(key);
       if (query && !signal.aborted) {
         clearAccessDeniedActionQueryBinding(query);
-        if (browserPersist) {
-          browserPersistableActionQueries.add(query);
-          if (
-            bindingTokenAtFetch !== undefined &&
-            actionQueryCacheBindingToken === bindingTokenAtFetch
-          ) {
-            browserPersistableActionQueryBindings.set(
-              query,
-              bindingTokenAtFetch,
-            );
-          } else {
-            browserPersistableActionQueryBindings.delete(query);
-          }
-        } else {
-          revokeBrowserPersistableActionQuery(query);
-        }
+        recordActionQueryBrowserPersist(
+          query,
+          lastResponse,
+          bindingTokenAtFetch,
+        );
       }
       return result;
     },
