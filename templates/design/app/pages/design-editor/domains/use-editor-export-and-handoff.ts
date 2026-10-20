@@ -1091,7 +1091,7 @@ export function useEditorExportAndHandoff({
 
   useNativeLocalExportRequests({
     designId: id,
-    enabled: Boolean(id),
+    enabled: Boolean(id && isSignedIn && canEditDesign),
     onExport: handleNativeLocalPng,
     onError: (error) => {
       console.error("Local native PNG failed:", error);
