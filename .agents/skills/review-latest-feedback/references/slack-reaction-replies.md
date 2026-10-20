@@ -10,18 +10,18 @@ owned root needs a current same-actor status reply under the same parent. Reuse
 it while the disposition and next step remain current; send one short update
 when they materially change, including after a linked PR merges. Keep full
 scope, evidence, and handoff details in the internal ledger. Write one short
-sentence in plain, non-technical language. Say what changed; mention an
-unresolved check or action only when `🎫` applies, and name its owner when
-known. Do not mention or explain absent reactions. For a beta-eligible app PR,
+sentence in plain, non-technical language. Say what changed. Use `🎫` only for
+unresolved work; if you use it, briefly say what remains to investigate or
+what action is needed, and name its owner when known. Do not mention or explain
+absent reactions. For a beta-eligible app PR,
 wait until the matching run selects the affected site. Include the PR link and
 say: "[PR link] is merged and expected on beta within 24 hours." This is an
-expectation, not a guarantee. Say it is on beta only when `/ship-and-monitor`,
-an explicitly requested beta check, or the sender's 24-hour follow-up verifies
-the site is current. Normal
-feedback sweeps do not wait for publication or keep checking it. The sender of
-the ETA owns one follow-up check at 24 hours and a correction in the same
-thread if the site is not current or the matching publish failed. Stop after
-that check; do not start ongoing beta monitoring. Use
+expectation, not a guarantee. Say it is on beta only when `/ship-and-monitor`
+or an explicitly requested beta check verifies the site is current. Normal
+feedback sweeps do not wait for publication, verify the site, or keep checking
+it. If a later in-scope beta check finds a publish failure or the site is still
+not current after 24 hours, the person running that check owns the correction
+in the same thread. Do not assign a future check to a sweep after it ends. Use
 `🎫` only when another person or team must act.
 Do not claim it is live until checked. End with the exact
 bot disclosure and read the visible reply and root reactions back.
@@ -281,13 +281,12 @@ For beta app fixes, keep publisher details in the recap. After a linked
 beta-eligible app PR merges and is confirmed in `origin/main`, wait for the
 matching run to select the affected site. Then reply once in its owned thread
 with the PR link and say it is expected on beta within 24 hours. This is an
-expectation, not a guarantee. Say it is on beta only when `/ship-and-monitor`,
-an explicitly requested beta check, or the sender's 24-hour follow-up verifies
-the site is current. Normal
-feedback sweeps do not wait for publication or keep checking it. The sender of
-the ETA owns one follow-up check at 24 hours and a correction in the same
-thread if the site is not current or the matching publish failed. Stop after
-that check; do not start ongoing beta monitoring. Use
+expectation, not a guarantee. Say it is on beta only when `/ship-and-monitor`
+or an explicitly requested beta check verifies the site is current. Normal
+feedback sweeps do not wait for publication, verify the site, or keep checking
+it. If a later in-scope beta check finds a publish failure or the site is still
+not current after 24 hours, the person running that check owns the correction
+in the same thread. Do not assign a future check to a sweep after it ends. Use
 `🎫` only when another person or team must act. Keep hashes, branch names, CI,
 workflow details, and run IDs out of reporter replies. For package work,
 distinguish the source PR from any release PR and registry proof; source merge

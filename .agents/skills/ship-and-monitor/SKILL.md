@@ -93,8 +93,8 @@ After `/new-branch`:
    follow-up.
 5. When beta verification is in scope, correct a beta update already posted in
    an owned feedback thread if the matching publish fails or the affected site
-   is still not current 24 hours after the update. The sender owns that
-   correction; do not wait for a later check to discover the delay.
+   is still not current 24 hours after the update. The task running that check
+   owns the correction.
 
 When deployed proof is in scope, keep configured, source-tested, built-runtime,
 beta-deployed, production-promoted, and observed-live claims separate. A merge

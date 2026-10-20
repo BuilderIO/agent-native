@@ -378,19 +378,20 @@ feedback already owned by review-latest-feedback, keep all reactions in place:
 never remove or clean them up; add `✅` when accepted scope is complete and
 verified, and `🎫` only for distinct remaining work needing follow-up or an
 owner. Keep each Slack reply to one short sentence in plain, non-technical
-language. Say what changed; mention an unresolved action only when `🎫` applies,
-and name its owner when known. Do not mention or explain absent reactions or
-include implementation, CI, or publisher details. For a beta-eligible app PR
-linked to an owned feedback thread, wait until its merge is confirmed in
+language. Say what changed. If `🎫` applies, briefly name the unresolved action
+or investigation and its owner when known. Do not mention or explain absent
+reactions or include implementation, CI, or publisher details. For a
+beta-eligible app PR linked to an owned feedback thread, wait until its merge
+is confirmed in
 `origin/main` and the matching run selects the affected site. Post one short
 update in the same thread with the PR link: "[PR link] is merged and expected on beta within 24
 hours." This is an expectation, not a guarantee. Say it is on beta only when
-`/ship-and-monitor`, an explicitly requested check, or the sender's 24-hour
-follow-up verifies the site is current. Normal `/ship` does not wait for
-publication to finish. The ship task that posts the ETA owns one
-follow-up check at 24 hours and a correction in that thread if the site is not
-current or the matching publisher failed. Stop after that check; do not start
-ongoing beta monitoring. Use
+`/ship-and-monitor` or an explicitly requested check verifies the site is
+current. Normal `/ship` does not wait for publication to finish, verify the
+beta site, or check again later. If a later in-scope beta check finds a
+publish failure or the site is still not current after 24 hours, the task
+running that check owns the correction in the same thread. Do not assign a
+future check to `/ship` after it ends. Use
 `🎫` only when another person or team must act. Keep
 publisher details in the ship ledger. Send Slack replies or reactions only
 when `review-latest-feedback` was requested or already owns the action. This

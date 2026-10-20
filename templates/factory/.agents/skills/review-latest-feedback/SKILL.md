@@ -21,7 +21,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. Write one short sentence in plain, non-technical language. Say what changed; mention an unresolved check or action only when `🎫` applies, and name its owner when known. Do not mention or explain absent reactions. Keep scope details and proof in the internal ledger. Add and read back root reactions as soon as their proof bar passes, preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
+Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. Write one short sentence in plain, non-technical language. Say what changed. Use `🎫` only for unresolved work; if you use it, briefly say what remains to investigate or what action is needed, and name its owner when known. Do not mention or explain absent reactions. Keep scope details and proof in the internal ledger. Add and read back root reactions as soon as their proof bar passes, preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
 
 ## Slack channels and ownership
 
@@ -314,8 +314,9 @@ Thank issue reporters for opening issues and Slack reporters for sharing.
 Before posting, inspect the full thread and follow the one-reply gate in
 `address-feedback-with-replies` and the [Slack reply reference](references/slack-reaction-replies.md):
 send one short sentence in plain, non-technical language. Say what changed.
-Mention an unresolved check or action only when `🎫` applies, and name its
-owner when known. Do not mention or explain absent reactions. Keep hashes,
+Use `🎫` only for unresolved work; if you use it, briefly say what remains to
+investigate or what action is needed, and name its owner when known. Do not
+mention or explain absent reactions. Keep hashes,
 branches, CI, publisher details, and proof in the internal recap. End with
 `this was sent from a bot.`.
 
@@ -326,12 +327,12 @@ beta-eligible when its changed paths map to a site selected by the matching
 main beta run. After the merge is confirmed in `origin/main` and that run
 selects the site, post one short sentence with the PR link: "[PR link] is merged
 and expected on beta within 24 hours." Say it is on beta only when
-`/ship-and-monitor`, an explicitly requested beta check, or the sender's
-24-hour follow-up verifies the site is current. This is an expectation, not a guarantee. A normal feedback sweep does
-not wait for publication or keep checking it. The sweep that posts the ETA
-owns one follow-up check at 24 hours and a correction in the same thread if
-the site is not current or the matching publish failed. Stop after that
-check; do not start ongoing beta monitoring. Use
+`/ship-and-monitor` or an explicitly requested beta check verifies the site
+is current. This is an expectation, not a guarantee. A normal feedback sweep
+does not wait for publication, verify the beta site, or keep checking it. If
+a later in-scope beta check finds a publish failure or a site that is still
+not current after 24 hours, the person running that check owns the correction
+in the same thread. Do not assign a future check to the sweep after it ends. Use
 `🎫` only when another person or team must act. Keep publisher details in the
 internal recap.
 
