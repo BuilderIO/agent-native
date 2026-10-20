@@ -136,7 +136,10 @@ rule: use one owner-thread reply for a cluster and list duplicate source
 permalinks there unless a distinct question or update needs a separate reply.
 For a linked beta app PR, follow `review-latest-feedback`'s post-merge beta
 rule. Send the PR link and 24-hour expectation after the matching run selects
-the site; correct the same thread if publishing fails or misses it.
+the site. If a later in-scope beta check finds a publish failure or a site
+still not current after 24 hours, the task running that check owns the
+correction in the same thread. Do not assign a future check to the completed
+sweep.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
@@ -247,10 +250,8 @@ non-repeating question only if one specific required detail still blocks it.
    owns with `👀`, `✅`, or `🎫`. Record clustered source links and disposition
    in the owner thread or linked work; do not send duplicate replies:
    - **Fixed** - name the fix in plain language and link the PR. For an open
-     beta app PR, say merge is pending. After merge, wait for the matching run
-     to select the site, then share the PR link. If the site is current, verify
-     it and say it is on beta. Otherwise, give the 24-hour expectation and
-     correct the same thread if the publisher fails or misses it.
+     beta app PR, say merge is pending. After merge, follow the beta
+     availability guidance below.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
    - **In progress** - only when work continues beyond this run; thank the
@@ -298,10 +299,11 @@ reporter reply to one short sentence in plain, non-technical language. Start
 with `ty for the feedback -` or `thanks for the feedback -`; end with
 `this was sent from a bot.`.
 
-Say what changed. Mention an unresolved check or action only when `🎫` applies,
-and name its owner when known. Do not mention or explain absent reactions. The
-Slack `🎫` reaction does not mean an external tracker ticket was created or
-assigned. For a beta app fix in an open PR, link it and say merge is pending.
+Say what changed. Use `🎫` only for unresolved work; if you use it, briefly say
+what remains to investigate or what action is needed, and name its owner when
+known. Do not mention or explain absent reactions. The Slack `🎫` reaction does
+not mean an external tracker ticket was created or assigned. For a beta app fix
+in an open PR, link it and say merge is pending.
 Give beta timing only after the matching run selects the site. If work continues
 beyond this run, name the next action only when a reporter needs to know it.
 For a clarification, ask one direct question only when reporter input changes
@@ -319,10 +321,14 @@ Keep merge, publisher, and live verification details in the recap. After a
 linked beta-eligible app PR merges and is confirmed in `origin/main`, wait for
 the matching run to select the affected site. Reply once in its owned thread
 with the PR link and say it is expected on beta within 24 hours. This is an
-expectation, not a guarantee. If the site is current, verify it and say it is
-on beta. If publishing fails, is blocked, or misses that timing, correct the
-update in the same thread. Use `🎫` only when another person or team must act.
-Do not say it is live until checked. Answer direct
+expectation, not a guarantee. Say it is on beta only when `/ship-and-monitor`
+or an explicitly requested beta check verifies the site is current. A normal
+feedback sweep does not wait for publication, verify the beta site, or check
+again later. If a later in-scope check finds a publish failure or a site still
+not current after 24 hours, the task running that check owns the correction in
+the same thread. Do not assign a future check to the completed sweep. Use
+`🎫` only when another person or team must act. Do not say it is live until
+checked. Answer direct
 reporter follow-ups.
 
 ## Verification

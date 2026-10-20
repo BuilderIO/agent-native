@@ -1537,12 +1537,9 @@ function validateHistoricalReactionMarks(
         `${label}: prior status must match the captured full-thread read`,
       );
     }
-    if (
-      !replyNamesHandoffAction(previous.text, mark.scope) &&
-      !replyNamesHandoffAction(previous.evidence, mark.scope)
-    ) {
+    if (!replyNamesHandoffAction(previous.text, mark.scope)) {
       throw new Error(
-        `${label}: historical mark prior status/evidence must include its recorded scope`,
+        `${label}: historical mark prior captured status must include its recorded scope`,
       );
     }
     if (
@@ -1628,14 +1625,10 @@ function validateHistoricalReactionMarks(
         );
       }
       if (
-        !replyNamesHandoffAction(previous.text, closedReporterRequest.action) &&
-        !replyNamesHandoffAction(
-          previous.evidence,
-          closedReporterRequest.action,
-        )
+        !replyNamesHandoffAction(previous.text, closedReporterRequest.action)
       ) {
         throw new Error(
-          `${label}: historical reporter action must match its prior status/evidence`,
+          `${label}: historical reporter action must match its prior captured status`,
         );
       }
 
@@ -1724,12 +1717,9 @@ function validateHistoricalReactionMarks(
         `${label}: a historical 🎫 needs the original accepted handoff and its withdrawal`,
       );
     }
-    if (
-      !replyNamesHandoffAction(previous.text, handoff.action) &&
-      !replyNamesHandoffAction(previous.evidence, handoff.action)
-    ) {
+    if (!replyNamesHandoffAction(previous.text, handoff.action)) {
       throw new Error(
-        `${label}: historical handoff action must match its prior status/evidence`,
+        `${label}: historical handoff action must match its prior captured status`,
       );
     }
     const acceptance = handoff.acceptanceReply;
@@ -11839,7 +11829,67 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectHistoricalMarkFailure(
       "historical checkmark without prior scope evidence",
       historicalCheckWithoutScope,
-      "historical mark prior status/evidence must include its recorded scope",
+      "historical mark prior captured status must include its recorded scope",
+    );
+    const historicalCheckWithScopeOnlyInLedgerEvidence = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithScopeOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents =
+      historicalCheckWithScopeOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence:
+                              "focused test passed for the initial route screen",
+                            text: "Fixed: The route worked. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with scope only in ledger evidence",
+      historicalCheckWithScopeOnlyInLedgerEvidence,
+      "historical mark prior captured status must include its recorded scope",
+    );
+    const historicalTicketWithActionOnlyInLedgerEvidence = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithActionOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents =
+      historicalTicketWithActionOnlyInLedgerEvidence.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            text: "In progress: Work on the remaining design choice continues. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with action only in ledger evidence",
+      historicalTicketWithActionOnlyInLedgerEvidence,
+      "historical handoff action must match its prior captured status",
     );
     const historicalCheckWithoutStatedDisposition = structuredClone(
       historicalCheckInventory,
@@ -14961,7 +15011,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 18} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 20} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
