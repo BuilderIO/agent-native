@@ -4,6 +4,7 @@ import {
   isEditorInjectedElement,
   isSourceLocationMatch,
   resolveSourceEquivalentSelector,
+  resolveSourceEquivalentSelectorResult,
 } from "../../../../shared/source-equivalent-selector";
 /**
  * Lightweight hit-test bridge — injected into every inline Edit canvas iframe so the
@@ -1950,22 +1951,14 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         return;
       }
       // Unversioned selectors retain native CSS matching; new source paths use the filtered walk.
-      var reviewSelectorElement: Element | null = null;
-      try {
-        reviewSelectorElement = resolveSourceEquivalentSelector(
-          document,
-          reviewSelector,
-        );
-      } catch (error) {
-        if (
-          typeof error !== "object" ||
-          error === null ||
-          !("name" in error) ||
-          error.name !== "SyntaxError"
-        ) {
-          throw error;
-        }
-      }
+      var reviewSelectorResolution = resolveSourceEquivalentSelectorResult(
+        document,
+        reviewSelector,
+      );
+      var reviewSelectorElement: Element | null =
+        reviewSelectorResolution.status === "matched"
+          ? reviewSelectorResolution.element
+          : null;
       if (reviewSelectorElement === document.body) reviewSelectorElement = null;
       var reviewSelectorBox = reviewSelectorElement
         ? reviewSelectorElement.getBoundingClientRect()
@@ -1974,6 +1967,7 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
         {
           type: "agent-native:review-selector-rects-result",
           correlationId: reviewSelectorCorrelationId,
+          selectorStatus: reviewSelectorResolution.status,
           rect: reviewSelectorBox
             ? {
                 left: reviewSelectorBox.left,

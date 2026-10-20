@@ -5,6 +5,7 @@ import {
   buildSourceEquivalentSelector,
   isSourceLocationMatch,
   resolveSourceEquivalentSelector,
+  resolveSourceEquivalentSelectorResult,
 } from "./source-equivalent-selector";
 
 function documentWith(html: string): Document {
@@ -86,6 +87,30 @@ describe("source-equivalent selectors", () => {
       doc.querySelector("main > p"),
     );
     expect(() => resolveSourceEquivalentSelector(doc, "main >> p")).toThrow();
+  });
+
+  it("distinguishes invalid selectors from valid selectors with no match", () => {
+    const doc = documentWith("<main><p>a</p></main>");
+
+    expect(resolveSourceEquivalentSelectorResult(doc, "[")).toEqual({
+      status: "invalid-selector",
+      format: "legacy-css",
+    });
+    expect(
+      resolveSourceEquivalentSelectorResult(doc, "[data-missing]"),
+    ).toEqual({ status: "not-found" });
+    expect(
+      resolveSourceEquivalentSelectorResult(
+        doc,
+        "source-equivalent:v1:body > main:nth-of-type(nope)",
+      ),
+    ).toEqual({ status: "invalid-selector", format: "source-path" });
+    expect(
+      resolveSourceEquivalentSelectorResult(
+        doc,
+        "source-equivalent:v1:body > main:nth-of-type(3)",
+      ),
+    ).toEqual({ status: "not-found" });
   });
 
   it("treats a source location as shared, and a plain id as not", () => {

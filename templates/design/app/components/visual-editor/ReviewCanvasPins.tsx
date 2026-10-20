@@ -32,6 +32,8 @@ import {
   buildSourceEquivalentSelector,
   isSourceLocationMatch,
   resolveSourceEquivalentSelector,
+  resolveSourceEquivalentSelectorResult,
+  type SourceEquivalentSelectorStatus,
 } from "@shared/source-equivalent-selector";
 import {
   IconChevronDown,
@@ -103,6 +105,7 @@ import {
   type ReviewBoardGeometry,
   type ReviewAnchorRegion,
   type ReviewAnchorPoint,
+  type ReviewAnchorSelectorResolution,
   type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
 import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
@@ -171,6 +174,11 @@ interface ReviewFrameNodeGeometry {
   rect: { left: number; top: number; width: number; height: number };
   viewportWidth: number;
   viewportHeight: number;
+}
+
+interface ReviewSelectorBoxReply {
+  box: ReviewFrameNodeGeometry | null;
+  selectorStatus: SourceEquivalentSelectorStatus;
 }
 
 interface ReviewImageAttachment {
@@ -385,6 +393,7 @@ interface ReviewHoverTarget {
   nodeId: string | null;
   selector: string | null;
   box: ReviewFrameNodeGeometry | null;
+  selectorStatus?: SourceEquivalentSelectorStatus;
 }
 
 function sameHoverTarget(
@@ -394,6 +403,7 @@ function sameHoverTarget(
   if (left === right) return true;
   if (!left || !right || left.nodeId !== right.nodeId) return false;
   if (left.selector !== right.selector) return false;
+  if (left.selectorStatus !== right.selectorStatus) return false;
   if (!left.box || !right.box) return left.box === right.box;
   return (
     left.box.viewportWidth === right.box.viewportWidth &&
@@ -563,8 +573,18 @@ function selectorElement(
 function selectorPoint(
   canvas: HTMLElement,
   selector: string,
-): ReviewAnchorPoint | null {
-  return elementPoint(canvas, selectorElement(canvas, selector));
+): ReviewAnchorSelectorResolution {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  if (!doc) return { status: "unavailable" };
+  const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+  if (resolution.status !== "matched") {
+    return { status: resolution.status };
+  }
+  const point = elementPoint(canvas, resolution.element);
+  return point ? { status: "matched", point } : { status: "unavailable" };
 }
 
 function elementAnchorAtPoint(
@@ -2205,10 +2225,7 @@ export function ReviewCanvasPins({
   );
 
   const requestSelectorBox = useCallback(
-    (
-      selector: string,
-      onBox: (box: ReviewFrameNodeGeometry | null) => void,
-    ) => {
+    (selector: string, onBox: (reply: ReviewSelectorBoxReply) => void) => {
       const iframe = canvas?.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
       );
@@ -2218,7 +2235,16 @@ export function ReviewCanvasPins({
       frameCallbacksRef.current.set(correlationId, (payload) => {
         // A newer layout change has re-measured since this request went out.
         if (request !== selectorRequestRef.current) return;
-        onBox(frameBoxFromPayload(payload));
+        const rawStatus = payload.selectorStatus;
+        const selectorStatus: SourceEquivalentSelectorStatus =
+          rawStatus === "matched" ||
+          rawStatus === "not-found" ||
+          rawStatus === "invalid-selector"
+            ? rawStatus
+            : payload.rect
+              ? "matched"
+              : "not-found";
+        onBox({ box: frameBoxFromPayload(payload), selectorStatus });
       });
       window.setTimeout(
         () => frameCallbacksRef.current.delete(correlationId),
@@ -2253,12 +2279,18 @@ export function ReviewCanvasPins({
       }
       return;
     }
-    requestSelectorBox(snapshotSelector, (box) => {
-      setPopoverHover((current) =>
-        current?.key === popoverKey && current.target
-          ? { key: popoverKey, target: { ...current.target, box } }
-          : current,
-      );
+    requestSelectorBox(snapshotSelector, (reply) => {
+      setPopoverHover((current) => {
+        if (current?.key !== popoverKey || !current.target) return current;
+        const target = {
+          ...current.target,
+          box: reply.box,
+          selectorStatus: reply.selectorStatus,
+        };
+        return sameHoverTarget(current.target, target)
+          ? current
+          : { key: popoverKey, target };
+      });
     });
   }, [
     layoutTick,

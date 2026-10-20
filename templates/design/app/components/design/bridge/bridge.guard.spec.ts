@@ -14529,6 +14529,14 @@ it(
           },
           "agent-native:review-selector-rects-result",
         );
+        const missingSelectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-missing-selector-rects",
+            selector: "[data-missing]",
+          },
+          "agent-native:review-selector-rects-result",
+        );
         const focus = await request(
           {
             type: "agent-native:review-focus",
@@ -14545,6 +14553,7 @@ it(
           rects,
           selectorRects,
           malformedSelectorRects,
+          missingSelectorRects,
           focus,
         };
       });
@@ -14578,9 +14587,17 @@ it(
         (result.rects as { rects?: Record<string, unknown> }).rects?.hero,
       ).toBeUndefined();
       expect(result.selectorRects).toMatchObject({
+        selectorStatus: "matched",
         rect: { left: 40, top: 40, width: 320, height: 80 },
       });
+      expect(result.malformedSelectorRects.selectorStatus).toBe(
+        "invalid-selector",
+      );
       expect(result.malformedSelectorRects.rect).toBeUndefined();
+      expect(result.missingSelectorRects).toMatchObject({
+        selectorStatus: "not-found",
+      });
+      expect(result.missingSelectorRects.rect).toBeUndefined();
       expect(result.focus).toMatchObject({ focused: true });
       expect(pageErrors).toEqual([]);
     } finally {

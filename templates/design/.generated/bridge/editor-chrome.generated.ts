@@ -959,37 +959,61 @@ export const editorChromeBridgeScript: string = `"use strict";
     return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
   }
   function resolveSourceEquivalentSelector(doc, selector) {
-    const sourcePath = sourceEquivalentSelectorPath(selector);
-    if (sourcePath === selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
       return doc.querySelector(selector);
     }
+    const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+    return resolution.status === "matched" ? resolution.element : null;
+  }
+  function resolveSourceEquivalentSelectorResult(doc, selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      try {
+        const element = doc.querySelector(selector);
+        return element ? { status: "matched", element } : { status: "not-found" };
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "name" in error && error.name === "SyntaxError") {
+          return { status: "invalid-selector", format: "legacy-css" };
+        }
+        throw error;
+      }
+    }
+    const sourcePath = sourceEquivalentSelectorPath(selector);
     const parts = sourcePath.split(" > ");
-    if (parts[0] !== "body") return null;
-    let current = doc.body;
+    if (parts.length < 2 || parts[0] !== "body") {
+      return { status: "invalid-selector", format: "source-path" };
+    }
+    const path = [];
     for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
       const match = /^([^\\s:()>]+)(?::nth-of-type\\((\\d+)\\))?$/.exec(
         parts[partIndex] ?? ""
       );
-      if (!match || !current) return null;
-      const tag = match[1] ?? "";
-      const wanted = match[2] === void 0 ? 1 : Number(match[2]);
+      if (!match) return { status: "invalid-selector", format: "source-path" };
+      const index = match[2] === void 0 ? 1 : Number(match[2]);
+      if (!Number.isSafeInteger(index) || index < 1) {
+        return { status: "invalid-selector", format: "source-path" };
+      }
+      path.push({ tag: match[1] ?? "", index });
+    }
+    let current = doc.body;
+    for (const step of path) {
+      if (!current) return { status: "not-found" };
       const generated = alpineGeneratedChildrenOf(current);
       let seen = 0;
       let found2 = null;
       for (let i = 0; i < current.children.length; i += 1) {
         const sib = current.children[i];
-        if (!sib || sib.tagName.toLowerCase() !== tag) continue;
+        if (!sib || sib.tagName.toLowerCase() !== step.tag) continue;
         if (generated.indexOf(sib) !== -1) continue;
         if (isEditorInjectedElement(sib)) continue;
         seen += 1;
-        if (seen === wanted) {
+        if (seen === step.index) {
           found2 = sib;
           break;
         }
       }
       current = found2;
     }
-    return current === doc.body ? null : current;
+    return current && current !== doc.body ? { status: "matched", element: current } : { status: "not-found" };
   }
 
   // shared/spacing-handle-rule.ts

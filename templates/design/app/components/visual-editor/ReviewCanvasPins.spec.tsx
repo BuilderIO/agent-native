@@ -1339,6 +1339,120 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(onRender).toHaveBeenCalledTimes(renderCount);
   });
 
+  it("skips unchanged selector-box replies and updates changed geometry", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML = "<main>Review target</main>";
+    reviewComments = [
+      {
+        ...comment,
+        anchor: {
+          selector: "source-equivalent:v1:body > main:nth-of-type(1)",
+          point: { xPct: 25, yPct: 30 },
+        },
+      },
+    ];
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+    const onRender = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <Profiler id="review-pins" onRender={onRender}>
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />
+        </Profiler>,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+
+    const selectorRequests = () =>
+      postMessage.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .filter(
+          (message) => message.type === "agent-native:review-selector-rects",
+        );
+    const sendSelectorReply = async (
+      request: Record<string, unknown>,
+      left: number,
+    ) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:review-selector-rects-result",
+              correlationId: request.correlationId,
+              selectorStatus: "matched",
+              rect: { left, top: 20, width: 50, height: 30 },
+              viewportWidth: 800,
+              viewportHeight: 600,
+            },
+          }),
+        );
+      });
+    };
+    const sendLayoutTick = async () => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: { type: "agent-native:review-layout" },
+          }),
+        );
+      });
+    };
+
+    const firstRequests = selectorRequests();
+    const firstRequest = firstRequests[firstRequests.length - 1];
+    expect(firstRequest).toBeDefined();
+    await sendSelectorReply(firstRequest!, 10);
+
+    await sendLayoutTick();
+    const identicalReplyRenderCount = onRender.mock.calls.length;
+    const secondRequests = selectorRequests();
+    const secondRequest = secondRequests[secondRequests.length - 1];
+    expect(secondRequest?.correlationId).not.toBe(firstRequest?.correlationId);
+    await sendSelectorReply(secondRequest!, 10);
+    expect(onRender).toHaveBeenCalledTimes(identicalReplyRenderCount);
+
+    await sendLayoutTick();
+    const changedReplyRenderCount = onRender.mock.calls.length;
+    const thirdRequests = selectorRequests();
+    const thirdRequest = thirdRequests[thirdRequests.length - 1];
+    expect(thirdRequest?.correlationId).not.toBe(secondRequest?.correlationId);
+    await sendSelectorReply(thirdRequest!, 40);
+    expect(onRender.mock.calls.length).toBeGreaterThan(changedReplyRenderCount);
+  });
+
   it("does not reuse a sibling hover box for a repeated node-ID popover", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");

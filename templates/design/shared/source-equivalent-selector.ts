@@ -9,6 +9,16 @@
 
 export const SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
 
+export type SourceEquivalentSelectorStatus =
+  | "matched"
+  | "not-found"
+  | "invalid-selector";
+
+export type SourceEquivalentSelectorResolution =
+  | { status: "matched"; element: Element }
+  | { status: "not-found" }
+  | { status: "invalid-selector"; format: "legacy-css" | "source-path" };
+
 export function sourceEquivalentSelectorPath(selector: string): string {
   return selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
     ? selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length)
@@ -97,38 +107,75 @@ export function resolveSourceEquivalentSelector(
   doc: Document,
   selector: string,
 ): Element | null {
-  const sourcePath = sourceEquivalentSelectorPath(selector);
-  if (sourcePath === selector) {
+  if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
     return doc.querySelector(selector);
   }
+  const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+  return resolution.status === "matched" ? resolution.element : null;
+}
+
+export function resolveSourceEquivalentSelectorResult(
+  doc: Document,
+  selector: string,
+): SourceEquivalentSelectorResolution {
+  if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+    try {
+      const element = doc.querySelector(selector);
+      return element ? { status: "matched", element } : { status: "not-found" };
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        error.name === "SyntaxError"
+      ) {
+        return { status: "invalid-selector", format: "legacy-css" };
+      }
+      throw error;
+    }
+  }
+
+  const sourcePath = sourceEquivalentSelectorPath(selector);
   const parts = sourcePath.split(" > ");
-  if (parts[0] !== "body") return null;
-  let current: Element | null = doc.body;
+  if (parts.length < 2 || parts[0] !== "body") {
+    return { status: "invalid-selector", format: "source-path" };
+  }
+  const path: { tag: string; index: number }[] = [];
   for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
     // Any HTML tag name, including the underscores and dots some custom elements use.
     const match = /^([^\s:()>]+)(?::nth-of-type\((\d+)\))?$/.exec(
       parts[partIndex] ?? "",
     );
-    if (!match || !current) return null;
-    const tag = match[1] ?? "";
-    const wanted = match[2] === undefined ? 1 : Number(match[2]);
+    if (!match) return { status: "invalid-selector", format: "source-path" };
+    const index = match[2] === undefined ? 1 : Number(match[2]);
+    if (!Number.isSafeInteger(index) || index < 1) {
+      return { status: "invalid-selector", format: "source-path" };
+    }
+    path.push({ tag: match[1] ?? "", index });
+  }
+
+  let current: Element | null = doc.body;
+  for (const step of path) {
+    if (!current) return { status: "not-found" };
     const generated = alpineGeneratedChildrenOf(current);
     let seen = 0;
     let found: Element | null = null;
     for (let i = 0; i < current.children.length; i += 1) {
       const sib: Element | undefined = current.children[i];
-      if (!sib || sib.tagName.toLowerCase() !== tag) continue;
+      if (!sib || sib.tagName.toLowerCase() !== step.tag) continue;
       if (generated.indexOf(sib) !== -1) continue;
       if (isEditorInjectedElement(sib)) continue;
       seen += 1;
-      if (seen === wanted) {
+      if (seen === step.index) {
         found = sib;
         break;
       }
     }
     current = found;
   }
-  return current === doc.body ? null : current;
+  return current && current !== doc.body
+    ? { status: "matched", element: current }
+    : { status: "not-found" };
 }
 
 /**
