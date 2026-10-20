@@ -49,6 +49,7 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../agent/run-store.js")>();
   return {
     ...actual,
+    getRunById: vi.fn(async () => null),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
     reapAllStaleRuns: vi.fn(async () => ({
       scanned: 0,
@@ -159,6 +160,7 @@ vi.mock("./social-og-image.js", () => ({
   createAgentNativeOgImageHandler: () => () => new Response(),
 }));
 
+import { getRunById } from "../agent/run-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
@@ -182,6 +184,8 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.activeRun = null;
     inboxHarness.safeAbort = null;
     inboxHarness.turnAbort = null;
+    vi.mocked(getRunById).mockReset();
+    vi.mocked(getRunById).mockResolvedValue(null);
   });
 
   afterEach(async () => {
@@ -417,6 +421,15 @@ describe("queued submission inbox recurring sweep", () => {
     const activeRunId = `active-${randomUUID()}`;
     const actor = { email: "inbox-owner@example.com", anonymous: false };
     const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    vi.mocked(getRunById).mockResolvedValue({
+      id: activeRunId,
+      threadId,
+      status: "aborted",
+      startedAt: 1,
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: null,
+    });
     await createThread(actor.email, { id: threadId });
     await mutateThreadQueuedMessages(
       threadId,
@@ -557,12 +570,21 @@ describe("queued submission inbox recurring sweep", () => {
     now.mockRestore();
   });
 
-  it("retries the turn marker when the run is already durably aborted", async () => {
+  it("retries a turn marker after restart when the run is already durably aborted", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
     const activeRunId = `active-${randomUUID()}`;
     const actor = { email: "inbox-owner@example.com", anonymous: false };
     const now = vi.spyOn(Date, "now").mockReturnValue(200_000);
+    vi.mocked(getRunById).mockResolvedValue({
+      id: activeRunId,
+      threadId,
+      status: "aborted",
+      startedAt: 1,
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: null,
+    });
     await createThread(actor.email, { id: threadId });
     await mutateThreadQueuedMessages(
       threadId,
@@ -591,14 +613,8 @@ describe("queued submission inbox recurring sweep", () => {
       expect(runId).toBe(activeRunId);
       expect(reason).toBe("user");
       if (turnAbort.mock.calls.length === 1) {
-        inboxHarness.activeRun = {
-          runId: activeRunId,
-          threadId,
-          turnId: "active-turn",
-          status: "aborted",
-          inFlight: false,
-          hasInFlightWork: false,
-        };
+        // A fresh isolate has no in-memory run to consult on the retry.
+        inboxHarness.activeRun = null;
         throw new Error("turn marker store unavailable");
       }
     });
@@ -651,7 +667,7 @@ describe("queued submission inbox recurring sweep", () => {
     expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
       { state: "queued", interruptRunId: activeRunId },
     );
-    expect(inboxHarness.activeRun).toMatchObject({ status: "aborted" });
+    expect(inboxHarness.activeRun).toBeNull();
 
     now.mockReturnValue(211_000);
     const retryResponse = await sweep();
@@ -666,6 +682,7 @@ describe("queued submission inbox recurring sweep", () => {
     });
     expect(safeAbort).toHaveBeenCalledTimes(2);
     expect(turnAbort).toHaveBeenCalledTimes(2);
+    expect(getRunById).toHaveBeenCalledWith(activeRunId);
     expect(inboxHarness.admissions).toHaveLength(1);
     expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
       { state: "submitted", submittedRunId: `run-${messageId}` },

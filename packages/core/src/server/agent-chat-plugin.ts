@@ -123,7 +123,7 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { readBackgroundRunClaim } from "../agent/run-store.js";
+import { getRunById, readBackgroundRunClaim } from "../agent/run-store.js";
 import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
@@ -8603,13 +8603,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "user",
               );
               if (!aborted) {
-                const latest = await getActiveRunForThreadAsync(
-                  receipt.threadId,
-                );
+                const latest = await getRunById(runId);
                 if (
-                  latest?.runId !== runId ||
-                  latest.inFlight ||
-                  latest.status === "running"
+                  latest?.threadId !== receipt.threadId ||
+                  !["completed", "truncated", "errored", "aborted"].includes(
+                    latest.status,
+                  )
                 ) {
                   return false;
                 }
