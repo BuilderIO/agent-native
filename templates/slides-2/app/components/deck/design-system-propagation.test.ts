@@ -13,11 +13,50 @@ function readAppFile(relativePath: string) {
   return readFileSync(path.join(appRoot, relativePath), "utf8");
 }
 
+function findOpeningTag(source: string, componentName: string) {
+  const openingTag = new RegExp(`<${componentName}\\b`, "g");
+
+  for (const match of source.matchAll(openingTag)) {
+    let braceDepth = 0;
+    let quote: '"' | "'" | "`" | null = null;
+    let escaped = false;
+
+    for (
+      let index = (match.index ?? 0) + match[0].length;
+      index < source.length;
+      index += 1
+    ) {
+      const character = source[index];
+
+      if (quote) {
+        if (escaped) {
+          escaped = false;
+        } else if (character === "\\") {
+          escaped = true;
+        } else if (character === quote) {
+          quote = null;
+        }
+        continue;
+      }
+
+      if (character === '"' || character === "'" || character === "`") {
+        quote = character;
+      } else if (character === "{") {
+        braceDepth += 1;
+      } else if (character === "}") {
+        braceDepth -= 1;
+      } else if (character === ">" && braceDepth === 0) {
+        return source.slice(match.index, index + 1);
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function expectsDesignSystemProp(source: string, componentName: string) {
-  expect(source).toMatch(
-    new RegExp(
-      `<${componentName}\\b[^>]*\\bdesignSystem=\\{designSystem\\}[^>]*>`,
-    ),
+  expect(findOpeningTag(source, componentName)).toContain(
+    "designSystem={designSystem}",
   );
 }
 
