@@ -8,7 +8,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { CommentMentionEditor } from "./PlansPage";
+import type { RuntimeAnnotation } from "@/lib/plan-annotation-runtime";
+
+import { AnnotationPopover, CommentMentionEditor } from "./PlansPage";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -81,5 +83,95 @@ describe("comment editor focus", () => {
 
     expect(document.activeElement).toBe(editor());
     expect(editor().textContent).toBe("Tighten this step");
+  });
+});
+
+function annotation(id: string): RuntimeAnnotation {
+  return {
+    id,
+    index: 1,
+    message: `Thread ${id}`,
+    kind: "comment",
+    status: "open",
+    createdBy: "author@example.com",
+    authorEmail: "author@example.com",
+    anchor: { x: 0, y: 0 } as RuntimeAnnotation["anchor"],
+    replies: [],
+    participants: [],
+    commentCount: 1,
+  };
+}
+
+function renderPopover(thread: RuntimeAnnotation) {
+  act(() =>
+    root.render(
+      <AnnotationPopover
+        annotation={thread}
+        position={{ left: 0, top: 0, pinLeft: 0, pinTop: 0, width: 320 }}
+        isPending={false}
+        pendingAuthor={{
+          name: "Viewer",
+          email: "viewer@example.com",
+          initials: "V",
+          color: "#888",
+          avatarUrl: null,
+        }}
+        canComment
+        canEditRootComment={false}
+        onSave={() => {}}
+        onReply={async () => {}}
+        canResolve={false}
+        onStatusChange={() => {}}
+        canDelete={false}
+        onDelete={() => {}}
+        canDeleteComment={() => false}
+        onDeleteComment={() => {}}
+      />,
+    ),
+  );
+}
+
+function typeReply(text: string) {
+  act(() => {
+    editor().textContent = text;
+    editor().dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+describe("thread popover reply", () => {
+  it("keeps each thread's unsent reply with that thread", async () => {
+    renderPopover(annotation("a"));
+    await settle();
+    typeReply("Reply for A");
+
+    renderPopover(annotation("b"));
+    await settle();
+    expect(document.activeElement).toBe(editor());
+    expect(editor().textContent).toBe("");
+    typeReply("Reply for B");
+
+    renderPopover(annotation("a"));
+    await settle();
+    expect(document.activeElement).toBe(editor());
+    expect(editor().textContent).toBe("Reply for A");
+  });
+
+  it("forgets a thread's reply once it is sent", async () => {
+    renderPopover(annotation("a"));
+    await settle();
+    typeReply("Reply for A");
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="plansPage.comments.sendReply"]',
+        )!
+        .click();
+    });
+
+    renderPopover(annotation("b"));
+    await settle();
+    renderPopover(annotation("a"));
+    await settle();
+    expect(editor().textContent).toBe("");
   });
 });

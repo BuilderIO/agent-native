@@ -350,6 +350,7 @@ export {
 export type { NativeMarkerPlacement } from "@/lib/plan-native-anchors";
 export type { PlanOrgAccessPrompt } from "@/lib/plan-access-prompt";
 export {
+  AnnotationPopover,
   canSubmitInlineCommentDraft,
   CommentMentionEditor,
   mentionQueryAtCaret,
@@ -9425,14 +9426,16 @@ function ReplyComposer({
   isPending,
   placeholder,
   autoFocus,
-  focusKey,
+  initialMessage,
+  onDraftChange,
   onSubmit,
 }: {
   author: CommentAuthorPresentation;
   isPending: boolean;
   placeholder?: string;
   autoFocus?: boolean;
-  focusKey?: unknown;
+  initialMessage?: string;
+  onDraftChange?: (message: string) => void;
   onSubmit: (message: string) => Promise<void>;
 }) {
   const t = useT();
@@ -9442,6 +9445,7 @@ function ReplyComposer({
     message: "",
     mentions: [],
   });
+  const [restoredMessage, setRestoredMessage] = useState(initialMessage);
   const [submitError, setSubmitError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resetKey, setResetKey] = useState(0);
@@ -9455,6 +9459,8 @@ function ReplyComposer({
     try {
       await onSubmit(draft.message.trim());
       setDraft({ message: "", mentions: [] });
+      setRestoredMessage(undefined);
+      onDraftChange?.("");
       setResetKey((key) => key + 1);
     } catch {
       setSubmitError(true);
@@ -9472,11 +9478,14 @@ function ReplyComposer({
             placeholder={
               placeholder ?? t("plansPage.comments.replyPlaceholder")
             }
+            initialMessage={restoredMessage}
             resetKey={`reply-${resetKey}`}
             autoFocus={autoFocus}
-            focusKey={focusKey}
             className="min-h-10 border-0 bg-transparent px-0 py-2 shadow-none focus-visible:ring-0"
-            onChange={setDraft}
+            onChange={(next) => {
+              setDraft(next);
+              onDraftChange?.(next.message);
+            }}
             onSubmitShortcut={() => void submit()}
           />
           <Button
@@ -9540,6 +9549,9 @@ function AnnotationPopover({
   const t = useT();
   const popoverRef = useRef<HTMLDivElement>(null);
   const editChosenFromMenuRef = useRef(false);
+  // Opening another thread reuses this popover. Keep each thread's unsent
+  // reply with it, so it doesn't follow you into the next thread.
+  const [replyDrafts] = useState(() => new Map<string, string>());
   const [editing, setEditing] = useState(false);
   const [messageDraft, setMessageDraft] = useState<
     Pick<CommentDraft, "message" | "mentions">
@@ -9806,12 +9818,12 @@ function AnnotationPopover({
       {canComment && (
         <div className="shrink-0 border-t border-border/70 p-3">
           <ReplyComposer
+            key={annotation.id}
             author={pendingAuthor}
             isPending={isPending}
             autoFocus
-            // Opening another thread reuses this popover, so give the
-            // reply box the caret again.
-            focusKey={annotation.id}
+            initialMessage={replyDrafts.get(annotation.id)}
+            onDraftChange={(message) => replyDrafts.set(annotation.id, message)}
             onSubmit={(reply) => onReply(annotation.id, reply)}
           />
         </div>

@@ -1075,6 +1075,9 @@ describe("CommentsPanel reply composer", () => {
       'textarea[aria-label="commentsPanel.editComment"]',
     );
     expect(editor?.value).toBe(rootComment.content);
+    // The closing menu hands focus back to its button a tick later; Edit
+    // swaps that button out, so focus stays in the edit box.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     expect(document.activeElement).toBe(editor);
     // happy-dom moves the caret to the end whenever the value is set, so check
     // the call a browser needs.
