@@ -461,8 +461,8 @@ export function buildAssistantMessage(
         idCandidates.length > 0 || eventToolCallId === undefined
           ? idCandidates
           : candidateMatches;
-      if (matchingCandidates.length > 0) {
-        // Legacy event pairs have no occurrence ID, so preserve them in order.
+      if (matchingCandidates.length === 1) {
+        // Legacy results lack occurrence identity, so attach only a unique pending match.
         matchingIndex = matchingCandidates[0]!;
       }
 

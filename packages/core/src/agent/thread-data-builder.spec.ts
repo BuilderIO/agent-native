@@ -6,6 +6,7 @@ import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js
 import { toolInputFingerprint } from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
+import { INTERRUPTED_TOOL_RESULT_MARKER } from "./engine/translate-anthropic.js";
 import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
@@ -777,6 +778,44 @@ describe("buildAssistantMessage", () => {
     expect(toolCalls).toMatchObject([
       { toolCallId: "same-id", result: "first result" },
       { toolCallId: "same-id", result: "second result" },
+    ]);
+  });
+
+  it("leaves a legacy result unresolved when repeated starts are both pending", () => {
+    const input = { sql: "select 1" };
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: { type: "tool_start", id: "same-id", tool: "query", input },
+      },
+      {
+        seq: 1,
+        event: { type: "tool_start", id: "same-id", tool: "query", input },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_done",
+          id: "same-id",
+          tool: "query",
+          input,
+          result: "Completed retried query",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(
+      events,
+      "run-ambiguous-legacy-result",
+    );
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls).toMatchObject([
+      { result: INTERRUPTED_TOOL_RESULT_MARKER, outcome: "unknown" },
+      { result: INTERRUPTED_TOOL_RESULT_MARKER, outcome: "unknown" },
     ]);
   });
 
