@@ -722,7 +722,26 @@ function PromptComposerInner({
   const modelsAdapter = adapters.models!;
   const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
   const localRef = useRef<TiptapComposerHandle>(null);
-  const handleRef = composerRef ?? localRef;
+  // Keep our own copy of the handle so autofocus and held submits work when
+  // the caller passes a callback ref instead of a ref object.
+  const handleRef = useCallback(
+    (handle: TiptapComposerHandle | null) => {
+      localRef.current = handle;
+      if (typeof composerRef !== "function") {
+        if (composerRef) composerRef.current = handle;
+        return;
+      }
+      const cleanup = composerRef(handle);
+      // React runs a returned cleanup instead of calling the ref with null,
+      // so pass the caller's cleanup through.
+      if (typeof cleanup !== "function") return;
+      return () => {
+        localRef.current = null;
+        cleanup();
+      };
+    },
+    [composerRef],
+  );
   const attachments = useComposer((state) => state.attachments);
   const attachmentFiles = useMemo(
     () =>
@@ -854,15 +873,12 @@ function PromptComposerInner({
     const held = heldProviderDraftRef.current;
     if (engineState !== "configured" || !held) return;
     heldProviderDraftRef.current = null;
-    const target =
-      typeof handleRef === "object" && handleRef && "current" in handleRef
-        ? handleRef.current
-        : null;
+    const target = localRef.current;
     const current = target?.getDraftSnapshot?.();
     if (current && sameComposerDraft(held, current)) {
       void target?.submit?.();
     }
-  }, [engineState, handleRef, heldProviderDraftRevision]);
+  }, [engineState, heldProviderDraftRevision]);
   const useInlineMissingKeySetup = layoutVariant === "compact";
   const retryEngineStatus = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -871,15 +887,9 @@ function PromptComposerInner({
   }, []);
   useEffect(() => {
     if (!autoFocus || composerDisabled) return;
-    const id = window.setTimeout(() => {
-      const target =
-        typeof handleRef === "object" && handleRef && "current" in handleRef
-          ? handleRef.current
-          : null;
-      target?.focus();
-    }, 50);
+    const id = window.setTimeout(() => localRef.current?.focus(), 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, composerDisabled, handleRef]);
+  }, [autoFocus, composerDisabled]);
 
   const handleSubmit = useCallback(
     async (

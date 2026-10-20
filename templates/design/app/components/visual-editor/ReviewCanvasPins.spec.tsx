@@ -403,6 +403,78 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).not.toContain("Keep this popover open");
   });
 
+  it("puts the cursor in the reply box of the thread a pin opens", async () => {
+    mocks.useRealComposer = true;
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve={false}
+        />,
+      );
+    });
+
+    const pin = document.querySelector<HTMLButtonElement>("[data-review-pin]");
+    pin?.focus();
+    await act(async () => pin?.click());
+
+    expect(document.activeElement).toBe(
+      document.querySelector("[data-review-reply-input]"),
+    );
+  });
+
+  it("puts the cursor at the end of the comment that Edit opens", async () => {
+    mocks.useRealComposer = true;
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve={false}
+          currentUserEmail="reviewer@example.com"
+        />,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="review.moreActions"]',
+        )
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "review.editComment");
+    editItem?.focus();
+    await act(async () => editItem?.click());
+    // The menu hands focus back to its trigger once it has closed.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    const editComposer = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="review.editComment"]',
+    );
+    expect(editComposer).not.toBeNull();
+    expect(document.activeElement).toBe(editComposer);
+    expect(editComposer?.selectionStart).toBe(comment.body.length);
+  });
+
   it("portals review chrome outside a transformed canvas owner", async () => {
     container.style.transform = "scale(0.2)";
     await act(async () => {
