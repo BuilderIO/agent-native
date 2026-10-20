@@ -301,8 +301,8 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
+import { DatabaseCellComments } from "./database-cell-comments";
 import {
-  DatabaseCellCommentMarker,
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
   type OpenDatabaseItemComments,
@@ -1931,7 +1931,11 @@ function DatabaseTable({
   }
 
   // Opens the row with its Comments showing, from a count or a cell marker.
-  const previewItemComments: OpenDatabaseItemComments = (item, threadId) => {
+  const previewItemComments: OpenDatabaseItemComments = (
+    item,
+    threadId,
+    propertyId,
+  ) => {
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
@@ -1941,18 +1945,19 @@ function DatabaseTable({
         databaseId,
         document.id,
       );
-      runPreviewTransition(
-        () =>
-          void navigate(
-            threadId ? `${path}&comment=${encodeURIComponent(threadId)}` : path,
-          ),
-      );
+      const link = threadId
+        ? `${path}&comment=${encodeURIComponent(threadId)}`
+        : propertyId
+          ? `${path}&commentProperty=${encodeURIComponent(propertyId)}`
+          : path;
+      runPreviewTransition(() => void navigate(link));
       return;
     }
     const intent: PageCommentIntent = {
       key: ++previewCommentIntentSequenceRef.current,
       documentId: item.document.id,
       threadId,
+      propertyId,
     };
     if (item.document.id === previewDocumentId) {
       setPreviewCommentIntent(intent);
@@ -3672,13 +3677,19 @@ function DatabaseTable({
           onOpenPage={openItemPage}
         />
       ) : (
-        <DatabaseItemCommentsContext.Provider value={previewItemComments}>
+        // The read-only ChatGPT widget can't read or write Comments.
+        <DatabaseItemCommentsContext.Provider
+          value={
+            document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
+          }
+        >
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
             columnOrderIds={activeView.tableColumnOrderIds ?? []}
             databaseId={databaseId}
             databaseSystemRole={data?.database.systemRole}
             newRowLabel={newDatabaseRowLabel}
+            canCreateItems={canCreateItems}
             properties={tableProperties}
             groupableProperties={orderedProperties}
             items={visibleItems}
@@ -5270,7 +5281,8 @@ function DatabaseItemPreview({
                   align="end"
                   data-database-preview-portal=""
                 >
-                  {canEdit && !isWorkspaceCatalog ? (
+                  {canEdit &&
+                  databaseItemCanDuplicate(item, isWorkspaceCatalog) ? (
                     <DropdownMenuItem
                       disabled={duplicateItem.isPending || transitionPending}
                       onSelect={(event) => {
@@ -5332,6 +5344,7 @@ function DatabaseTableView({
   databaseId,
   databaseSystemRole,
   newRowLabel,
+  canCreateItems,
   columnOrderIds,
   properties,
   groupableProperties,
@@ -5395,6 +5408,7 @@ function DatabaseTableView({
   databaseId: string;
   databaseSystemRole: string | null | undefined;
   newRowLabel: string;
+  canCreateItems: boolean;
   columnOrderIds: string[];
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
@@ -6276,6 +6290,7 @@ function DatabaseTableView({
                               rowDensity={rowDensity}
                               isCreating={isCreating}
                               newRowLabel={newRowLabel}
+                              canCreateItems={canCreateItems}
                               focusedTitleDocumentId={focusedTitleDocumentId}
                               collapsed={databaseGroupIsCollapsed(
                                 collapsedGroupIds,
@@ -6354,7 +6369,7 @@ function DatabaseTableView({
                             propertyValues={workspaceCreationPropertyValues}
                             actionColumnWidth={actionColumnWidth}
                           />
-                        ) : (
+                        ) : canCreateItems ? (
                           <NewDatabaseRow
                             label={newRowLabel}
                             properties={properties}
@@ -6365,7 +6380,7 @@ function DatabaseTableView({
                             onCreate={onCreateRow}
                             actionColumnWidth={actionColumnWidth}
                           />
-                        )
+                        ) : null
                       ) : null}
                       {cleanDefaultTable ? (
                         <DatabaseBlankDefaultRows
@@ -8613,7 +8628,12 @@ function DatabaseSettingsSourcePanel({
         canEdit={canEdit}
         pending={sourceActionPending}
         onAddDetails={() => {
-          if (!secondary || secondary.sourceType === "local-folder") return;
+          if (
+            !secondary ||
+            secondary.sourceType === "local-folder" ||
+            secondary.sourceType === "github"
+          )
+            return;
           onNavPush({
             kind: "keyConfirm",
             candidate: {
@@ -9133,6 +9153,7 @@ function DatabaseSettingsSourcePanel({
           source={selectedSource}
           canAddDetails={
             selectedSource.sourceType !== "local-folder" &&
+            selectedSource.sourceType !== "github" &&
             sources.some(
               (item) =>
                 item.id !== selectedSource.id && !sourceAddsDetails(item),
@@ -9141,7 +9162,11 @@ function DatabaseSettingsSourcePanel({
           canEdit={canEdit}
           pending={selectedSourceRoleControlPending}
           onAddDetails={() => {
-            if (selectedSource.sourceType === "local-folder") return;
+            if (
+              selectedSource.sourceType === "local-folder" ||
+              selectedSource.sourceType === "github"
+            )
+              return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -18393,6 +18418,7 @@ function DatabaseGroupedTableSection({
   rowDensity,
   isCreating,
   newRowLabel,
+  canCreateItems,
   focusedTitleDocumentId,
   collapsed,
   onCreateRow,
@@ -18422,6 +18448,7 @@ function DatabaseGroupedTableSection({
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
   newRowLabel: string;
+  canCreateItems: boolean;
   focusedTitleDocumentId: string | null;
   collapsed: boolean;
   onCreateRow: (
@@ -18507,7 +18534,7 @@ function DatabaseGroupedTableSection({
                     : {}),
                 }}
               />
-            ) : (
+            ) : canCreateItems ? (
               <NewDatabaseRow
                 label={newRowLabel}
                 properties={properties}
@@ -18517,7 +18544,7 @@ function DatabaseGroupedTableSection({
                 isPending={isCreating}
                 onCreate={(title) => onCreateRow(group, title)}
               />
-            )
+            ) : null
           ) : null}
         </>
       ) : null}
@@ -18687,7 +18714,7 @@ function DatabaseTableRow({
           <div
             key={property.definition.id}
             className={cn(
-              "flex min-w-0 hover:bg-muted/25",
+              "group/cell relative flex min-w-0 hover:bg-muted/25",
               databaseTableCellDensityClass(rowDensity),
               wrapCells ? "items-start" : "items-center",
             )}
@@ -18716,10 +18743,15 @@ function DatabaseTableRow({
             ) : (
               value
             )}
-            <DatabaseCellCommentMarker
+            <DatabaseCellComments
               item={item}
-              propertyId={itemProperty.definition.id}
-              propertyName={itemProperty.definition.name}
+              property={itemProperty}
+              rowSelected={selected}
+              besideEditButton={
+                canEdit &&
+                itemProperty.editable &&
+                itemProperty.definition.type === "relation"
+              }
             />
           </div>
         );
@@ -18993,6 +19025,10 @@ function RowNameCell({
   const [title, setTitle] = useState(item.document.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const rowTitleInputRef = useRef<HTMLInputElement>(null);
+  // A row that follows a GitHub file takes its title from the file.
+  const canEditTitle =
+    item.document.source?.mode !== "github" &&
+    (canEdit || Boolean(onUpdateWidgetRowTitle));
 
   useEffect(() => {
     setTitle(item.document.title);
@@ -19001,9 +19037,9 @@ function RowNameCell({
 
   useEffect(() => {
     if (!startEditingTitle) return;
-    setEditingTitle(true);
+    if (canEditTitle) setEditingTitle(true);
     onTitleEditStarted();
-  }, [onTitleEditStarted, startEditingTitle]);
+  }, [canEditTitle, onTitleEditStarted, startEditingTitle]);
 
   useEffect(() => {
     if (!editingTitle) return;
@@ -19015,7 +19051,7 @@ function RowNameCell({
   }, [editingTitle]);
 
   async function saveTitle(nextTitle: string) {
-    if (!canEdit && !onUpdateWidgetRowTitle) return;
+    if (!canEditTitle) return;
     setEditingTitle(false);
     if (nextTitle === item.document.title) return;
     if (onUpdateWidgetRowTitle) {
@@ -19074,7 +19110,7 @@ function RowNameCell({
           fallback={workspaceCatalog ? "folder" : "page"}
         />
       </span>
-      {(canEdit || onUpdateWidgetRowTitle) && editingTitle ? (
+      {canEditTitle && editingTitle ? (
         <input
           ref={rowTitleInputRef}
           aria-label={`Inline title for ${item.document.title || "Untitled"}`}
@@ -19121,7 +19157,7 @@ function RowNameCell({
         </button>
       )}
       {!editingTitle ? <DatabaseRowCommentCount item={item} /> : null}
-      {(canEdit || onUpdateWidgetRowTitle) && !editingTitle ? (
+      {canEditTitle && !editingTitle ? (
         <button
           type="button"
           className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/name:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

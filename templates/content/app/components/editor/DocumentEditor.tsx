@@ -448,12 +448,14 @@ export interface PageEditorSession {
 
 /**
  * Opens the Page with its Comments showing: one thread when `threadId` is
- * set, otherwise the list. A new `key` asks again.
+ * set, a new comment on the Property `propertyId` names, otherwise the list.
+ * A new `key` asks again.
  */
 export interface PageCommentIntent {
   key: number;
   documentId: string;
   threadId?: string | null;
+  propertyId?: string;
 }
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
@@ -2598,6 +2600,8 @@ function PageEditorSessionBody({
   );
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
+  // Pages that follow a GitHub file are written by sync; edit the file instead.
+  const isGitHubSourceDocument = document.source?.mode === "github";
   const canComment =
     !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
@@ -3371,6 +3375,7 @@ function PageEditorSessionBody({
 
   const collabEnabled = shouldUseLiveDocumentCollaboration({
     isLocalFileDocument,
+    isGitHubSourceDocument,
     mcpDirectoryWidgetReadOnly,
   });
   const holdCollaborationForCreationSave = isDocumentCreationConfirmed(
@@ -3417,6 +3422,7 @@ function PageEditorSessionBody({
     !collabSynced;
   const editorCanEdit =
     canEdit &&
+    !isGitHubSourceDocument &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
@@ -7390,6 +7396,7 @@ function PageEditorSessionBody({
   )
     ? pagePropertiesQuery.data.properties
     : undefined;
+  const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -7774,6 +7781,7 @@ function PageEditorSessionBody({
     ],
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
+  const handledPropertyCommentLinkRef = useRef<string | null>(null);
 
   const startPropertyComment = useCallback(
     (property: DocumentProperty) => {
@@ -7910,6 +7918,40 @@ function PageEditorSessionBody({
     activateCommentThread(threadId, true);
   }, [activateCommentThread, documentId, location.search, threads]);
 
+  // A Collection that opens rows as full pages links here to start a comment
+  // on one Property, as the row's peek does on a touch screen.
+  useEffect(() => {
+    const propertyId = new URLSearchParams(location.search).get(
+      "commentProperty",
+    );
+    if (!propertyId) {
+      handledPropertyCommentLinkRef.current = null;
+      return;
+    }
+    const linkKey = `${documentId}:${propertyId}`;
+    // Wait for the Properties; a failed read opens the list instead.
+    if (
+      handledPropertyCommentLinkRef.current === linkKey ||
+      (!pageProperties && !pagePropertiesFailed)
+    ) {
+      return;
+    }
+    handledPropertyCommentLinkRef.current = linkKey;
+    const property = pageProperties?.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    if (property && canComment) startPropertyComment(property);
+    else handleUtilityPanelChange("comments");
+  }, [
+    canComment,
+    documentId,
+    handleUtilityPanelChange,
+    location.search,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
+  ]);
+
   const handledCommentIntentRef = useRef<number | null>(null);
   useEffect(() => {
     if (
@@ -7917,7 +7959,7 @@ function PageEditorSessionBody({
       handledCommentIntentRef.current === commentIntent.key
     )
       return;
-    const threadId = commentIntent.threadId;
+    const { threadId, propertyId } = commentIntent;
     if (threadId) {
       // Wait for the thread; a thread that is gone opens the list instead.
       if (!threads) return;
@@ -7926,14 +7968,30 @@ function PageEditorSessionBody({
         activateCommentThread(threadId);
         return;
       }
+    } else if (propertyId) {
+      // Wait for the Properties; one that is gone, or a failed read, opens
+      // the list instead.
+      if (!pageProperties && !pagePropertiesFailed) return;
+      handledCommentIntentRef.current = commentIntent.key;
+      const property = pageProperties?.find(
+        (candidate) => candidate.definition.id === propertyId,
+      );
+      if (property && canComment) {
+        startPropertyComment(property);
+        return;
+      }
     }
     handledCommentIntentRef.current = commentIntent.key;
     handleUtilityPanelChange("comments");
   }, [
     activateCommentThread,
+    canComment,
     commentIntent,
     documentId,
     handleUtilityPanelChange,
+    pageProperties,
+    pagePropertiesFailed,
+    startPropertyComment,
     threads,
   ]);
 
@@ -9050,6 +9108,29 @@ function PageEditorSessionBody({
                   document.source?.updatedAt ?? document.updatedAt,
                 ).toLocaleString(),
               })}
+            </div>
+          ) : null}
+
+          {isGitHubSourceDocument ? (
+            <div
+              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
+              role="status"
+              data-github-source-read-only
+            >
+              {t("editor.githubSourceReadOnly")}
+              {document.source?.url ? (
+                <>
+                  {" "}
+                  <a
+                    href={document.source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    {t("editor.githubSourceOpenFile")}
+                  </a>
+                </>
+              ) : null}
             </div>
           ) : null}
 
