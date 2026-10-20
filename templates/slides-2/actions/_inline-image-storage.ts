@@ -765,8 +765,13 @@ function sourceDataUrls(source: string, field: string): DataUrlOccurrence[] {
       t.isTemplateLiteral(node) ||
       (t.isBinaryExpression(node) && node.operator === "+")
     ) {
-      const value = dataUrlPrefix(node)?.trim();
-      if (value?.toLowerCase().startsWith("data:image/")) {
+      const value = staticString(node)?.trim();
+      const separator = value?.indexOf(",") ?? -1;
+      if (
+        value?.toLowerCase().startsWith("data:image/") &&
+        separator >= 0 &&
+        value.slice(separator + 1).trim().length > 0
+      ) {
         occurrences.push({ value, field });
       }
     }

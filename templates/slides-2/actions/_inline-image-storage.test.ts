@@ -254,7 +254,7 @@ describe("slide inline image storage boundary", () => {
       assertSlideInlineImagesPersistable(
         {},
         {
-          sourceTsx: `const imageUrl = "${INLINE_IMAGE}";
+          sourceTsx: `const imageUrl = "data:text/plain,hello";
             export default function Slide() {
               if (enabled) { var imageUrl = "https://example.com/image.png"; }
               return <img src={imageUrl} />;
