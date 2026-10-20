@@ -116,15 +116,16 @@ const HISTORY_ID = /^\d+$/;
 // The stored corrupt record itself may be unreadable; that is recorded too.
 function readCorruptRecord(raw: string | null): SyncCorrupt {
   if (!raw) return {};
+  const unreadable = { sync_corrupt_json: raw.slice(0, CORRUPT_RAW_MAX) };
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as SyncCorrupt;
-    }
+    parsed = JSON.parse(raw);
   } catch {
-    // reported below
+    return unreadable;
   }
-  return { sync_corrupt_json: raw.slice(0, CORRUPT_RAW_MAX) };
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as SyncCorrupt)
+    : unreadable;
 }
 
 export type SyncAccountRow = {
