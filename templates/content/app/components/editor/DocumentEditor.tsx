@@ -7392,6 +7392,7 @@ function PageEditorSessionBody({
   )
     ? pagePropertiesQuery.data.properties
     : undefined;
+  const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -7924,11 +7925,15 @@ function PageEditorSessionBody({
       return;
     }
     const linkKey = `${documentId}:${propertyId}`;
-    if (handledPropertyCommentLinkRef.current === linkKey || !pageProperties) {
+    // Wait for the Properties; a failed read opens the list instead.
+    if (
+      handledPropertyCommentLinkRef.current === linkKey ||
+      (!pageProperties && !pagePropertiesFailed)
+    ) {
       return;
     }
     handledPropertyCommentLinkRef.current = linkKey;
-    const property = pageProperties.find(
+    const property = pageProperties?.find(
       (candidate) => candidate.definition.id === propertyId,
     );
     if (property && canComment) startPropertyComment(property);
@@ -7939,6 +7944,7 @@ function PageEditorSessionBody({
     handleUtilityPanelChange,
     location.search,
     pageProperties,
+    pagePropertiesFailed,
     startPropertyComment,
   ]);
 
@@ -7959,10 +7965,11 @@ function PageEditorSessionBody({
         return;
       }
     } else if (propertyId) {
-      // Wait for the Properties; one that is gone opens the list instead.
-      if (!pageProperties) return;
+      // Wait for the Properties; one that is gone, or a failed read, opens
+      // the list instead.
+      if (!pageProperties && !pagePropertiesFailed) return;
       handledCommentIntentRef.current = commentIntent.key;
-      const property = pageProperties.find(
+      const property = pageProperties?.find(
         (candidate) => candidate.definition.id === propertyId,
       );
       if (property && canComment) {
@@ -7979,6 +7986,7 @@ function PageEditorSessionBody({
     documentId,
     handleUtilityPanelChange,
     pageProperties,
+    pagePropertiesFailed,
     startPropertyComment,
     threads,
   ]);
