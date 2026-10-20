@@ -8,6 +8,7 @@ import {
   buildResumeJournalNote,
   findReplayableJournalEntry,
   isJournalEmpty,
+  journalEntriesRepresentedInHistory,
   journalCallEffects,
   journalCallIdentities,
   toolCallInputFingerprint,
@@ -802,6 +803,58 @@ describe("recorded call effects", () => {
     expect(
       findReplayableJournalEntry(journal, "check-draft", hash, consumed),
     ).toBeUndefined();
+  });
+
+  it("recognizes completed journal calls already represented in turn history", () => {
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "first-call",
+        tool: "send",
+        input: { message: "same" },
+      },
+      {
+        type: "tool_done",
+        id: "first-call",
+        tool: "send",
+        input: { message: "same" },
+        result: "sent",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ message: "same" }),
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "first-call",
+            name: "send",
+            input: { message: "same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "first-call",
+            toolName: "send",
+            toolInput: '{"message":"same"}',
+            content: "sent",
+          },
+        ],
+      },
+    ];
+
+    expect(journalEntriesRepresentedInHistory(journal, history)).toEqual(
+      new Set([journal.completed[0]!.key]),
+    );
+    expect(
+      journalEntriesRepresentedInHistory(journal, history.slice(0, 1)),
+    ).toEqual(new Set());
   });
 
   it("replays a call sharing its id with another only for its own identity", () => {

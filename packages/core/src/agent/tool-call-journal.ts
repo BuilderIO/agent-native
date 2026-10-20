@@ -44,6 +44,33 @@ export interface ToolCallJournal {
   interrupted: ToolCallJournalEntry[];
 }
 
+export function journalEntriesRepresentedInHistory(
+  journal: ToolCallJournal,
+  history: readonly EngineMessage[],
+): Set<string> {
+  const calls = new Set<string>();
+  const results = new Set<string>();
+  for (const message of history) {
+    for (const part of message.content) {
+      if (message.role === "assistant" && part.type === "tool-call") {
+        calls.add(JSON.stringify([part.name, part.id]));
+      } else if (message.role !== "assistant" && part.type === "tool-result") {
+        results.add(JSON.stringify([part.toolName, part.toolCallId]));
+      }
+    }
+  }
+  return new Set(
+    journal.completed
+      .filter(
+        (entry) =>
+          entry.id !== undefined &&
+          calls.has(JSON.stringify([entry.tool, entry.id])) &&
+          results.has(JSON.stringify([entry.tool, entry.id])),
+      )
+      .map((entry) => entry.key),
+  );
+}
+
 const INPUT_SIGNATURE_MAX_CHARS = 120;
 
 const RESULT_SUMMARY_MAX_CHARS = 400;

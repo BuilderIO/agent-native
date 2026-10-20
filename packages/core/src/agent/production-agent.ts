@@ -419,6 +419,7 @@ import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
   findReplayableJournalEntry,
   isUnavailableToolCallInput,
+  journalEntriesRepresentedInHistory,
   journalCallEffects,
   journalCallIdentities,
   type JournalCallEffect,
@@ -4583,6 +4584,21 @@ function findCurrentTurnStartForContinuation(
   return 0;
 }
 
+function durableToolCallCheckpointId(messages: EngineMessage[]): string {
+  const turnMessages = messages
+    .slice(findCurrentTurnStartForContinuation(messages))
+    .filter(
+      (message) =>
+        message.role !== "user" ||
+        !textFromEngineMessage(message).startsWith(
+          AGENT_INTERNAL_CONTINUE_PROMPT,
+        ),
+    );
+  return createHash("sha256")
+    .update(JSON.stringify(stripInlineBytes(turnMessages, "placeholder")) ?? "")
+    .digest("hex");
+}
+
 export function resolveFinalResponseGuardRequestText(
   messages: EngineMessage[],
 ): string | undefined {
@@ -6772,7 +6788,7 @@ export async function runAgentLoop(opts: {
   turnId?: string;
   /** Recovery paths overlay completed durable steps missing from tool_done. */
   recoverCompletedExecutionSteps?: boolean;
-  durableStepIdForToolCall?: (toolCallId: string) => string;
+  durableStepIdForToolCall?: (logicalStepId: string) => string;
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
@@ -7118,6 +7134,14 @@ export async function runAgentLoop(opts: {
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  if (toolCallJournal) {
+    for (const key of journalEntriesRepresentedInHistory(
+      toolCallJournal,
+      messages.slice(findCurrentTurnStartForContinuation(messages)),
+    )) {
+      consumedJournalKeys.add(key);
+    }
+  }
   const journaledPriorToolCalls =
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
@@ -7368,6 +7392,8 @@ export async function runAgentLoop(opts: {
       endedAtLoopLimit = true;
       break;
     }
+
+    const durableStepCheckpointId = durableToolCallCheckpointId(messages);
 
     let assistantContent: EngineContentPart[] | undefined;
     let streamedAssistantText = "";
@@ -8015,6 +8041,14 @@ export async function runAgentLoop(opts: {
           (part) => part.name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
         )
       : allToolCallParts;
+    const logicalExecutionStepIds = new Map(
+      toolCallParts.map((toolCall, index) => [
+        toolCall.id,
+        `model-step:${createHash("sha256")
+          .update(`${durableStepCheckpointId}:${index}`)
+          .digest("hex")}`,
+      ]),
+    );
     if (
       toolCallParts.length > 0 ||
       followUpCalls.length > 0 ||
@@ -8421,6 +8455,7 @@ export async function runAgentLoop(opts: {
           : { effect: "none" as const, changed: false };
       // Exact identity of the arguments the call runs with, once prepared.
       let argumentsHash: string | undefined;
+      let executionStepId: string | undefined;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ): Promise<void> => {
@@ -8445,7 +8480,11 @@ export async function runAgentLoop(opts: {
         }
         if (event.id) settleRepeatedToolCall(event.id);
         const persisted = Promise.resolve(
-          send(argumentsHash ? { ...event, argumentsHash } : event),
+          send({
+            ...event,
+            ...(argumentsHash ? { argumentsHash } : {}),
+            ...(executionStepId ? { executionStepId } : {}),
+          }),
         ).then(() => {
           toolDoneEmitted = true;
         });
@@ -8687,6 +8726,7 @@ export async function runAgentLoop(opts: {
         await send({
           type: "tool_start",
           id: toolCall.id,
+          ...(executionStepId ? { executionStepId } : {}),
           tool: toolCall.name,
           input: journalToolInput as Record<string, string>,
         });
@@ -8950,9 +8990,12 @@ export async function runAgentLoop(opts: {
           : configuredToolMaxResultChars;
 
       const executionFence = currentExecutionFence();
-      const executionStepId = toolCall.id
-        ? (opts.durableStepIdForToolCall?.(toolCall.id) ?? toolCall.id)
-        : undefined;
+      const logicalExecutionStepId = logicalExecutionStepIds.get(toolCall.id);
+      executionStepId =
+        executionFence && logicalExecutionStepId
+          ? (opts.durableStepIdForToolCall?.(logicalExecutionStepId) ??
+            logicalExecutionStepId)
+          : undefined;
       const executionStepIntent: AgentExecutionStepIntent | null =
         executionFence && executionStepId
           ? {
@@ -9016,6 +9059,7 @@ export async function runAgentLoop(opts: {
         await send({
           type: "tool_start",
           id: toolCall.id,
+          ...(executionStepId ? { executionStepId } : {}),
           tool: toolCall.name,
           input: journalToolInput as Record<string, string>,
         });
@@ -9068,6 +9112,7 @@ export async function runAgentLoop(opts: {
         await send({
           type: "tool_start",
           id: toolCall.id,
+          ...(executionStepId ? { executionStepId } : {}),
           tool: toolCall.name,
           input: journalToolInput as Record<string, string>,
         });
@@ -9118,6 +9163,7 @@ export async function runAgentLoop(opts: {
           send({
             type: "tool_start",
             id: toolCall.id,
+            ...(executionStepId ? { executionStepId } : {}),
             tool: toolCall.name,
             input: journalToolInput as Record<string, string>,
           });
@@ -9223,6 +9269,7 @@ export async function runAgentLoop(opts: {
           await send({
             type: "tool_start",
             id: toolCall.id,
+            ...(executionStepId ? { executionStepId } : {}),
             tool: toolCall.name,
             input: journalToolInput as Record<string, string>,
           });
@@ -9257,6 +9304,7 @@ export async function runAgentLoop(opts: {
         await send({
           type: "tool_start",
           id: toolCall.id,
+          ...(executionStepId ? { executionStepId } : {}),
           tool: toolCall.name,
           input: journalToolInput as Record<string, string>,
         });
@@ -9299,6 +9347,7 @@ export async function runAgentLoop(opts: {
       await send({
         type: "tool_start",
         id: toolCall.id,
+        ...(executionStepId ? { executionStepId } : {}),
         tool: toolCall.name,
         input: journalToolInput as Record<string, string>,
       });
@@ -14691,6 +14740,11 @@ export function createProductionAgentHandler(
                     .update(toolCallId)
                     .digest("hex")
                     .slice(0, 24)}`;
+                const namespacedDurableStepId = (logicalStepId: string) =>
+                  `${profileStepNamespace}_${createHash("sha256")
+                    .update(logicalStepId)
+                    .digest("hex")
+                    .slice(0, 24)}`;
                 const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
                   engine,
                   model: profile.model ?? model,
@@ -14718,7 +14772,7 @@ export function createProductionAgentHandler(
                   runId,
                   threadId: effectiveThreadId,
                   turnId: effectiveTurnId,
-                  durableStepIdForToolCall: namespacedToolCallId,
+                  durableStepIdForToolCall: namespacedDurableStepId,
                   beforeWrite: control.flushEvents,
                   unknownOutcomes,
                   internalContinuation,

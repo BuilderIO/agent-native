@@ -547,6 +547,89 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("runs an intentional identical write after its prior result is in turn history", async () => {
+    const actionRun = vi.fn(async () => ({
+      [MCP_ACTION_RESULT_MARKER]: true as const,
+      text: "Deck saved",
+      raw: { deckId: "deck-1", _receipt: receipt },
+      serverId: "mcp-server",
+      toolName: "create-deck",
+      originalToolName: "create-deck",
+      input: {},
+      mcpApp,
+    }));
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const firstEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("first-call")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        send: (event) => firstEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    durableStep.priorEvents = firstEvents;
+
+    const secondEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall("second-call")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          { role: "assistant", content: [toolCall("first-call")] },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "first-call",
+                toolName: "create-deck",
+                toolInput: "{}",
+                content: "Deck saved",
+              },
+            ],
+          },
+        ],
+        actions: { "create-deck": action },
+        send: (event) => secondEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(2);
+    expect(durableStep.completedSteps).toHaveLength(2);
+    expect(durableStep.completedSteps[1]?.stepId).not.toBe(
+      durableStep.completedSteps[0]?.stepId,
+    );
+    expect(secondEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "second-call",
+        completedSideEffect: true,
+        result: expect.stringContaining("Deck saved"),
+      }),
+    );
+    expect(secondEvents).not.toContainEqual(
+      expect.objectContaining({ type: "tool_done", replayed: true }),
+    );
+  });
+
   it("keeps reused provider call ids separate across custom-agent loops", async () => {
     const actionRun = vi.fn(async () => ({
       [MCP_ACTION_RESULT_MARKER]: true as const,
@@ -583,8 +666,8 @@ describe("durable execution step replay", () => {
           actions: { "create-deck": action },
           threadId: fence.threadId,
           turnId: fence.turnId,
-          durableStepIdForToolCall: (toolCallId) =>
-            `${namespace}:${toolCallId}`,
+          durableStepIdForToolCall: (logicalStepId) =>
+            `${namespace}:${logicalStepId}`,
           recoverCompletedExecutionSteps: true,
           send: (event) => events.push(event),
           signal: new AbortController().signal,
@@ -597,10 +680,12 @@ describe("durable execution step replay", () => {
     await runCustomLoop("custom-profile-b");
 
     expect(actionRun).toHaveBeenCalledTimes(2);
-    expect(durableStep.completedSteps.map((step) => step.stepId)).toEqual([
-      "custom-profile-a:call_0",
-      "custom-profile-b:call_0",
-    ]);
+    const [firstStepId, secondStepId] = durableStep.completedSteps.map(
+      (step) => step.stepId,
+    );
+    expect(firstStepId).toMatch(/^custom-profile-a:model-step:/);
+    expect(secondStepId).toMatch(/^custom-profile-b:model-step:/);
+    expect(firstStepId).not.toBe(secondStepId);
 
     const recovered = await runCustomLoop("custom-profile-a");
     expect(actionRun).toHaveBeenCalledTimes(2);
