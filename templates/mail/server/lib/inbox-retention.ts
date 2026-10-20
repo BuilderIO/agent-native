@@ -22,6 +22,11 @@ const RETENTION_PAGE_SIZE = 500;
 export type ConnectedAccountsResult = {
   accounts: string[];
   errors: Array<{ email: string; error: string }>;
+  /**
+   * True only when the lookup positively ran in every org context the owner
+   * belongs to. An empty `accounts` is not evidence of a disconnect without it.
+   */
+  verified: boolean;
 };
 
 export type ResolveConnectedAccounts = (
@@ -259,7 +264,7 @@ export async function runInboxRetention(opts: {
       let verified: Set<string> | null = null;
       try {
         const result = await opts.resolveConnectedAccounts(ownerEmail);
-        if (result.errors.length === 0) {
+        if (result.verified === true && result.errors.length === 0) {
           verified = new Set(
             result.accounts.map((email) => email.toLowerCase()),
           );

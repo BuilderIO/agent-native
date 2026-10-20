@@ -49,6 +49,7 @@ import {
   shouldResurfaceSnoozedThread,
   type SendLaterPayload,
 } from "../lib/jobs.js";
+import { resolveConnectedAccountsForRetention } from "../lib/retention-connections.js";
 
 const INTERVAL_MS = 60_000;
 const AI_FILTER_BACKFILL_INTERVAL_MS = 10_000;
@@ -576,7 +577,7 @@ export default () => {
     try {
       const cursor = await readSetting(INBOX_RETENTION_CURSOR_KEY);
       const summary = await runInboxRetention({
-        resolveConnectedAccounts: getConnectedAccountsWithErrors,
+        resolveConnectedAccounts: resolveConnectedAccountsForRetention,
         deadlineAt: context.deadlineAt,
         after: typeof cursor?.after === "string" ? cursor.after : undefined,
         onPageDone: (after) =>

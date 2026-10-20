@@ -113,6 +113,20 @@ const readDegraded = (parsed: unknown): SyncDegraded | null => {
 
 const HISTORY_ID = /^\d+$/;
 
+// The stored corrupt record itself may be unreadable; that is recorded too.
+function readCorruptRecord(raw: string | null): SyncCorrupt {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as SyncCorrupt;
+    }
+  } catch {
+    // reported below
+  }
+  return { sync_corrupt_json: raw.slice(0, CORRUPT_RAW_MAX) };
+}
+
 export type SyncAccountRow = {
   id: string;
   ownerEmail: string;
@@ -203,18 +217,7 @@ function toSyncAccountRow(
   row: typeof schema.mailSyncAccounts.$inferSelect,
 ): SyncAccountRow {
   // Columns recorded as corrupt earlier stay recorded until a resync clears them.
-  const corrupt: SyncCorrupt = {};
-  try {
-    Object.assign(
-      corrupt,
-      row.syncCorruptJson ? JSON.parse(row.syncCorruptJson) : {},
-    );
-  } catch {
-    corrupt.sync_corrupt_json = String(row.syncCorruptJson).slice(
-      0,
-      CORRUPT_RAW_MAX,
-    );
-  }
+  const corrupt: SyncCorrupt = readCorruptRecord(row.syncCorruptJson);
   for (const [column, value] of [
     ["history_id", row.historyId],
     ["archive_history_id", row.archiveHistoryId],
@@ -278,9 +281,16 @@ function toSyncAccountRow(
     historyPending: row.historyPending === 1,
     syncClaimId: row.syncClaimId,
     syncClaimedAt: row.syncClaimedAt,
-    labels: row.labelsJson
-      ? parseJsonArray<CachedGmailLabel>(row.labelsJson, [])
-      : null,
+    // Unreadable labels are recorded as corrupt and read as absent, so the next
+    // sync refetches them rather than showing an empty label list.
+    labels: readStateJson<CachedGmailLabel[] | null>(
+      corrupt,
+      "labels_json",
+      row.labelsJson,
+      (parsed) =>
+        Array.isArray(parsed) ? (parsed as CachedGmailLabel[]) : null,
+      null,
+    ),
     labelsUpdatedAt: row.labelsUpdatedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -1215,20 +1225,32 @@ export async function appendHydratePendingIds(
   await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
     const id = rowId(ownerEmail, accountEmail);
     const [current] = await tx
-      .select({ json: schema.mailSyncAccounts.hydratePendingIdsJson })
+      .select({
+        json: schema.mailSyncAccounts.hydratePendingIdsJson,
+        corruptJson: schema.mailSyncAccounts.syncCorruptJson,
+      })
       .from(schema.mailSyncAccounts)
       .where(eq(schema.mailSyncAccounts.id, id))
       .limit(1);
-    const merged = [
-      ...new Set([
-        ...parseJsonArray<string>(current?.json ?? null, []),
-        ...threadIds,
-      ]),
-    ];
+    // An unreadable stored list is never overwritten as if it were empty: its
+    // raw value goes into the corrupt record and the account reports
+    // corrupt_state until a resync.
+    const corrupt = readCorruptRecord(current?.corruptJson ?? null);
+    const stored = readStateJson<string[]>(
+      corrupt,
+      "hydrate_pending_ids_json",
+      current?.json ?? null,
+      readIdList,
+      [],
+    );
+    const merged = [...new Set([...stored, ...threadIds])];
     await tx
       .update(schema.mailSyncAccounts)
       .set({
         hydratePendingIdsJson: JSON.stringify(merged),
+        ...(Object.keys(corrupt).length > 0
+          ? { syncCorruptJson: JSON.stringify(corrupt) }
+          : {}),
         updatedAt: Date.now(),
       })
       .where(eq(schema.mailSyncAccounts.id, id));

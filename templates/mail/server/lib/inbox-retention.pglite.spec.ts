@@ -279,15 +279,20 @@ describe("runInboxRetention (PGlite)", () => {
 
     const resolveConnectedAccounts = vi.fn(async (owner: string) => {
       if (owner === "managed@example.com") {
-        return { accounts: ["managed-acct@example.com"], errors: [] };
+        return {
+          accounts: ["managed-acct@example.com"],
+          errors: [],
+          verified: true,
+        };
       }
       if (owner === "unverified@example.com") {
         return {
           accounts: [],
           errors: [{ email: "x", error: "managed lookup failed" }],
+          verified: false,
         };
       }
-      return { accounts: [], errors: [] };
+      return { accounts: [], errors: [], verified: true };
     });
 
     const summary = await retention.runInboxRetention({
@@ -342,7 +347,11 @@ describe("runInboxRetention (PGlite)", () => {
   const NO_GMAIL_SCOPE = JSON.stringify({
     scope: "openid https://www.googleapis.com/auth/userinfo.email",
   });
-  const noConnections = async () => ({ accounts: [], errors: [] });
+  const noConnections = async () => ({
+    accounts: [],
+    errors: [],
+    verified: true,
+  });
 
   async function addGoogleToken(
     owner: string,
@@ -620,7 +629,7 @@ describe("runInboxRetention (PGlite)", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const resolveConnectedAccounts = vi.fn(async (owner: string) => {
       if (owner === "a-flaky@example.com") throw new Error("lookup down");
-      return { accounts: [], errors: [] };
+      return { accounts: [], errors: [], verified: true };
     });
 
     const summary = await retention.runInboxRetention({
@@ -661,7 +670,7 @@ describe("runInboxRetention (PGlite)", () => {
         if (owner === "a-gone@example.com") {
           clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
         }
-        return { accounts: [], errors: [] };
+        return { accounts: [], errors: [], verified: true };
       },
       deadlineAt,
     });
@@ -758,7 +767,7 @@ describe("runInboxRetention (PGlite)", () => {
           if (owner === "b-gone@example.com") {
             clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
           }
-          return { accounts: [], errors: [] };
+          return { accounts: [], errors: [], verified: true };
         },
       });
       clock?.mockRestore();
@@ -802,6 +811,60 @@ describe("runInboxRetention (PGlite)", () => {
       expect(summary).toMatchObject({ partial: true, pairs: 2, pairsReset: 2 });
       expect(summary.resumeAfter).toBe(syncId("b"));
       expect(await rows("c")).toBe(3);
+    });
+  });
+  it("keeps every row of an owner whose connection lookup was not positively verified", async () => {
+    await seedAccount("cron@example.com", "cron-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    // What a cron sweep with no org context sees for a managed connection.
+    const resolveConnectedAccounts = vi.fn(async () => ({
+      accounts: [],
+      errors: [],
+      verified: false,
+    }));
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+
+    expect(summary).toMatchObject({
+      pairsReset: 0,
+      pairsSkippedUnverified: 1,
+    });
+    expect(await countRows("cron@example.com", "cron-acct@example.com")).toBe(
+      3,
+    );
+  });
+  it("keeps the raw value of a malformed pending list when queueing more ids", async () => {
+    const owner = "append@example.com";
+    const account = "append-acct@example.com";
+    await stores.ensureSyncAccountRow(owner, account);
+    await stores.patchSyncAccount(owner, account, {
+      syncClaimId: "claim-a",
+      syncClaimedAt: NOW,
+    });
+    await exec.execute({
+      sql: `UPDATE mail_sync_accounts
+        SET hydrate_pending_ids_json = $1, labels_json = $2
+        WHERE owner_email = $3`,
+      args: ['["t0", 7', "not labels", owner],
+    });
+
+    await stores.appendHydratePendingIds(owner, account, "claim-a", ["t1"]);
+
+    const [row] = await stores.readSyncAccounts(owner);
+    expect(row.hydratePendingIds).toEqual(["t1"]);
+    // The bad raw value is kept, not silently replaced by an empty list.
+    expect(row.corrupt).toMatchObject({
+      hydrate_pending_ids_json: '["t0", 7',
+      labels_json: "not labels",
+    });
+    expect(row.labels).toBeNull();
+    const { statusFromRow } = await import("./inbox-status.js");
+    expect(statusFromRow(row).degraded).toMatchObject({
+      kind: "corrupt_state",
     });
   });
 });
