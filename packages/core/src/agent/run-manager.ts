@@ -3173,11 +3173,15 @@ export async function abortRunDurably(
   return abortedInMemory;
 }
 
-/** Abort after the durable run store confirms no model or tool work is in flight. */
-export async function abortRunAtSafeBoundaryDurably(
+interface SafeBoundaryAbortResult {
+  aborted: boolean;
+  eventFlushFailure: AgentRunEventNotPersistedError | null;
+}
+
+async function abortRunAtSafeBoundaryDurablyResult(
   runId: string,
   reason: string = "user",
-): Promise<boolean> {
+): Promise<SafeBoundaryAbortResult> {
   const run = activeRuns.get(runId);
   const eventFlushFailure = await flushRunEventsBeforeAbort(run);
   let aborted: boolean;
@@ -3213,12 +3217,20 @@ export async function abortRunAtSafeBoundaryDurably(
     throw error;
   }
   if (!aborted) {
-    if (eventFlushFailure) throw eventFlushFailure;
-    return false;
+    return { aborted: false, eventFlushFailure };
   }
   if (run) abortInMemoryRun(run, reason);
-  if (eventFlushFailure) throw eventFlushFailure;
-  return true;
+  return { aborted: true, eventFlushFailure };
+}
+
+/** Abort after the durable run store confirms no model or tool work is in flight. */
+export async function abortRunAtSafeBoundaryDurably(
+  runId: string,
+  reason: string = "user",
+): Promise<boolean> {
+  const result = await abortRunAtSafeBoundaryDurablyResult(runId, reason);
+  if (result.eventFlushFailure) throw result.eventFlushFailure;
+  return result.aborted;
 }
 
 export async function abortTurnByRefDurably(
@@ -3285,9 +3297,13 @@ export async function abortRunAndTurnDurably(
   let abortedInMemory = false;
   let terminalFlushFailure: AgentRunEventNotPersistedError | undefined;
   try {
-    abortedInMemory = options?.safeBoundary
-      ? await abortRunAtSafeBoundaryDurably(runId, reason)
-      : await abortRunDurably(runId, reason);
+    if (options?.safeBoundary) {
+      const result = await abortRunAtSafeBoundaryDurablyResult(runId, reason);
+      abortedInMemory = result.aborted;
+      terminalFlushFailure = result.eventFlushFailure ?? undefined;
+    } else {
+      abortedInMemory = await abortRunDurably(runId, reason);
+    }
   } catch (error) {
     if (
       !(error instanceof AgentRunEventNotPersistedError) ||

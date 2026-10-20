@@ -245,6 +245,22 @@ describe("createBuilderEngine", () => {
     expect(onModelDispatchStarted).not.toHaveBeenCalled();
   });
 
+  it("propagates dispatch-gate errors instead of classifying them as gateway transport failures", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchSpy);
+    const dispatchError = new Error("database connection terminated");
+    const beforeModelDispatch = async <T>(_dispatch: () => T) => {
+      throw dispatchError;
+    };
+
+    await expect(
+      collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, beforeModelDispatch }),
+      ),
+    ).rejects.toBe(dispatchError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("preserves optional action schemas in GPT gateway requests", async () => {
     const inputSchema = {
       type: "object",

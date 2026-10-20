@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Surface durable cancellation persistence failures and stop Agent Teams runs before their next model dispatch.
+Preserve accepted turn-abort markers and dispatch-gate persistence failures, while surfacing durable cancellation failures before Agent Teams redispatch.

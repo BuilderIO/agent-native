@@ -378,10 +378,9 @@ class BuilderEngine implements AgentEngine {
       gatewayTimeoutMs,
     );
     try {
-      let response: Response;
-      try {
-        const dispatch = await startModelDispatch(opts, () =>
-          fetch(gatewayUrl.toString(), {
+      const dispatch = await startModelDispatch(opts, () => {
+        try {
+          return fetch(gatewayUrl.toString(), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -397,9 +396,15 @@ class BuilderEngine implements AgentEngine {
           }).then(
             (response) => ({ status: "fulfilled" as const, response }),
             (error: unknown) => ({ status: "rejected" as const, error }),
-          ),
-        );
-        if (!dispatch.started) return;
+          );
+        } catch (error) {
+          return Promise.resolve({ status: "rejected" as const, error });
+        }
+      });
+      if (!dispatch.started) return;
+
+      let response: Response;
+      try {
         const result = await dispatch.value;
         if (result.status === "rejected") throw result.error;
         response = result.response;
