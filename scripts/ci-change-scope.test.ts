@@ -1430,14 +1430,19 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^      - name: Run PR marquee E2E\n        if: matrix\.shard != 'runtime-budget' && github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
     "the PR marquee run must have its own setup and test budget",
   );
+  assert.match(
+    designGlobalSetup,
+    /^const HOME_COMPOSER_RECOVERY_PROBE_MS = 30_000;$/m,
+    "the first composer wait must leave a bounded Vite recovery window",
+  );
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
         /homeComposer\.waitFor\(\{\s*state: "visible",\s*timeout: timeoutBefore\(homeDeadline, ([^)]+)\)/g,
       ),
     ].map(([, budget]) => budget),
-    ["HOME_WARMUP_BUDGET_MS", "HOME_WARMUP_BUDGET_MS"],
-    "both home warmup attempts must use the remaining home budget",
+    ["HOME_COMPOSER_RECOVERY_PROBE_MS", "HOME_WARMUP_BUDGET_MS"],
+    "the first composer probe must leave the remaining home budget for recovery",
   );
   assert.deepEqual(
     [
