@@ -675,6 +675,16 @@ function validateOwnershipSkipRootEvidence(
       (actorId) => actorId !== sweepActorId,
     ),
   );
+  const hasOwnedWorkflowMark = (
+    ["eyes", "white_check_mark", "ticket"] as const
+  ).some((emoji) =>
+    (parent.reactionOwners[emoji] ?? []).includes(sweepActorId),
+  );
+  if (hasOwnedWorkflowMark) {
+    throw new Error(
+      `${parentName}: held roots cannot skip reconciliation when this actor also owns a workflow mark`,
+    );
+  }
   if (
     (skip.reason === "foreign_workflow_mark" && !hasForeignWorkflowMark) ||
     (skip.reason === "mag_opt_out" &&
@@ -16166,6 +16176,26 @@ if (args[0] === "--self-test" && args.length === 1) {
       "report",
       true,
     );
+    const mixedHeldWorkflowOwners = [valid.sweepActorId, "UOTHER"].sort();
+    expectFocusedFailure(
+      "held root also carries this actor's workflow mark",
+      () =>
+        validateOwnershipSkipRootEvidence(
+          "self-test held root",
+          {
+            ...classificationFixture,
+            reactionSummary: `eyes (2): ${mixedHeldWorkflowOwners.join(", ")}`,
+            reactionOwners: { eyes: mixedHeldWorkflowOwners },
+            disposition: "Skipped",
+            ownershipSkip: {
+              rootTs: classificationFixture.ts,
+              reason: "foreign_workflow_mark",
+            },
+          },
+          valid.sweepActorId,
+        ),
+      "this actor also owns a workflow mark",
+    );
     expectFocusedFailure(
       "classification detached from source text",
       () =>
@@ -16771,7 +16801,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 15} negative cases; 32 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 16} negative cases; 32 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
