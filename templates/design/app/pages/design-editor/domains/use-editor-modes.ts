@@ -49,6 +49,7 @@ import { computeInteractZoomToFit } from "../responsive-interact";
 import { hasSelectableCodeLayerParent } from "../selection-state";
 import {
   commentModeReturnOptions,
+  resolveCommentModeExit,
   resolveDrawStateWithoutLab,
   resolveModeForAnnotateLab,
   shouldAutoEnableDrawOverlay,
@@ -792,16 +793,21 @@ export function useEditorModes({
   ]);
 
   const handleExitReviewCommentMode = useCallback(() => {
-    const returnOptions = commentReturnOptionsRef.current;
-    if (returnOptions && !handleModeChange("interact", returnOptions)) return;
+    const exit = resolveCommentModeExit(
+      commentReturnOptionsRef.current,
+      new Set(overviewScreens.map((screen) => screen.id)),
+      new Set(files.map((file) => file.id)),
+    );
+    if (exit.mode === "interact" && !handleModeChange("interact", exit.options))
+      return;
 
     commentReturnOptionsRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
     setDrawMode(false);
     setActiveTool("move");
-    if (!returnOptions) setMode("edit");
-  }, [handleModeChange]);
+    if (exit.mode === "edit") setMode("edit");
+  }, [files, handleModeChange, overviewScreens]);
 
   const handleOverviewCommentPin = useCallback(
     (canvasPoint: { x: number; y: number }) => {

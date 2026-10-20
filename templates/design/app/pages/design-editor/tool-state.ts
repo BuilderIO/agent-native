@@ -85,10 +85,30 @@ export function normalizeDesignMode(value: unknown): EditorMode | null {
 export function commentModeReturnOptions(
   mode: EditorMode,
   activeFileId: string | null | undefined,
-): { targetFileId: string; keepInteractDevice: true } | null {
+): CommentModeReturnOptions | null {
   return mode === "interact" && activeFileId
     ? { targetFileId: activeFileId, keepInteractDevice: true }
     : null;
+}
+
+export interface CommentModeReturnOptions {
+  targetFileId: string;
+  keepInteractDevice: true;
+}
+
+export function resolveCommentModeExit(
+  returnOptions: CommentModeReturnOptions | null,
+  screenIds: ReadonlySet<string>,
+  fileIds: ReadonlySet<string>,
+): { mode: "interact"; options: CommentModeReturnOptions } | { mode: "edit" } {
+  if (
+    returnOptions &&
+    screenIds.has(returnOptions.targetFileId) &&
+    fileIds.has(returnOptions.targetFileId)
+  ) {
+    return { mode: "interact", options: returnOptions };
+  }
+  return { mode: "edit" };
 }
 
 /**
