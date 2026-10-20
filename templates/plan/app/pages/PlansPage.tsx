@@ -9021,7 +9021,11 @@ function CommentMentionEditor({
     return () => cancelAnimationFrame(frame);
   }, [autoFocus, emitChange, initialMessage, resetKey]);
 
+  // Only a new key moves the caret; mounting is autoFocus's job.
+  const focusKeyRef = useRef(focusKey);
   useEffect(() => {
+    if (focusKeyRef.current === focusKey) return;
+    focusKeyRef.current = focusKey;
     const root = editorRef.current;
     if (!root || focusKey === undefined) return;
     if (root.contains(document.activeElement)) return;

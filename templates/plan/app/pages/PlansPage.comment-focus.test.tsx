@@ -82,6 +82,8 @@ describe("comment editor focus", () => {
             <CommentMentionEditor
               placeholder="Add a comment"
               autoFocus="if-free"
+              // A reopened inline comment still has its anchor.
+              focusKey={{ x: 1 }}
               onChange={() => {}}
             />
           )}
