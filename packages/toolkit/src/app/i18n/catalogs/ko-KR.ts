@@ -993,7 +993,26 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, 연락처, 회사, 거래, 티켓, 고객 분석",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "워크스페이스에서 관리하는 HubSpot MCP Auth App이 구성되어 있으면 모든 멤버가 OAuth와 PKCE로 개인 HubSpot 계정을 연결할 수 있습니다. 그렇지 않으면 연결하기 전에 HubSpot Developer Platform에서 앱을 만드세요. 기존 HubSpot OAuth 커넥터는 앱 작업에서 계속 사용할 수 있습니다.",
+    "워크스페이스 소유자가 HubSpot MCP Auth App을 설정한 뒤 각 사용자가 자신의 HubSpot 계정을 연결합니다.",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP 설정",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "워크스페이스 소유자가 HubSpot MCP를 한 번 설정합니다. 이후 각 구성원이 자신의 계정을 연결합니다.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "워크스페이스 설정이 필요합니다",
+  "mcpIntegrations.hubspot.setupChecking": "워크스페이스 설정 확인 중…",
+  "mcpIntegrations.hubspot.setupUnavailable": "설정 상태를 확인할 수 없습니다",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "워크스페이스 OAuth 설정을 확인하지 못했습니다. 다시 시도하세요.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "HubSpot MCP Auth App을 만든 다음 Agent-Native settings → API keys에서 클라이언트 ID와 시크릿을 추가하세요.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "워크스페이스 소유자에게 HubSpot MCP Auth App을 만들고 Agent-Native settings → API keys에 클라이언트 ID와 시크릿을 추가해 달라고 요청하세요. 설정 후 본인의 HubSpot 계정을 연결할 수 있습니다.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "HubSpot MCP를 연결하려면 먼저 워크스페이스에 참여하세요.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "워크스페이스 자격 증명 추가",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "다시 확인",
+  "mcpIntegrations.hubspot.retrySetupStatus": "다시 시도",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon 지원 데이터를 검색하고 업데이트합니다.",
   "mcpIntegrations.catalog.pylon.useCase":

@@ -406,6 +406,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "表示のみ。このページは GitHub のファイルに連動し、push のたびに更新されます。",
+  githubSourceOpenFile: "GitHub で開く",
   textColor: "テキストの色",
   backgroundColor: "背景色",
   defaultColor: "デフォルト",
@@ -515,6 +518,7 @@ const editor = {
     imageDownloadStarted: "画像のダウンロードが始まりました。",
     imageLinkHint: "ウェブ上のあらゆる画像を扱うことができます",
     imagePreview: "画像プレビュー",
+    imageUnavailable: "画像を表示できません",
     imageView: "イメージビュー",
     link: "リンク",
     loadingAssetsPicker: "アセットピッカーのロード",
@@ -980,6 +984,7 @@ const comments = {
   commentOnProperty: "{{name}} にコメント",
   openPropertyComments_other: "{{name}} の未解決のコメント {{count}} 件",
   openRowComments_other: "{{title}} の未解決のコメント {{count}} 件",
+  openRow: "行を開く",
   suggestions: "提案",
   suggestionAdd: "追加",
   suggestionDelete: "削除",
@@ -1190,6 +1195,7 @@ const history = {
   historyGroupAgent: "エージェント実行",
   historyGroupHuman: "編集セッション",
   historyGroupLegacy: "以前の編集",
+  historyGroupGitHub: "GitHub から同期",
   historyGroupOperation: "操作",
   historyGroupRestore: "復元",
   historyLoadError: "バージョン履歴を読み込めませんでした。",

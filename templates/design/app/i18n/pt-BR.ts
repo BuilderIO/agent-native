@@ -2114,6 +2114,10 @@ export default {
       accept: "Aceitar",
       reject: "Rejeitar",
       resolveFailed: "Não foi possível resolver esta proposta",
+      previewTargetUnavailable:
+        "Não foi possível encontrar o elemento selecionado, então esta prévia não foi exibida. Selecione o elemento novamente para tentar outra vez.",
+      previewFailed:
+        "Não foi possível mostrar esta prévia. Selecione o elemento novamente para tentar outra vez.",
     },
     capabilities: {
       "deterministic-style-edit": "Edição segura de estilo",

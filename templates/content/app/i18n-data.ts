@@ -695,6 +695,7 @@ const editorMediaMessages = {
   imageDownloadStarted: "Image download started.",
   imageLinkHint: "Works with any image from the web",
   imagePreview: "Image preview",
+  imageUnavailable: "Image not available",
   imageView: "Image view",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
@@ -1263,6 +1264,9 @@ const enUS = {
       "The file changed on disk while this page had unsaved edits.",
     localFileReadOnlySnapshot:
       "Read-only snapshot · Last synced from {{device}} at {{date}}",
+    githubSourceReadOnly:
+      "View only. This page follows a file in GitHub and updates after each push.",
+    githubSourceOpenFile: "Open in GitHub",
     copyUnsavedText: "Copy my unsaved text",
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",
@@ -1386,6 +1390,7 @@ const enUS = {
     historyGroupAgent: "Agent run",
     historyGroupHuman: "Editing session",
     historyGroupLegacy: "Earlier edits",
+    historyGroupGitHub: "Synced from GitHub",
     historyGroupOperation: "Operation",
     historyGroupRestore: "Restore",
     historyLoadError: "Could not load version history.",
@@ -1563,6 +1568,7 @@ const enUS = {
     openRowComments_few: "{{count}} open comments on {{title}}",
     openRowComments_many: "{{count}} open comments on {{title}}",
     openRowComments_other: "{{count}} open comments on {{title}}",
+    openRow: "Open row",
     reply: "Reply...",
     reopen: "Reopen",
     suggestions: "Suggestions",

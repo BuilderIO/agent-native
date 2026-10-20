@@ -51,6 +51,7 @@ describe("resync-inbox action", () => {
     expect(mocks.resetInboxSync).toHaveBeenCalledWith(OWNER, "a@example.com");
     expect(mocks.syncInbox).toHaveBeenCalledWith(OWNER, {
       accountEmails: ["a@example.com"],
+      force: true,
     });
   });
 });

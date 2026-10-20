@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   estimateBigQuerySql: vi.fn(),
   estimateFirstPartySql: vi.fn(),
   estimateResolvedPanel: vi.fn(),
+  estimateResolvedPanels: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -63,7 +64,7 @@ vi.mock("../server/lib/query-cost-estimate", async (importOriginal) => ({
   >()),
   estimateBigQuerySql: mocks.estimateBigQuerySql,
   estimateFirstPartySql: mocks.estimateFirstPartySql,
-  estimateResolvedPanel: mocks.estimateResolvedPanel,
+  estimateResolvedPanels: mocks.estimateResolvedPanels,
 }));
 
 import { costFromBytes } from "../server/lib/query-cost-estimate";
@@ -86,6 +87,15 @@ beforeEach(() => {
   mocks.getCredentialContext.mockReturnValue(null);
   mocks.loadDashboardSeed.mockReturnValue(null);
   mocks.countReports.mockResolvedValue(0);
+  // The pool and its deadline have their own spec; here each panel is priced once.
+  mocks.estimateResolvedPanels.mockImplementation(
+    (panels: unknown[], scope: unknown, runsPerMonth: number | null) =>
+      Promise.all(
+        panels.map((panel) =>
+          mocks.estimateResolvedPanel(panel, scope, runsPerMonth),
+        ),
+      ),
+  );
   mocks.estimateResolvedPanel.mockImplementation(
     async (panel, _scope, runsPerMonth) => ({
       panelId: panel.panelId,
@@ -287,24 +297,37 @@ describe("estimate-query-cost action", () => {
     );
   });
 
-  it("skips panels left when the time budget runs out", async () => {
-    const now = vi.spyOn(Date, "now");
-    now.mockReturnValueOnce(0);
-    now.mockReturnValue(60_000);
+  it("stops pricing 40 s in and says what it skipped", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
     mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
-    mocks.resolvePanels.mockReturnValueOnce([
+    const panels = [
       {
         panelId: "small",
         title: "Small",
         source: "bigquery",
         query: "SELECT 1",
       },
+    ];
+    mocks.resolvePanels.mockReturnValueOnce(panels);
+    mocks.estimateResolvedPanels.mockResolvedValueOnce([
+      {
+        ...panels[0],
+        status: "failed",
+        failure: "timeout",
+        error: "Skipped: this request ran out of time.",
+      },
     ]);
 
     const result = await run({ dashboardId: "d1" });
     now.mockRestore();
 
-    expect(mocks.estimateResolvedPanel).not.toHaveBeenCalled();
+    expect(mocks.estimateResolvedPanels).toHaveBeenCalledWith(
+      panels,
+      expect.objectContaining({ userEmail: "caller@example.test" }),
+      null,
+      40_000,
+      signal,
+    );
     expect(result.panels[0]).toMatchObject({
       status: "failed",
       failure: "timeout",
@@ -313,40 +336,6 @@ describe("estimate-query-cost action", () => {
     expect(result.summary).not.toContain("full refresh");
     expect(result.summary).toContain("1 panel: none could be priced.");
     expect(result.summary).not.toContain("none read BigQuery");
-  });
-
-  it("stops waiting on a panel when the deadline passes mid-estimate", async () => {
-    vi.useFakeTimers();
-    try {
-      mocks.getDashboard.mockResolvedValueOnce({ kind: "sql", config: {} });
-      mocks.resolvePanels.mockReturnValueOnce([
-        {
-          panelId: "slow",
-          title: "Slow",
-          source: "bigquery",
-          query: "SELECT 1",
-        },
-      ]);
-      let panelSignal: AbortSignal | undefined;
-      mocks.estimateResolvedPanel.mockImplementationOnce(
-        (_panel, _scope, _runs, received: AbortSignal) => {
-          panelSignal = received;
-          return new Promise(() => {});
-        },
-      );
-
-      const pending = run({ dashboardId: "d1" });
-      await vi.advanceTimersByTimeAsync(41_000);
-      const result = await pending;
-
-      expect(result.panels[0]).toMatchObject({
-        status: "failed",
-        failure: "timeout",
-      });
-      expect(panelSignal?.aborted).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("warns when the dashboard total crosses a threshold no panel does", async () => {

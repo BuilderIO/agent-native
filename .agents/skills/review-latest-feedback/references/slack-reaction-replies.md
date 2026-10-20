@@ -2,12 +2,19 @@
 
 Use the connected Slack integration for every Slack read and write. Never use a browser, screenshots, or UI automation to operate Slack.
 
-At sweep exit, reconcile every report root in the scoped inventory that has
-this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Capture
+At sweep exit, reconcile every unheld report root in the scoped inventory that
+has this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. A
+root is held when a direct reaction read shows another actor owns any workflow
+mark or this actor owns `:mag:`. For held roots, record the root and safe-skip
+reason, then stop: do not open the thread, inspect reply reactions, write any
+reaction, or post a status. When this actor owns both `:mag:` and a workflow
+mark, use `mag_opt_out` and preserve the exact direct root reaction-owner
+record as history; the root remains held without a thread read or status reply.
+Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Each
-owned root needs a current disposition and a matching status reply by that same
-actor under that same parent, even when the root has only `✅` or `🎫`. A
+unheld owned root needs a current disposition and a matching status reply by
+that same actor under that same parent, even when the root has only `✅` or `🎫`. A
 same-run fix gets its final reply after verification; continuing work gets a
 concrete progress reply. An earlier generic “taking a look” does not satisfy
 this update. If an existing reply already names the exact canonical disposition
@@ -29,6 +36,23 @@ question or progress ping before the four-day rule below. When a disposition
 includes human handoffs, the status reply must name each handoff's recorded
 owner and action; include its scope when the report context does not make it
 clear.
+
+Interpret the three root reactions independently from the current disposition:
+
+- `👀` is a permanent claim/history mark, not an open/closed indicator.
+- `✅` is permanent history for named scopes that passed direct post-change
+  proof. Add it as soon as any scope passes; do not wait for other scopes or
+  merge. Keep it if later evidence changes the scope's status, and explain the
+  historical mark in the current reply and inventory.
+- `🎫` is permanent history for a distinct human action, including an
+  unassigned team action or reporter request. Keep it after completion,
+  answer, or four-day abandonment; label it historical in the current reply
+  and inventory when it no longer blocks progress.
+
+The current status reply is the source for whether work remains open. When a
+root has only `👀`, say that no scope has passed the proof bar for `✅`, whether
+the next step belongs to this workflow, and why no separate human action needs
+`🎫`. Reuse a current reply rather than posting again on every sweep.
 
 An evidence-only addendum or a correction is not a current status. When your
 newest own reply is one of those, edit that reply into the full canonical
@@ -101,10 +125,13 @@ slack_search: "this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
 
-Also scan channel messages from the saved reply cursor; on the first run, scan
-available history. Since `after:` is date-only, start one day before the cursor,
-exhaust pages, resolve hits to their root, and advance the cursor only through
-processed messages. Read inherited threads carrying any of this actor's root marks (`👀`, `✅`,
+Also scan channel messages from the saved reply cursor within the current
+invocation's fixed window; on the first run, use the default five-day window,
+not all available history. Since `after:` is date-only, start one day before
+the later of the saved cursor and window start, exhaust pages, resolve hits to
+their root, and advance the cursor only through processed messages. An older
+root is eligible only when an in-window reply links to it. Read inherited
+threads carrying any of this actor's root marks (`👀`, `✅`,
 or `🎫`): a checkmark closes only its verified scope, not a newer reporter
 answer or another open scope. Do not reply or react on another actor's root when work is handed off for investigation; that handoff permits local investigation only. A separate explicit authorization is required to post a status or reporter reply there.
 
@@ -130,9 +157,10 @@ human/team actions, including actions with no named owner yet. The eye alone
 does not mean work remains open. One root `✅` covers every verified scope
 listed in `fixedScopes[]`; one root `🎫` covers every action listed in
 `handoffs[]`, including unassigned, accepted, and completed actions. Completion
-evidence changes its status, not the historical `🎫` reaction. For every root
-carrying any of this actor's marks, post or reuse a current status in that root's thread;
-unclaimed items and another actor's marks are not ours to reply to. Reconcile
+evidence changes its status, not the historical `🎫` reaction. For every
+unheld root carrying any of this actor's marks, post or reuse a current status
+in that root's thread; unclaimed items, held roots, and another actor's marks
+are not ours to reply to. Reconcile
 each report as one unit: send or verify its current same-thread status reply,
 then immediately update and read back each applicable root reaction before
 advancing to the next report. Add `✅` as soon as any reported scope passes the

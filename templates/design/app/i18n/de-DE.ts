@@ -2130,6 +2130,10 @@ export default {
       accept: "Übernehmen",
       reject: "Verwerfen",
       resolveFailed: "Dieser Vorschlag konnte nicht aufgelöst werden",
+      previewTargetUnavailable:
+        "Das ausgewählte Element wurde nicht gefunden, daher wurde diese Vorschau nicht angezeigt. Wähle das Element erneut aus, um es noch einmal zu versuchen.",
+      previewFailed:
+        "Diese Vorschau konnte nicht angezeigt werden. Wähle das Element erneut aus, um es noch einmal zu versuchen.",
     },
     capabilities: {
       "deterministic-style-edit": "Sichere Stilbearbeitung",

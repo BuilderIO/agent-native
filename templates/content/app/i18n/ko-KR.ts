@@ -401,6 +401,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "보기 전용. 이 페이지는 GitHub의 파일을 따르며 푸시할 때마다 업데이트됩니다.",
+  githubSourceOpenFile: "GitHub에서 열기",
   textColor: "텍스트 색상",
   backgroundColor: "배경색",
   defaultColor: "기본값",
@@ -509,6 +512,7 @@ const editor = {
     imageDownloadStarted: "이미지 다운로드가 시작되었습니다.",
     imageLinkHint: "웹의 모든 이미지와 함께 작동합니다.",
     imagePreview: "이미지 미리보기",
+    imageUnavailable: "이미지를 사용할 수 없음",
     imageView: "이미지 보기",
     link: "링크",
     loadingAssetsPicker: "자산 선택기 로드 중",
@@ -974,6 +978,7 @@ const comments = {
   commentOnProperty: "{{name}}에 댓글 달기",
   openPropertyComments_other: "{{name}}의 열린 댓글 {{count}}개",
   openRowComments_other: "{{title}}의 열린 댓글 {{count}}개",
+  openRow: "행 열기",
   suggestions: "제안",
   suggestionAdd: "추가",
   suggestionDelete: "삭제",
@@ -1183,6 +1188,7 @@ const history = {
   historyGroupAgent: "에이전트 실행",
   historyGroupHuman: "편집 세션",
   historyGroupLegacy: "이전 편집",
+  historyGroupGitHub: "GitHub에서 동기화됨",
   historyGroupOperation: "작업",
   historyGroupRestore: "복원",
   historyLoadError: "버전 기록을 불러오지 못했습니다.",
