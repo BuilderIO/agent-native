@@ -4428,17 +4428,14 @@ export function createAgentKitProtocolAdapter(
         ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
+      const startMessageId = local?.startMessageId ?? state.startMessageId;
       const runId = await openStartedRun(
         input.threadId,
         session,
         turn,
         undefined,
         { continuedRunId: input.runId },
-        {
-          ...(local?.startMessageId === undefined
-            ? {}
-            : { messageId: local.startMessageId }),
-        },
+        startMessageId === undefined ? {} : { messageId: startMessageId },
       );
       return { runId, capabilities };
     };

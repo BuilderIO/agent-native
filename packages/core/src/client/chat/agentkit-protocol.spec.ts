@@ -6160,6 +6160,61 @@ describe("createAgentKitProtocolAdapter", () => {
       expect(events.map((event) => event.type)).toContain("run.completed");
     });
 
+    it("preserves the persisted message identity for a continued run", async () => {
+      const startTurn = vi.fn(async () => ({
+        id: "turn-replayed",
+        runId: "run-continued",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }));
+      const continueTurn = vi.fn(async () => ({
+        id: "turn-continued",
+        runId: "run-continued",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }));
+      const runtime = createRuntime(async function* () {}, {
+        readRunState: async () => ({
+          status: "errored",
+          runId: "run-crashed",
+          turnId: "turn-1",
+          startMessageId: "user-original",
+          terminalReason: "stale_run",
+        }),
+        subscribe: async () => (async function* () {})(),
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn,
+        continueTurn,
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      try {
+        await transport.continueRun!({
+          threadId: "thread-1",
+          runId: "run-crashed",
+        });
+        const replay = await transport.startRun({
+          threadId: "thread-1",
+          messages: [
+            userMessage("Retry the original submission", "user-original"),
+          ],
+        });
+
+        expect(replay.runId).toBe("run-continued");
+        expect(continueTurn).toHaveBeenCalledOnce();
+        expect(startTurn).toHaveBeenCalledOnce();
+      } finally {
+        await transport.dispose();
+      }
+    });
+
     it("re-sends the turn's durable attachment references, never inline bytes", async () => {
       const { runtime, continueTurn } = stoppedRunRuntime({
         status: "errored",
