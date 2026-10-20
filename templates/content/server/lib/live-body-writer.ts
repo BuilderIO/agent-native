@@ -1,4 +1,4 @@
-import type { DbExec } from "@agent-native/core/db";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
 import {
   evaluateFeatureFlagRules,
   getFeatureFlagRulesStrict,
@@ -9,7 +9,8 @@ import {
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
-import { getDb, schema } from "../db/index.js";
+import { drizzleOverExec } from "../db/exec.js";
+import { schema } from "../db/index.js";
 
 // Decision D2 of the stored-form rebuild: a page's body is written through its
 // live copy only when the page is switched, its live copy holds the page's
@@ -87,34 +88,45 @@ export async function liveBodyWriterGateForRow(
     : { writePath: "legacy", reason: "flag_off" };
 }
 
-type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
+export type LiveBodyWriterReadOptions = { context?: DbExec };
 
-export type LiveBodyWriterReadOptions =
-  | { db?: ContentDb; transaction?: never }
-  | { db: ContentDb; transaction: DbExec };
-
-export class LiveBodyWriterTransactionError extends Error {
-  readonly code = "LIVE_BODY_TRANSACTION_DB_REQUIRED";
+export class LiveBodyWriterContextError extends Error {
+  readonly code = "LIVE_BODY_READ_CONTEXT_INVALID";
 
   constructor() {
-    super("A live-body transaction read requires its matching row database.");
-    this.name = "LiveBodyWriterTransactionError";
+    super(
+      "A live-body read requires one executor context, not separate database and transaction handles.",
+    );
+    this.name = "LiveBodyWriterContextError";
   }
+}
+
+function readContext(options: LiveBodyWriterReadOptions): DbExec {
+  if (
+    !options ||
+    typeof options !== "object" ||
+    Array.isArray(options) ||
+    Object.keys(options).some((key) => key !== "context")
+  )
+    throw new LiveBodyWriterContextError();
+  const context = options.context === undefined ? getDbExec() : options.context;
+  if (!context || typeof context.execute !== "function")
+    throw new LiveBodyWriterContextError();
+  return context;
 }
 
 export async function liveBodyWriterGate(
   docId: string,
   options: LiveBodyWriterReadOptions = {},
 ): Promise<LiveBodyWriterGate> {
-  if (options.transaction !== undefined && !options.db)
-    throw new LiveBodyWriterTransactionError();
-  const db = options.db ?? getDb();
+  const context = readContext(options);
+  const db = drizzleOverExec(context);
   const [row] = await db
     .select(liveBodyWriterPageColumns)
     .from(schema.documents)
     .where(eq(schema.documents.id, docId))
     .limit(1);
-  return liveBodyWriterGateForRow(row, options);
+  return liveBodyWriterGateForRow(row, { transaction: context });
 }
 
 /** True when `docId`'s body must be written through its live copy. */
