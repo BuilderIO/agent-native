@@ -20,6 +20,7 @@ import {
   parseEmailAddress,
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
+import { statusFromRow } from "./inbox-status.js";
 import {
   claimSyncAccount,
   countInboxThreads,
@@ -123,43 +124,6 @@ async function patchProgress(
     claimId,
   });
   if (!updated) throw new SyncClaimLostError(accountEmail);
-}
-
-function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
-  const backfillPending =
-    row.fullSyncPageToken != null ||
-    row.fullSyncPhase === "reconcile" ||
-    row.hydratePendingIds.length > 0 ||
-    row.archivePendingIds.length > 0;
-  const degradedCount =
-    row.degraded.hydrate.length + row.degraded.verify.length;
-  const degraded =
-    degradedCount > 0
-      ? {
-          degraded: {
-            count: degradedCount,
-            kind: row.degraded.kind ?? "unknown",
-          },
-        }
-      : {};
-  if (row.status === "needs_reauth" || row.status === "error") {
-    return {
-      accountEmail: row.accountEmail,
-      state: row.status,
-      lastSyncedAt: row.lastSyncedAt,
-      error: row.lastError ?? undefined,
-      ...(backfillPending ? { backfillPending: true } : {}),
-      ...degraded,
-    };
-  }
-  return {
-    accountEmail: row.accountEmail,
-    state:
-      row.historyId == null || row.status === "syncing" ? "initial" : "ready",
-    lastSyncedAt: row.lastSyncedAt,
-    ...(backfillPending ? { backfillPending: true } : {}),
-    ...degraded,
-  };
 }
 
 // Error class only (never a message, id or address): what a degraded status

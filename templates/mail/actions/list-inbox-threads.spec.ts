@@ -52,7 +52,15 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 vi.mock("../server/lib/inbox-store.js", () => ({
   readInboxThreads: mocks.readInboxThreads,
   readCachedLabels: mocks.readCachedLabels,
-  readSyncAccounts: mocks.readSyncAccounts,
+  // Fixtures list only the sync columns a test cares about; the store always
+  // returns the pending and degraded fields.
+  readSyncAccounts: async (...args: unknown[]) =>
+    ((await mocks.readSyncAccounts(...args)) as any[]).map((account) => ({
+      hydratePendingIds: [],
+      archivePendingIds: [],
+      degraded: { hydrate: [], verify: [], kind: null },
+      ...account,
+    })),
   readInboxPushGeneration: mocks.readInboxPushGeneration,
   readGmailQuotaCooldowns: mocks.readGmailQuotaCooldowns,
   inboxRowToItem: (row: any) => ({
@@ -404,6 +412,37 @@ describe("list-inbox-threads action", () => {
     expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
       { total: 1, totalIsLowerBound: true },
     );
+  });
+
+  it("reports persisted degraded and pending sync work after a reload, like the sync step", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        fullSyncPhase: null,
+        hydratePendingIds: ["t9"],
+        archivePendingIds: [],
+        degraded: { hydrate: ["bad"], verify: ["worse"], kind: "http_500" },
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.accounts[0]).toMatchObject({
+      state: "ready",
+      backfillPending: true,
+      degraded: { count: 2, kind: "http_500" },
+    });
   });
 
   it("exposes a pending SQL push generation so the client can request incremental sync", async () => {

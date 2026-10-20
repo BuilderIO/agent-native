@@ -8,6 +8,7 @@ import { z } from "zod";
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
 import { readGmailCooldown } from "../server/lib/gmail-quota.js";
 import { hasGmailScope } from "../server/lib/gmail-scope.js";
+import { statusFromRow } from "../server/lib/inbox-status.js";
 import {
   inboxRowToItem,
   readCachedLabels,
@@ -270,20 +271,13 @@ export default defineAction({
           ownerEmail,
           accountEmail,
         );
-        const state =
-          row?.status === "needs_reauth" || row?.status === "error"
-            ? row.status
-            : row?.historyId == null || row?.status === "syncing"
-              ? "initial"
-              : "ready";
+        const base: InboxSyncAccountStatus = row
+          ? statusFromRow(row)
+          : { accountEmail, state: "initial", lastSyncedAt: null };
         return {
+          ...base,
           accountEmail,
-          state,
-          lastSyncedAt: row?.lastSyncedAt ?? null,
           ...(row?.lastError ? { error: row.lastError } : {}),
-          ...(row?.fullSyncPageToken || row?.fullSyncPhase === "reconcile"
-            ? { backfillPending: true }
-            : {}),
           ...(pushGeneration > (row?.lastPushGeneration ?? 0)
             ? { pushPending: true }
             : {}),
