@@ -233,6 +233,26 @@ describe("first-touch server cookie route", () => {
     expect(await performanceOnly.json()).toMatchObject({ stored: false });
   });
 
+  it.each(["US", "GB", "CH", "DE", ""])(
+    "honors a targeting rejection regardless of country (%s)",
+    async (country) => {
+      const response = await post(sourced, {
+        "x-country": country,
+        cookie: `an_consent=1.p1.t0; ${serverCookie(sourced)}`,
+      });
+
+      expect(await response.json()).toEqual({
+        stored: false,
+        reason: "consent_required",
+      });
+      expect(setCookies(response)).toEqual([
+        expect.stringMatching(/^an_fts=; Max-Age=0; Path=\//),
+        expect.stringMatching(/^an_ft=; Max-Age=0; Path=\//),
+        expect.stringMatching(/^an_lt=; Max-Age=0; Path=\//),
+      ]);
+    },
+  );
+
   it("does not store a first touch older than a year", async () => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
     const old = {

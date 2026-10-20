@@ -48,18 +48,18 @@ export function requestCountry(event: H3Event): string | undefined {
 }
 
 /**
- * Whether this request may store `category` cookies: always outside the
- * consent region, and inside it only once the visitor opted in.
+ * A stored choice applies everywhere; without one, the country decides
+ * whether storing `category` cookies requires an opt-in.
  */
 export function requestAllowsConsentCategory(
   event: H3Event,
   category: ConsentCategory,
 ): boolean {
-  if (!isConsentRegionCountry(requestCountry(event))) return true;
   const consent = parseConsent(
     parseCookieHeader(getHeader(event, "cookie"))[CONSENT_COOKIE_NAME],
   );
-  return consent?.[category] === true;
+  if (consent) return consent[category];
+  return !isConsentRegionCountry(requestCountry(event));
 }
 
 /**
