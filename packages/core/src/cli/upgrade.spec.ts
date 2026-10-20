@@ -399,6 +399,38 @@ describe("detectUpgradeProject + doctor", () => {
     ).toEqual(["@agent-native/core"]);
   });
 
+  it("includes nested npm workspace members matched by a later pattern", () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        workspaces: ["apps/*", "!apps/internal", "apps/internal/tool"],
+      },
+      apps: {
+        internal: { name: "internal" },
+        "internal/tool": {
+          name: "nested-tool",
+          dependencies: { "@agent-native/core": "^0.8.0" },
+        },
+        web: { name: "web" },
+      },
+    });
+    fs.rmSync(path.join(root, "pnpm-workspace.yaml"));
+
+    const project = detectUpgradeProject(root)!;
+
+    expect(
+      project.packageFiles.map((file) => path.relative(root, file)),
+    ).toEqual([
+      "package.json",
+      "apps/internal/tool/package.json",
+      "apps/web/package.json",
+    ]);
+    expect(
+      buildUpgradeDoctorReport(project).bumps.map((bump) => bump.name),
+    ).toEqual(["@agent-native/core"]);
+  });
+
   it("reads npm workspace globs as npm does: a backslash, a leading slash, leading !s and bower_components", () => {
     const root = makeTempProject({
       kind: "workspace",
@@ -1204,7 +1236,7 @@ describe("runUpgrade", () => {
     );
   });
 
-  it("applies codemods by default while dependency installation is skipped", async () => {
+  it("leaves imports unchanged when installation is skipped without a migration manifest", async () => {
     const root = makeTempProject({
       rootPkg: {
         name: "old-app",
@@ -1213,10 +1245,9 @@ describe("runUpgrade", () => {
     });
     const source = path.join(root, "src/index.tsx");
     fs.mkdirSync(path.dirname(source), { recursive: true });
-    fs.writeFileSync(
-      source,
-      'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n',
-    );
+    const original =
+      'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n';
+    fs.writeFileSync(source, original);
     const { io, out } = captureIo();
 
     const code = await runUpgrade(
@@ -1233,9 +1264,7 @@ describe("runUpgrade", () => {
 
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("without installing dependencies");
-    expect(fs.readFileSync(source, "utf-8")).toContain(
-      'from "@agent-native/toolkit/editor"',
-    );
+    expect(fs.readFileSync(source, "utf-8")).toBe(original);
   });
 
   it("prints failure guidance when install fails", async () => {
