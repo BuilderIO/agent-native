@@ -86,7 +86,7 @@ assert.equal(
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
 const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
-assert.equal(jobTimeout, 70);
+assert.equal(jobTimeout, 90);
 assert.equal(
   workflow.jobs?.e2e?.name,
   "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}",
@@ -121,7 +121,7 @@ assert.equal(
   "design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
 );
 const shardTimeout = shardStep?.["timeout-minutes"];
-assert.equal(shardTimeout, 37);
+assert.equal(shardTimeout, 52);
 const loopbackStep = steps.find(
   (step) => step.name === "Run chat attachment and sizing loopback E2E",
 );

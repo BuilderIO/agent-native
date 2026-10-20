@@ -1407,7 +1407,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^    timeout-minutes: 70$/m,
+    /^    timeout-minutes: 90$/m,
     "the standalone Design job must cover the shard, loopback setup, and artifacts",
   );
   assert.match(
@@ -1422,8 +1422,23 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designGlobalSetup,
+    /^const HOME_RECOVERY_RETRY_BUDGET_MS = 2 \* 60_000;$/m,
+    "the initial Home attempt must reserve time for Vite recovery and composer readiness",
+  );
+  assert.match(
+    designGlobalSetup,
     /^const HOME_WARMUP_BUDGET_MS = 6 \* 60_000;$/m,
-    "Home warmup must reserve the composer probe after a slow cold navigation",
+    "Home warmup must reserve bounded time for Vite recovery",
+  );
+  assert.match(
+    designGlobalSetup,
+    /const homeRecoveryDeadline =\s*homeDeadline - HOME_RECOVERY_RETRY_BUDGET_MS;/,
+    "Home warmup must reserve the retry budget before the first navigation",
+  );
+  assert.match(
+    designGlobalSetup,
+    /const homeInitialNavigationDeadline =\s*homeRecoveryDeadline - HOME_RECOVERY_DETECTION_BUDGET_MS;/,
+    "the first navigation and composer probe must leave the full retry budget",
   );
   assert.deepEqual(
     [
@@ -1440,18 +1455,18 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.deepEqual(
     [
       ...designGlobalSetup.matchAll(
-        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(\s*(homeRecoveryDetectionDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
+        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(\s*(homeInitialNavigationDeadline|homeDeadline),\s*([A-Z_]+),?\s*\)/g,
       ),
     ].map(([, deadline, budget]) => [deadline, budget]),
     [
-      ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
+      ["homeInitialNavigationDeadline", "HOME_INITIAL_NAVIGATION_BUDGET_MS"],
       ["homeDeadline", "HOME_WARMUP_BUDGET_MS"],
     ],
-    "home navigation must retain the full cold-compile budget before the recovery probe",
+    "the first Home navigation must leave bounded time for recovery",
   );
   assert.match(
     designGlobalSetup,
-    /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
+    /await warmupPage\.goto\(homeURL,[\s\S]*?\);\s*const homeRecoveryDetectionDeadline = Math\.min\(\s*homeRecoveryDeadline,\s*Date\.now\(\) \+ HOME_RECOVERY_DETECTION_BUDGET_MS,\s*\);\s*await homeComposer\.waitFor\(/,
     "the composer probe window must start after navigation so a slow cold route does not consume it",
   );
   assert.match(

@@ -32,6 +32,11 @@ const GLOBAL_SETUP_BUDGET_MS = 11 * 60_000;
 const SEED_BUDGET_MS = 2 * 60_000;
 const HOME_WARMUP_BUDGET_MS = 6 * 60_000;
 const HOME_RECOVERY_DETECTION_BUDGET_MS = 30_000;
+const HOME_RECOVERY_RETRY_BUDGET_MS = 2 * 60_000;
+const HOME_INITIAL_NAVIGATION_BUDGET_MS =
+  HOME_WARMUP_BUDGET_MS -
+  HOME_RECOVERY_DETECTION_BUDGET_MS -
+  HOME_RECOVERY_RETRY_BUDGET_MS;
 const EDITOR_WARMUP_BUDGET_MS = 3 * 60_000;
 
 async function withDeadline<T>(
@@ -467,6 +472,9 @@ export default async function globalSetup(config: FullConfig) {
       Date.now() + HOME_WARMUP_BUDGET_MS,
       globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
     );
+    const homeRecoveryDeadline = homeDeadline - HOME_RECOVERY_RETRY_BUDGET_MS;
+    const homeInitialNavigationDeadline =
+      homeRecoveryDeadline - HOME_RECOVERY_DETECTION_BUDGET_MS;
     const warmupPage = await context.newPage();
     try {
       const homeURL = `${baseURL}/home`;
@@ -475,10 +483,13 @@ export default async function globalSetup(config: FullConfig) {
       try {
         await warmupPage.goto(homeURL, {
           waitUntil: "domcontentloaded",
-          timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
+          timeout: timeoutBefore(
+            homeInitialNavigationDeadline,
+            HOME_INITIAL_NAVIGATION_BUDGET_MS,
+          ),
         });
         const homeRecoveryDetectionDeadline = Math.min(
-          homeDeadline,
+          homeRecoveryDeadline,
           Date.now() + HOME_RECOVERY_DETECTION_BUDGET_MS,
         );
         await homeComposer.waitFor({
