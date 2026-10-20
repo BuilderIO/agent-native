@@ -17,10 +17,10 @@ const LANES = Math.max(1, Number(process.env.LANES || 5));
 // spends more time on setup than it saves.
 const MIN_SHARD_FILES = 100;
 // Slides 2's full fast suite can exhaust a Vitest worker's heap on CI.
-const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 16 };
-const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 16 };
+const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 32 };
+const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 32 };
 const MIN_PACKAGE_SHARD_FILES: Readonly<Record<string, number>> = {
-  "slides-2": 25,
+  "slides-2": 14,
 };
 
 const PACKAGE_PARENTS = ["packages", "templates"];

@@ -202,31 +202,21 @@ test("keeps packages whole when they are unshardable or too small to split", () 
   );
 });
 
-test("starts Slides 2 fast tests in sixteen fresh Vitest processes", () => {
+test("starts Slides 2 fast tests in thirty-two fresh Vitest processes", () => {
+  const shards = splitLargePackages(
+    [{ name: "slides-2", files: 455, shardable: true }],
+    8,
+    5_000,
+  );
+
+  assert.equal(shards.length, 32);
   assert.deepEqual(
-    splitLargePackages(
-      [{ name: "slides-2", files: 455, shardable: true }],
-      8,
-      5_000,
-    ),
-    [
-      { name: "slides-2", files: 29, shard: "1/16" },
-      { name: "slides-2", files: 29, shard: "2/16" },
-      { name: "slides-2", files: 29, shard: "3/16" },
-      { name: "slides-2", files: 29, shard: "4/16" },
-      { name: "slides-2", files: 29, shard: "5/16" },
-      { name: "slides-2", files: 29, shard: "6/16" },
-      { name: "slides-2", files: 29, shard: "7/16" },
-      { name: "slides-2", files: 28, shard: "8/16" },
-      { name: "slides-2", files: 28, shard: "9/16" },
-      { name: "slides-2", files: 28, shard: "10/16" },
-      { name: "slides-2", files: 28, shard: "11/16" },
-      { name: "slides-2", files: 28, shard: "12/16" },
-      { name: "slides-2", files: 28, shard: "13/16" },
-      { name: "slides-2", files: 28, shard: "14/16" },
-      { name: "slides-2", files: 28, shard: "15/16" },
-      { name: "slides-2", files: 28, shard: "16/16" },
-    ],
+    shards.map(({ shard }) => shard),
+    Array.from({ length: 32 }, (_, index) => `${index + 1}/32`),
+  );
+  assert.deepEqual(
+    shards.map(({ files }) => files),
+    Array.from({ length: 32 }, (_, index) => (index < 7 ? 15 : 14)),
   );
 });
 
