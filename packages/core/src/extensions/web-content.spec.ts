@@ -325,23 +325,45 @@ describe("processWebContent", () => {
     },
   );
 
-  it("labels searchSource raw when the searched bytes are the raw body", async () => {
+  it("defaults a raw-mode search to extracted text and searches markup only when asked", async () => {
     const { processWebContent } = await import("./web-content.js");
-    // responseMode raw keeps the response bytes, including the script
-    // readability would drop. Extraction still succeeds, so a label based
-    // only on `extracted !== null` reports extracted while searching raw.
-    const result = await processWebContent({
+    // responseMode raw displays the response bytes, but the tool schema
+    // promises that an omitted search.source searches extracted content.
+    const byDefault = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "Readable content" },
+    });
+    expect(byDefault.searchSource).toBe("extracted");
+    expect(
+      byDefault.matches?.some((match) => match.match === "Readable content"),
+    ).toBe(true);
+
+    // Markup-only tokens stay invisible to the default extracted search.
+    const markupByDefault = await processWebContent({
       url: "https://example.com/story",
       body: html,
       contentType: "text/html",
       responseMode: "raw",
       search: { query: "unsafe()" },
     });
+    expect(markupByDefault.searchSource).toBe("extracted");
+    expect(markupByDefault.matches ?? []).toHaveLength(0);
 
-    expect(result.matches?.some((match) => match.match === "unsafe()")).toBe(
-      true,
-    );
-    expect(result.searchSource).toBe("raw");
+    // `source: "raw"` is the explicit opt-in for searching the markup.
+    const explicitRaw = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "unsafe()", source: "raw" },
+    });
+    expect(explicitRaw.searchSource).toBe("raw");
+    expect(
+      explicitRaw.matches?.some((match) => match.match === "unsafe()"),
+    ).toBe(true);
   });
 
   it("searches extracted text when responseMode is raw and source is extracted", async () => {

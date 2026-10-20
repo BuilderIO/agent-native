@@ -213,7 +213,11 @@ export async function processWebContent(
   // be reported as extracted.
   const hasExtractedContent =
     hasRealExtractedContent && baseContent !== options.body;
-  const fallbackSearchSource: WebSearchSource = hasExtractedContent
+  // The tool schema promises that an omitted `search.source` means the
+  // extracted text. Keep that default even when responseMode "raw" displays
+  // the raw body; only fall back to raw when extraction produced no usable
+  // text.
+  const fallbackSearchSource: WebSearchSource = hasRealExtractedContent
     ? "extracted"
     : "raw";
   const rawBodyFallback = mode !== "raw" && !hasExtractedContent;
@@ -775,8 +779,8 @@ function findWebContentMatches(options: {
 > {
   const search = options.search ?? {};
   // Force raw only when there is no usable extracted text. responseMode
-  // "raw" still displays the raw body, but an explicit source: "extracted"
-  // must search the extracted markdown/text when that text exists.
+  // "raw" still displays the raw body, but an omitted or explicit
+  // source: "extracted" searches the extracted markdown/text when it exists.
   const requestedSource = search.source ?? options.fallbackSearchSource;
   let sourceMode: WebSearchSource = options.hasExtractedContent
     ? requestedSource
