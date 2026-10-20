@@ -1915,7 +1915,8 @@ export async function syncGitHubSource(
   } catch (error) {
     if (error instanceof GitHubSourceDeadlineError) {
       // Only this run failed: a sync with more time, like the background one,
-      // may well finish, so the link shows no problem and waits its turn.
+      // may well finish, so the link shows no problem and waits its turn. It
+      // can't say the rows match the branch, though, until a check gets through.
       await release(
         (current) => current,
         (next) => ({
@@ -1924,6 +1925,7 @@ export async function syncGitHubSource(
             : next.problem
               ? "error"
               : "linked",
+          freshness: "stale",
           lastRefreshedAt: now,
         }),
       ).catch(() => {});

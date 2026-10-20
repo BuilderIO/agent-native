@@ -1298,6 +1298,7 @@ describe("GitHub folder freshness", () => {
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source).toMatchObject({
       syncState: "linked",
+      freshness: "stale",
       lastError: null,
     });
     expect(status.source?.metadata.github).toMatchObject({ problem: null });
@@ -1306,6 +1307,12 @@ describe("GitHub folder freshness", () => {
     github.state.hangHead = false;
     await as(() => getDatabase.run({ databaseId: database.id }));
     expect(await faqContent()).not.toContain("forum");
+
+    // The next check that gets through brings the rows up to date.
+    await checkedAgo(database.id, 2 * 60_000);
+    const caughtUp = await as(() => getSource.run({ databaseId: database.id }));
+    expect(caughtUp.source?.freshness).toBe("fresh");
+    expect(await faqContent()).toContain("forum");
   });
 
   it("waits for a sync already running before it answers a stale read", async () => {
