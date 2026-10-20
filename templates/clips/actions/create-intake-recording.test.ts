@@ -184,6 +184,30 @@ describe("create-intake-recording", () => {
     expect(mocks.release).not.toHaveBeenCalled();
   });
 
+  it("reopens an intake when create confirms no recording side effects", async () => {
+    mocks.create.mockRejectedValue(
+      new ActionContractError("Recording could not be prepared.", {
+        errorCode: "recording_preparation_failed",
+        statusCode: 503,
+        details: { retryable: true, cleanupConfirmed: true },
+      }),
+    );
+
+    await expect(
+      action.run({
+        intakeId: "intake-id-long-enough",
+        intakeToken: "token",
+        recordingPlatform: "web",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "recording_preparation_failed",
+      statusCode: 503,
+      details: { retryable: true },
+    });
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.release).toHaveBeenCalledWith("intake-id-long-enough");
+  });
+
   it("keeps the intake claimed when create returns an untyped error", async () => {
     mocks.create.mockRejectedValue(new Error("Unknown create failure"));
 

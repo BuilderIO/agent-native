@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { captureError } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
@@ -127,17 +131,6 @@ export default defineAction({
     "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
   schema: createRecordingSchema,
   run: async (args, actionContext) => {
-    const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
-    if (
-      args.expectedOwnerEmail &&
-      args.expectedOwnerEmail.toLowerCase() !== ownerEmail.toLowerCase()
-    ) {
-      fail("This recording belongs to another account.", {
-        errorCode: "recording_owner_mismatch",
-        statusCode: 409,
-      });
-    }
     const id = args.id || nanoid();
     const now = new Date().toISOString();
     const title = args.title?.trim() || DEFAULT_RECORDING_TITLE;
@@ -145,31 +138,70 @@ export default defineAction({
       args.titleSource ??
       (title === DEFAULT_RECORDING_TITLE ? "default" : "manual");
 
-    const { organizationId } = await requireOrganizationAccess(
-      args.organizationId,
-    );
-    const visibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-      args.visibility,
-    );
+    const prepared = await (async () => {
+      const db = getDb();
+      const ownerEmail = getCurrentOwnerEmail();
+      if (
+        args.expectedOwnerEmail &&
+        args.expectedOwnerEmail.toLowerCase() !== ownerEmail.toLowerCase()
+      ) {
+        fail("This recording belongs to another account.", {
+          errorCode: "recording_owner_mismatch",
+          statusCode: 409,
+        });
+      }
 
-    const spaceIds = await validateRecordingScope(db, {
-      organizationId,
-      ownerEmail,
-      spaceIds: args.spaceIds ?? [],
-      folderId: args.folderId,
+      const { organizationId } = await requireOrganizationAccess(
+        args.organizationId,
+      );
+      const visibility = await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+        args.visibility,
+      );
+
+      const spaceIds = await validateRecordingScope(db, {
+        organizationId,
+        ownerEmail,
+        spaceIds: args.spaceIds ?? [],
+        folderId: args.folderId,
+      });
+
+      // The native mobile app names itself but sends no platform; read it from
+      // that name so its rows and events are not left "unknown".
+      const recordingPlatform =
+        args.recordingPlatform ??
+        (args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
+          ? "mobile"
+          : undefined);
+
+      await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
+
+      return {
+        db,
+        ownerEmail,
+        organizationId,
+        visibility,
+        spaceIds,
+        recordingPlatform,
+      };
+    })().catch((error: unknown) => {
+      if (isActionContractError(error)) throw error;
+      console.warn("[create-recording] preparation failed:", error);
+      fail("Recording could not be prepared. Refresh and try again.", {
+        errorCode: "recording_preparation_failed",
+        statusCode: 503,
+        details: { retryable: true, cleanupConfirmed: true },
+      });
     });
-
-    // The native mobile app names itself but sends no platform; read it from
-    // that name so its rows and events are not left "unknown".
-    const recordingPlatform =
-      args.recordingPlatform ??
-      (args.sourceAppName?.trim() === MOBILE_APP_SOURCE_NAME
-        ? "mobile"
-        : undefined);
-
-    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
+    const {
+      db,
+      ownerEmail,
+      organizationId,
+      visibility,
+      spaceIds,
+      recordingPlatform,
+    } = prepared;
 
     const storage = await resolveClipsVideoStorage({
       intent: "new",
@@ -177,6 +209,14 @@ export default defineAction({
       email: ownerEmail,
       sizeBytes: args.sizeBytes,
       requestHeaders: actionContext?.requestHeaders,
+    }).catch((error: unknown) => {
+      if (isActionContractError(error)) throw error;
+      console.warn("[create-recording] storage resolution failed:", error);
+      fail("Video storage could not be checked. Refresh and try again.", {
+        errorCode: "storage_status_unavailable",
+        statusCode: 503,
+        details: { retryable: true, cleanupConfirmed: true },
+      });
     });
     if (storage.mode === "none") {
       fail(STORAGE_SETUP_REQUIRED_REASON, {
@@ -230,8 +270,25 @@ export default defineAction({
         updatedAt: now,
       });
     } catch (error) {
-      await releaseHostedReservation();
-      throw error;
+      let cleanupConfirmed = true;
+      try {
+        await releaseHostedReservation();
+      } catch (releaseError) {
+        cleanupConfirmed = false;
+        console.error(
+          "[create-recording] hosted allowance could not be released after row creation failed",
+          releaseError,
+        );
+      }
+      console.warn("[create-recording] row creation failed:", error);
+      fail("Recording could not be created. Refresh and try again.", {
+        errorCode: "recording_create_failed",
+        statusCode: 503,
+        details: {
+          retryable: cleanupConfirmed,
+          cleanupConfirmed,
+        },
+      });
     }
 
     trackRecordingCreated({

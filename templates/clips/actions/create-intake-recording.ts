@@ -165,11 +165,13 @@ export default defineAction({
         let cleanupConfirmed =
           typeof recordingId === "string"
             ? cleanupWasConfirmed === true
-            : cleanupWasConfirmed !== false &&
-              error.details?.retryable !== true;
+            : cleanupWasConfirmed === true ||
+              (cleanupWasConfirmed !== false &&
+                error.details?.retryable !== true);
         if (
           error.details?.retryable === true &&
-          typeof recordingId !== "string"
+          typeof recordingId !== "string" &&
+          cleanupWasConfirmed !== true
         ) {
           // The intake row can't be safely retried if its failed recording
           // could not be identified for cleanup.

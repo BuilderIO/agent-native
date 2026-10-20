@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const calls = vi.hoisted(() => ({
   streamingEnabled: false,
   resolveStorage: vi.fn(),
   track: vi.fn(),
+  authUserId: null as string | null,
 }));
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
@@ -26,7 +28,8 @@ vi.mock("@agent-native/core/server", () => ({
   captureError: (...args: unknown[]) => calls.captureError(...args),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestContext: () => null,
+  getRequestContext: () =>
+    calls.authUserId ? { authUserId: calls.authUserId } : null,
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
@@ -98,6 +101,7 @@ describe("create-recording policy", () => {
     calls.insert.mockResolvedValue(undefined);
     calls.update.mockResolvedValue(undefined);
     calls.snapshot.mockResolvedValue(false);
+    calls.authUserId = null;
     calls.bufferedFallbackAvailable = true;
     calls.streamingEnabled = false;
     calls.resolveStorage.mockImplementation(async () => {
@@ -143,7 +147,7 @@ describe("create-recording policy", () => {
   });
 
   it("hands a known file size to storage resolution and creates nothing when it is refused", async () => {
-    const refusal = Object.assign(new Error("This video is 300 MB"), {
+    const refusal = new ActionContractError("This video is 300 MB", {
       statusCode: 413,
       errorCode: "upload_too_large",
     });
@@ -215,7 +219,12 @@ describe("create-recording policy", () => {
           { id: "rec-1", recordingPlatform: "web" },
           { userEmail: "owner@example.com" },
         ),
-      ).rejects.toBe(error);
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "recording_preparation_failed",
+        statusCode: 503,
+        details: { retryable: true, cleanupConfirmed: true },
+      });
 
       expect(calls.insert).not.toHaveBeenCalled();
       expect(calls.uploadProvider).not.toHaveBeenCalled();
@@ -264,12 +273,56 @@ describe("create-recording policy", () => {
         { id: "rec-1", recordingPlatform: "web" },
         { userEmail: "owner@example.com" },
       ),
-    ).rejects.toBe(error);
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "recording_create_failed",
+      statusCode: 503,
+      details: { retryable: true, cleanupConfirmed: true },
+    });
 
     expect(calls.snapshot).toHaveBeenCalledOnce();
     expect(calls.resolveStorage).toHaveBeenCalledOnce();
     expect(calls.uploadProvider).toHaveBeenCalledOnce();
     expect(calls.writeState).not.toHaveBeenCalled();
+  });
+
+  it("keeps the intake claim unsafe when a hosted reservation cannot be released after insert failure", async () => {
+    calls.authUserId = "user-1";
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: null,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: true,
+    });
+    calls.insert.mockRejectedValueOnce(new Error("recording insert failed"));
+    calls.releaseReservation.mockRejectedValueOnce(
+      new Error("reservation release failed"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "recording_create_failed",
+      details: { retryable: false, cleanupConfirmed: false },
+    });
+    expect(calls.releaseReservation).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "user-1",
+    });
   });
 
   it("returns the inserted row id when upload-state initialization fails", async () => {
@@ -780,7 +833,10 @@ describe("recording_created", () => {
         { id: "rec-1", recordingPlatform: "web" },
         { userEmail: "owner@example.com" },
       ),
-    ).rejects.toThrow("recording insert failed");
+    ).rejects.toMatchObject({
+      errorCode: "recording_create_failed",
+      details: { cleanupConfirmed: true },
+    });
 
     calls.snapshot.mockRejectedValueOnce(new Error("policy read failed"));
     await expect(
@@ -788,7 +844,10 @@ describe("recording_created", () => {
         { id: "rec-1", recordingPlatform: "web" },
         { userEmail: "owner@example.com" },
       ),
-    ).rejects.toThrow("policy read failed");
+    ).rejects.toMatchObject({
+      errorCode: "recording_preparation_failed",
+      details: { cleanupConfirmed: true },
+    });
 
     await expect(
       action.run(
