@@ -378,6 +378,7 @@ describe("MCP OAuth callback flow validation", () => {
       serverUrl: string,
       extraQuery = "",
       acceptHtml = false,
+      acceptLanguage?: string,
     ) {
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
@@ -403,6 +404,7 @@ describe("MCP OAuth callback flow validation", () => {
               host: "app.example.com",
               "x-forwarded-proto": "https",
               ...(acceptHtml ? { accept: "text/html" } : {}),
+              ...(acceptLanguage ? { "accept-language": acceptLanguage } : {}),
             },
           },
         ),
@@ -460,12 +462,13 @@ describe("MCP OAuth callback flow validation", () => {
         "https://mcp.hubspot.com/",
         `&return=${encodeURIComponent("/dispatch/settings/integrations?tab=mcp")}`,
         true,
+        "fr-FR",
       );
 
       expect((result as Response).status).toBe(400);
       const html = await (result as Response).text();
       expect(html).toContain('href="/dispatch/settings/integrations?tab=mcp"');
-      expect(html).toContain("Back to app");
+      expect(html).toContain("Retour à l’application");
       expect(callbackMocks.startMcpOAuthAuthorization).not.toHaveBeenCalled();
     });
 

@@ -5,6 +5,7 @@ import {
   allowsMcpIntegrationPersonalScope,
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
+  DEFAULT_MCP_INTEGRATIONS,
   filterMcpIntegrations,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
@@ -118,6 +119,12 @@ function parseHeaderLines(text: string): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function isManagedHubSpotMcpUrl(serverUrl: string): boolean {
+  return /^https:\/\/mcp\.hubspot\.com(?::443)?(?:[/?#]|$)/i.test(
+    serverUrl.trim(),
+  );
+}
+
 function requiresMcpIntegrationSetup(
   integration: DefaultMcpIntegration,
 ): boolean {
@@ -218,7 +225,8 @@ export function McpIntegrationDialog({
       enabled:
         open &&
         mcpServersQuery.isSuccess &&
-        defaultIntegrations.some(({ id }) => id === "hubspot"),
+        (customIntegrationEnabled ||
+          defaultIntegrations.some(({ id }) => id === "hubspot")),
       queryKeyScope: [mcpServersQuery.data?.orgId ?? "no-org"],
       staleTime: 0,
       refetchOnMount: "always",
@@ -386,6 +394,16 @@ export function McpIntegrationDialog({
       const fallback = getMcpIntegrationApiFallback(restricted);
       if (fallback) openSecretSettings(fallback.secretKey);
       else openForm(restricted);
+      return;
+    }
+    if (
+      isManagedHubSpotMcpUrl(args.url) &&
+      hubspotSetupStatus !== "configured"
+    ) {
+      const hubspot =
+        defaultIntegrations.find(({ id }) => id === "hubspot") ??
+        DEFAULT_MCP_INTEGRATIONS.find(({ id }) => id === "hubspot");
+      openForm(hubspot, { scope: options?.scope });
       return;
     }
     if (!oauthReady) return;

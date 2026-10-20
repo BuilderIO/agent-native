@@ -1302,6 +1302,40 @@ describe("McpIntegrationDialog", () => {
     );
   });
 
+  it("opens HubSpot setup when the catalog row is clicked before OAuth readiness", () => {
+    mocks.hubspotOAuthReadinessQuery.data = { hubspot: "missing" };
+
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[hubspot]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const connect = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open setup guide HubSpot"]',
+    );
+    expect(connect).toBeTruthy();
+
+    act(() => connect?.click());
+
+    expect(document.body.textContent).toContain("workspace owner");
+    expect(document.body.textContent).toContain("HubSpot MCP Auth App");
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
   it("keeps HubSpot connect blocked when readiness cannot be checked and offers retry", () => {
     mocks.hubspotOAuthReadinessQuery.data = undefined as never;
     mocks.hubspotOAuthReadinessQuery.isSuccess = false;

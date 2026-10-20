@@ -12,6 +12,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import {
   CredentialStoreUnavailableError,
@@ -398,7 +400,11 @@ async function handleMcpOAuthStart(
       },
       {
         backHref: safeReturnPath(returnUrl || "/settings/integrations"),
-        backLabel: "Back to app",
+        backLabel: mcpSettingsMessagesForLocale(
+          resolveLocaleFromRequest({
+            acceptLanguage: getRequestHeader(event, "accept-language"),
+          }).locale,
+        ).mcpOAuthBackToApp,
       },
     );
   }
