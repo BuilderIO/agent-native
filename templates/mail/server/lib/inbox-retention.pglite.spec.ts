@@ -313,4 +313,97 @@ describe("runInboxRetention (PGlite)", () => {
       "oauth@example.com",
     );
   });
+  const NO_GMAIL_SCOPE = JSON.stringify({
+    scope: "openid https://www.googleapis.com/auth/userinfo.email",
+  });
+  const noConnections = async () => ({ accounts: [], errors: [] });
+
+  async function addGoogleToken(
+    owner: string,
+    account: string,
+    tokens: string,
+  ) {
+    await exec.execute({
+      sql: `INSERT INTO public.oauth_tokens (provider, account_id, owner, tokens, updated_at, revision)
+        VALUES ('google', $1, $2, $3, 1, 1)`,
+      args: [account, owner, tokens],
+    });
+  }
+
+  it("treats a Google grant without a Gmail scope as disconnected", async () => {
+    await seedAccount("scoped@example.com", "scoped-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await addGoogleToken(
+      "scoped@example.com",
+      "scoped-acct@example.com",
+      NO_GMAIL_SCOPE,
+    );
+    await seedAccount("mail@example.com", "mail-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await addGoogleToken(
+      "mail@example.com",
+      "mail-acct@example.com",
+      JSON.stringify({
+        scope: "openid https://www.googleapis.com/auth/gmail.modify",
+      }),
+    );
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary).toMatchObject({ pairsReset: 1, ruleRowsRemoved: 3 });
+    expect(
+      await countRows("scoped@example.com", "scoped-acct@example.com"),
+    ).toBe(0);
+    expect(await countRows("mail@example.com", "mail-acct@example.com")).toBe(
+      3,
+    );
+  });
+
+  it("fences out the old worker when it takes over a stale claim", async () => {
+    await seedAccount("stale@example.com", "stale-acct@example.com", {
+      lastSyncedAt: NOW - 40 * DAY,
+      claimedAt: NOW - 10 * 60_000,
+    });
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary.pairsReset).toBe(1);
+    await expect(
+      stores.withSyncClaim(
+        "stale@example.com",
+        "stale-acct@example.com",
+        "live-claim",
+        async () => "wrote",
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("does not clear an inactive pair whose owner synced after the scan", async () => {
+    await seedAccount("woke@example.com", "woke-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    const scanned = {
+      ownerEmail: "woke@example.com",
+      accountEmail: "woke-acct@example.com",
+      syncId: "woke@example.com:woke-acct@example.com",
+      inactive: true,
+      claimed: false,
+    };
+
+    expect(await retention.clearPair(scanned, NOW, true)).toBeNull();
+    expect(await countRows("woke@example.com", "woke-acct@example.com")).toBe(
+      3,
+    );
+
+    // The same pair cleared for a missing grant has no inactivity condition.
+    expect(await retention.clearPair(scanned, NOW, false)).toBe(3);
+  });
 });

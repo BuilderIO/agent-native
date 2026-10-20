@@ -1,7 +1,9 @@
 import { getDbExec } from "@agent-native/core/db";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { hasGmailScope } from "./gmail-scope.js";
 import {
   INBOX_THREAD_CAP,
   purgeArchivedInboxThreadRows,
@@ -31,7 +33,6 @@ export type RetentionPair = {
   accountEmail: string;
   syncId: string;
   inactive: boolean;
-  oauthMissing: boolean;
   claimed: boolean;
 };
 
@@ -44,11 +45,12 @@ export type InboxRetentionSummary = {
   ruleOwners: number;
   pairsReset: number;
   pairsSkippedClaimed: number;
+  // Claimed or synced between the scan and the clear.
+  pairsSkippedActive: number;
   pairsSkippedUnverified: number;
 };
 
-// One row per mail_sync_accounts row. `oauthMissing` reads the OAuth table
-// only: a managed workspace connection is checked later by the resolver.
+// One row per mail_sync_accounts row.
 export async function readRetentionPairs(
   now: number,
 ): Promise<RetentionPair[]> {
@@ -60,13 +62,7 @@ export async function readRetentionPairs(
           (SELECT MAX(COALESCE(o2.last_synced_at, o2.created_at))
              FROM mail_sync_accounts o2
              WHERE o2.owner_email = s.owner_email) AS owner_active_at,
-          (s.sync_claim_id IS NOT NULL AND COALESCE(s.sync_claimed_at, 0) >= $1) AS claimed,
-          (to_regclass('public.oauth_tokens') IS NULL OR NOT EXISTS (
-            SELECT 1 FROM public.oauth_tokens o
-            WHERE o.provider = 'google'
-              AND lower(o.owner) = s.owner_email
-              AND lower(o.account_id) = s.account_email
-          )) AS oauth_missing
+          (s.sync_claim_id IS NOT NULL AND COALESCE(s.sync_claimed_at, 0) >= $1) AS claimed
         FROM mail_sync_accounts s
         WHERE s.id > $2
         ORDER BY s.id
@@ -79,7 +75,6 @@ export async function readRetentionPairs(
         accountEmail: String(row.account_email),
         syncId: String(row.id),
         inactive: Number(row.owner_active_at) < now - INBOX_INACTIVE_AFTER_MS,
-        oauthMissing: Boolean(row.oauth_missing),
         claimed: Boolean(row.claimed),
       });
     }
@@ -89,10 +84,13 @@ export async function readRetentionPairs(
 }
 
 // Clears one account's sync progress and its thread rows in one transaction.
-// Returns null when a live sync claim got there first, so nothing is removed.
-async function clearPair(
+// Returns null when a live sync claim, or (for an inactivity clear) a sync that
+// landed after the scan, got there first, so nothing is removed. Taking over a
+// stale claim drops its id so the old worker fails the withSyncClaim fence.
+export async function clearPair(
   pair: RetentionPair,
   now: number,
+  requireInactive: boolean,
 ): Promise<number | null> {
   return getDb().transaction(async (tx: any) => {
     const claimed = await tx
@@ -109,6 +107,8 @@ async function clearPair(
         fullSyncListedCount: 0,
         status: "idle",
         lastError: null,
+        syncClaimId: null,
+        syncClaimedAt: null,
         updatedAt: now,
       })
       .where(
@@ -118,6 +118,11 @@ async function clearPair(
             isNull(schema.mailSyncAccounts.syncClaimId),
             lt(schema.mailSyncAccounts.syncClaimedAt, now - STALE_CLAIM_MS),
           ),
+          requireInactive
+            ? sql`(SELECT MAX(COALESCE(o.last_synced_at, o.created_at))
+                FROM mail_sync_accounts o
+                WHERE o.owner_email = ${pair.ownerEmail}) < ${now - INBOX_INACTIVE_AFTER_MS}::bigint`
+            : undefined,
         ),
       )
       .returning({ id: schema.mailSyncAccounts.id });
@@ -152,6 +157,7 @@ export async function runInboxRetention(opts: {
     ruleOwners: 0,
     pairsReset: 0,
     pairsSkippedClaimed: 0,
+    pairsSkippedActive: 0,
     pairsSkippedUnverified: 0,
   };
 
@@ -188,9 +194,29 @@ export async function runInboxRetention(opts: {
     return connectedByOwner.get(ownerEmail) ?? null;
   };
 
+  // Mail's resolver only counts a Google grant that carries a Gmail scope. A
+  // managed workspace connection is checked later by the resolver.
+  const gmailGrantsByOwner = new Map<string, Set<string>>();
+  const hasGmailGrant = async (pair: RetentionPair) => {
+    let grants = gmailGrantsByOwner.get(pair.ownerEmail);
+    if (!grants) {
+      const accounts = await listOAuthAccountsByOwner(
+        "google",
+        pair.ownerEmail,
+      );
+      grants = new Set(
+        accounts
+          .filter((account) => hasGmailScope(account.tokens))
+          .map((account) => account.accountId.toLowerCase()),
+      );
+      gmailGrantsByOwner.set(pair.ownerEmail, grants);
+    }
+    return grants.has(pair.accountEmail);
+  };
+
   const ruleOwners = new Set<string>();
   for (const pair of pairs) {
-    if (!pair.inactive && !pair.oauthMissing) continue;
+    if (!pair.inactive && (await hasGmailGrant(pair))) continue;
     if (pair.claimed) {
       summary.pairsSkippedClaimed++;
       continue;
@@ -203,9 +229,9 @@ export async function runInboxRetention(opts: {
       }
       if (connected.has(pair.accountEmail)) continue;
     }
-    const removed = await clearPair(pair, now);
+    const removed = await clearPair(pair, now, pair.inactive);
     if (removed === null) {
-      summary.pairsSkippedClaimed++;
+      summary.pairsSkippedActive++;
       continue;
     }
     summary.pairsReset++;

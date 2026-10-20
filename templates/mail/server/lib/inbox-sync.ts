@@ -708,6 +708,27 @@ async function runReconciliationStep(
   };
 }
 
+// Gmail history ids are decimal strings that can pass 2^53, so they are never
+// compared as Numbers.
+function compareHistoryIds(a: string, b: string): number {
+  const x = BigInt(a);
+  const y = BigInt(b);
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+// Null means the stream constrains nothing: it finished and reported neither a
+// head nor any records. An unfinished stream with no records holds the cursor.
+function streamWatermark(
+  page: { historyId?: unknown },
+  caughtUp: boolean,
+  lastRecordId: string | null,
+  startHistoryId: string,
+): string | null {
+  if (!caughtUp) return lastRecordId ?? startHistoryId;
+  if (page.historyId != null) return String(page.historyId);
+  return lastRecordId;
+}
+
 // Two history streams share one cursor. The inbox stream uses Gmail's labelId
 // filter, so only messages that carry INBOX are returned and new mail that skips
 // the inbox (auto-archive filters) never reaches threads.get. Gmail's docs do not
@@ -809,11 +830,41 @@ async function runIncrementalSyncStep(
       }
     }
   }
-  // A thread the inbox stream still returns was re-added to the inbox after the
-  // archive event, so its row is kept and hydrated instead of deleted.
-  const archivedOnly = [...archivedThreadIds].filter(
+  // One message losing INBOX does not archive a thread: the row is deleted only
+  // when a minimal read shows no message in it still carries INBOX. A thread
+  // the inbox stream returned is hydrated anyway. Threads with no cached
+  // in-inbox row have nothing to delete.
+  const archiveCandidates = [...archivedThreadIds].filter(
     (threadId) => !threadIds.has(threadId),
   );
+  const cachedArchiveCandidates =
+    archiveCandidates.length > 0
+      ? await readInboxThreadIds(ownerEmail, accountEmail, archiveCandidates)
+      : new Set<string>();
+  const archivedOnly: string[] = [];
+  if (cachedArchiveCandidates.size > 0) {
+    const verification = await gmailBatchGetThreads(
+      accessToken,
+      [...cachedArchiveCandidates],
+      "minimal",
+      undefined,
+      "incremental",
+    );
+    for (const part of verification) {
+      if (part.error) {
+        if (/HTTP 404/.test(part.error)) {
+          archivedOnly.push(part.id);
+          continue;
+        }
+        throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
+      }
+      const stillInInbox = (part.data?.messages ?? []).some((message: any) =>
+        (message?.labelIds ?? []).includes("INBOX"),
+      );
+      if (stillInInbox) threadIds.add(part.id);
+      else archivedOnly.push(part.id);
+    }
+  }
 
   if (threadIds.size > 0) {
     const connected = await connectedEmailsLower(
@@ -859,27 +910,31 @@ async function runIncrementalSyncStep(
   });
   if (archivedOnly.length > 0) onChanged?.();
 
-  // The cursor moves to the mailbox head only when both streams reached the
-  // end. Otherwise it stops at the earliest unfinished stream's last record, and
-  // the next step rereads from there; both writes are idempotent.
+  // The two streams are separate reads and can report different mailbox heads,
+  // so the cursor moves only to the lowest point both have fully processed: a
+  // finished stream contributes its head, an unfinished one its last record.
+  // The next step rereads from there; both writes are idempotent.
   const inboxCaughtUp = !inboxHistory.nextPageToken;
   const archiveCaughtUp = !archiveHistory.nextPageToken;
   const syncedAt = Date.now();
-  let historyId: string;
-  if (inboxCaughtUp && archiveCaughtUp) {
-    const heads = [inboxHistory.historyId, archiveHistory.historyId]
-      .filter((value) => value != null)
-      .map(String);
-    historyId =
-      heads.length > 0
-        ? heads.reduce((a, b) => (Number(b) > Number(a) ? b : a))
-        : (lastInboxRecordId ?? lastArchiveRecordId ?? row.historyId!);
-  } else {
-    const pending: string[] = [];
-    if (!inboxCaughtUp) pending.push(lastInboxRecordId ?? row.historyId!);
-    if (!archiveCaughtUp) pending.push(lastArchiveRecordId ?? row.historyId!);
-    historyId = pending.reduce((a, b) => (Number(b) < Number(a) ? b : a));
-  }
+  const watermarks = [
+    streamWatermark(
+      inboxHistory,
+      inboxCaughtUp,
+      lastInboxRecordId,
+      row.historyId!,
+    ),
+    streamWatermark(
+      archiveHistory,
+      archiveCaughtUp,
+      lastArchiveRecordId,
+      row.historyId!,
+    ),
+  ].filter((value): value is string => value != null);
+  const historyId =
+    watermarks.length > 0
+      ? watermarks.reduce((a, b) => (compareHistoryIds(b, a) < 0 ? b : a))
+      : row.historyId!;
   await patchProgress(ownerEmail, accountEmail, claimId, {
     historyId,
     lastError: null,

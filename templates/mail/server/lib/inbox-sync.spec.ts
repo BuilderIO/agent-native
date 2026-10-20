@@ -1375,32 +1375,61 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     );
   });
 
-  it("deletes an archived thread from its INBOX removal without fetching it", async () => {
-    currentRow = baseRow({ historyId: "1000" });
+  function archiveStream(
+    threadIds: string[],
+    heads: { inbox?: string; archive?: string } = {},
+  ) {
     mocks.gmailListHistory.mockImplementation(
       async (_token: string, params: { labelId?: string }) =>
         params.labelId === "INBOX"
-          ? { history: [], historyId: "1001" }
+          ? { history: [], historyId: heads.inbox ?? "1001" }
           : {
               history: [
                 {
                   id: "1001",
-                  labelsRemoved: [
-                    {
-                      labelIds: ["INBOX"],
-                      message: { id: "t9-m1", threadId: "t9" },
-                    },
-                  ],
+                  labelsRemoved: threadIds.map((threadId) => ({
+                    labelIds: ["INBOX"],
+                    message: { id: `${threadId}-m1`, threadId },
+                  })),
                 },
               ],
-              historyId: "1001",
+              historyId: heads.archive ?? "1001",
             },
     );
+  }
+
+  function minimalThread(id: string, messageLabels: string[][]) {
+    return {
+      id,
+      data: {
+        id,
+        messages: messageLabels.map((labelIds, index) => ({
+          id: `${id}-m${index}`,
+          labelIds,
+        })),
+      },
+    };
+  }
+
+  it("deletes an archived thread only after a minimal read shows no INBOX message", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "t9" }];
+    archiveStream(["t9"]);
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      minimalThread("t9", [["SENT"], ["CATEGORY_UPDATES"]]),
+    ]);
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(result.state).toBe("ready");
-    expect(mocks.gmailBatchGetThreads).not.toHaveBeenCalled();
+    expect(mocks.gmailBatchGetThreads).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailBatchGetThreads).toHaveBeenCalledWith(
+      "tok",
+      ["t9"],
+      "minimal",
+      undefined,
+      "incremental",
+    );
     expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
@@ -1417,6 +1446,121 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     );
     expect(archiveCall.labelId).toBeUndefined();
     expect(archiveCall.historyTypes).toEqual(["labelRemoved"]);
+  });
+
+  it("keeps and rehydrates a thread when another message still has INBOX", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "t9" }];
+    archiveStream(["t9"]);
+    mocks.gmailBatchGetThreads
+      .mockResolvedValueOnce([minimalThread("t9", [[], ["INBOX", "UNREAD"]])])
+      .mockResolvedValueOnce([
+        {
+          id: "t9",
+          data: thread("t9", { from: "a@ex.com", labelIds: ["INBOX"] }),
+        },
+      ]);
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(mocks.gmailBatchGetThreads.mock.calls[1][1]).toEqual(["t9"]);
+    expect(mocks.gmailBatchGetThreads.mock.calls[1][2]).toBe("metadata");
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalled();
+  });
+
+  it("deletes a thread Gmail no longer has, and skips threads with no cached row", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "gone" }];
+    archiveStream(["gone", "uncached"]);
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      { id: "gone", data: null, error: "HTTP 404 not found" },
+    ]);
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.gmailBatchGetThreads.mock.calls[0][1]).toEqual(["gone"]);
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "gone",
+      expect.any(Number),
+      {},
+    );
+  });
+
+  it("fails loudly and keeps the row when the verification read errors", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "t9" }];
+    archiveStream(["t9"]);
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      { id: "t9", data: null, error: "HTTP 500 backend" },
+    ]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("error");
+    expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+  });
+
+  describe("history cursor", () => {
+    const lastCursor = () => {
+      const cursors = mocks.patchSyncAccount.mock.calls
+        .map(([, , patch]) => patch.historyId)
+        .filter((historyId) => historyId !== undefined);
+      return cursors[cursors.length - 1];
+    };
+
+    function twoStreams(inbox: unknown, archive: unknown) {
+      mocks.gmailListHistory.mockImplementation(
+        async (_token: string, params: { labelId?: string }) =>
+          params.labelId === "INBOX" ? inbox : archive,
+      );
+    }
+
+    it("advances only to the lower of the two stream heads", async () => {
+      currentRow = baseRow({ historyId: "1000" });
+      twoStreams(
+        { history: [], historyId: "1010" },
+        { history: [], historyId: "1005" },
+      );
+
+      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+      expect(lastCursor()).toBe("1005");
+    });
+
+    it("compares heads beyond 2^53 exactly", async () => {
+      currentRow = baseRow({ historyId: "9007199254740990" });
+      twoStreams(
+        { history: [], historyId: "9007199254740993" },
+        { history: [], historyId: "9007199254740992" },
+      );
+
+      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+      expect(lastCursor()).toBe("9007199254740992");
+    });
+
+    it("holds at the unfinished stream's last record, even below the other head", async () => {
+      currentRow = baseRow({ historyId: "9007199254740990" });
+      twoStreams(
+        {
+          history: [{ id: "9007199254740993" }],
+          historyId: "9007199254740999",
+          nextPageToken: "more",
+        },
+        { history: [], historyId: "9007199254740992" },
+      );
+
+      const result = await syncInboxAccount(OWNER, ACCOUNT, {
+        budgetMs: 5_000,
+      });
+
+      expect(lastCursor()).toBe("9007199254740992");
+      expect(result.state).toBe("initial");
+    });
   });
 
   it("purges expired archived rows and trims only when history changed", async () => {
