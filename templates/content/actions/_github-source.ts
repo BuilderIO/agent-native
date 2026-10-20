@@ -1264,11 +1264,17 @@ async function applyFile(
       withPositionLock(databaseItemsPositionScope(run.database.id), () =>
         run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
           await lockLinkedCollection(tx, run);
-          if (linkedRow) {
+          // A restore that released the page since this sync planned the
+          // file deleted its record; the file then gets a new page.
+          const linked =
+            linkedRow && (await recordStillLinked(tx, linkedRow))
+              ? linkedRow
+              : null;
+          if (linked) {
             const [document] = await tx
               .select()
               .from(schema.documents)
-              .where(eq(schema.documents.id, linkedRow.documentId));
+              .where(eq(schema.documents.id, linked.documentId));
             if (document) {
               const bodyChanged =
                 !previous ||
@@ -1333,8 +1339,8 @@ async function applyFile(
                 values,
               );
               await upsertSourceRow(tx, run, {
-                rowId: linkedRow.id,
-                itemId: linkedRow.databaseItemId,
+                rowId: linked.id,
+                itemId: linked.databaseItemId,
                 documentId: document.id,
                 state: nextState,
                 values,
@@ -1349,7 +1355,7 @@ async function applyFile(
             // new page, and the stale row is replaced below.
             await tx
               .delete(schema.contentDatabaseSourceRows)
-              .where(eq(schema.contentDatabaseSourceRows.id, linkedRow.id));
+              .where(eq(schema.contentDatabaseSourceRows.id, linked.id));
           }
 
           let documentId = run.documentIdByPath.get(relativePath)!;
@@ -1506,9 +1512,28 @@ async function lockLinkedCollection(tx: Db, run: SyncRun) {
   }
 }
 
+/**
+ * Whether a page's record is still there once the sync holds the lock. A
+ * restore that releases the page from the collection deletes it, and the
+ * page is then no longer the sync's to write.
+ */
+async function recordStillLinked(tx: Db, row: SourceRow) {
+  const [record] = await tx
+    .select({ id: schema.contentDatabaseSourceRows.id })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.id, row.id),
+        eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+      ),
+    );
+  return Boolean(record);
+}
+
 async function trashRow(run: SyncRun, row: SourceRow) {
   await run.db.transaction(async (tx: Db) => {
     await lockLinkedCollection(tx, run);
+    if (!(await recordStillLinked(tx, row))) return;
     const [document] = await tx
       .select({
         ownerEmail: schema.documents.ownerEmail,

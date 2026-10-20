@@ -729,6 +729,58 @@ describe("GitHub folder source", () => {
     expect(followed?.content).toContain("Answers moved to the forum.");
   });
 
+  it("leaves a page alone that a restore releases while a sync reads its file", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    // The restore releases the page after the sync planned its file.
+    github.state.duringBlobRead = async () => {
+      await as(() => restoreDocument.run({ id: holderId }));
+    };
+    await as(() => syncFolder.run({ databaseId: database.id }));
+
+    expect(await page(faq.documentId)).toMatchObject({
+      trashedAt: null,
+      sourceMode: null,
+    });
+    const [released] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, faq.documentId));
+    expect(released?.content).not.toContain("forum");
+    const records = await getDb()
+      .select({ id: schema.contentDatabaseSourceRows.id })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.documentId, faq.documentId));
+    expect(records).toEqual([]);
+    const followed = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    );
+    expect(followed?.documentId).not.toBe(faq.documentId);
+    expect(followed?.content).toContain("Answers moved to the forum.");
+  });
+
   it("restores a page whose file left as an ordinary page outside the collection, with its sub-pages", async () => {
     const { database } = await linkBaseFolder();
     const notes = (await liveRows(database.id)).find(
