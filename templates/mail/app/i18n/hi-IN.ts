@@ -302,7 +302,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "कॉन्टैक्ट समृद्धि और कंपनी डेटा",
       hubspotDescription: "CRM कॉन्टैक्ट, डील और टिकट",
-      gongDescription: "Gong कॉल और डील के बारे में एजेंट से पूछें",
+      gongDescription: "Gong कॉल इतिहास",
       gongAccessCheckFailed: "Gong से कनेक्ट करने की अनुमति की जाँच नहीं हो सकी।",
       gongKeyPlaceholder: "Gong API कुंजी",
       gongKeyFormatHint:

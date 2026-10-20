@@ -302,7 +302,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "연락처 보강 및 회사 데이터",
       hubspotDescription: "CRM 연락처, 거래 및 티켓",
-      gongDescription: "Gong 통화 및 거래에 대해 에이전트에게 질문",
+      gongDescription: "Gong 통화 기록",
       gongAccessCheckFailed: "Gong 연결 권한을 확인할 수 없습니다.",
       gongKeyPlaceholder: "Gong API 키",
       gongKeyFormatHint:

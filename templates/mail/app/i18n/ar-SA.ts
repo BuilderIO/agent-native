@@ -306,7 +306,7 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "إثراء جهات الاتصال وبيانات الشركة",
       hubspotDescription: "جهات اتصال CRM والصفقات والتذاكر",
-      gongDescription: "اسأل الوكيل عن مكالمات Gong والصفقات",
+      gongDescription: "سجل مكالمات Gong",
       gongAccessCheckFailed: "تعذّر التحقق مما إذا كان بإمكانك ربط Gong.",
       gongKeyPlaceholder: "مفتاح API لـ Gong",
       gongKeyFormatHint: "أدخل مفتاح الوصول والسر بالتنسيق access_key:secret.",

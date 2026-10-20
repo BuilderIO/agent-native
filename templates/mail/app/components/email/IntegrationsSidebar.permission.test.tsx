@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   copy: {
     "mail.integrations.addIntegration": "Add integration",
-    "mail.integrations.gongDescription": "Gong calls and deals",
+    "mail.integrations.gongDescription": "Gong call history",
     "mail.integrations.gongAccessCheckFailed":
       "Couldn't check whether you can connect to Gong.",
     "mail.integrations.connect": "Connect",
@@ -138,7 +138,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     expect(refetch).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Add integrations" }));
-    expect(screen.queryByText("Gong calls and deals")).toBeNull();
+    expect(screen.queryByText("Gong call history")).toBeNull();
   });
 
   it("silently hides Gong for a confirmed workspace member", () => {
@@ -154,7 +154,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add integrations" }));
 
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByText("Gong calls and deals")).toBeNull();
+    expect(screen.queryByText("Gong call history")).toBeNull();
   });
 
   it("keeps legacy key controls for a member without org setup permission", () => {
@@ -170,7 +170,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     renderSidebar();
     fireEvent.click(screen.getByRole("button", { name: /Integrations/ }));
 
-    expect(screen.getByText("Gong calls and deals")).not.toBeNull();
+    expect(screen.getByText("Gong call history")).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Update key" })).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Disconnect" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Connect" })).toBeNull();

@@ -295,7 +295,7 @@ const messages = {
       openProviderSettings: "開啟 {{provider}} 設定",
       apolloDescription: "聯絡人補全和公司資料",
       hubspotDescription: "CRM 聯絡人、交易和工單",
-      gongDescription: "向代理詢問 Gong 通話與交易",
+      gongDescription: "Gong 通話記錄",
       gongAccessCheckFailed: "無法確認你是否有權限連線到 Gong。",
       gongKeyPlaceholder: "Gong API 金鑰",
       gongKeyFormatHint: "請以 access_key:secret 格式輸入存取金鑰和密鑰。",
