@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   release: vi.fn(),
   create: vi.fn(),
   trash: vi.fn(),
+  findSession: vi.fn(),
+  findRecoverable: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
@@ -19,8 +21,9 @@ vi.mock("../server/lib/clip-intake.js", () => ({
   abandonClipIntake: vi.fn(),
   attachClipIntakeRecording: vi.fn(),
   claimClipIntakeRecording: (...args: unknown[]) => mocks.claim(...args),
-  findClipIntakeSession: vi.fn(),
-  findRecoverableClipIntakeRecording: vi.fn(),
+  findClipIntakeSession: (...args: unknown[]) => mocks.findSession(...args),
+  findRecoverableClipIntakeRecording: (...args: unknown[]) =>
+    mocks.findRecoverable(...args),
   releaseClipIntakeCreation: (...args: unknown[]) => mocks.release(...args),
 }));
 vi.mock("../server/lib/resumable-session.js", () => ({
@@ -52,6 +55,8 @@ describe("create-intake-recording", () => {
     });
     mocks.release.mockResolvedValue(undefined);
     mocks.trash.mockResolvedValue({ id: "rec-1", skipped: false });
+    mocks.findSession.mockResolvedValue(null);
+    mocks.findRecoverable.mockResolvedValue(null);
   });
 
   it("trashes a failed row before reopening a retryable intake", async () => {
@@ -97,7 +102,7 @@ describe("create-intake-recording", () => {
     );
   });
 
-  it("marks a failure non-retryable if the failed row cannot be trashed", async () => {
+  it("keeps the intake claimed if the failed row cannot be trashed", async () => {
     mocks.create.mockRejectedValue(
       new ActionContractError("Storage is temporarily unavailable.", {
         errorCode: "hosted_storage_unavailable",
@@ -118,6 +123,7 @@ describe("create-intake-recording", () => {
       errorCode: "hosted_storage_unavailable",
       details: { retryable: false },
     });
+    expect(mocks.release).not.toHaveBeenCalled();
   });
 
   it("does not mark a retryable failure safe when it has no row id", async () => {
@@ -140,5 +146,24 @@ describe("create-intake-recording", () => {
       details: { retryable: false },
     });
     expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.release).not.toHaveBeenCalled();
+  });
+
+  it("retries a concurrent request while its intake is still being created", async () => {
+    mocks.claim.mockResolvedValue(null);
+    mocks.findSession.mockResolvedValue({ status: "creating" });
+
+    await expect(
+      action.run({
+        intakeId: "intake-id-long-enough",
+        intakeToken: "token",
+        recordingPlatform: "web",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "intake_creation_in_progress",
+      statusCode: 409,
+      details: { retryable: true },
+    });
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 });

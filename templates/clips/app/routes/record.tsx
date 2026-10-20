@@ -1300,6 +1300,34 @@ export function shouldShowFirstRunStorageSetup({
   );
 }
 
+export function shouldRequestStorageSetup({
+  isClipIntake,
+  hasPendingUpload,
+  connectStorageRequested,
+  firstRunStorageSetup,
+  firstRunStorageSetupIntent,
+  hostedAllowanceExhausted,
+  localSqlChunkScratchAvailable,
+}: {
+  isClipIntake: boolean;
+  hasPendingUpload: boolean;
+  connectStorageRequested: boolean;
+  firstRunStorageSetup: boolean;
+  firstRunStorageSetupIntent: boolean;
+  hostedAllowanceExhausted: boolean;
+  localSqlChunkScratchAvailable: boolean;
+}): boolean {
+  return (
+    !isClipIntake &&
+    (hasPendingUpload ||
+      connectStorageRequested ||
+      (!localSqlChunkScratchAvailable &&
+        (firstRunStorageSetup ||
+          firstRunStorageSetupIntent ||
+          hostedAllowanceExhausted)))
+  );
+}
+
 export function isStorageStatusUnavailable({
   storageConfigured,
   readFailed,
@@ -1313,11 +1341,15 @@ export function isStorageStatusUnavailable({
 export function shouldPreserveFirstRunStorageSetupIntent({
   firstRunStorageSetup,
   currentIntent,
+  localSqlChunkScratchAvailable,
 }: {
   firstRunStorageSetup: boolean;
   currentIntent: boolean;
+  localSqlChunkScratchAvailable?: boolean;
 }): boolean {
-  return firstRunStorageSetup || currentIntent;
+  return (
+    !localSqlChunkScratchAvailable && (firstRunStorageSetup || currentIntent)
+  );
 }
 
 export default function RecordRoute() {
@@ -1451,21 +1483,26 @@ export default function RecordRoute() {
     isClipIntake: !!clipIntake,
     connectStorageRequested,
   });
+  const localSqlChunkScratchAvailable =
+    storageQuery.data?.localSqlChunkScratchAvailable === true;
   useEffect(() => {
     setFirstRunStorageSetupIntent((currentIntent) =>
       shouldPreserveFirstRunStorageSetupIntent({
         firstRunStorageSetup,
         currentIntent,
+        localSqlChunkScratchAvailable,
       }),
     );
-  }, [firstRunStorageSetup]);
-  const storageSetupRequested =
-    !clipIntake &&
-    (pendingUploadFile ||
-      connectStorageRequested ||
-      firstRunStorageSetup ||
-      firstRunStorageSetupIntent ||
-      hostedAllowanceExhausted);
+  }, [firstRunStorageSetup, localSqlChunkScratchAvailable]);
+  const storageSetupRequested = shouldRequestStorageSetup({
+    isClipIntake: !!clipIntake,
+    hasPendingUpload: pendingUploadFile,
+    connectStorageRequested,
+    firstRunStorageSetup,
+    firstRunStorageSetupIntent,
+    hostedAllowanceExhausted,
+    localSqlChunkScratchAvailable,
+  });
   const storageStatusLoading =
     !clipIntake && storageConfigured === null && !storageStatusUnavailable;
   const showHostedClipsRemaining =

@@ -26,6 +26,7 @@ import {
   RecordingErrorCard,
   RecordingLeaveChoices,
   shouldPreserveFirstRunStorageSetupIntent,
+  shouldRequestStorageSetup,
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
 } from "./record";
@@ -224,6 +225,44 @@ describe("record route lifecycle shell", () => {
         hasPendingUpload: false,
         isClipIntake: false,
         connectStorageRequested: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not request storage setup for an exhausted hosted allowance with SQL scratch", () => {
+    expect(
+      shouldRequestStorageSetup({
+        isClipIntake: false,
+        hasPendingUpload: false,
+        connectStorageRequested: false,
+        firstRunStorageSetup: false,
+        firstRunStorageSetupIntent: true,
+        hostedAllowanceExhausted: true,
+        localSqlChunkScratchAvailable: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("requests storage setup for an exhausted hosted allowance without SQL scratch", () => {
+    expect(
+      shouldRequestStorageSetup({
+        isClipIntake: false,
+        hasPendingUpload: false,
+        connectStorageRequested: false,
+        firstRunStorageSetup: false,
+        firstRunStorageSetupIntent: false,
+        hostedAllowanceExhausted: true,
+        localSqlChunkScratchAvailable: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("clears a latched first-run storage prompt when SQL scratch becomes available", () => {
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: true,
+        localSqlChunkScratchAvailable: true,
       }),
     ).toBe(false);
   });

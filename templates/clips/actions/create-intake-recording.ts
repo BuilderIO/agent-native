@@ -103,6 +103,13 @@ export default defineAction({
           ...intakeUploadUrls(args.intakeId, args.intakeToken, existing.id),
         };
       }
+      if (existingSession?.status === "creating") {
+        fail("A recording is already being prepared for this intake.", {
+          errorCode: "intake_creation_in_progress",
+          statusCode: 409,
+          details: { retryable: true },
+        });
+      }
       fail("This intake URL has expired or has already been used.", {
         errorCode: "intake_unavailable",
         statusCode: 409,
@@ -153,6 +160,7 @@ export default defineAction({
         const details = { ...error.details };
         const recordingId = details.recordingId;
         delete details.recordingId;
+        let cleanupConfirmed = error.details?.retryable !== true;
         if (
           error.details?.retryable === true &&
           typeof recordingId !== "string"
@@ -163,16 +171,19 @@ export default defineAction({
         }
         if (typeof recordingId === "string") {
           try {
-            await trashRecordingRow(recordingId);
+            const cleanup = await trashRecordingRow(recordingId);
+            cleanupConfirmed = cleanup.skipped !== true;
+            if (!cleanupConfirmed) details.retryable = false;
           } catch (cleanupError) {
             console.warn(
               "[clip-intake] failed recording cleanup after create failure:",
               cleanupError,
             );
             details.retryable = false;
+            cleanupConfirmed = false;
           }
         }
-        await releaseClipIntakeCreation(intakeId);
+        if (cleanupConfirmed) await releaseClipIntakeCreation(intakeId);
         fail(error.message, {
           errorCode: error.errorCode,
           statusCode: error.statusCode,

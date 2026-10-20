@@ -6,7 +6,8 @@ describe("shouldRetryIntakeCreateResponse", () => {
   it.each([
     ["streaming_upload_unavailable", 503, false],
     ["storage_setup_required", 503, false],
-    ["intake_unavailable", 409, undefined],
+    ["intake_creation_in_progress", 409, true],
+    ["intake_unavailable", 409, false],
     ["recording_owner_mismatch", 409, undefined],
     ["intake_context_unavailable", 503, undefined],
     ["hosted_storage_unavailable", 503, true],
