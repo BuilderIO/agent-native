@@ -2,7 +2,10 @@ import path from "node:path";
 
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
+import {
+  createPostgresScriptClient,
+  withPostgresStatementDeadline,
+} from "./postgres-client.js";
 import {
   assertNoRawDbAccessControlPatchTarget,
   assertNoSensitiveFrameworkTables,
@@ -428,11 +431,13 @@ Options:
   try {
     let output: PatchOutput | undefined;
     await client.begin(async (tx) => {
-      const scoping = await buildScopingPostgres(tx);
-      for (const statement of scoping.setup) await tx.unsafe(statement);
+      const timedTx = withPostgresStatementDeadline(tx);
+      const scoping = await buildScopingPostgres(timedTx);
+      for (const statement of scoping.setup) await timedTx.unsafe(statement);
+      let operationFailed = false;
       try {
-        await verifyRawDbStatement(tx, select.statement);
-        const selected = await tx.unsafe(select.sql, [], {
+        await verifyRawDbStatement(timedTx, select.statement);
+        const selected = await timedTx.unsafe(select.sql, [], {
           singleStatement: true,
         });
         if (selected.length === 0) {
@@ -454,8 +459,8 @@ Options:
         }
         const edited = applyEditsToValue(original, options);
         if (edited.applied > 0) {
-          await verifyRawDbStatement(tx, update.statement);
-          await tx.unsafe(update.sql, [edited.content], {
+          await verifyRawDbStatement(timedTx, update.statement);
+          await timedTx.unsafe(update.sql, [edited.content], {
             singleStatement: true,
           });
         }
@@ -468,9 +473,16 @@ Options:
           bytesAfter: edited.content.length,
           results: edited.results,
         };
+      } catch (error) {
+        operationFailed = true;
+        throw error;
       } finally {
         for (const statement of scoping.teardown) {
-          await tx.unsafe(statement).catch(() => {});
+          try {
+            await timedTx.unsafe(statement);
+          } catch (error) {
+            if (!operationFailed) throw error;
+          }
         }
       }
     });

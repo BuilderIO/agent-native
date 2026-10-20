@@ -1473,8 +1473,21 @@ const overrides = {
     plainText: "纯文本",
     searchLanguages: "搜索语言...",
     noBlocksFields: "没有 Blocks 字段。请从属性菜单添加一个。",
-    reorderField: "重新排序 {{name}}",
-    toggleField: "切换 {{name}}",
+    addBlockField: "添加字段",
+    blockFieldChanged: "自你上次查看后已更改",
+    blockFieldTabs: "字段",
+    blockFieldMenu: "{{name}} 选项",
+    blockFieldMenuScope: "此集合中的每一行共用",
+    blockFieldName: "字段名称",
+    renameBlockField: "重命名",
+    renameBlockFieldFailed: "无法重命名字段",
+    deleteBlockField: "删除",
+    deleteBlockFieldFailed: "无法删除字段",
+    deleteBlockFieldQuestion: "删除“{{name}}”？",
+    deleteBlockFieldDescription:
+      "这会从此集合的每一行中删除“{{name}}”及其文本。此操作无法撤销。",
+    deleteBlockFieldBodyWarning:
+      "“{{name}}”是页面正文，因此每一行的正文也会被删除。",
   },
   comments: {
     add: "添加评论...",
