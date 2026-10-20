@@ -1,3 +1,4 @@
+import { H3 } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -125,5 +126,91 @@ describe("configure-first-party-events-model", () => {
       action.run({ mode: "set", table: "dbt_mart.fact_events" }, {} as never),
     ).rejects.toThrow("project.dataset.table");
     expect(mocks.resolve).not.toHaveBeenCalled();
+  });
+});
+
+describe("configure-first-party-events-model over the HTTP action route", () => {
+  async function callRoute(
+    args: Record<string, unknown>,
+    headers: Record<string, string>,
+  ) {
+    const { mountActionRoutes } = await import("@agent-native/core/server");
+    const h3 = new H3();
+    mountActionRoutes(
+      { h3, hooks: { hook: () => {} } },
+      { "configure-first-party-events-model": action as any },
+      {
+        appId: "analytics",
+        getOwnerFromEvent: async () => "admin@example.com",
+        resolveOrgId: async () => "org-1",
+      },
+    );
+    const response = await h3.fetch(
+      new Request(
+        "https://analytics.example.test/_agent-native/actions/configure-first-party-events-model",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(args),
+        },
+      ),
+    );
+    return { status: response.status, body: await response.json() };
+  }
+
+  it("refuses an admin's bearer call to set the model until it is approved", async () => {
+    await expect(
+      callRoute(
+        { mode: "set", table: MODEL },
+        { authorization: "Bearer example-admin-token" },
+      ),
+    ).resolves.toMatchObject({
+      status: 409,
+      body: { errorCode: "approval_required" },
+    });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("asks a browser call without UI proof to prove itself first", async () => {
+    await expect(
+      callRoute({ mode: "clear" }, { "x-agent-native-frontend": "1" }),
+    ).resolves.toMatchObject({
+      status: 403,
+      body: { errorCode: "ui_capability_required" },
+    });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("saves the model when the signed-in app UI sets it", async () => {
+    const { signShortLivedToken } = await import("@agent-native/core/server");
+    const capability = signShortLivedToken({
+      resourceId: "ui-action",
+      viewerEmail: "admin@example.com",
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      callRoute(
+        { mode: "set", table: MODEL },
+        {
+          "x-agent-native-frontend": "1",
+          "sec-fetch-site": "same-origin",
+          cookie: `agent-native-ui-capability=${capability}`,
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { status: "saved", table: MODEL },
+    });
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets any caller check the model without approval", async () => {
+    await expect(
+      callRoute(
+        { mode: "check", table: MODEL },
+        { authorization: "Bearer example-member-token" },
+      ),
+    ).resolves.toMatchObject({ status: 200, body: { status: "ok" } });
   });
 });
