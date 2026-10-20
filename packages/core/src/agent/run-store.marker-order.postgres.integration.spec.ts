@@ -215,15 +215,28 @@ describe.skipIf(!databaseUrl)(
         expect(rows[1_202].event_data).toBe(events[1_202].eventData);
 
         await sql`UPDATE agent_runs SET status = 'completed' WHERE id = ${runId}`;
-        await withDbExec(executor(sql), () =>
-          insertRunEvents(runId, [
-            {
-              seq: 5_000,
-              eventAt: 1,
-              eventData: '{"type":"text","text":"late"}',
-            },
-          ]),
-        );
+        await expect(
+          withDbExec(executor(sql), () =>
+            insertRunEvents(runId, [
+              {
+                seq: 5_000,
+                eventAt: 1,
+                eventData: '{"type":"text","text":"late"}',
+              },
+            ]),
+          ),
+        ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+        await expect(
+          withDbExec(executor(sql), () =>
+            insertRunEvents(runId, [
+              {
+                seq: 0,
+                eventAt: 1_000,
+                eventData: '{"type":"text","text":"different retry"}',
+              },
+            ]),
+          ),
+        ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
         const late =
           await sql`SELECT seq FROM agent_run_events WHERE run_id = ${runId} AND seq = 5000`;
         expect(late).toHaveLength(0);

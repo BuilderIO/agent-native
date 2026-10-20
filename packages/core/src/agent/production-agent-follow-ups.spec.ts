@@ -92,6 +92,7 @@ function setup(
       parallelToolCalls: true,
     },
     async *stream(opts) {
+      opts.onModelDispatchStarted?.();
       const index = requests.length;
       requests.push({ ...opts, messages: structuredClone(opts.messages) });
       if (!steps[index]) throw new Error("Unexpected model request");

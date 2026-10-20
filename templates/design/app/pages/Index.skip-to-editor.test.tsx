@@ -645,7 +645,33 @@ describe("Index skip to editor", () => {
     expect(
       container.querySelector('[data-agent-suggestion-bar="true"]'),
     ).not.toBeNull();
+    const actionsRow = container.querySelector("[data-home-prompt-actions]");
+    const skipButton = container.querySelector(
+      '[data-testid="design-home-skip-prompt"]',
+    );
+    expect(actionsRow).toBeTruthy();
+    expect(skipButton).toBeTruthy();
+    expect(
+      actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).not.toBeNull();
+    expect(skipButton?.closest("[data-home-prompt-actions]")).toBe(actionsRow);
     expect(container.textContent).toContain("Generated dashboard");
+  });
+
+  it("does not reserve quick actions space for a selected template without suggestions", async () => {
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
+    await act(async () => root.render(<Index />));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
+    expect(container.querySelector("[data-home-prompt-actions]")).toBeNull();
+    expect(
+      container.querySelectorAll(
+        ".agent-prompt-home-hero > .agent-prompt-home-composer",
+      ),
+    ).toHaveLength(1);
   });
 
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
@@ -698,11 +724,21 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
-    expect(mocks.promptProps?.showInlineSkip).toBe(true);
+    expect(mocks.promptProps?.showInlineSkip).toBe(false);
     expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
-    let skipPromise: Promise<void> | undefined;
+    const skipButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="design-home-skip-prompt"]',
+    );
+    const actionsRow = skipButton?.closest("[data-home-prompt-actions]");
+    expect(actionsRow).toBeTruthy();
+    expect(skipButton).toBeTruthy();
+    expect(
+      actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
+    ).toBeNull();
+    expect(actionsRow?.className).toContain("justify-between");
+    expect(skipButton?.className).toContain("font-normal");
     await act(async () => {
-      skipPromise = mocks.promptProps?.onSkip();
+      skipButton?.click();
       await Promise.resolve();
     });
 
@@ -720,7 +756,7 @@ describe("Index skip to editor", () => {
 
     await act(async () => {
       resolveCreate?.();
-      await skipPromise;
+      await Promise.resolve();
     });
 
     expect(mocks.navigate).toHaveBeenCalledTimes(1);
@@ -794,8 +830,8 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       requireAgentEngine: true,
       showMissingApiKeySetup: false,
-      showModelSelector: false,
-      modelStatusChecksEnabled: false,
+      showModelSelector: true,
+      modelStatusChecksEnabled: true,
     });
     expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
     expect(mocks.promptProps?.composerComponent).toBeDefined();
@@ -855,8 +891,8 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       requireAgentEngine: true,
       showMissingApiKeySetup: false,
-      showModelSelector: false,
-      modelStatusChecksEnabled: false,
+      showModelSelector: true,
+      modelStatusChecksEnabled: true,
     });
     expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
     expect(
@@ -1187,8 +1223,8 @@ describe("Index skip to editor", () => {
       expect(mocks.promptProps).toMatchObject({
         requireAgentEngine: true,
         showMissingApiKeySetup: false,
-        showModelSelector: ready,
-        modelStatusChecksEnabled: ready,
+        showModelSelector: true,
+        modelStatusChecksEnabled: true,
       });
       expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
       expect(
