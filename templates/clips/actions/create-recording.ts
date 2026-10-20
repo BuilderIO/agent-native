@@ -38,6 +38,7 @@ import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
+  getHostedClipRecordingAllowance,
   HOSTED_STORAGE_UNAVAILABLE_REASON,
   releaseHostedClipRecording,
   resolveClipsVideoStorage,
@@ -225,7 +226,7 @@ export default defineAction({
       email: ownerEmail,
       sizeBytes: args.sizeBytes,
       requestHeaders: actionContext?.requestHeaders,
-    }).catch((error: unknown) => {
+    }).catch(async (error: unknown) => {
       if (isActionContractError(error)) throw error;
       if (error instanceof AppConfigurationError) {
         console.error(
@@ -239,10 +240,46 @@ export default defineAction({
         });
       }
       console.warn("[create-recording] storage resolution failed:", error);
+      const authUserId = getRequestContext()?.authUserId;
+      // Hosted reservations require a stable authenticated user id.
+      let cleanupConfirmed = !authUserId;
+      if (authUserId) {
+        try {
+          const [recording] = await db
+            .select({ id: schema.recordings.id })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, id))
+            .limit(1);
+          if (!recording) {
+            const allowance = await getHostedClipRecordingAllowance({
+              recordingId: id,
+              userId: authUserId,
+            });
+            if (!allowance || allowance.status === "released") {
+              cleanupConfirmed = true;
+            } else if (allowance.status === "reserved") {
+              await releaseHostedClipRecording({
+                recordingId: id,
+                userId: authUserId,
+              });
+              cleanupConfirmed = true;
+            }
+          }
+        } catch (cleanupError) {
+          console.error(
+            "[create-recording] hosted allowance cleanup could not be confirmed after storage resolution failed",
+            cleanupError,
+          );
+        }
+      }
       fail("Video storage could not be checked. Refresh and try again.", {
         errorCode: "storage_status_unavailable",
         statusCode: 503,
-        details: { retryable: false, cleanupConfirmed: false },
+        details: {
+          ...(!cleanupConfirmed ? { recordingId: id } : {}),
+          retryable: cleanupConfirmed,
+          cleanupConfirmed,
+        },
       });
     });
     if (storage.mode === "none") {
@@ -312,15 +349,17 @@ export default defineAction({
         );
       }
 
-      let reservationCleanupConfirmed = true;
-      try {
-        await releaseHostedReservation();
-      } catch (releaseError) {
-        reservationCleanupConfirmed = false;
-        console.error(
-          "[create-recording] hosted allowance could not be released after row creation failed",
-          releaseError,
-        );
+      let reservationCleanupConfirmed = recordingAbsentConfirmed;
+      if (recordingAbsentConfirmed) {
+        try {
+          await releaseHostedReservation();
+        } catch (releaseError) {
+          reservationCleanupConfirmed = false;
+          console.error(
+            "[create-recording] hosted allowance could not be released after row creation failed",
+            releaseError,
+          );
+        }
       }
       const cleanupConfirmed =
         recordingAbsentConfirmed && reservationCleanupConfirmed;

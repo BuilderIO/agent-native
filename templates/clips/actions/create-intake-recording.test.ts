@@ -5,7 +5,10 @@ const mocks = vi.hoisted(() => ({
   claim: vi.fn(),
   release: vi.fn(),
   create: vi.fn(),
-  trash: vi.fn(),
+  abandonRecordingStart: vi.fn(),
+  abandonIntake: vi.fn(),
+  attach: vi.fn(),
+  saveBugReportContext: vi.fn(),
   findSession: vi.fn(),
   findRecoverable: vi.fn(),
 }));
@@ -18,8 +21,8 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: async (_context: unknown, run: () => unknown) => run(),
 }));
 vi.mock("../server/lib/clip-intake.js", () => ({
-  abandonClipIntake: vi.fn(),
-  attachClipIntakeRecording: vi.fn(),
+  abandonClipIntake: (...args: unknown[]) => mocks.abandonIntake(...args),
+  attachClipIntakeRecording: (...args: unknown[]) => mocks.attach(...args),
   claimClipIntakeRecording: (...args: unknown[]) => mocks.claim(...args),
   findClipIntakeSession: (...args: unknown[]) => mocks.findSession(...args),
   findRecoverableClipIntakeRecording: (...args: unknown[]) =>
@@ -33,10 +36,14 @@ vi.mock("./create-recording.js", () => ({
   default: { run: (...args: unknown[]) => mocks.create(...args) },
 }));
 vi.mock("./save-bug-report-context.js", () => ({
-  default: { run: vi.fn() },
+  default: {
+    run: (...args: unknown[]) => mocks.saveBugReportContext(...args),
+  },
 }));
-vi.mock("./trash-recording.js", () => ({
-  default: { run: (...args: unknown[]) => mocks.trash(...args) },
+vi.mock("./abandon-recording-start.js", () => ({
+  default: {
+    run: (...args: unknown[]) => mocks.abandonRecordingStart(...args),
+  },
 }));
 
 import createIntakeRecording from "./create-intake-recording";
@@ -54,7 +61,14 @@ describe("create-intake-recording", () => {
       organizationId: "org-1",
     });
     mocks.release.mockResolvedValue(undefined);
-    mocks.trash.mockResolvedValue({ id: "rec-1", skipped: false });
+    mocks.abandonRecordingStart.mockResolvedValue({
+      id: "rec-1",
+      trashedAt: "2026-10-20T10:00:00.000Z",
+      skipped: false,
+    });
+    mocks.abandonIntake.mockResolvedValue(undefined);
+    mocks.attach.mockResolvedValue(undefined);
+    mocks.saveBugReportContext.mockResolvedValue(undefined);
     mocks.findSession.mockResolvedValue(null);
     mocks.findRecoverable.mockResolvedValue(null);
   });
@@ -93,17 +107,17 @@ describe("create-intake-recording", () => {
     });
     expect(failure).not.toHaveProperty("details.recordingId");
 
-    expect(mocks.trash).toHaveBeenCalledWith(
-      { id: "rec-1", skipIfReady: true },
+    expect(mocks.abandonRecordingStart).toHaveBeenCalledWith(
+      { id: "rec-1" },
       {
         caller: "http",
         userEmail: "owner@example.com",
         orgId: "org-1",
       },
     );
-    expect(mocks.trash.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.release.mock.invocationCallOrder[0],
-    );
+    expect(
+      mocks.abandonRecordingStart.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.release.mock.invocationCallOrder[0]);
   });
 
   it("keeps the intake claimed if the failed row cannot be trashed", async () => {
@@ -118,7 +132,7 @@ describe("create-intake-recording", () => {
         },
       }),
     );
-    mocks.trash.mockRejectedValue(new Error("cleanup failed"));
+    mocks.abandonRecordingStart.mockRejectedValue(new Error("cleanup failed"));
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(
@@ -153,7 +167,7 @@ describe("create-intake-recording", () => {
       errorCode: "hosted_storage_unavailable",
       details: { retryable: false },
     });
-    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.abandonRecordingStart).not.toHaveBeenCalled();
     expect(mocks.release).not.toHaveBeenCalled();
   });
 
@@ -180,8 +194,43 @@ describe("create-intake-recording", () => {
       errorCode: "multipart_start_failed",
       details: { retryable: false },
     });
-    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.abandonRecordingStart).not.toHaveBeenCalled();
     expect(mocks.release).not.toHaveBeenCalled();
+  });
+
+  it("releases hosted storage when bug-report context cleanup abandons a recording", async () => {
+    mocks.create.mockResolvedValue({
+      id: "rec-1",
+      organizationId: "org-1",
+      status: "uploading",
+      uploadMode: "buffered",
+    });
+    mocks.saveBugReportContext.mockRejectedValueOnce(
+      new Error("context store unavailable"),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      action.run({
+        intakeId: "intake-id-long-enough",
+        intakeToken: "token",
+        recordingPlatform: "web",
+        bugReport: { severity: "normal" },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "intake_context_unavailable",
+      statusCode: 503,
+    });
+
+    expect(mocks.abandonRecordingStart).toHaveBeenCalledWith(
+      { id: "rec-1" },
+      {
+        caller: "http",
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+      },
+    );
+    expect(mocks.abandonIntake).toHaveBeenCalledWith("intake-id-long-enough");
   });
 
   it("reopens an intake when create confirms no recording side effects", async () => {
@@ -204,7 +253,7 @@ describe("create-intake-recording", () => {
       statusCode: 503,
       details: { retryable: true },
     });
-    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.abandonRecordingStart).not.toHaveBeenCalled();
     expect(mocks.release).toHaveBeenCalledWith("intake-id-long-enough");
   });
 
@@ -238,7 +287,7 @@ describe("create-intake-recording", () => {
         intakeClaimReleased: false,
       },
     });
-    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(mocks.abandonRecordingStart).not.toHaveBeenCalled();
     expect(mocks.release).toHaveBeenCalledWith("intake-id-long-enough");
   });
 

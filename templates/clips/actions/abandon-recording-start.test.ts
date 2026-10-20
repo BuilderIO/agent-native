@@ -4,9 +4,13 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(async () => {}),
   releaseHostedClipRecording: vi.fn(async () => ({ released: true })),
   trashRecording: vi.fn(),
-  authUserId: "user-1" as string | null,
-  recording: { storageMode: "hosted" as string | null } as {
+  callerEmail: "owner@example.com" as string | null,
+  recording: {
+    storageMode: "hosted",
+    ownerEmail: "owner@example.com",
+  } as {
     storageMode: string | null;
+    ownerEmail: string | null;
   } | null,
 }));
 
@@ -15,10 +19,6 @@ vi.mock("@agent-native/core/action", () => ({
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
   },
-}));
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestContext: () =>
-    mocks.authUserId ? { authUserId: mocks.authUserId } : null,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mocks.assertAccess(...args),
@@ -35,8 +35,15 @@ vi.mock("../server/db/index.js", () => ({
     }),
   }),
   schema: {
-    recordings: { id: "recordings.id", storageMode: "recordings.storageMode" },
+    recordings: {
+      id: "recordings.id",
+      storageMode: "recordings.storageMode",
+      ownerEmail: "recordings.ownerEmail",
+    },
   },
+}));
+vi.mock("../server/lib/recordings.js", () => ({
+  getCurrentOwnerEmail: () => mocks.callerEmail,
 }));
 vi.mock("../server/lib/video-storage.js", () => ({
   releaseHostedClipRecording: (...args: unknown[]) =>
@@ -51,8 +58,11 @@ import abandonRecordingStart from "./abandon-recording-start";
 describe("abandon-recording-start", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.authUserId = "user-1";
-    mocks.recording = { storageMode: "hosted" };
+    mocks.callerEmail = "owner@example.com";
+    mocks.recording = {
+      storageMode: "hosted",
+      ownerEmail: "owner@example.com",
+    };
     mocks.trashRecording.mockResolvedValue({
       id: "rec-1",
       trashedAt: "2026-10-20T10:00:00.000Z",
@@ -78,8 +88,22 @@ describe("abandon-recording-start", () => {
     );
     expect(mocks.releaseHostedClipRecording).toHaveBeenCalledWith({
       recordingId: "rec-1",
-      userId: "user-1",
+      ownerEmail: "owner@example.com",
     });
+  });
+
+  it("does not let another editor discard the owner's recording start", async () => {
+    mocks.callerEmail = "collaborator@example.com";
+    const action = abandonRecordingStart as unknown as {
+      run: (args: Record<string, unknown>) => Promise<unknown>;
+    };
+
+    await expect(action.run({ id: "rec-1" })).rejects.toMatchObject({
+      errorCode: "recording_owner_mismatch",
+      statusCode: 403,
+    });
+    expect(mocks.trashRecording).not.toHaveBeenCalled();
+    expect(mocks.releaseHostedClipRecording).not.toHaveBeenCalled();
   });
 
   it("keeps the hosted allowance when upload finalization won the race", async () => {
@@ -102,7 +126,10 @@ describe("abandon-recording-start", () => {
   });
 
   it("does not release a hosted allowance for recordings on user storage", async () => {
-    mocks.recording = { storageMode: "own" };
+    mocks.recording = {
+      storageMode: "own",
+      ownerEmail: "owner@example.com",
+    };
     const action = abandonRecordingStart as unknown as {
       run: (
         args: Record<string, unknown>,

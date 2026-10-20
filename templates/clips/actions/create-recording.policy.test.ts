@@ -11,6 +11,7 @@ const calls = vi.hoisted(() => ({
   uploadProvider: vi.fn(async () => null),
   captureError: vi.fn(),
   releaseReservation: vi.fn(),
+  getAllowance: vi.fn(),
   writeState: vi.fn(async () => {}),
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
@@ -90,6 +91,8 @@ vi.mock("./lib/recording-scope.js", () => ({
 }));
 vi.mock("../server/lib/video-storage.js", () => ({
   allowsSqlRecordingChunkScratch: () => calls.bufferedFallbackAvailable,
+  getHostedClipRecordingAllowance: (...args: unknown[]) =>
+    calls.getAllowance(...args),
   resolveClipsVideoStorage: (...args: unknown[]) =>
     calls.resolveStorage(...args),
   releaseHostedClipRecording: (...args: unknown[]) =>
@@ -112,6 +115,7 @@ describe("create-recording policy", () => {
     vi.clearAllMocks();
     calls.insert.mockResolvedValue(undefined);
     calls.findById.mockResolvedValue([]);
+    calls.getAllowance.mockResolvedValue(null);
     calls.update.mockResolvedValue(undefined);
     calls.snapshot.mockResolvedValue(false);
     calls.requireOrgAccess.mockResolvedValue({ organizationId: "org-1" });
@@ -301,8 +305,9 @@ describe("create-recording policy", () => {
     expect(calls.writeState).not.toHaveBeenCalled();
   });
 
-  it("keeps cleanup unconfirmed when storage resolution may have reserved hosted storage", async () => {
+  it("releases a confirmed hosted reservation when storage resolution fails", async () => {
     calls.authUserId = "user-1";
+    calls.getAllowance.mockResolvedValueOnce({ status: "reserved" });
     calls.resolveStorage.mockRejectedValueOnce(
       new Error("storage resolution acknowledgement lost"),
     );
@@ -323,14 +328,61 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "storage_status_unavailable",
       statusCode: 503,
-      details: { retryable: false, cleanupConfirmed: false },
+      details: { retryable: true, cleanupConfirmed: true },
     });
 
-    expect(calls.releaseReservation).not.toHaveBeenCalled();
+    expect(calls.getAllowance).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "user-1",
+    });
+    expect(calls.releaseReservation).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "user-1",
+    });
     expect(calls.insert).not.toHaveBeenCalled();
   });
 
+  it("keeps storage cleanup unconfirmed when a hosted allowance is already consumed", async () => {
+    calls.authUserId = "user-1";
+    calls.getAllowance.mockResolvedValueOnce({ status: "consumed" });
+    calls.resolveStorage.mockRejectedValueOnce(
+      new Error("storage resolution acknowledgement lost"),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "storage_status_unavailable",
+      details: {
+        recordingId: "rec-1",
+        retryable: false,
+        cleanupConfirmed: false,
+      },
+    });
+    expect(calls.releaseReservation).not.toHaveBeenCalled();
+  });
+
   it("does not retry an insert failure when a row may have committed", async () => {
+    calls.authUserId = "user-1";
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: null,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: true,
+    });
     calls.insert.mockRejectedValueOnce(
       new Error("insert acknowledgement lost"),
     );
@@ -357,6 +409,42 @@ describe("create-recording policy", () => {
       },
     });
     expect(calls.updateSet).not.toHaveBeenCalled();
+    expect(calls.releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it("releases a hosted reservation after confirming an insert left no row", async () => {
+    calls.authUserId = "user-1";
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider: null,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: true,
+    });
+    calls.insert.mockRejectedValueOnce(new Error("recording insert failed"));
+    calls.findById.mockResolvedValueOnce([]);
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "recording_create_failed",
+      details: { retryable: true, cleanupConfirmed: true },
+    });
+    expect(calls.releaseReservation).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "user-1",
+    });
   });
 
   it("does not retry permanent video storage configuration errors", async () => {

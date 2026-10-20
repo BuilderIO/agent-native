@@ -17,10 +17,10 @@ import {
 import { getResumableSession } from "../server/lib/resumable-session.js";
 import { BUG_REPORT_SEVERITIES } from "../shared/bug-report.js";
 import { buildClipIntakeUrl } from "../shared/clip-intake.js";
+import abandonRecordingStart from "./abandon-recording-start.js";
 import createRecording from "./create-recording.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import saveBugReportContext from "./save-bug-report-context.js";
-import trashRecording from "./trash-recording.js";
 
 const bugReportSchema = z.object({
   projectId: z.string().max(120).nullish(),
@@ -117,15 +117,15 @@ export default defineAction({
     }
 
     const { intakeId, intakeToken, bugReport, ...recordingArgs } = args;
-    const trashRecordingRow = async (recordingId: string) =>
+    const abandonRecordingRow = async (recordingId: string) =>
       await runWithRequestContext(
         {
           userEmail: claimed.ownerEmail,
           orgId: claimed.organizationId,
         },
         () =>
-          trashRecording.run(
-            { id: recordingId, skipIfReady: true },
+          abandonRecordingStart.run(
+            { id: recordingId },
             {
               caller: "http",
               userEmail: claimed.ownerEmail,
@@ -180,7 +180,7 @@ export default defineAction({
         if (typeof recordingId === "string") {
           if (cleanupConfirmed) {
             try {
-              const cleanup = await trashRecordingRow(recordingId);
+              const cleanup = await abandonRecordingRow(recordingId);
               cleanupConfirmed = cleanup.skipped !== true;
               if (!cleanupConfirmed) details.retryable = false;
             } catch (cleanupError) {
@@ -230,7 +230,7 @@ export default defineAction({
       await abandonClipIntake(intakeId).catch((cleanupError: unknown) => {
         console.warn("[clip-intake] session cleanup failed:", cleanupError);
       });
-      await trashRecordingRow(created.id).catch((cleanupError: unknown) => {
+      await abandonRecordingRow(created.id).catch((cleanupError: unknown) => {
         console.warn("[clip-intake] recording cleanup failed:", cleanupError);
       });
     };
