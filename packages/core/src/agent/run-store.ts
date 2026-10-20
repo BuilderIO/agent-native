@@ -3773,16 +3773,15 @@ export async function insertRunEvents(
 ): Promise<void> {
   if (events.length === 0) return;
   await ensureRunTables();
-  await withFencedExecutionWrite(
-    async (tx) => {
-      for (
-        let start = 0;
-        start < events.length;
-        start += RUN_EVENT_BATCH_ROWS
-      ) {
-        const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
-        await tx.execute({
-          sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+  const writeBatch = async (tx: DbExec) => {
+    for (let start = 0; start < events.length; start += RUN_EVENT_BATCH_ROWS) {
+      const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
+      const storedChunk = chunk.map((event) => ({
+        ...event,
+        eventData: persistedRunEventData(event.eventData),
+      }));
+      await tx.execute({
+        sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
         SELECT v.run_id, v.seq, v.event_at, v.event_data
         FROM (VALUES ${chunk
           .map(
@@ -3795,18 +3794,42 @@ export async function insertRunEvents(
           WHERE id = ? AND status <> 'running'
         )
         ON CONFLICT (run_id, seq) DO NOTHING`,
-          args: [
-            ...chunk.flatMap(({ seq, eventAt, eventData }) => [
-              runId,
-              seq,
-              eventAt,
-              persistedRunEventData(eventData),
-            ]),
+        args: [
+          ...storedChunk.flatMap(({ seq, eventAt, eventData }) => [
             runId,
-          ],
-        });
+            seq,
+            eventAt,
+            eventData,
+          ]),
+          runId,
+        ],
+      });
+      const persisted = await tx.execute({
+        sql: `SELECT seq, event_at, event_data
+                FROM agent_run_events
+                WHERE run_id = ? AND seq IN (${chunk.map(() => "?").join(", ")})`,
+        args: [runId, ...chunk.map(({ seq }) => seq)],
+      });
+      const persistedBySeq = new Map(
+        persisted.rows.map((row) => [Number(row.seq), row]),
+      );
+      for (const event of storedChunk) {
+        const row = persistedBySeq.get(event.seq);
+        if (
+          !row ||
+          Number(row.event_at) !== event.eventAt ||
+          String(row.event_data) !== event.eventData
+        ) {
+          throw new AgentRunEventNotPersistedError(runId, event.seq);
+        }
       }
-    },
+    }
+  };
+  await withFencedExecutionWrite(
+    (tx) =>
+      currentExecutionFence()
+        ? writeBatch(tx)
+        : (tx.transaction?.(writeBatch) ?? writeBatch(tx)),
     { runId },
   );
 }

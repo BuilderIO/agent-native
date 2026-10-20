@@ -40,6 +40,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 }));
 
 const {
+  AgentRunEventNotPersistedError,
   beginAgentExecutionStep,
   claimBackgroundRun,
   claimTaskExecutionLease,
@@ -48,6 +49,7 @@ const {
   completeAgentExecutionStep,
   finalizeClaimedBackgroundRunFailure,
   getLastTerminalRunEvent,
+  insertRunEvents,
   markAgentExecutionStepDispatched,
   markRunAbortedAtSafeBoundary,
   recordLateAgentExecutionStepOutcome,
@@ -530,5 +532,60 @@ describe("task execution leases", () => {
       [threadId],
     );
     expect(cleared.rows).toHaveLength(0);
+  });
+});
+
+describe("run event batches", () => {
+  it("requires every batch row to be durably present and match on retry", async () => {
+    const runId = "run-event-batch-persistence";
+    await insertRun(runId, runId, runId);
+    const events = [
+      {
+        seq: 0,
+        eventAt: 1_000,
+        eventData: '{"type":"text","text":"first"}',
+      },
+      {
+        seq: 1,
+        eventAt: 1_001,
+        eventData: '{"type":"text","text":"second"}',
+      },
+    ];
+
+    await insertRunEvents(runId, events);
+    await insertRunEvents(runId, events);
+    await expect(
+      insertRunEvents(runId, [
+        { ...events[0]!, eventData: '{"type":"text","text":"changed"}' },
+        {
+          seq: 2,
+          eventAt: 1_002,
+          eventData: '{"type":"text","text":"partial insert"}',
+        },
+      ]),
+    ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id = ?",
+      [runId],
+    );
+    await expect(
+      insertRunEvents(runId, [
+        {
+          seq: 2,
+          eventAt: 1_002,
+          eventData: '{"type":"text","text":"late"}',
+        },
+      ]),
+    ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+
+    const rows = await pglite.query(
+      "SELECT seq, event_at, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(rows.rows).toEqual([
+      { seq: 0, event_at: 1_000, event_data: events[0]!.eventData },
+      { seq: 1, event_at: 1_001, event_data: events[1]!.eventData },
+    ]);
   });
 });

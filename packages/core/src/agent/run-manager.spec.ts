@@ -5770,6 +5770,46 @@ describe("run manager soft timeout", () => {
     ]);
   });
 
+  it("does not publish a batch whose persistence failed", async () => {
+    const persistenceError = new Error("batch event was not persisted");
+    const priorInsertRunEvents = vi
+      .mocked(insertRunEvents)
+      .getMockImplementation();
+    vi.mocked(insertRunEvents).mockImplementation(async () => {
+      throw persistenceError;
+    });
+    const published: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-batch-persistence-failed",
+        "thread-batch-persistence-failed",
+        async (send) => {
+          send({ type: "text", text: "not persisted" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add(({ event }) => published.push(event));
+
+      await expect(run.finalized).rejects.toThrow(
+        "batch event was not persisted",
+      );
+      expect(published).not.toContainEqual({
+        type: "text",
+        text: "not persisted",
+      });
+      expect(run.events).not.toContainEqual({
+        seq: 0,
+        event: { type: "text", text: "not persisted" },
+      });
+    } finally {
+      if (priorInsertRunEvents) {
+        vi.mocked(insertRunEvents).mockImplementation(priorInsertRunEvents);
+      }
+    }
+  });
+
   it("keeps events emitted during an in-flight batch in a later durable write", async () => {
     let markFirstWriteStarted!: () => void;
     let markSecondEventQueued!: () => void;

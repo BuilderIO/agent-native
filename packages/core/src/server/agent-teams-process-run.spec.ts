@@ -36,6 +36,7 @@ let failTaskProjectionFor: {
 let beforeNextAppStateCas: (() => void) | null = null;
 let afterContinuationRequeueCommit: ((taskId: string) => Promise<void>) | null =
   null;
+let afterNextAttemptCommit: (() => Promise<void>) | null = null;
 let transactionTail: Promise<void> = Promise.resolve();
 const transactionContext = new AsyncLocalStorage<{ aborted: boolean }>();
 function affected(n: number) {
@@ -354,6 +355,11 @@ const queueDb = {
       throw error;
     } finally {
       releaseTransaction();
+    }
+    if (afterNextAttemptCommit) {
+      const afterCommit = afterNextAttemptCommit;
+      afterNextAttemptCommit = null;
+      await afterCommit();
     }
     const requeuedRow = queueRows.find(
       (row) => row.status === "queued" && row.continuation_count > 0,
@@ -872,6 +878,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     failTaskProjectionFor = null;
     beforeNextAppStateCas = null;
     afterContinuationRequeueCommit = null;
+    afterNextAttemptCommit = null;
     transactionTail = Promise.resolve();
     appState.clear();
     threadData.clear();
@@ -2972,6 +2979,39 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       status: "errored",
       terminalProgressStatus: "cancelled",
     });
+  });
+
+  it("rechecks Stop intent after run registration and before model dispatch", async () => {
+    const taskId = "stop-before-run-registration";
+    await seedTask(taskId);
+    afterNextAttemptCommit = async () => {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+        ),
+      ).resolves.toEqual({ ok: true });
+    };
+
+    await expect(
+      processAgentTeamRun({
+        taskId,
+        mode: "start",
+        resolveConfig: async () => resolveConfig(),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(abortRunDurablyMock).toHaveBeenCalledWith(
+      `run-task-${taskId}-a1-c0`,
+      "user",
+    );
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+      "failed",
+    );
   });
 
   it("keeps Stop authoritative when the run finalizer races its abort", async () => {

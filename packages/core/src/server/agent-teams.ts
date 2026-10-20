@@ -2629,6 +2629,31 @@ export async function processAgentTeamRun(
           task.threadId,
           async (send, signal, control) => {
             workerExecutionFence = currentExecutionFence();
+            const dispatchReady = await withCurrentAgentTeamRunAttempt(
+              opts.taskId,
+              claimedAttempts,
+              async () => {
+                const currentTask = await loadTask(opts.taskId);
+                return {
+                  allowed:
+                    currentTask?.status === "running" &&
+                    currentTask.stopRequestedAt === undefined,
+                  stopRequested: currentTask?.stopRequestedAt !== undefined,
+                  stopReason: currentTask?.stopRequestedReason,
+                };
+              },
+            );
+            if (!dispatchReady.current || !dispatchReady.value.allowed) {
+              const currentTask = await loadTask(opts.taskId);
+              const reason =
+                dispatchReady.current && dispatchReady.value.stopRequested
+                  ? (dispatchReady.value.stopReason ?? "user")
+                  : currentTask && isCancelledAgentTask(currentTask)
+                    ? (currentTask?.stopRequestedReason ?? "user")
+                    : "superseded";
+              markLeaseLost(reason);
+              return;
+            }
             const wrappedSend = (event: AgentChatEvent) => {
               if (leaseLost) return Promise.resolve();
               const persistence = send(event);
