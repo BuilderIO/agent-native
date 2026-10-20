@@ -684,6 +684,14 @@ export default function PromptPopover({
   const showCreativeContextPicker =
     Boolean(onCreativeContextChange) &&
     (creativeContextsLoading || creativeContexts.length > 0);
+  const creationModeToggle =
+    creationMode && onCreationModeChange ? (
+      <CreationModeToggle
+        mode={creationMode}
+        onChange={onCreationModeChange}
+        disabled={loading || uploading || submitting}
+      />
+    ) : null;
   const Composer = composerComponent ?? LazyPromptComposer;
   const promptComposer = (
     <Composer
@@ -729,25 +737,19 @@ export default function PromptPopover({
           : `seed:${initialTextKey ?? 0}`
       }
       contextMenuItems={contextMenuItems ?? []}
+      // Inside the composer so an attached setup card above meets the box directly.
+      toolbarSlot={inline ? creationModeToggle : undefined}
     />
   );
 
   const content = (
     <>
-      {(!inline || creationMode) && (
+      {!inline && (
         <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-          {!inline && (
-            <span className="text-sm font-medium text-foreground/90">
-              {title}
-            </span>
-          )}
-          {creationMode && onCreationModeChange ? (
-            <CreationModeToggle
-              mode={creationMode}
-              onChange={onCreationModeChange}
-              disabled={loading || uploading || submitting}
-            />
-          ) : null}
+          <span className="text-sm font-medium text-foreground/90">
+            {title}
+          </span>
+          {creationModeToggle}
         </div>
       )}
 
