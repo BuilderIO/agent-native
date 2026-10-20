@@ -67,9 +67,9 @@ async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return values;
 }
 
-function userMessage(text: string): AgentMessage {
+function userMessage(text: string, id = "user-1"): AgentMessage {
   return {
-    id: "user-1",
+    id,
     role: "user",
     parts: [{ type: "text", text }],
   };
@@ -3950,11 +3950,11 @@ describe("createAgentKitProtocolAdapter", () => {
 
     const first = await transport.startRun({
       threadId: "thread-1",
-      messages: [userMessage("Start")],
+      messages: [userMessage("Start", "user-start")],
     });
     const replay = await transport.startRun({
       threadId: "thread-1",
-      messages: [userMessage("Replay")],
+      messages: [userMessage("Replay", "user-replay")],
     });
 
     expect(replay.runId).toBe(first.runId);
@@ -3988,12 +3988,12 @@ describe("createAgentKitProtocolAdapter", () => {
 
     await transport.startRun({
       threadId: "thread-1",
-      messages: [userMessage("Start")],
+      messages: [userMessage("Start", "user-start")],
     });
     await expect(
       transport.startRun({
         threadId: "thread-1",
-        messages: [userMessage("Different turn")],
+        messages: [userMessage("Different turn", "user-different")],
       }),
     ).rejects.toThrow("Duplicate AgentKit run id: runtime-run-duplicate");
     await transport.dispose();
