@@ -53,7 +53,9 @@ const WATCH_RENEW_CLAIM_MS = 10 * 60_000;
 // pass keeps them short-lived without a per-request cost. The throttle is
 // per process; a cold instance may run one extra pass, which is idempotent.
 const INBOX_RETENTION_INTERVAL_MS = 60 * 60_000;
-let lastInboxRetentionAt = 0;
+// A failed pass retries after this short backoff instead of waiting out the hour.
+const INBOX_RETENTION_RETRY_MS = 5 * 60_000;
+let nextInboxRetentionAt = 0;
 const JOB_PROCESSING_LEASE_GRACE_MS = 30_000;
 const MAX_DUE_JOBS_PER_TICK = 20;
 const MAX_AUTOMATION_ACCOUNTS_PER_TICK = 5;
@@ -562,12 +564,17 @@ export default () => {
         "Inbox retention did not start before the deadline.",
       );
     }
-    if (Date.now() - lastInboxRetentionAt < INBOX_RETENTION_INTERVAL_MS) return;
-    lastInboxRetentionAt = Date.now();
-    const summary = await runInboxRetention({
-      resolveConnectedAccounts: getConnectedAccountsWithErrors,
-    });
-    console.log("[mail-jobs] inbox retention", summary);
+    if (Date.now() < nextInboxRetentionAt) return;
+    try {
+      const summary = await runInboxRetention({
+        resolveConnectedAccounts: getConnectedAccountsWithErrors,
+      });
+      nextInboxRetentionAt = Date.now() + INBOX_RETENTION_INTERVAL_MS;
+      console.log("[mail-jobs] inbox retention", summary);
+    } catch (error) {
+      nextInboxRetentionAt = Date.now() + INBOX_RETENTION_RETRY_MS;
+      throw error;
+    }
   });
 
   registerEvent({

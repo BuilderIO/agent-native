@@ -45,6 +45,8 @@ export type InboxRetentionSummary = {
   ruleOwners: number;
   pairsReset: number;
   pairsSkippedClaimed: number;
+  // Purge and cap trim skipped because a live sync held the claim.
+  pairsSkippedTrim: number;
   // Claimed or synced between the scan and the clear.
   pairsSkippedActive: number;
   pairsSkippedUnverified: number;
@@ -81,6 +83,47 @@ export async function readRetentionPairs(
     if (rows.length < RETENTION_PAGE_SIZE) return pairs;
     cursor = String((rows as any[])[rows.length - 1].id);
   }
+}
+
+// Purges archived rows and applies the cap trim under the account's sync row
+// lock, the same fence a sync's writes take. Returns null when a live sync
+// holds the claim: a sync's archive or hydrate can move rows across the cap
+// boundary, so its rows are left for the next pass.
+async function trimPair(
+  pair: RetentionPair,
+  now: number,
+): Promise<{ archived: number; capped: number } | null> {
+  return getDb().transaction(async (tx: any) => {
+    const [account] = await tx
+      .select({
+        syncClaimId: schema.mailSyncAccounts.syncClaimId,
+        syncClaimedAt: schema.mailSyncAccounts.syncClaimedAt,
+      })
+      .from(schema.mailSyncAccounts)
+      .where(eq(schema.mailSyncAccounts.id, pair.syncId))
+      .for("update")
+      .limit(1);
+    if (!account) return null;
+    if (
+      account.syncClaimId != null &&
+      (account.syncClaimedAt ?? 0) >= now - STALE_CLAIM_MS
+    ) {
+      return null;
+    }
+    const archived = await purgeArchivedInboxThreadRows(
+      pair.ownerEmail,
+      pair.accountEmail,
+      now,
+      tx,
+    );
+    const capped = await trimInboxThreadRows(
+      pair.ownerEmail,
+      pair.accountEmail,
+      INBOX_THREAD_CAP,
+      tx,
+    );
+    return { archived, capped };
+  });
 }
 
 // Clears one account's sync progress and its thread rows in one transaction.
@@ -159,24 +202,21 @@ export async function runInboxRetention(opts: {
     ruleOwners: 0,
     pairsReset: 0,
     pairsSkippedClaimed: 0,
+    pairsSkippedTrim: 0,
     pairsSkippedActive: 0,
     pairsSkippedUnverified: 0,
   };
 
   const cappedOwners = new Set<string>();
   for (const pair of pairs) {
-    summary.archivedRowsRemoved += await purgeArchivedInboxThreadRows(
-      pair.ownerEmail,
-      pair.accountEmail,
-      now,
-    );
-    const capped = await trimInboxThreadRows(
-      pair.ownerEmail,
-      pair.accountEmail,
-      INBOX_THREAD_CAP,
-    );
-    if (capped > 0) {
-      summary.capRowsRemoved += capped;
+    const trimmed = await trimPair(pair, now);
+    if (trimmed === null) {
+      summary.pairsSkippedTrim++;
+      continue;
+    }
+    summary.archivedRowsRemoved += trimmed.archived;
+    if (trimmed.capped > 0) {
+      summary.capRowsRemoved += trimmed.capped;
       cappedOwners.add(pair.ownerEmail);
     }
   }

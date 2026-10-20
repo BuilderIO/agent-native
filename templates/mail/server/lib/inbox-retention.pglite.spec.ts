@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// The first PGlite boot can exceed the default hook timeout when the whole
+// suite runs in parallel.
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 60_000 });
+
 const NOW = Date.UTC(2026, 9, 20);
 const HOUR = 60 * 60_000;
 const DAY = 24 * HOUR;
@@ -423,5 +427,69 @@ describe("runInboxRetention (PGlite)", () => {
 
     // The same pair cleared for a missing grant has no inactivity condition.
     expect(await retention.clearPair(scanned, NOW, false)).toBe(3);
+  });
+  it("leaves a claimed pair's rows alone, so a concurrent archive cannot push valid rows over the cap", async () => {
+    const owner = "busy@example.com";
+    const account = "busy-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      claimedAt: NOW - 1_000,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await insertThreads(
+      Array.from({ length: 2_050 }, (_, i) =>
+        thread(owner, account, `busy-${i}`, 1_000_000 + i, true),
+      ),
+    );
+    // The live sync archives the 100 newest threads mid-pass.
+    await exec.execute({
+      sql: `UPDATE mail_inbox_threads SET in_inbox = 0, updated_at = $1
+        WHERE owner_email = $2 AND latest_date >= $3`,
+      args: [NOW, owner, 1_000_000 + 1_950],
+    });
+
+    const during = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(during).toMatchObject({ capRowsRemoved: 0, pairsSkippedTrim: 1 });
+    expect(await countRows(owner, account, 1)).toBe(1_950);
+
+    await stores.patchSyncAccount(owner, account, {
+      syncClaimId: null,
+      syncClaimedAt: null,
+    });
+    const after = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(after).toMatchObject({ capRowsRemoved: 0, pairsSkippedTrim: 0 });
+    expect(await countRows(owner, account, 1)).toBe(1_950);
+  });
+
+  it("trims an unclaimed pair to the newest rows in one pass", async () => {
+    const owner = "over@example.com";
+    const account = "over-acct@example.com";
+    await seedAccount(owner, account, {
+      lastSyncedAt: NOW - HOUR,
+      inboxRows: 0,
+    });
+    await addGoogleToken(owner, account, "{}");
+    await insertThreads(
+      Array.from({ length: 2_030 }, (_, i) =>
+        thread(owner, account, `over-${i}`, 1_000_000 + i, true),
+      ),
+    );
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+    });
+
+    expect(summary).toMatchObject({ capRowsRemoved: 30, capOwners: 1 });
+    expect(await countRows(owner, account, 1)).toBe(2_000);
   });
 });

@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   shouldResurfaceSnoozedThread: vi.fn(),
   getSnoozeThreadId: vi.fn(),
   getDb: vi.fn(),
+  runInboxRetention: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/db", async (importOriginal) => {
@@ -67,7 +68,11 @@ vi.mock("../lib/ai-filter-rule-undo.js", () => ({
 vi.mock("../lib/automation-engine.js", () => ({
   processAutomationsForAccount: mocks.processAutomationsForAccount,
 }));
+vi.mock("../lib/inbox-retention.js", () => ({
+  runInboxRetention: mocks.runInboxRetention,
+}));
 vi.mock("../lib/google-auth.js", () => ({
+  getConnectedAccountsWithErrors: vi.fn(),
   getClientFromAccount: mocks.getClientFromAccount,
   startWatch: mocks.startWatch,
 }));
@@ -596,6 +601,35 @@ describe("Mail background job scheduling", () => {
         "COALESCE(mail_sync_accounts.status, 'idle') <> 'needs_reauth'",
       );
     }
+  });
+
+  it("retries a failed inbox retention pass after a short backoff, not the hourly interval", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    mocks.runInboxRetention
+      .mockRejectedValueOnce(new Error("retention failed"))
+      .mockResolvedValue({ pairs: 0 });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const plugin = await loadMailJobsPlugin();
+    plugin();
+    const handler = sweepHandlers.get("mail-inbox-retention")!;
+    const context = { deadlineAt: 10_000_000 };
+
+    await expect(handler(context)).rejects.toThrow("retention failed");
+    now.mockReturnValue(1_000_000 + 60_000);
+    await handler(context);
+    expect(mocks.runInboxRetention).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(1_000_000 + 6 * 60_000);
+    await handler(context);
+    expect(mocks.runInboxRetention).toHaveBeenCalledTimes(2);
+
+    now.mockReturnValue(1_000_000 + 30 * 60_000);
+    await handler(context);
+    expect(mocks.runInboxRetention).toHaveBeenCalledTimes(2);
+
+    now.mockReturnValue(1_000_000 + 70 * 60_000);
+    await handler(context);
+    expect(mocks.runInboxRetention).toHaveBeenCalledTimes(3);
   });
 
   it("caps the durable AI-filter backfill at the shared deadline and 45 seconds", async () => {

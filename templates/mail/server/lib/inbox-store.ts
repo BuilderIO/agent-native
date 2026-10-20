@@ -817,48 +817,33 @@ export async function purgeArchivedInboxThreadRows(
 }
 
 // Keeps the INBOX_THREAD_CAP newest in-inbox rows for one owner+account and
-// returns how many were deleted. The boundary row is found with an
-// index-friendly OFFSET, then in-inbox rows strictly older than it under
-// (latest_date, id) are deleted.
+// returns how many were deleted: the in-inbox rows past the first `keep` under
+// (latest_date, id) descending.
 export async function trimInboxThreadRows(
   ownerEmail: string,
   accountEmail: string,
   keep: number = INBOX_THREAD_CAP,
   db: any = getDb(),
 ): Promise<number> {
-  const scope = and(
-    eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
-    eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
-    eq(schema.mailInboxThreads.inInbox, 1),
-  );
-  const [boundary] = await db
-    .select({
-      latestDate: schema.mailInboxThreads.latestDate,
-      id: schema.mailInboxThreads.id,
-    })
+  // One statement, so the overflow set and the delete see the same rows.
+  const overflow = db
+    .select({ id: schema.mailInboxThreads.id })
     .from(schema.mailInboxThreads)
-    .where(scope)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 1),
+      ),
+    )
     .orderBy(
       desc(schema.mailInboxThreads.latestDate),
       desc(schema.mailInboxThreads.id),
     )
-    .limit(1)
-    .offset(keep - 1);
-  if (!boundary) return 0;
+    .offset(keep);
   const deleted = await db
     .delete(schema.mailInboxThreads)
-    .where(
-      and(
-        scope,
-        or(
-          lt(schema.mailInboxThreads.latestDate, boundary.latestDate),
-          and(
-            eq(schema.mailInboxThreads.latestDate, boundary.latestDate),
-            lt(schema.mailInboxThreads.id, boundary.id),
-          ),
-        ),
-      ),
-    )
+    .where(inArray(schema.mailInboxThreads.id, overflow))
     .returning({ id: schema.mailInboxThreads.id });
   return deleted.length;
 }
