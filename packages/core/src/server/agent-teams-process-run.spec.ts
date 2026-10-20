@@ -2900,7 +2900,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       ok: true,
     });
 
-    expect(abortRunMock).toHaveBeenCalledWith("run-task-t6-a0-c0", "user");
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t6-a0-c0", "user", {
+      allowNotStarted: true,
+    });
     expect((await queue.getAgentTeamRunDispatchState("t6"))?.status).toBe(
       "failed",
     );
@@ -2927,18 +2929,20 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       releaseAbort = resolve;
     });
 
-    abortRunDurablyMock.mockImplementationOnce(async (runId, reason) => {
-      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
-        status: "running",
-        stopRequestedAt: expect.any(Number),
-        stopRequestedRunId: runId,
-        stopRequestedReason: reason,
-      });
-      markAbortStarted();
-      await abortGate;
-      abortRunMock(runId, reason);
-      return true;
-    });
+    abortRunDurablyMock.mockImplementationOnce(
+      async (runId, reason, options) => {
+        expect(options).toEqual({ allowNotStarted: true });
+        expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+          status: "running",
+          stopRequestedAt: expect.any(Number),
+          stopRequestedRunId: runId,
+          stopRequestedReason: reason,
+        });
+        markAbortStarted();
+        await abortGate;
+        return false;
+      },
+    );
 
     const processing = processAgentTeamRun({
       taskId,
@@ -2986,6 +2990,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
   it("rechecks Stop intent after run registration and before model dispatch", async () => {
     const taskId = "stop-before-run-registration";
     await seedTask(taskId);
+    abortRunDurablyMock.mockResolvedValueOnce(false);
     afterNextAttemptCommit = async () => {
       await expect(
         runWithRequestContext({ userEmail: OWNER }, () =>
@@ -3006,6 +3011,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunDurablyMock).toHaveBeenCalledWith(
       `run-task-${taskId}-a1-c0`,
       "user",
+      { allowNotStarted: true },
     );
     expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
       status: "errored",
@@ -3217,6 +3223,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunDurablyMock).toHaveBeenCalledWith(
       "run-task-stop-abort-persistence-failure-a0-c0",
       "user",
+      { allowNotStarted: true },
     );
     expect(
       (
@@ -3308,6 +3315,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunDurablyMock).toHaveBeenLastCalledWith(
       `run-task-${taskId}-a1-c0`,
       "user",
+      { allowNotStarted: true },
     );
     expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
       status: "errored",
@@ -3338,7 +3346,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       ok: true,
     });
 
-    expect(abortRunMock).toHaveBeenCalledWith("run-task-t7-a0-c3", "user");
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t7-a0-c3", "user", {
+      allowNotStarted: true,
+    });
     expect((await queue.getAgentTeamRunDispatchState("t7"))?.status).toBe(
       "failed",
     );
@@ -3373,6 +3383,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunMock).toHaveBeenCalledWith(
       "run-task-stop-after-reclaim-a1-c0",
       "user",
+      { allowNotStarted: true },
     );
   });
 
@@ -3396,7 +3407,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       ok: true,
     });
 
-    expect(abortRunMock).toHaveBeenCalledWith("run-task-t8-a0-c1", "user");
+    expect(abortRunMock).toHaveBeenCalledWith("run-task-t8-a0-c1", "user", {
+      allowNotStarted: true,
+    });
     expect((await queue.getAgentTeamRunDispatchState("t8"))?.status).toBe(
       "failed",
     );
@@ -3421,6 +3434,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(abortRunMock).toHaveBeenCalledWith(
       "run-task-task-ending-c1-a0-c0",
       "user",
+      { allowNotStarted: true },
     );
   });
 
@@ -3730,7 +3744,9 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       await runWithRequestContext({ userEmail: OWNER }, () =>
         stopAgentTeamBackgroundRun("run-task-remote-stop-heartbeat"),
       );
-      expect(abortRunMock).toHaveBeenCalledWith(runId, "user");
+      expect(abortRunMock).toHaveBeenCalledWith(runId, "user", {
+        allowNotStarted: true,
+      });
       expect(appState.get("agent-task:remote-stop-heartbeat")).toMatchObject({
         summary: "Task stopped.",
         terminalProgressStatus: "cancelled",

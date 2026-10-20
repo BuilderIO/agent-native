@@ -30,10 +30,26 @@ vi.mock("./run-store.js", () => ({
   AgentRunEventNotPersistedError: class AgentRunEventNotPersistedError extends Error {
     readonly terminalRun: boolean;
 
-    constructor(runId: string, seq: number, terminalRun = false) {
-      super(`Run event was not persisted: ${runId} sequence ${seq}`);
+    constructor(
+      runId: string,
+      seq: number | null,
+      terminalRun = false,
+      cause?: unknown,
+    ) {
+      const detail = cause instanceof Error ? `: ${cause.message}` : "";
+      super(
+        seq === null
+          ? `Terminal run event was not persisted: ${runId}${detail}`
+          : `Run event was not persisted: ${runId} sequence ${seq}${detail}`,
+      );
       this.name = "AgentRunEventNotPersistedError";
       this.terminalRun = terminalRun;
+      if (cause !== undefined) {
+        Object.defineProperty(this, "cause", {
+          value: cause,
+          configurable: true,
+        });
+      }
     }
   },
   TurnExecutionLeaseBusyError: class extends Error {
@@ -1766,6 +1782,17 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("allows a pre-start stop when its durable run row does not exist yet", async () => {
+    vi.mocked(markRunAborted).mockResolvedValueOnce(false);
+    vi.mocked(getRunStatus).mockResolvedValueOnce(null);
+
+    await expect(
+      abortRunDurably("run-pre-start-stop", "user", {
+        allowNotStarted: true,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("writes the turn abort marker before reporting a terminal event flush failure", async () => {
     const terminalEventError = new AgentRunEventNotPersistedError(
       "run-stop-terminal-flush",
@@ -1803,6 +1830,38 @@ describe("run manager soft timeout", () => {
     }
 
     expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
+    expect(markTurnAborted).toHaveBeenCalledWith(
+      run.threadId,
+      run.turnId,
+      "user",
+    );
+    await run.finalized;
+  });
+
+  it("writes the turn abort marker when the terminal event insert fails", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-terminal-insert",
+      null,
+      true,
+      new Error("terminal event write unavailable"),
+    );
+    const run = startRun(
+      "run-stop-terminal-insert",
+      "thread-stop-terminal-insert",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    vi.mocked(markRunAborted).mockRejectedValueOnce(terminalEventError);
+
+    await expect(abortRunAndTurnDurably(run.runId, "user")).rejects.toBe(
+      terminalEventError,
+    );
+
     expect(markTurnAborted).toHaveBeenCalledWith(
       run.threadId,
       run.turnId,

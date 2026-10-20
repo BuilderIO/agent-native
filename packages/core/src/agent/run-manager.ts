@@ -3126,6 +3126,7 @@ export function abortRun(runId: string, reason: string = "user"): boolean {
 export async function abortRunDurably(
   runId: string,
   reason: string = "user",
+  options?: { allowNotStarted?: boolean },
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
@@ -3135,6 +3136,10 @@ export async function abortRunDurably(
     if (!abortPersisted || eventFlushFailure) {
       const persistedStatus = await getRunStatus(runId);
       if (persistedStatus === null) {
+        // Agent Teams persists Stop intent before run registration.
+        // Workers recheck it before dispatch.
+        if (options?.allowNotStarted && !run && !eventFlushFailure)
+          return false;
         throw new Error(
           `Cannot confirm durable abort for missing run ${runId}`,
         );

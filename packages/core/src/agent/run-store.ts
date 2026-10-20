@@ -3423,11 +3423,18 @@ async function updateRunAborted(
     };
   });
   if (abortResult.appendTerminalEvent) {
-    await safeAppendTerminalRunEvent(
-      runId,
-      terminalEventForAbortReason(reason) as unknown as Record<string, unknown>,
-      "mark-aborted",
-    );
+    try {
+      await safeAppendTerminalRunEvent(
+        runId,
+        terminalEventForAbortReason(reason) as unknown as Record<
+          string,
+          unknown
+        >,
+        "mark-aborted",
+      );
+    } catch (error) {
+      throw new AgentRunEventNotPersistedError(runId, null, true, error);
+    }
   }
   return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
 }
@@ -3734,10 +3741,26 @@ function persistedRunEventData(
 export class AgentRunEventNotPersistedError extends Error {
   readonly terminalRun: boolean;
 
-  constructor(runId: string, seq: number, terminalRun = false) {
-    super(`Run event was not persisted: ${runId} sequence ${seq}`);
+  constructor(
+    runId: string,
+    seq: number | null,
+    terminalRun = false,
+    cause?: unknown,
+  ) {
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    super(
+      seq === null
+        ? `Terminal run event was not persisted: ${runId}${detail}`
+        : `Run event was not persisted: ${runId} sequence ${seq}${detail}`,
+    );
     this.name = "AgentRunEventNotPersistedError";
     this.terminalRun = terminalRun;
+    if (cause !== undefined) {
+      Object.defineProperty(this, "cause", {
+        value: cause,
+        configurable: true,
+      });
+    }
   }
 }
 

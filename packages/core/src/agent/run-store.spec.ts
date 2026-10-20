@@ -306,6 +306,7 @@ vi.mock("../server/capture-error.js", () => ({
 }));
 
 const {
+  AgentRunEventNotPersistedError,
   STALE_RUN_ERROR_EVENT,
   STALE_RUN_TERMINAL_REASON,
   markRunAborted,
@@ -840,10 +841,15 @@ describe("run store", () => {
       throw new Error("DB unavailable");
     };
 
-    await expect(markRunAborted("run-retry-fail")).rejects.toThrow(
-      "DB unavailable",
+    const error = await markRunAborted("run-retry-fail").catch(
+      (failure: unknown) => failure,
     );
 
+    expect(error).toBeInstanceOf(AgentRunEventNotPersistedError);
+    expect(error).toMatchObject({ terminalRun: true });
+    expect((error as Error & { cause?: unknown }).cause).toMatchObject({
+      message: "DB unavailable",
+    });
     expect(mockCaptureError).toHaveBeenCalledTimes(1);
     const [err, ctx] = mockCaptureError.mock.calls[0];
     expect((err as Error).message).toBe("DB unavailable");

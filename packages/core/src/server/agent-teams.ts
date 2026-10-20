@@ -3438,7 +3438,9 @@ export async function stopAgentTeamBackgroundRun(
       const requestedReason = stopRequestedReason;
 
       // Keep retries pointed at the original run after the queue attempt is reclaimed.
-      await abortRunDurably(requestedRunId, requestedReason);
+      await abortRunDurably(requestedRunId, requestedReason, {
+        allowNotStarted: true,
+      });
 
       const result = await withCurrentAgentTeamRunAttempt(
         taskId,
@@ -3489,6 +3491,7 @@ export async function stopAgentTeamBackgroundRun(
     await abortRunDurably(
       stopRequestedTask.stopRequestedRunId,
       stopRequestedTask.stopRequestedReason,
+      { allowNotStarted: true },
     );
 
     const currentTask = await loadTask(taskId);
