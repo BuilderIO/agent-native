@@ -1126,6 +1126,12 @@ function replyNamesHandoffAction(text: string, action: string): boolean {
   return normalizedAction !== "" && reply.includes(` ${normalizedAction} `);
 }
 
+function replyContainsEvidence(text: string, evidence: string): boolean {
+  const reply = ` ${normalizeReplyPhrase(text)} `;
+  const normalizedEvidence = normalizeReplyPhrase(evidence);
+  return normalizedEvidence !== "" && reply.includes(` ${normalizedEvidence} `);
+}
+
 function publicActionSummaryMatchesAction(
   action: string,
   publicActionSummary: unknown,
@@ -1553,6 +1559,14 @@ function validateHistoricalReactionMarks(
         `${label}: historical ✅ needs a prior verified disposition stated in its captured reply`,
       );
     }
+    if (
+      mark.emoji === "white_check_mark" &&
+      !replyContainsEvidence(previous.text, previous.evidence)
+    ) {
+      throw new Error(
+        `${label}: historical mark prior captured status must include its recorded evidence`,
+      );
+    }
     const reactionDecision =
       mark.emoji === "white_check_mark"
         ? parent.reactionDecision?.checkmark
@@ -1720,6 +1734,16 @@ function validateHistoricalReactionMarks(
     if (!replyNamesHandoffAction(previous.text, handoff.action)) {
       throw new Error(
         `${label}: historical handoff action must match its prior captured status`,
+      );
+    }
+    if (!replyNamesHandoffOwner(previous.text, handoff)) {
+      throw new Error(
+        `${label}: historical handoff owner must match its prior captured status`,
+      );
+    }
+    if (!replyContainsEvidence(previous.text, previous.evidence)) {
+      throw new Error(
+        `${label}: historical mark prior captured status must include its recorded evidence`,
       );
     }
     const acceptance = handoff.acceptanceReply;
@@ -11665,7 +11689,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             ts: "10.500000",
             threadParentTs: "10.000000",
             evidence: "focused test passed for the initial route screen",
-            text: "Fixed: The initial route screen works. this was sent from a bot.",
+            text: "Fixed: The initial route screen works. Verified: focused test passed for the initial route screen. this was sent from a bot.",
           },
         },
       ],
@@ -11862,6 +11886,35 @@ if (args[0] === "--self-test" && args.length === 1) {
       historicalCheckWithScopeOnlyInLedgerEvidence,
       "historical mark prior captured status must include its recorded scope",
     );
+    const historicalCheckWithEvidenceOnlyInLedger = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithEvidenceOnlyInLedger.channels[0]!.pages[0]!.parents =
+      historicalCheckWithEvidenceOnlyInLedger.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence: "an unrelated payment flow passed",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with evidence only in ledger evidence",
+      historicalCheckWithEvidenceOnlyInLedger,
+      "historical mark prior captured status must include its recorded evidence",
+    );
     const historicalTicketWithActionOnlyInLedgerEvidence = structuredClone(
       historicalTicketInventory,
     );
@@ -11890,6 +11943,37 @@ if (args[0] === "--self-test" && args.length === 1) {
       "historical ticket with action only in ledger evidence",
       historicalTicketWithActionOnlyInLedgerEvidence,
       "historical handoff action must match its prior captured status",
+    );
+    const historicalTicketWithUnverifiedOwner = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithUnverifiedOwner.channels[0]!.pages[0]!.parents =
+      historicalTicketWithUnverifiedOwner.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            evidence:
+                              "Jordan Lee will choose the remaining behavior for the remaining design choice",
+                            text: "In progress: Jordan Lee will choose the remaining behavior for the remaining design choice. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with an unverified handoff owner",
+      historicalTicketWithUnverifiedOwner,
+      "historical handoff owner must match its prior captured status",
     );
     const historicalCheckWithoutStatedDisposition = structuredClone(
       historicalCheckInventory,

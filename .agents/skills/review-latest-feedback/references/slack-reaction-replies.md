@@ -174,7 +174,9 @@ prior `previousStatus`; keep the explanation in the internal ledger rather
 than the Slack reply. If the owner withdraws an accepted action
 tracked by `🎫`, also preserve the exact earlier accepted `handoff` and owner
 `withdrawalReply`, and move it out of current `handoffs[]`. Keep that history
-in the internal ledger. The checker validates these records against the captured
+in the internal ledger. The recorded evidence must appear in the captured prior
+status reply. For a historical `🎫`, that reply must name both the accepted
+action and its owner. The checker validates these records against the captured
 thread; never remove or clean up a reaction.
 Add `🎫` for each distinct unfinished team or engineering action that another
 person or team must perform outside this workflow, whether or not a named
