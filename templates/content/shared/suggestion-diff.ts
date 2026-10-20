@@ -822,16 +822,24 @@ function wholeWordReplacements(
     const removed = operation.before.changedText;
     const inserted = operation.after.changedText;
     const lexicalChange = /[\p{L}\p{M}\p{N}]/u.test(removed + inserted);
+    // An edge that is a line break, as when a whole paragraph is deleted,
+    // sits beside the neighboring block's word without splitting it.
+    const lineEdge = (edge: (text: string) => boolean) =>
+      edge(removed) && (!inserted || edge(inserted));
+    const widensBefore =
+      isWordBefore(before, from) && !lineEdge((text) => text.startsWith("\n"));
+    const widensAfter =
+      isWordAt(before, to) && !lineEdge((text) => text.endsWith("\n"));
     let group = { from, to, members: [operation] };
     if (
       lexicalChange &&
       !/<br\/?\s*>/u.test(removed + inserted) &&
       (removed || !/\s/u.test(inserted)) &&
-      (isWordBefore(before, from) || isWordAt(before, to))
+      (widensBefore || widensAfter)
     ) {
-      while (isWordBefore(before, group.from))
+      while (widensBefore && isWordBefore(before, group.from))
         group.from -= characterBefore(before, group.from).length;
-      while (isWordAt(before, group.to))
+      while (widensAfter && isWordAt(before, group.to))
         group.to += characterAt(before, group.to).length;
     }
     // Two edits inside one word are one review decision.

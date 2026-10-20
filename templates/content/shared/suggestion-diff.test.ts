@@ -590,20 +590,42 @@ describe("suggestion decomposition", () => {
       "words. More alpha.\nAlpha follow-up paragraph.\n",
     );
     const after = paragraphOnly.replace("it out.", "it out. Delta extra.");
-    const changes = (operations: ReturnType<typeof markdownSuggestionOperations>) =>
+    const changes = (
+      operations: ReturnType<typeof markdownSuggestionOperations>,
+    ) =>
       operations.map((item) => [
         item.anchor.from,
         item.before.changedText,
         item.after.changedText,
       ]);
 
-    expect(changes(markdownSuggestionOperations(before, paragraphOnly))).toEqual([
-      [26, "", " More alpha.\nAlpha follow-up paragraph."],
-    ]);
+    expect(
+      changes(markdownSuggestionOperations(before, paragraphOnly)),
+    ).toEqual([[26, "", " More alpha.\nAlpha follow-up paragraph."]]);
     const operations = markdownSuggestionOperations(before, after);
     expect(changes(operations)).toEqual([
       [26, "", " More alpha.\nAlpha follow-up paragraph."],
       [105, "", " Delta extra."],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps a deleted paragraph a deletion when another block also changes", () => {
+    const before =
+      "Alpha one has a few words.\nBravo two sits in the middle.\nCharlie three is next.\nDelta four closes it out.\nEcho five ends here.";
+    const after = before
+      .replace("Charlie three is next.\n", "")
+      .replace("it out.\nEcho", "it out.Echo");
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.anchor.from,
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([
+      [57, "Charlie three is next.\n", ""],
+      [105, "\n", ""],
     ]);
     expectIntactOperations(before, after, operations);
   });
