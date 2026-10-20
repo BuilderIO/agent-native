@@ -5902,7 +5902,9 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const toastSpy = vi.spyOn(toast, "error");
-    act(() => result.current.undo(created.id));
+    await act(async () => {
+      await result.current.undo(created.id);
+    });
 
     expect(result.current.getDeck(created.id)?.slides[0]?.content).toBe(
       remoteContent,
