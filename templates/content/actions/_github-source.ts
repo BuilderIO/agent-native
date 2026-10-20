@@ -1530,10 +1530,14 @@ async function recordStillLinked(tx: Db, row: SourceRow) {
   return Boolean(record);
 }
 
-async function trashRow(run: SyncRun, row: SourceRow) {
-  await run.db.transaction(async (tx: Db) => {
+/**
+ * Moves the page of a file that left the folder to Trash. Returns false when
+ * a restore released the page first, so there was nothing to move.
+ */
+async function trashRow(run: SyncRun, row: SourceRow): Promise<boolean> {
+  return run.db.transaction(async (tx: Db) => {
     await lockLinkedCollection(tx, run);
-    if (!(await recordStillLinked(tx, row))) return;
+    if (!(await recordStillLinked(tx, row))) return false;
     const [document] = await tx
       .select({
         ownerEmail: schema.documents.ownerEmail,
@@ -1554,6 +1558,7 @@ async function trashRow(run: SyncRun, row: SourceRow) {
     await tx
       .delete(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+    return true;
   });
 }
 
@@ -1855,9 +1860,9 @@ export async function syncGitHubSource(
     if (remainingFiles === 0) {
       for (const [, row] of gone) {
         if (Date.now() >= deadline) break;
-        await trashRow(run, row);
+        const moved = await trashRow(run, row);
         gone.delete(rowState(row)?.path ?? "");
-        result.trashed += 1;
+        if (moved) result.trashed += 1;
       }
     }
     result.remaining = remainingFiles + gone.size;
