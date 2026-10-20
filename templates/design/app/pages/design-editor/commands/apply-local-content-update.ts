@@ -22,6 +22,7 @@ import type {
   ContentHistoryEntry,
   YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
+import { captureYjsUndoHistoryUpdate } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -92,6 +93,7 @@ export type ApplyLocalContentUpdateResult =
       status: "accepted";
       content: string;
       nodeIdMap: ReadonlyMap<string, string>;
+      yjsHistoryRecorded?: boolean;
       saveCompletion?: Promise<FileContentSaveCompletion>;
     }
   | { status: "refused" };
@@ -192,7 +194,8 @@ export function runApplyLocalContentUpdate(
         : null,
   });
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
 
   if (!previewOnly) {
     acknowledgeAuthoritativeClipboardMutation({
@@ -206,6 +209,7 @@ export function runApplyLocalContentUpdate(
     canWriteCollabText(ydoc, isSynced, previousContent);
   const yjsHistoryAvailable = Boolean(
     shouldRecordHistory &&
+    !(options.serverAccepted && options.shaderWriteCompletion) &&
     viewModeRef.current !== "overview" &&
     writeLiveDoc &&
     undoManagerRef.current,
@@ -220,6 +224,9 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      ...(options.shaderWriteCompletion && options.serverAccepted
+        ? { isCheckpoint: true }
+        : {}),
     };
     if (viewModeRef.current === "overview") {
       recordContentHistoryEntry(
@@ -242,6 +249,9 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      ...(options.shaderWriteCompletion && options.serverAccepted
+        ? { isCheckpoint: true }
+        : {}),
       selectionBefore: options.selectionBefore,
     });
   }
@@ -300,18 +310,33 @@ export function runApplyLocalContentUpdate(
   if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
-  if (ydoc && writeLiveDoc && !previewOnly) {
+  let yjsHistoryRecorded = false;
+  if (
+    ydoc &&
+    writeLiveDoc &&
+    !previewOnly &&
+    !(options.serverAccepted && options.shaderWriteCompletion)
+  ) {
     const ytext = ydoc.getText("content");
     if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {
         undoManagerRef.current?.clear(true, false);
       }
-      writeCollabText(
-        ydoc,
-        ytext,
-        nextContent,
-        yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
-      );
+      const write = () =>
+        writeCollabText(
+          ydoc,
+          ytext,
+          nextContent,
+          yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+        );
+      if (yjsHistoryAvailable) {
+        yjsHistoryRecorded = captureYjsUndoHistoryUpdate(
+          undoManagerRef.current,
+          write,
+        ).recorded;
+      } else {
+        write();
+      }
     }
   }
   let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
@@ -336,6 +361,7 @@ export function runApplyLocalContentUpdate(
     status: "accepted",
     content: nextContent,
     nodeIdMap: prepared.nodeIdMap,
+    yjsHistoryRecorded,
     ...(options.awaitSave && saveCompletion instanceof Promise
       ? { saveCompletion }
       : {}),

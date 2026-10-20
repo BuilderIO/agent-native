@@ -1,0 +1,91 @@
+slug: ai-meeting-notes
+job_id: job-meeting-notes
+app: clips
+audience: broad
+title: "Meeting notes you don't have to take, and can search later"
+subhead: "Connect your calendar, hit record on a meeting, and get a transcript, summary, notes, and action items. Every meeting lands in the same searchable library as your recordings."
+meta_description: "Record meetings from your calendar and get a transcript, AI summary, notes, and action items you can search later. Free, open-source Clips from Agent-Native."
+cta_label: "Record a meeting"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://clips.agent-native.com"
+screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
+old_way:
+  heading: "How most people do it today"
+  body: "Someone is supposed to take notes. They end up half-listening, the notes land in a doc nobody opens again, and two weeks later you're asking the room who agreed to what."
+replaces:
+  - "Granola"
+new_way:
+  heading: "How it works in Clips"
+  steps:
+    - "Connect Google Calendar in Clips. Your upcoming meetings show up in the sidebar."
+    - "Hit record on the meeting."
+    - "Afterward you get a transcript, an AI summary, notes, and action items. Search across every meeting later, or ask the agent to find the one where you discussed something."
+todays_stack:
+  heading: "What changes for every meeting"
+  items:
+    - text: "**Typing notes while half-listening** leaves gaps, and whoever takes them misses part of the conversation."
+    - text: "**A separate note-taker, like Granola,** transcribes and summarizes, but its notes live apart from your screen recordings and dictations."
+    - text: "**A shared doc nobody opens again** is where decisions, owners, and dates usually get lost."
+  in_app: "Clips doesn't replace your calendar or your video call app. Meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings."
+story: null
+faqs:
+  - q: "Which calendar does it work with?"
+    a: "Clips connects to Google Calendar. Connect it in Settings, and your upcoming meetings show in the sidebar."
+  - q: "Do I need permission to record a meeting?"
+    a: "Recording rules and company policies vary. Tell participants before you record, and check the rules that apply to you."
+  - q: "Are the notes always right?"
+    a: "AI summaries can miss or garble details. Check names, numbers, and decisions against the transcript before you share the notes."
+  - q: "Can I search past meetings?"
+    a: "Yes. Clips searches across every transcript, including screen recordings, meetings, and dictations, in one library."
+  - q: "Is Clips free?"
+    a: "Yes. Clips is free and open source. It's labeled alpha, so expect rough edges."
+cta_band_heading: "Record your next meeting"
+cta_band_subhead: "Get the transcript, the summary, and the action items without taking notes."
+updated: 2026-10-14
+internal:
+  job: "Meeting notes without taking them, searchable later"
+  recurs_when: "Every meeting"
+  first_session: "Connect Google Calendar, record one meeting"
+  return_signal: "Second meeting recorded within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "ai meeting notes (US 1,400/mo, KD 0); meeting notes template (5,800, KD 10); ai meeting minutes (600); how to take meeting notes (500); granola alternative (200). Cluster about 9,800/mo."
+  basis: "hypothesis (high volume, low difficulty, recurs)"
+  replaces_source: "Clips README: alternative to Loom, Granola, and Wispr Flow."
+  verify: "Exact outputs of a recorded meeting, whether meetings need connected storage, and the default visibility of a meeting recording. Do not target Zoom searches until Zoom capture is confirmed."
+frequency: daily
+how_often_label: "Every meeting"
+roles: [everyone, revops, product]
+connects_to: ["Google Calendar"]
+next_jobs: [crm-and-call-questions, dictate-instead-of-typing]
+recipes:
+  - id: record-meeting
+    title: "Record your next meeting"
+    when: "Use this when a meeting is coming up on your calendar."
+    steps:
+      - "Connect Google Calendar in Clips."
+      - "Find the meeting in the sidebar and hit record."
+    result: "After the meeting, you'll have a transcript, an AI summary, notes, and action items."
+    tip: "Your calendar stays connected, so every meeting after this is one click."
+    how_often: "Every meeting"
+  - id: find-decision
+    title: "Find what was decided"
+    when: "Use this when someone asks who agreed to what."
+    steps:
+      - "Ask the agent to find the meeting where you discussed it, like a rollout plan."
+      - "Click a line in the transcript to replay that moment."
+    result: "You'll have the meeting and the exact moment the decision came up."
+    how_often: "Weekly"
+  - id: recap-from-actions
+    title: "Write the recap from the action items"
+    when: "Use this right after the meeting ends."
+    steps:
+      - "Copy the action items into your recap email or tracker."
+      - "Check names and dates against the transcript."
+      - "Send it."
+    result: "Your recap has owners and dates, and nobody had to rewrite it from memory."
+    how_often: "Every meeting"
+angles:
+  - id: revops
+    audience: "RevOps and sales"
+    title: "Call notes your team can search, without taking them"
+    subhead: "Record calls from your calendar and get a transcript, summary, and action items, in a library your whole team can search."
+    old_way_body: "Reps type notes during the call or skip them, the CRM gets a one-line summary, and the details live in someone's head."

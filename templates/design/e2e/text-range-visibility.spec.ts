@@ -410,8 +410,7 @@ test("Typography applies to a selected range after focus moves to its controls",
     });
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-test.fixme("multi-selected text leaves share inspector styles, edits save to both, and one undo restores both", async ({
+test("multi-selected text leaves share inspector styles, edits save to both, and one undo restores both", async ({
   app,
   page,
 }) => {
@@ -425,7 +424,7 @@ test.fixme("multi-selected text leaves share inspector styles, edits save to bot
   await page.keyboard.down("Shift");
   await clickNode(app, paragraph.id);
   await page.keyboard.up("Shift");
-  await expect.poll(() => app.selectedLayers()).toEqual([PARAGRAPH, HEADING]);
+  await expect.poll(() => app.selectedLayers()).toEqual([HEADING, PARAGRAPH]);
 
   const typography = typographySection(page);
   const fontPicker = typography.getByRole("button", { name: "Font" });
@@ -482,7 +481,6 @@ test.fixme("multi-selected text leaves share inspector styles, edits save to bot
 
 const TEXT_TOOL_SCREEN = `<!doctype html><html lang="en"><head><meta charset="utf-8" /></head><body data-agent-native-node-id="page" style="margin:0;background:#fff"><main data-agent-native-node-id="text-tool-canvas" style="position:relative;margin:80px;width:800px;height:600px"></main></body></html>`;
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Line Height Enter returns a real Text-tool range to the editor", async ({
   app,
   page,

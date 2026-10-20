@@ -225,6 +225,68 @@ describe("compile — property is emitted safely", () => {
     expect(css).toContain("animation-fill-mode: both, both;");
   });
 
+  it("keeps repeated property animations uniquely named and in input order", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.durationMs = 900;
+    timeline.tracks = [
+      {
+        id: "opacity-first",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 100,
+        durationMs: 300,
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.4" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        targetNodeId: "node1",
+        property: "opacity",
+        delayMs: 250,
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0.4" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((match) =>
+      match[1]!.replace("{", ""),
+    );
+    const parsed = parse(css);
+
+    expect(names).toEqual([
+      "an-motion-node1--opacity--track-opacity-first",
+      "an-motion-node1--opacity--track-opacity-second",
+    ]);
+    expect(new Set(names).size).toBe(2);
+    expect(
+      parsed.map((track) => ({
+        id: track.id,
+        firstValue: track.keyframes[0]?.value,
+        delayMs: track.delayMs,
+        durationMs: track.durationMs,
+      })),
+    ).toEqual([
+      {
+        id: "opacity-first",
+        firstValue: "0",
+        delayMs: 100,
+        durationMs: 300,
+      },
+      {
+        id: "opacity-second",
+        firstValue: "0.4",
+        delayMs: 250,
+        durationMs: 500,
+      },
+    ]);
+  });
+
   it("rejects unsafe keyframe values and easing while compiling", () => {
     const unsafeValue = makeTimeline("opacity");
     unsafeValue.tracks[0].keyframes[0].value = "0; body { display: none }";
@@ -244,6 +306,21 @@ describe("compile — property is emitted safely", () => {
 });
 
 describe("parse — managed style fallback", () => {
+  it("round-trips a one-keyframe track through managed CSS", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks[0]!.keyframes = [{ t: 0, value: "0.5", ease: "linear" }];
+
+    const { css } = compile(timeline);
+
+    expect(parse(css)).toEqual([
+      {
+        targetNodeId: "node1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0.5", ease: "linear" }],
+      },
+    ]);
+  });
+
   it("injects and replaces the managed style block with tolerant close tags", () => {
     const first = injectManagedMotionCss(
       "<html><head></head><body><button>Hi</button></body></html>",
@@ -725,6 +802,65 @@ describe("compile — spatial cubic Position paths", () => {
     expect(() => compile(timeline)).toThrow(
       /only supported for the "translate"/,
     );
+  });
+
+  it("composes repeated Position tracks additively by stable id and axis order", () => {
+    const timeline = makeTimeline("translate");
+    timeline.durationMs = 1000;
+    timeline.tracks = [
+      {
+        id: "position-x",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "100px 0px" },
+        ],
+      },
+      {
+        id: "position-y",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "0px 50px" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const names = [...css.matchAll(/@keyframes\s+(\S+)/g)].map((match) =>
+      match[1]!.replace("{", ""),
+    );
+
+    expect(names).toEqual([
+      "an-motion-node1--translate--track-position-x",
+      "an-motion-node1--translate--track-position-y",
+    ]);
+    expect(css).toContain("animation-composition: add, add;");
+    expect(
+      parse(css).map((track) => ({
+        id: track.id,
+        composition: track.composition,
+        firstValue: track.keyframes[0]?.value,
+        lastValue: track.keyframes[1]?.value,
+      })),
+    ).toEqual([
+      {
+        id: "position-x",
+        composition: "add",
+        firstValue: "0px 0px",
+        lastValue: "100px 0px",
+      },
+      {
+        id: "position-y",
+        composition: "add",
+        firstValue: "0px 0px",
+        lastValue: "0px 50px",
+      },
+    ]);
   });
 });
 

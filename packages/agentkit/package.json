@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/agentkit",
-  "version": "0.209.1",
+  "version": "0.210.0",
   "description": "Provider-neutral AgentKit protocol, headless client, and transports for composable agent-native conversations.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -58,7 +58,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@ag-ui/core": "0.0.59"
+    "@ag-ui/core": "0.0.59",
+    "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
     "typescript-7": "catalog:",

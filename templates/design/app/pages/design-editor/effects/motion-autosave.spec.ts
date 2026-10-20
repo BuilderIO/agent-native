@@ -97,6 +97,8 @@ function createArgs(
     setMotionTracksDirty: vi.fn(),
     writeMotionAvailable: true,
     sourceWriteUnavailableMessage: "Motion edits are unavailable.",
+    unresolvedStylesheetsMessage:
+      "Resolve external stylesheets before editing or adding Motion.",
   };
 }
 
@@ -151,6 +153,38 @@ describe("runMotionAutosave", () => {
       fileId: "file-1",
       revision: "revision-2",
     });
+  });
+
+  it("localizes unresolved stylesheet errors from Motion source writes", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const args = createArgs("revision-1", {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Parameters<typeof createArgs>[1]);
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit = applyMotionEdit;
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+
+    const [, options] = applyMotionEdit.mock.calls[0] as unknown as [
+      unknown,
+      { onError: (error: unknown) => void },
+    ];
+    options.onError({
+      errorCode: "motion_html_source_unresolved_stylesheet",
+      message: "Resolve external stylesheets before editing or adding Motion.",
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(args.unresolvedStylesheetsMessage);
   });
 
   it("saves audio-only edits instead of removing an empty timeline", () => {

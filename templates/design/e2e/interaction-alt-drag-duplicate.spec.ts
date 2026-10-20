@@ -846,8 +846,7 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
 });
 
 test.describe("alt-drag duplicate (overview)", () => {
-  // fixme: product bug: After the drop the original inside the screen keeps its selection handles and '200 × 120' badge while Layers and the inspector show only
-  test.fixme("alt-drag from inside a screen to outside it drops the copy on the board, does not duplicate in place", async ({
+  test("alt-drag from inside a screen to outside it drops the copy on the board, does not duplicate in place", async ({
     app,
   }) => {
     const page = app.page;
@@ -920,8 +919,7 @@ test.describe("alt-drag duplicate (overview)", () => {
     ).toBeHidden();
   });
 
-  // fixme: product bug: The copy of the screen shown as 'Home' is titled 'Index copy' (derived from index.html), not 'Home copy'. Position and collateral checks
-  test.fixme("alt-drag a screen by its label copies it by the drag offset, named after the screen, and leaves the original untouched", async ({
+  test("alt-drag a screen by its label copies it by the drag offset, named after the screen, and leaves the original untouched", async ({
     app,
   }) => {
     const page = app.page;

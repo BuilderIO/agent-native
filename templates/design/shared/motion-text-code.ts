@@ -7,7 +7,10 @@ import {
 import { isValidMotionEase } from "./motion-easing";
 import type { MotionPlaybackMode } from "./motion-timeline";
 
-export const MOTION_TEXT_SOURCE_VERSION = 1 as const;
+export const MOTION_TEXT_SOURCE_VERSION = 2 as const;
+export const MOTION_TEXT_SOURCE_VERSION_PROVENANCE: unique symbol = Symbol(
+  "motion-text-source-version-provenance",
+);
 export const MOTION_TEXT_SOURCE_ATTRIBUTE =
   "data-agent-native-motion-text-source";
 export const MOTION_TEXT_RUNTIME_ATTRIBUTE =
@@ -19,6 +22,14 @@ export const MOTION_TEXT_UNITS = [
   "line",
   "paragraph",
 ] as const;
+export const MOTION_TEXT_ORDERS = [
+  "left-to-right",
+  "right-to-left",
+  "center-out",
+  "random",
+  "top-to-bottom",
+  "bottom-to-top",
+] as const;
 export const MOTION_TEXT_PROPERTIES = [
   "opacity",
   "translate",
@@ -29,6 +40,8 @@ export const MOTION_TEXT_PROPERTIES = [
 
 export type MotionTextUnit = (typeof MOTION_TEXT_UNITS)[number];
 export type MotionTextDirection = "forward" | "reverse";
+export type MotionTextAnimationDirection = "in" | "out";
+export type MotionTextOrder = (typeof MOTION_TEXT_ORDERS)[number];
 export type MotionTextProperty = (typeof MOTION_TEXT_PROPERTIES)[number];
 
 export interface MotionTextKeyframe {
@@ -42,6 +55,15 @@ export interface MotionTextAnimation {
   unit: MotionTextUnit;
   direction: MotionTextDirection;
   staggerMs: number;
+  animationDirection?: MotionTextAnimationDirection;
+  order?: MotionTextOrder;
+  overlapPercent?: number;
+  ignoreSpaces?: boolean;
+  /** Crops the target element to its own box while any of its tracks sets this. */
+  clipContent?: boolean;
+  /** Pivot of each unit as a percentage of its own box; both are set together. */
+  originX?: number;
+  originY?: number;
   delayMs?: number;
   property: MotionTextProperty;
   durationMs: number;
@@ -49,7 +71,10 @@ export interface MotionTextAnimation {
 }
 
 export interface MotionTextDocument {
-  version: typeof MOTION_TEXT_SOURCE_VERSION;
+  version: 1 | typeof MOTION_TEXT_SOURCE_VERSION;
+  [MOTION_TEXT_SOURCE_VERSION_PROVENANCE]?:
+    | 1
+    | typeof MOTION_TEXT_SOURCE_VERSION;
   animations: MotionTextAnimation[];
 }
 
@@ -82,7 +107,7 @@ export type MotionTextReadResult =
 const MAX_TEXT_ANIMATIONS = 64;
 const MAX_TEXT_KEYFRAMES = 128;
 const MAX_TEXT_DURATION_MS = 120_000;
-const MAX_TEXT_STAGGER_MS = 5_000;
+export const MAX_MOTION_TEXT_STAGGER_MS = MAX_TEXT_DURATION_MS;
 const MAX_RUNTIME_UNITS = 512;
 const PARAGRAPH_TAGS = new Set([
   "blockquote",
@@ -126,6 +151,16 @@ const INLINE_TEXT_TAGS = new Set([
 const TEXT_PROPERTY_ALLOWLIST = new Set<MotionTextProperty>(
   MOTION_TEXT_PROPERTIES,
 );
+type MotionTextSegmenter = new (
+  locales: string | string[] | undefined,
+  options: { granularity: "word" | "grapheme" },
+) => {
+  segment(value: string): Iterable<{ segment: string; isWordLike?: boolean }>;
+};
+
+function motionTextSegmenter(): MotionTextSegmenter | undefined {
+  return (Intl as unknown as { Segmenter?: MotionTextSegmenter }).Segmenter;
+}
 
 type HtmlNode = {
   nodeName?: string;
@@ -178,6 +213,14 @@ function finiteNumber(value: unknown, field: string): number {
   return value;
 }
 
+function originPercent(value: unknown, field: string): number {
+  const percent = finiteNumber(value, field);
+  if (percent < 0 || percent > 100) {
+    sourceError("invalid-document", `${field} must be between 0 and 100.`);
+  }
+  return percent;
+}
+
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     sourceError("invalid-document", `${field} must be a non-empty string.`);
@@ -189,12 +232,13 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
   if (!isRecord(value)) {
     sourceError("invalid-document", "Motion text source must be an object.");
   }
-  if (value.version !== MOTION_TEXT_SOURCE_VERSION) {
+  const sourceVersion = value.version;
+  if (sourceVersion !== 1 && sourceVersion !== MOTION_TEXT_SOURCE_VERSION) {
     sourceError(
       value.version === undefined || typeof value.version !== "number"
         ? "malformed-document"
         : "unsupported-version",
-      `Motion text source version must be ${MOTION_TEXT_SOURCE_VERSION}.`,
+      `Motion text source version must be 1 or ${MOTION_TEXT_SOURCE_VERSION}.`,
     );
   }
   assertOnlyKeys(value, ["version", "animations"], "Motion text source");
@@ -215,6 +259,10 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       unit: MotionTextUnit;
       direction: MotionTextDirection;
       staggerMs: number;
+      animationDirection: MotionTextAnimationDirection;
+      order: MotionTextOrder;
+      overlapPercent?: number;
+      ignoreSpaces: boolean;
       properties: Set<MotionTextProperty>;
     }
   >();
@@ -225,16 +273,34 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
     }
     assertOnlyKeys(
       raw,
-      [
-        "targetNodeId",
-        "unit",
-        "direction",
-        "staggerMs",
-        "delayMs",
-        "property",
-        "durationMs",
-        "keyframes",
-      ],
+      sourceVersion === 1
+        ? [
+            "targetNodeId",
+            "unit",
+            "direction",
+            "staggerMs",
+            "delayMs",
+            "property",
+            "durationMs",
+            "keyframes",
+          ]
+        : [
+            "targetNodeId",
+            "unit",
+            "direction",
+            "staggerMs",
+            "animationDirection",
+            "order",
+            "overlapPercent",
+            "ignoreSpaces",
+            "clipContent",
+            "originX",
+            "originY",
+            "delayMs",
+            "property",
+            "durationMs",
+            "keyframes",
+          ],
       field,
     );
 
@@ -263,12 +329,84 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
 
     const unit = raw.unit as MotionTextUnit;
     const direction = raw.direction as MotionTextDirection;
-    const property = raw.property as MotionTextProperty;
-    const staggerMs = finiteNumber(raw.staggerMs, `${field}.staggerMs`);
-    if (staggerMs < 0 || staggerMs > MAX_TEXT_STAGGER_MS) {
+    const animationDirection: MotionTextAnimationDirection =
+      raw.animationDirection === undefined
+        ? "in"
+        : (raw.animationDirection as MotionTextAnimationDirection);
+    if (animationDirection !== "in" && animationDirection !== "out") {
       sourceError(
         "invalid-document",
-        `${field}.staggerMs must be between 0 and ${MAX_TEXT_STAGGER_MS}.`,
+        `${field}.animationDirection must be in or out.`,
+      );
+    }
+    const order =
+      raw.order === undefined
+        ? direction === "reverse"
+          ? "right-to-left"
+          : "left-to-right"
+        : raw.order;
+    if (!MOTION_TEXT_ORDERS.includes(order as MotionTextOrder)) {
+      sourceError("invalid-document", `${field}.order is not supported.`);
+    }
+    if (
+      (order === "top-to-bottom" || order === "bottom-to-top") &&
+      unit !== "line" &&
+      unit !== "paragraph"
+    ) {
+      sourceError(
+        "invalid-document",
+        `${field}.order requires line or paragraph units for vertical ordering.`,
+      );
+    }
+    const overlapPercent =
+      raw.overlapPercent === undefined
+        ? undefined
+        : finiteNumber(raw.overlapPercent, `${field}.overlapPercent`);
+    if (
+      overlapPercent !== undefined &&
+      (overlapPercent < 0 || overlapPercent > 100)
+    ) {
+      sourceError(
+        "invalid-document",
+        `${field}.overlapPercent must be between 0 and 100.`,
+      );
+    }
+    const ignoreSpaces =
+      raw.ignoreSpaces === undefined ? true : raw.ignoreSpaces;
+    if (typeof ignoreSpaces !== "boolean") {
+      sourceError(
+        "invalid-document",
+        `${field}.ignoreSpaces must be a boolean.`,
+      );
+    }
+    const clipContent = raw.clipContent === undefined ? false : raw.clipContent;
+    if (typeof clipContent !== "boolean") {
+      sourceError(
+        "invalid-document",
+        `${field}.clipContent must be a boolean.`,
+      );
+    }
+    const origin =
+      raw.originX === undefined && raw.originY === undefined
+        ? undefined
+        : {
+            originX: originPercent(raw.originX ?? 50, `${field}.originX`),
+            originY: originPercent(raw.originY ?? 50, `${field}.originY`),
+          };
+    const property = raw.property as MotionTextProperty;
+    const durationMs = finiteNumber(raw.durationMs, `${field}.durationMs`);
+    if (durationMs <= 0 || durationMs > MAX_TEXT_DURATION_MS) {
+      sourceError(
+        "invalid-document",
+        `${field}.durationMs must be between 1 and ${MAX_TEXT_DURATION_MS}.`,
+      );
+    }
+    const staggerMs = finiteNumber(raw.staggerMs, `${field}.staggerMs`);
+    const maxStaggerMs = MAX_MOTION_TEXT_STAGGER_MS;
+    if (staggerMs < 0 || staggerMs > maxStaggerMs) {
+      sourceError(
+        "invalid-document",
+        `${field}.staggerMs must be between 0 and ${maxStaggerMs}.`,
       );
     }
     const targetTrack = targetTracks.get(targetNodeId);
@@ -276,11 +414,15 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       if (
         targetTrack.unit !== unit ||
         targetTrack.direction !== direction ||
-        targetTrack.staggerMs !== staggerMs
+        (overlapPercent === undefined && targetTrack.staggerMs !== staggerMs) ||
+        targetTrack.animationDirection !== animationDirection ||
+        targetTrack.order !== order ||
+        targetTrack.overlapPercent !== overlapPercent ||
+        (unit === "character" && targetTrack.ignoreSpaces !== ignoreSpaces)
       ) {
         sourceError(
           "invalid-document",
-          `Text animations for node "${targetNodeId}" must use the same unit, direction, and stagger.`,
+          `Text animations for node "${targetNodeId}" must use the same unit, direction, and timing settings.`,
         );
       }
       if (targetTrack.properties.has(property)) {
@@ -295,6 +437,10 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
         unit,
         direction,
         staggerMs,
+        animationDirection,
+        order: order as MotionTextOrder,
+        overlapPercent,
+        ignoreSpaces,
         properties: new Set([property]),
       });
     }
@@ -308,14 +454,6 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
         `${field}.delayMs must be between 0 and 120000.`,
       );
     }
-    const durationMs = finiteNumber(raw.durationMs, `${field}.durationMs`);
-    if (durationMs <= 0 || durationMs > MAX_TEXT_DURATION_MS) {
-      sourceError(
-        "invalid-document",
-        `${field}.durationMs must be between 1 and ${MAX_TEXT_DURATION_MS}.`,
-      );
-    }
-
     if (
       !Array.isArray(raw.keyframes) ||
       raw.keyframes.length < 2 ||
@@ -381,6 +519,12 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       unit,
       direction,
       staggerMs,
+      animationDirection,
+      order: order as MotionTextOrder,
+      ...(overlapPercent !== undefined ? { overlapPercent } : {}),
+      ignoreSpaces,
+      ...(clipContent ? { clipContent } : {}),
+      ...origin,
       delayMs,
       property,
       durationMs,
@@ -388,7 +532,16 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
     };
   });
 
-  return { version: MOTION_TEXT_SOURCE_VERSION, animations };
+  const document: MotionTextDocument = {
+    version: MOTION_TEXT_SOURCE_VERSION,
+    animations,
+  };
+  // Keep decode provenance available without emitting it in normalized source.
+  Object.defineProperty(document, MOTION_TEXT_SOURCE_VERSION_PROVENANCE, {
+    value: sourceVersion,
+    enumerable: false,
+  });
+  return document;
 }
 
 export function encodeMotionTextDocument(document: MotionTextDocument): string {
@@ -444,6 +597,198 @@ function attrValue(node: HtmlNode, name: string): string | undefined {
 function textContent(node: HtmlNode): string {
   if (node.nodeName === "#text") return node.value ?? "";
   return (node.childNodes ?? []).map(textContent).join("");
+}
+
+type MotionTextWordChunk = {
+  value: string;
+  word: boolean;
+  start: number;
+  end: number;
+};
+
+type MotionTextWordRange = { start: number; end: number };
+
+function motionTextWordRanges(value: string): MotionTextWordRange[] {
+  const Segmenter = motionTextSegmenter();
+  const chunks: MotionTextWordChunk[] = [];
+  let offset = 0;
+  const segments = Segmenter
+    ? Array.from(
+        new Segmenter(undefined, { granularity: "word" }).segment(value),
+        (part) => ({ value: part.segment, word: Boolean(part.isWordLike) }),
+      )
+    : (value.match(/\s+|[^\s]+/gu) ?? []).map((part) => ({
+        value: part,
+        word: !/^\s+$/u.test(part),
+      }));
+  for (const segment of segments) {
+    const start = offset;
+    offset += segment.value.length;
+    chunks.push({ ...segment, start, end: offset });
+  }
+  let remainingWords = chunks.reduce(
+    (count, chunk) => count + Number(chunk.word),
+    0,
+  );
+  const ranges: MotionTextWordRange[] = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index]!;
+    if (/^\s+$/u.test(chunk.value)) {
+      continue;
+    }
+    if (chunk.word) {
+      remainingWords -= 1;
+      ranges.push({ start: chunk.start, end: chunk.end });
+      continue;
+    }
+    const previous = ranges[ranges.length - 1];
+    if (previous?.end === chunk.start) {
+      previous.end = chunk.end;
+      continue;
+    }
+    if (remainingWords > 0) {
+      const start = chunk.start;
+      let end = chunk.end;
+      while (
+        index + 1 < chunks.length &&
+        !chunks[index + 1]!.word &&
+        !/^\s+$/u.test(chunks[index + 1]!.value)
+      ) {
+        end = chunks[++index]!.end;
+      }
+      ranges.push({ start, end });
+    }
+  }
+  return ranges;
+}
+
+function wordUnitCount(value: string): number {
+  return motionTextWordRanges(value).length;
+}
+
+function textNodeValues(node: HtmlNode): string[] {
+  if (node.nodeName === "#text") return [node.value ?? ""];
+  return (node.childNodes ?? []).flatMap(textNodeValues);
+}
+
+function lineTextFragmentCount(target: HtmlNode): number {
+  const leaves = textNodeValues(target);
+  const ranges = motionTextWordRanges(leaves.join(""));
+  let rangeIndex = 0;
+  let textOffset = 0;
+  let count = 0;
+
+  for (const value of leaves) {
+    const leafStart = textOffset;
+    const leafEnd = leafStart + value.length;
+    textOffset = leafEnd;
+    while (rangeIndex < ranges.length && ranges[rangeIndex]!.end <= leafStart) {
+      rangeIndex += 1;
+    }
+    for (
+      let index = rangeIndex;
+      index < ranges.length && ranges[index]!.start < leafEnd;
+      index += 1
+    ) {
+      const start = Math.max(leafStart, ranges[index]!.start);
+      const end = Math.min(leafEnd, ranges[index]!.end);
+      if (
+        end > start &&
+        !/^\s+$/u.test(value.slice(start - leafStart, end - leafStart))
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function staticTextUnitCount(
+  target: HtmlNode,
+  animation: MotionTextAnimation,
+): number | null {
+  if (animation.unit === "line") {
+    const maximumLineCount = lineTextFragmentCount(target);
+    if (maximumLineCount === 0) {
+      sourceError(
+        "unsupported-target",
+        `Motion text target "${animation.targetNodeId}" has no animatable text units.`,
+      );
+    }
+    if (maximumLineCount > MAX_RUNTIME_UNITS) {
+      sourceError(
+        "unsupported-target",
+        `Motion text target "${animation.targetNodeId}" exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.`,
+      );
+    }
+    // Each emitted word fragment can occupy a distinct rendered line.
+    return maximumLineCount;
+  }
+  if (animation.unit === "paragraph") {
+    if (PARAGRAPH_TAGS.has(target.tagName ?? "")) return 1;
+    const children = (target.childNodes ?? []).filter(
+      (node) => node.tagName !== undefined,
+    );
+    return children.length > 0 &&
+      children.every((node) => PARAGRAPH_TAGS.has(node.tagName!))
+      ? children.length
+      : 1;
+  }
+
+  const value = textContent(target);
+  if (animation.unit === "word") return wordUnitCount(value);
+  const Segmenter = motionTextSegmenter();
+  const characters = Segmenter
+    ? Array.from(
+        new Segmenter(undefined, { granularity: "grapheme" }).segment(value),
+        (part) => part.segment,
+      )
+    : Array.from(value);
+  return animation.ignoreSpaces === false
+    ? characters.length
+    : characters.filter((character) => !/^\s+$/u.test(character)).length;
+}
+
+function assertSupportedStaticTextSpan(
+  target: HtmlNode,
+  animation: MotionTextAnimation,
+): void {
+  const unitCount = staticTextUnitCount(target, animation);
+  if (unitCount === null) return;
+  if (unitCount === 0) {
+    sourceError(
+      "unsupported-target",
+      `Motion text target "${animation.targetNodeId}" has no animatable text units.`,
+    );
+  }
+  if (unitCount > MAX_RUNTIME_UNITS) {
+    sourceError(
+      "unsupported-target",
+      `Motion text target "${animation.targetNodeId}" exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.`,
+    );
+  }
+  const overlap = animation.overlapPercent;
+  const unitDuration =
+    overlap === undefined
+      ? animation.durationMs
+      : animation.durationMs / (1 + (unitCount - 1) * (1 - overlap / 100));
+  const staggerMs =
+    overlap === undefined
+      ? animation.staggerMs
+      : unitDuration * (1 - overlap / 100);
+  const animationSpanMs =
+    (animation.delayMs ?? 0) + (unitCount - 1) * staggerMs + unitDuration;
+  if (
+    !Number.isFinite(animationSpanMs) ||
+    animationSpanMs > MAX_TEXT_DURATION_MS
+  ) {
+    const unitCountDescription =
+      animation.unit === "line" ? `at most ${unitCount}` : String(unitCount);
+    sourceError(
+      "unsupported-target",
+      `Motion text target "${animation.targetNodeId}" resolves to ${unitCountDescription} ${animation.unit} units whose animation span exceeds the ${MAX_TEXT_DURATION_MS}ms runtime limit.`,
+    );
+  }
 }
 
 function parseHtml(html: string): {
@@ -544,7 +889,11 @@ export function readMotionTextDocument(html: string): MotionTextReadResult {
     sourceScript,
     MOTION_TEXT_SOURCE_ATTRIBUTE,
   );
-  if (sourceMarkerVersion !== `v${MOTION_TEXT_SOURCE_VERSION}`) {
+  const supportedSourceVersions = new Set([
+    "v1",
+    `v${MOTION_TEXT_SOURCE_VERSION}`,
+  ]);
+  if (!supportedSourceVersions.has(sourceMarkerVersion ?? "")) {
     return {
       status: "invalid",
       error: new MotionTextSourceError(
@@ -559,7 +908,7 @@ export function readMotionTextDocument(html: string): MotionTextReadResult {
   if (
     runtimeScript &&
     attrValue(runtimeScript, MOTION_TEXT_RUNTIME_ATTRIBUTE) !==
-      `v${MOTION_TEXT_SOURCE_VERSION}`
+      sourceMarkerVersion
   ) {
     const runtimeMarkerVersion = attrValue(
       runtimeScript,
@@ -702,6 +1051,7 @@ function assertSupportedMotionTextTargets(
           `Paragraph Text animation requires a paragraph element, direct paragraph children, or a plain text element.`,
         );
       }
+      assertSupportedStaticTextSpan(target, animation);
       continue;
     }
     if (!hasStaticInlineTextContent(target)) {
@@ -710,6 +1060,7 @@ function assertSupportedMotionTextTargets(
         `Character, word, and line Text animations require static text with supported inline formatting; block, dynamic, and identity-bearing descendants are not supported.`,
       );
     }
+    assertSupportedStaticTextSpan(target, animation);
   }
 }
 
@@ -735,11 +1086,11 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
   var previewAnimations = [];
   var allTargets = Array.prototype.slice.call(document.querySelectorAll("[data-agent-native-node-id]"));
   var paragraphTags = { blockquote: true, h1: true, h2: true, h3: true, h4: true, h5: true, h6: true, li: true, p: true };
-  function textTokens(value, kind) {
+  function textTokens(value, kind, ignoreSpaces) {
     var Segmenter = typeof Intl !== "undefined" ? Intl.Segmenter : null;
     if (kind === "character") {
       var characters = Segmenter ? Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(value), function (part) { return part.segment; }) : Array.from(value);
-      return characters.map(function (part) { return { value: part, animated: !/^\s+$/u.test(part) }; });
+      return characters.map(function (part) { return { value: part, animated: !ignoreSpaces || !/^\s+$/u.test(part) }; });
     }
     var chunks;
     if (Segmenter) {
@@ -751,10 +1102,14 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     for (var index = 0; index < chunks.length; index += 1) {
       var chunk = chunks[index];
       if (/^\s+$/u.test(chunk.value)) {
-        tokens.push({ value: chunk.value, animated: false });
+        tokens.push({ value: chunk.value, animated: !ignoreSpaces });
       } else if (chunk.word) {
         tokens.push({ value: chunk.value, animated: true });
-      } else if (tokens.length && tokens[tokens.length - 1].animated) {
+      } else if (
+        tokens.length &&
+        tokens[tokens.length - 1].animated &&
+        !/^\s+$/u.test(tokens[tokens.length - 1].value)
+      ) {
         tokens[tokens.length - 1].value += chunk.value;
       } else {
         var nextWord = chunks.slice(index + 1).findIndex(function (candidate) { return candidate.word; });
@@ -781,10 +1136,10 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
   function nodeText(node) {
     return typeof node.nodeValue === "string" ? node.nodeValue : (node.value || "");
   }
-  function splitTextTarget(target, kind) {
+  function splitTextTarget(target, kind, ignoreSpaces) {
     var leaves = descendantTextNodes(target);
     var value = leaves.map(nodeText).join("");
-    var tokens = textTokens(value, kind === "line" ? "word" : kind);
+    var tokens = textTokens(value, kind === "line" ? "word" : kind, ignoreSpaces);
     var units = [];
     var sourceOffset = 0;
     tokens.forEach(function (token) {
@@ -806,6 +1161,27 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
 
       var fragment = document.createDocumentFragment();
       var cursor = 0;
+      var pendingWhitespaceText = "";
+      var pendingWhitespaceUnits = [];
+      function flushPendingWhitespace() {
+        if (!pendingWhitespaceText) return;
+        fragment.appendChild(document.createTextNode(pendingWhitespaceText));
+        // Keep collapsible whitespace in-flow while giving each unit a transformable box.
+        pendingWhitespaceUnits.forEach(function (unit) {
+          var whitespaceBox = document.createElement("span");
+          whitespaceBox.setAttribute("data-agent-native-motion-text-unit", String(unit.index));
+          whitespaceBox.setAttribute("aria-hidden", "true");
+          whitespaceBox.style.position = "absolute";
+          whitespaceBox.style.display = "block";
+          whitespaceBox.style.width = "0";
+          whitespaceBox.style.height = "0";
+          whitespaceBox.style.overflow = "hidden";
+          fragment.appendChild(whitespaceBox);
+          unit.fragments.push(whitespaceBox);
+        });
+        pendingWhitespaceText = "";
+        pendingWhitespaceUnits = [];
+      }
       tokens.forEach(function (token) {
         var tokenStart = cursor;
         var tokenEnd = tokenStart + token.value.length;
@@ -815,11 +1191,18 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         if (start >= end) return;
         var part = text.slice(start - leafStart, end - leafStart);
         if (!token.animated) {
+          flushPendingWhitespace();
           fragment.appendChild(document.createTextNode(part));
           return;
         }
         var unitIndex = units.findIndex(function (unit) { return unit.start === tokenStart; });
         var unit = units[unitIndex];
+        if (/^\s+$/u.test(part)) {
+          pendingWhitespaceText += part;
+          pendingWhitespaceUnits.push(unit);
+          return;
+        }
+        flushPendingWhitespace();
         var span = document.createElement("span");
         span.setAttribute("data-agent-native-motion-text-unit", String(unit.index));
         span.style.display = "inline-block";
@@ -827,6 +1210,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         fragment.appendChild(span);
         unit.fragments.push(span);
       });
+      flushPendingWhitespace();
       if (leaf.parentNode) leaf.parentNode.replaceChild(fragment, leaf);
     });
     return units;
@@ -836,7 +1220,6 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (paragraphTags[tag]) return [target];
     var children = Array.prototype.slice.call(target.children || []);
     if (children.length && children.every(function (child) { return paragraphTags[String(child.tagName || "").toLowerCase()]; })) return children;
-    if (children.length) throw new Error("Paragraph Text animation found unsupported nested elements.");
     return [target];
   }
   function lineGroups(units) {
@@ -847,6 +1230,31 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
       if (found < 0) { tops.push(top); found = tops.length - 1; }
       return { unit: unit, index: found };
     });
+  }
+  function textOrderRanks(count, order, seed) {
+    var indexes = Array.from({ length: count }, function (_, index) { return index; });
+    if (order === "right-to-left" || order === "bottom-to-top") indexes.reverse();
+    else if (order === "center-out") indexes.sort(function (left, right) {
+      var center = (count - 1) / 2;
+      return Math.abs(left - center) - Math.abs(right - center) || left - right;
+    });
+    else if (order === "random") {
+      var state = 2166136261;
+      var seedValue = String(seed);
+      for (var seedIndex = 0; seedIndex < seedValue.length; seedIndex += 1) {
+        state = Math.imul(state ^ seedValue.charCodeAt(seedIndex), 16777619);
+      }
+      for (var shuffleIndex = indexes.length - 1; shuffleIndex > 0; shuffleIndex -= 1) {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        var swapIndex = state % (shuffleIndex + 1);
+        var current = indexes[shuffleIndex];
+        indexes[shuffleIndex] = indexes[swapIndex];
+        indexes[swapIndex] = current;
+      }
+    }
+    var ranks = [];
+    indexes.forEach(function (index, rank) { ranks[index] = rank; });
+    return ranks;
   }
   function springSample(bounce, settle, x) {
     if (x <= 0) return 0;
@@ -883,6 +1291,13 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (spring) return springToLinear(Number(spring[1]), Number(spring[2] || 1));
     return resolved;
   }
+  // Pivots from an earlier run go back to their authored values before this run sets its own. This also covers a
+  // target whose pivot track was removed, since it is no longer in the groups below.
+  allTargets.forEach(function (candidate) {
+    if (!candidate.__anMotionPivots) return;
+    candidate.__anMotionPivots.forEach(function (pivot) { pivot.unit.style.transformOrigin = pivot.original; });
+    delete candidate.__anMotionPivots;
+  });
   var targetGroups = [];
   animations.forEach(function (animation) {
     var group = targetGroups.find(function (candidate) { return candidate.targetNodeId === animation.targetNodeId; });
@@ -898,48 +1313,130 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (animation.unit === "paragraph") {
       entries = paragraphUnits(target).map(function (unit, index) { return { unit: unit, index: index }; });
     } else {
-      var units = splitTextTarget(target, animation.unit);
+      var ignoreSpaces = animation.unit === "character"
+        ? animation.ignoreSpaces !== false
+        : true;
+      var units = splitTextTarget(target, animation.unit, ignoreSpaces);
       var fragments = units.reduce(function (all, unit) { return all.concat(unit.fragments); }, []);
       entries = animation.unit === "line"
         ? lineGroups(fragments)
         : fragments.map(function (unit) { return { unit: unit, index: Number(unit.getAttribute("data-agent-native-motion-text-unit")) }; });
     }
+    // Each run is its own script, so the crop owner is kept on the element. Only the current owner may lift the crop.
+    var cropOwner = target.__anMotionCrop;
+    var owner = null;
+    var runningAnimations = [];
+    function liftOwnedCrop() {
+      if (target.__anMotionCrop !== owner) return;
+      target.style.clipPath = owner.original;
+      delete target.__anMotionCrop;
+      if (owner.observer) owner.observer.disconnect();
+    }
+    if (targetGroup.animations.some(function (track) { return track.clipContent === true; })) {
+      owner = { original: cropOwner ? cropOwner.original : (target.style.clipPath || ""), observer: null };
+      if (cropOwner && cropOwner.observer) cropOwner.observer.disconnect();
+      target.__anMotionCrop = owner;
+      target.style.clipPath = "inset(0)";
+      // The editor preview rewrites the units in place instead of reloading, so lift the crop once they are gone.
+      // A paragraph target is its own unit, so it never counts as contained and any rewrite of its content lifts the crop.
+      if (typeof MutationObserver === "function") {
+        owner.observer = new MutationObserver(function () {
+          if (target.__anMotionCrop !== owner) { owner.observer.disconnect(); return; }
+          if (entries.some(function (entry) { return entry.unit !== target && target.contains(entry.unit); })) return;
+          liftOwnedCrop();
+        });
+        owner.observer.observe(target, { childList: true, subtree: true });
+      }
+    } else if (cropOwner) {
+      if (cropOwner.observer) cropOwner.observer.disconnect();
+      target.style.clipPath = cropOwner.original;
+      delete target.__anMotionCrop;
+    }
     var groupCount = entries.reduce(function (count, entry) { return Math.max(count, entry.index + 1); }, 0);
-    if ((groupCount - 1) * animation.staggerMs > 120000) throw new Error("Motion text stagger exceeds the 120000ms runtime limit.");
+    if (groupCount > ${MAX_RUNTIME_UNITS}) throw new Error("Motion text target exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.");
+    var order = animation.order || (animation.direction === "reverse" ? "right-to-left" : "left-to-right");
+    var orderRanks = textOrderRanks(groupCount, order, targetGroup.targetNodeId + "|" + target.textContent);
     targetGroup.animations.forEach(function (track) {
+      var unitDuration = track.durationMs;
+      var staggerMs = track.staggerMs;
+      if (typeof track.overlapPercent === "number") {
+        var overlap = Math.max(0, Math.min(100, track.overlapPercent)) / 100;
+        unitDuration = track.durationMs / (1 + Math.max(0, groupCount - 1) * (1 - overlap));
+        staggerMs = unitDuration * (1 - overlap);
+      }
+      var animationSpanMs = track.delayMs + Math.max(0, groupCount - 1) * staggerMs + unitDuration;
+      if (entries.length && (!Number.isFinite(animationSpanMs) || animationSpanMs > 120000)) throw new Error("Motion text animation span exceeds the 120000ms runtime limit.");
       entries.forEach(function (entry) {
         if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
-        var delayIndex = track.direction === "reverse" ? groupCount - 1 - entry.index : entry.index;
-        var keyframes = track.keyframes.map(function (keyframe) {
-          var frame = { offset: keyframe.t, easing: motionEaseForWebAnimations(keyframe.ease || "ease", entry.unit) };
+        if (typeof track.originX === "number") {
+          // A paragraph target can be its own unit, so its authored pivot is recorded before it is changed.
+          if (!target.__anMotionPivots) target.__anMotionPivots = [];
+          if (!target.__anMotionPivots.some(function (pivot) { return pivot.unit === entry.unit; })) {
+            target.__anMotionPivots.push({ unit: entry.unit, original: entry.unit.style.transformOrigin || "" });
+          }
+          entry.unit.style.transformOrigin = track.originX + "% " + track.originY + "%";
+        }
+        var delayIndex = orderRanks[entry.index] === undefined ? entry.index : orderRanks[entry.index];
+        var animateOut = track.animationDirection === "out";
+        var keyframes = (animateOut ? track.keyframes.slice().reverse() : track.keyframes).map(function (keyframe, keyframeIndex) {
+          var easingKeyframe = animateOut && keyframeIndex < track.keyframes.length - 1
+            ? track.keyframes[track.keyframes.length - 2 - keyframeIndex]
+            : keyframe;
+          var frame = {
+            offset: animateOut ? 1 - keyframe.t : keyframe.t,
+            easing: motionEaseForWebAnimations(easingKeyframe.ease || "ease", entry.unit)
+          };
           frame[track.property] = keyframe.value;
           return frame;
         });
-        var delay = track.delayMs + delayIndex * track.staggerMs;
-        var options = { duration: track.durationMs, delay: delay, fill: "both" };
+        var delay = track.delayMs + delayIndex * staggerMs;
+        var options = { duration: unitDuration, delay: delay, fill: "both" };
+        var pingPong = !previewBridge && playbackMode === "ping-pong";
+        if (pingPong) options.direction = "alternate";
         if (!previewBridge && playbackMode !== "once") {
           options.iterations = Infinity;
-          if (playbackMode === "ping-pong") options.direction = "alternate";
         }
         var runningAnimation = entry.unit.animate(keyframes, options);
+        runningAnimations.push(runningAnimation);
         if (previewBridge) {
           runningAnimation.pause();
           runningAnimation.currentTime = 0;
-          previewAnimations.push({ animation: runningAnimation, delay: delay, duration: track.durationMs });
+          previewAnimations.push({ animation: runningAnimation, delay: delay, duration: unitDuration });
         }
       });
     });
+    // The crop belongs to the move. A move that plays once ends here and the crop goes with it; looping motion never ends,
+    // so its crop stays until the units go. The preview holds its animations paused, so it never reaches this point.
+    // A cancelled animation rejects its finished promise, so each one settles on its own before the crop lifts.
+    if (owner && !previewBridge && playbackMode === "once" && runningAnimations.length) {
+      Promise.all(runningAnimations.map(function (animation) {
+        return animation.finished.then(function () {}, function () {});
+      })).then(liftOwnedCrop);
+    }
   });
+  var previewSpanDurationMs = previewAnimations.reduce(function (duration, entry) {
+    return Math.max(duration, entry.delay + entry.duration);
+  }, 0);
+  function reportPreviewSpanDuration() {
+    if (previewBridge && window.parent && typeof window.parent.postMessage === "function") {
+      window.parent.postMessage({ type: "motion-preview-span", key: "html", durationMs: previewSpanDurationMs }, "*");
+    }
+  }
   if (previewBridge && typeof window.addEventListener === "function") {
     window.addEventListener("message", function (event) {
       if (event.source !== window.parent || !event.data || typeof event.data.type !== "string") return;
+      if (event.data.type === "motion-preview-duration-request") {
+        reportPreviewSpanDuration();
+        return;
+      }
       if (event.data.type === "motion-preview") {
         var t = Number(event.data.t);
         var timelineDuration = Number(event.data.durationMs);
         if (!Number.isFinite(t) || !Number.isFinite(timelineDuration) || timelineDuration <= 0) return;
+        if (previewSpanDurationMs > timelineDuration) reportPreviewSpanDuration();
         var timelineTime = Math.max(0, Math.min(1, t)) * timelineDuration;
         previewAnimations.forEach(function (entry) {
-          entry.animation.currentTime = Math.max(0, Math.min(entry.duration, timelineTime - entry.delay));
+          entry.animation.currentTime = Math.max(0, Math.min(entry.delay + entry.duration, timelineTime));
         });
       } else if (event.data.type === "motion-preview-clear") {
         previewAnimations.forEach(function (entry) { entry.animation.currentTime = 0; });

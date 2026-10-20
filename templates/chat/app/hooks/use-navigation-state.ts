@@ -1,4 +1,7 @@
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  appPathFromLocalRoute,
+} from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 import {
@@ -11,8 +14,9 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
-  view: string;
+  view?: string;
   path?: string;
+  publicPath?: string;
   threadId?: string;
 }
 
@@ -20,17 +24,52 @@ export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname }) => {
-      const threadId = threadIdFromPath(pathname);
-      return {
-        view: viewForPath(pathname),
-        path: appPath(pathname),
-        ...(threadId ? { threadId } : {}),
-      };
-    },
-    getCommandPath: (command) =>
-      routerPath(command.path || pathForCommand(command)),
+    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
+    getCommandPath: commandPathForNavigation,
   });
+}
+
+export function commandPathForNavigation(command: NavigationState): string {
+  const fallbackPath = pathForCommand(command);
+  const path = typeof command?.path === "string" ? command.path : "";
+  if (!path) return fallbackPath;
+
+  const basePath = appBasePath();
+  if (!basePath) return path;
+
+  const suffixIndex = path.search(/[?#]/);
+  const pathname = suffixIndex === -1 ? path : path.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : path.slice(suffixIndex);
+  const publicPath =
+    typeof command?.publicPath === "string" ? command.publicPath : "";
+  const publicPathSuffixIndex = publicPath.search(/[?#]/);
+  const declaredPublicPath =
+    publicPathSuffixIndex === -1
+      ? publicPath
+      : publicPath.slice(0, publicPathSuffixIndex);
+  const publicViewPath = appPathFromLocalRoute(pathForView(command?.view));
+  if (
+    matchesPathPrefix(pathname, basePath) &&
+    (matchesPathPrefix(pathname, publicViewPath) ||
+      (declaredPublicPath && declaredPublicPath === pathname))
+  ) {
+    return `${pathname.slice(basePath.length) || "/"}${suffix}`;
+  }
+  return path;
+}
+
+function matchesPathPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+export function navigationStateForPath(pathname: string): NavigationState {
+  const threadId = threadIdFromPath(pathname);
+  return {
+    view: viewForPath(pathname),
+    path: pathname,
+    publicPath: appPathFromLocalRoute(pathname),
+    ...(threadId ? { threadId } : {}),
+  };
 }
 
 function viewForPath(pathname: string): string {
@@ -77,14 +116,4 @@ export function pathForCommand(command: any): string {
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
   return threadId ? chatThreadPath(threadId) : path;
-}
-
-function routerPath(path: string): string {
-  const basePath = appBasePath();
-  if (!basePath) return path;
-  if (path === basePath) return "/";
-  if (path.startsWith(`${basePath}/`)) {
-    return path.slice(basePath.length) || "/";
-  }
-  return path;
 }

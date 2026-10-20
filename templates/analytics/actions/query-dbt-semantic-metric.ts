@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 import {
   AgentConnectionRequiredError,
   defineAction,
@@ -9,17 +11,18 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import {
-  listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp,
   resolveWorkspaceConnectionCredentialForApp,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { rowReadiness, tokenConfiguredFor } from "../server/lib/dbt-readiness";
 import { executeProviderApiRequest } from "../server/lib/provider-api";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
 const LOOKUP_METRIC = `query AnalyticsMetricLookup($environmentId: BigInt!, $search: String!, $pageNum: Int!) {
   metricsPaginated(environmentId: $environmentId, search: $search, pageNum: $pageNum, pageSize: 100) {
-    items { name description type dimensions { name description type } queryableGranularities }
+    items { name description type dimensions { name description type queryableGranularities } queryableGranularities }
     totalItems
     totalPages
   }
@@ -31,8 +34,8 @@ const COUNT_METRICS = `query AnalyticsMetricCount($environmentId: BigInt!) {
   }
 }`;
 
-const CREATE_METRIC_QUERY = `mutation AnalyticsMetricQuery($environmentId: BigInt!, $metricName: String!, $queryRowCap: Int!) {
-  createQuery(environmentId: $environmentId, metrics: [{ name: $metricName }], limit: $queryRowCap) {
+const CREATE_METRIC_QUERY = `mutation AnalyticsMetricQuery($environmentId: BigInt!, $metricName: String!, $groupBy: [GroupByInput!], $where: [WhereInput!], $queryRowCap: Int!) {
+  createQuery(environmentId: $environmentId, metrics: [{ name: $metricName }], groupBy: $groupBy, where: $where, limit: $queryRowCap) {
     queryId
   }
 }`;
@@ -50,8 +53,135 @@ const MAX_POLL_ATTEMPTS = 8;
 const POLL_INTERVAL_MS = 400;
 const MAX_METADATA_PAGES = 10;
 const MAX_METRIC_QUERY_ROWS = 1_000;
+const MAX_METRIC_QUERY_DAYS = 366;
+const DBT_TIME_GRANULARITIES = [
+  "DAY",
+  "WEEK",
+  "MONTH",
+  "QUARTER",
+  "YEAR",
+] as const;
 const DBT_ENVIRONMENT_FIELD = "semanticLayerEnvironmentId";
 const metricConnectionSchema = z.object({ id: z.string(), label: z.string() });
+const metricGroupBySchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(160)
+      .describe("Exact dimension name returned by dbt metric metadata"),
+    grain: z
+      .enum(DBT_TIME_GRANULARITIES)
+      .optional()
+      .describe("Required for time dimensions; use a returned queryable grain"),
+  })
+  .strict();
+const metricTimeRangeSchema = z
+  .object({
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .describe("Inclusive start date in YYYY-MM-DD format"),
+    endDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .describe("Inclusive end date in YYYY-MM-DD format"),
+  })
+  .strict()
+  .superRefine(({ startDate, endDate }, context) => {
+    const startDay = dateDayNumber(startDate);
+    const endDay = dateDayNumber(endDate);
+    if (startDay === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["startDate"],
+        message: "Use a real calendar date in YYYY-MM-DD format.",
+      });
+    }
+    if (endDay === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["endDate"],
+        message: "Use a real calendar date in YYYY-MM-DD format.",
+      });
+    }
+    if (startDay !== null && endDay !== null) {
+      if (endDay < startDay) {
+        context.addIssue({
+          code: "custom",
+          path: ["endDate"],
+          message: "The end date must be on or after the start date.",
+        });
+      } else if (endDay - startDay + 1 > MAX_METRIC_QUERY_DAYS) {
+        context.addIssue({
+          code: "custom",
+          path: ["endDate"],
+          message: `MetricFlow date ranges are limited to ${MAX_METRIC_QUERY_DAYS} inclusive days.`,
+        });
+      }
+    }
+  });
+const metricQuerySpecSchema = z
+  .object({
+    groupBy: z.array(metricGroupBySchema).max(5),
+    timeRange: metricTimeRangeSchema.optional(),
+    allTime: z.literal(true).optional(),
+  })
+  .strict()
+  .superRefine(({ groupBy, timeRange, allTime }, context) => {
+    if (timeRange && allTime) {
+      context.addIssue({
+        code: "custom",
+        path: ["allTime"],
+        message: "Choose either a bounded date range or all time, not both.",
+      });
+    }
+    if (groupBy.length > 0 && (!timeRange || allTime)) {
+      context.addIssue({
+        code: "custom",
+        path: ["timeRange"],
+        message:
+          "Dimension-grouped MetricFlow queries require a bounded date range.",
+      });
+    }
+    if (groupBy.length === 0 && !timeRange && !allTime) {
+      context.addIssue({
+        code: "custom",
+        path: ["allTime"],
+        message:
+          "Choose a bounded timeRange or explicitly set allTime to true for a scalar metric query.",
+      });
+    }
+    const names = groupBy.map(({ name }) => name);
+    if (new Set(names).size !== names.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["groupBy"],
+        message: "Each dbt dimension can appear only once in groupBy.",
+      });
+    }
+  });
+type MetricQuerySpec = z.infer<typeof metricQuerySpecSchema>;
+const metricDefinitionSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  type: z.string().optional(),
+  dimensionsCount: z.number(),
+  dimensionsTruncated: z.boolean(),
+  dimensions: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string().optional(),
+      type: z.string().optional(),
+      queryableGranularities: z.array(z.string()),
+    }),
+  ),
+  queryableGranularities: z.array(z.string()),
+  queryableGranularitiesCount: z.number(),
+  queryableGranularitiesTruncated: z.boolean(),
+});
+type MetricDefinition = z.infer<typeof metricDefinitionSchema>;
 const queryMetricOutputSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("connection_selection_required"),
@@ -61,9 +191,13 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     ),
   }),
   z.object({
-    status: z.literal("connection_error"),
+    status: z.enum(["connection_error", "provider_error"]),
     metricName: z.string(),
-    connection: metricConnectionSchema,
+    connection: metricConnectionSchema.optional(),
+    queryId: z.string().optional(),
+    nextPage: z.string().optional(),
+    querySpec: metricQuerySpecSchema.optional(),
+    metric: metricDefinitionSchema.optional(),
     message: z.string(),
   }),
   z.object({
@@ -94,15 +228,8 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   }),
   z.object({
     status: z.literal("success"),
-    metric: z.object({
-      name: z.string(),
-      description: z.string().optional(),
-      type: z.string().optional(),
-      dimensions: z.array(
-        z.object({ name: z.string(), description: z.string().optional() }),
-      ),
-      queryableGranularities: z.array(z.unknown()),
-    }),
+    metric: metricDefinitionSchema.optional(),
+    querySpec: metricQuerySpecSchema,
     rows: z.array(z.unknown()),
     rowCount: z.number(),
     truncated: z.boolean(),
@@ -117,15 +244,8 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     metricName: z.string(),
     queryId: z.string(),
     nextPage: z.string().optional(),
-    message: z.string(),
-    connection: metricConnectionSchema,
-    source: z.literal("dbt-semantic-layer"),
-  }),
-  z.object({
-    status: z.literal("incomplete_result"),
-    metricName: z.string(),
-    queryId: z.string(),
-    nextPage: z.string().optional(),
+    querySpec: metricQuerySpecSchema,
+    metric: metricDefinitionSchema.optional(),
     message: z.string(),
     connection: metricConnectionSchema,
     source: z.literal("dbt-semantic-layer"),
@@ -138,6 +258,9 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     ]),
     metricName: z.string(),
     queryId: z.string().optional(),
+    nextPage: z.string().optional(),
+    querySpec: metricQuerySpecSchema.optional(),
+    metric: metricDefinitionSchema.optional(),
     message: z.string(),
   }),
 ]);
@@ -146,6 +269,7 @@ type GraphQlResult = {
   response?: {
     ok?: boolean;
     status?: number;
+    truncated?: boolean;
     json?: unknown;
   };
 };
@@ -158,11 +282,17 @@ function record(value: unknown): Record<string, unknown> {
 
 type DbtFailureState =
   | "connection_error"
+  | "provider_error"
   | "deployment_not_ready"
   | "empty_semantic_manifest"
   | "permission_denied";
 
-const METRIC_RESULT_CURSOR_PREFIX = "metric-results-v2.";
+const METRIC_RESULT_CURSOR_PREFIX = "metric-results-v5.";
+const METRIC_RESULT_CURSOR_SIGNING_CONTEXT =
+  "agent-native:analytics:dbt-semantic-layer:metric-results:v5:";
+const METRIC_METADATA_CURSOR_PREFIX = "metric-metadata-v2.";
+const METRIC_METADATA_CURSOR_SIGNING_CONTEXT =
+  "agent-native:analytics:dbt-semantic-layer:metric-metadata:v2:";
 
 type MetricResultCursor = {
   metricName: string;
@@ -172,47 +302,286 @@ type MetricResultCursor = {
   pageNum: number;
   rowOffset: number;
   rowsBeforePage: number;
+  querySpec: MetricQuerySpec;
+  metricDefinition?: MetricDefinition;
 };
 
-function encodeMetricResultCursor(cursor: MetricResultCursor): string {
-  return `${METRIC_RESULT_CURSOR_PREFIX}${Buffer.from(JSON.stringify(cursor)).toString("base64url")}`;
+type DecodedMetricResultCursor = MetricResultCursor & {
+  encodedPayload: string;
+  signature: string;
+};
+
+type MetricMetadataCursor = {
+  metricName: string;
+  connectionId: string;
+  environmentId: string;
+  pageNum: number;
+  searched: number;
+  of: number;
+  querySpec: MetricQuerySpec;
+};
+
+type DecodedMetricMetadataCursor = MetricMetadataCursor & {
+  encodedPayload: string;
+  signature: string;
+};
+
+function metricResultCursorSignature(payload: string, token: string): Buffer {
+  return createHmac("sha256", token)
+    .update(`${METRIC_RESULT_CURSOR_SIGNING_CONTEXT}${payload}`)
+    .digest();
 }
 
-function decodeMetricResultCursor(value: string): MetricResultCursor | null {
+function encodeMetricResultCursor(
+  cursor: MetricResultCursor,
+  token: string,
+): string {
+  let cursorWithMetric = cursor;
+  let payload = Buffer.from(JSON.stringify(cursorWithMetric)).toString(
+    "base64url",
+  );
+  if (payload.length > 1_880 && cursor.metricDefinition) {
+    cursorWithMetric = {
+      ...cursor,
+      metricDefinition: {
+        name: cursor.metricDefinition.name,
+        dimensionsCount: cursor.metricDefinition.dimensionsCount,
+        dimensionsTruncated: true,
+        dimensions: [],
+        queryableGranularities: [],
+        queryableGranularitiesCount:
+          cursor.metricDefinition.queryableGranularitiesCount,
+        queryableGranularitiesTruncated:
+          cursor.metricDefinition.queryableGranularitiesCount > 0,
+      },
+    };
+    payload = Buffer.from(JSON.stringify(cursorWithMetric)).toString(
+      "base64url",
+    );
+  }
+  const signature = metricResultCursorSignature(payload, token).toString(
+    "base64url",
+  );
+  return `${METRIC_RESULT_CURSOR_PREFIX}${payload}.${signature}`;
+}
+
+function decodeMetricResultCursor(
+  value: string,
+): DecodedMetricResultCursor | null {
   if (!value.startsWith(METRIC_RESULT_CURSOR_PREFIX)) return null;
   try {
-    const payload = value.slice(METRIC_RESULT_CURSOR_PREFIX.length);
+    const signedPayload = value.slice(METRIC_RESULT_CURSOR_PREFIX.length);
+    const signatureSeparator = signedPayload.lastIndexOf(".");
+    if (signatureSeparator < 1) return null;
+    const payload = signedPayload.slice(0, signatureSeparator);
+    const signature = signedPayload.slice(signatureSeparator + 1);
+    if (
+      !/^[A-Za-z0-9_-]{1,1880}$/.test(payload) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(signature)
+    ) {
+      return null;
+    }
     const parsed = record(
       JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
     );
     if (
       typeof parsed.metricName !== "string" ||
+      !parsed.metricName.trim() ||
+      parsed.metricName.length > 128 ||
       typeof parsed.queryId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,120}$/.test(parsed.queryId) ||
       typeof parsed.connectionId !== "string" ||
+      !parsed.connectionId.trim() ||
       typeof parsed.environmentId !== "string" ||
+      !/^\d+$/.test(parsed.environmentId) ||
       !Number.isSafeInteger(parsed.pageNum) ||
       (parsed.pageNum as number) < 1 ||
       (parsed.pageNum as number) > 100_000 ||
       !Number.isSafeInteger(parsed.rowOffset) ||
       (parsed.rowOffset as number) < 0 ||
-      (parsed.rowOffset as number) > 1_000_000 ||
+      (parsed.rowOffset as number) >= MAX_METRIC_QUERY_ROWS ||
       !Number.isSafeInteger(parsed.rowsBeforePage) ||
       (parsed.rowsBeforePage as number) < 0 ||
-      (parsed.rowsBeforePage as number) > MAX_METRIC_QUERY_ROWS
+      (parsed.rowsBeforePage as number) >= MAX_METRIC_QUERY_ROWS
     ) {
       return null;
     }
-    return parsed as MetricResultCursor;
+    const parsedQuerySpec = metricQuerySpecSchema.safeParse(parsed.querySpec);
+    if (!parsedQuerySpec.success) return null;
+    const parsedMetricDefinition =
+      parsed.metricDefinition === undefined
+        ? undefined
+        : metricDefinitionSchema.safeParse(parsed.metricDefinition);
+    if (
+      parsedMetricDefinition &&
+      (!parsedMetricDefinition.success ||
+        parsedMetricDefinition.data.name !== parsed.metricName)
+    ) {
+      return null;
+    }
+    const querySpec = parsedQuerySpec.data;
+    return {
+      ...(parsed as Omit<MetricResultCursor, "querySpec">),
+      querySpec,
+      ...(parsedMetricDefinition?.success
+        ? { metricDefinition: parsedMetricDefinition.data }
+        : {}),
+      encodedPayload: payload,
+      signature,
+    };
   } catch {
     // coercion-ok: invalid cursor payloads are returned as absent and rejected by the action.
     return null;
   }
 }
 
+function verifyMetricResultCursor(
+  cursor: DecodedMetricResultCursor,
+  token: string,
+): boolean {
+  const actual = Buffer.from(cursor.signature, "base64url");
+  const expected = metricResultCursorSignature(cursor.encodedPayload, token);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function metricMetadataCursorSignature(payload: string, token: string): Buffer {
+  return createHmac("sha256", token)
+    .update(`${METRIC_METADATA_CURSOR_SIGNING_CONTEXT}${payload}`)
+    .digest();
+}
+
+function encodeMetricMetadataCursor(
+  cursor: MetricMetadataCursor,
+  token: string,
+): string {
+  const payload = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+  const signature = metricMetadataCursorSignature(payload, token).toString(
+    "base64url",
+  );
+  return `${METRIC_METADATA_CURSOR_PREFIX}${payload}.${signature}`;
+}
+
+function decodeMetricMetadataCursor(
+  value: string,
+): DecodedMetricMetadataCursor | null {
+  if (!value.startsWith(METRIC_METADATA_CURSOR_PREFIX)) return null;
+  try {
+    const signedPayload = value.slice(METRIC_METADATA_CURSOR_PREFIX.length);
+    const signatureSeparator = signedPayload.lastIndexOf(".");
+    if (signatureSeparator < 1) return null;
+    const payload = signedPayload.slice(0, signatureSeparator);
+    const signature = signedPayload.slice(signatureSeparator + 1);
+    if (
+      !/^[A-Za-z0-9_-]{1,1880}$/.test(payload) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(signature)
+    ) {
+      return null;
+    }
+    const parsed = record(
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+    );
+    if (
+      typeof parsed.metricName !== "string" ||
+      !parsed.metricName.trim() ||
+      parsed.metricName.length > 128 ||
+      typeof parsed.connectionId !== "string" ||
+      !parsed.connectionId.trim() ||
+      parsed.connectionId.length > 200 ||
+      typeof parsed.environmentId !== "string" ||
+      !/^\d+$/.test(parsed.environmentId) ||
+      !Number.isSafeInteger(parsed.pageNum) ||
+      (parsed.pageNum as number) < 2 ||
+      (parsed.pageNum as number) > 100_000 ||
+      !Number.isSafeInteger(parsed.searched) ||
+      (parsed.searched as number) < 0 ||
+      !Number.isSafeInteger(parsed.of) ||
+      (parsed.of as number) < 0 ||
+      (parsed.searched as number) > (parsed.of as number)
+    ) {
+      return null;
+    }
+    const querySpec = metricQuerySpecSchema.safeParse(parsed.querySpec);
+    if (!querySpec.success) return null;
+    return {
+      ...(parsed as Omit<MetricMetadataCursor, "querySpec">),
+      querySpec: querySpec.data,
+      encodedPayload: payload,
+      signature,
+    };
+  } catch {
+    // coercion-ok: invalid cursor payloads are returned as absent and rejected by the action.
+    return null;
+  }
+}
+
+function verifyMetricMetadataCursor(
+  cursor: DecodedMetricMetadataCursor,
+  token: string,
+): boolean {
+  const actual = Buffer.from(cursor.signature, "base64url");
+  const expected = metricMetadataCursorSignature(cursor.encodedPayload, token);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function normalizedMetricQuerySpec(
+  groupBy: MetricQuerySpec["groupBy"] | undefined,
+  timeRange: MetricQuerySpec["timeRange"],
+  allTime: MetricQuerySpec["allTime"],
+): MetricQuerySpec {
+  const querySpec = metricQuerySpecSchema.parse({
+    groupBy: groupBy ?? [],
+    ...(timeRange ? { timeRange } : {}),
+    ...(allTime ? { allTime } : {}),
+  });
+  return {
+    ...querySpec,
+    groupBy: [...querySpec.groupBy].sort((left, right) =>
+      `${left.name}:${left.grain ?? ""}`.localeCompare(
+        `${right.name}:${right.grain ?? ""}`,
+      ),
+    ),
+  };
+}
+
+function metricDefinitionSummary(
+  metricName: string,
+  metric: Record<string, unknown>,
+): MetricDefinition {
+  const dimensions = Array.isArray(metric.dimensions)
+    ? metric.dimensions
+        .map(record)
+        .filter((dimension) => typeof dimension.name === "string")
+    : [];
+  const granularities = queryableGranularities(metric.queryableGranularities);
+  return {
+    name: metricName,
+    ...(typeof metric.description === "string"
+      ? { description: metric.description }
+      : {}),
+    ...(typeof metric.type === "string" ? { type: metric.type } : {}),
+    dimensionsCount: dimensions.length,
+    dimensionsTruncated: dimensions.length > 30,
+    dimensions: dimensions.slice(0, 30).map((dimension) => ({
+      name: dimension.name as string,
+      ...(typeof dimension.description === "string"
+        ? { description: dimension.description }
+        : {}),
+      ...(typeof dimension.type === "string" ? { type: dimension.type } : {}),
+      queryableGranularities: queryableGranularities(
+        dimension.queryableGranularities,
+      ),
+    })),
+    queryableGranularities: granularities.slice(0, 10),
+    queryableGranularitiesCount: granularities.length,
+    queryableGranularitiesTruncated: granularities.length > 10,
+  };
+}
+
 class DbtSemanticLayerError extends Error {
   constructor(
     readonly status: DbtFailureState,
     message: string,
+    readonly recoverable = true,
   ) {
     super(message);
     this.name = "DbtSemanticLayerError";
@@ -281,7 +650,7 @@ function classifyDbtFailure(
     httpStatus === 401 ||
     httpStatus === 403 ||
     codes.some((code) => /FORBIDDEN|UNAUTHENTICATED|PERMISSION/i.test(code)) ||
-    /permission denied|not authorized|unauthorized|forbidden|insufficient (?:permission|scope)/i.test(
+    /permission denied|not authorized|unauthorized|forbidden|insufficient (?:permission|scope)|missing(?: the)? [\w -]{1,60}permission/i.test(
       message,
     )
   ) {
@@ -312,28 +681,166 @@ function graphQlData(
   if (failure) throw failure;
   const { messages } = graphQlErrors(value);
   if (messages.length > 0) {
-    fail(
+    throw new DbtSemanticLayerError(
+      "provider_error",
       `dbt Semantic Layer returned a GraphQL error: ${safeDbtMessage(messages.join("; "))}`,
-      {
-        errorCode: "dbt_graphql_error",
-        statusCode: 502,
-      },
     );
   }
   const body = record(value);
   const data = record(body.data);
   if (!Object.keys(data).length) {
-    fail("dbt Semantic Layer returned no data.", {
-      errorCode: "dbt_invalid_response",
-      statusCode: 502,
-    });
+    throw new DbtSemanticLayerError(
+      "provider_error",
+      "dbt Semantic Layer returned no data.",
+      false,
+    );
   }
   return data;
 }
 
+function dateDayNumber(value: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  const canonical = new Date(timestamp).toISOString().slice(0, 10);
+  return canonical === value ? timestamp / 86_400_000 : null;
+}
+
+function fullCalendarMonthRange(
+  timeRange: NonNullable<MetricQuerySpec["timeRange"]>,
+): { startMonth: string; endMonth: string } | null {
+  const [endYear, endMonth] = timeRange.endDate.split("-").map(Number);
+  const lastDayOfEndMonth = new Date(Date.UTC(endYear!, endMonth!, 0))
+    .toISOString()
+    .slice(0, 10);
+  if (
+    timeRange.startDate !== `${timeRange.startDate.slice(0, 7)}-01` ||
+    timeRange.endDate !== lastDayOfEndMonth
+  ) {
+    return null;
+  }
+  return {
+    startMonth: timeRange.startDate,
+    endMonth: `${timeRange.endDate.slice(0, 7)}-01`,
+  };
+}
+
+function queryableGranularities(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.toUpperCase())
+    : [];
+}
+
+function validateMetricQuerySpec(
+  metric: Record<string, unknown>,
+  querySpec: MetricQuerySpec,
+): {
+  groupBy: Array<{ name: string; grain?: string }>;
+  where: Array<{ sql: string }>;
+} {
+  const metricGranularities = queryableGranularities(
+    metric.queryableGranularities,
+  );
+  const dimensions = Array.isArray(metric.dimensions)
+    ? metric.dimensions.map(record)
+    : [];
+  const groupBy = querySpec.groupBy.map(({ name, grain }) => {
+    if (name === "metric_time") {
+      if (!grain) {
+        fail(
+          "Choose a grain for metric_time from the metric's queryable granularities.",
+          {
+            errorCode: "dbt_metric_dimension_invalid",
+            statusCode: 400,
+          },
+        );
+      }
+      if (!metricGranularities.includes(grain)) {
+        fail(`The metric does not support the ${grain} metric_time grain.`, {
+          errorCode: "dbt_metric_grain_unsupported",
+          statusCode: 400,
+        });
+      }
+      return { name, grain };
+    }
+
+    const dimension = dimensions.find((item) => item.name === name);
+    if (!dimension) {
+      fail(`The metric does not expose a dimension named ${name}.`, {
+        errorCode: "dbt_metric_dimension_invalid",
+        statusCode: 400,
+      });
+    }
+    const dimensionType =
+      typeof dimension.type === "string" ? dimension.type.toUpperCase() : "";
+    const dimensionGranularities = queryableGranularities(
+      dimension.queryableGranularities,
+    );
+    const isTimeDimension =
+      dimensionType === "TIME" || dimensionGranularities.length > 0;
+    if (isTimeDimension && !grain) {
+      fail(`Choose a grain for the time dimension ${name}.`, {
+        errorCode: "dbt_metric_grain_required",
+        statusCode: 400,
+      });
+    }
+    if (grain && !dimensionGranularities.includes(grain)) {
+      fail(`The dimension ${name} does not support the ${grain} grain.`, {
+        errorCode: "dbt_metric_grain_unsupported",
+        statusCode: 400,
+      });
+    }
+    if (!isTimeDimension && grain) {
+      fail(`The categorical dimension ${name} does not accept a time grain.`, {
+        errorCode: "dbt_metric_grain_invalid",
+        statusCode: 400,
+      });
+    }
+    return grain ? { name, grain } : { name };
+  });
+
+  const where = querySpec.timeRange
+    ? (() => {
+        const monthRange = fullCalendarMonthRange(querySpec.timeRange);
+        const filterGrain = metricGranularities.includes("DAY")
+          ? "day"
+          : metricGranularities.includes("MONTH") && monthRange
+            ? "month"
+            : null;
+        if (!filterGrain) {
+          fail(
+            "This metric cannot apply the requested date range at a supported time grain. Use daily-capable metrics for partial-day ranges, or give month-only metrics complete calendar months.",
+            {
+              errorCode: "dbt_metric_grain_unsupported",
+              statusCode: 400,
+            },
+          );
+        }
+        const { startDate, endDate } = querySpec.timeRange;
+        const filterStart =
+          filterGrain === "month" ? monthRange!.startMonth : startDate;
+        const filterEnd =
+          filterGrain === "month" ? monthRange!.endMonth : endDate;
+        return [
+          {
+            sql: `{{ TimeDimension('metric_time', '${filterGrain}') }} >= '${filterStart}'`,
+          },
+          {
+            sql: `{{ TimeDimension('metric_time', '${filterGrain}') }} <= '${filterEnd}'`,
+          },
+        ];
+      })()
+    : [];
+
+  return { groupBy, where };
+}
+
 async function executeGraphQl(args: {
   connectionId: string;
-  body: { query: string; variables: Record<string, string | number> };
+  body: { query: string; variables: Record<string, unknown> };
+  responseKind: "metadata" | "query" | "result";
   signal?: AbortSignal;
 }): Promise<Record<string, unknown>> {
   let result: GraphQlResult;
@@ -368,6 +875,17 @@ async function executeGraphQl(args: {
     );
   }
   const response = result.response;
+  if (response?.truncated === true && response.ok !== false) {
+    const message = {
+      metadata:
+        "dbt Semantic Layer truncated the metric metadata response at 500 KB. No continuation cursor is safe because the current page may be incomplete. Refine the metric name or ask the dbt owner to reduce its exposed dimensions, then retry.",
+      query:
+        "dbt Semantic Layer truncated the metric query creation response at 500 KB, so no query ID can be resumed. Retry with narrower filters; if it repeats, ask the dbt owner to review the metric.",
+      result:
+        "dbt Semantic Layer truncated the metric result at 500 KB, so this page cannot be resumed safely. Narrow the date range or grouped dimensions and start a new metric query.",
+    }[args.responseKind];
+    throw new DbtSemanticLayerError("provider_error", message, false);
+  }
   if (!response || response.ok === false) {
     if (response?.status === 408 || response?.status === 504) {
       throw new DbtRequestTimeoutError(
@@ -390,20 +908,22 @@ function parseRows(value: unknown): unknown[] {
     try {
       parsed = JSON.parse(parsed) as unknown;
     } catch {
-      fail("dbt Semantic Layer returned unreadable metric results.", {
-        errorCode: "dbt_invalid_result",
-        statusCode: 502,
-      });
+      throw new DbtSemanticLayerError(
+        "provider_error",
+        "dbt Semantic Layer returned unreadable metric results.",
+        false,
+      );
     }
   }
   if (Array.isArray(parsed)) return parsed;
   const result = record(parsed);
   if (Array.isArray(result.data)) return result.data;
   if (Array.isArray(result.rows)) return result.rows;
-  fail("dbt Semantic Layer did not return tabular metric results.", {
-    errorCode: "dbt_invalid_result",
-    statusCode: 502,
-  });
+  throw new DbtSemanticLayerError(
+    "provider_error",
+    "dbt Semantic Layer did not return tabular metric results.",
+    false,
+  );
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -426,7 +946,12 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 export default defineAction({
   description:
-    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. Returns the metric definition, bounded live rows, and explicit permission, deployment, or connection states; it cannot run dbt jobs or accept arbitrary GraphQL.",
+    "Query an exact owner-defined dbt Semantic Layer metric through the caller's workspace connection. " +
+    "Choose a bounded inclusive date range up to 366 days for scalar queries or explicitly set allTime:true; grouped queries require a bounded range. " +
+    "Daily-capable metrics accept exact dates; monthly-only metrics require complete calendar months. Unsupported filter grains return an explicit error. " +
+    "The action returns the metric definition, querySpec, and live rows with explicit permission, deployment, or connection states. Grouped time columns are returned as metric_time__<GRAIN>. It cannot run dbt jobs or accept arbitrary GraphQL. " +
+    "On `not_found`, search `find-data` for the exact name once, then retry. On `ambiguous_metric`, list the matching names and ask which metric is meant; retrying the same name returns the same ambiguity. " +
+    "On `connection_selection_required`, pass a `connectionId` from its `connections` list. On a connection-required error, report the Settings step (Settings → Integrations) and do not answer with a different metric.",
   schema: z
     .object({
       metricName: z
@@ -448,16 +973,18 @@ export default defineAction({
         .trim()
         .regex(/^[A-Za-z0-9_-]{1,120}$/)
         .optional()
-        .describe("Resume polling a query ID returned by this action"),
+        .describe(
+          "Resume polling with the query ID and matching nextPage cursor returned by this action",
+        ),
       nextPage: z
         .string()
         .max(2_048)
         .regex(
-          /^(?:metric-metadata:[1-9]\d{0,3}|metric-results-v2\.[A-Za-z0-9_-]{1,2000})$/,
+          /^(?:metric-metadata-v2\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}|metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43})$/,
         )
         .optional()
         .describe(
-          "Continue an exact-name metadata search or a bounded metric result page",
+          "Continue an exact-name metadata search or metric result page; signed cursors preserve the search or query, connection, environment, grouping, and time scope",
         ),
       limit: z.coerce
         .number()
@@ -468,32 +995,109 @@ export default defineAction({
         .describe(
           "Maximum rows per action response; defaults to 20 and is capped at 100. Each MetricFlow query is separately capped at 1,000 total rows.",
         ),
+      groupBy: z
+        .array(metricGroupBySchema)
+        .min(1)
+        .max(5)
+        .optional()
+        .describe(
+          "Optional exact dbt dimension names to group by; grouped queries require timeRange and each dimension must appear in the selected metric metadata",
+        ),
+      timeRange: metricTimeRangeSchema
+        .optional()
+        .describe(
+          `Inclusive metric_time date range in YYYY-MM-DD format; maximum ${MAX_METRIC_QUERY_DAYS} days. Metrics with MONTH but no DAY granularity require a full calendar-month range. Required for grouped queries and one of timeRange or allTime:true is required for scalar queries.`,
+        ),
+      allTime: z
+        .literal(true)
+        .optional()
+        .describe(
+          "Set to true only when the metric should cover all available time; scalar queries must pass this or a bounded timeRange, and it cannot be combined with timeRange.",
+        ),
     })
     .strict()
-    .superRefine(({ queryId, nextPage }, context) => {
-      const resultCursor = nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX);
-      if (queryId && nextPage && !resultCursor) {
-        context.addIssue({
-          code: "custom",
-          path: ["nextPage"],
-          message:
-            "A queryId can only continue a MetricFlow result page, not metric metadata.",
-        });
-      }
-      if (!queryId && resultCursor) {
-        context.addIssue({
-          code: "custom",
-          path: ["queryId"],
-          message: "A MetricFlow result page requires its queryId.",
-        });
-      }
-    }),
+    .superRefine(
+      ({ queryId, nextPage, groupBy, timeRange, allTime }, context) => {
+        const metadataCursorContinuation = nextPage?.startsWith(
+          METRIC_METADATA_CURSOR_PREFIX,
+        );
+        const hasQueryScope =
+          (groupBy?.length ?? 0) > 0 || Boolean(timeRange) || Boolean(allTime);
+        if (!queryId && !(metadataCursorContinuation && !hasQueryScope)) {
+          const hasInvalidTimeScope =
+            (Boolean(timeRange) && Boolean(allTime)) ||
+            (groupBy?.length
+              ? !timeRange || Boolean(allTime)
+              : !timeRange && !allTime);
+          if (hasInvalidTimeScope) {
+            context.addIssue({
+              code: "custom",
+              path: ["timeRange"],
+              message: groupBy?.length
+                ? "Dimension-grouped MetricFlow queries require a bounded date range and cannot use allTime."
+                : "Choose exactly one of a bounded timeRange or allTime:true for a scalar metric query.",
+            });
+          }
+        }
+        if (
+          groupBy &&
+          new Set(groupBy.map(({ name }) => name)).size !== groupBy.length
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["groupBy"],
+            message: "Each dbt dimension can appear only once in groupBy.",
+          });
+        }
+        const resultCursor = Boolean(
+          nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX),
+        );
+        if (queryId && !resultCursor) {
+          context.addIssue({
+            code: "custom",
+            path: ["nextPage"],
+            message:
+              "A queryId continuation requires its matching MetricFlow result-page cursor so the original grouping and time scope are preserved.",
+          });
+        }
+        if (!queryId && resultCursor) {
+          context.addIssue({
+            code: "custom",
+            path: ["queryId"],
+            message: "A MetricFlow result page requires its queryId.",
+          });
+        }
+        if (queryId && ((groupBy?.length ?? 0) > 0 || timeRange || allTime)) {
+          context.addIssue({
+            code: "custom",
+            path: ["queryId"],
+            message:
+              "Continue a MetricFlow query with its queryId and nextPage cursor only; the cursor preserves its grouping and explicit time scope.",
+          });
+        }
+      },
+    ),
   outputSchema: queryMetricOutputSchema,
   readOnly: true,
   parallelSafe: true,
+  grounding: true,
   mcpTool: true,
   http: { method: "POST" },
-  run: async ({ metricName, connectionId, queryId, nextPage, limit }) => {
+  run: async ({
+    metricName,
+    connectionId,
+    queryId,
+    nextPage,
+    limit,
+    groupBy,
+    timeRange,
+    allTime,
+  }) => {
+    const hasRequestedMetricQueryScope =
+      (groupBy?.length ?? 0) > 0 || Boolean(timeRange) || Boolean(allTime);
+    const requestedMetadataQuerySpec = hasRequestedMetricQueryScope
+      ? normalizedMetricQuerySpec(groupBy, timeRange, allTime)
+      : null;
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
       fail("An authenticated user is required to query dbt metrics.", {
@@ -502,22 +1106,90 @@ export default defineAction({
       });
     }
     const orgId = getRequestOrgId() || null;
-    const connections = await listWorkspaceConnectionsForApp({
+    // Choices come only from connections this caller may use, so a restricted
+    // row cannot be listed, selected, or force a selection step.
+    const connections = await resolveWorkspaceConnectionsForApp({
       appId: ANALYTICS_APP_ID,
       provider: "dbt",
       includeDisabled: true,
     });
-    const selected = connectionId
-      ? connections.find((connection) => connection.id === connectionId)
+    const isMetricResultCursor = nextPage?.startsWith(
+      METRIC_RESULT_CURSOR_PREFIX,
+    );
+    const resultCursor = isMetricResultCursor
+      ? decodeMetricResultCursor(nextPage!)
+      : null;
+    if (isMetricResultCursor && !resultCursor) {
+      fail("The metric result cursor is invalid.", {
+        errorCode: "invalid_metric_result_cursor",
+        statusCode: 400,
+      });
+    }
+    const isMetricMetadataCursor = nextPage?.startsWith(
+      METRIC_METADATA_CURSOR_PREFIX,
+    );
+    const metadataCursor = isMetricMetadataCursor
+      ? decodeMetricMetadataCursor(nextPage!)
+      : null;
+    if (isMetricMetadataCursor && !metadataCursor) {
+      fail("The metric metadata cursor is invalid.", {
+        errorCode: "invalid_metric_metadata_cursor",
+        statusCode: 400,
+      });
+    }
+    const selectedConnectionId =
+      connectionId ??
+      resultCursor?.connectionId ??
+      metadataCursor?.connectionId;
+    const selected = selectedConnectionId
+      ? connections.find((connection) => connection.id === selectedConnectionId)
       : connections.length === 1
         ? connections[0]
         : null;
-    if (!selected && connections.length > 1 && !connectionId) {
+    if (!selected && connections.length > 1 && !selectedConnectionId) {
+      // Asking for a choice among rows that cannot run a query only sends the user
+      // round in a circle. Offer only the rows that are ready to query.
+      if (!orgId) {
+        return {
+          status: "connection_error",
+          metricName,
+          message:
+            "The active organization is unavailable, so dbt connection readiness cannot be checked. Restore the organization context before retrying.",
+        };
+      }
+      const tokenConfigured = await tokenConfiguredFor(orgId);
+      // A failed secret lookup is unknown, not a missing token, so it is not
+      // reported as an unready connection.
+      if (tokenConfigured === null) {
+        return {
+          status: "connection_error",
+          metricName,
+          message:
+            "The dbt token could not be checked. Retry the request or check the workspace secrets.",
+        };
+      }
+      if (!tokenConfigured) {
+        throw new AgentConnectionRequiredError(
+          "Add the dbt Semantic Layer token to this workspace connection, then retry.",
+          { provider: "dbt", appId: ANALYTICS_APP_ID },
+        );
+      }
+      const ready = connections.filter(
+        (connection) => rowReadiness(connection, tokenConfigured) === "ready",
+      );
+      if (ready.length === 0) {
+        return {
+          status: "connection_unavailable",
+          metricName,
+          connection: { id: connections[0].id, label: connections[0].label },
+          message:
+            "None of the dbt workspace connections is ready. Check them in Settings → Integrations.",
+        };
+      }
       return {
         status: "connection_selection_required",
-        message:
-          "Choose a connected dbt workspace connection to run this metric.",
-        connections: connections.map(({ id, label, status }) => ({
+        message: "Choose a dbt workspace connection to run this metric.",
+        connections: ready.map(({ id, label, status }) => ({
           id,
           label,
           status,
@@ -579,9 +1251,6 @@ export default defineAction({
       });
     }
 
-    const resultCursor = nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX)
-      ? decodeMetricResultCursor(nextPage)
-      : null;
     if (nextPage?.startsWith(METRIC_RESULT_CURSOR_PREFIX)) {
       if (
         !resultCursor ||
@@ -600,6 +1269,17 @@ export default defineAction({
         );
       }
     }
+
+    const requestedQuerySpec = resultCursor
+      ? resultCursor.querySpec
+      : (metadataCursor?.querySpec ??
+        requestedMetadataQuerySpec ??
+        metricQuerySpecSchema.parse({
+          groupBy: groupBy ?? [],
+          ...(timeRange ? { timeRange } : {}),
+          ...(allTime ? { allTime } : {}),
+        }));
+    let activeQuerySpec = resultCursor?.querySpec ?? requestedQuerySpec;
 
     const token = await resolveWorkspaceConnectionCredentialForApp({
       appId: ANALYTICS_APP_ID,
@@ -625,24 +1305,52 @@ export default defineAction({
       );
     }
 
+    if (resultCursor && !verifyMetricResultCursor(resultCursor, token.value)) {
+      fail("The metric result cursor signature is invalid.", {
+        errorCode: "invalid_metric_result_cursor",
+        statusCode: 400,
+      });
+    }
+    if (
+      metadataCursor &&
+      (!verifyMetricMetadataCursor(metadataCursor, token.value) ||
+        metadataCursor.metricName !== metricName.trim().toLowerCase() ||
+        metadataCursor.connectionId !== selected.id ||
+        metadataCursor.environmentId !== environmentId ||
+        JSON.stringify(metadataCursor.querySpec) !==
+          JSON.stringify(
+            requestedMetadataQuerySpec ?? metadataCursor.querySpec,
+          ))
+    ) {
+      fail(
+        "The metric metadata cursor is invalid or belongs to another metric, connection, or environment.",
+        {
+          errorCode: "invalid_metric_metadata_cursor",
+          statusCode: 400,
+        },
+      );
+    }
+
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), 12_000);
     let activeQueryId = queryId;
+    let initialResultPageCursor: string | undefined;
+    let activeMetricDefinition = resultCursor?.metricDefinition;
     try {
       let metric: Record<string, unknown> = { name: metricName };
       if (!activeQueryId) {
         const exactMatches: Record<string, unknown>[] = [];
-        const startPage = nextPage
-          ? Number(nextPage.slice("metric-metadata:".length))
-          : 1;
+        const startPage = metadataCursor?.pageNum ?? 1;
         let pageCount = startPage - 1;
-        let totalItems = 0;
+        let totalItems = metadataCursor?.of ?? 0;
+        let totalPages = 0;
         let itemsSeen = 0;
         const finalPage = startPage + MAX_METADATA_PAGES - 1;
         while (pageCount < finalPage) {
           const lookup = await executeGraphQl({
             connectionId: selected.id,
             signal: controller.signal,
+            responseKind: "metadata",
             body: {
               query: LOOKUP_METRIC,
               variables: {
@@ -656,7 +1364,12 @@ export default defineAction({
           if (
             !Array.isArray(page.items) ||
             typeof page.totalItems !== "number" ||
-            typeof page.totalPages !== "number"
+            !Number.isSafeInteger(page.totalItems) ||
+            page.totalItems < 0 ||
+            typeof page.totalPages !== "number" ||
+            !Number.isSafeInteger(page.totalPages) ||
+            page.totalPages < 0 ||
+            page.totalPages > 100_000
           ) {
             fail(
               "dbt Semantic Layer returned incomplete metric metadata pagination.",
@@ -666,24 +1379,48 @@ export default defineAction({
               },
             );
           }
+          if (metadataCursor && page.totalItems !== metadataCursor.of) {
+            fail(
+              "The dbt metric catalog changed during pagination. Restart the exact-name search.",
+              {
+                errorCode: "dbt_metadata_cursor_stale",
+                statusCode: 409,
+              },
+            );
+          }
           const items = page.items;
           pageCount += 1;
           itemsSeen += items.length;
           totalItems = page.totalItems;
+          totalPages = page.totalPages;
           exactMatches.push(
             ...items.map(record).filter((item) => item.name === metricName),
           );
-          const totalPages = page.totalPages;
           if (exactMatches.length || pageCount >= totalPages) break;
         }
-        if (!exactMatches.length && pageCount < Math.ceil(totalItems / 100)) {
+        const searched = Math.min(
+          totalItems,
+          (metadataCursor?.searched ?? 0) + itemsSeen,
+        );
+        if (!exactMatches.length && pageCount < totalPages) {
           return {
             status: "metadata_truncated",
             metricName,
-            searched: Math.min(totalItems, (startPage - 1) * 100 + itemsSeen),
+            searched,
             of: totalItems,
             truncated: true,
-            nextPage: `metric-metadata:${pageCount + 1}`,
+            nextPage: encodeMetricMetadataCursor(
+              {
+                metricName: metricName.trim().toLowerCase(),
+                connectionId: selected.id,
+                environmentId,
+                pageNum: pageCount + 1,
+                searched,
+                of: totalItems,
+                querySpec: requestedQuerySpec,
+              },
+              token.value,
+            ),
             message:
               "The dbt metric search reached its page limit. Refine the exact metric name or continue from the next metadata page.",
           };
@@ -693,6 +1430,7 @@ export default defineAction({
             const manifest = await executeGraphQl({
               connectionId: selected.id,
               signal: controller.signal,
+              responseKind: "metadata",
               body: {
                 query: COUNT_METRICS,
                 variables: { environmentId },
@@ -724,39 +1462,65 @@ export default defineAction({
           return {
             status: exactMatches.length > 1 ? "ambiguous_metric" : "not_found",
             metricName,
-            searched: Math.min(totalItems, (startPage - 1) * 100 + itemsSeen),
+            searched,
             of: totalItems,
           };
         }
         metric = exactMatches[0]!;
-        const created = await executeGraphQl({
-          connectionId: selected.id,
-          signal: controller.signal,
-          body: {
-            query: CREATE_METRIC_QUERY,
-            variables: {
-              environmentId,
-              metricName,
-              queryRowCap: MAX_METRIC_QUERY_ROWS,
+        activeMetricDefinition = metricDefinitionSummary(metricName, metric);
+        if (!activeQueryId) {
+          const metricQuery = validateMetricQuerySpec(metric, activeQuerySpec);
+          const created = await executeGraphQl({
+            connectionId: selected.id,
+            signal: controller.signal,
+            responseKind: "query",
+            body: {
+              query: CREATE_METRIC_QUERY,
+              variables: {
+                environmentId,
+                metricName,
+                groupBy: metricQuery.groupBy.length
+                  ? metricQuery.groupBy
+                  : null,
+                where: metricQuery.where.length ? metricQuery.where : null,
+                queryRowCap: MAX_METRIC_QUERY_ROWS,
+              },
             },
-          },
-        });
-        const returnedQueryId = record(created.createQuery).queryId;
-        if (typeof returnedQueryId !== "string" || !returnedQueryId.trim()) {
-          fail("dbt Semantic Layer did not create a metric query.", {
-            errorCode: "dbt_query_not_created",
-            statusCode: 502,
           });
+          const returnedQueryId = record(created.createQuery).queryId;
+          if (typeof returnedQueryId !== "string" || !returnedQueryId.trim()) {
+            throw new DbtSemanticLayerError(
+              "provider_error",
+              "dbt Semantic Layer did not return a resumable metric query ID.",
+            );
+          }
+          activeQueryId = returnedQueryId;
         }
-        activeQueryId = returnedQueryId;
       }
 
+      initialResultPageCursor = encodeMetricResultCursor(
+        {
+          metricName,
+          queryId: activeQueryId,
+          connectionId: selected.id,
+          environmentId,
+          pageNum: 1,
+          rowOffset: 0,
+          rowsBeforePage: 0,
+          querySpec: activeQuerySpec,
+          ...(activeMetricDefinition
+            ? { metricDefinition: activeMetricDefinition }
+            : {}),
+        },
+        token.value,
+      );
       const resultPageNum = resultCursor?.pageNum ?? 1;
       const resultRowOffset = resultCursor?.rowOffset ?? 0;
       for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
         const response = await executeGraphQl({
           connectionId: selected.id,
           signal: controller.signal,
+          responseKind: "result",
           body: {
             query: READ_METRIC_QUERY,
             variables: {
@@ -776,14 +1540,17 @@ export default defineAction({
             return {
               status: failure.status,
               metricName,
-              queryId: activeQueryId,
               message: failure.message,
             };
           }
-          fail("dbt Semantic Layer could not calculate this metric.", {
-            errorCode: "dbt_metric_query_failed",
-            statusCode: 502,
-          });
+          return {
+            status: "provider_error",
+            metricName,
+            connection: { id: selected.id, label: selected.label },
+            message:
+              safeDbtMessage(query.error) ||
+              "MetricFlow marked this query as failed. Fix the reported issue, then start a new metric query.",
+          };
         }
         if (status === "SUCCESSFUL") {
           const rows = parseRows(query.jsonResult);
@@ -791,28 +1558,30 @@ export default defineAction({
           if (
             typeof totalPages !== "number" ||
             !Number.isSafeInteger(totalPages) ||
-            totalPages < resultPageNum ||
             totalPages > 100_000
           ) {
-            return {
-              status: "incomplete_result",
-              metricName,
-              queryId: activeQueryId,
-              ...(resultCursor ? { nextPage } : {}),
-              message:
-                "MetricFlow marked the query successful but returned missing or invalid pagination metadata. Retry this query page; result completeness is unknown.",
-              connection: { id: selected.id, label: selected.label },
-              source: "dbt-semantic-layer",
-            };
+            throw new DbtSemanticLayerError(
+              "provider_error",
+              "MetricFlow marked the query successful but returned missing or invalid pagination metadata. Start a new metric query after the dbt result is repaired.",
+              false,
+            );
+          }
+          if (totalPages < resultPageNum) {
+            throw new DbtSemanticLayerError(
+              "provider_error",
+              "The MetricFlow result cursor points beyond the last available page. Start a new metric query.",
+              false,
+            );
           }
           const rowsBeforePage = resultCursor?.rowsBeforePage ?? 0;
           const queryRowsRemaining = MAX_METRIC_QUERY_ROWS - rowsBeforePage;
           const pageRows = rows.slice(0, queryRowsRemaining);
-          if (rows.length > 0 && resultRowOffset >= pageRows.length) {
-            fail("dbt Semantic Layer returned an invalid metric result page.", {
-              errorCode: "dbt_invalid_result_page",
-              statusCode: 502,
-            });
+          if (resultRowOffset > 0 && resultRowOffset >= pageRows.length) {
+            throw new DbtSemanticLayerError(
+              "provider_error",
+              "dbt Semantic Layer returned an invalid metric result page.",
+              false,
+            );
           }
           const resultRows = pageRows.slice(
             resultRowOffset,
@@ -824,54 +1593,46 @@ export default defineAction({
             rowsBeforeNextPage >= MAX_METRIC_QUERY_ROWS;
           const nextResultPage =
             nextRowOffset < pageRows.length
-              ? encodeMetricResultCursor({
-                  metricName,
-                  queryId: activeQueryId,
-                  connectionId: selected.id,
-                  environmentId,
-                  pageNum: resultPageNum,
-                  rowOffset: nextRowOffset,
-                  rowsBeforePage,
-                })
-              : resultPageNum < totalPages && !queryRowCapReached
-                ? encodeMetricResultCursor({
+              ? encodeMetricResultCursor(
+                  {
                     metricName,
                     queryId: activeQueryId,
                     connectionId: selected.id,
                     environmentId,
-                    pageNum: resultPageNum + 1,
-                    rowOffset: 0,
-                    rowsBeforePage: rowsBeforeNextPage,
-                  })
+                    pageNum: resultPageNum,
+                    rowOffset: nextRowOffset,
+                    rowsBeforePage,
+                    querySpec: activeQuerySpec,
+                    ...(activeMetricDefinition
+                      ? { metricDefinition: activeMetricDefinition }
+                      : {}),
+                  },
+                  token.value,
+                )
+              : resultPageNum < totalPages && !queryRowCapReached
+                ? encodeMetricResultCursor(
+                    {
+                      metricName,
+                      queryId: activeQueryId,
+                      connectionId: selected.id,
+                      environmentId,
+                      pageNum: resultPageNum + 1,
+                      rowOffset: 0,
+                      rowsBeforePage: rowsBeforeNextPage,
+                      querySpec: activeQuerySpec,
+                      ...(activeMetricDefinition
+                        ? { metricDefinition: activeMetricDefinition }
+                        : {}),
+                    },
+                    token.value,
+                  )
                 : undefined;
           return {
             status: "success",
-            metric: {
-              name: metricName,
-              ...(typeof metric.description === "string"
-                ? { description: metric.description }
-                : {}),
-              ...(typeof metric.type === "string" ? { type: metric.type } : {}),
-              dimensions: Array.isArray(metric.dimensions)
-                ? metric.dimensions
-                    .map(record)
-                    .slice(0, 30)
-                    .map((dimension) => ({
-                      name:
-                        typeof dimension.name === "string"
-                          ? dimension.name
-                          : "",
-                      ...(typeof dimension.description === "string"
-                        ? { description: dimension.description }
-                        : {}),
-                    }))
-                : [],
-              queryableGranularities: Array.isArray(
-                metric.queryableGranularities,
-              )
-                ? metric.queryableGranularities.slice(0, 10)
-                : [],
-            },
+            ...(activeMetricDefinition
+              ? { metric: activeMetricDefinition }
+              : {}),
+            querySpec: activeQuerySpec,
             rows: resultRows,
             rowCount: resultRows.length,
             truncated: nextResultPage !== undefined || queryRowCapReached,
@@ -884,11 +1645,14 @@ export default defineAction({
             source: "dbt-semantic-layer",
           };
         }
-        if (!status) {
-          fail("dbt Semantic Layer returned an unknown query status.", {
-            errorCode: "dbt_unknown_query_status",
-            statusCode: 502,
-          });
+        if (status !== "PENDING" && status !== "RUNNING") {
+          throw new DbtSemanticLayerError(
+            "provider_error",
+            status
+              ? `dbt Semantic Layer returned an unsupported query status (${safeDbtMessage(status)}).`
+              : "dbt Semantic Layer returned no query status.",
+            false,
+          );
         }
         if (attempt < MAX_POLL_ATTEMPTS - 1) {
           await sleep(POLL_INTERVAL_MS, controller.signal);
@@ -898,22 +1662,40 @@ export default defineAction({
         status: "pending",
         metricName,
         queryId: activeQueryId,
-        ...(resultCursor ? { nextPage } : {}),
+        nextPage: resultCursor ? nextPage! : initialResultPageCursor,
+        querySpec: activeQuerySpec,
+        ...(activeMetricDefinition ? { metric: activeMetricDefinition } : {}),
         message:
-          "The MetricFlow query is still running. Call this action again with the same metricName and queryId to continue polling.",
+          "The MetricFlow query is still running. Call this action again with the same metricName, queryId, and returned nextPage cursor to continue polling.",
         connection: { id: selected.id, label: selected.label },
         source: "dbt-semantic-layer",
       };
     } catch (error) {
       if (error instanceof DbtSemanticLayerError) {
+        const hasRecovery =
+          error.recoverable &&
+          Boolean(activeQueryId && initialResultPageCursor);
+        const recovery = hasRecovery
+          ? {
+              queryId: activeQueryId!,
+              nextPage: resultCursor ? nextPage! : initialResultPageCursor!,
+              querySpec: activeQuerySpec,
+              ...(activeMetricDefinition
+                ? { metric: activeMetricDefinition }
+                : {}),
+            }
+          : {};
         return {
           status: error.status,
           metricName,
-          ...(activeQueryId ? { queryId: activeQueryId } : {}),
-          ...(error.status === "connection_error"
+          ...recovery,
+          ...(error.status === "connection_error" ||
+          error.status === "provider_error"
             ? { connection: { id: selected.id, label: selected.label } }
             : {}),
-          message: error.message,
+          message: hasRecovery
+            ? `${error.message} Retry with the same metricName, queryId, and nextPage cursor to resume.`
+            : error.message,
         };
       }
       if (error instanceof DbtRequestTimeoutError) {
@@ -922,8 +1704,12 @@ export default defineAction({
             status: "pending",
             metricName,
             queryId: activeQueryId,
-            ...(resultCursor ? { nextPage } : {}),
-            message: `${error.message} Retry with the same queryId${resultCursor ? " and nextPage" : ""} to resume.`,
+            nextPage: resultCursor ? nextPage! : initialResultPageCursor,
+            querySpec: activeQuerySpec,
+            ...(activeMetricDefinition
+              ? { metric: activeMetricDefinition }
+              : {}),
+            message: `${error.message} Retry with the same queryId and nextPage cursor to resume.`,
             connection: { id: selected.id, label: selected.label },
             source: "dbt-semantic-layer",
           };
@@ -942,8 +1728,13 @@ export default defineAction({
             status: "pending",
             metricName,
             queryId: activeQueryId,
-            ...(resultCursor ? { nextPage } : {}),
-            message: `The MetricFlow query exceeded the action time budget. Retry with the same queryId${resultCursor ? " and nextPage" : ""} to resume.`,
+            nextPage: resultCursor ? nextPage! : initialResultPageCursor,
+            querySpec: activeQuerySpec,
+            ...(activeMetricDefinition
+              ? { metric: activeMetricDefinition }
+              : {}),
+            message:
+              "The MetricFlow query exceeded the action time budget. Retry with the same queryId and nextPage cursor to resume.",
             connection: { id: selected.id, label: selected.label },
             source: "dbt-semantic-layer",
           };

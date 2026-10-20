@@ -20,7 +20,6 @@ async function agentContext(page: Page) {
 }
 
 test.describe("Annotate lab off (the default)", () => {
-  // oracle: none — verifies which controls and states exist behind the Annotate lab, not parity with a design reference.
   test("offers no Annotate mode, Draw item, Draw shortcut row or overlay", async ({
     page,
   }) => {
@@ -44,7 +43,6 @@ test.describe("Annotate lab off (the default)", () => {
     );
   });
 
-  // oracle: none — verifies which controls and states exist behind the Annotate lab, not parity with a design reference.
   test("Shift+Y leaves the editor on Move and Design", async ({ page }) => {
     await gotoEditor(page, await readSeedDesignId());
 
@@ -57,7 +55,6 @@ test.describe("Annotate lab off (the default)", () => {
       .toMatchObject({ mode: "edit", activeTool: "move" });
   });
 
-  // oracle: none — verifies which controls and states exist behind the Annotate lab, not parity with a design reference.
   test("a Draw URL left from when the lab was on lands on Move and Design, in the UI and for the agent", async ({
     page,
   }) => {
@@ -102,7 +99,6 @@ test.describe("Annotate lab on", () => {
     restoreLab = undefined;
   });
 
-  // oracle: none — verifies which controls and states exist behind the Annotate lab, not parity with a design reference.
   test("offers Annotate, Draw and the drawing overlay", async ({ page }) => {
     await gotoEditor(page, await readSeedDesignId());
 
@@ -133,7 +129,6 @@ test.describe("Annotate lab on", () => {
 
   // A reload with ?tool=draw is applied before the Labs answer arrives; it must
   // wait for it rather than treat the lab as off.
-  // oracle: none — verifies which controls and states exist behind the Annotate lab, not parity with a design reference.
   test("Shift+Y starts Draw and a reload on ?tool=draw keeps it", async ({
     page,
   }) => {

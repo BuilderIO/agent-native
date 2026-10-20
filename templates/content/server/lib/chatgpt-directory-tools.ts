@@ -157,6 +157,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       editorSessionId: { type: "actionSchema" as const },
       editorEditGeneration: { type: "actionSchema" as const },
       editorSnapshotTitle: { type: "actionSchema" as const },
+      editorSnapshotTitleBase: { type: "actionSchema" as const },
       editorSnapshotContent: { type: "actionSchema" as const },
       browserSaveAttemptId: { type: "actionSchema" as const },
       preserveLeadingTitleHeading: { type: "actionSchema" as const },

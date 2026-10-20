@@ -179,6 +179,28 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
   "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
+  "onboarding.creditsTitle":
+    "Pruébalo con 60 créditos de Agent gratuitos al mes",
+  "onboarding.creditsTitleClips":
+    "Pruébalo con almacenamiento de vídeo gratuito y 60 créditos de Agent al mes",
+  "onboarding.creditsActivate": "Activar créditos gratuitos",
+  "onboarding.creditsFinePrint":
+    "Esto creará una cuenta de Builder.io gratuita. Al continuar, aceptas nuestros",
+  "onboarding.creditsMoreInfo": "Más información",
+  "onboarding.creditsSubtitle":
+    "Obtén créditos gratuitos para LLMs, Jev, almacenamiento y más para esta app con un solo clic de Builder.io.",
+  "onboarding.creditsLearnMore": "Saber más",
+  "onboarding.creditsSkip": "Omitir",
+  "onboarding.creditsSkipConfirmTitle": "¿Estás seguro?",
+  "onboarding.creditsSkipConfirmBody":
+    "Las apps de Agent-Native necesitan un LLM conectado para usar la mayoría de las funciones. La mayoría no funcionará sin uno.",
+  "onboarding.creditsSkipGoBack": "Volver",
+  "onboarding.creditsSkipAnyway": "Omitir de todas formas",
+  "onboarding.creditsUseCustomKeys": "Usar claves personalizadas",
+  "onboarding.creditsAboutLabel": "Acerca de los créditos gratuitos",
+  "onboarding.creditsActivating": "Activando créditos gratuitos",
+  "onboarding.creditsActivatingTooltip":
+    "Builder ofrece créditos gratuitos para LLMs, Jev, almacenamiento y más, para que puedas usar las funciones de IA de esta app sin tus propias claves.",
   "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
@@ -219,6 +241,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vectores semánticos",
   "onboarding.capability.embeddings.why":
     "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
+  "onboarding.capability.webSearch.label": "Búsqueda web",
+  "onboarding.capability.webSearch.keySummary": "Búsqueda web",
+  "onboarding.capability.webSearch.why":
+    "Busca en fuentes públicas actuales de la web. La búsqueda gestionada por Builder usa los créditos de IA incluidos, así que no hace falta una clave de búsqueda aparte.",
   "onboarding.capability.systemOne.why":
     "Jev es un modelo de decisión opcional que ayuda a elegir herramientas y habilidades relevantes antes de la primera solicitud al modelo del agente.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
@@ -688,7 +714,28 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contactos, empresas, negocios, tickets, analítica de clientes",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "Si hay una HubSpot MCP Auth App gestionada por el espacio de trabajo, cualquier miembro puede conectar una cuenta personal de HubSpot con OAuth y PKCE. Si no, crea la app en HubSpot Developer Platform antes de conectar; el conector OAuth de HubSpot existente sigue disponible para las acciones de la app.",
+    "Cada persona conecta su propia cuenta de HubSpot después de que un propietario configure la HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Configurar HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "Un propietario configura HubSpot MCP una vez. Después, cada miembro conecta su propia cuenta.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus":
+    "Se requiere configuración del espacio de trabajo",
+  "mcpIntegrations.hubspot.setupChecking":
+    "Comprobando la configuración del espacio de trabajo…",
+  "mcpIntegrations.hubspot.setupUnavailable":
+    "Estado de configuración no disponible",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "No se pudo comprobar la configuración OAuth del espacio de trabajo. Inténtalo de nuevo.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Crea una HubSpot MCP Auth App y añade su ID y secreto de cliente en Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Pide a un propietario que cree una HubSpot MCP Auth App y añada su ID y secreto de cliente en Agent-Native settings → API keys. Después podrás conectar tu propia cuenta de HubSpot.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Únete a un espacio de trabajo antes de conectar HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Añadir credenciales del espacio de trabajo",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Volver a comprobar",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Reintentar",
   "mcpIntegrations.catalog.pylon.description":
     "Busca y actualiza datos de soporte de Pylon.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1968,6 +2015,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "Agente vía {{protocol}}",
   "settings.audit.allApps": "Todas las apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Aprobación",
+  "settings.audit.approvalAgentChat": "Aprobado en el chat del agente",
+  "settings.audit.approvalA2AReview":
+    "Aprobado en la página de revisión de acciones del agente",
+  "settings.audit.approvalMcpClient":
+    "Aceptado por el cliente MCP (sin verificar)",
   "settings.audit.changedBy": "Cambiado por",
   "settings.audit.close": "Cerrar",
   "settings.audit.empty": "No hay cambios en este periodo.",
@@ -1981,9 +2034,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "Últimos 90 días",
   "settings.audit.loadFailed": "No se pudo cargar el registro de auditoría.",
   "settings.audit.loading": "Cargando registro de auditoría",
+  "settings.audit.oauthClient": "Cliente OAuth",
   "settings.audit.onBehalfOf": "En nombre de",
   "settings.audit.range": "Periodo",
   "settings.audit.refused": "Rechazado",
+  "settings.audit.reportedClient": "Cliente autodeclarado",
   "settings.audit.result": "Resultado",
   "settings.audit.showMore": "Mostrar {{count}} más",
   "settings.audit.succeeded": "Correcto",
@@ -2795,6 +2850,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Modelo predeterminado de la app",
   "settingsShell.search.backgroundAgents": "Agentes en segundo plano",
   "settingsShell.search.browserAutomation": "Automatización del navegador",
+  "settingsShell.search.webSearch": "Búsqueda web",
   "settingsShell.search.connectedAgents": "Agentes conectados",
   "settingsShell.search.database": "Base de datos",
   "settingsShell.search.defaultModel": "Modelo predeterminado",
@@ -2932,6 +2988,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Hace cambios en el código desde producción.",
   "settingsInfra.whyBrowser":
     "Permite que el agente use un navegador en producción.",
+  "settingsInfra.whyWebSearch":
+    "Encuentra información pública actual y documentación oficial.",
   "settingsInfra.provider": "Proveedor",
   "settingsInfra.keyOrg": "Usa la clave de {{provider}} de la organización.",
   "settingsInfra.manageKey": "Gestionar clave",
@@ -3097,6 +3155,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Desconectado aquí. Es posible que el acceso siga activo en ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Puedes usar las apps de código abierto sin solicitar acceso si las ejecutas localmente con un callback de loopback; no necesitas solicitar acceso de socio. Las apps alojadas en *.agent-native.com requieren la aprobación del operador y un callback alojado.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Usa el acceso al plan de ChatGPT con una cuenta personal. En el desarrollo local, establece access.autoCreateDefaultOrg en false antes de iniciar sesión.",
+  "settingsModel.chatgptScopeUnresolved":
+    "La aplicación no pudo confirmar el ámbito de tu cuenta. Completa la configuración local y vuelve a cargar los ajustes.",
   "settingsModel.chatgptNoDirectUse":
     "Vuelve a conectar y permite el acceso directo a modelos para usar esta cuenta de ChatGPT.",
   "settingsModel.chatgptReconnect": "Volver a conectar",

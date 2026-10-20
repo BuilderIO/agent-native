@@ -1,8 +1,8 @@
 # Clips
 
-An open-source, agent-native alternative to Loom, Granola, and Wispr Flow rolled
-into one app. Screen recording, calendar-synced meeting notes, and push-to-talk
-voice dictation — all transcribed, searchable, and yours to own.
+An open-source, agent-native alternative to Loom and Granola rolled into one app.
+Screen recording, calendar-synced meeting notes, and push-to-talk voice dictation
+— all transcribed, searchable, and yours to own.
 
 **Live app: [clips.agent-native.com](https://clips.agent-native.com?utm_source=github&utm_medium=referral&utm_content=clips-readme)**
 

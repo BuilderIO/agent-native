@@ -39,14 +39,26 @@ describe("db scripts parameterized SQL", () => {
     };
   }
 
-  function mockPostgresClient(unsafe: ReturnType<typeof vi.fn>) {
+  function mockPostgresClient(
+    unsafe: ReturnType<typeof vi.fn>,
+    onTransactionStatement?: (sql: string) => void,
+  ) {
     const end = vi.fn(async () => {});
-    const tx = { unsafe: answerAgentSqlChecks(unsafe) };
+    const answer = answerAgentSqlChecks(unsafe);
+    const tx = {
+      unsafe: async (sql: string, args?: unknown[]) => {
+        onTransactionStatement?.(sql);
+        return answer(sql, args);
+      },
+    };
     const begin = vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) =>
       fn(tx),
     );
     const client = { unsafe, begin, end };
-    vi.doMock("./postgres-client.js", () => ({
+    vi.doMock("./postgres-client.js", async () => ({
+      ...(await vi.importActual<typeof import("./postgres-client.js")>(
+        "./postgres-client.js",
+      )),
       createPostgresScriptClient: async () => client,
     }));
     vi.doMock("../../db/client.js", async () => ({
@@ -58,6 +70,7 @@ describe("db scripts parameterized SQL", () => {
 
   it("passes db-query bind args through to PostgreSQL", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "10000");
     const unsafe = vi.fn(async (sql: string) => {
       if (sql.includes("information_schema.columns")) return [];
       return [{ name: "ada" }];
@@ -76,6 +89,146 @@ describe("db scripts parameterized SQL", () => {
     ]);
 
     expect(unsafe).toHaveBeenCalledWith("SELECT $1 AS name", ["ada"]);
+    const timeoutIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      /^SET LOCAL statement_timeout = \d+$/.test(sql),
+    );
+    const statementTimeout = Number(
+      unsafe.mock.calls[timeoutIndex]?.[0]?.match(/= (\d+)$/)?.[1],
+    );
+    const queryIndex = unsafe.mock.calls.findIndex(
+      ([sql]) => sql === "SELECT $1 AS name",
+    );
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    expect(timeoutIndex).toBeLessThan(queryIndex);
+    expect(statementTimeout).toBeGreaterThan(0);
+    expect(statementTimeout).toBeLessThanOrEqual(9750);
+  });
+
+  it("uses one shrinking deadline across db-query setup, verification, and query", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "160");
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const transactionStatements: string[] = [];
+    const unsafe = vi.fn(async (sql: string) => {
+      if (sql.includes("information_schema.columns")) {
+        return [{ table_name: "notes", column_name: "owner_email" }];
+      }
+      return [{ result: 1 }];
+    });
+    mockPostgresClient(unsafe, (sql) => {
+      transactionStatements.push(sql);
+      now += 10;
+    });
+
+    const { default: dbQuery } = await import("./query.js");
+    await dbQuery(["--sql", "SELECT title FROM notes", "--format", "json"]);
+
+    const timeouts = transactionStatements
+      .filter((sql) => sql.startsWith("SET LOCAL statement_timeout = "))
+      .map((sql) => Number(sql.match(/= (\d+)$/)?.[1]));
+    const statementCount = transactionStatements.filter(
+      (sql) => !sql.startsWith("SET LOCAL statement_timeout = "),
+    ).length;
+    const queryIndex = transactionStatements.indexOf("SELECT title FROM notes");
+
+    expect(
+      transactionStatements.some((sql) =>
+        sql.includes("information_schema.columns"),
+      ),
+    ).toBe(true);
+    expect(
+      transactionStatements.some((sql) =>
+        sql.includes('CREATE OR REPLACE TEMPORARY VIEW "notes"'),
+      ),
+    ).toBe(true);
+    expect(transactionStatements).toContain("SET TRANSACTION READ ONLY");
+    expect(
+      transactionStatements.some((sql) =>
+        sql.includes("current_setting('standard_conforming_strings')"),
+      ),
+    ).toBe(true);
+    expect(
+      transactionStatements.some((sql) => sql.includes("pg_catalog.pg_proc")),
+    ).toBe(true);
+    expect(
+      transactionStatements.some((sql) => sql.includes("pg_catalog.pg_class")),
+    ).toBe(true);
+    expect(queryIndex).toBeGreaterThan(0);
+    expect(transactionStatements[queryIndex - 1]).toMatch(
+      /^SET LOCAL statement_timeout = \d+$/,
+    );
+    expect(timeouts).toHaveLength(statementCount);
+    expect(timeouts[0]).toBeGreaterThan(timeouts.at(-1)!);
+    expect(timeouts.at(-1)).toBeGreaterThan(0);
+    expect(unsafe).toHaveBeenCalledWith("SELECT title FROM notes", []);
+  });
+
+  it("bounds db-exec statements with the configured transaction timeout", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "10000");
+    const unsafe = vi.fn(async (sql: string) => {
+      if (sql.includes("information_schema.columns")) return [];
+      return Object.assign([], { count: 1 });
+    });
+    mockPostgresClient(unsafe);
+
+    const { default: dbExec } = await import("./exec.js");
+    await dbExec(["--sql", "UPDATE notes SET title = 'Updated'"]);
+
+    const timeoutIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      /^SET LOCAL statement_timeout = \d+$/.test(sql),
+    );
+    const statementTimeout = Number(
+      unsafe.mock.calls[timeoutIndex]?.[0]?.match(/= (\d+)$/)?.[1],
+    );
+    const writeIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      sql.startsWith("UPDATE notes SET title"),
+    );
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    expect(timeoutIndex).toBeLessThan(writeIndex);
+    expect(statementTimeout).toBeGreaterThan(0);
+    expect(statementTimeout).toBeLessThanOrEqual(9750);
+  });
+
+  it("bounds db-patch statements with the configured transaction timeout", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "10000");
+    const unsafe = vi.fn(async (sql: string) => {
+      if (sql.includes("information_schema.columns")) return [];
+      if (sql.startsWith("SELECT")) return [{ __val: "old value" }];
+      if (sql.startsWith("UPDATE")) return Object.assign([], { count: 1 });
+      return [];
+    });
+    mockPostgresClient(unsafe);
+
+    const { default: dbPatch } = await import("./patch.js");
+    await dbPatch([
+      "--table",
+      "notes",
+      "--column",
+      "content",
+      "--where",
+      "id = 'n1'",
+      "--find",
+      "old",
+      "--replace",
+      "new",
+    ]);
+
+    const timeoutIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      /^SET LOCAL statement_timeout = \d+$/.test(sql),
+    );
+    const statementTimeout = Number(
+      unsafe.mock.calls[timeoutIndex]?.[0]?.match(/= (\d+)$/)?.[1],
+    );
+    const selectIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      sql.startsWith('SELECT "content" AS __val FROM "notes"'),
+    );
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    expect(timeoutIndex).toBeLessThan(selectIndex);
+    expect(statementTimeout).toBeGreaterThan(0);
+    expect(statementTimeout).toBeLessThanOrEqual(9750);
   });
 
   it("resolves the same database URL locally as the dev-server forward check, not getDatabaseUrl", async () => {
@@ -87,7 +240,10 @@ describe("db scripts parameterized SQL", () => {
     );
     const end = vi.fn(async () => {});
     const capturedUrls: string[] = [];
-    vi.doMock("./postgres-client.js", () => ({
+    vi.doMock("./postgres-client.js", async () => ({
+      ...(await vi.importActual<typeof import("./postgres-client.js")>(
+        "./postgres-client.js",
+      )),
       createPostgresScriptClient: async (url: string) => {
         capturedUrls.push(url);
         return { begin, end, unsafe };
@@ -152,13 +308,11 @@ describe("db scripts parameterized SQL", () => {
     ]);
 
     expect(begin).toHaveBeenCalledTimes(1);
-    expect(unsafe).toHaveBeenNthCalledWith(
-      2,
+    expect(unsafe).toHaveBeenCalledWith(
       "INSERT INTO notes (id, title) VALUES ($1, $2)",
       ["note-1", "One"],
     );
-    expect(unsafe).toHaveBeenNthCalledWith(
-      3,
+    expect(unsafe).toHaveBeenCalledWith(
       "UPDATE notes SET title = $1 WHERE id = $2",
       ["Two", "note-1"],
     );

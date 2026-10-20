@@ -3,14 +3,69 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-15
+## 2026-10-19
 
 ### Improved
 
+- Slide image generation uses the local provider by default, with Assets available for brand-library requests.
+
+### Fixed
+
+- Generated images stay available when slide insertion fails.
+- Slides image generation stays in Slides and respects its supported reference image limit.
+- Slides owns deck creation and editing, avoiding unnecessary Design handoffs.
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Added
+
+- Animations can now play with the previous one, so several objects appear together in one click
+
+### Improved
+
+- Contextual toolbar: the second row now changes with what is selected (text, shape, image, video, multi-select), and every state ends with an Edit with Agent button with quick picks.
+- The top bar shows a deck's privacy next to its name, Share has People and Agents tabs, and Present opens a menu to start in this tab, full screen, or Presenter View.
+
+### Fixed
+
+- Preserve PDF text line spacing when importing decks.
+- Search and preview reference decks before choosing one
+- Slides can research public sources when creating presentations
+- Slides keeps the original prompt available if saving a failed generation status does not work.
+
+## 2026-10-15
+
+### Added
+
+- Advance a presentation with spoken next-slide and previous-slide commands
+
+### Improved
+
+- Cmd+A selects all the text in a slide text box on the first press, and typing right after a bold, italic or underline toggle keeps the space you type
 - Blank decks and simple follow-ups like adding one empty slide now finish in a single quick step instead of running the full deck-generation process.
 
 ### Fixed
 
+- Backspace clears empty list items, and typed bullet markers match the text size
+- Deck prompts stay visible when generation status checks fail
+- Pasting into slide text keeps lists as lists, keeps bold and italic from other apps, and links bare URLs without leaving stray empty paragraphs
+- Presenter controls preserve Space navigation after mouse clicks and explain microphone recovery.
+- Presenter voice commands now distinguish localized phrases and preserve presentation controls.
+- Text editing in slides behaves like a standard rich text editor: Enter, Backspace and Delete join, split and exit lists, quotes and headings correctly, and Undo no longer breaks after a list toggle
+- Slides can paste the slide you copied into another deck with the keyboard or thumbnail menu.
+- Slides keeps your original request visible when a deck cannot be saved or checked.
+- Slides shows fallback prompts immediately, keeps them disabled until chat setup is ready, and persists generated decks before setup waits.
+- Undo and redo now reliably restore moved images and keep their selection in place
+- Undo and redo now restore moved objects and keep their selection stable.
+- Undo and redo now restore the correct slide change and keep the intended element selected.
+- Undo and redo reliably restore slide edits after saves and layout updates.
+- Undo and redo restore moved images and keep their selection aligned.
+- Undo and redo restore object moves, keep the changed object selected, and surface conflicts while preserving older history.
+- Your original prompt stays available when you reopen a deck after a failed generation
 - Selected slide elements now show a single blue outline.
 - Slides shows fallback prompts immediately and persists generated decks before setup waits.
 - Suggestion chips have more breathing room above the chat field
@@ -19,10 +74,12 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- The logo now opens an app menu with File, Edit, View, Preferences and Help.
 - Slash command options are easier to distinguish with pointer and keyboard navigation
 
 ### Fixed
 
+- Decks now render in their linked design system's colors, fonts, and canvas for everyone who can open them, even when that design system isn't shared with them or sets no slide default background
 - Backspace removes a leading space in a heading or quote without changing its formatting
 - Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
 - Fixed retries so the original deck request stays available if generation is delayed.
@@ -104,6 +161,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Slide outlines generated with Gemini work again: Google retired the model they used.
 - By-paragraph animations now work with native paragraphs and bullet lists.
 - By-paragraph animations reveal multiple paragraphs in a list item one at a time.
 - By-paragraph animations step through nested list items in order, preserving explicit paragraph effects and consistently prioritizing the first configured effect when targets overlap.

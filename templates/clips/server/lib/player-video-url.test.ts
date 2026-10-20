@@ -141,6 +141,25 @@ describe("resolvePlayerVideoUrl", () => {
     ).toBe("/api/video/rec-3?loomMedia=1&t=signed-token");
   });
 
+  it("hands YouTube's embed URL to the browser instead of proxying it", () => {
+    expect(
+      resolvePlayerVideoUrl(
+        {
+          id: "rec-1",
+          password: "hash",
+          sourceAppName: "YouTube",
+          sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+          videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+        },
+        {
+          addPasswordToken: true,
+          appPath: (path) => `/clips${path}`,
+          proxyRemoteMedia: true,
+        },
+      ),
+    ).toBe("https://www.youtube.com/embed/jNQXAC9IVRw");
+  });
+
   it("does not throw when the stored video URL is malformed", () => {
     expect(
       resolvePlayerVideoUrl(

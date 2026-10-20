@@ -78,26 +78,63 @@ async function runScenario(
     notes: {},
     expectedNoise: [],
   };
-  await body(scenario);
-  const working = [...tabs.tabs.values()];
-  const integrity = await observeIntegrity(tabs, reader, id, scenario.markers);
-  const record: ScenarioRecord = {
-    scenario: name,
-    tags: testInfo.tags,
-    notes: scenario.notes,
-    build: BUILD,
-    authoredEdits:
-      scenario.markers.all.length + scenario.markers.removed.length,
-    markers: scenario.markers.all.length,
-    durationMs: Date.now() - started,
-    integrity,
-    tabs: [...tabs.tabs.values(), tabs.detached],
-  };
-  writeScenarioRecord(testInfo, record);
-  await testInfo.attach("convergence", {
-    body: JSON.stringify(record, null, 2),
-    contentType: "application/json",
-  });
+  const { working, record } = await (async () => {
+    try {
+      await body(scenario);
+      const working = [...tabs.tabs.values()];
+      const integrity = await observeIntegrity(
+        tabs,
+        reader,
+        id,
+        scenario.markers,
+      );
+      const record: ScenarioRecord = {
+        scenario: name,
+        tags: testInfo.tags,
+        notes: scenario.notes,
+        build: BUILD,
+        authoredEdits:
+          scenario.markers.all.length + scenario.markers.removed.length,
+        markers: scenario.markers.all.length,
+        durationMs: Date.now() - started,
+        integrity,
+        tabs: [...tabs.tabs.values(), tabs.detached],
+      };
+      writeScenarioRecord(testInfo, record);
+      await testInfo.attach("convergence", {
+        body: JSON.stringify(record, null, 2),
+        contentType: "application/json",
+      });
+      return { working, record };
+    } catch (error) {
+      try {
+        await testInfo.attach("convergence-partial", {
+          body: JSON.stringify(
+            {
+              captureState: "incomplete",
+              scenario: name,
+              build: BUILD,
+              durationMs: Date.now() - started,
+              authoredEdits:
+                scenario.markers.all.length + scenario.markers.removed.length,
+              markers: scenario.markers.all.length,
+              failureName: error instanceof Error ? error.name : typeof error,
+              diagnostics: tabs.diagnosticSnapshot(),
+            },
+            null,
+            2,
+          ),
+          contentType: "application/json",
+        });
+      } catch (attachmentError) {
+        throw new AggregateError(
+          [error, attachmentError],
+          "Convergence scenario failed and partial diagnostics could not be attached",
+        );
+      }
+      throw error;
+    }
+  })();
   // The lane fails if it did not run under the conditions it reports.
   const latency = Number(scenario.notes.saveLatencyMs ?? 0);
   for (const tab of working) {

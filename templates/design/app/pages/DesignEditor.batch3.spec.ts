@@ -48,6 +48,7 @@ describe("defaultCanvasTextColor (board text readability)", () => {
   it("fills light on a dark surface and inherits on a light one", () => {
     expect(defaultCanvasTextColor(true)).toBe("#ffffff");
     expect(defaultCanvasTextColor(false)).toBe("currentColor");
+    expect(defaultCanvasTextColor(false, true)).toBe("#000000");
   });
 });
 

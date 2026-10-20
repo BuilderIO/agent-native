@@ -12,6 +12,7 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentSubmissionPayload,
   AgentRequestContext,
   DiscoverCapabilitiesInput,
   AgentToolCall,
@@ -41,6 +42,7 @@ import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../../shared/agent-chat.js";
 import {
   assertNoInlineImageBytes,
   stripInlineBytes,
@@ -96,6 +98,7 @@ interface StoredThread {
   updatedAt?: unknown;
   threadData?: unknown;
   metadata?: unknown;
+  runLifecycles?: unknown;
 }
 
 interface ActiveRunStatus {
@@ -103,6 +106,7 @@ interface ActiveRunStatus {
   status?: unknown;
   runId?: unknown;
   awaitingRedispatch?: unknown;
+  hasInFlightWork?: unknown;
   terminalReason?: unknown;
   turnId?: unknown;
 }
@@ -115,6 +119,7 @@ interface SnapshotAnnotationConflict {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const SAFE_BOUNDARY_POLL_INTERVAL_MS = 500;
 const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
@@ -260,6 +265,209 @@ function timestamp(value: unknown, fallback: string): string {
     return new Date(value).toISOString();
   }
   return fallback;
+}
+
+function strictTimestamp(value: unknown, field: string): string {
+  const milliseconds =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(milliseconds)) {
+    throw new TypeError(`Agent run lifecycle ${field} must be a timestamp.`);
+  }
+  const date = new Date(milliseconds);
+  if (Number.isNaN(date.getTime())) {
+    throw new TypeError(`Agent run lifecycle ${field} must be a timestamp.`);
+  }
+  return date.toISOString();
+}
+
+function runLifecycleStatus(
+  status: string,
+  terminalReason: string | null,
+  abortReason: string | null,
+): AgentRunSnapshot["status"] {
+  switch (status) {
+    case "running":
+      return "running";
+    case "completed":
+      return terminalReason && terminalReason !== "done"
+        ? "failed"
+        : "completed";
+    case "truncated":
+    case "errored":
+      return "failed";
+    case "aborted": {
+      const reason =
+        abortReason ??
+        (terminalReason?.startsWith("aborted:")
+          ? terminalReason.slice("aborted:".length)
+          : terminalReason) ??
+        "user";
+      return runOutcomeForCode(`aborted_${reason}`) === "stopped"
+        ? "cancelled"
+        : "failed";
+    }
+    default:
+      throw new TypeError(`Agent run lifecycle status is invalid: ${status}`);
+  }
+}
+
+function runLifecycleError(
+  status: AgentRunSnapshot["status"],
+  sqlStatus: string,
+  errorCode: string | null,
+  terminalReason: string | null,
+  abortReason: string | null,
+): AgentError | undefined {
+  if (status !== "failed") return undefined;
+  const normalizedTerminalReason = terminalReason?.startsWith("aborted:")
+    ? terminalReason.slice("aborted:".length)
+    : terminalReason;
+  const terminalCode = normalizedTerminalReason?.startsWith("error:")
+    ? normalizedTerminalReason.slice("error:".length)
+    : normalizedTerminalReason;
+  const normalizedAbortReason =
+    abortReason ??
+    (terminalReason?.startsWith("aborted:")
+      ? terminalReason.slice("aborted:".length)
+      : terminalReason);
+  const code =
+    errorCode ??
+    (sqlStatus === "aborted" ? normalizedAbortReason : undefined) ??
+    (terminalCode && terminalCode !== "done" ? terminalCode : undefined) ??
+    (sqlStatus === "truncated" ? "run_truncated" : "run_failed");
+  const truncated =
+    sqlStatus === "truncated" ||
+    (sqlStatus === "completed" &&
+      terminalReason !== null &&
+      terminalReason !== "done");
+  const interruptedAbort =
+    sqlStatus === "aborted" &&
+    runOutcomeForCode(`aborted_${normalizedAbortReason ?? "user"}`) ===
+      "interrupted";
+  const metadata = {
+    ...(terminalReason ? { terminalReason } : {}),
+    ...(abortReason ? { abortReason } : {}),
+  };
+  return {
+    code,
+    message:
+      code === "run_timeout"
+        ? "The run reached its time limit before completion was confirmed."
+        : truncated
+          ? "The server stopped the run before it confirmed completion."
+          : "The server reported that this run failed.",
+    ...(truncated || interruptedAbort ? { retryable: true } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  };
+}
+
+function projectRunLifecycles(
+  runs: AgentRunSnapshot[] | undefined,
+  value: unknown,
+): AgentRunSnapshot[] | undefined {
+  if (value === undefined) return runs;
+  const projection = asRecord(value);
+  if (
+    !projection ||
+    !Array.isArray(projection.queriedRunIds) ||
+    !Array.isArray(projection.runs)
+  ) {
+    throw new TypeError("Agent chat run lifecycle projection is invalid.");
+  }
+  const queriedRunIds = new Set<string>();
+  for (const runId of projection.queriedRunIds) {
+    if (typeof runId !== "string" || !runId) {
+      throw new TypeError(
+        "Agent chat queried run IDs must be non-empty strings.",
+      );
+    }
+    queriedRunIds.add(runId);
+  }
+  const summaries = new Map<
+    string,
+    {
+      status: string;
+      startedAt: unknown;
+      completedAt: unknown;
+      errorCode: string | null;
+      abortReason: string | null;
+      terminalReason: string | null;
+    }
+  >();
+  for (const rawSummary of projection.runs) {
+    const summary = asRecord(rawSummary);
+    if (
+      !summary ||
+      typeof summary.id !== "string" ||
+      !summary.id ||
+      typeof summary.status !== "string" ||
+      typeof summary.startedAt !== "number" ||
+      !Number.isFinite(summary.startedAt) ||
+      (summary.completedAt !== null &&
+        (typeof summary.completedAt !== "number" ||
+          !Number.isFinite(summary.completedAt))) ||
+      (summary.errorCode !== null && typeof summary.errorCode !== "string") ||
+      (summary.abortReason !== null &&
+        typeof summary.abortReason !== "string") ||
+      (summary.terminalReason !== null &&
+        typeof summary.terminalReason !== "string")
+    ) {
+      throw new TypeError("Agent chat run lifecycle summary is invalid.");
+    }
+    if (!queriedRunIds.has(summary.id) || summaries.has(summary.id)) {
+      throw new TypeError("Agent chat run lifecycle summary is unexpected.");
+    }
+    summaries.set(summary.id, {
+      status: summary.status,
+      startedAt: summary.startedAt,
+      completedAt: summary.completedAt,
+      errorCode: summary.errorCode,
+      abortReason: summary.abortReason,
+      terminalReason: summary.terminalReason,
+    });
+  }
+  if (runs === undefined) return runs;
+  return runs.map((run) => {
+    if (!queriedRunIds.has(run.id)) return run;
+    const summary = summaries.get(run.id);
+    if (!summary) return run;
+    // Protocol approval/input requests can outlive the Core turn row while
+    // retaining their own resumable event stream.
+    const status =
+      run.status === "awaiting_approval" || run.status === "awaiting_input"
+        ? run.status
+        : runLifecycleStatus(
+            summary.status,
+            summary.terminalReason,
+            summary.abortReason,
+          );
+    const error = runLifecycleError(
+      status,
+      summary.status,
+      summary.errorCode,
+      summary.terminalReason,
+      summary.abortReason,
+    );
+    const {
+      completedAt: _completedAt,
+      error: _error,
+      startedAt: _startedAt,
+      ...protocolFields
+    } = run;
+    return {
+      ...protocolFields,
+      status,
+      startedAt: strictTimestamp(summary.startedAt, "startedAt"),
+      ...(summary.completedAt !== null
+        ? { completedAt: strictTimestamp(summary.completedAt, "completedAt") }
+        : {}),
+      ...(error ? { error } : {}),
+    };
+  });
 }
 
 function messagePart(
@@ -1369,6 +1577,9 @@ function storedQueue(
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
+      ...(queued.interruptActiveRun === true
+        ? { interruptActiveRun: true }
+        : {}),
       ...(queued.options === undefined
         ? {}
         : {
@@ -2280,20 +2491,37 @@ async function responseError(response: Response): Promise<Error> {
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
   const activeRunId =
-    (typeof data?.activeRunId === "string" && data.activeRunId) ||
-    (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
-    (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
+    (typeof data?.activeRunId === "string" ? data.activeRunId : undefined) ||
+    (typeof payload?.activeRunId === "string"
+      ? payload.activeRunId
+      : undefined) ||
+    (typeof nestedError?.activeRunId === "string"
+      ? nestedError.activeRunId
+      : undefined);
+  const submittedRunId =
+    (typeof data?.submittedRunId === "string"
+      ? data.submittedRunId
+      : undefined) ||
+    (typeof payload?.submittedRunId === "string"
+      ? payload.submittedRunId
+      : undefined) ||
+    (typeof nestedError?.submittedRunId === "string"
+      ? nestedError.submittedRunId
+      : undefined);
   const code =
     (typeof data?.code === "string" && data.code) ||
     (typeof payload?.code === "string" && payload.code) ||
     (typeof payload?.errorCode === "string" && payload.errorCode) ||
     (typeof nestedError?.code === "string" && nestedError.code) ||
-    (response.status === 409 && activeRunId ? "run_slot_busy" : undefined) ||
+    (response.status === 409 && (activeRunId || submittedRunId)
+      ? "run_slot_busy"
+      : undefined) ||
     httpErrorCode(response.status);
   const runSlotBusy = response.status === 409 && code === "run_slot_busy";
   const error = runSlotBusy
     ? new AgentKitRunSlotBusyError(
         typeof activeRunId === "string" ? activeRunId : undefined,
+        submittedRunId,
       )
     : new Error(
         nestedMessage ??
@@ -2308,6 +2536,7 @@ async function responseError(response: Response): Promise<Error> {
         ? explicitRetryable
         : isRetryableHttpStatus(response.status),
     ...(activeRunId ? { activeRunId } : {}),
+    ...(submittedRunId ? { submittedRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -2491,6 +2720,7 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<StoredThread | null> {
     throwIfRequestAborted(signal);
     const requestHeaders = await headers({ sessionId: threadId });
+    requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
     throwIfRequestAborted(signal);
     const response = await fetcher(
       scopedThreadEndpoint(
@@ -2503,9 +2733,11 @@ export function createAgentNativeAgentKitTransport(
     if (response.status === 404) return null;
     if (!response.ok) throw await responseError(response);
     const value = await response.json();
-    if (!asRecord(value)) {
+    const record = asRecord(value);
+    if (!record) {
       throw new TypeError("Agent chat thread response must be an object.");
     }
+    if (record.absent === true) return null;
     return value as StoredThread;
   }
 
@@ -2518,13 +2750,10 @@ export function createAgentNativeAgentKitTransport(
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
     const agentKit = asRecord(repository.agentKit);
-    const failedRunIds = failedRunIdsWithError(agentKit?.runs);
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
       options.adapter?.textFormat,
-    ).filter(
-      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
     );
     const queuedMessages = storedQueue(
       repository.queuedMessages,
@@ -2587,14 +2816,26 @@ export function createAgentNativeAgentKitTransport(
           annotations: agentKit.annotations,
         })
       : undefined;
-    const durableMessages = storedMessageProjection;
-    const messages = protocolSnapshot?.messages
+    const runSnapshots = projectRunLifecycles(
+      protocolSnapshot?.runs,
+      stored.runLifecycles,
+    );
+    const failedRunIds = failedRunIdsWithError(
+      runSnapshots ?? protocolSnapshot?.runs,
+    );
+    const durableMessages = storedMessageProjection.filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+    );
+    const protocolMessages = protocolSnapshot?.messages?.filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+    );
+    const messages = protocolMessages
       ? reconcileDurableMessages(
-          protocolSnapshot.messages,
+          protocolMessages,
           durableMessages,
-          protocolSnapshot.events,
-          protocolSnapshot.runs,
-          protocolSnapshot.toolCalls ?? [],
+          protocolSnapshot?.events ?? [],
+          runSnapshots ?? protocolSnapshot?.runs,
+          protocolSnapshot?.toolCalls ?? [],
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -2683,7 +2924,7 @@ export function createAgentNativeAgentKitTransport(
       messages,
       queuedMessages,
       ...(protocolSnapshot?.events ? { events: protocolSnapshot.events } : {}),
-      ...(protocolSnapshot?.runs ? { runs: protocolSnapshot.runs } : {}),
+      ...(runSnapshots ? { runs: runSnapshots } : {}),
       ...(protocolSnapshot?.activeRunIds
         ? { activeRunIds: protocolSnapshot.activeRunIds }
         : {}),
@@ -2719,6 +2960,30 @@ export function createAgentNativeAgentKitTransport(
       throw new TypeError("Agent chat active-run response must be an object.");
     }
     return value;
+  }
+
+  async function abortRunAtSafeBoundary(
+    threadId: string,
+    runId: string,
+  ): Promise<boolean> {
+    const requestHeaders = await headers({ sessionId: threadId });
+    requestHeaders.set("content-type", "application/json");
+    const response = await fetcher(
+      `${apiUrl}/runs/${encodeURIComponent(runId)}/abort`,
+      {
+        method: "POST",
+        headers: requestHeaders,
+        body: JSON.stringify({ reason: "user", safeBoundary: true }),
+      },
+    );
+    if (!response.ok) throw await responseError(response);
+    const value = asRecord(await response.json());
+    if (typeof value?.aborted !== "boolean") {
+      throw new TypeError(
+        "Agent chat safe-boundary abort response must include aborted.",
+      );
+    }
+    return value.aborted;
   }
 
   async function activeRunSnapshot(
@@ -2981,14 +3246,16 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const failedRunIds = failedRunIdsWithError(runs);
+    const authoritativeRuns =
+      projectRunLifecycles(runs, stored.runLifecycles) ?? runs;
+    const failedRunIds = failedRunIdsWithError(authoritativeRuns);
     const messages = reconcileDurableMessages(
       thread.messages,
       durableMessages.filter(
         (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
       ),
       thread.events,
-      runs,
+      authoritativeRuns,
       thread.toolCalls,
     );
     const replayFromStart = [
@@ -3023,7 +3290,7 @@ export function createAgentNativeAgentKitTransport(
       // Replay starts at sequence zero, so rebuild an active assistant instead
       // of appending the same prefix to its persisted partial projection.
       messages: messagesForReplay,
-      runs,
+      runs: authoritativeRuns,
       activeRunIds,
     };
   }
@@ -3673,7 +3940,11 @@ export function createAgentNativeAgentKitTransport(
   }
 
   type QueueMutation =
-    | { type: "append"; message: AgentQueuedMessage }
+    | {
+        type: "append";
+        message: AgentQueuedMessage;
+        submissionPayload?: AgentSubmissionPayload;
+      }
     | { type: "remove"; messageId: string }
     | { type: "moveToTop"; messageId: string }
     | { type: "claim"; messageId: string; claimId: string }
@@ -3686,6 +3957,8 @@ export function createAgentNativeAgentKitTransport(
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
     claimedMessage?: AgentQueuedMessage;
+    alreadySubmitted?: true;
+    submittedRunId?: string;
     submissionExpired?: boolean;
   }> {
     if (mutation.type === "append") {
@@ -3723,10 +3996,37 @@ export function createAgentNativeAgentKitTransport(
     const claimedMessage = value.claimedMessage
       ? storedQueue([value.claimedMessage], threadId, now())[0]
       : undefined;
+    if (
+      value.alreadySubmitted !== undefined &&
+      value.alreadySubmitted !== true &&
+      value.alreadySubmitted !== false
+    ) {
+      throw new TypeError(
+        "Agent chat queue mutation alreadySubmitted must be a boolean.",
+      );
+    }
+    const submittedRunId =
+      typeof value.submittedRunId === "string" &&
+      value.submittedRunId.length > 0
+        ? value.submittedRunId
+        : undefined;
+    if (value.alreadySubmitted === true && !submittedRunId) {
+      throw new TypeError(
+        "Agent chat queue submission receipt must include submittedRunId.",
+      );
+    }
+    if (value.alreadySubmitted !== true && value.submittedRunId !== undefined) {
+      throw new TypeError(
+        "Agent chat queue submittedRunId requires alreadySubmitted.",
+      );
+    }
     return {
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
       ...(claimedMessage ? { claimedMessage } : {}),
+      ...(value.alreadySubmitted === true && submittedRunId
+        ? { alreadySubmitted: true as const, submittedRunId }
+        : {}),
       ...(value.submissionExpired === true ? { submissionExpired: true } : {}),
     };
   }
@@ -3891,7 +4191,12 @@ export function createAgentNativeAgentKitTransport(
         requestAttachments,
         metadata,
         options: runOptions,
+        interruptActiveRun,
+        submissionPayload,
       }) => {
+        const queueSubmissionPayload = submissionPayload
+          ? { ...submissionPayload, metadata }
+          : undefined;
         const message: AgentQueuedMessage = {
           id:
             id ??
@@ -3908,10 +4213,14 @@ export function createAgentNativeAgentKitTransport(
           requestAttachments,
           metadata,
           options: runOptions,
+          ...(interruptActiveRun ? { interruptActiveRun: true } : {}),
         };
         const result = await persistQueueMutation(threadId, {
           type: "append",
           message,
+          ...(queueSubmissionPayload
+            ? { submissionPayload: queueSubmissionPayload }
+            : {}),
         });
         if (result.submissionExpired) {
           throw Object.assign(
@@ -3921,6 +4230,18 @@ export function createAgentNativeAgentKitTransport(
         }
         if (!result.message) {
           throw new TypeError("Agent chat queue mutation omitted its message.");
+        }
+        if (result.alreadySubmitted) {
+          if (!result.submittedRunId) {
+            throw new TypeError(
+              "Agent chat queue submission receipt must include submittedRunId.",
+            );
+          }
+          return {
+            message: result.message,
+            alreadySubmitted: true,
+            submittedRunId: result.submittedRunId,
+          };
         }
         return { message: result.message };
       },
@@ -3982,6 +4303,7 @@ export function createAgentNativeAgentKitTransport(
           }
           throw error;
         }
+        let claimHeld = true;
         try {
           if (claim.submissionExpired) {
             clearPromotionClaimId(threadId, messageId);
@@ -3990,19 +4312,92 @@ export function createAgentNativeAgentKitTransport(
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
+          let claimedMessage = claim.claimedMessage;
+          const releaseClaim = async () => {
+            if (!claimHeld) return;
+            await persistQueueMutation(threadId, {
+              type: "release",
+              messageId,
+              claimId,
+            });
+            claimHeld = false;
+          };
           if (interruptActiveRun) {
-            const activeRun = await activeRunStatus(threadId);
-            if (runIsInFlight(activeRun)) {
+            const initialActiveRun = await activeRunStatus(threadId);
+            const targetTurnId =
+              typeof initialActiveRun.turnId === "string"
+                ? initialActiveRun.turnId
+                : undefined;
+            const targetRunId =
+              typeof initialActiveRun.runId === "string"
+                ? initialActiveRun.runId
+                : undefined;
+            let activeRun = initialActiveRun;
+            while (runIsInFlight(activeRun)) {
+              const sameTargetRun = targetTurnId
+                ? activeRun.turnId === targetTurnId
+                : activeRun.runId === targetRunId;
+              if (!sameTargetRun) {
+                throw new AgentKitRunSlotBusyError(
+                  typeof activeRun.runId === "string"
+                    ? activeRun.runId
+                    : undefined,
+                );
+              }
               if (typeof activeRun.runId !== "string" || !activeRun.runId) {
                 throw new TypeError(
                   "Agent chat active-run response must include an active run ID.",
                 );
               }
-              await transport.cancelRun({
-                threadId,
-                runId: activeRun.runId,
+              let aborted: boolean;
+              if (serverBackedCapabilities) {
+                aborted = await abortRunAtSafeBoundary(
+                  threadId,
+                  activeRun.runId,
+                );
+              } else if (activeRun.hasInFlightWork === false) {
+                await transport.cancelRun({
+                  threadId,
+                  runId: activeRun.runId,
+                });
+                aborted = true;
+              } else {
+                aborted = false;
+              }
+              if (aborted) {
+                await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
+                break;
+              }
+              await releaseClaim();
+              await new Promise((resolve) =>
+                setTimeout(resolve, SAFE_BOUNDARY_POLL_INTERVAL_MS),
+              );
+              activeRun = await activeRunStatus(threadId);
+            }
+            if (!claimHeld) {
+              claim = await persistQueueMutation(threadId, {
+                type: "claim",
+                messageId,
+                claimId,
               });
-              await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
+              if (claim.submissionExpired) {
+                clearPromotionClaimId(threadId, messageId);
+                return { alreadyRemoved: true as const };
+              }
+              if (claim.alreadySubmitted && claim.submittedRunId) {
+                clearPromotionClaimId(threadId, messageId);
+                return {
+                  runId: claim.submittedRunId,
+                  alreadySubmitted: true as const,
+                };
+              }
+              if (!claim.claimedMessage) {
+                throw new TypeError(
+                  "Agent chat queue claim response is invalid.",
+                );
+              }
+              claimedMessage = claim.claimedMessage;
+              claimHeld = true;
             }
           }
           const thread = await snapshot(threadId);
@@ -4016,19 +4411,19 @@ export function createAgentNativeAgentKitTransport(
                   (message) => message.id !== queued.id,
                 ),
                 {
-                  id: queued.id,
+                  id: claimedMessage.id,
                   role: "user",
                   parts: [
-                    { type: "text", text: queued.text },
-                    ...(queued.attachments ?? []),
+                    { type: "text", text: claimedMessage.text },
+                    ...(claimedMessage.attachments ?? []),
                   ],
-                  createdAt: queued.createdAt,
-                  metadata: queued.metadata,
+                  createdAt: claimedMessage.createdAt,
+                  metadata: claimedMessage.metadata,
                 },
               ],
-              requestAttachments: queued.requestAttachments,
-              options: queued.options,
-              metadata: queued.metadata,
+              requestAttachments: claimedMessage.requestAttachments,
+              options: claimedMessage.options,
+              metadata: claimedMessage.metadata,
               queuePromotion: {
                 messageId,
                 claimId,
@@ -4051,6 +4446,17 @@ export function createAgentNativeAgentKitTransport(
           clearPromotionClaimId(threadId, messageId);
           return run;
         } catch (error) {
+          if (
+            error instanceof AgentKitRunSlotBusyError &&
+            typeof error.submittedRunId === "string" &&
+            error.submittedRunId.length > 0
+          ) {
+            clearPromotionClaimId(threadId, messageId);
+            return {
+              runId: error.submittedRunId,
+              alreadySubmitted: true,
+            };
+          }
           if (asRecord(error)?.code === "submission_expired") {
             try {
               await persistQueueMutation(threadId, {
@@ -4066,17 +4472,19 @@ export function createAgentNativeAgentKitTransport(
             clearPromotionClaimId(threadId, messageId);
             return { alreadyRemoved: true as const };
           }
-          try {
-            await persistQueueMutation(threadId, {
-              type: "release",
-              messageId,
-              claimId,
-            });
-          } catch (releaseError) {
-            throw new AggregateError(
-              [error, releaseError],
-              "Queue promotion failed and its lease could not be released.",
-            );
+          if (claimHeld) {
+            try {
+              await persistQueueMutation(threadId, {
+                type: "release",
+                messageId,
+                claimId,
+              });
+            } catch (releaseError) {
+              throw new AggregateError(
+                [error, releaseError],
+                "Queue promotion failed and its lease could not be released.",
+              );
+            }
           }
           throw error;
         }
@@ -4283,25 +4691,37 @@ export function createAgentNativeAgentKitTransport(
         typeof record?.activeRunId === "string"
           ? record.activeRunId
           : undefined;
-      const localRun = serverActiveRunId
-        ? await protocolTransport.getRun?.({
-            threadId: input.threadId,
-            runId: serverActiveRunId,
-          })
-        : null;
+      const submittedRunId =
+        typeof record?.submittedRunId === "string"
+          ? record.submittedRunId
+          : undefined;
+      const hasSubmittedReceipt =
+        typeof submittedRunId === "string" && submittedRunId.length > 0;
+      const localRun =
+        serverActiveRunId && !hasSubmittedReceipt
+          ? await protocolTransport.getRun?.({
+              threadId: input.threadId,
+              runId: serverActiveRunId,
+            })
+          : null;
       const activeRunId = localRun?.id ?? serverActiveRunId;
       const explicitNonSlotCode =
         typeof record?.code === "string" &&
         record.code !== "run_slot_busy" &&
+        record.code !== "queued_message_already_submitted" &&
         record.code !== "http_409";
       if (
         record?.status === 409 &&
         (error instanceof AgentKitRunSlotBusyError ||
           record.code === "run_slot_busy" ||
-          (typeof activeRunId === "string" && !explicitNonSlotCode))
+          (record.code === "queued_message_already_submitted" &&
+            hasSubmittedReceipt) ||
+          ((typeof activeRunId === "string" || hasSubmittedReceipt) &&
+            !explicitNonSlotCode))
       ) {
         const busy = new AgentKitRunSlotBusyError(
           typeof activeRunId === "string" ? activeRunId : undefined,
+          submittedRunId,
         );
         Object.assign(busy, { status: 409 });
         throw busy;
