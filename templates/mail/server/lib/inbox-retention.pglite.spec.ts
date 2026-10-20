@@ -375,6 +375,7 @@ describe("runInboxRetention (PGlite)", () => {
       "stale-acct@example.com",
       {
         archivePendingIds: ["t1", "t2"],
+        hydratePendingIds: ["t3"],
       },
     );
     expect(
@@ -389,6 +390,9 @@ describe("runInboxRetention (PGlite)", () => {
     expect(summary.pairsReset).toBe(1);
     expect(
       (await stores.readSyncAccounts("stale@example.com"))[0].archivePendingIds,
+    ).toEqual([]);
+    expect(
+      (await stores.readSyncAccounts("stale@example.com"))[0].hydratePendingIds,
     ).toEqual([]);
     await expect(
       stores.withSyncClaim(

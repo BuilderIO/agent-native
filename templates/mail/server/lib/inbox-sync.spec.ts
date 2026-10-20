@@ -172,6 +172,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     fullSyncReconcilePasses: 0,
     fullSyncListedCount: 0,
     archivePendingIds: [],
+    hydratePendingIds: [],
     status: "syncing",
     lastError: null,
     lastSyncedAt: null,
@@ -1539,7 +1540,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     ]);
   });
 
-  it("keeps and rehydrates a thread when another message still has INBOX", async () => {
+  it("keeps a thread when another message still has INBOX and rehydrates it next step", async () => {
     currentRow = baseRow({ historyId: "1000" });
     fakeRows = [{ threadId: "t9" }];
     archiveStream(["t9"]);
@@ -1552,12 +1553,19 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
         },
       ]);
 
-    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
+    expect(first.backfillPending).toBe(true);
+    expect(currentRow.hydratePendingIds).toEqual(["t9"]);
+
+    const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
     expect(mocks.gmailBatchGetThreads.mock.calls[1][1]).toEqual(["t9"]);
     expect(mocks.gmailBatchGetThreads.mock.calls[1][2]).toBe("metadata");
     expect(mocks.upsertInboxThreadRows).toHaveBeenCalled();
+    expect(currentRow.hydratePendingIds).toEqual([]);
+    expect(second.backfillPending).toBeUndefined();
   });
 
   it("deletes a thread Gmail no longer has, and skips threads with no cached row", async () => {
@@ -1628,46 +1636,124 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       ]);
 
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(mocks.deleteInboxThreadRow).not.toHaveBeenCalled();
     expect(mocks.gmailBatchGetThreads.mock.calls[1][2]).toBe("metadata");
   });
 
-  it("drains a large archive burst in bounded reads without stalling the cursor", async () => {
-    const ids = Array.from({ length: 60 }, (_, index) => `b${index}`);
+  it("splits a burst of inbox and archive work across steps inside the lane budget", async () => {
+    const inboxIds = Array.from({ length: 120 }, (_, index) => `n${index}`);
+    const archiveIds = Array.from({ length: 100 }, (_, index) => `a${index}`);
     currentRow = baseRow({ historyId: "1000" });
-    fakeRows = ids.map((threadId) => ({ threadId }));
-    archiveStream(ids);
+    fakeRows = archiveIds.map((threadId) => ({ threadId }));
+    // History honors the stored cursor like Gmail does: only records after it.
+    const records = [
+      {
+        id: "1001",
+        messagesAdded: inboxIds.map((threadId) => ({
+          message: { id: `${threadId}-m1`, threadId },
+        })),
+      },
+    ];
+    const archiveRecords = [
+      {
+        id: "1002",
+        labelsRemoved: archiveIds.map((threadId) => ({
+          labelIds: ["INBOX"],
+          message: { id: `${threadId}-m1`, threadId },
+        })),
+      },
+    ];
+    mocks.gmailListHistory.mockImplementation(
+      async (
+        _token: string,
+        params: { labelId?: string; startHistoryId: string },
+      ) => {
+        const source = params.labelId === "INBOX" ? records : archiveRecords;
+        return {
+          history: source.filter(
+            (record) => BigInt(record.id) > BigInt(params.startHistoryId),
+          ),
+          historyId: "1002",
+        };
+      },
+    );
     mocks.deleteInboxThreadRow.mockImplementation(
       async (_owner, _account, threadId: string) => {
         fakeRows = fakeRows.filter((row) => row.threadId !== threadId);
       },
     );
+    const hydrated = new Set<string>();
     mocks.gmailBatchGetThreads.mockImplementation(
-      async (_token: string, requested: string[]) =>
-        requested.map((id) => minimalThread(id, [["CATEGORY_UPDATES"]])),
+      async (_token: string, requested: string[], format: string) =>
+        requested.map((id) => {
+          if (format === "minimal") {
+            return minimalThread(id, [["CATEGORY_UPDATES"]]);
+          }
+          hydrated.add(id);
+          return {
+            id,
+            data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+          };
+        }),
     );
 
-    const pending: number[] = [];
-    const states: Array<boolean | undefined> = [];
-    for (let step = 0; step < 3; step++) {
+    const stepUnits: number[] = [];
+    let backfillPending: boolean | undefined = true;
+    for (let step = 0; step < 10 && backfillPending; step++) {
+      const before = mocks.gmailBatchGetThreads.mock.calls.reduce(
+        (sum, call) => sum + call[1].length,
+        0,
+      );
       const result = await syncInboxAccount(OWNER, ACCOUNT, {
         budgetMs: 5_000,
       });
-      pending.push(currentRow.archivePendingIds.length);
-      states.push(result.backfillPending);
+      const after = mocks.gmailBatchGetThreads.mock.calls.reduce(
+        (sum, call) => sum + call[1].length,
+        0,
+      );
+      // 40 units per thread read plus the two 2-unit history reads.
+      stepUnits.push((after - before) * 40 + 4);
+      backfillPending = result.backfillPending;
     }
 
-    const readSizes = mocks.gmailBatchGetThreads.mock.calls.map(
-      (call) => call[1].length,
-    );
-    // 25 threads x 40 units = 1,000 units, inside the 3,000-unit lane limit.
-    expect(Math.max(...readSizes)).toBeLessThanOrEqual(25);
-    expect(readSizes).toEqual([25, 25, 10]);
-    expect(pending).toEqual([35, 10, 0]);
-    expect(states).toEqual([true, true, undefined]);
+    expect(Math.max(...stepUnits)).toBeLessThanOrEqual(3_000);
+    expect(backfillPending).toBeUndefined();
+    expect(hydrated.size).toBe(120);
     expect(fakeRows).toEqual([]);
+    expect(currentRow.hydratePendingIds).toEqual([]);
+    expect(currentRow.archivePendingIds).toEqual([]);
+    expect(currentRow.historyId).toBe("1002");
+  });
+
+  it("records the cursor and pending ids before a quota failure so a retry skips the page", async () => {
+    const ids = Array.from({ length: 10 }, (_, index) => `q${index}`);
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockImplementation(
+      async (_token: string, params: { labelId?: string }) =>
+        params.labelId === "INBOX"
+          ? {
+              history: [
+                {
+                  id: "1001",
+                  messagesAdded: ids.map((threadId) => ({
+                    message: { id: `${threadId}-m1`, threadId },
+                  })),
+                },
+              ],
+              historyId: "1001",
+            }
+          : { history: [], historyId: "1001" },
+    );
+    mocks.gmailBatchGetThreads.mockRejectedValueOnce(
+      new mocks.GmailQuotaCooldownError(5),
+    );
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
     expect(currentRow.historyId).toBe("1001");
+    expect(currentRow.hydratePendingIds).toEqual(ids);
   });
 
   describe("history cursor", () => {

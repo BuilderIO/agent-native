@@ -65,11 +65,11 @@ const INBOX_HISTORY_TYPES = [
   "labelRemoved",
 ];
 const ARCHIVE_HISTORY_TYPES = ["labelRemoved", "messageDeleted"];
-// Each archive verification is a 40-unit threads.get on a lane capped at 3,000
-// units a minute, and the same step may also hydrate up to 50 inbox threads at
-// 40 units each. 25 verifications keep the step at 3,000 units; the rest wait
-// in archive_pending_ids_json for the next step.
-const ARCHIVE_VERIFY_LIMIT = 25;
+// Thread reads one incremental step may make: 70 x 40 units plus the two
+// 2-unit history reads stays under the 3,000-unit incremental lane.
+const STEP_THREAD_READS = 70;
+// Of those, the share archive verification keeps when new mail also waits.
+const VERIFY_MIN_SHARE = 20;
 const CACHE_LOOKUP_CHUNK = 500;
 const HYDRATE_CHUNK = 50;
 
@@ -128,6 +128,7 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
   const backfillPending =
     row.fullSyncPageToken != null ||
     row.fullSyncPhase === "reconcile" ||
+    row.hydratePendingIds.length > 0 ||
     row.archivePendingIds.length > 0;
   if (row.status === "needs_reauth" || row.status === "error") {
     return {
@@ -799,6 +800,7 @@ async function runIncrementalSyncStep(
         fullSyncReconcilePasses: 0,
         fullSyncListedCount: 0,
         archivePendingIds: [],
+        hydratePendingIds: [],
       };
       const restarted = await runFullSyncStep(
         ownerEmail,
@@ -846,16 +848,40 @@ async function runIncrementalSyncStep(
         archivedThreadIds.add(entry.message.threadId);
     }
   }
+  // The two streams are separate reads and can report different mailbox heads,
+  // so the cursor moves only to the lowest point both have fully processed: a
+  // finished stream contributes its head, an unfinished one its last record.
+  // The next step rereads from there; both writes are idempotent.
+  const inboxCaughtUp = !inboxHistory.nextPageToken;
+  const archiveCaughtUp = !archiveHistory.nextPageToken;
+  const watermarks = [
+    streamWatermark(
+      inboxHistory,
+      inboxCaughtUp,
+      lastInboxRecordId,
+      row.historyId!,
+    ),
+    streamWatermark(
+      archiveHistory,
+      archiveCaughtUp,
+      lastArchiveRecordId,
+      row.historyId!,
+    ),
+  ].filter((value): value is string => value != null);
+  const historyId =
+    watermarks.length > 0
+      ? watermarks.reduce((a, b) => (compareHistoryIds(b, a) < 0 ? b : a))
+      : row.historyId!;
+
   // One message losing INBOX, or being deleted, does not remove a thread: the
   // row is deleted only when a minimal read shows no message in it still
   // carries INBOX (a 404 means the thread is gone). A thread the inbox stream
   // returned is hydrated anyway, and a thread with no cached in-inbox row has
-  // nothing to delete. Reads per step are bounded by the quota lane; the rest
-  // carry over in archivePendingIds, so a large burst finishes over several
-  // steps instead of failing the same oversized read on every retry.
+  // nothing to delete.
+  const hydrateQueue = [...new Set([...row.hydratePendingIds, ...threadIds])];
   const archiveCandidates = [
     ...new Set([...row.archivePendingIds, ...archivedThreadIds]),
-  ].filter((threadId) => !threadIds.has(threadId));
+  ].filter((threadId) => !hydrateQueue.includes(threadId));
   const cachedCandidates = new Set<string>();
   for (let i = 0; i < archiveCandidates.length; i += CACHE_LOOKUP_CHUNK) {
     for (const threadId of await readInboxThreadIds(
@@ -866,12 +892,34 @@ async function runIncrementalSyncStep(
       cachedCandidates.add(threadId);
     }
   }
-  const unverified = archiveCandidates.filter((threadId) =>
+  const verifyQueue = archiveCandidates.filter((threadId) =>
     cachedCandidates.has(threadId),
   );
-  const verifyNow = unverified.slice(0, ARCHIVE_VERIFY_LIMIT);
-  const archivePendingIds = unverified.slice(ARCHIVE_VERIFY_LIMIT);
+
+  // Every thread read costs 40 units of the 3,000-unit incremental lane and the
+  // two history reads cost 4, so one step reads at most STEP_THREAD_READS
+  // threads. Hydration goes first, but verification always keeps a share so a
+  // steady stream of new mail cannot starve archive handling. What does not fit
+  // waits in the pending lists.
+  const hydrateNow = hydrateQueue.slice(
+    0,
+    verifyQueue.length > 0
+      ? STEP_THREAD_READS - VERIFY_MIN_SHARE
+      : STEP_THREAD_READS,
+  );
+  const verifyNow = verifyQueue.slice(0, STEP_THREAD_READS - hydrateNow.length);
+
+  // Record the cursor and every unprocessed id before any thread read, so a
+  // quota failure or crash mid-step retries the pending ids instead of
+  // replaying the same history page.
+  await patchProgress(ownerEmail, accountEmail, claimId, {
+    historyId,
+    hydratePendingIds: hydrateQueue,
+    archivePendingIds: verifyQueue,
+  });
+
   const archivedOnly: string[] = [];
+  const stillInbox: string[] = [];
   if (verifyNow.length > 0) {
     const verification = await gmailBatchGetThreads(
       accessToken,
@@ -888,15 +936,15 @@ async function runIncrementalSyncStep(
         }
         throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
       }
-      const stillInInbox = (part.data?.messages ?? []).some((message: any) =>
+      const keeps = (part.data?.messages ?? []).some((message: any) =>
         (message?.labelIds ?? []).includes("INBOX"),
       );
-      if (stillInInbox) threadIds.add(part.id);
+      if (keeps) stillInbox.push(part.id);
       else archivedOnly.push(part.id);
     }
   }
 
-  if (threadIds.size > 0) {
+  if (hydrateNow.length > 0) {
     const connected = await connectedEmailsLower(
       ownerEmail,
       accountEmail,
@@ -904,7 +952,7 @@ async function runIncrementalSyncStep(
     );
     await hydrateAndApply(
       accessToken,
-      [...threadIds],
+      hydrateNow,
       ownerEmail,
       accountEmail,
       connected,
@@ -934,39 +982,22 @@ async function runIncrementalSyncStep(
       Date.now(),
       tx,
     );
-    if (threadIds.size > 0) {
+    if (hydrateNow.length > 0) {
       await trimInboxThreadRows(ownerEmail, accountEmail, INBOX_THREAD_CAP, tx);
     }
   });
   if (archivedOnly.length > 0) onChanged?.();
 
-  // The two streams are separate reads and can report different mailbox heads,
-  // so the cursor moves only to the lowest point both have fully processed: a
-  // finished stream contributes its head, an unfinished one its last record.
-  // The next step rereads from there; both writes are idempotent.
-  const inboxCaughtUp = !inboxHistory.nextPageToken;
-  const archiveCaughtUp = !archiveHistory.nextPageToken;
+  // Verified threads that still have INBOX mail are refreshed on the next step,
+  // which keeps this step inside its read budget.
+  const hydratePendingIds = [
+    ...hydrateQueue.slice(hydrateNow.length),
+    ...stillInbox,
+  ];
+  const archivePendingIds = verifyQueue.slice(verifyNow.length);
   const syncedAt = Date.now();
-  const watermarks = [
-    streamWatermark(
-      inboxHistory,
-      inboxCaughtUp,
-      lastInboxRecordId,
-      row.historyId!,
-    ),
-    streamWatermark(
-      archiveHistory,
-      archiveCaughtUp,
-      lastArchiveRecordId,
-      row.historyId!,
-    ),
-  ].filter((value): value is string => value != null);
-  const historyId =
-    watermarks.length > 0
-      ? watermarks.reduce((a, b) => (compareHistoryIds(b, a) < 0 ? b : a))
-      : row.historyId!;
   await patchProgress(ownerEmail, accountEmail, claimId, {
-    historyId,
+    hydratePendingIds,
     archivePendingIds,
     lastError: null,
     lastSyncedAt: syncedAt,
@@ -978,11 +1009,12 @@ async function runIncrementalSyncStep(
       lastSyncedAt: syncedAt,
       ...(row.fullSyncPageToken ||
       row.fullSyncPhase === "reconcile" ||
+      hydratePendingIds.length > 0 ||
       archivePendingIds.length > 0
         ? { backfillPending: true }
         : {}),
     },
-    changed: threadIds.size > 0 || archivedOnly.length > 0,
+    changed: hydrateNow.length > 0 || archivedOnly.length > 0,
   };
 }
 

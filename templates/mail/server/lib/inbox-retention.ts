@@ -106,6 +106,7 @@ export async function clearPair(
         fullSyncReconcilePasses: 0,
         fullSyncListedCount: 0,
         archivePendingIdsJson: null,
+        hydratePendingIdsJson: null,
         status: "idle",
         lastError: null,
         syncClaimId: null,
