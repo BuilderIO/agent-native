@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18nCatalog } from "../../../i18n";
-import { usePanelCostNotice } from "./panel-cost-notice";
+import { panelCostChange, usePanelCostNotice } from "./panel-cost-notice";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
@@ -21,10 +21,12 @@ const GIB = 1024 ** 3;
 
 let container: HTMLDivElement;
 let root: Root;
-let notify: ReturnType<typeof usePanelCostNotice>;
+let notice: ReturnType<typeof usePanelCostNotice>;
+const notify = (panelId: string, title: string) =>
+  notice.notify(panelId, title);
 
 function Probe({ dashboardId }: { dashboardId?: string }) {
-  notify = usePanelCostNotice(dashboardId);
+  notice = usePanelCostNotice(dashboardId);
   return null;
 }
 
@@ -211,5 +213,65 @@ describe("usePanelCostNotice", () => {
     render("d2");
 
     expect(mocks.toast.dismiss).toHaveBeenCalledWith("panel-cost:d1:p1");
+  });
+
+  it("closes a panel's notice and drops its pending estimate when it stops running a query", async () => {
+    let resolve!: (value: unknown) => void;
+    mocks.callAction
+      .mockResolvedValueOnce(
+        estimated(200 * GIB, 1.2207, { overPerRunThreshold: true }),
+      )
+      .mockReturnValueOnce(
+        new Promise((res) => {
+          resolve = res;
+        }),
+      );
+    render("d1");
+    await act(() => notify("p1", "Signups"));
+    const pending = notify("p1", "Signups");
+
+    act(() => notice.clear("p1"));
+    await act(async () => {
+      resolve(estimated(200 * GIB, 1.2207, { overPerRunThreshold: true }));
+      await pending;
+    });
+
+    expect(mocks.toast.dismiss).toHaveBeenCalledWith("panel-cost:d1:p1");
+    expect(mocks.toast.warning).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("panelCostChange", () => {
+  const chart = {
+    chartType: "line",
+    source: "bigquery",
+    sql: "SELECT week, signups FROM t",
+  } as const;
+  const section = { ...chart, chartType: "section" } as const;
+
+  it("prices a new panel, a changed query and a section turned into a chart", () => {
+    expect(panelCostChange(null, chart)).toBe("notify");
+    expect(
+      panelCostChange(chart, { ...chart, sql: "SELECT week FROM t2" }),
+    ).toBe("notify");
+    expect(panelCostChange(chart, { ...chart, source: "first-party" })).toBe(
+      "notify",
+    );
+    expect(panelCostChange(section, chart)).toBe("notify");
+  });
+
+  it("clears the notice of a panel turned into a section", () => {
+    expect(panelCostChange(chart, section)).toBe("clear");
+    expect(panelCostChange(chart, { ...chart, chartType: "extension" })).toBe(
+      "clear",
+    );
+  });
+
+  it("leaves a chart-type change that keeps the query, and sections, alone", () => {
+    expect(panelCostChange(chart, { ...chart, chartType: "bar" })).toBeNull();
+    expect(
+      panelCostChange(section, { ...section, sql: "SELECT 1" }),
+    ).toBeNull();
+    expect(panelCostChange(null, section)).toBeNull();
   });
 });

@@ -1,7 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
+
+import { serializePanelSql } from "./panel-sql";
+import type { SqlPanel } from "./types";
 
 const MIB = 1024 ** 2;
 const GIB = 1024 ** 3;
@@ -30,6 +33,32 @@ export function formatQueryUsd(usd: number, formatters: Formatters): string {
   return usd > 0 && usd < 0.01 ? `<${money(0.01)}` : money(usd);
 }
 
+type CostPanel = Pick<SqlPanel, "chartType" | "source" | "sql">;
+
+/** Section and extension panels draw config, so they run no query to price. */
+function runsQuery(panel: CostPanel): boolean {
+  return panel.chartType !== "section" && panel.chartType !== "extension";
+}
+
+/**
+ * What saving a panel means for its cost notice: "notify" to price a new or
+ * changed query, including a section turned into a chart, and "clear" when the
+ * panel stopped running a query. Any other chart-type or config edit reads the
+ * same bytes and changes nothing.
+ */
+export function panelCostChange(
+  before: CostPanel | null,
+  next: CostPanel,
+): "notify" | "clear" | null {
+  if (!runsQuery(next)) return before && runsQuery(before) ? "clear" : null;
+  const changed =
+    !before ||
+    !runsQuery(before) ||
+    before.source !== next.source ||
+    serializePanelSql(before.sql) !== serializePanelSql(next.sql);
+  return changed ? "notify" : null;
+}
+
 async function estimatePanel(dashboardId: string, panelId: string) {
   try {
     return await callAction("estimate-query-cost", { dashboardId, panelId });
@@ -46,7 +75,8 @@ async function estimatePanel(dashboardId: string, panelId: string) {
  * nothing and close the panel's earlier notice. An estimate a newer save of the
  * panel has replaced shows nothing either. Over
  * the per-run or per-month threshold the notice stays up until dismissed or
- * until you leave the dashboard.
+ * until you leave the dashboard. `clear` closes a panel's notice, and drops its
+ * pending estimate, when the panel stops running a query.
  */
 export function usePanelCostNotice(dashboardId: string | undefined) {
   const t = useT();
@@ -66,8 +96,12 @@ export function usePanelCostNotice(dashboardId: string | undefined) {
   // Nor may one that lands after a newer save of the same panel.
   const latestRequestRef = useRef(new Map<string, number>());
   const requestCountRef = useRef(0);
+  const closeNotice = useCallback((id: string) => {
+    toast.dismiss(id);
+    warningsRef.current.delete(id);
+  }, []);
 
-  return useCallback(
+  const notify = useCallback(
     async (panelId: string, title: string) => {
       if (!dashboardId) return;
       const key = `${dashboardId}:${panelId}`;
@@ -80,13 +114,12 @@ export function usePanelCostNotice(dashboardId: string | undefined) {
       ) {
         return;
       }
-      const id = `panel-cost:${dashboardId}:${panelId}`;
+      const id = `panel-cost:${key}`;
       const estimate =
         result && "panels" in result ? result.panels[0] : undefined;
       if (estimate?.status !== "estimated") {
         // An earlier notice priced the query this save replaced.
-        toast.dismiss(id);
-        warningsRef.current.delete(id);
+        closeNotice(id);
         return;
       }
       const over =
@@ -122,6 +155,18 @@ export function usePanelCostNotice(dashboardId: string | undefined) {
         toast.message(t("sqlDashboard.panelCostTitle", { title }), options);
       }
     },
-    [dashboardId, formatters, t],
+    [closeNotice, dashboardId, formatters, t],
   );
+
+  const clear = useCallback(
+    (panelId: string) => {
+      if (!dashboardId) return;
+      const key = `${dashboardId}:${panelId}`;
+      latestRequestRef.current.set(key, ++requestCountRef.current);
+      closeNotice(`panel-cost:${key}`);
+    },
+    [closeNotice, dashboardId],
+  );
+
+  return useMemo(() => ({ notify, clear }), [notify, clear]);
 }
