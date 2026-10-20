@@ -3,7 +3,6 @@ import {
   buildSourceEquivalentSelector,
   isEditorInjectedElement,
   isSourceLocationMatch,
-  resolveSourceEquivalentSelector,
   resolveSourceEquivalentSelectorResult,
 } from "../../../../shared/source-equivalent-selector";
 /**
