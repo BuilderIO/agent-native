@@ -213,15 +213,20 @@ export async function executeBuilderCmsWrite(args: {
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
   requireSourceBinding?: boolean;
+  legacyOnly?: boolean;
   fetchImpl?: FetchLike;
   /** @deprecated Never used: retrying another transport after dispatch is unsafe. */
   nodeRequestImpl?: unknown;
   timeoutMs?: number;
 }): Promise<BuilderCmsWriteResult> {
-  const authorization = await readBuilderWriteAuthorization(
-    args.requireSourceBinding === true ||
-      Boolean(args.expectedSourceSpace || args.expectedSourceConnectionId),
-  );
+  const authorization = args.legacyOnly
+    ? await resolveBuilderLegacyRequestAuthorization(
+        BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
+      )
+    : await readBuilderWriteAuthorization(
+        args.requireSourceBinding === true ||
+          Boolean(args.expectedSourceSpace || args.expectedSourceConnectionId),
+      );
   if (!authorization) {
     return {
       ok: false,

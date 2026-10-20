@@ -75,7 +75,6 @@ import {
   enqueueBuilderPrivatePayloadCleanup,
   readBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
-import { isBuilderExecutionClaimStale } from "./_builder-cms-execution-lease.js";
 import {
   BuilderCmsContentEntryReadError,
   readBuilderCmsContentEntryResult,
@@ -102,6 +101,7 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
+import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import {
@@ -4227,7 +4227,9 @@ export async function getContentDatabaseSourceSnapshotForReview(
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
     return loadSourceSnapshot(source, database, {
       includeHeavyBuilderBodyValues: true,
-      hydrateExecutionPayloads: true,
+      hydrateExecutionPayloadsForChangeSetIds: reviewableChanges.map(
+        (changeSet) => changeSet.id,
+      ),
     });
   }
   const candidateDocumentIds = new Set(
@@ -4533,6 +4535,8 @@ export async function hydrateSnapshotExecutionRows(
   hydrate: (
     row: ContentDatabaseSourceExecutionRowDb,
   ) => Promise<ContentDatabaseSourceExecutionRowDb> = hydrateSnapshotExecutionRow,
+  shouldHydrate: (row: ContentDatabaseSourceExecutionRowDb) => boolean = () =>
+    true,
 ): Promise<
   Array<ContentDatabaseSourceExecutionRowDb & { payloadUnavailable?: true }>
 > {
@@ -4550,6 +4554,14 @@ export async function hydrateSnapshotExecutionRows(
         const index = nextIndex++;
         const row = rows[index];
         if (!row) continue;
+        if (!shouldHydrate(row)) {
+          hydrated[index] = {
+            ...row,
+            payloadJson: JSON.stringify({ unavailable: true }),
+            payloadUnavailable: true,
+          };
+          continue;
+        }
         try {
           hydrated[index] = await hydrate(row);
         } catch {
@@ -4572,6 +4584,7 @@ async function loadSourceSnapshot(
     includeHeavyBuilderBodyValues: boolean;
     documentIds?: string[];
     hydrateExecutionPayloads?: boolean;
+    hydrateExecutionPayloadsForChangeSetIds?: string[];
   },
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
@@ -4684,9 +4697,21 @@ async function loadSourceSnapshot(
     string,
     ContentDatabaseSourceExecution[]
   >();
+  const hydrateAllExecutionPayloads =
+    options.documentIds !== undefined || options.hydrateExecutionPayloads;
+  const hydrateChangeSetIds =
+    options.hydrateExecutionPayloadsForChangeSetIds !== undefined
+      ? new Set(options.hydrateExecutionPayloadsForChangeSetIds)
+      : null;
   const hydratedExecutionRows =
-    options.documentIds !== undefined || options.hydrateExecutionPayloads
-      ? await hydrateSnapshotExecutionRows(executionRows)
+    hydrateAllExecutionPayloads || hydrateChangeSetIds !== null
+      ? await hydrateSnapshotExecutionRows(
+          executionRows,
+          undefined,
+          (row) =>
+            hydrateAllExecutionPayloads ||
+            hydrateChangeSetIds?.has(row.changeSetId) === true,
+        )
       : executionRows.map((row) => ({
           ...row,
           payloadUnavailable: true as const,
@@ -6346,34 +6371,11 @@ async function deleteSourceChangeSetRecords(args: {
       tx as unknown as ReturnType<typeof getDb>,
       source.databaseId,
     );
-    const candidates = await tx
-      .select({
-        state: schema.contentDatabaseSourceExecutions.state,
-        updatedAt: schema.contentDatabaseSourceExecutions.updatedAt,
-      })
-      .from(schema.contentDatabaseSourceExecutions)
-      .where(
-        and(
-          executionWhere,
-          inArray(schema.contentDatabaseSourceExecutions.state, [
-            "running",
-            "response_received",
-            "reconciliation_required",
-          ]),
-        ),
-      );
-    const now = new Date().toISOString();
-    const activeExecutions = candidates.filter(
-      (execution) =>
-        execution.state !== "running" ||
-        !isBuilderExecutionClaimStale(execution.updatedAt, now),
+    await assertNoActiveBuilderSourceExecutions(
+      tx as unknown as ReturnType<typeof getDb>,
+      [args.sourceId],
+      args.changeSetIds,
     );
-    if (activeExecutions.length > 0) {
-      fail(
-        "Cannot replace source records while a Builder execution is running or awaiting reconciliation.",
-        { errorCode: "builder_execution_running", statusCode: 409 },
-      );
-    }
     const deletedExecutions = await tx
       .delete(schema.contentDatabaseSourceExecutions)
       .where(executionWhere)

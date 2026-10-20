@@ -1199,6 +1199,72 @@ describe("Builder source review execution gates", () => {
     });
   });
 
+  it("revalidates a terminal Builder execution with a retained attempt token", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const args = {
+      documentId: seeded.databaseDocumentId,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      pushModeConfirmation: "autosave" as const,
+    };
+    await asOwner(() => prepareExecution.run(args));
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "failed", attemptToken: "finished-attempt" })
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+
+    await asOwner(() => validateExecution.run(args));
+
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+    expect(after.attemptToken).toBeNull();
+    expect(after.state).not.toBe("running");
+  });
+
+  it("re-prepares a terminal Builder execution and clears its old attempt token", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const args = {
+      documentId: seeded.databaseDocumentId,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      pushModeConfirmation: "autosave" as const,
+    };
+    await asOwner(() => prepareExecution.run(args));
+    const [execution] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+      );
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "failed", attemptToken: "finished-attempt" })
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+
+    await asOwner(() => prepareExecution.run(args));
+
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, execution.id));
+    expect(after.attemptToken).toBeNull();
+    expect(after.state).not.toBe("running");
+  });
+
   it("does not reopen a Builder execution that requires reconciliation", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,

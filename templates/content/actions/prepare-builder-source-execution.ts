@@ -169,6 +169,7 @@ export default defineAction({
                 state: plan.state,
                 summary: plan.summary,
                 payloadJson,
+                attemptToken: null,
                 lastError: plan.lastError,
                 updatedAt: now,
               })

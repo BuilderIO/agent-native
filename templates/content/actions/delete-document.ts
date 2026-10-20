@@ -17,6 +17,7 @@ import {
   enqueueBuilderPrivatePayloadCleanup,
   isBuilderPrivatePayloadBoundToSource,
 } from "./_builder-cms-blob-custody.js";
+import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -873,6 +874,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(sourceIds, async (sourceIdBatch) => {
+    await assertNoActiveBuilderSourceExecutions(db, sourceIdBatch);
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(

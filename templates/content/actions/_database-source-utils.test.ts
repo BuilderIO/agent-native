@@ -123,6 +123,30 @@ describe("Builder execution snapshot payload hydration", () => {
     });
     expect(hydrated.filter((row) => row.payloadUnavailable)).toHaveLength(1);
   });
+
+  it("hydrates only executions needed by an unscoped review snapshot", async () => {
+    const rows = [
+      { id: "current", changeSetId: "reviewable" },
+      { id: "history", changeSetId: "succeeded-history" },
+    ] as unknown as Parameters<typeof hydrateSnapshotExecutionRows>[0];
+    const hydratedIds: string[] = [];
+
+    const hydrated = await hydrateSnapshotExecutionRows(
+      rows,
+      async (row) => {
+        hydratedIds.push(row.id);
+        return row;
+      },
+      (row) => row.changeSetId === "reviewable",
+    );
+
+    expect(hydratedIds).toEqual(["current"]);
+    expect(hydrated[0]?.payloadUnavailable).toBeUndefined();
+    expect(hydrated[1]).toMatchObject({
+      payloadUnavailable: true,
+      payloadJson: JSON.stringify({ unavailable: true }),
+    });
+  });
 });
 
 function property(

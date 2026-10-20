@@ -15,6 +15,7 @@ import {
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
+import { isBuilderExecutionClaimStale } from "./_builder-cms-execution-lease.js";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
@@ -113,20 +114,26 @@ export default defineAction({
         "Prepare the Builder execution gate before validating it.",
       );
     }
-    if (execution.state === "reconciliation_required") {
+    const now = new Date().toISOString();
+    if (
+      execution.state === "response_received" ||
+      execution.state === "reconciliation_required"
+    ) {
       fail("Builder execution requires reconciliation before validation.", {
         errorCode: "builder_execution_reconciliation_required",
         statusCode: 409,
       });
     }
-    if (execution.state === "running" || execution.attemptToken) {
+    if (
+      execution.state === "running" &&
+      !isBuilderExecutionClaimStale(execution.updatedAt, now)
+    ) {
       fail("Builder execution is already running.", {
         errorCode: "builder_execution_running",
         statusCode: 409,
       });
     }
 
-    const now = new Date().toISOString();
     const binding = {
       ownerEmail: execution.ownerEmail,
       sourceId: execution.sourceId,
@@ -171,6 +178,7 @@ export default defineAction({
             state: dryRun?.status === "stale" ? "blocked" : plan.state,
             summary,
             payloadJson,
+            attemptToken: null,
             lastError:
               dryRun?.status === "stale"
                 ? dryRun.mismatches[0]

@@ -71,6 +71,9 @@ const { schema } = vi.hoisted(() => ({
     },
     contentDatabaseSourceExecutions: {
       sourceId: "contentDatabaseSourceExecutions.sourceId",
+      changeSetId: "contentDatabaseSourceExecutions.changeSetId",
+      state: "contentDatabaseSourceExecutions.state",
+      updatedAt: "contentDatabaseSourceExecutions.updatedAt",
       ownerEmail: "contentDatabaseSourceExecutions.ownerEmail",
       payloadJson: "contentDatabaseSourceExecutions.payloadJson",
     },
@@ -147,6 +150,7 @@ function tableNameFor(colRef: string): string {
 }
 
 function matches(row: Record<string, unknown>, cond: any): boolean {
+  if (!cond) return true;
   if (cond.__and) return cond.__and.every((c: any) => matches(row, c));
   if (cond.__eq) {
     const [col, value] = cond.__eq;
@@ -297,6 +301,29 @@ describe("deleteDocumentRecursive", () => {
       ),
     ).toEqual(new Set(["execution"]));
     expect(deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("preserves active Builder execution checkpoints during permanent deletion", async () => {
+    seedBuilderSourceBlobs();
+    selectRows.contentDatabaseSourceExecutions![0] = {
+      ...selectRows.contentDatabaseSourceExecutions![0],
+      state: "response_received",
+      updatedAt: new Date().toISOString(),
+    };
+
+    await expect(
+      deleteDocumentRecursive(db, "database-doc", "owner-a@example.com"),
+    ).rejects.toMatchObject({
+      errorCode: "builder_execution_running",
+      statusCode: 409,
+    });
+
+    expect(mutationLock).toHaveBeenCalledWith(db, "database-1");
+    expect(
+      deleteCalls.some(
+        (call) => call.table === "contentDatabaseSourceExecutions",
+      ),
+    ).toBe(false);
   });
 
   it("retains deleted-row blob references when commit acknowledgement is uncertain", async () => {

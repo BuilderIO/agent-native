@@ -186,6 +186,49 @@ describe("Builder CMS write client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps unbound Builder docs writes on the legacy credential lane", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "oauth-space",
+      oauthConnectionId: "oauth-connection",
+    });
+    resolveBuilderLegacyRequestAuthorizationMock.mockResolvedValue({
+      token: "docs-private-key",
+      authorization: "Bearer docs-private-key",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+    });
+    const fetchImpl = vi.fn(async (_input: URL, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer docs-private-key",
+      });
+      return new Response(JSON.stringify({ id: "entry-1" }), {
+        status: 200,
+      });
+    });
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/docs-content/entry-1",
+          body: { data: { title: "Reviewed title" } },
+        },
+        legacyOnly: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ ok: true, status: 200, entryId: "entry-1" });
+
+    expect(resolveBuilderRequestAuthorizationMock).not.toHaveBeenCalled();
+    expect(resolveBuilderLegacyRequestAuthorizationMock).toHaveBeenCalledWith([
+      "BUILDER_PRIVATE_KEY",
+      "BUILDER_CMS_PRIVATE_KEY",
+    ]);
+  });
+
   describe("when the general grant predates builder:content:write", () => {
     const reauthorizationRequired = new ActionContractError(
       "Builder.io access needs re-authorizing to grant builder:content:write.",
