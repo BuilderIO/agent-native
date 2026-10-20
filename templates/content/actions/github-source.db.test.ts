@@ -150,6 +150,61 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
   };
 });
 
+// Lets a test fail the steps that run after a sync has written its rows.
+// statusReadsLeft lets that many status reads through, then fails the rest.
+const afterSyncFailure = vi.hoisted(() => ({
+  signal: false,
+  source: false,
+  statusReadsLeft: null as number | null,
+}));
+
+vi.mock("./_github-source-freshness.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_github-source-freshness.js")>();
+  return {
+    ...actual,
+    readGitHubStatusShown: async (
+      ...args: Parameters<typeof actual.readGitHubStatusShown>
+    ) => {
+      if (afterSyncFailure.statusReadsLeft !== null) {
+        if (afterSyncFailure.statusReadsLeft <= 0) {
+          throw new Error("status read failed");
+        }
+        afterSyncFailure.statusReadsLeft -= 1;
+      }
+      return actual.readGitHubStatusShown(...args);
+    },
+  };
+});
+
+vi.mock("@agent-native/core/application-state", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/application-state")
+    >();
+  return {
+    ...actual,
+    writeAppState: async (...args: Parameters<typeof actual.writeAppState>) => {
+      if (afterSyncFailure.signal) throw new Error("app state unavailable");
+      return actual.writeAppState(...args);
+    },
+  };
+});
+
+vi.mock("./_database-source-utils.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-source-utils.js")>();
+  return {
+    ...actual,
+    getContentDatabaseSourceSnapshot: async (
+      ...args: Parameters<typeof actual.getContentDatabaseSourceSnapshot>
+    ) => {
+      if (afterSyncFailure.source) throw new Error("source read failed");
+      return actual.getContentDatabaseSourceSnapshot(...args);
+    },
+  };
+});
+
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: async () =>
     github.state.noStorage ? null : { id: "test" },
@@ -715,6 +770,54 @@ describe("GitHub folder source", () => {
       before.map((row) => [row.bodyRevision, row.updatedAt]),
     );
     expect(await history(before[0]!.documentId)).toEqual(historyBefore);
+  });
+
+  it("reports a finished sync when the steps after it fail", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    afterSyncFailure.signal = true;
+    afterSyncFailure.source = true;
+    // The read before the sync works; the one after it fails.
+    afterSyncFailure.statusReadsLeft = 1;
+    try {
+      const synced = await as(() =>
+        syncFolder.run({ databaseId: database.id }),
+      );
+      expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
+      expect(synced.source).toBeNull();
+      // Readers are told to look again, since the status couldn't be read.
+      expect(synced.statusChanged).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(3);
+
+      // A refresh that changes no rows reads the status back, and a failed
+      // read tells readers to look again instead of failing the refresh.
+      afterSyncFailure.signal = false;
+      afterSyncFailure.source = false;
+      afterSyncFailure.statusReadsLeft = 1;
+      const refreshed = await as(() =>
+        refreshSource.run({ databaseId: database.id }),
+      );
+      expect(refreshed.summary).toContain("is up to date");
+      expect(
+        refreshSource.changeResource?.({ databaseId: database.id }, refreshed),
+      ).toEqual({
+        resourceType: "document",
+        resourceId: database.documentId,
+      });
+    } finally {
+      afterSyncFailure.signal = false;
+      afterSyncFailure.source = false;
+      afterSyncFailure.statusReadsLeft = null;
+      warn.mockRestore();
+    }
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    expect(faq.content).toContain("Answers moved to the forum.");
   });
 
   it("updates an edited file in place and records the change in History", async () => {
@@ -1386,6 +1489,23 @@ describe("GitHub folder source", () => {
     expect(
       (await liveRows(database.id)).map((row) => row.documentId),
     ).toContain(faq.documentId);
+  });
+
+  it("names GitHub once when a page's file link can't be built", async () => {
+    const { assertSourceAllowsPageEdit } =
+      await import("./_document-source.js");
+    expect(() =>
+      assertSourceAllowsPageEdit(
+        {
+          sourceMode: "github",
+          sourceRootPath: "not a folder",
+          sourcePath: "docs/faq.md",
+        },
+        "move",
+      ),
+    ).toThrow(
+      /^This page follows a file in GitHub, so it stays in its collection\.$/,
+    );
   });
 
   it("skips a file that isn't UTF-8 text and syncs the rest", async () => {

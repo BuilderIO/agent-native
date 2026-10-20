@@ -111,10 +111,13 @@ export default defineAction({
         throw error;
       });
       githubSummary = githubSyncSummary(source.sourceName, result);
+      // The rows are written by now, so a status that can't be read back
+      // counts as changed rather than failing the refresh.
       githubChanged =
         githubSyncChangedRows(result) ||
         (result.state !== "busy" &&
-          (await readGitHubStatusShown(source.id)) !== shownBefore);
+          (await readGitHubStatusShown(source.id).catch(() => null)) !==
+            shownBefore);
     } else if (source.sourceType === "mock-local") {
       await resyncMockSourceSnapshot({ database, source, now });
     } else if (source.sourceType === "builder-cms") {
