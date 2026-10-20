@@ -194,11 +194,17 @@ function mergeStoredAssistantTextParts(
       if (part.type === "text") lastTextIndex = index;
     }
     const suffix = storedText.slice(messageText.length);
-    messageParts = messageParts.map((part, index) =>
-      index === lastTextIndex && part.type === "text"
-        ? { ...part, text: `${part.text}${suffix}` }
-        : part,
-    );
+    if (
+      messageParts.slice(lastTextIndex + 1).some((part) => part.type !== "text")
+    ) {
+      messageParts = [...messageParts, { type: "text", text: suffix }];
+    } else {
+      messageParts = messageParts.map((part, index) =>
+        index === lastTextIndex && part.type === "text"
+          ? { ...part, text: `${part.text}${suffix}` }
+          : part,
+      );
+    }
   }
   return mergeStoredReasoningParts(messageParts, storedParts);
 }

@@ -4471,6 +4471,77 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps restored continuation text after snapshot tool parts", async () => {
+    const toolPart = {
+      type: "data",
+      mediaType: "application/x-agent-native-repository-part",
+      data: {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "lookup",
+        args: { query: "release" },
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-tool-before-continuation",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      metadata: { runId: "run-tool-before-continuation" },
+                      content: [
+                        { type: "text", text: "Before" },
+                        {
+                          type: "tool-call",
+                          toolCallId: "tool-1",
+                          toolName: "lookup",
+                          args: { query: "release" },
+                        },
+                        { type: "text", text: " after" },
+                      ],
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: "Before" }, toolPart],
+                      metadata: { runId: "run-tool-before-continuation" },
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-tool-before-continuation",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "assistant-1",
+        parts: [
+          { type: "text", text: "Before" },
+          toolPart,
+          { type: "text", text: " after" },
+        ],
+      },
+    ]);
+    await transport.dispose();
+  });
+
   it("restores the durable reply by run ID when message IDs differ and events are absent", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
