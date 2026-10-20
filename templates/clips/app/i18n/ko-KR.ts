@@ -1988,6 +1988,8 @@ const messages = {
     sessionExpired: "Session expired (현지화됨)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (현지화됨)",
+    accountMismatch:
+      "녹화 준비를 시작한 후 로그인한 계정이 변경되었습니다. 처음 사용한 계정으로 돌아가 다시 시도하세요.",
     logIn: "Log in (현지화됨)",
     betterInDesktop: "Better in the desktop app (현지화됨)",
     desktopAppDescription:

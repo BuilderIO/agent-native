@@ -1903,6 +1903,8 @@ const messages = {
     sessionExpired: "Session expired (已本地化)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (已本地化)",
+    accountMismatch:
+      "开始准备录制后，登录的账号已更改。请切换回开始时使用的账号，然后重试。",
     logIn: "Log in (已本地化)",
     betterInDesktop: "Better in the desktop app (已本地化)",
     desktopAppDescription:

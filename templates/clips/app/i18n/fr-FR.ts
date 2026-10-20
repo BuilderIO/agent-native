@@ -2047,6 +2047,8 @@ const messages = {
     sessionExpired: "Session expired (Localisé)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (Localisé)",
+    accountMismatch:
+      "Le compte connecté a changé après le début de la préparation de l’enregistrement. Reconnectez-vous au compte utilisé au départ, puis réessayez.",
     logIn: "Log in (Localisé)",
     betterInDesktop: "Better in the desktop app (Localisé)",
     desktopAppDescription:

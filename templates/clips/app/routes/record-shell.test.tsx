@@ -92,6 +92,8 @@ describe("record route lifecycle shell", () => {
         {
           storageStatusUnavailable: "Storage status could not be checked.",
           hostedStorageUnavailable: "Hosted storage is unavailable.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
           couldNotStartRecording: "Could not start recording.",
         },
       ),
@@ -105,10 +107,27 @@ describe("record route lifecycle shell", () => {
         {
           storageStatusUnavailable: "Storage status could not be checked.",
           hostedStorageUnavailable: "Hosted storage is unavailable.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
           couldNotStartRecording: "Could not start recording.",
         },
       ),
     ).toBe("Hosted storage is unavailable.");
+  });
+
+  it("explains when the signed-in account changed during recording setup", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("recording_owner_mismatch"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          accountMismatch:
+            "The signed-in account changed. Switch back and retry.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe("The signed-in account changed. Switch back and retry.");
   });
 
   it("does not redirect a queued upload when storage is already configured", () => {

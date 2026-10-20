@@ -257,6 +257,7 @@ export function recordingStartErrorMessage(
   messages: {
     storageStatusUnavailable: string;
     hostedStorageUnavailable: string;
+    accountMismatch: string;
     couldNotStartRecording: string;
   },
 ): string {
@@ -270,6 +271,8 @@ export function recordingStartErrorMessage(
         return messages.storageStatusUnavailable;
       case "hosted_storage_unavailable":
         return messages.hostedStorageUnavailable;
+      case "recording_owner_mismatch":
+        return messages.accountMismatch;
       case "upload_target_unavailable":
         return messages.couldNotStartRecording;
     }
@@ -1928,6 +1931,7 @@ export default function RecordRoute() {
         const message = recordingStartErrorMessage(err, {
           storageStatusUnavailable: t("storageSetup.statusUnavailable"),
           hostedStorageUnavailable: t("storageSetup.hostedStorageUnavailable"),
+          accountMismatch: t("recordRoute.accountMismatch"),
           couldNotStartRecording: t("recordRoute.couldNotStartRecording"),
         });
         const pickerDismissed = isDismissedCapturePicker(err, message);

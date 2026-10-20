@@ -153,6 +153,31 @@ describe("openUploadTarget", () => {
     await expect(result).rejects.toMatchObject({ code: "session_expired" });
   });
 
+  it("preserves a typed account mismatch from upload creation", async () => {
+    const onCreateFailed = vi.fn();
+    const { result, dropRow } = open(
+      async () =>
+        Response.json(
+          {
+            error: "This recording belongs to another account.",
+            errorCode: "recording_owner_mismatch",
+          },
+          { status: 409 },
+        ),
+      "me@example.com",
+      onCreateFailed,
+    );
+
+    await expect(result).rejects.toMatchObject({
+      code: "recording_owner_mismatch",
+    });
+    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(onCreateFailed).toHaveBeenCalledWith({
+      kind: "http",
+      status: 409,
+    });
+  });
+
   it("preserves hosted storage outages as a distinct upload-target error", async () => {
     const onCreateFailed = vi.fn();
     const { result, dropRow } = open(

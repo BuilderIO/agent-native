@@ -1964,6 +1964,8 @@ const messages = {
     sessionExpired: "Session expired (स्थानीयकृत)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (स्थानीयकृत)",
+    accountMismatch:
+      "रिकॉर्डिंग की तैयारी शुरू होने के बाद आपका साइन-इन खाता बदल गया। जिस खाते से आपने शुरुआत की थी, उस पर वापस जाएँ और फिर कोशिश करें।",
     logIn: "Log in (स्थानीयकृत)",
     betterInDesktop: "Better in the desktop app (स्थानीयकृत)",
     desktopAppDescription:

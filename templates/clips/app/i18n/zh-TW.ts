@@ -1894,6 +1894,8 @@ const messages = {
     savingRecording: "正在儲存您的錄製…",
     sessionExpired: "工作階段已過期",
     sessionExpiredDescription: "您的登入工作階段已過期。請重新登入以開始錄製。",
+    accountMismatch:
+      "開始準備錄製後，登入的帳戶已變更。請切換回一開始使用的帳戶，然後再試一次。",
     logIn: "登入",
     betterInDesktop: "桌面應用程式體驗更好",
     desktopAppDescription:

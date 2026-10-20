@@ -2016,6 +2016,8 @@ const messages = {
     sessionExpired: "Session expired (ローカライズ済み)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (ローカライズ済み)",
+    accountMismatch:
+      "録画の準備を始めた後に、ログイン中のアカウントが変わりました。最初に使用していたアカウントに戻って、もう一度お試しください。",
     logIn: "Log in (ローカライズ済み)",
     betterInDesktop: "Better in the desktop app (ローカライズ済み)",
     desktopAppDescription:

@@ -1987,6 +1987,8 @@ const messages = {
     sessionExpired: "Session expired (مترجم)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (مترجم)",
+    accountMismatch:
+      "تغيّر الحساب الذي سجلت الدخول به بعد بدء إعداد التسجيل. عُد إلى الحساب الذي بدأت به ثم حاول مرة أخرى.",
     logIn: "Log in (مترجم)",
     betterInDesktop: "Better in the desktop app (مترجم)",
     desktopAppDescription:
