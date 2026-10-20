@@ -123,11 +123,13 @@ source window, the three matching owned-mark searches, and older roots linked
 by in-window replies. For every unheld owned root, compare the latest human
 message, current status reply, verified scopes, open scopes, and root marks.
 Add and read back `✅` for each newly verified scope and `🎫` for each distinct
-pending human action; the status reply must follow the latest human message and
-name current evidence, remaining work, and owners. An `👀` with a verified
-scope missing `✅`, a pending human action missing `🎫`, or no current status is
-unfinished. Finish the complete bounded set once, then stop; do not chase
-unrelated historical marks.
+pending human action; keep evidence, scopes, and full actions/owners in the
+internal ledger. The status reply must follow the latest human message and use
+the concise reply rule above: say what changed, and when `🎫` applies, briefly
+name the unresolved action and its owner when known. A verified scope missing
+`✅`, a pending human action missing `🎫`, or no current status is unfinished.
+Finish the complete bounded set once, then stop; do not chase unrelated
+historical marks.
 
 Split reports into distinct scopes. Add root `✅` as soon as any named scope
 passes direct post-change proof, even while its PR is open; say **Verified

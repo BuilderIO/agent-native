@@ -336,9 +336,11 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   internal ledger. When that wording is too technical or long for Slack, add a
   concise plain-language `publicActionSummary` using the opening words of the
   action and leaving trailing implementation detail out. The checker requires
-  that phrase to match the action. When checking captured requests, accepted
-  handoffs, or their later history, match against that validated summary when
-  present. Every
+  that phrase to match the action. Use the summary in public status replies and
+  other readbacks that do not prove owner acceptance. For an accepted handoff,
+  the owner's explicit acceptance and the direct request before contextual
+  assent must name the full recorded action, even when a shorter public
+  summary exists. Every
   distinct unfinished team action gets this actor's root `🎫`, even when no
   person has accepted it. For `status: "unassigned"`, record the responsible team/role or
   `unassigned`; omit the owner Slack ID and acceptance. If this actor asked a
