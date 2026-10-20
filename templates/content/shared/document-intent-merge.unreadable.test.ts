@@ -17,10 +17,23 @@ vi.mock("./nfm.js", async (importOriginal) => {
 import { mergeBlocksFieldEdits } from "./document-intent-merge.js";
 
 describe("mergeBlocksFieldEdits with text it can't read", () => {
-  it("keeps all of mine after their text when theirs can't be read", () => {
+  it("adds the paragraphs I changed after theirs when theirs can't be read", () => {
     expect(
       mergeBlocksFieldEdits(
         "Intro\nHello world",
+        "Intro\nHello friend",
+        `Intro ${UNREADABLE}\nHello world`,
+      ),
+    ).toEqual({
+      content: `Intro ${UNREADABLE}\nHello world\nHello friend`,
+      moved: true,
+    });
+  });
+
+  it("keeps all of mine after theirs when neither theirs nor the base can be read", () => {
+    expect(
+      mergeBlocksFieldEdits(
+        `Intro ${UNREADABLE}`,
         "Intro\nHello friend",
         `Intro ${UNREADABLE}\nHello world`,
       ),

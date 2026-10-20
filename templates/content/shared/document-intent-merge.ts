@@ -273,8 +273,8 @@ function blockSpans(
 
 /**
  * Their text, then the paragraphs of mine that neither theirs nor the base
- * holds. Text that can't be read as paragraphs keeps all of mine after theirs,
- * so typing is never dropped.
+ * holds. When mine can't be read as paragraphs, or neither theirs nor the base
+ * can, all of mine goes after theirs, so typing is never dropped.
  */
 function appendChangedBlocks(
   baseText: string | null,
@@ -284,13 +284,12 @@ function appendChangedBlocks(
 ): { content: string; moved: boolean } {
   const theirBlocks = parseStableBlocks(theirText);
   const mineBlocks = parseStableBlocks(mineText);
-  if (!theirBlocks || !mineBlocks) {
+  const baseBlocks = baseText === null ? null : parseStableBlocks(baseText);
+  if (!mineBlocks || (!theirBlocks && !baseBlocks)) {
     return { content: `${theirs}\n${mineText}`, moved: true };
   }
-  const baseCopies = blockCopies(
-    (baseText === null ? null : parseStableBlocks(baseText)) ?? [],
-  );
-  const theirCopies = blockCopies(theirBlocks);
+  const baseCopies = blockCopies(baseBlocks ?? []);
+  const theirCopies = blockCopies(theirBlocks ?? []);
   const seen = new Map<string, number>();
   const moved = mineBlocks.filter((block) => {
     const key = stableBlock(block);
@@ -298,11 +297,14 @@ function appendChangedBlocks(
     seen.set(key, copy);
     return copy > Math.max(baseCopies.get(key) ?? 0, theirCopies.get(key) ?? 0);
   });
+  if (!moved.length) return { content: theirs, moved: false };
   return {
-    content: moved.length
+    // Their text can't be rebuilt from paragraphs it doesn't have, so mine
+    // follow it as written.
+    content: theirBlocks
       ? docToNfm({ type: "doc", content: [...theirBlocks, ...moved] })
-      : theirs,
-    moved: moved.length > 0,
+      : `${theirs}\n${docToNfm({ type: "doc", content: moved })}`,
+    moved: true,
   };
 }
 
