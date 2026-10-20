@@ -31,7 +31,7 @@ import {
   BUILTIN_AGENTS_ENV_KEY,
   workspaceBuiltinAgentsJson,
 } from "../server/builtin-agents.js";
-import { parseAgentProfileMetadata } from "../shared/agent-profile.js";
+import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -1919,7 +1919,7 @@ async function readWorkspaceAppManifest(
     const protectedPaths =
       packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
     const agentNative = pkg?.["agent-native"];
-    const profile = parseAgentProfileMetadata({
+    const profile = parseAgentProfileMetadataFields({
       description: pkg?.description,
       ...(agentNative &&
       typeof agentNative === "object" &&
@@ -1934,16 +1934,24 @@ async function readWorkspaceAppManifest(
           }
         : {}),
     });
-    if (!profile) throw new Error(`Invalid agent profile metadata in ${app}`);
+    if (profile.invalidFields.length) {
+      console.warn(
+        `[workspace] Ignoring invalid agent profile metadata in ${app}: ${profile.invalidFields.join(", ")}`,
+      );
+    }
     entries.push({
       id: app,
       name: pkg?.displayName || titleCase(app),
-      description: profile.description ?? "",
-      ...(profile.whenToUse || profile.aliases
+      description: profile.metadata.description ?? "",
+      ...(profile.metadata.whenToUse || profile.metadata.aliases
         ? {
             "agent-native": {
-              ...(profile.whenToUse ? { whenToUse: profile.whenToUse } : {}),
-              ...(profile.aliases ? { aliases: profile.aliases } : {}),
+              ...(profile.metadata.whenToUse
+                ? { whenToUse: profile.metadata.whenToUse }
+                : {}),
+              ...(profile.metadata.aliases
+                ? { aliases: profile.metadata.aliases }
+                : {}),
             },
           }
         : {}),

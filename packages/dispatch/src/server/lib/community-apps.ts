@@ -132,6 +132,15 @@ function requireCommunitySource(sourceId: string): CuratedCommunityAppSource {
   return source;
 }
 
+function communitySourceFailureKind(
+  error: unknown,
+): "unavailable" | "integrity" {
+  if (!(error instanceof Error) || !("failureKind" in error)) {
+    return "unavailable";
+  }
+  return error.failureKind === "integrity" ? "integrity" : "unavailable";
+}
+
 function requireNonShadowingCommunityAppId(appId: string): void {
   const error = getWorkspaceAppIdValidationError(appId);
   if (error) {
@@ -308,11 +317,14 @@ export async function installCuratedCommunityApp(input: {
   >;
   try {
     attachments = await loadPinnedCommunitySourceAttachments(source, appId);
-  } catch {
+  } catch (error) {
     fail(
       "Dispatch could not verify the pinned community template source. Try again later.",
       {
-        errorCode: "community_source_unavailable",
+        errorCode:
+          communitySourceFailureKind(error) === "integrity"
+            ? "community_source_integrity_failed"
+            : "community_source_unavailable",
         statusCode: 503,
       },
     );

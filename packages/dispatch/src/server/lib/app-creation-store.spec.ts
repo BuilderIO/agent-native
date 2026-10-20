@@ -1849,6 +1849,53 @@ describe("listWorkspaceApps", () => {
     });
   });
 
+  it("preserves generated name and description when only examples change", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "todo",
+        name: "Todo",
+        description: "Manifest description",
+        path: "/todo",
+      },
+    ]);
+    mocks.settings.set("workspace-app-metadata:org:org-123", {
+      apps: {
+        todo: {
+          description: "Generated description",
+          generated: true,
+        },
+      },
+    });
+
+    const updated = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        updateWorkspaceAppMetadata({
+          appId: "todo",
+          whenToUse: ["Create a task from a meeting note"],
+        }),
+    );
+
+    expect(updated.name).toBe("Todo");
+    expect(updated.description).toBe("Manifest description");
+    expect(updated.whenToUse).toEqual(["Create a task from a meeting note"]);
+    expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toEqual({
+      apps: {
+        todo: expect.objectContaining({
+          description: "Generated description",
+          generated: true,
+          whenToUse: ["Create a task from a meeting note"],
+          updatedBy: "dev@example.test",
+        }),
+      },
+    });
+    expect(
+      (mocks.settings.get("workspace-app-metadata:org:org-123") as any).apps
+        .todo,
+    ).not.toHaveProperty("name");
+  });
+
   it("invalidates org directory discovery after a profile edit", async () => {
     stubNoPendingContext();
     stubManifest([

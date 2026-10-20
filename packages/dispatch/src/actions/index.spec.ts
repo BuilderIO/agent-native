@@ -5,6 +5,8 @@ import { dispatchActions } from "./index.js";
 describe("dispatch action registry", () => {
   it("keeps workspace resources runtime-inherited instead of exposing sync actions", () => {
     expect(dispatchActions).toHaveProperty("list-workspace-resources-for-app");
+    expect(dispatchActions).toHaveProperty("list-connect-marketplace-apps");
+    expect(dispatchActions).toHaveProperty("inspect-connect-agent-card");
     expect(dispatchActions).toHaveProperty("connect-external-agent");
     expect(dispatchActions).toHaveProperty("import-agent");
     expect(dispatchActions).toHaveProperty("list-mcp-app-access");
@@ -58,6 +60,17 @@ describe("dispatch action registry", () => {
     expect(dispatchActions["list-connected-agents"].tool.description).toContain(
       "A2A delegation",
     );
+  });
+
+  it("keeps Connect URL inspection UI-only", () => {
+    expect(dispatchActions["list-connect-marketplace-apps"].agentTool).toBe(
+      false,
+    );
+    expect(dispatchActions["list-connect-marketplace-apps"].mcpTool).toBe(
+      false,
+    );
+    expect(dispatchActions["inspect-connect-agent-card"].agentTool).toBe(false);
+    expect(dispatchActions["inspect-connect-agent-card"].mcpTool).toBe(false);
   });
 
   it("teaches MCP hosts to route through their existing Dispatch connection", () => {

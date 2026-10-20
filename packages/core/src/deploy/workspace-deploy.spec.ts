@@ -1530,6 +1530,60 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("drops malformed package profile fields without aborting deploy", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+    const starterPackagePath = path.join(
+      tmpDir,
+      "apps",
+      "starter",
+      "package.json",
+    );
+    const starterPackage = JSON.parse(
+      fs.readFileSync(starterPackagePath, "utf-8"),
+    );
+    starterPackage.description = "A valid description";
+    starterPackage["agent-native"] = {
+      whenToUse: ["x".repeat(141)],
+      aliases: ["Starter"],
+    };
+    fs.writeFileSync(starterPackagePath, JSON.stringify(starterPackage));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).resolves.toBeUndefined();
+
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "functions",
+          "dispatch-server.func",
+          ".agent-native",
+          "workspace-apps.json",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(
+      manifest.apps.find((app: { id: string }) => app.id === "starter"),
+    ).toMatchObject({
+      description: "A valid description",
+      "agent-native": { aliases: ["Starter"] },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "[workspace] Ignoring invalid agent profile metadata in starter: whenToUse",
+    );
+    warn.mockRestore();
+  });
+
   it("keeps Vite assets when the app id is assets", async () => {
     makeWorkspaceApp(tmpDir, "assets");
 

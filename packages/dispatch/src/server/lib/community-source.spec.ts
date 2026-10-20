@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { loadPinnedCommunitySourceAttachments } from "./community-source.js";
+import {
+  loadPinnedCommunitySourceAttachments,
+  PinnedCommunitySourceError,
+} from "./community-source.js";
 
 const SOURCE = {
   id: "community-fixture",
@@ -64,7 +67,11 @@ describe("pinned community source attachments", () => {
         "community-qr",
         fetchSource as any,
       ),
-    ).rejects.toThrow("failed its Git blob check");
+    ).rejects.toMatchObject({
+      name: "PinnedCommunitySourceError",
+      failureKind: "integrity",
+      message: expect.stringContaining("failed its Git blob check"),
+    });
   });
 
   it("rejects source refs outside main", async () => {
@@ -74,7 +81,11 @@ describe("pinned community source attachments", () => {
         "community-qr",
         vi.fn() as any,
       ),
-    ).rejects.toThrow("no valid pinned file set");
+    ).rejects.toMatchObject({
+      name: "PinnedCommunitySourceError",
+      failureKind: "integrity",
+      message: expect.stringContaining("no valid pinned file set"),
+    });
   });
 
   it("rejects redirects and non-success responses without accepting source", async () => {
@@ -92,7 +103,11 @@ describe("pinned community source attachments", () => {
         "community-qr",
         fetchSource as any,
       ),
-    ).rejects.toThrow("could not be loaded (302)");
+    ).rejects.toMatchObject({
+      name: "PinnedCommunitySourceError",
+      failureKind: "unavailable",
+      message: expect.stringContaining("could not be loaded (302)"),
+    });
   });
 
   it("reports transport failures separately from pinned content failures", async () => {
@@ -106,6 +121,31 @@ describe("pinned community source attachments", () => {
         "community-qr",
         fetchSource as any,
       ),
-    ).rejects.toThrow("network request failed");
+    ).rejects.toMatchObject({
+      name: "PinnedCommunitySourceError",
+      failureKind: "unavailable",
+      message: expect.stringContaining("network request failed"),
+    });
+  });
+
+  it("classifies oversized source bodies as integrity failures", async () => {
+    const fetchSource = vi.fn(
+      async () =>
+        new Response("large", {
+          status: 200,
+          headers: { "content-length": "131073" },
+        }),
+    );
+
+    await expect(
+      loadPinnedCommunitySourceAttachments(
+        SOURCE,
+        "community-qr",
+        fetchSource as any,
+      ),
+    ).rejects.toMatchObject({
+      failureKind: "integrity",
+      message: expect.stringContaining("exceeds the size limit"),
+    });
   });
 });

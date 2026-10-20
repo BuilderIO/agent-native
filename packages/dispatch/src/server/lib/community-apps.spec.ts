@@ -299,20 +299,26 @@ describe("curated community apps", () => {
     },
   );
 
-  it("fails closed when the pinned community source cannot be verified", async () => {
-    mocks.isLocalAppCreationRuntime.mockReturnValue(true);
-    mocks.loadPinnedCommunitySourceAttachments.mockRejectedValueOnce(
-      new Error("Git blob mismatch"),
-    );
+  it.each([
+    ["integrity", "community_source_integrity_failed"],
+    ["unavailable", "community_source_unavailable"],
+  ] as const)(
+    "fails closed and preserves pinned source %s failures",
+    async (failureKind, errorCode) => {
+      mocks.isLocalAppCreationRuntime.mockReturnValue(true);
+      mocks.loadPinnedCommunitySourceAttachments.mockRejectedValueOnce(
+        Object.assign(new Error("Pinned source failure"), { failureKind }),
+      );
 
-    await expect(
-      installCuratedCommunityApp({ sourceId: "community-qr" }),
-    ).rejects.toMatchObject({
-      errorCode: "community_source_unavailable",
-      statusCode: 503,
-    });
-    expect(mocks.startWorkspaceAppCreation).not.toHaveBeenCalled();
-  });
+      await expect(
+        installCuratedCommunityApp({ sourceId: "community-qr" }),
+      ).rejects.toMatchObject({
+        errorCode,
+        statusCode: 503,
+      });
+      expect(mocks.startWorkspaceAppCreation).not.toHaveBeenCalled();
+    },
+  );
 
   it("fails closed before starting an unverified Builder-mode install", async () => {
     mocks.isLocalAppCreationRuntime.mockReturnValue(false);

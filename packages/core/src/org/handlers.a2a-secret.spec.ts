@@ -8,6 +8,7 @@ const mockPutUserSetting = vi.fn();
 const mockGetOrgSetting = vi.fn();
 const mockReadBody = vi.fn();
 const mockDiscoverAgents = vi.fn();
+const mockLoadWorkspaceAppsManifest = vi.fn();
 const mockSignA2AToken = vi.fn();
 const mockSignA2AOrganizationToken = vi.fn();
 const mockGetGlobalA2ASecret = vi.fn<() => string | undefined>();
@@ -78,6 +79,11 @@ vi.mock("./free-email-providers.js", () => ({
 
 vi.mock("../server/agent-discovery.js", () => ({
   discoverAgents: (...args: any[]) => mockDiscoverAgents(...args),
+  getBuiltinAgentsForSeeding: () => [
+    { id: "builtin-app", url: "https://builtin.example.test" },
+  ],
+  loadWorkspaceAppsManifest: (...args: any[]) =>
+    mockLoadWorkspaceAppsManifest(...args),
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -167,6 +173,17 @@ describe("syncA2ASecretHandler", () => {
         source: "workspace",
       },
     ]);
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "remote", path: "/" },
+      { id: "metadata", path: "/" },
+      { id: "workspace-app", path: "/workspace-app" },
+      { id: "same-origin-other-path", path: "/registered-app" },
+      {
+        id: "workspace-app",
+        path: "/workspace-app",
+        url: "https://workspace.example.test/attacker-controlled-path",
+      },
+    ]);
     mockSignA2AToken.mockResolvedValue("signed-jwt");
     mockSignA2AOrganizationToken.mockResolvedValue("signed-jwt");
     mockCanonicalA2AAudience.mockImplementation((url) =>
@@ -226,7 +243,7 @@ describe("syncA2ASecretHandler", () => {
         id: "workspace-app",
         name: "Workspace App",
         description: "",
-        url: "https://workspace.example.test",
+        url: "https://workspace.example.test/workspace-app",
         color: "#000000",
         source: "workspace",
       },
@@ -243,6 +260,30 @@ describe("syncA2ASecretHandler", () => {
         name: "Built-in App",
         description: "",
         url: "https://builtin.example.test",
+        color: "#000000",
+        source: "builtin",
+      },
+      {
+        id: "same-origin-other-path",
+        name: "Same origin unrelated path",
+        description: "",
+        url: "https://workspace.example.test/unregistered-path",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "workspace-app",
+        name: "Workspace app URL override path",
+        description: "",
+        url: "https://workspace.example.test/attacker-controlled-path",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "builtin-app",
+        name: "Forged Built-in",
+        description: "",
+        url: "https://attacker.example.test",
         color: "#000000",
         source: "builtin",
       },
@@ -270,8 +311,44 @@ describe("syncA2ASecretHandler", () => {
     expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(2);
     expect(mockSsrfSafeFetch.mock.calls.map(([url]) => url).sort()).toEqual([
       "https://builtin.example.test/_agent-native/org/a2a-secret/receive",
-      "https://workspace.example.test/_agent-native/org/a2a-secret/receive",
+      "https://workspace.example.test/workspace-app/_agent-native/org/a2a-secret/receive",
     ]);
+  });
+
+  it("skips malformed workspace manifest rows while syncing valid apps", async () => {
+    mockResolveAppRuntimeUrl.mockReturnValue("https://workspace.example.test");
+    mockLoadWorkspaceAppsManifest.mockResolvedValue([
+      { id: "malformed-workspace-app", url: "not a URL", path: "" },
+      { id: "workspace-app", path: "/workspace-app" },
+    ]);
+    mockDiscoverAgents.mockResolvedValue([
+      {
+        id: "malformed-workspace-app",
+        name: "Malformed Workspace App",
+        description: "",
+        url: "https://workspace.example.test/bad",
+        color: "#000000",
+        source: "workspace",
+      },
+      {
+        id: "workspace-app",
+        name: "Workspace App",
+        description: "",
+        url: "https://workspace.example.test/workspace-app",
+        color: "#000000",
+        source: "workspace",
+      },
+    ]);
+
+    const result = await syncA2ASecretHandler({} as any);
+
+    expect(result).toMatchObject({ total: 1, succeeded: 1, failed: 0 });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(1);
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://workspace.example.test/workspace-app/_agent-native/org/a2a-secret/receive",
+      expect.any(Object),
+      { maxRedirects: 3 },
+    );
   });
 
   it("reports SSRF blocks as per-agent failures without falling back to bare fetch", async () => {

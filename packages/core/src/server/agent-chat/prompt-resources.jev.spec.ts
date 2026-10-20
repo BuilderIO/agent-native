@@ -772,6 +772,32 @@ describe("preloadJevContextForPrompt", () => {
       ).resolves.toMatchObject({ context: "", status: "timed_out" });
     });
 
+    it("keeps resource prefetch timeouts visible alongside app-selection context", async () => {
+      mocks.resourceGetByPath.mockImplementation(() => new Promise(() => {}));
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [],
+        directory: { status: "unavailable", reason: "network" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request: "Find a workspace app for QR codes",
+        owner: "user@example.test",
+        contextPrefetchDeadlineAt: Date.now() + 25,
+      });
+
+      expect(result).toMatchObject({
+        context: "",
+        status: "timed_out",
+        appSelection: {
+          status: "unavailable",
+          directoryStatus: "unavailable",
+        },
+      });
+      expect(result.relevantAppsContext).toContain(
+        "The workspace app directory is not currently available.",
+      );
+    }, 2_000);
+
     it("preserves unavailable discovery when the preload has no candidates", async () => {
       mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
         agents: [],
@@ -848,7 +874,7 @@ describe("preloadJevContextForPrompt", () => {
         }),
       ).resolves.toMatchObject({
         context: "",
-        status: "ok",
+        status: "failed",
         appSelection: { status: "failed" },
         relevantAppsContext: expect.stringContaining("App ranking failed."),
       });
@@ -886,7 +912,7 @@ describe("preloadJevContextForPrompt", () => {
 
         await expect(preload()).resolves.toMatchObject({
           context: "",
-          status: "ok",
+          status: "failed",
           appSelection: { status: "failed" },
           relevantAppsContext: expect.stringContaining("App ranking failed."),
         });
@@ -907,7 +933,7 @@ describe("preloadJevContextForPrompt", () => {
 
         await expect(preload()).resolves.toMatchObject({
           context: "",
-          status: "ok",
+          status: "timed_out",
           appSelection: { status: "timed_out" },
           relevantAppsContext: expect.stringContaining(
             "App ranking timed out.",
@@ -932,7 +958,7 @@ describe("preloadJevContextForPrompt", () => {
 
         await expect(preload()).resolves.toMatchObject({
           context: "",
-          status: "ok",
+          status: "failed",
           appSelection: { status: "failed" },
           relevantAppsContext: expect.stringContaining("App ranking failed."),
         });

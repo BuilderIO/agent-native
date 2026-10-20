@@ -58,11 +58,12 @@ export function normalizeConnectUrl(value: string): URL | null {
     const privateIpv4 = isPrivateIpv4(hostname);
     const mappedAddress = mappedIpv4(ipv6);
     const privateIpv6 =
-      ipv6 === "::" ||
-      ipv6 === "::1" ||
-      /^(?:fc|fd)/.test(ipv6) ||
-      /^fe[89ab]/.test(ipv6) ||
-      Boolean(mappedAddress && isPrivateIpv4(mappedAddress));
+      ipv6.includes(":") &&
+      (ipv6 === "::" ||
+        ipv6 === "::1" ||
+        /^(?:fc|fd)/.test(ipv6) ||
+        /^fe[89ab]/.test(ipv6) ||
+        Boolean(mappedAddress && isPrivateIpv4(mappedAddress)));
     if (
       (url.protocol !== "https:" &&
         !(url.protocol === "http:" && hostname === "localhost")) ||
@@ -133,73 +134,8 @@ export function buildIdentityConnectUrl(appUrl: string): string {
   return url.toString();
 }
 
-export async function fetchMarketplaceApps(
-  feedUrl = "https://www.agent-native.com/apps.json",
-): Promise<MarketplaceApp[]> {
-  const response = await fetch(feedUrl, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!response.ok)
-    throw new Error(`Marketplace feed returned ${response.status}`);
-  const length = Number(response.headers.get("content-length") ?? 0);
-  if (length > 1_000_000) throw new Error("Marketplace feed is too large");
-  const body = await response.text();
-  if (body.length > 1_000_000) throw new Error("Marketplace feed is too large");
-  const payload = JSON.parse(body) as { apps?: unknown };
-  if (!Array.isArray(payload.apps))
-    throw new Error("Marketplace feed is invalid");
-  const candidates = payload.apps.filter((entry): entry is MarketplaceApp => {
-    if (!entry || typeof entry !== "object") return false;
-    const app = entry as Record<string, unknown>;
-    const url =
-      typeof app.url === "string" ? normalizeConnectUrl(app.url) : null;
-    return (
-      typeof app.id === "string" &&
-      typeof app.name === "string" &&
-      typeof app.description === "string" &&
-      typeof app.url === "string" &&
-      Boolean(url) &&
-      Array.isArray(app.capabilities) &&
-      app.capabilities.every((capability) => typeof capability === "string")
-    );
-  });
-  const verified = await Promise.allSettled(
-    candidates.map(async (app) => {
-      const card = await fetchConnectAgentCard(app.url);
-      return card.connect ? { ...app, capabilities: ["connect"] } : null;
-    }),
-  );
-  return verified.flatMap((result) =>
-    result.status === "fulfilled" && result.value ? [result.value] : [],
-  );
-}
-
-export async function fetchConnectAgentCard(
-  appUrl: string,
-): Promise<ConnectAgentCard> {
-  const target = normalizeConnectUrl(appUrl);
-  if (!target) throw new Error("Enter a secure app URL.");
-  const response = await fetch(
-    appPathUrl(target.toString(), "/.well-known/agent-card.json").toString(),
-    {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(5_000),
-    },
-  );
-  if (!response.ok) throw new Error(`Agent card returned ${response.status}`);
-  const length = Number(response.headers.get("content-length") ?? 0);
-  if (length > 256_000) throw new Error("Agent card is too large");
-  const body = await response.text();
-  if (body.length > 256_000) throw new Error("Agent card is too large");
-  const card = parseConnectAgentCard(
-    JSON.parse(body),
-    target.origin,
-    target.pathname,
-  );
-  if (!card)
-    throw new Error("This app has an invalid or incompatible agent card.");
-  return card;
+export function buildAgentCardUrl(appUrl: string): string {
+  return appPathUrl(appUrl, "/.well-known/agent-card.json").toString();
 }
 
 function appPathUrl(appUrl: string, suffix: string): URL {

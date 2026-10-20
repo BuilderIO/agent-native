@@ -1390,7 +1390,10 @@ export async function preloadJevContextWithStatus(options: {
   let degraded: "timed_out" | "failed" | undefined;
   const finish = (context: string, injected: number): JevPreloadResult => ({
     context,
-    status: injected > 0 || appSelectionContext ? "ok" : (degraded ?? "empty"),
+    status:
+      injected > 0
+        ? "ok"
+        : (degraded ?? (appSelectionContext ? "ok" : "empty")),
     ...(appSelectionContext
       ? { relevantAppsContext: appSelectionContext }
       : {}),

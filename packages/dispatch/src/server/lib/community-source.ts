@@ -11,6 +11,18 @@ export interface PinnedCommunitySource {
   files: readonly { path: string; blobSha: string }[];
 }
 
+export type PinnedCommunitySourceFailureKind = "unavailable" | "integrity";
+
+export class PinnedCommunitySourceError extends Error {
+  constructor(
+    readonly failureKind: PinnedCommunitySourceFailureKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PinnedCommunitySourceError";
+  }
+}
+
 const SOURCE_FILE_MAX_BYTES = 128 * 1024;
 const SOURCE_TOTAL_MAX_BYTES = 64 * 1024;
 const SOURCE_FETCH_TIMEOUT_MS = 10_000;
@@ -18,7 +30,10 @@ const SOURCE_FETCH_TIMEOUT_MS = 10_000;
 async function readSourceResponse(response: Response): Promise<Buffer> {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > SOURCE_FILE_MAX_BYTES) {
-    throw new Error("Pinned community source file exceeds the size limit.");
+    throw new PinnedCommunitySourceError(
+      "integrity",
+      "Pinned community source file exceeds the size limit.",
+    );
   }
   if (!response.body) return Buffer.alloc(0);
 
@@ -31,7 +46,10 @@ async function readSourceResponse(response: Response): Promise<Buffer> {
     size += value.byteLength;
     if (size > SOURCE_FILE_MAX_BYTES) {
       await reader.cancel();
-      throw new Error("Pinned community source file exceeds the size limit.");
+      throw new PinnedCommunitySourceError(
+        "integrity",
+        "Pinned community source file exceeds the size limit.",
+      );
     }
     chunks.push(Buffer.from(value));
   }
@@ -51,7 +69,10 @@ async function readPinnedSourceFile(
     file.path.startsWith("/") ||
     file.path.split("/").some((part) => !part || part === "." || part === "..")
   ) {
-    throw new Error("Curated community source contains an invalid file pin.");
+    throw new PinnedCommunitySourceError(
+      "integrity",
+      "Curated community source contains an invalid file pin.",
+    );
   }
 
   const fileUrl = `https://raw.githubusercontent.com/${source.repo}/${source.ref}/${source.templatePath}/${file.path
@@ -79,13 +100,15 @@ async function readPinnedSourceFile(
         },
       },
     );
-  } catch (error) {
-    throw new Error("Pinned community source network request failed.", {
-      cause: error,
-    });
+  } catch {
+    throw new PinnedCommunitySourceError(
+      "unavailable",
+      "Pinned community source network request failed.",
+    );
   }
   if (!response.ok) {
-    throw new Error(
+    throw new PinnedCommunitySourceError(
+      "unavailable",
       `Pinned community source file could not be loaded (${response.status}).`,
     );
   }
@@ -94,18 +117,30 @@ async function readPinnedSourceFile(
   let content: string;
   try {
     bytes = await readSourceResponse(response);
-    content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {
-    throw new Error("Pinned community source integrity check failed.", {
-      cause: error,
-    });
+    if (error instanceof PinnedCommunitySourceError) throw error;
+    throw new PinnedCommunitySourceError(
+      "unavailable",
+      "Pinned community source response could not be read.",
+    );
+  }
+  try {
+    content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new PinnedCommunitySourceError(
+      "integrity",
+      "Pinned community source file is not valid UTF-8.",
+    );
   }
   const blobSha = createHash("sha1")
     .update(`blob ${bytes.byteLength}\0`)
     .update(bytes)
     .digest("hex");
   if (blobSha !== file.blobSha) {
-    throw new Error("Pinned community source file failed its Git blob check.");
+    throw new PinnedCommunitySourceError(
+      "integrity",
+      "Pinned community source file failed its Git blob check.",
+    );
   }
 
   return {
@@ -129,7 +164,10 @@ export async function loadPinnedCommunitySourceAttachments(
   fetchSource: typeof ssrfSafeFetch = ssrfSafeFetch,
 ): Promise<BuilderAgentAttachment[]> {
   if (source.ref !== "main" || source.files.length === 0) {
-    throw new Error("Curated community source has no valid pinned file set.");
+    throw new PinnedCommunitySourceError(
+      "integrity",
+      "Curated community source has no valid pinned file set.",
+    );
   }
   const files = await Promise.all(
     source.files.map((file) =>
@@ -139,7 +177,10 @@ export async function loadPinnedCommunitySourceAttachments(
   if (
     files.reduce((total, file) => total + file.size, 0) > SOURCE_TOTAL_MAX_BYTES
   ) {
-    throw new Error("Pinned community template exceeds the total size limit.");
+    throw new PinnedCommunitySourceError(
+      "integrity",
+      "Pinned community template exceeds the total size limit.",
+    );
   }
   return files.map(({ attachment }) => attachment);
 }

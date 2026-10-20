@@ -3,11 +3,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const installationStoreMocks = vi.hoisted(() => ({
   getActiveIntegrationInstallationByKey: vi.fn(),
 }));
+const fileUploadMocks = vi.hoisted(() => ({
+  findFileUploadProviderOwningUrl: vi.fn(),
+}));
 
 vi.mock("../installations-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../installations-store.js")>()),
   getActiveIntegrationInstallationByKey:
     installationStoreMocks.getActiveIntegrationInstallationByKey,
+}));
+vi.mock("../../file-upload/registry.js", () => ({
+  findFileUploadProviderOwningUrl:
+    fileUploadMocks.findFileUploadProviderOwningUrl,
 }));
 
 import { resolveSlackBotTokenForIncoming, slackAdapter } from "./slack.js";
@@ -20,6 +27,7 @@ describe("slackAdapter", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     installationStoreMocks.getActiveIntegrationInstallationByKey.mockReset();
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockReset();
     process.env.NODE_ENV = originalNodeEnv;
     delete process.env.SLACK_BOT_TOKEN;
     delete process.env.SLACK_ALLOWED_TEAM_IDS;
@@ -2067,17 +2075,22 @@ describe("slackAdapter", () => {
     expect(deliveryBodies[0].blocks).toEqual(blocks);
   });
 
-  it("keeps Markdown image URLs as clickable links instead of Slack image blocks", async () => {
+  it("posts HTTPS Markdown images as Slack image blocks with their alt text", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue({
+      id: "builder",
+    });
     const adapter = slackAdapter();
     const formatted = adapter.formatAgentResponse?.(
       "Before ![chart](https://example.test/chart.png) after ![private](http://example.test/private.png)",
     );
 
-    expect(formatted?.text).toContain("<https://example.test/chart.png|chart>");
+    expect(formatted?.text).not.toContain("https://example.test/chart.png");
     expect(formatted?.text).toContain(
       "!<http://example.test/private.png|private>",
     );
-    expect(formatted?.platformContext).not.toHaveProperty("imageUrls");
+    expect(formatted?.platformContext.imageUrls).toEqual([
+      { url: "https://example.test/chart.png", alt: "chart" },
+    ]);
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const delivered: any[] = [];
     vi.stubGlobal(
@@ -2100,16 +2113,17 @@ describe("slackAdapter", () => {
     });
     expect(delivered[0].blocks).toContainEqual(
       expect.objectContaining({
-        type: "section",
-        text: { type: "mrkdwn", text: expect.stringContaining("chart") },
+        type: "image",
+        image_url: "https://example.test/chart.png",
+        alt_text: "chart",
       }),
-    );
-    expect(delivered[0].blocks).not.toContainEqual(
-      expect.objectContaining({ type: "image" }),
     );
   });
 
-  it("sends image-only Markdown replies once as visible links", async () => {
+  it("sends image-only Markdown replies once as a Slack image block", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue({
+      id: "builder",
+    });
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const delivered: any[] = [];
     vi.stubGlobal(
@@ -2134,13 +2148,104 @@ describe("slackAdapter", () => {
       platformContext: { channelId: "C123", threadTs: "123.456" },
     });
     expect(delivered).toHaveLength(1);
-    expect(delivered[0].text).toBe("<https://example.test/qr.png|QR code>");
+    expect(delivered[0].text).toBe("QR code");
     expect(delivered[0].blocks).toEqual([
       {
-        type: "section",
-        text: { type: "mrkdwn", text: "<https://example.test/qr.png|QR code>" },
+        type: "image",
+        image_url: "https://example.test/qr.png",
+        alt_text: "QR code",
       },
     ]);
+  });
+
+  it("keeps unowned Markdown image URLs as links instead of loading them", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue(null);
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage"))
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+
+    const adapter = slackAdapter();
+    await adapter.sendResponse?.(
+      adapter.formatAgentResponse?.(
+        "![external](https://outside.example.test/image.png)",
+      )!,
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "request",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(
+      fileUploadMocks.findFileUploadProviderOwningUrl,
+    ).toHaveBeenCalledWith("https://outside.example.test/image.png");
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].text).toContain(
+      "Image: https://outside.example.test/image.png",
+    );
+    expect(delivered[0].blocks).not.toContainEqual(
+      expect.objectContaining({ type: "image" }),
+    );
+    expect(delivered[0].unfurl_media).toBe(false);
+  });
+
+  it("caps image blocks at Slack's 50-block limit", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue({
+      id: "builder",
+    });
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage"))
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+    const reply = Array.from(
+      { length: 55 },
+      (_, index) => `![Image ${index}](https://example.test/${index}.png)`,
+    ).join(" ");
+
+    await slackAdapter().sendResponse?.(
+      slackAdapter().formatAgentResponse?.(reply)!,
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "request",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].blocks).toHaveLength(50);
+    expect(
+      delivered[0].blocks.every((block: any) => block.type === "image"),
+    ).toBe(true);
+  });
+
+  it("does not send oversized Markdown image URLs as image blocks", async () => {
+    const formatted = slackAdapter().formatAgentResponse?.(
+      `![large](https://example.test/${"a".repeat(3_000)})`,
+    );
+
+    expect(formatted?.platformContext).not.toHaveProperty("imageUrls");
+    expect(formatted?.text).toContain("https://example.test/");
   });
 
   it("splits Slack section blocks by UTF-8 bytes, not JS character length", async () => {

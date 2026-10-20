@@ -34,7 +34,13 @@ vi.mock("../../../core/dist/client/i18n.js", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useActionMutation: (action: string) => ({
+    mutate:
+      action === "update-workspace-app-metadata"
+        ? metadataMutationState.mutate
+        : vi.fn(),
+    isPending: false,
+  }),
   useActionQuery: () => ({
     data: { resources: [], counts: {} },
     isLoading: false,
@@ -53,6 +59,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
+const orgRoleState = vi.hoisted(() => ({ role: "owner" as string }));
+const metadataMutationState = vi.hoisted(() => ({ mutate: vi.fn() }));
 
 function LocationProbe() {
   const location = useLocation();
@@ -64,6 +72,24 @@ vi.mock("@agent-native/core/client/host", () => ({
   isInBuilderFrame: () => frameState.inBuilderFrame,
 }));
 
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrgRole: () => ({
+    org: { orgId: "org-123" },
+    role: orgRoleState.role,
+    isLoading: false,
+    error: null,
+  }),
+}));
+
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("WorkspaceAppCard", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -71,6 +97,8 @@ describe("WorkspaceAppCard", () => {
 
   beforeEach(() => {
     frameState.inBuilderFrame = false;
+    orgRoleState.role = "owner";
+    metadataMutationState.mutate.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -134,6 +162,157 @@ describe("WorkspaceAppCard", () => {
       "Explain this week's activation trend\nCompare signup sources",
     );
     expect(document.body.textContent).toContain("When to use");
+  });
+
+  it("validates profile examples and normalizes description line breaks", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                status: "ready",
+                whenToUse: ["Compare signup sources"],
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
+    );
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Edit details"));
+    await act(async () => editItem?.click());
+
+    const examples = document.querySelector<HTMLTextAreaElement>(
+      "#app-when-to-use-analytics",
+    );
+    const description = document.querySelector<HTMLTextAreaElement>(
+      "#app-description-analytics",
+    );
+    const save = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('button[type="submit"]'),
+    ).find((button) => button.textContent?.includes("Save"));
+    expect(examples).not.toBeNull();
+    expect(description).not.toBeNull();
+    expect(save).not.toBeNull();
+
+    await act(async () => {
+      setTextareaValue(
+        examples!,
+        Array.from({ length: 7 }, (_, i) => `Example ${i + 1}`).join("\n"),
+      );
+    });
+    expect(save?.disabled).toBe(true);
+
+    await act(async () => {
+      setTextareaValue(examples!, `${"x".repeat(141)}\nValid example`);
+    });
+    expect(save?.disabled).toBe(true);
+
+    await act(async () => {
+      setTextareaValue(examples!, "Safe\u0001 example");
+      setTextareaValue(description!, "First line\nSecond line");
+    });
+    expect(examples?.value).toBe("Safe example");
+    expect(description?.value).toBe("First line Second line");
+    expect(save?.disabled).toBe(false);
+  });
+
+  it("submits only the profile field that changed", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                description: "Original description",
+                path: "/analytics",
+                status: "ready",
+                whenToUse: ["Compare signup sources"],
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
+    );
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Edit details"));
+    await act(async () => editItem?.click());
+
+    const examples = document.querySelector<HTMLTextAreaElement>(
+      "#app-when-to-use-analytics",
+    );
+    const form = examples?.closest("form");
+    await act(async () => {
+      setTextareaValue(examples!, "Track acquisition by channel");
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(metadataMutationState.mutate).toHaveBeenCalledWith({
+      appId: "analytics",
+      whenToUse: ["Track acquisition by channel"],
+    });
+  });
+
+  it("hides Edit details from members", async () => {
+    orgRoleState.role = "member";
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
+    );
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).some((item) => item.textContent?.includes("Edit details")),
+    ).toBe(false);
   });
 
   it("opens ready apps inline and keeps new-tab opening in the chevron menu", async () => {

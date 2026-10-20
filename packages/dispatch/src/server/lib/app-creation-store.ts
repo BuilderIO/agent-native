@@ -514,6 +514,11 @@ async function writeWorkspaceAppMetadataOverride(input: {
     ...existing,
     updatedAt: new Date().toISOString(),
   };
+  const hasName = Object.hasOwn(input, "name") && input.name !== undefined;
+  const hasDescription =
+    Object.hasOwn(input, "description") && input.description !== undefined;
+  const hasWhenToUse =
+    Object.hasOwn(input, "whenToUse") && input.whenToUse !== undefined;
   const name = cleanOptionalText(input.name);
   const description = cleanOptionalText(input.description);
   const whenToUse = input.whenToUse;
@@ -522,14 +527,19 @@ async function writeWorkspaceAppMetadataOverride(input: {
   const createdBy = cleanOptionalText(input.createdBy);
   const communitySourceId = normalizeCommunitySourceId(input.communitySourceId);
 
-  if (name) next.name = name;
-  else delete next.name;
-  if (description) next.description = description;
-  else delete next.description;
-  if (whenToUse !== undefined && whenToUse !== null) {
+  if (hasName) {
+    if (name) next.name = name;
+    else delete next.name;
+  }
+  if (hasDescription) {
+    if (description) next.description = description;
+    else delete next.description;
+  }
+  if (hasWhenToUse) {
+    const examples = whenToUse ?? [];
     const profile = parseAgentProfileMetadata({
       description: description ?? next.description,
-      whenToUse,
+      whenToUse: examples,
     });
     if (!profile) {
       throw new Error(
@@ -1803,6 +1813,7 @@ async function recordPendingWorkspaceApp(input: {
 
   await writeWorkspaceAppMetadataOverride({
     appId: input.appId,
+    name: null,
     description: input.description,
     generated: true,
     sourcePrompt: input.sourcePrompt,
@@ -2160,22 +2171,30 @@ export async function updateWorkspaceAppMetadata(input: {
   const app = apps.find((candidate) => candidate.id === appId);
   if (!app) throw new Error(`Workspace app "${appId}" was not found.`);
 
-  const name = Object.hasOwn(input, "name")
-    ? (input.name?.trim() ?? null)
-    : app.name;
-  const description = Object.hasOwn(input, "description")
+  const nameProvided = Object.hasOwn(input, "name") && input.name !== undefined;
+  const descriptionProvided =
+    Object.hasOwn(input, "description") && input.description !== undefined;
+  const whenToUseProvided =
+    Object.hasOwn(input, "whenToUse") && input.whenToUse !== undefined;
+  const name = nameProvided ? (input.name?.trim() ?? null) : app.name;
+  const description = descriptionProvided
     ? (input.description?.trim() ?? null)
     : (app.description ?? undefined);
-  const whenToUse = Object.hasOwn(input, "whenToUse")
-    ? (input.whenToUse ?? [])
-    : app.whenToUse;
-  await writeWorkspaceAppMetadataOverride({
+  const whenToUse = whenToUseProvided ? (input.whenToUse ?? []) : app.whenToUse;
+  const metadataOverride: Parameters<
+    typeof writeWorkspaceAppMetadataOverride
+  >[0] = {
     appId,
-    name,
-    description,
-    whenToUse,
-    generated: false,
     updatedBy: currentOwnerEmail(),
+  };
+  if (nameProvided) metadataOverride.name = input.name?.trim() ?? null;
+  if (descriptionProvided) {
+    metadataOverride.description = input.description?.trim() ?? null;
+  }
+  if (whenToUseProvided) metadataOverride.whenToUse = input.whenToUse ?? [];
+  if (nameProvided || descriptionProvided) metadataOverride.generated = false;
+  await writeWorkspaceAppMetadataOverride({
+    ...metadataOverride,
   });
   invalidateOrgAppsDirectoryCache();
 
@@ -2183,9 +2202,9 @@ export async function updateWorkspaceAppMetadata(input: {
     action: "workspace-app.metadata-updated",
     targetType: "workspace-app",
     targetId: appId,
-    summary: `Updated workspace app details for ${name}`,
+    summary: `Updated workspace app details for ${name ?? app.name}`,
     metadata: {
-      name,
+      name: name ?? app.name,
       descriptionConfigured: !!description,
       whenToUseCount: whenToUse?.length ?? 0,
     },
@@ -2477,6 +2496,8 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   try {
     await writeWorkspaceAppMetadataOverride({
       appId,
+      name: null,
+      description: null,
       updatedBy: creatorEmail,
       createdBy: creatorEmail,
       visibility,
@@ -3181,6 +3202,7 @@ export async function startWorkspaceAppCreation(input: {
     try {
       await writeWorkspaceAppMetadataOverride({
         appId: built.appId,
+        name: null,
         description: appDescription,
         generated: true,
         sourcePrompt: input.prompt,

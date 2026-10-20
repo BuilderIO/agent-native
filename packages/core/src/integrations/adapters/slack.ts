@@ -408,11 +408,31 @@ export function slackAdapter(
       const blocks = (message.platformContext as any)?.blocks as
         | unknown[]
         | undefined;
+      const responseImages = getSlackResponseImages(
+        (message.platformContext as any)?.imageUrls,
+      );
+      const { images, linkedImages } = await resolveOwnedSlackResponseImages(
+        responseImages.images,
+      );
+      const deliveryText = [
+        message.text,
+        ...responseImages.linkedImages.map((image) => `Image: ${image.url}`),
+        ...linkedImages.map((image) => `Image: ${image.url}`),
+      ]
+        .filter(Boolean)
+        .join("\n");
       const placeholderRef = opts?.placeholderRef;
 
       const hasProvidedBlocks = Array.isArray(blocks) && blocks.length > 0;
-      const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
-      const firstChunk = chunks[0] ?? (hasProvidedBlocks ? "Response" : "");
+      const hasImages = images.length > 0;
+      const chunks = splitNonEmptyMessage(deliveryText, SLACK_MAX_LENGTH);
+      const firstChunk =
+        chunks[0] ??
+        (hasProvidedBlocks
+          ? "Response"
+          : hasImages
+            ? images[0].alt || "Image"
+            : "");
       if (!firstChunk) {
         if (threadTs) {
           setSlackAssistantStatus(token, channelId, threadTs, "");
@@ -438,12 +458,21 @@ export function slackAdapter(
             )
           : new Map<number, string>();
 
-      const finalBlocks =
-        blocks ??
-        buildResponseBlocks(firstChunk, {
-          threadDeepLinkUrl: (message.platformContext as any)
-            ?.threadDeepLinkUrl,
-        });
+      const imageBlocks = images.map(({ url, alt }) => ({
+        type: "image",
+        image_url: url,
+        alt_text: alt || "Image",
+      }));
+      const finalBlocks = blocks
+        ? [...blocks, ...imageBlocks].slice(0, 50)
+        : buildResponseBlocks(
+            deliveryText,
+            {
+              threadDeepLinkUrl: (message.platformContext as any)
+                ?.threadDeepLinkUrl,
+            },
+            imageBlocks,
+          );
 
       const baseBody: Record<string, unknown> = {
         channel: channelId,
@@ -670,15 +699,26 @@ export function slackAdapter(
       text: string,
       opts?: { threadDeepLinkUrl?: string },
     ): OutgoingMessage {
+      const imageUrls: Array<{ url: string; alt: string }> = [];
       const textWithImageLinks = text.replace(
         /!\[([^\]]*)\]\((https:\/\/[^\s)]+)\)/g,
-        "[$1]($2)",
+        (_markdownImage, alt, url) => {
+          const image = parseSlackResponseImage(url, alt);
+          if (image) {
+            imageUrls.push(image);
+            return "";
+          }
+          return slackImageLinkText(url, alt);
+        },
       );
       return {
         text: markdownToSlackMrkdwn(textWithImageLinks),
-        platformContext: opts?.threadDeepLinkUrl
-          ? { threadDeepLinkUrl: opts.threadDeepLinkUrl }
-          : {},
+        platformContext: {
+          ...(opts?.threadDeepLinkUrl
+            ? { threadDeepLinkUrl: opts.threadDeepLinkUrl }
+            : {}),
+          ...(imageUrls.length > 0 ? { imageUrls } : {}),
+        },
       };
     },
 
@@ -1136,6 +1176,7 @@ function setSlackAssistantStatus(
 function buildResponseBlocks(
   text: string,
   opts: { threadDeepLinkUrl?: string },
+  imageBlocks: unknown[] = [],
 ): unknown[] {
   const sectionChunks = text.trim()
     ? splitMessage(text, SLACK_SECTION_TEXT_MAX_LENGTH)
@@ -1144,6 +1185,7 @@ function buildResponseBlocks(
     type: "section",
     text: { type: "mrkdwn", text: chunk },
   }));
+  blocks.push(...imageBlocks);
   if (opts.threadDeepLinkUrl) {
     blocks.push({
       type: "actions",
@@ -1158,6 +1200,106 @@ function buildResponseBlocks(
     });
   }
   return blocks.slice(0, 50);
+}
+
+function getSlackResponseImages(value: unknown): {
+  images: Array<{ url: string; alt: string }>;
+  linkedImages: Array<{ url: string; alt: string }>;
+} {
+  if (!Array.isArray(value)) return { images: [], linkedImages: [] };
+  const images: Array<{ url: string; alt: string }> = [];
+  const linkedImages: Array<{ url: string; alt: string }> = [];
+  for (const image of value) {
+    if (!image || typeof image !== "object") continue;
+    const { url, alt } = image as Record<string, unknown>;
+    if (typeof url !== "string") continue;
+    const normalizedUrl = normalizeSlackImageLinkUrl(url);
+    if (!normalizedUrl) continue;
+    const item = {
+      url: normalizedUrl,
+      alt: typeof alt === "string" ? alt.trim().slice(0, 2_000) : "",
+    };
+    if (parseSlackResponseImage(normalizedUrl, item.alt)) {
+      images.push(item);
+    } else {
+      linkedImages.push(item);
+    }
+  }
+  return { images, linkedImages };
+}
+
+function parseSlackResponseImage(
+  value: string,
+  alt: string,
+): { url: string; alt: string } | null {
+  if (value.length > 3_000 || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password) return null;
+  return { url: url.toString(), alt: alt.trim().slice(0, 2_000) };
+}
+
+function normalizeSlackImageLinkUrl(value: string): string | null {
+  if (!URL.canParse(value)) return null;
+  const url = new URL(value);
+  url.username = "";
+  url.password = "";
+  return url.toString();
+}
+
+function slackImageLinkText(value: string, alt: string): string {
+  const url = normalizeSlackImageLinkUrl(value);
+  return url ? `[${alt.trim().slice(0, 2_000) || "Image"}](${url})` : alt;
+}
+
+async function resolveOwnedSlackResponseImages(
+  images: Array<{ url: string; alt: string }>,
+): Promise<{
+  images: Array<{ url: string; alt: string }>;
+  linkedImages: Array<{ url: string; alt: string }>;
+}> {
+  if (images.length === 0) return { images: [], linkedImages: [] };
+
+  try {
+    const { findFileUploadProviderOwningUrl } =
+      await import("../../file-upload/registry.js");
+    const checks = await Promise.all(
+      images.map(async (image) => {
+        try {
+          return {
+            image,
+            owned: Boolean(await findFileUploadProviderOwningUrl(image.url)),
+          };
+        } catch (error) {
+          return {
+            image,
+            owned: false,
+            unverifiable: error instanceof Error ? error.name : "unknown",
+          };
+        }
+      }),
+    );
+    const unverifiableTypes = checks.flatMap((check) =>
+      "unverifiable" in check ? [check.unverifiable] : [],
+    );
+    if (unverifiableTypes.length > 0) {
+      console.warn(
+        "[slack] Could not verify ownership of response image URLs; keeping links instead.",
+        { count: unverifiableTypes.length, errorTypes: unverifiableTypes },
+      );
+    }
+    return {
+      images: checks.filter((check) => check.owned).map((check) => check.image),
+      linkedImages: checks
+        .filter((check) => !check.owned)
+        .map((check) => check.image),
+    };
+  } catch (error) {
+    console.warn(
+      "[slack] File upload ownership checks are unavailable; keeping response image links.",
+      { errorType: error instanceof Error ? error.name : "unknown" },
+    );
+    return { images: [], linkedImages: images };
+  }
 }
 
 async function postFresh(

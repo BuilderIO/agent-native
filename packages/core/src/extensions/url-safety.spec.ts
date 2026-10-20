@@ -254,6 +254,8 @@ describe("isBlockedExtensionUrl", () => {
     "http://[ff00::1]/",
     "http://[::ffff:7f00:1]/",
     "http://[0:0:0:0:0:ffff:7f00:1]/",
+    "https://127.0.0.1.nip.io/",
+    "https://169.254.169.254.nip.io/",
     "http://metadata.google.internal/",
   ])("blocks non-public target %s", (url) => {
     expect(isBlockedExtensionUrl(url)).toBe(true);
