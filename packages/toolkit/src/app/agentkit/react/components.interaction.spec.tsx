@@ -1150,6 +1150,12 @@ describe("AgentKitChat interactions", () => {
     };
     const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const nestedAttachment = vi.fn();
+    const receiveNestedAttachment = (event: Event) => {
+      nestedAttachment(
+        (event as CustomEvent<{ threadId: string; files: File[] }>).detail,
+      );
+    };
 
     try {
       await act(async () => {
@@ -1238,15 +1244,32 @@ describe("AgentKitChat interactions", () => {
       });
       expect(container.textContent).toContain("Drop files to attach");
 
+      const nestedFile = new File(["nested attachment"], "nested-drop.txt", {
+        type: "text/plain",
+      });
       const nestedDrop = new Event("drop", { bubbles: true, cancelable: true });
       Object.defineProperty(nestedDrop, "dataTransfer", {
-        value: dataTransfer,
+        value: {
+          types: ["Files"],
+          files: [nestedFile],
+          dropEffect: "none",
+        },
       });
+      window.addEventListener("agentkit:attach-files", receiveNestedAttachment);
       await act(async () => {
         nestedEditor.dispatchEvent(nestedDrop);
         await Promise.resolve();
       });
+      window.removeEventListener(
+        "agentkit:attach-files",
+        receiveNestedAttachment,
+      );
       expect(container.textContent).not.toContain("Drop files to attach");
+      expect(nestedAttachment).toHaveBeenCalledTimes(1);
+      expect(nestedAttachment).toHaveBeenCalledWith({
+        threadId: "thread-drop",
+        files: [nestedFile],
+      });
 
       const oversizedFile = new Proxy(
         new File(["small body"], "too-large.txt", { type: "text/plain" }),
@@ -1276,6 +1299,10 @@ describe("AgentKitChat interactions", () => {
         expect.stringContaining("too-large.txt"),
       );
     } finally {
+      window.removeEventListener(
+        "agentkit:attach-files",
+        receiveNestedAttachment,
+      );
       await act(async () => {
         root.unmount();
         await Promise.resolve();

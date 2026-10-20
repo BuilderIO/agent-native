@@ -4915,13 +4915,8 @@ export function AgentKitChat({
     if (!canDropFiles || !hasFiles(event)) return;
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
-  };
-  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
-    if (!canDropFiles || !hasFiles(event)) return;
-    handleFileDropCapture(event);
     if (event.defaultPrevented) return;
     event.preventDefault();
-    event.stopPropagation();
     const files = Array.from(event.dataTransfer.files);
     if (!files.length) return;
     window.dispatchEvent(
@@ -4929,6 +4924,10 @@ export function AgentKitChat({
         detail: { threadId, files },
       }),
     );
+  };
+  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
+    if (!canDropFiles || !hasFiles(event)) return;
+    event.stopPropagation();
   };
 
   const clearTranscriptScrollbarTimeout = useCallback(() => {

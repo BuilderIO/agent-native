@@ -3,15 +3,26 @@
 Use this procedure before investigating, claiming, or using a CI rollup in
 place of Slack source messages.
 
+At the start of a sweep, capture one Slack timestamp as `windowEndTs`. Use it
+as the inclusive `before` argument on the source scan and all three `hasmy`
+ownership searches in every scoped channel. Record it in each channel's
+`scanQuery.before` and each owned search's `query.before`. Keep that exact upper
+bound for the whole sweep, including any reread; page-cap recovery slices may
+only narrow it using the existing one-microsecond boundary rule. Messages
+newer than `windowEndTs` belong to the next scheduled sweep. Never advance the
+upper bound to chase arrivals while this sweep is running.
+
 - For the exhaustive channel source scan, use `slack_search_public` with only
-  `filters=in:<#CHANNEL>`, `after=<channel cutoff>`, `keywords=[]`, an empty
+  `filters=in:<#CHANNEL>`, `after=<channel cutoff>`,
+  `before=<windowEndTs>`, `keywords=[]`, an empty
   `natural_language_query`, `include_bots=true`, `include_context=false`,
   `content_types=messages`, `limit=20`, `sort=timestamp`, `sort_dir=desc`, and
   `response_format=detailed`. Do not add lexical, semantic, date, author, or
   reaction filters: they silently hide reports. Record these exact arguments
   under that channel's `scanQuery`; the inventory checker rejects a missing or
-  narrowed query. `after` is inclusive and must equal that channel's effective
-  cutoff. Follow every `next_cursor` newest-first to Slack exhaustion, even
+  narrowed query. `after` and `before` are inclusive and must equal that
+  channel's effective lower cutoff and the sweep's fixed upper bound. Follow
+  every `next_cursor` newest-first to Slack exhaustion, even
   after reaching the cutoff, because later pages can contain replies to older
   roots. Page and
   source-row timestamps must descend across the full chain. This is separate
@@ -238,29 +249,35 @@ place of Slack source messages.
   full-thread snapshot. For a linked pre-window root without source text, use
   `unclassified`; do not guess from its in-window reply. This boundary also
   applies when the other actor's eye has no visible status reply: ownership is
-  not permission to inspect.
-- After each bounded channel scan, search this actor's `👀`, `✅`, and `🎫`
-  separately with `slack_search_public`. Each query uses only
-  `in:<#CHANNEL> hasmy::EMOJI:` and the exact same inclusive `after` value as
-  that channel's `scanQuery`. Exhaust every cursor within that window. Do not
-  omit `after` or expand an anchored or default-window sweep to older, unrelated
-  roots. Reconcile owned marks on every in-window root and every older root
-  linked by an in-window reply; unheld roots already have exact reaction and
-  full-thread evidence in the source or supplemental-root audit. Unreferenced
-  pre-window marks stay outside this invocation's scope.
+  not permission to inspect. The direct root-reaction read must still be fresh
+  and after the final source page; it is the only read allowed for a held root.
+  Preserve the source's exact file ID, name, and MIME type when its raw search
+  result includes `Files:`. If that result omits file metadata, leave the held
+  root's `files` field absent to represent unknown; do not record `[]`. For an
+  unheld root, use the full thread read to record files and require the source
+  row and snapshot to agree.
+- After each bounded channel scan, run a separate historical ownership census
+  for this actor's `👀`, `✅`, and `🎫` with `slack_search_public`. Each query
+  uses only `in:<#CHANNEL> hasmy::EMOJI:` and the channel's fixed `before`
+  upper bound. Do not add an `after`: this search must discover every root the
+  actor still owns, including unreferenced roots older than the source window.
+  This does not widen the source-message scan or its report counts. Reconcile
+  every discovered root; unheld roots need exact reaction and full-thread
+  evidence in the source or a supplemental-root audit. A root missing either
+  audit is unresolved, not outside scope.
   If Slack caps a cursor before exhaustion, preserve that capped page and
   record the exact `page_limit_exceeded` response in that search's
   `pageLimitRecoveries[]`, including its failed cursor and request args, raw
   response, read time, and the capped page's oldest result as `boundaryTs`.
-  Restart the same `hasmy` query at `cursor: null` with the same inclusive
-  `after` and a `before` exactly one microsecond below that boundary. Keep both
-  bounds on every page in the restarted cursor slice and in each raw request
-  wrapper. Follow the restarted slice to exhaustion and repeat this recovery
-  for every later cap. The checker proves each failed cursor against exactly
-  one restarted slice, checks the boundary and read order, and requires
-  explicit exhaustion. If Slack does not let you recover a capped tail, report
-  the in-window ownership search as incomplete; do not claim every scoped mark
-  was reconciled.
+  Restart the same `hasmy` query at `cursor: null` with no `after` and a
+  `before` exactly one microsecond below that boundary. Keep the upper bound on
+  every page in the restarted cursor slice and in each raw request wrapper.
+  Follow the restarted slice to exhaustion and repeat this recovery for every
+  later cap. The checker proves each failed cursor against exactly one
+  restarted slice, checks the boundary and read order, and requires explicit
+  exhaustion. If Slack does not let you recover a capped tail, report the
+  historical ownership census as incomplete; do not claim every owned mark was
+  reconciled.
   Record each exact query and page in `ownedMarkSearches`; save raw wrappers
   named `owned-marks-{channelName}-{eyes|white_check_mark|ticket}-00.json` and
   continue numbering for each cursor page. Each wrapper preserves exact
@@ -414,9 +431,13 @@ place of Slack source messages.
   and every source `{ ts, root }` row with the reviewed inventory and raw Slack
   responses. If it finds a mismatch,
   rebuild the inventory from the captured Slack pages and rerun the check; never
-  edit the receipt to fit the inventory. Each receipt page must also be fresh
-  within the checker's 15-minute window, so repeat the complete channel scan and
-  required final thread/reaction reads before recap when that window expires.
+  edit the receipt to fit the inventory. Source and ownership-search pages are
+  immutable evidence for the fixed `after`/`before` interval; their age does not
+  restart the sweep. The 15-minute freshness window applies to current root and
+  reply reaction reads and full-thread snapshots. If one expires, reread only
+  that exact state. After one targeted retry, if a required current-state read
+  is still stale or unavailable, mark the inventory incomplete and stop; do
+  not restart the channel-wide search or loop.
   It rejects any root mark this actor owns without a current same-actor
   status reply, a
   assigned-human handoff without that person's explicit acceptance, an
@@ -461,19 +482,18 @@ verified disposition may retain the eye as history. Never remove or clean up a
 reaction. Slack thread replies appear under the root's reply count, not as
 separate channel posts; do not broadcast routine status replies.
 
-After any long investigation, CI/deploy wait, or handoff, a newest-first scan
-from the saved high-water mark can identify new activity. Immediately before
-recap, however, rerun the exact original channel-wide `slack_search_public`
-query for every scoped channel, including its recorded `scanQuery.after`, and
-follow every cursor to Slack exhaustion. Replace the saved page responses,
-timestamps, source manifests, and source rows. Do not
-append a delta to an older page chain or refresh its `readAt` without rereading
-the page. Resolve every newly found reply to its actual root, refresh root
-reactions, and reconcile human answers before replacement. Then reopen every
-marked root thread after the last channel page, read all replies, and refresh
-reply-level workflow reaction owners. If this final scan or any thread read is
-older than 15 minutes, repeat the full bounded scan and marked-thread reads
-before checking the inventory. Only a complete fresh pass can certify coverage.
+After a long investigation, CI/deploy wait, or handoff, do one final exhaustive
+pass of the exact original channel-wide query for every scoped channel, using
+the same recorded `scanQuery.after` and `scanQuery.before`. Replace the saved
+page responses, timestamps, source manifests, and source rows; never append a
+delta or refresh `readAt` without rereading the page. This is one bounded
+reconciliation pass, not a moving high-water mark. Resolve newly found replies
+to their actual roots and reconcile them inside the fixed interval. Then reread
+current root reactions and full threads for marked roots after the final source
+and ownership-search pages. If an exact current-state read expires, reread that
+target once. If it still cannot pass freshness, mark coverage incomplete and
+stop; do not restart the global scan. Activity newer than `windowEndTs` is for
+the next scheduled sweep.
 
 Channel history does not include the contents of existing thread replies. In
 that final pass, also enumerate every distinct root thread carrying this
@@ -519,14 +539,15 @@ read time as `reactionReadAt`; when this sweep writes a reaction, record
 also requires each owned root reaction read and the full-thread reaction reads
 to follow the final channel page.
 
-The normal inventory check also requires every source, owned-mark search, and
-thread page or snapshot to have been read within the last 15 minutes, allows at
-most one minute of local clock skew, and requires owned-root reaction and thread
-read-backs to follow all three cutoff-bounded mark searches. An old, complete
-inventory is stale: rerun the channel scan and in-window mark searches, then
-read every marked root thread again before recap. This freshness gate prevents
-a complete earlier scan from silently omitting reports or replies that arrived
-during investigation.
+The inventory checker requires source pages to use one recorded inclusive
+`after`/`before` window and ownership-census pages to use the fixed `before`
+upper bound with no `after`. Both page chains must remain in cursor order and
+have valid local ISO read times. Their age does not invalidate those fixed
+bounds. Current root and reply reaction reads and full-thread snapshots must be
+within 15 minutes, allow at most one minute of local clock skew, and follow the
+final source and ownership-search pages. Refresh only a stale current-state
+target; if one targeted reread is still stale or unavailable, mark coverage
+incomplete and stop instead of repeating the full sweep.
 
 The inventory checker requires a complete `threadSnapshot` for every in-scope
 classified root and every supplemental root included to resolve an in-scope

@@ -62,19 +62,25 @@ is not excluded.
 
 In every scoped channel, run the complete bot-inclusive `slack_search_public`
 scan with only the channel filter and that channel's inclusive lower bound.
-Exhaust every cursor; `slack_read_channel` cannot replace this inventory. Resolve
+Freeze one `windowEndTs` at sweep start and use it for every channel and
+owned-mark search. Messages newer than it belong to the next scheduled sweep;
+never move the boundary to chase arrivals. Exhaust every cursor;
+`slack_read_channel` cannot replace this inventory. Resolve
 each row to its true parent and read the root reactions before opening the thread.
 If another actor owns any workflow mark (`👀`, `✅`, or `🎫`), or this actor owns
 `:mag:`, apply the held-thread boundary below: do not read the thread, react, or
 reply. Otherwise read the report's full thread and attachments before
 classifying or claiming it. Follow
 [`channel-inventory.md`](references/channel-inventory.md) for exact query
-arguments, raw-page receipts, cap recovery, root classification, cutoff-bounded
-searches for this actor's `👀`, `✅`, and `🎫`, and checker requirements.
+arguments, raw-page receipts, cap recovery, root classification, fixed-window
+source scans, historical ownership searches for this actor's `👀`, `✅`, and
+`🎫`, and checker requirements.
 The owned-mark search must use Slack's exact syntax `hasmy::eyes:`,
-`hasmy::white_check_mark:`, or `hasmy::ticket:` and the channel scan's same
-inclusive `after` cutoff; a missing trailing colon is not a valid ownership
-query.
+`hasmy::white_check_mark:`, or `hasmy::ticket:` with the channel filter and the
+sweep's frozen inclusive `before` upper bound. Do not add `after` to these
+ownership searches: discover every root this actor still owns from all channel
+history through the fixed sweep end. A missing trailing colon is not a valid
+ownership query.
 
 Only the invoking Slack actor's root marks are owned here. Another task's eye
 plus its current open status remains theirs; an explicit handoff naming this
@@ -110,9 +116,9 @@ task's claim.
 
 Resolve known duplicates before claiming. Check ownership, then add and read
 back this task's root `👀` before investigating an eligible unowned report.
-Reconcile every root this actor already owns within the requested window,
-including older roots referenced by in-window replies, before discovering new
-questions. Leave unreferenced pre-window roots out of this sweep. Keep one
+Reconcile every root this actor already owns through the fixed sweep end,
+including unreferenced roots older than the source window, before discovering
+new questions. Keep one
 concise canonical status by the same actor after the latest human message; read
 back the visible reply and root reactions after each write. Use
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact

@@ -24,7 +24,7 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 
 vi.mock("@agent-native/core/provider-api", () => ({
   isProviderApiId: vi.fn((provider: string) =>
-    ["bigquery", "hubspot", "notion", "slack"].includes(provider),
+    ["bigquery", "github", "hubspot", "notion", "slack"].includes(provider),
   ),
   resolveProviderApiOAuthAccessToken: vi.fn(async (...args) => {
     mocks.oauthCalls.push({ args });
@@ -398,6 +398,123 @@ describe("analytics provider credentials", () => {
       scopeId: "owner@example.test",
     });
     expect(mocks.ownedOAuthCalls).toEqual([["github", "owner@example.test"]]);
+  });
+
+  it("does not fall back to a caller-owned GitHub OAuth account for org credentials", async () => {
+    mocks.ownedOAuthAccounts = [
+      {
+        accountId: "github-account",
+        tokens: { accessToken: "user-oauth-token" },
+      },
+    ];
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.ownedOAuthCalls).toEqual([]);
+  });
+
+  it("does not accept a user-scoped GitHub connection credential for org resolution", async () => {
+    mocks.coreResult = {
+      available: true,
+      status: "resolved",
+      value: "user-scoped-token",
+      key: "GITHUB_TOKEN",
+      provider: "github",
+      provenance: {
+        resolvedKey: "GITHUB_TOKEN",
+        connectionId: "github-user-connection",
+        connectionLabel: "Personal GitHub",
+        secretScope: "user",
+      },
+      checked: [],
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.coreResolverCalls[0]).toMatchObject({
+      credentialScope: "org",
+      orgId: "org-1",
+    });
+  });
+
+  it("does not use a user-owned GitHub OAuth connection for org credentials", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "github-user-connection",
+        ownerEmail: "owner@example.test",
+        orgId: null,
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = { accessToken: "user-oauth-token" };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.oauthCalls).toEqual([]);
+  });
+
+  it("allows an organization-owned GitHub OAuth connection for org credentials", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "github-org-connection",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+        label: "Organization GitHub",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = { accessToken: "org-oauth-token" };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toMatchObject({
+      value: "org-oauth-token",
+      source: "workspace_connection",
+      scope: "org",
+      scopeId: "org-1",
+      connectionId: "github-org-connection",
+    });
   });
 
   it("does not use caller-owned GitHub OAuth for a specific connection", async () => {

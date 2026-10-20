@@ -243,6 +243,18 @@ function normalizeCoreCredentialResult(
   };
 }
 
+function isAllowedForCredentialScope(
+  credential: AnalyticsProviderCredential,
+  ctx: CredentialContext,
+): boolean {
+  if (ctx.credentialScope !== "org") return true;
+  return (
+    Boolean(ctx.orgId) &&
+    (credential.scope === "org" || credential.scope === "workspace") &&
+    credential.scopeId === ctx.orgId
+  );
+}
+
 function isGongAuthKey(
   key: string,
 ): key is (typeof GONG_ANALYTICS_CREDENTIAL_KEYS)[number] {
@@ -339,6 +351,12 @@ async function resolveWorkspaceOAuthProviderCredential(
   ) {
     return null;
   }
+  if (
+    options.ctx.credentialScope === "org" &&
+    resolvedConnection.connection.orgId !== options.ctx.orgId
+  ) {
+    return null;
+  }
 
   const oauth = await resolveProviderApiOAuthAccessToken(
     {
@@ -359,6 +377,12 @@ async function resolveWorkspaceOAuthProviderCredential(
     connectionId: oauth.connectionId ?? resolvedConnection.connection.id,
     connectionLabel:
       oauth.connectionLabel ?? resolvedConnection.connection.label,
+    ...(resolvedConnection.connection.orgId
+      ? {
+          scope: "org" as const,
+          scopeId: resolvedConnection.connection.orgId,
+        }
+      : {}),
   };
 }
 
@@ -413,7 +437,7 @@ export async function resolveLocalAnalyticsProviderCredential(
   for (const key of keys) {
     const credential = await resolveCredentialDetailed(key, options.ctx);
     if (credential) {
-      return {
+      const normalized: AnalyticsProviderCredential = {
         value: credential.value,
         key,
         provider: options.provider,
@@ -421,6 +445,9 @@ export async function resolveLocalAnalyticsProviderCredential(
         scope: credential.scope,
         scopeId: credential.scopeId,
       };
+      if (isAllowedForCredentialScope(normalized, options.ctx)) {
+        return normalized;
+      }
     }
   }
   return null;
@@ -436,6 +463,7 @@ async function resolveAnalyticsOwnedGitHubOAuthCredential(
     options.connectionId?.trim() ||
     provider !== "github" ||
     !keys.includes("GITHUB_TOKEN") ||
+    options.ctx.credentialScope === "org" ||
     !options.ctx.userEmail
   ) {
     return null;
@@ -501,7 +529,11 @@ export async function resolveAnalyticsProviderCredential(
 
   const workspaceCredential =
     await resolveWorkspaceConnectionProviderCredential({ ...options, keys });
-  if (workspaceCredential) return workspaceCredential;
+  if (workspaceCredential) {
+    if (isAllowedForCredentialScope(workspaceCredential, options.ctx)) {
+      return workspaceCredential;
+    }
+  }
 
   const ownedGitHubOAuthCredential =
     await resolveAnalyticsOwnedGitHubOAuthCredential(options, keys);
