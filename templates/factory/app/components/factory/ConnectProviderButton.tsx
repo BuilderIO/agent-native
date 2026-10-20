@@ -6,6 +6,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { workspaceProviderOAuthUrl } from "@agent-native/core/client/integrations";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
+import { useOrgRole } from "@agent-native/core/client/org";
 import {
   dispatchApiKeysHref,
   isWorkspaceAppEnvironment,
@@ -58,48 +59,53 @@ function useSignIn(onDone: () => void) {
   onDoneRef.current = onDone;
   const stopWatching = useRef<(() => void) | null>(null);
   useEffect(() => () => stopWatching.current?.(), []);
+  const { canManageOrg } = useOrgRole();
 
-  return useCallback((provider: string) => {
-    stopWatching.current?.();
-    const url = (returnPath: string) =>
-      // App scope limits the connection to Factory's app list. A user-scoped
-      // connection has no app list, so every app in the workspace could use it.
-      workspaceProviderOAuthUrl(provider, {
-        appId: APP_NAME,
-        scope: "app",
-        returnPath,
-      });
-    const popup = openOAuthPopup({ features: POPUP_FEATURES });
-    if (!popup) {
-      window.location.assign(
-        url(appRelativePath(new URL(window.location.href))),
-      );
-      return;
-    }
-    popup.location.assign(url(popupReturnPath()));
-
-    const finish = () => {
+  return useCallback(
+    (provider: string) => {
       stopWatching.current?.();
-      onDoneRef.current();
-    };
-    const onMessage = (event: MessageEvent) => {
-      if (
-        event.origin === window.location.origin &&
-        event.data?.type === SIGN_IN_COMPLETE
-      ) {
-        finish();
+      const url = (returnPath: string) =>
+        // Organization scope is shared with every app and member, but the start
+        // route allows it only to org owners and admins and answers anyone else
+        // 403. Everyone else connects for themselves.
+        workspaceProviderOAuthUrl(provider, {
+          appId: APP_NAME,
+          scope: canManageOrg ? "organization" : "user",
+          returnPath,
+        });
+      const popup = openOAuthPopup({ features: POPUP_FEATURES });
+      if (!popup) {
+        window.location.assign(
+          url(appRelativePath(new URL(window.location.href))),
+        );
+        return;
       }
-    };
-    const timer = window.setInterval(() => {
-      if (popup.closed) finish();
-    }, POPUP_WATCH_MS);
-    window.addEventListener("message", onMessage);
-    stopWatching.current = () => {
-      window.clearInterval(timer);
-      window.removeEventListener("message", onMessage);
-      stopWatching.current = null;
-    };
-  }, []);
+      popup.location.assign(url(popupReturnPath()));
+
+      const finish = () => {
+        stopWatching.current?.();
+        onDoneRef.current();
+      };
+      const onMessage = (event: MessageEvent) => {
+        if (
+          event.origin === window.location.origin &&
+          event.data?.type === SIGN_IN_COMPLETE
+        ) {
+          finish();
+        }
+      };
+      const timer = window.setInterval(() => {
+        if (popup.closed) finish();
+      }, POPUP_WATCH_MS);
+      window.addEventListener("message", onMessage);
+      stopWatching.current = () => {
+        window.clearInterval(timer);
+        window.removeEventListener("message", onMessage);
+        stopWatching.current = null;
+      };
+    },
+    [canManageOrg],
+  );
 }
 
 /**
