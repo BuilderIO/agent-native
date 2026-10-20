@@ -1870,12 +1870,15 @@ export async function syncGitHubSource(
         (retryImages && (previous.imagesWaiting ?? 0) > 0)
       );
     });
-    // Files a run's time ran out on go after the rest, so one slow file
-    // can't hold back every file after it.
-    const cutShort = new Set(state.cutShort);
+    // Files a run's time ran out on go after the rest, least recently cut
+    // short first, so a slow file can't hold back the files after it or
+    // another slow one.
+    const cutShort = new Map(
+      state.cutShort.map((path, index) => [path, index + 1]),
+    );
     work.sort(
       (a, b) =>
-        Number(cutShort.has(a.repoPath)) - Number(cutShort.has(b.repoPath)),
+        (cutShort.get(a.repoPath) ?? 0) - (cutShort.get(b.repoPath) ?? 0),
     );
     const result = emptyResult("synced", head.sha);
     result.unchanged = planned.length - work.length;
@@ -1976,10 +1979,12 @@ export async function syncGitHubSource(
             }
           : {
               pendingCommitSha: head.sha,
-              cutShort:
-                cutShortPath && !current.cutShort.includes(cutShortPath)
-                  ? [...current.cutShort, cutShortPath]
-                  : current.cutShort,
+              cutShort: cutShortPath
+                ? [
+                    ...current.cutShort.filter((path) => path !== cutShortPath),
+                    cutShortPath,
+                  ]
+                : current.cutShort,
               progress: {
                 done: work.length - remainingFiles + result.trashed,
                 total: work.length + result.trashed + gone.size,

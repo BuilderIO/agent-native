@@ -33,9 +33,10 @@ export interface GitHubSourceState extends GitHubFolderLocation {
   pendingCommitSha: string | null;
   progress: { done: number; total: number } | null;
   /**
-   * Files a sync's time ran out on before the push in progress finished.
-   * The next sync takes them after the rest, so one slow file can't hold
-   * back every file after it.
+   * Files a sync's time ran out on before the push in progress finished,
+   * most recently cut short last. The next sync takes them after the rest,
+   * in this order, so a slow file can't hold back the files after it or
+   * another slow one.
    */
   cutShort: string[];
   files: number;

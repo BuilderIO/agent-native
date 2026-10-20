@@ -38,8 +38,8 @@ const github = vi.hoisted(() => {
     duringBlobRead: null as null | (() => Promise<void>),
     /** Blob reads after this many wait until the sync's time runs out. */
     hangAfterBlobReads: null as number | null,
-    /** Reads of this file's content wait until the sync's time runs out. */
-    slowContent: null as string | null,
+    /** Reads of these files' contents wait until the sync's time runs out. */
+    slowContents: new Set<string>(),
     /** Branch reads wait until the sync's time runs out. */
     hangHead: false,
   };
@@ -57,7 +57,7 @@ const github = vi.hoisted(() => {
       state.noStorage = false;
       state.duringBlobRead = null;
       state.hangAfterBlobReads = null;
-      state.slowContent = null;
+      state.slowContents.clear();
       state.hangHead = false;
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
@@ -142,7 +142,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       github.state.duringBlobRead = null;
       await during?.();
       const content = findBlob(target.sha);
-      if (content !== null && content === github.state.slowContent) {
+      if (content !== null && github.state.slowContents.has(content)) {
         await hang(target.signal);
       }
       if (content === null)
@@ -1694,7 +1694,7 @@ describe("GitHub folder freshness", () => {
     const titles = async () =>
       (await liveRows(database.id)).map((row) => row.title);
     // GitHub doesn't answer in time for the folder's first file.
-    github.state.slowContent = "# One, edited\n";
+    github.state.slowContents.add("# One, edited\n");
 
     const first = await as(() =>
       syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
@@ -1706,7 +1706,7 @@ describe("GitHub folder freshness", () => {
     expect(second).toMatchObject({ updated: 2, remaining: 1 });
     expect(await titles()).toEqual(["One", "Two, edited", "Three, edited"]);
 
-    github.state.slowContent = null;
+    github.state.slowContents.clear();
     const third = await as(() =>
       syncGitHubSource({ sourceId: id, budgetMs: 20_000 }),
     );
@@ -1716,6 +1716,41 @@ describe("GitHub folder freshness", () => {
       "Two, edited",
       "Three, edited",
     ]);
+  });
+
+  it("takes turns between files the time keeps running out on", async () => {
+    github.commit({ "docs/1.md": "# One\n", "docs/2.md": "# Two\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+    });
+    const id = await sourceId(database.id);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+    const sync = () =>
+      as(() => syncGitHubSource({ sourceId: id, budgetMs: 1_500 }));
+    // GitHub doesn't answer in time for either file, so each run is cut
+    // short on one of them.
+    github.state.slowContents.add("# One, edited\n");
+    github.state.slowContents.add("# Two, edited\n");
+    await sync();
+    await sync();
+
+    // The second file answers again, but the first still doesn't. The run
+    // that's cut short on the first sends it to the back, so the next run
+    // gets to the second.
+    github.state.slowContents.delete("# Two, edited\n");
+    expect(await sync()).toMatchObject({ updated: 0, remaining: 2 });
+    expect(await sync()).toMatchObject({ updated: 1, remaining: 1 });
+    expect(await titles()).toEqual(["One", "Two, edited"]);
+
+    github.state.slowContents.clear();
+    expect(await sync()).toMatchObject({ updated: 1, remaining: 0 });
+    expect(await titles()).toEqual(["One, edited", "Two, edited"]);
   });
 
   it("lets a read carry on a push no run has moved for two minutes", async () => {
