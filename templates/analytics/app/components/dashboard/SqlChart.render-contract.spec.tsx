@@ -32,6 +32,9 @@ vi.mock("@/lib/sql-query", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: (pathname: string) =>
+    pathname.startsWith("/_agent-native/extensions/") ||
+    pathname.startsWith("/_agent-native/tools/"),
 }));
 
 import { SqlChart } from "./SqlChart";
@@ -122,6 +125,161 @@ describe("SqlChart render contract parity", () => {
 
     expect(planPanelRender(rows, target).missingKeys).toEqual([]);
     expect(await renderText(target, rows)).not.toContain(BANNER);
+  });
+
+  it("renders only safe Markdown links in callout messages", async () => {
+    const target = panel({ chartType: "callout" });
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={target}
+          resultOverride={{
+            rows: [
+              {
+                severity: "info",
+                message:
+                  "Read [the docs](https://example.com/guide), [unsafe](javascript:alert(1)), [extension](/_agent-native/tools/ext/render), and [actions](/_agent-native/actions/run).",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const links = container.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    expect(links[0]?.getAttribute("href")).toBe("https://example.com/guide");
+    expect(links[0]?.getAttribute("target")).toBe("_blank");
+    expect(links[0]?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(container.textContent).toContain("unsafe");
+    expect(container.textContent).toContain("extension");
+    expect(container.textContent).toContain("actions");
+  });
+
+  it("renders extension API links as text in panel descriptions", async () => {
+    const target = panel({
+      chartType: "metric",
+      config: {
+        description: "Read [the extension](/_agent-native/tools/ext/r%65nder).",
+      },
+    });
+    await act(async () => {
+      root.render(
+        <SqlChart panel={target} resultOverride={{ rows: [{ value: 42 }] }} />,
+      );
+    });
+
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+    expect(container.textContent).toContain("the extension");
+  });
+
+  it("renders auth and action API links as text after URL normalization", async () => {
+    const links = [
+      ["relative auth", "/_agent-native/auth/sign-in"],
+      ["relative actions", "/_agent-native/actions/run"],
+      [
+        "absolute same-origin actions",
+        `${window.location.origin}/_agent-native/actions/run`,
+      ],
+      [
+        "absolute same-origin auth",
+        `${window.location.origin}/_agent-native/auth/sign-in`,
+      ],
+      ["encoded prefix and auth segment", "/%5Fagent-native/%61uth/sign-in"],
+      ["double-encoded action segment", "/_agent-native/%2561ctions/run"],
+      ["encoded route separator", "/_agent-native%2factions/run"],
+      ["normalized auth path", "/docs/%2e%2e/_agent-native/auth/sign-in"],
+    ] as const;
+    const target = panel({
+      chartType: "metric",
+      config: {
+        description: links
+          .map(([label, href]) => `[${label}](${href})`)
+          .join(", "),
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <SqlChart panel={target} resultOverride={{ rows: [{ value: 42 }] }} />,
+      );
+    });
+
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+    for (const [label] of links) expect(container.textContent).toContain(label);
+  });
+
+  it("renders safe Markdown links in metric descriptions", async () => {
+    const target = panel({
+      chartType: "metric",
+      config: { description: "Read [the definition](/docs/metrics)." },
+    });
+    await act(async () => {
+      root.render(
+        <SqlChart panel={target} resultOverride={{ rows: [{ value: 42 }] }} />,
+      );
+    });
+
+    expect(container.querySelector('a[href="/docs/metrics"]')).not.toBeNull();
+    expect(container.textContent).toContain("42");
+  });
+
+  it("renders safe Markdown links in section descriptions", async () => {
+    const target = panel({
+      chartType: "section",
+      config: { description: "Read [the guide](https://example.com/guide)." },
+    });
+    await act(async () => {
+      root.render(<SqlChart panel={target} />);
+    });
+
+    expect(
+      container.querySelector('a[href="https://example.com/guide"]'),
+    ).not.toBeNull();
+  });
+
+  it.each(["metric", "section"] as const)(
+    "keeps a %s panel rendered when its saved description is not a string",
+    async (chartType) => {
+      const target = panel({
+        chartType,
+        config: {
+          description: { note: "This is not panel copy" },
+        } as unknown as SqlPanel["config"],
+      });
+
+      const text = await renderText(target, [{ value: 42 }]);
+
+      if (chartType === "metric") expect(text).toContain("42");
+      else expect(container.querySelector(".px-1.py-2")).not.toBeNull();
+      expect(text).not.toContain("This is not panel copy");
+      expect(text).not.toContain("[object Object]");
+    },
+  );
+
+  it("renders safe links and blocks framework routes in chart descriptions", async () => {
+    const sameOriginActionHref = `${window.location.origin}/_agent-native/actions/run`;
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel({
+            chartType: "bar",
+            config: {
+              description: `Read [the guide](https://example.com/guide), [auth](/_agent-native/auth/sign-in), and [actions](${sameOriginActionHref}).`,
+            },
+          })}
+          resultOverride={{ rows: [{ category: "A", value: 1 }] }}
+        />,
+      );
+    });
+
+    const link = container.querySelector("a");
+    expect(link?.textContent).toBe("the guide");
+    expect(link?.getAttribute("href")).toBe("https://example.com/guide");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(container.textContent).toContain("auth");
+    expect(container.textContent).toContain("actions");
+    expect(container.querySelectorAll("a")).toHaveLength(1);
   });
 
   it("shows No data for a funnel exactly when the plan says the funnel is empty", async () => {

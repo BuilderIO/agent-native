@@ -743,6 +743,47 @@ export default {
       "Não foi possível verificar se já existem itens para esta métrica.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Cliques e impressões diários por página para a visualização de conteúdo.",
+      serviceAccount: "Conta de serviço",
+      copyEmail: "Copiar e-mail",
+      grantHint:
+        "Adicione este e-mail como usuário em cada propriedade no Search Console, em Configurações → Usuários e permissões.",
+      noServiceAccount:
+        "Adicione primeiro uma chave de conta de serviço do Google.",
+      openGoogleCloud: "Abrir Google Cloud",
+      invalidServiceAccount:
+        "Não é possível ler a chave de conta de serviço salva.",
+      properties: "Propriedades",
+      siteLabel: "Propriedade",
+      pathLabel: "Prefixo do caminho",
+      addProperty: "Adicionar propriedade",
+      removeProperty: "Remover propriedade",
+      save: "Salvar",
+      collectDaily: "Coletar diariamente",
+      adminOnly:
+        "Somente proprietários e administradores da organização podem alterar isso.",
+      statusCollecting: "Coletando",
+      statusNeedsAccess: "Precisa de acesso",
+      statusFailed: "A última execução falhou",
+      runSucceeded: "Coletado {{when}}",
+      runNeedsAccess: "Sem acesso em {{when}}",
+      runRunning: "Coletando desde {{when}}",
+      runFailed: "Falhou {{when}}",
+      unavailable: "Status da coleta indisponível: {{message}}",
+      keyUnreadable:
+        "Não foi possível ler a chave de conta de serviço salva. Salve-a novamente em Google Cloud.",
+      propertyBareDomain:
+        "Para uma propriedade de domínio, use {{suggestion}}.",
+      propertyInvalidDomain:
+        "Depois de sc-domain: vem só o domínio, como em {{suggestion}}.",
+      propertyMissingSlash:
+        "Propriedades de prefixo de URL terminam em /. Use {{suggestion}}.",
+      propertyUnrecognized:
+        "Use sc-domain:example.com ou uma propriedade de prefixo de URL terminada em /.",
+    },
     uploadFile: "Carregar arquivo",
     googleSheetsExport: "Exportação para o Google Sheets",
     googleSheetsExportDescription:
@@ -841,6 +882,7 @@ export default {
     bigQueryHealthUnavailable:
       "Não foi possível verificar a pressão do Analytics primário. Recarregue antes de trocar o backend.",
     analyticsEventCount: "Eventos observados",
+    analyticsRecentEventCount: "Eventos observados (últimos 30 dias)",
     slowQueries24h: "Consultas lentas (24 h)",
     maxQueryDuration: "Tempo máximo da consulta",
     defaultKeyName: "Modelos hospedados",
@@ -1341,6 +1383,10 @@ export default {
     dashboardActions: "Detalhes e ações do painel",
     certifyForAi: "Certificar para consultas de IA",
     certifiedForAi: "Certificado para consultas de IA",
+    duplicateToCustomize: "Duplicar para personalizar",
+    duplicateToCustomizeHint:
+      "Os painéis integrados são atualizados a cada versão do Analytics. Crie sua própria cópia para alterar este.",
+    duplicateFailed: "Não foi possível duplicar este painel.",
     certificationSaved: "Dashboard certificado para consultas de IA",
     certificationFailed: "Não foi possível certificar o dashboard: {{message}}",
     details: "Details",
@@ -1469,6 +1515,24 @@ export default {
     columnShowHidden: "Mostrar colunas ocultas",
     columnName: "Nome da coluna",
     columnResize: "Redimensionar coluna",
+    rowBreakdownBy: "Detalhar por",
+    rowBreakdownAll: "Todos",
+    rowBreakdownOther: "Outros",
+    rowBreakdownOtherHint:
+      "Grupos menores e quem o SQL deste painel deixa de fora",
+    rowBreakdownSmallGroup: "Menos de {{count}}: leia as taxas com cautela",
+    rowBreakdownNoValue: "(nenhum)",
+    rowBreakdownEmpty: "Nenhuma linha para este detalhamento.",
+    rowBreakdownUnavailable:
+      "O SQL deste painel não tem detalhamento por {{column}}.",
+    rowBreakdownFromPanel: "Das linhas deste painel. Nada foi lido.",
+    rowBreakdownFromCache: "Do cache. Nada foi lido.",
+    rowBreakdownAlreadyLoaded: "Já carregado. Nada foi lido.",
+    rowBreakdownBytesRead: "{{bytes}} lidos",
+    rowBreakdownOverByteCap:
+      "Este detalhamento leria mais de {{gib}} GiB, então não foi executado. Restrinja os filtros ou o período do painel e tente de novo.",
+    rowBreakdownTruncated:
+      "O resultado foi cortado, então alguns grupos estão faltando ou contados em Outros.",
     deleteSectionTitle: "Excluir seção?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Excluir painel?",
@@ -2153,10 +2217,6 @@ export default {
     noMatches: "Nenhuma definição corresponde à busca.",
     searchPlaceholder: "Buscar definições",
     sourceIndex: "Índice de fontes",
-    statusApproved: "Aprovada",
-    statusSuggested: "Sugerida",
-    statusUnreviewed: "Não revisada",
-    unsourced: "Sem fonte",
   },
   indexPanel: {
     presetDaily: "Diariamente às 06:00",

@@ -1,6 +1,6 @@
 import { type Locator, type Page } from "@playwright/test";
 
-import { installBridge, waitForBridge } from "./helpers";
+import { appPath, installBridge, waitForBridge } from "./helpers";
 import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -75,6 +75,27 @@ async function liveStyle(app: App, nodeId: string, property: string) {
 
 async function savedStyle(app: App, id: string, nodeId: string) {
   return styleOf((await app.savedNodes(id)).get(nodeId));
+}
+
+async function applyDesignEdit(
+  app: App,
+  designId: string,
+  intent: Record<string, unknown>,
+) {
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/apply-visual-edit"),
+    {
+      data: {
+        source: { kind: "design-file", designId, filename: "index.html" },
+        intent,
+      },
+    },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `apply-visual-edit ${response.status()}: ${await response.text()}`,
+    );
+  }
 }
 
 test("text fills hide and restore without losing the original color", async ({
@@ -187,7 +208,50 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
   expectOnlyChanged(before, after, ["heading"]);
 });
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
+test("removing place-items restores a flex auto-layout container's alignment", async ({
+  app,
+}) => {
+  const id = await openInspector(app);
+  await applyDesignEdit(app, id, {
+    kind: "autoLayout",
+    targetId: "card",
+    enabled: true,
+    containerStyles: { display: "flex" },
+  });
+  await app.page.reload();
+  await app.zoomToFit();
+  await expect(app.node("card")).toHaveCSS("align-items", "flex-start");
+
+  await applyDesignEdit(app, id, {
+    kind: "style",
+    target: { nodeId: "card" },
+    property: "place-items",
+    value: "center",
+  });
+  await app.page.reload();
+  await app.zoomToFit();
+  await expect(app.node("card")).toHaveCSS("align-items", "center");
+
+  await applyDesignEdit(app, id, {
+    kind: "style",
+    operation: "remove",
+    target: { nodeId: "card" },
+    property: "place-items",
+  });
+  await app.page.reload();
+  await app.zoomToFit();
+  await expect(app.node("card")).toHaveCSS("align-items", "flex-start");
+  expect(await savedStyle(app, id, "card")).toMatchObject({
+    display: "flex",
+    "align-items": "flex-start",
+  });
+  expect(
+    (await app.savedNodes(id)).get("card")?.attrs[
+      "data-agent-native-generated-flex-align-items"
+    ],
+  ).toBe("flex-start");
+});
+
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
   app,
 }) => {
@@ -602,7 +666,7 @@ test("appearance controls use droplet blend menu and inline independent corners"
   await setScrubInput(appearance, "Corner radius", "12");
   await expect(
     appearance.locator('input[aria-label="Corner radius" i]'),
-  ).toHaveValue("12");
+  ).toHaveValue("12px");
   await appearance.getByRole("button", { name: "Independent corners" }).click();
   await setScrubInput(appearance, "Top left", "4");
   await expect

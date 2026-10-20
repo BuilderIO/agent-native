@@ -883,6 +883,11 @@ export function useEditorModes({
         activeBreakpointWidthStateRef,
         activeTool,
         cancelActiveEditorDrag,
+        clearPendingOverviewLayerSelection: () => {
+          pendingOverviewLayerSelectionRef.current = null;
+          clearPendingOverviewLayerSelectionTimer();
+          setCreatedOverviewLayerSelection(null);
+        },
         drawMode,
         enterOverviewFromZoom,
         focusedAnnotationSending,
@@ -895,6 +900,7 @@ export function useEditorModes({
         overviewAnnotationSending,
         pinMode,
         selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
         setActiveTool,
         setCreatedOverviewLayerSelection,
         setDrawMode,
@@ -911,6 +917,7 @@ export function useEditorModes({
   }, [
     activeTool,
     cancelActiveEditorDrag,
+    clearPendingOverviewLayerSelectionTimer,
     drawMode,
     enterOverviewFromZoom,
     focusedAnnotationSending,
@@ -924,7 +931,10 @@ export function useEditorModes({
     pinMode,
     recordSelectionHistoryAroundChange,
     selectedElement,
+    selectedLayerIdsState,
+    setCreatedOverviewLayerSelection,
     viewMode,
+    pendingOverviewLayerSelectionRef,
   ]);
 
   const SINGLE_MODE_TEXT_TAGS = useMemo(
@@ -1035,6 +1045,7 @@ export function useEditorModes({
           path: editable.path,
           selectedAnchorIndex: null,
           sourceOffset: editable.sourceOffset,
+          sourceMapping: editable.sourceMapping,
           primitiveSource: null,
         });
         return true;
@@ -1056,6 +1067,7 @@ export function useEditorModes({
         path: source.path,
         selectedAnchorIndex: null,
         sourceOffset: { x: 0, y: 0 },
+        sourceMapping: null,
         primitiveSource: { geometry: source.geometry, fill: source.fill },
       });
       return true;

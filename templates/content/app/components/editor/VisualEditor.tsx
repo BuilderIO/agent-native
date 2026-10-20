@@ -839,7 +839,7 @@ const NotionTableHeader = TableHeader.extend({
     return [
       "td",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
-        class: "notion-table-header-cell",
+        class: "content-table-header-cell",
       }),
       0,
     ];
@@ -2659,7 +2659,7 @@ export function createVisualEditorExtensions({
       paragraph: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
-      dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
+      dropcursor: { color: false, width: 3, class: "content-dropcursor" },
     },
     collab:
       ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
@@ -2673,10 +2673,10 @@ export function createVisualEditorExtensions({
       }),
       Link.configure({
         openOnClick: false,
-        HTMLAttributes: { class: "notion-link" },
+        HTMLAttributes: { class: "content-link" },
       }),
       TaskList.configure({
-        HTMLAttributes: { class: "notion-task-list" },
+        HTMLAttributes: { class: "content-task-list" },
       }),
       TaskItem.configure({
         nested: true,
@@ -2686,20 +2686,20 @@ export function createVisualEditorExtensions({
         ? [BodyElementTiming.configure({ documentId })]
         : []),
       ImageNode.configure({
-        HTMLAttributes: { class: "notion-image" },
+        HTMLAttributes: { class: "content-image" },
         documentId,
         onImageComment,
         onImageFilePickerRequest,
         canMutateMedia,
       }),
       VideoNode.configure({
-        HTMLAttributes: { class: "notion-video" },
+        HTMLAttributes: { class: "content-video" },
         documentId,
         onVideoComment: onImageComment,
         canMutateMedia,
       }),
       AudioNode.configure({
-        HTMLAttributes: { class: "notion-audio" },
+        HTMLAttributes: { class: "content-audio" },
         documentId,
         onAudioComment: onImageComment,
         canMutateMedia,
@@ -3297,7 +3297,7 @@ export function VisualEditor({
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
     return Boolean(
-      activeElement?.matches(".notion-toggle__summary") &&
+      activeElement?.matches(".content-toggle__summary") &&
       editor.view.dom.contains(activeElement),
     );
   }, []);
@@ -3499,7 +3499,7 @@ export function VisualEditor({
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
       attributes: {
-        class: "notion-editor",
+        class: "content-editor",
       },
       handleDrop(view, event) {
         const droppedFiles = Array.from(event.dataTransfer?.files ?? []);

@@ -32,10 +32,16 @@ const AlertDialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content> & {
     /** Raise the overlay with the content when opening above other layers. */
     overlayStyle?: React.CSSProperties;
+    overlayProps?: React.ComponentPropsWithoutRef<
+      typeof AlertDialogPrimitive.Overlay
+    > & { [dataAttribute: `data-${string}`]: string | undefined };
   }
->(({ className, style, overlayStyle, ...props }, ref) => (
+>(({ className, style, overlayStyle, overlayProps, ...props }, ref) => (
   <AlertDialogPortal>
-    <AlertDialogOverlay style={overlayStyle} />
+    <AlertDialogOverlay
+      {...overlayProps}
+      style={{ ...overlayProps?.style, ...overlayStyle }}
+    />
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(

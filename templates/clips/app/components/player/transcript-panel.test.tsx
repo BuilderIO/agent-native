@@ -26,6 +26,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     values
       ? key.replace(/\{\{(\w+)\}\}/g, (_, name: string) => values[name] ?? "")
       : key,
+  useFormatters: () => ({
+    formatRelativeTime: (value: number, unit: string) => `${value} ${unit}`,
+    formatDate: (date: Date) => date.toISOString(),
+  }),
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -180,6 +184,113 @@ describe("TranscriptPanel no-audio failures", () => {
     expect(container.textContent).toContain("Keep this.");
     expect(container.textContent).toContain("Keep that.");
     expect(container.textContent).not.toContain("Cut this.");
+  });
+});
+
+describe("TranscriptPanel earlier transcripts", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const versions = [
+    {
+      id: "version-1",
+      replacedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      source: null,
+      preview: "Automatic words from before the import.",
+    },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  function historyTrigger() {
+    return Array.from(document.body.querySelectorAll("button")).find(
+      (button) =>
+        button.getAttribute("aria-label") === "transcriptHistory.title" ||
+        button.textContent === "transcriptHistory.title",
+    );
+  }
+
+  it("lets an editor restore an earlier transcript from the panel header", async () => {
+    const onRestore = vi.fn(async () => true);
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[{ startMs: 0, endMs: 2_000, text: "Imported words." }]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+            transcriptVersions={versions}
+            onRestoreTranscript={onRestore}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => historyTrigger()!.click());
+    expect(document.body.textContent).toContain(
+      "Automatic words from before the import.",
+    );
+    expect(document.body.textContent).toContain(
+      "transcriptHistory.automatic · -5 minute",
+    );
+    const restore = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent === "transcriptHistory.restore",
+    );
+    await act(async () => restore!.click());
+
+    expect(onRestore).toHaveBeenCalledWith("version-1");
+    expect(document.body.textContent).not.toContain(
+      "Automatic words from before the import.",
+    );
+  });
+
+  it("shows no earlier transcripts without a way to restore them", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[{ startMs: 0, endMs: 2_000, text: "Imported words." }]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="ready"
+            transcriptVersions={versions}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(historyTrigger()).toBeUndefined();
+  });
+
+  it("offers earlier transcripts beside the file button when transcription failed", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <TranscriptPanel
+            segments={[]}
+            currentMs={0}
+            onSeek={vi.fn()}
+            status="failed"
+            failureReason="The media decoder returned malformed input."
+            onImportTranscript={vi.fn(async () => undefined)}
+            transcriptVersions={versions}
+            onRestoreTranscript={vi.fn(async () => true)}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(historyTrigger()?.textContent).toBe("transcriptHistory.title");
   });
 });
 

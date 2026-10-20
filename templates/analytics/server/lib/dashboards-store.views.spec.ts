@@ -372,6 +372,7 @@ describe("dashboard views", () => {
   });
 
   it("inserts a new view when the client supplies a new id", async () => {
+    state.dashboardRow = { ...dashboard };
     const result = await saveDashboardView(
       "dashboard-a",
       { id: "new-view", name: "New view", filters: { f_status: "open" } },
@@ -420,6 +421,7 @@ describe("dashboard views", () => {
   });
 
   it("updates an existing view only within its dashboard", async () => {
+    state.dashboardRow = { ...dashboard };
     const updated = await saveDashboardView(
       "dashboard-a",
       { id: "existing", name: "Renamed", filters: {} },
@@ -440,6 +442,7 @@ describe("dashboard views", () => {
   });
 
   it("does not delete a same-id view owned by another dashboard", async () => {
+    state.dashboardRow = { ...dashboard };
     await deleteDashboardView("dashboard-a", "same-name", ctx);
 
     expect(state.views.some((view) => view.id === "same-name")).toBe(true);

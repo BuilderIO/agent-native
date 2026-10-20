@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -82,25 +83,27 @@ it("mounts a static preview only once the worker has parsed its screen", async (
     (_, index) => ({
       id: `inline-${index}`,
       filename: `inline-${index}.html`,
-      content: `<!doctype html><html><body>inline ${index}</body></html>`,
+      content: `<!doctype html><html><body>inline ${index}<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body></html>`,
     }),
   );
   await act(async () => {
     root.render(
-      <MultiScreenCanvas
-        screens={screens}
-        zoom={10}
-        creation={{ activeTool: "move" }}
-        geometry={{
-          geometryById: Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          ),
-        }}
-        onPick={() => {}}
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={10}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
+          onPick={() => {}}
+        />
+      </QueryClientProvider>,
     );
   });
   const previewIds = () =>
@@ -132,4 +135,11 @@ it("mounts a static preview only once the worker has parsed its screen", async (
   await nextFrames();
 
   expect(previewIds()).toEqual([parsedScreen.id]);
+  expect(
+    container.querySelector<HTMLIFrameElement>(
+      "iframe[data-screen-static-preview]",
+    )?.srcdoc,
+  ).toContain(
+    'data-agent-native-native-shader-runtime data-runtime-version="2"',
+  );
 });

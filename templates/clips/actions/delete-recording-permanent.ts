@@ -289,6 +289,9 @@ export default defineAction({
         .delete(schema.recordingTranscripts)
         .where(eq(schema.recordingTranscripts.recordingId, args.id));
       await tx
+        .delete(schema.recordingTranscriptVersions)
+        .where(eq(schema.recordingTranscriptVersions.recordingId, args.id));
+      await tx
         .delete(schema.recordingBrowserDiagnostics)
         .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
       await tx

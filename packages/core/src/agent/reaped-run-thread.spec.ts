@@ -9,6 +9,7 @@ afterAll(async () => {
 });
 
 const client = {
+  transaction: pglite.transaction,
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -31,6 +32,8 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const threads = new Map<string, string>();
+let threadDataBeforeFoldWrite: string | null = null;
+let beforeFoldUpdate: (() => Promise<void>) | undefined;
 // What the watched thread held when the reaper started the run that replaces
 // a reaped one. Reading the watched thread waits briefly for that start, so a
 // replacement started before the reaped run is saved is seen every time.
@@ -50,8 +53,57 @@ vi.mock("../chat-threads/store.js", () => ({
       ? { id, threadData: threads.get(id), title: "", preview: "" }
       : null;
   },
-  updateThreadData: async (id: string, threadData: string) => {
+  updateThreadData: async (
+    id: string,
+    threadData: string,
+    _title: string,
+    _preview: string,
+    _messageCount: number,
+    options?: {
+      beforeUpdate?: (tx: {
+        execute: (
+          input: string | { sql: string; args?: unknown[] },
+        ) => Promise<{
+          rows: unknown[];
+          rowsAffected: number;
+        }>;
+      }) => Promise<boolean>;
+    },
+  ) => {
+    if (options?.beforeUpdate) {
+      const beforeUpdate = beforeFoldUpdate;
+      beforeFoldUpdate = undefined;
+      await beforeUpdate?.();
+      const allowed = await options.beforeUpdate({
+        execute: async (input) => {
+          if (typeof input === "string") {
+            return { rows: [], rowsAffected: 0 };
+          }
+          if (input.sql.includes("pg_advisory_xact_lock")) {
+            return { rows: [], rowsAffected: 0 };
+          }
+          if (input.sql.includes("FROM agent_execution_leases")) {
+            return {
+              rows: await (
+                await pglite.prepare(input.sql)
+              ).all(...(input.args ?? [])),
+              rowsAffected: 0,
+            };
+          }
+          if (threadDataBeforeFoldWrite !== null) {
+            threads.set(id, threadDataBeforeFoldWrite);
+            threadDataBeforeFoldWrite = null;
+          }
+          return {
+            rows: [{ thread_data: threads.get(id) }],
+            rowsAffected: 0,
+          };
+        },
+      });
+      if (!allowed) return false;
+    }
     threads.set(id, threadData);
+    return true;
   },
 }));
 
@@ -66,8 +118,24 @@ vi.mock("../server/self-dispatch.js", () => ({
 // slowed by a first import.
 await import("./durable-background.js");
 
-const { insertRun, insertRunEvent, reapIfStale, updateRunStatusIfRunning } =
-  await import("./run-store.js");
+const {
+  beginAgentExecutionStep,
+  claimTurnExecutionLease,
+  completeAgentExecutionStep,
+  insertRun,
+  insertRunEvent,
+  markAgentExecutionStepDispatched,
+  reapAllStaleRuns,
+  reapIfStale,
+  updateRunStatusIfRunning,
+} = await import("./run-store.js");
+const { withExecutionFence } = await import("./execution-fence.js");
+const {
+  buildAssistantMessage,
+  buildUserMessage,
+  foldAssistantTurn,
+  foldUnstartedTurnFailure,
+} = await import("./thread-data-builder.js");
 
 const SEND = { to: "ana@example.com", subject: "Invoice" };
 let seq = 0;
@@ -123,6 +191,8 @@ function savedMessages(thread: string): any[] {
 describe("a run the server reaps after its worker died", () => {
   beforeEach(() => {
     seq += 1;
+    threadDataBeforeFoldWrite = null;
+    beforeFoldUpdate = undefined;
   });
 
   it("saves the steps it finished into the thread, with its error", async () => {
@@ -150,6 +220,65 @@ describe("a run the server reaps after its worker died", () => {
     });
   });
 
+  it("projects a completed journal receipt when tool_done was not persisted", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    const stepId = `receipt-step-${seq}`;
+    const argumentsHash = "a".repeat(64);
+    const input = { to: "ana@example.com", subject: "Invoice" };
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await insertRun(run, thread, turn);
+    const fence = await claimTurnExecutionLease(thread, turn, run);
+    await insertRunEvent(
+      run,
+      1,
+      JSON.stringify({
+        type: "tool_start",
+        tool: "send-email",
+        id: stepId,
+        input,
+      }),
+    );
+    const intent = {
+      ...fence,
+      stepId,
+      operationId: stepId,
+      toolName: "send-email",
+      inputJson: JSON.stringify({ argumentsHash, input }),
+      replayPolicy: "never" as const,
+    };
+    await withExecutionFence(fence, async () => {
+      await beginAgentExecutionStep(intent);
+      await markAgentExecutionStepDispatched(intent);
+      await completeAgentExecutionStep(
+        intent,
+        JSON.stringify({
+          result: "sent from durable receipt",
+          isError: false,
+          completedSideEffect: true,
+        }),
+      );
+    });
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(savedMessages(thread).at(-1)?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "send-email",
+        result: "sent from durable receipt",
+      }),
+    );
+  });
+
   it("is saved before the run that replaces it starts", async () => {
     const thread = `thread-reaped-${seq}`;
     const turn = `turn-reaped-${seq}`;
@@ -170,10 +299,57 @@ describe("a run the server reaps after its worker died", () => {
     expect(threadAtDispatch[0]).toContain('"toolName":"send-email"');
   });
 
-  it("leaves the thread alone once a later prompt was saved", async () => {
+  it("clears a projection superseded by a refused turn with no run row", async () => {
     const thread = `thread-reaped-${seq}`;
     const turn = `turn-reaped-${seq}`;
     const run = `run-reaped-${seq}`;
+    const laterTurn = `${turn}-later`;
+    const refused = foldUnstartedTurnFailure(
+      {
+        messages: [
+          userTurn("Bill Ana"),
+          {
+            message: buildUserMessage({
+              text: "Never mind",
+              runId: laterTurn,
+              turnId: laterTurn,
+              refusedRetry: {},
+            }),
+            parentId: null,
+          },
+        ],
+      },
+      {
+        runId: laterTurn,
+        threadId: thread,
+        turnId: laterTurn,
+        code: "missing_credentials",
+        message: "Connect an AI provider before chatting.",
+      },
+    );
+    const later = JSON.stringify(refused);
+    threads.set(thread, later);
+    await crashAfterSending(thread, turn, run);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).toBe(later);
+    const [laterRun] = await pglite
+      .prepare("SELECT id FROM agent_runs WHERE id = ?")
+      .all(laterTurn);
+    expect(laterRun).toBeUndefined();
+    const [projection] = await pglite
+      .prepare("SELECT thread_projection_pending FROM agent_runs WHERE id = ?")
+      .all(run);
+    expect(projection).toEqual({ thread_projection_pending: false });
+  });
+
+  it("rechecks prompt ownership inside the thread-data write", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
     const nextPrompt = userTurn("Never mind");
     (nextPrompt.message as any).metadata = {
       custom: { submittedTurnId: `${turn}-later` },
@@ -181,12 +357,92 @@ describe("a run the server reaps after its worker died", () => {
     const later = JSON.stringify({
       messages: [userTurn("Bill Ana"), nextPrompt],
     });
-    threads.set(thread, later);
-    await crashAfterSending(thread, turn, run);
+    threadDataBeforeFoldWrite = later;
 
     expect(await reapIfStale(run, -1)).toBe(true);
 
     expect(threads.get(thread)).toBe(later);
+  });
+
+  it("keeps the projection pending when a later prompt arrives before the fold", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    await claimTurnExecutionLease(thread, turn, run);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+    const nextPrompt = userTurn("Never mind");
+    (nextPrompt.message as any).metadata = {
+      custom: { submittedTurnId: `${turn}-later` },
+    };
+    const later = JSON.stringify({
+      messages: [userTurn("Bill Ana"), nextPrompt],
+    });
+    threadDataBeforeFoldWrite = later;
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).toBe(later);
+    const [row] = await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(run);
+    expect(row).toEqual({ thread_projection_pending: true });
+  });
+
+  it("clears a retryable projection after a later turn starts", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    await claimTurnExecutionLease(thread, turn, run);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+    const nextPrompt = userTurn("Never mind");
+    (nextPrompt.message as any).metadata = {
+      custom: { submittedTurnId: `${turn}-later` },
+    };
+    threadDataBeforeFoldWrite = JSON.stringify({
+      messages: [userTurn("Bill Ana"), nextPrompt],
+    });
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+    const [pending] = await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(run);
+    expect(pending).toEqual({ thread_projection_pending: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const laterRun = `${run}-later`;
+    await insertRun(laterRun, thread, `${turn}-later`);
+    await updateRunStatusIfRunning(laterRun, "completed");
+
+    await reapAllStaleRuns();
+    const [cleared] = await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(run);
+    expect(cleared).toEqual({ thread_projection_pending: false });
   });
 
   it("leaves the thread alone once a later turn started", async () => {
@@ -207,5 +463,120 @@ describe("a run the server reaps after its worker died", () => {
     expect(await reapIfStale(run, -1)).toBe(true);
 
     expect(threads.get(thread)).toBe(later);
+  });
+
+  it("does not fold an old run over a reply from a newer execution generation", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    const replacementRun = `${run}-replacement`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    await claimTurnExecutionLease(thread, turn, run);
+    await insertRun(replacementRun, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?`,
+      )
+      .run(thread, turn, run);
+    await claimTurnExecutionLease(thread, turn, replacementRun);
+
+    const replacementReply = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Newer reply" } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      replacementRun,
+      { turnId: turn },
+    );
+    expect(replacementReply).not.toBeNull();
+    threads.set(
+      thread,
+      JSON.stringify(
+        foldAssistantTurn(
+          { messages: [userTurn("Bill Ana")] },
+          replacementReply!,
+          { runId: replacementRun, turnId: turn },
+        ),
+      ),
+    );
+    const beforeReap = threads.get(thread);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).toBe(beforeReap);
+    expect(savedMessages(thread).at(-1)?.content).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Newer reply" }),
+    );
+    expect(savedMessages(thread).at(-1)?.content).not.toContainEqual(
+      expect.objectContaining({ type: "tool-call", toolName: "send-email" }),
+    );
+    const [row] = await pglite
+      .prepare(
+        `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+      )
+      .all(run);
+    expect(row).toEqual({ thread_projection_pending: false });
+  });
+
+  it("does not fold after a successor claims between reap and projection", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    const replacementRun = `${run}-replacement`;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run);
+    const oldFence = await claimTurnExecutionLease(thread, turn, run);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second'
+          WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+    beforeFoldUpdate = async () => {
+      await insertRun(replacementRun, thread, turn);
+      const replacementFence = await claimTurnExecutionLease(
+        thread,
+        turn,
+        replacementRun,
+      );
+      expect(BigInt(replacementFence.generation)).toBe(
+        BigInt(oldFence.generation) + 1n,
+      );
+      const replacementReply = buildAssistantMessage(
+        [
+          { seq: 0, event: { type: "text", text: "Newer reply" } },
+          { seq: 1, event: { type: "done" } },
+        ],
+        replacementRun,
+        { turnId: turn },
+      );
+      expect(replacementReply).not.toBeNull();
+      threads.set(
+        thread,
+        JSON.stringify(
+          foldAssistantTurn(
+            { messages: [userTurn("Bill Ana")] },
+            replacementReply!,
+            { runId: replacementRun, turnId: turn },
+          ),
+        ),
+      );
+    };
+    const beforeReap = threads.get(thread);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).not.toBe(beforeReap);
+    expect(savedMessages(thread).at(-1)?.content).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Newer reply" }),
+    );
+    expect(savedMessages(thread).at(-1)?.content).not.toContainEqual(
+      expect.objectContaining({ type: "tool-call", toolName: "send-email" }),
+    );
   });
 });

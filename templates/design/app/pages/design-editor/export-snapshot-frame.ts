@@ -31,6 +31,7 @@ export interface ExportCaptureTarget {
   snapshotSource?: ExportSnapshotSource;
   snapshotWidth?: number;
   snapshotHeight?: number;
+  screenLease?: symbol;
 }
 
 const SNAPSHOT_FRAME_LOAD_TIMEOUT_MS = 10_000;

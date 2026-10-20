@@ -174,6 +174,27 @@ const messages = {
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.creditsTitle": "Try it with 60 free Agent Credits a month",
+  "onboarding.creditsTitleClips":
+    "Try it with free video storage and 60 Agent Credits a month",
+  "onboarding.creditsActivate": "Activate free credits",
+  "onboarding.creditsFinePrint":
+    "This will create a free Builder.io account. By continuing, you agree to our",
+  "onboarding.creditsMoreInfo": "More info",
+  "onboarding.creditsSubtitle":
+    "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
+  "onboarding.creditsLearnMore": "Learn more",
+  "onboarding.creditsSkip": "Skip",
+  "onboarding.creditsSkipConfirmTitle": "Are you sure?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native apps need an LLM connected to use most features. Most functionality won't work without one.",
+  "onboarding.creditsSkipGoBack": "Go back",
+  "onboarding.creditsSkipAnyway": "Skip anyway",
+  "onboarding.creditsUseCustomKeys": "Use custom keys",
+  "onboarding.creditsAboutLabel": "About free credits",
+  "onboarding.creditsActivating": "Activating free credits",
+  "onboarding.creditsActivatingTooltip":
+    "Builder provides free credits for LLMs, Jev, storage, and more, so you can use this app’s AI features without bringing your own keys.",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
@@ -209,7 +230,7 @@ const messages = {
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.webSearch.label": "Web search",
-  "onboarding.capability.webSearch.keySummary": "Builder-managed web search",
+  "onboarding.capability.webSearch.keySummary": "Web search",
   "onboarding.capability.webSearch.why":
     "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
   "onboarding.capability.systemOne.why":
@@ -991,7 +1012,25 @@ const messages = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, contacts, companies, deals, tickets, customer analytics",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+    "Each person connects their own HubSpot account after a workspace owner configures the HubSpot MCP Auth App.",
+  "mcpIntegrations.hubspot.setupTitle": "Set up HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "A workspace owner configures HubSpot MCP once. Each member then connects their own account.",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "Workspace setup required",
+  "mcpIntegrations.hubspot.setupChecking": "Checking workspace setup…",
+  "mcpIntegrations.hubspot.setupUnavailable": "Setup status unavailable",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "Couldn't check the workspace OAuth settings. Try again.",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "Create a HubSpot MCP Auth App, then add its client ID and secret in Agent-Native settings → API keys.",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "Ask a workspace owner to create a HubSpot MCP Auth App and add its client ID and secret in Agent-Native settings → API keys. You can connect your own HubSpot account after setup.",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "Join a workspace before connecting HubSpot MCP.",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "Add workspace credentials",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "Check again",
+  "mcpIntegrations.hubspot.retrySetupStatus": "Retry",
   "mcpIntegrations.catalog.pylon.description":
     "Search and update Pylon support data.",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1881,6 +1920,11 @@ const messages = {
   "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "All apps",
   "settings.audit.app": "App",
+  "settings.audit.approval": "Approval",
+  "settings.audit.approvalAgentChat": "Approved in agent chat",
+  "settings.audit.approvalA2AReview":
+    "Approved on the agent action review page",
+  "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",
@@ -1894,9 +1938,11 @@ const messages = {
   "settings.audit.last90Days": "Last 90 days",
   "settings.audit.loadFailed": "Could not load the audit log.",
   "settings.audit.loading": "Loading audit log",
+  "settings.audit.oauthClient": "OAuth client",
   "settings.audit.onBehalfOf": "On behalf of",
   "settings.audit.range": "Time range",
   "settings.audit.refused": "Refused",
+  "settings.audit.reportedClient": "Self-reported client",
   "settings.audit.result": "Result",
   "settings.audit.showMore": "Show {{count}} more",
   "settings.audit.succeeded": "Succeeded",
@@ -2974,6 +3020,10 @@ const messages = {
     "Disconnected here. Access may remain active in ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+  "settingsModel.chatgptScopeUnresolved":
+    "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
   "settingsModel.chatgptNoDirectUse":
     "Reconnect and allow direct model access to use this ChatGPT account.",
   "settingsModel.chatgptReconnect": "Reconnect",

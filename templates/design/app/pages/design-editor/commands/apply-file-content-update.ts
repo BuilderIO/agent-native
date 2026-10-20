@@ -13,6 +13,7 @@ import {
 } from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
 import type { ContentHistoryEntry } from "@/pages/design-editor/history";
+import type { YjsUndoSelectionSnapshot } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -70,6 +71,7 @@ export interface ApplyFileContentUpdateArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
       serverAccepted?: boolean;
+      selectionBefore?: YjsUndoSelectionSnapshot;
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesignRef: RefObject<boolean>;
@@ -146,6 +148,7 @@ export function runApplyFileContentUpdate(
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
     serverAccepted?: boolean;
+    selectionBefore?: YjsUndoSelectionSnapshot;
   } = {},
 ): ApplyFileContentUpdateResult {
   if (!canEditDesignRef.current) return { status: "refused" };
@@ -195,7 +198,8 @@ export function runApplyFileContentUpdate(
     });
   }
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
   if (
     !suppressContentHistoryRef.current &&
     shouldRecordHistory &&
@@ -241,7 +245,7 @@ export function runApplyFileContentUpdate(
       !needsIdentityMigration &&
       canWriteCollabText(overviewYdoc, overviewIsSynced, previousContent),
   });
-  if (writeLiveDoc && overviewYdoc && !previewOnly) {
+  if (writeLiveDoc && overviewYdoc && !previewOnly && !options.serverAccepted) {
     writeCollabText(
       overviewYdoc,
       overviewYdoc.getText("content"),

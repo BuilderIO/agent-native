@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jobs = vi.hoisted(() => ({
   alerts: vi.fn(),
+  content: vi.fn(),
   rollups: vi.fn(),
   reports: vi.fn(),
   retention: vi.fn(),
@@ -10,6 +11,9 @@ const jobs = vi.hoisted(() => ({
 
 vi.mock("../jobs/analytics-alerts", () => ({
   runAnalyticsAlertsOnce: jobs.alerts,
+}));
+vi.mock("../jobs/content-metrics-collection", () => ({
+  runContentMetricsCollectionOnce: jobs.content,
 }));
 vi.mock("../jobs/analytics-rollup-backfill", () => ({
   runAnalyticsRollupBackfillOnce: jobs.rollups,
@@ -26,6 +30,7 @@ vi.mock("../jobs/uptime-monitors", () => ({
 
 import registerAnalyticsAlertJobs from "./analytics-alert-jobs";
 import registerAnalyticsRollupBackfillJobs from "./analytics-rollup-backfill-jobs";
+import registerContentMetricsCollectionJobs from "./content-metrics-collection-jobs";
 import registerDashboardReportJobs from "./dashboard-report-jobs";
 import registerSessionReplayRetentionJobs from "./session-replay-retention-jobs";
 import registerUptimeMonitorJobs from "./uptime-monitor-jobs";
@@ -33,6 +38,7 @@ import registerUptimeMonitorJobs from "./uptime-monitor-jobs";
 const registerers = [
   registerAnalyticsAlertJobs,
   registerAnalyticsRollupBackfillJobs,
+  registerContentMetricsCollectionJobs,
   registerDashboardReportJobs,
   registerSessionReplayRetentionJobs,
   registerUptimeMonitorJobs,

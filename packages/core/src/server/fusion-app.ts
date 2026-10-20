@@ -52,6 +52,19 @@ export interface EnsureFusionContainerResult {
 
 export interface SendFusionMessageResult {
   sent: boolean;
+  /**
+   * True only when the app agent's run finished without an error. A message
+   * can be sent (dispatched) and still not complete: it timed out, failed
+   * afterwards, or was fire-and-forget.
+   */
+  completed?: boolean;
+  /**
+   * True when the message was dispatched but this call stopped hearing from
+   * the run before it ended (timed out or the stream was cut off): Builder
+   * may still be applying it, so it must not be treated as failed-and-safe
+   * to resend, nor as done.
+   */
+  unconfirmed?: boolean;
   response?: string;
   error?: string;
 }
@@ -316,6 +329,13 @@ export async function sendFusionBranchMessage(
     fireAndForget?: boolean;
     timeoutMs?: number;
     userEmail?: string;
+    /**
+     * Every coding-agent step as it streams (`GenerateCompletionStep`:
+     * text, thinking, tool, tool_result, file, diff, done, error, ...), so a
+     * delegating agent can show the Builder agent's work live instead of only
+     * its final message. Pair with `fireAndForget: false`.
+     */
+    onEvent?: (step: Record<string, unknown>) => void;
   },
 ): Promise<SendFusionMessageResult> {
   const prompt = args.prompt?.trim();
@@ -327,6 +347,7 @@ export async function sendFusionBranchMessage(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let dispatched = false;
+  let finished = false;
   let finalText: string | undefined;
   let errorMessage: string | undefined;
 
@@ -378,6 +399,8 @@ export async function sendFusionBranchMessage(
         const event = chunk.event;
         if (event && typeof event === "object") {
           const ev = event as Record<string, unknown>;
+          args.onEvent?.(ev);
+          if (asString(ev.type) === "done") finished = true;
           if (asString(ev.type) === "done" && Array.isArray(ev.actions)) {
             for (const action of ev.actions) {
               if (
@@ -398,7 +421,16 @@ export async function sendFusionBranchMessage(
     });
   } catch (error) {
     if (controller.signal.aborted) {
-      if (dispatched) return { sent: true };
+      if (dispatched) {
+        // Fire-and-forget never waits for the run, so dispatch is the outcome.
+        if (fireAndForget) return { sent: true };
+        return {
+          sent: true,
+          unconfirmed: true,
+          error:
+            "Timed out waiting for the app agent to finish; it may still be working",
+        };
+      }
       return {
         sent: false,
         error: "Timed out sending message to the app agent",
@@ -413,7 +445,18 @@ export async function sendFusionBranchMessage(
   }
 
   if (errorMessage) return { sent: dispatched, error: errorMessage };
-  return { sent: true, response: finalText };
+  // Only the agent's own `done` event means the run finished. A stream that
+  // ends without it (cut off, or no body) was at most dispatched.
+  if (!finished) {
+    // Fire-and-forget never waits for the run, so dispatch is the outcome.
+    if (fireAndForget) return { sent: dispatched };
+    return {
+      sent: dispatched,
+      ...(dispatched ? { unconfirmed: true } : {}),
+      error: "The app agent's run ended before it finished",
+    };
+  }
+  return { sent: true, completed: true, response: finalText };
 }
 
 async function fusionJsonRequest(

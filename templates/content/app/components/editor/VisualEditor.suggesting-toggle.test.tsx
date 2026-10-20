@@ -114,7 +114,7 @@ describe("Toggles while suggesting", () => {
   async function clickToggle() {
     await act(async () => {
       container
-        .querySelector<HTMLElement>(".notion-toggle__summary-row")!
+        .querySelector<HTMLElement>(".content-toggle__summary-row")!
         .click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -122,15 +122,15 @@ describe("Toggles while suggesting", () => {
 
   function bodyCollapsed(): boolean {
     return container
-      .querySelector(".notion-toggle__body")!
-      .classList.contains("notion-toggle__body--collapsed");
+      .querySelector(".content-toggle__body")!
+      .classList.contains("content-toggle__body--collapsed");
   }
 
   it("opens and closes a Toggle without changing the draft", async () => {
     const editor = await mount(true);
     expect(storedOpen(editor)).toBe(false);
     expect(bodyCollapsed()).toBe(true);
-    expect(container.querySelector("input.notion-toggle__summary")).toBeNull();
+    expect(container.querySelector("input.content-toggle__summary")).toBeNull();
 
     await clickToggle();
     expect(bodyCollapsed()).toBe(false);
@@ -143,7 +143,7 @@ describe("Toggles while suggesting", () => {
 
   it("stores the open state outside suggesting", async () => {
     const editor = await mount(false);
-    expect(container.querySelector("input.notion-toggle__summary")).not.toBe(
+    expect(container.querySelector("input.content-toggle__summary")).not.toBe(
       null,
     );
 

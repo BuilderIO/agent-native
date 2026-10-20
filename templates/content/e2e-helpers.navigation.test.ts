@@ -20,10 +20,10 @@ vi.mock("@playwright/test", async () => {
       },
       {
         poll: (read: () => unknown, options?: { message?: string }) => ({
-          toBe: (value: unknown) =>
+          toEqual: (value: unknown) =>
             vitest.vi.waitFor(
               async () =>
-                vitest.expect(await read(), options?.message).toBe(value),
+                vitest.expect(await read(), options?.message).toEqual(value),
               { timeout: 1000, interval: 1 },
             ),
         }),
@@ -64,6 +64,8 @@ class FixtureContext extends EventEmitter {
   exposeBinding = async () => {};
   route = async () => {};
   newPage = async () => new FixturePage();
+  newCDPSession = async () =>
+    Object.assign(new EventEmitter(), { send: vi.fn(async () => {}) });
 }
 
 async function fixture(navigation: "reload" | "close") {

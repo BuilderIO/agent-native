@@ -921,6 +921,101 @@ export const editorChromeBridgeScript: string = `"use strict";
     return void 0;
   }
 
+  // shared/source-equivalent-selector.ts
+  var SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
+  function sourceEquivalentSelectorPath(selector) {
+    return selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX) ? selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length) : selector;
+  }
+  function alpineGeneratedChildrenOf(parent) {
+    const generated = [];
+    const children = parent.children;
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i];
+      if (!child.tagName || child.tagName.toLowerCase() !== "template") {
+        continue;
+      }
+      if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
+      const lookup = child._x_lookup;
+      if (lookup) {
+        const map = lookup;
+        if (typeof map.forEach === "function" && typeof map.get === "function") {
+          map.forEach((item) => {
+            if (item) generated.push(item);
+          });
+        } else {
+          const record = lookup;
+          for (const key in record) {
+            if (Object.prototype.hasOwnProperty.call(record, key)) {
+              const item = record[key];
+              if (item) generated.push(item);
+            }
+          }
+        }
+      }
+    }
+    return generated;
+  }
+  function isEditorInjectedElement(el) {
+    return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
+  }
+  function resolveSourceEquivalentSelector(doc, selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      return doc.querySelector(selector);
+    }
+    const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+    return resolution.status === "matched" ? resolution.element : null;
+  }
+  function resolveSourceEquivalentSelectorResult(doc, selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      try {
+        const element = doc.querySelector(selector);
+        return element ? { status: "matched", element } : { status: "not-found" };
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "name" in error && error.name === "SyntaxError") {
+          return { status: "invalid-selector", format: "legacy-css" };
+        }
+        throw error;
+      }
+    }
+    const sourcePath = sourceEquivalentSelectorPath(selector);
+    const parts = sourcePath.split(" > ");
+    if (parts.length < 2 || parts[0] !== "body") {
+      return { status: "invalid-selector", format: "source-path" };
+    }
+    const path = [];
+    for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
+      const match = /^([^\\s:()>]+)(?::nth-of-type\\((\\d+)\\))?$/.exec(
+        parts[partIndex] ?? ""
+      );
+      if (!match) return { status: "invalid-selector", format: "source-path" };
+      const index = match[2] === void 0 ? 1 : Number(match[2]);
+      if (!Number.isSafeInteger(index) || index < 1) {
+        return { status: "invalid-selector", format: "source-path" };
+      }
+      path.push({ tag: match[1] ?? "", index });
+    }
+    let current = doc.body;
+    for (const step of path) {
+      if (!current) return { status: "not-found" };
+      const generated = alpineGeneratedChildrenOf(current);
+      let seen = 0;
+      let found2 = null;
+      for (let i = 0; i < current.children.length; i += 1) {
+        const sib = current.children[i];
+        if (!sib || sib.tagName.toLowerCase() !== step.tag) continue;
+        if (generated.indexOf(sib) !== -1) continue;
+        if (isEditorInjectedElement(sib)) continue;
+        seen += 1;
+        if (seen === step.index) {
+          found2 = sib;
+          break;
+        }
+      }
+      current = found2;
+    }
+    return current && current !== doc.body ? { status: "matched", element: current } : { status: "not-found" };
+  }
+
   // shared/spacing-handle-rule.ts
   function isAutoLayoutDisplay(display) {
     return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -1030,6 +1125,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       (property) => styleValueIsPresent(style(property), EMPTY_STYLE_LENGTH)
     );
   }
+
+  // app/components/design/bridge/native-region-export.ts
+  var NATIVE_REGION_EXPORT_ATTRIBUTE = "data-an-native-region-export";
+  var NATIVE_EDITOR_VIEWPORT_CLIP_RULE = \`html:not([data-agent-native-interact]):not([\${NATIVE_REGION_EXPORT_ATTRIBUTE}]){overflow:clip}\`;
 
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
@@ -1628,7 +1727,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       chromeTransitionStyle.textContent = // The scale vars live on the root; left inheritable, every write
       // restyles the whole document, deferred into the next time it scrolls in.
-      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html:not([data-agent-native-interact]){overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' + // A clipped root is a hidden viewport: the wheel reaches a live page in
+      // Interact and moves nothing. Interact owns scrolling, so it is released.
+      NATIVE_EDITOR_VIEWPORT_CLIP_RULE + '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -3784,6 +3885,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return target;
     }
+    function modifierClickSelectionTarget(hit) {
+      var entersSelectedContainer = Boolean(
+        selectedEl && selectedEl.contains && hit && selectedEl.contains(hit)
+      );
+      return selectionTargetForHit(hit, entersSelectedContainer);
+    }
     function containerScopeAncestor(el, scope) {
       var node = el;
       while (node !== scope && node.parentElement && node.parentElement !== scope && node.parentElement !== document.body && node.parentElement !== document.documentElement) {
@@ -3821,14 +3928,36 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return containerFirstSelectionTarget(hit);
     }
-    function clickThroughSelectionTarget(hit, ev) {
-      if (ev.detail > 1) return null;
-      if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+    function selectedContainerForPlainClick(hit, ev) {
+      if (!ev || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || !hit || !selectedEl || !document.documentElement.contains(selectedEl)) {
+        return null;
+      }
+      if (selectionContainerScope && document.documentElement.contains(selectionContainerScope) && selectionContainerScope !== selectedEl && selectionContainerScope.contains(selectedEl)) {
+        return null;
+      }
+      if (selectionContainerScope === selectedEl && selectedEl.getAttribute("data-an-primitive") !== "frame" && selectedEl.getAttribute("data-agent-native-group") !== "true" && isAutoLayoutElement(selectedEl) && canOpenSelectionContainer(selectedEl)) {
+        return null;
+      }
+      if (!hasSelectableLayerChildren(selectedEl)) return null;
+      var target = selectionTargetForHit(hit, true);
+      return target && target !== selectedEl && selectedEl.contains(target) ? selectedEl : null;
+    }
+    function rememberAutoLayoutContainerScopeForSelection(target) {
+      if (target && target.getAttribute("data-an-primitive") !== "frame" && target.getAttribute("data-agent-native-group") !== "true" && isAutoLayoutElement(target) && canOpenSelectionContainer(target)) {
+        selectionContainerScope = target;
+      }
+    }
+    function clickThroughSelectionTarget(hit, ev, repeatedMouseClick = false) {
+      var isRepeatedMouseClick = Boolean(
+        repeatedMouseClick || ev?.type === "mouseup" && ev.detail > 1
+      );
+      if (!selectedEl || !document.documentElement.contains(selectedEl) || !selectionContainerScope || selectionContainerScope === selectedEl || !selectionContainerScope.contains(selectedEl)) {
         return null;
       }
       if (hostSelectedEl === selectedEl) return null;
       if (!hasSelectableLayerChildren(selectedEl)) return null;
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
+      if (isRepeatedMouseClick) return selectedEl;
       if (!hit || isDocumentRootElement(hit)) return null;
       var svgRoot = outermostSvgAncestor(hit);
       var raw = svgRoot && pastedSvgShapeForHit(hit, svgRoot) || svgRoot || unwrapTextOverlay(hit);
@@ -5189,6 +5318,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
       );
     }
+    function authoredOpacityForEditor(el, computedOpacity) {
+      if (!el.hasAttribute("data-an-native-fill-suppressed") && !el.hasAttribute("data-an-native-layer-suppressed") && !el.hasAttribute("data-an-native-scene-suppressed") && !el.hasAttribute("data-an-native-receiver-suppressed"))
+        return computedOpacity;
+      var saved = el.getAttribute("data-an-native-authored-opacity");
+      var opacity = saved === null || !saved.trim() ? NaN : Number(saved);
+      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+        throw Object.assign(new Error("Native authored opacity is unavailable"), {
+          code: "native-authored-opacity-unavailable"
+        });
+      return String(opacity);
+    }
     function typedStyleValue(el, property) {
       var typedElement = el;
       if (typeof typedElement.computedStyleMap !== "function") {
@@ -5316,7 +5456,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
-        var value = cs[property2] || cs.getPropertyValue(property2);
+        var value = property2 === "opacity" ? authoredOpacityForEditor(el, cs.opacity) : cs[property2] || cs.getPropertyValue(property2);
         var inlineValue = hostStyle && hostStyle.getPropertyValue(property2);
         if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2] && !portableValueRendersNothing(el, property2, cs))) {
           styles[property2] = value;
@@ -5960,6 +6100,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      computed.opacity = authoredOpacityForEditor(el, cs.opacity);
+      if (!vectorPaintTarget(el)) computed.vectorOpacity = computed.opacity;
       var paintTarget = vectorPaintTarget(el) || (el.tagName.toLowerCase() === "path" && el.hasAttribute("data-an-pen-nodes") ? el : null);
       var penNodesOwner = paintTarget && paintTarget.hasAttribute("data-an-pen-nodes") ? paintTarget : el;
       if (paintTarget && paintTarget.getAttribute("fill-opacity") === "0" && (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") === 0) {
@@ -6159,7 +6301,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         layers.push({
           backgroundColor: paint.backgroundColor,
           backgroundImage: paint.backgroundImage,
-          opacity: paint.opacity,
+          opacity: authoredOpacityForEditor(node, paint.opacity),
           mixBlendMode: paint.mixBlendMode
         });
         node = node.parentElement;
@@ -6809,8 +6951,16 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var pendingStructureMoves = {};
     var pendingShieldDrag = null;
+    var lastShieldMouseClick = null;
+    var MOUSE_DOUBLE_CLICK_WINDOW_MS = 500;
     var suppressNextShieldClick = false;
     var suppressNextShieldClickTimer = null;
+    var lastShieldModifierCyclePoint = null;
+    var lastShieldModifierCycleTarget = null;
+    function resetShieldModifierCycleState() {
+      lastShieldModifierCyclePoint = null;
+      lastShieldModifierCycleTarget = null;
+    }
     var hoveredSpacingHandleKey = "";
     var spacingHoverClearTimer = null;
     var lastSpacingPointerPoint = null;
@@ -7903,7 +8053,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       var nextDoc = parser.parseFromString(html, "text/html");
       if (!nextDoc || !nextDoc.body) return;
       var persistentNodes = Array.prototype.slice.call(
-        document.querySelectorAll("[data-agent-native-edit-overlay]")
+        document.querySelectorAll(
+          [
+            "[data-agent-native-edit-overlay]",
+            "script[data-agent-native-motion-preview-bridge]",
+            "script[data-agent-native-shader-runtime]",
+            "script[data-agent-native-shader-fill-preview-bridge]",
+            "script[data-agent-native-tweak-bridge]",
+            "script[data-agent-native-zoom-bridge]",
+            "script[data-agent-native-nav-bridge]",
+            "script[data-agent-native-preview-theme-bridge]",
+            "script[data-agent-native-hit-test-bridge]",
+            "script[data-agent-native-embedded-wheel-bridge]",
+            "script[data-agent-native-editor-theme]",
+            "script[data-agent-native-editor-chrome-bridge]",
+            "script[data-agent-native-content-size-bridge]"
+          ].join(",")
+        )
       );
       var activeSelector = preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
       var activeCandidates = [];
@@ -11442,7 +11608,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       hoveredSpacingHandleKey = "";
-      var resolvedClickTarget = e.metaKey || e.ctrlKey ? selectionTargetForHit(target) : plainClickSelectionTarget(target);
+      var resolvedClickTarget = e.metaKey || e.ctrlKey ? modifierClickSelectionTarget(target) : selectedContainerForPlainClick(target, e) || plainClickSelectionTarget(target);
       var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
       if (toggled !== void 0) {
         postToggledSelection(toggled);
@@ -11452,6 +11618,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       selectedEl = resolvedClickTarget;
       if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
         selectionContainerScope = null;
+      rememberAutoLayoutContainerScopeForSelection(selectedEl);
       if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
         hideSelectionOverlay();
@@ -11941,32 +12108,73 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function resolveNodeHtmlPreviewTarget(target) {
       if (!target || typeof target !== "object") return null;
+      var selector = target.selector;
+      var isSourceEquivalentSelector = typeof selector === "string" && selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0;
+      var selectorMatch = null;
+      if (isSourceEquivalentSelector) {
+        selectorMatch = resolveSourceEquivalentSelector(
+          document,
+          selector
+        );
+      }
       var nodeId = target.nodeId;
       if (typeof nodeId === "string" && nodeId) {
-        try {
-          var nodeMatch = document.querySelector(
-            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
-          );
-          if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
-            return nodeMatch;
+        var nodeMatches = document.querySelectorAll(
+          [
+            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-loc="' + escapeAttribute(nodeId) + '"]',
+            '[id="' + escapeAttribute(nodeId) + '"]'
+          ].join(",")
+        );
+        if (nodeMatches.length === 1) {
+          var uniqueNodeMatch = nodeMatches[0];
+          return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch) ? uniqueNodeMatch : null;
+        }
+        if (nodeMatches.length > 1) {
+          if (!selectorMatch && typeof selector === "string" && selector && !isSourceEquivalentSelector) {
+            try {
+              selectorMatch = document.querySelector(selector);
+            } catch (error) {
+              if (typeof error === "object" && error !== null && "name" in error && error.name !== "SyntaxError") {
+                throw error;
+              }
+            }
           }
-        } catch (_err) {
+          if (selectorMatch && Array.prototype.indexOf.call(nodeMatches, selectorMatch) !== -1 && !isLayerInteractionBlocked(selectorMatch)) {
+            return selectorMatch;
+          }
+          return null;
         }
       }
-      var selector = target.selector;
-      if (typeof selector !== "string" || !selector) return null;
-      try {
-        var selectorMatch = document.querySelector(selector);
-        return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
-      } catch (_err) {
-        return null;
+      if (!selectorMatch && typeof selector === "string" && selector && !isSourceEquivalentSelector) {
+        try {
+          selectorMatch = document.querySelector(selector);
+        } catch (error) {
+          if (typeof error === "object" && error !== null && "name" in error && error.name !== "SyntaxError") {
+            throw error;
+          }
+        }
       }
+      return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
     }
     function postNodeHtmlPreviewApplied(proposalId) {
       window.parent.postMessage(
         {
           type: "agent-native:node-html-preview-applied",
           proposalId
+        },
+        "*"
+      );
+    }
+    function postNodeHtmlPreviewFailed(proposalId, reason) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:node-html-preview-failed",
+          proposalId,
+          reason
         },
         "*"
       );
@@ -12022,16 +12230,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var nextElement = parseNodeHtmlPreviewElement(data.html);
-      if (!nextElement) return;
+      if (!nextElement) {
+        postNodeHtmlPreviewFailed(proposalId, "preview-invalid");
+        return;
+      }
       if (activeNodeHtmlPreview && activeNodeHtmlPreview.proposalId === proposalId) {
         if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
           postNodeHtmlPreviewApplied(proposalId);
+        } else {
+          postNodeHtmlPreviewFailed(proposalId, "preview-replacement-failed");
         }
         return;
       }
       if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
       var target = resolveNodeHtmlPreviewTarget(data.target);
       if (!target || !target.parentNode || target === document.documentElement) {
+        postNodeHtmlPreviewFailed(proposalId, "target-unresolved");
         return;
       }
       var originalOuterHTML = target.outerHTML;
@@ -12103,7 +12317,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           } catch (_err) {
           }
         }
-        if (matches.size > 1) return null;
+        var hasSourceEquivalentSelector = typeof selector === "string" && selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX);
+        if (matches.size > 1 && !hasSourceEquivalentSelector) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
           return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
@@ -12111,6 +12326,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (typeof selector !== "string" || !selector) {
         return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
+      }
+      if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        var sourceMatch = resolveSourceEquivalentSelector(document, selector);
+        return sourceMatch && (matches.size === 0 || matches.has(sourceMatch)) && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
       }
       try {
         var selectorMatches = document.querySelectorAll(selector);
@@ -18893,6 +19112,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragEl = gestureEl;
       var gestureViewport = bridgeGestureViewport();
       var DRAG_THRESHOLD = 3;
+      var lastPointerClientX = startX;
+      var lastPointerClientY = startY;
+      var lateAltStartClientX = null;
+      var lateAltStartClientY = null;
       var bridgeMoveController = createCanvasGestureController({
         capabilities: { move: true, resize: true },
         drag: {
@@ -19237,9 +19460,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
         }
-        if (ev.altKey && moved && !duplicatedForDrag && !isRelease) {
+        var movedSinceLateAlt = lateAltStartClientX === null || ev.clientX !== lateAltStartClientX || ev.clientY !== lateAltStartClientY;
+        if (ev.type === events.move && !isRelease && ev.altKey && moved && movedSinceLateAlt && !duplicatedForDrag) {
           activateLateDuplicate(ev);
         }
+        lastPointerClientX = ev.clientX;
+        lastPointerClientY = ev.clientY;
         var rawDx = controllerMove.gesture.canvasDelta.x;
         var rawDy = controllerMove.gesture.canvasDelta.y;
         var nextLeft = originLeft + rawDx;
@@ -19386,6 +19612,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
       function onMoveKeyDown(ev) {
+        if (ev.key === "Alt" && !ev.repeat && !duplicatedForDrag) {
+          lateAltStartClientX = lastPointerClientX;
+          lateAltStartClientY = lastPointerClientY;
+        }
         if (ev.key !== "Escape") return;
         stopNativeInteraction(ev);
         cancelMoveDrag();
@@ -21227,6 +21457,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = target;
         if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
           selectionContainerScope = null;
+        rememberAutoLayoutContainerScopeForSelection(selectedEl);
         positionOverlay(selectionOverlay, selectedEl);
         if (!ev?.shiftKey && passiveSelectionEls.length) {
           setPassiveSelectionElements([]);
@@ -21269,17 +21500,57 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function onUp(ev) {
         clearPendingShieldDrag();
-        if (didStartDrag) return;
+        var repeatedMouseClick = Boolean(
+          ev?.type === "pointerup" && ev.pointerType === "mouse" && lastShieldMouseClick && Date.now() - lastShieldMouseClick.timestamp <= MOUSE_DOUBLE_CLICK_WINDOW_MS && Math.hypot(
+            e.clientX - lastShieldMouseClick.x,
+            e.clientY - lastShieldMouseClick.y
+          ) <= 4 && hit === lastShieldMouseClick.hit && selectedEl === lastShieldMouseClick.selected || ev?.type === "mouseup" && ev.detail > 1
+        );
+        var isModifierCycleClick = Boolean(
+          !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
+        );
+        var continuesModifierCycle = Boolean(
+          isModifierCycleClick && selectedEl && lastShieldModifierCycleTarget === selectedEl && lastShieldModifierCyclePoint && Math.hypot(
+            e.clientX - lastShieldModifierCyclePoint.x,
+            e.clientY - lastShieldModifierCyclePoint.y
+          ) <= 4
+        );
+        if (didStartDrag) {
+          lastShieldMouseClick = null;
+          resetShieldModifierCycleState();
+          return;
+        }
         if (!readOnly && !e.altKey) {
           postCrossScreenDrag("cancel");
         }
         if (ev) stopNativeInteraction(ev);
-        var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
-        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? selectionTargetForHit(hit) : !designCanvasBoardSurface ? plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? clickThroughSelectionTarget(hit, ev) : null) || containerFirstSelectionTarget(hit);
-        if (cycledEl) {
-          selectTarget(cycledEl, ev, true);
+        var cycledEl = isModifierCycleClick ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
+        var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : !designCanvasBoardSurface ? selectedContainerForPlainClick(hit, ev) || plainClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedMouseClick) : null) || containerFirstSelectionTarget(hit);
+        var preservesNestedHit = Boolean(
+          isModifierCycleClick && !continuesModifierCycle && selectedEl && hit && selectedEl.contains(hit) && primaryClickTarget && primaryClickTarget !== selectedEl
+        );
+        var cycleTarget = cycledEl && cycledEl !== selectedEl && !preservesNestedHit ? cycledEl : null;
+        var nextClickTarget = cycleTarget || primaryClickTarget || dragTarget;
+        selectTarget(nextClickTarget, ev, true);
+        if (isModifierCycleClick && selectedEl) {
+          lastShieldModifierCyclePoint = {
+            x: e.clientX,
+            y: e.clientY
+          };
+          lastShieldModifierCycleTarget = selectedEl;
         } else {
-          selectTarget(primaryClickTarget || dragTarget, ev, true);
+          resetShieldModifierCycleState();
+        }
+        if (ev?.type === "pointerup" && ev.pointerType === "mouse" && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          lastShieldMouseClick = {
+            x: e.clientX,
+            y: e.clientY,
+            hit,
+            selected: selectedEl,
+            timestamp: Date.now()
+          };
+        } else {
+          lastShieldMouseClick = null;
         }
         suppressNextShieldClickBriefly();
       }
@@ -23175,7 +23446,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
         var measureSelector = typeof e.data.selector === "string" ? e.data.selector : "";
         var measureTarget = null;
-        if (measureSelector) {
+        if (measureSelector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+          measureTarget = resolveSourceEquivalentSelector(
+            document,
+            measureSelector
+          );
+        } else if (measureSelector) {
           try {
             measureTarget = document.querySelector(measureSelector);
           } catch (_err) {

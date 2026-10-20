@@ -153,6 +153,10 @@ pub(crate) fn schedule_popover_dismissal(app_handle: &tauri::AppHandle) {
             // Control Center can close without sending another blur event to the popover.
             tokio::time::sleep(POPOVER_BLUR_SETTLE).await;
         }
+        if clips::bubble_is_focused(&delayed_app_handle) {
+            dlog!("[clips-tray] popover blur ignored — camera bubble focused");
+            return;
+        }
         clips::hide_popover(&delayed_app_handle);
     });
 }
@@ -261,6 +265,8 @@ pub fn run() {
             clips::bubble_drag_move,
             clips::bubble_drag_end,
             clips::set_bubble_size,
+            clips::set_bubble_hit_mask,
+            clips::recheck_bubble_hit,
             clips::load_bubble_size,
             config::get_feature_config,
             config::set_feature_config,

@@ -67,6 +67,10 @@ import {
   loomEmbedUrlWithTimestamp,
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
+import {
+  youtubeVideoIdForRecording,
+  youtubeWatchUrl,
+} from "../../../../shared/youtube.js";
 import { getDb, schema } from "../../../db/index.js";
 import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
@@ -471,6 +475,17 @@ export default defineEventHandler(async (event: H3Event) => {
           gate.sharePasswordVersion,
           gateId,
         );
+      }
+
+      const youtubeVideoId = youtubeVideoIdForRecording(rec);
+      if (youtubeVideoId) {
+        setResponseStatus(event, 422);
+        return {
+          error:
+            "This clip plays in YouTube's embedded player. Clips stores no video file for it.",
+          errorCode: "embed_backed_recording",
+          watchUrl: youtubeWatchUrl(youtubeVideoId),
+        };
       }
 
       if (isLoomEmbedBackedRecording(rec)) {
