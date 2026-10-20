@@ -829,6 +829,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     ["agent_runs", "agent-tool-ledger-result-type", "d4fe90219a833db8"],
     ["agent_runs", "agent-turn-execution-leases-and-steps", "bc8cfdc3fc695e2a"],
     ["agent_runs", "baseline", null],
+    ["agent_runs", "execution-leases-and-steps", "1c2aacd2c2399464"],
     ["agent_runs", "widen-bigint", null],
     ["agent_team_run_queue", "baseline", null],
     [
