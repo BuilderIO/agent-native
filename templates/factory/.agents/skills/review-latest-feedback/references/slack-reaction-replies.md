@@ -15,10 +15,12 @@ unresolved check or action only when `🎫` applies, and name its owner when
 known. Do not mention or explain absent reactions. For a beta-eligible app PR,
 wait until the matching run selects the affected site. Include the PR link and
 say: "[PR link] is merged and expected on beta within 24 hours." This is an
-expectation, not a guarantee. If the site is current, verify it and say:
-"[PR link] is merged and on beta." If publishing fails, is blocked, or misses
-that timing, correct the update in the same thread. Use `🎫` only when another
-person or team must act.
+expectation, not a guarantee. Say it is on beta only when `/ship-and-monitor`
+or an explicitly requested beta check verifies the site is current. Normal
+feedback sweeps do not wait for publication, verify the site, or keep checking
+it. If an in-scope monitoring check later finds a publish failure or a site
+that is still not current after 24 hours, correct the update in the same
+thread. Use `🎫` only when another person or team must act.
 Do not claim it is live until checked. End with the exact
 bot disclosure and read the visible reply and root reactions back.
 
@@ -273,13 +275,15 @@ team handoff also gets `🎫`. Do not create or promise an external tracker
 ticket without authorization. Never imply a
 partial fix resolved the whole report.
 
-For beta app fixes, check the matching merge-triggered publisher and keep
-details in the recap. After a linked beta-eligible app PR merges and is
-confirmed in `origin/main`, wait for the matching run to select the affected
-site. Then reply once in its owned thread with the PR link and say it is
-expected on beta within 24 hours. This is an expectation, not a guarantee. If
-the site is already current, verify it and say it is on beta. If publishing
-fails, is blocked, or misses that timing, correct the update in the same
+For beta app fixes, keep publisher details in the recap. After a linked
+beta-eligible app PR merges and is confirmed in `origin/main`, wait for the
+matching run to select the affected site. Then reply once in its owned thread
+with the PR link and say it is expected on beta within 24 hours. This is an
+expectation, not a guarantee. Say it is on beta only when `/ship-and-monitor`
+or an explicitly requested beta check verifies the site is current. Normal
+feedback sweeps do not wait for publication, verify the site, or keep checking
+it. If an in-scope monitoring check later finds a publish failure or a site
+that is still not current after 24 hours, correct the update in the same
 thread. Use `🎫` only when another person or team must act. Keep hashes, branch names, CI,
 workflow details, and run IDs out of reporter replies. For package work,
 distinguish the source PR from any release PR and registry proof; source merge

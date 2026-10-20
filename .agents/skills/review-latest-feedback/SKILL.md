@@ -332,17 +332,18 @@ branches, CI, publisher details, and proof in the internal recap. End with
 
 ### After a PR merges
 
-Track publisher state and beta verification in the internal recap. A beta-
-eligible app PR is one whose changed paths map to a site in the matching main
-beta run. After its merge is confirmed in `origin/main`, wait for the matching
-run's site discovery to succeed and select the affected site. Post one short
-sentence in the same owned Slack thread with the PR link: "[PR link] is merged
-and expected on beta within 24 hours." If the site is already current, verify
-it and say: "[PR link] is merged and on beta." This is an expectation, not a
-guarantee. Keep checking. If publishing fails, is blocked, or the site is
-still not current after 24 hours, correct the update in that thread. Use `🎫`
-only when another person or team must act. Do not say it is live until checked;
-keep publisher details in the recap.
+For an owned feedback thread linked to a merged app PR, treat the PR as
+beta-eligible when its changed paths map to a site selected by the matching
+main beta run. After the merge is confirmed in `origin/main` and that run
+selects the site, post one short sentence with the PR link: "[PR link] is merged
+and expected on beta within 24 hours." Say it is on beta only when
+`/ship-and-monitor` or an explicitly requested beta check verifies the site is
+current. This is an expectation, not a guarantee. A normal feedback sweep does
+not wait for publication, verify the beta site, or keep checking it. If an
+in-scope monitoring check later finds a publish failure or a site that is
+still not current after 24 hours, correct the update in the same thread. Use
+`🎫` only when another person or team must act. Keep publisher details in the
+internal recap.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The

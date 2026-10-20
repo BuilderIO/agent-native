@@ -1547,12 +1547,13 @@ function validateHistoricalReactionMarks(
     }
     if (
       mark.emoji === "white_check_mark" &&
-      !["Fixed", "Partially fixed", "Verified locally"].includes(
+      (!["Fixed", "Partially fixed", "Verified locally"].includes(
         previous.disposition,
-      )
+      ) ||
+        !replyStatesDisposition(previous.text, previous.disposition))
     ) {
       throw new Error(
-        `${label}: historical ✅ needs a prior verified disposition`,
+        `${label}: historical ✅ needs a prior verified disposition stated in its captured reply`,
       );
     }
     const reactionDecision =
@@ -11828,6 +11829,36 @@ if (args[0] === "--self-test" && args.length === 1) {
       historicalCheckWithoutScope,
       "historical mark prior status/evidence must include its recorded scope",
     );
+    const historicalCheckWithoutStatedDisposition = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithoutStatedDisposition.channels[0]!.pages[0]!.parents =
+      historicalCheckWithoutStatedDisposition.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                            text: "In progress: The initial route screen still needs checking. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark without a stated prior disposition",
+      historicalCheckWithoutStatedDisposition,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
     expectHistoricalMarkFailure(
       "historical ticket withdrawal needs the assigned owner's reply",
       {
@@ -14858,7 +14889,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 15} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 16} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
