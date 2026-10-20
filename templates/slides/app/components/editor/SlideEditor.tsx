@@ -168,6 +168,7 @@ import { hasInlineHeight } from "./fit-text-object";
 import {
   FloatingToolbar,
   type FloatingToolbarAgentAction,
+  type FloatingToolbarNotesAction,
   type FloatingToolbarInsertTool,
   type FloatingToolbarMoveTool,
   type FloatingToolbarTransition,
@@ -467,6 +468,24 @@ const AGENT_ACTION_PROMPTS: Record<FloatingToolbarAgentAction, string> = {
     "Tighten the tone of this slide's copy: shorter, more direct wording, no filler, same meaning.",
   polish:
     "Polish this slide: fix alignment, spacing, hierarchy, and copy typos while keeping its content and structure.",
+};
+
+const NOTES_ACTION_PROMPTS: Record<
+  FloatingToolbarNotesAction | "generate" | "rewrite",
+  string
+> = {
+  generate:
+    "Write speaker notes for this slide: what to say, in a natural spoken voice, covering its key points.",
+  rewrite:
+    "Rewrite this slide's speaker notes: keep the meaning, improve flow and clarity for speaking aloud.",
+  "write-script":
+    "Write a word-for-word speaking script for this slide as its speaker notes.",
+  summarize:
+    "Replace this slide's speaker notes with a short bulleted list of the key points to cover.",
+  expand:
+    "Expand this slide's speaker notes with more detail, examples, and supporting points.",
+  timing:
+    "Add timing cues to this slide's speaker notes, such as [pause], [next click], and rough per-section durations.",
 };
 
 const SHAPE_BY_INSERT = new Map<FloatingToolbarInsertTool, SlideShapeType>(
@@ -2012,6 +2031,7 @@ export default function SlideEditor({
   const isHtmlSlide = isRawHtmlSlide(slide);
 
   const [canvasZoom, setCanvasZoom] = useState(100);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
     rect: DOMRect;
     src: string;
@@ -2240,6 +2260,7 @@ export default function SlideEditor({
       deckId,
       slideId: slide.id,
       panel: animationsOpen ? "animations" : layersOpen ? "layers" : null,
+      notesOpen,
     };
     for (const key of [
       appStateKeyForBrowserTab("slides-open-panel", TAB_ID),
@@ -2250,7 +2271,7 @@ export default function SlideEditor({
         requestSource: TAB_ID,
       }).catch(() => {});
     }
-  }, [animationsOpen, layersOpen, deckId, slide.id]);
+  }, [animationsOpen, layersOpen, notesOpen, deckId, slide.id]);
 
   const dims = getAspectRatioDims(aspectRatio);
   const [, setFitCanvasZoom] = useState(100);
@@ -3460,6 +3481,32 @@ export default function SlideEditor({
       });
     },
     [slide.id, t],
+  );
+
+  const toggleNotes = useCallback(() => setNotesOpen((open) => !open), []);
+  const closeNotes = useCallback(() => setNotesOpen(false), []);
+  const runNotesAction = useCallback(
+    (action: FloatingToolbarNotesAction | "generate" | "rewrite") => {
+      setNotesOpen(true);
+      void sendToAgentChatAndConfirm({
+        message: [
+          NOTES_ACTION_PROMPTS[action],
+          ``,
+          `Slide id: \`${slide.id}\``,
+          `Call \`view-screen\` first and read this slide's current notes. Write the result with \`patch-deck\` using a \`patch-slide\` op that sets only \`fields.notes\`. Do not change the slide's content.`,
+        ].join("\n"),
+        submit: true,
+        chatTarget: "local",
+      }).then((delivery) => {
+        if (!delivery.delivered)
+          toast.error(t("floatingToolbar.agentUnavailable"));
+      });
+    },
+    [slide.id, t],
+  );
+  const generateNotes = useCallback(
+    () => runNotesAction(slide.notes?.trim() ? "rewrite" : "generate"),
+    [runNotesAction, slide.notes],
   );
 
   const transitionsDisabledReason = readOnly
@@ -11351,6 +11398,9 @@ export default function SlideEditor({
                   disabledCommentActions={disabledCommentActions}
                   onOpenComments={onToggleComments}
                   onCommentAction={runCommentAction}
+                  notesOpen={notesOpen}
+                  onToggleNotes={toggleNotes}
+                  onNotesAction={runNotesAction}
                   onAgentAction={runAgentAction}
                 />
               )}
@@ -11572,11 +11622,15 @@ export default function SlideEditor({
           : null}
       </div>
 
-      <SpeakerNotesPanel
-        notes={slide.notes}
-        onChange={(notes) => onUpdateSlide({ notes })}
-        readOnly={readOnly}
-      />
+      {notesOpen ? (
+        <SpeakerNotesPanel
+          notes={slide.notes || ""}
+          onChange={(notes) => onUpdateSlide({ notes })}
+          onClose={closeNotes}
+          onGenerate={generateNotes}
+          readOnly={readOnly}
+        />
+      ) : null}
 
       {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline

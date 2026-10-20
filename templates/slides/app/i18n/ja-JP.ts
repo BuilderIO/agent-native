@@ -285,6 +285,21 @@ const messages = {
     inspiration: "インスピレーション",
     tightenTone: "トーンを引き締める",
     polish: "仕上げ",
+    speakerNotes: "スピーカーノート",
+    speakerNotesMenu: "スピーカーノートのオプション",
+    writeScript: "スクリプトを作成",
+    summarizeKeyPoints: "要点を要約",
+    expandDetail: "詳細を追加",
+    addTimingCues: "タイミングの指示を追加",
+  },
+  speakerNotesPanel: {
+    title: "スピーカーノート",
+    resize: "スピーカーノートのサイズを変更",
+    generate: "ノートを生成",
+    rewrite: "ノートを書き直す",
+    close: "スピーカーノートを閉じる",
+    placeholder:
+      "入力を始めるか、エージェントでスピーカーノートをすばやく生成しましょう",
   },
   editorToolbar: {
     layoutTitle: "タイトル",

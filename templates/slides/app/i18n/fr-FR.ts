@@ -288,6 +288,21 @@ const messages = {
     inspiration: "Inspiration",
     tightenTone: "Resserrer le ton",
     polish: "Peaufiner",
+    speakerNotes: "Notes du présentateur",
+    speakerNotesMenu: "Options des notes du présentateur",
+    writeScript: "Rédiger un script",
+    summarizeKeyPoints: "Résumer les points clés",
+    expandDetail: "Développer les détails",
+    addTimingCues: "Ajouter des repères de temps",
+  },
+  speakerNotesPanel: {
+    title: "Notes du présentateur",
+    resize: "Redimensionner les notes du présentateur",
+    generate: "Générer des notes",
+    rewrite: "Réécrire les notes",
+    close: "Fermer les notes du présentateur",
+    placeholder:
+      "Commencez à écrire ou générez rapidement des notes du présentateur avec l'agent",
   },
   editorToolbar: {
     layoutTitle: "Titre",

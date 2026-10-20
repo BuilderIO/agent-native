@@ -7,8 +7,11 @@ import {
   IconCategory,
   IconChevronDown,
   IconCircleDotted,
+  IconClock,
+  IconEdit,
   IconEyeglass,
   IconHandStop,
+  IconListDetails,
   IconMessageCircle,
   IconMinus,
   IconOval,
@@ -21,6 +24,7 @@ import {
   IconSparkles,
   IconSquare,
   IconSquareArrowLeft,
+  IconTextPlus,
   IconTriangle,
   IconTypography,
   IconUserEdit,
@@ -60,6 +64,11 @@ export type FloatingToolbarAgentAction =
   | "inspiration"
   | "tighten-tone"
   | "polish";
+export type FloatingToolbarNotesAction =
+  | "write-script"
+  | "summarize"
+  | "expand"
+  | "timing";
 
 type MenuItem<V extends string> = {
   value: V;
@@ -189,6 +198,29 @@ const AGENT_ITEMS: MenuItem<FloatingToolbarAgentAction>[] = [
     icon: IconEyeglass,
   },
   { value: "polish", labelKey: "floatingToolbar.polish", icon: IconSparkles },
+];
+
+const NOTES_ITEMS: MenuItem<FloatingToolbarNotesAction>[] = [
+  {
+    value: "write-script",
+    labelKey: "floatingToolbar.writeScript",
+    icon: IconEdit,
+  },
+  {
+    value: "summarize",
+    labelKey: "floatingToolbar.summarizeKeyPoints",
+    icon: IconListDetails,
+  },
+  {
+    value: "expand",
+    labelKey: "floatingToolbar.expandDetail",
+    icon: IconTextPlus,
+  },
+  {
+    value: "timing",
+    labelKey: "floatingToolbar.addTimingCues",
+    icon: IconClock,
+  },
 ];
 
 // The bar stays dark in both themes, like the Figma toolbar it mirrors.
@@ -355,6 +387,10 @@ export interface FloatingToolbarProps {
   disabledCommentActions?: readonly FloatingToolbarCommentAction[];
   onOpenComments?: () => void;
   onCommentAction?: (action: FloatingToolbarCommentAction) => void;
+  /** True while the speaker notes panel is open. */
+  notesOpen?: boolean;
+  onToggleNotes?: () => void;
+  onNotesAction?: (action: FloatingToolbarNotesAction) => void;
   onAgentAction?: (action: FloatingToolbarAgentAction) => void;
 }
 
@@ -375,6 +411,9 @@ export const FloatingToolbar = memo(function FloatingToolbar({
   disabledCommentActions,
   onOpenComments,
   onCommentAction,
+  notesOpen = false,
+  onToggleNotes,
+  onNotesAction,
   onAgentAction,
 }: FloatingToolbarProps) {
   const t = useT();
@@ -435,6 +474,15 @@ export const FloatingToolbar = memo(function FloatingToolbar({
         disabledValues={disabledCommentActions}
         onActivate={onOpenComments}
         onSelect={onCommentAction}
+      />
+      <ToolGroup
+        icon={IconEdit}
+        tooltip={t("floatingToolbar.speakerNotes")}
+        menuLabel={t("floatingToolbar.speakerNotesMenu")}
+        items={NOTES_ITEMS}
+        active={notesOpen}
+        onActivate={onToggleNotes}
+        onSelect={onNotesAction}
       />
       <ToolGroup
         icon={IconRobot}

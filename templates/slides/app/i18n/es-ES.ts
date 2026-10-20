@@ -287,6 +287,21 @@ const messages = {
     inspiration: "Inspiración",
     tightenTone: "Ajustar el tono",
     polish: "Pulir",
+    speakerNotes: "Notas del presentador",
+    speakerNotesMenu: "Opciones de notas del presentador",
+    writeScript: "Escribir guion",
+    summarizeKeyPoints: "Resumir puntos clave",
+    expandDetail: "Ampliar detalle",
+    addTimingCues: "Añadir indicaciones de tiempo",
+  },
+  speakerNotesPanel: {
+    title: "Notas del presentador",
+    resize: "Cambiar tamaño de las notas del presentador",
+    generate: "Generar notas",
+    rewrite: "Reescribir notas",
+    close: "Cerrar notas del presentador",
+    placeholder:
+      "Empieza a escribir o genera notas del presentador rápidamente con el agente",
   },
   editorToolbar: {
     layoutTitle: "Título",

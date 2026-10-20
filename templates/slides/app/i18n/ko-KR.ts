@@ -282,6 +282,21 @@ const messages = {
     inspiration: "영감",
     tightenTone: "어조 다듬기",
     polish: "다듬기",
+    speakerNotes: "발표자 노트",
+    speakerNotesMenu: "발표자 노트 옵션",
+    writeScript: "스크립트 작성",
+    summarizeKeyPoints: "핵심 요약",
+    expandDetail: "상세 내용 확장",
+    addTimingCues: "타이밍 표시 추가",
+  },
+  speakerNotesPanel: {
+    title: "발표자 노트",
+    resize: "발표자 노트 크기 조절",
+    generate: "노트 생성",
+    rewrite: "노트 다시 쓰기",
+    close: "발표자 노트 닫기",
+    placeholder:
+      "직접 작성하거나 에이전트로 발표자 노트를 빠르게 생성해 보세요",
   },
   editorToolbar: {
     layoutTitle: "제목",

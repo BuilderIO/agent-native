@@ -282,6 +282,21 @@ const messages = {
     inspiration: "Inspiration",
     tightenTone: "Tighten tone",
     polish: "Polish",
+    speakerNotes: "Speaker notes",
+    speakerNotesMenu: "Speaker notes options",
+    writeScript: "Write script",
+    summarizeKeyPoints: "Summarize key points",
+    expandDetail: "Expand detail",
+    addTimingCues: "Add timing cues",
+  },
+  speakerNotesPanel: {
+    title: "Speaker notes",
+    resize: "Resize speaker notes",
+    generate: "Generate notes",
+    rewrite: "Rewrite notes",
+    close: "Close speaker notes",
+    placeholder:
+      "Start writing or generate speaker notes quickly with the agent",
   },
   editorToolbar: {
     layoutTitle: "Title",

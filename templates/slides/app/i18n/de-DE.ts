@@ -289,6 +289,21 @@ const messages = {
     inspiration: "Inspiration",
     tightenTone: "Ton straffen",
     polish: "Feinschliff",
+    speakerNotes: "Sprechernotizen",
+    speakerNotesMenu: "Optionen für Sprechernotizen",
+    writeScript: "Skript schreiben",
+    summarizeKeyPoints: "Kernpunkte zusammenfassen",
+    expandDetail: "Details erweitern",
+    addTimingCues: "Zeitangaben hinzufügen",
+  },
+  speakerNotesPanel: {
+    title: "Sprechernotizen",
+    resize: "Größe der Sprechernotizen ändern",
+    generate: "Notizen generieren",
+    rewrite: "Notizen umschreiben",
+    close: "Sprechernotizen schließen",
+    placeholder:
+      "Schreibe los oder erstelle Sprechernotizen schnell mit dem Agenten",
   },
   editorToolbar: {
     layoutTitle: "Titel",

@@ -113,7 +113,7 @@ describe("SlideEditor inside an MCP App widget", () => {
     },
   );
 
-  it("keeps the toolbar and speaker notes in a writable widget", () => {
+  it("keeps the toolbar and a closed notes panel in a writable widget", () => {
     widget.embed = true;
     const { container } = renderEditor();
 
@@ -121,7 +121,7 @@ describe("SlideEditor inside an MCP App widget", () => {
       container.querySelector("[data-slide-context-toolbar]"),
     ).not.toBeNull();
     expect(container.querySelector("[data-editable='true']")).not.toBeNull();
-    expect(screen.getByText("raw.speakerNotes")).toBeTruthy();
+    expect(screen.queryByText("speakerNotesPanel.title")).toBeNull();
   });
 
   it("keeps a read-only widget free of editing controls", () => {
