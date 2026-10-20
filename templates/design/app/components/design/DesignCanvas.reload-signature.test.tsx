@@ -86,6 +86,47 @@ async function renderCanvas(content: string) {
 }
 
 describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
+  it("has the native runtime before the first native apply, without reloading the frame", async () => {
+    const canvas = await renderCanvas(BASE);
+    try {
+      const mounted = canvas.iframe()?.srcdoc;
+      expect(mounted).toContain(
+        'data-agent-native-native-shader-runtime data-runtime-version="2"',
+      );
+      await canvas.update(
+        BASE.replace(
+          "</body>",
+          '<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body>',
+        ),
+      );
+      expect(canvas.iframe()?.srcdoc).toBe(mounted);
+    } finally {
+      await canvas.cleanup();
+    }
+  });
+
+  it("keeps the editor frame mounted when only the native effect manifest changes", async () => {
+    const initial = BASE.replace(
+      "</body>",
+      '<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body>',
+    );
+    const next = initial.replace(
+      '"instances":[]',
+      '"instances":[{"id":"changed"}]',
+    );
+    const canvas = await renderCanvas(initial);
+    try {
+      const mounted = canvas.iframe()?.srcdoc;
+      expect(mounted).toBeTruthy();
+      expect(mounted).toContain(
+        'data-agent-native-native-shader-runtime data-runtime-version="2"',
+      );
+      await canvas.update(next);
+      expect(canvas.iframe()?.srcdoc).toBe(mounted);
+    } finally {
+      await canvas.cleanup();
+    }
+  });
   it("does not reload on drag-into-container, undo, undo again", async () => {
     const canvas = await renderCanvas(BASE);
     try {

@@ -666,7 +666,7 @@ test("appearance controls use droplet blend menu and inline independent corners"
   await setScrubInput(appearance, "Corner radius", "12");
   await expect(
     appearance.locator('input[aria-label="Corner radius" i]'),
-  ).toHaveValue("12");
+  ).toHaveValue("12px");
   await appearance.getByRole("button", { name: "Independent corners" }).click();
   await setScrubInput(appearance, "Top left", "4");
   await expect

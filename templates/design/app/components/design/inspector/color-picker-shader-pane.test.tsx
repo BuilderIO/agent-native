@@ -1,11 +1,19 @@
 // @vitest-environment happy-dom
 
 /**
- * The Shader paint's pane inside the picker: a search, "Created by you" with
- * Create with AI, the preset grid; then, for the shader on the element, its
- * preset select, a menu to edit its code or remove it, and its controls.
+ * The Shader paint picker browses native shaders and hands creation to chat.
+ * Existing GLSL instances keep their controls and source editing.
  */
 
+import {
+  editNativeEffectHtml,
+  type NativeEffectEdit,
+} from "@shared/native-effect-edits";
+import { NATIVE_EFFECT_LATEST_DEFINITIONS } from "@shared/native-effect-presets";
+import {
+  writeEffectsToHtml,
+  parseEffectsFromHtml,
+} from "@shared/native-effects";
 import {
   applyShaderToHtml,
   listShaderMounts,
@@ -19,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import enUS from "../../../i18n/en-US";
+import { nativeCatalogDefinitionKey } from "./native-catalog-display";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
@@ -63,6 +72,15 @@ vi.mock("@/lib/agent-chat", () => ({
     mocks.sendToDesignAgentChat(...args),
 }));
 
+vi.mock("./NativeShaderCatalogPreview", () => ({
+  NativeShaderCatalogPreviewProvider: ({
+    children,
+  }: {
+    children: React.ReactNode;
+  }) => children,
+  NativeShaderCatalogPreview: () => <div data-native-shader-preview />,
+}));
+
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 import type { RenderNestedColorPicker } from "./color-picker-nested";
@@ -70,18 +88,6 @@ import {
   ShaderPane,
   type ShaderPaneController,
 } from "./color-picker-shader-pane";
-
-const FIGMA_PRESETS = [
-  "Mesh Gradient",
-  "Glowing Wave",
-  "Water Caustics",
-  "Fractal Noise",
-  "Clouds",
-  "Nebula",
-  "Moiré",
-  "Concentric Rings",
-  "Pattern Grid",
-];
 
 const BASE_HTML =
   '<html><body><div data-agent-native-node-id="hero"></div></body></html>';
@@ -147,16 +153,31 @@ function mount({
   onRemoved?: () => void;
   renderColorPicker?: RenderNestedColorPicker;
 }) {
-  mocks.callAction.mockImplementation((name: string) => {
-    if (name === "read-source-file") {
-      return Promise.resolve({
-        content: html,
-        versionHash: "v1",
-        fileId: "file_1",
-      });
-    }
-    throw new Error(`unexpected callAction: ${name}`);
-  });
+  mocks.callAction.mockImplementation(
+    (name: string, args: { operation: NativeEffectEdit }) => {
+      if (name === "edit-native-shader") {
+        const result = editNativeEffectHtml(html, args.operation);
+        if (result.errors.length)
+          return Promise.reject(new Error(result.errors.join(", ")));
+        mocks.applied.push({
+          name,
+          params: { operation: args.operation, edit: { content: result.html } },
+        });
+        return Promise.resolve({
+          content: result.html,
+          instanceIds: result.instanceIds,
+        });
+      }
+      if (name === "read-source-file") {
+        return Promise.resolve({
+          content: html,
+          versionHash: "v1",
+          fileId: "file_1",
+        });
+      }
+      throw new Error(`unexpected callAction: ${name}`);
+    },
+  );
   act(() =>
     root.render(
       <TooltipProvider delayDuration={0}>
@@ -206,27 +227,29 @@ const lastWrittenHtml = () =>
     ?.content;
 
 describe("browsing", () => {
-  it("lists every shader fill from the design in the presets grid, Mesh Gradient first", () => {
+  it("lists native Fill definitions and excludes processor-only shaders", () => {
     mount({ html: BASE_HTML });
-
-    const labels = FIGMA_PRESETS.map((label) => button(label));
-    expect(labels.every(Boolean)).toBe(true);
-    const grid = labels[0]!.parentElement!;
-    expect(FIGMA_PRESETS.every((label) => grid.contains(button(label)!))).toBe(
-      true,
-    );
-    // Effects are not fills.
-    for (const effect of ["Film Grain", "Halftone", "Scanlines"]) {
-      expect(button(effect)).toBeUndefined();
+    for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
+      const key = nativeCatalogDefinitionKey(definition);
+      const label = key
+        ? (key
+            .split(".")
+            .reduce<unknown>(
+              (value, part) => (value as Record<string, unknown>)[part],
+              enUS,
+            ) as string)
+        : definition.name;
+      expect(Boolean(button(label))).toBe(
+        definition.placements.includes("fill"),
+      );
     }
-    expect(container.textContent).toContain("Created by you");
-    expect(container.textContent).toContain("Presets");
+    expect(button("Create with AI")).toBeDefined();
     expect(
       container.querySelector('input[aria-label="Search shaders"]'),
     ).not.toBeNull();
   });
 
-  it("Create with AI sends the canned prompt through the agent chat, with the target as context", () => {
+  it("Create with AI prefills native WGSL creation in the agent chat, with the target as context", () => {
     mount({ html: BASE_HTML });
 
     act(() => button("Create with AI")!.click());
@@ -236,30 +259,34 @@ describe("browsing", () => {
       message: string;
       context: string;
       submit: boolean;
+      openSidebar: boolean;
     };
-    expect(sent.message).toBe(
-      "Create a custom shader fill for the selected element.",
-    );
-    expect(sent.context).toContain(
-      "target nodeId (data-agent-native-node-id): hero",
-    );
-    expect(sent.context).toContain("mode: fill");
+    expect(sent.message).toBe("Create a custom shader fill: ");
+    expect(JSON.parse(sent.context)).toMatchObject({
+      workflow: "native-effects",
+      backend: "WebGPU",
+      language: "WGSL",
+      nodeId: "hero",
+      placement: "fill",
+    });
+    expect(sent.openSidebar).toBe(true);
     expect(sent.submit).toBe(false);
     expect(mocks.applied).toHaveLength(0);
   });
 
-  it("applies a picked preset to the element through the source edit action", async () => {
+  it("applies a picked native definition through the shared source action", async () => {
     mount({ html: BASE_HTML });
-
-    await act(async () => button("Clouds")!.click());
-
+    await act(async () => button("Nebula")!.click());
     expect(mocks.applied).toHaveLength(1);
-    expect(mocks.applied[0]!.name).toBe("apply-source-edit");
-    const written = lastWrittenHtml()!;
-    const mounts = listShaderMounts(written);
-    expect(mounts).toHaveLength(1);
-    expect(mounts[0]).toMatchObject({ nodeId: "hero", mode: "fill" });
-    expect(written).toContain("data-an-shader-fill");
+    expect(mocks.applied[0]!.name).toBe("edit-native-shader");
+    expect(
+      parseEffectsFromHtml(lastWrittenHtml()!).document?.instances[0],
+    ).toMatchObject({
+      nodeId: "hero",
+      placement: "fill",
+      definitionId: "an-native-nebula",
+      params: {},
+    });
   });
 
   it("narrows the presets by the search", () => {
@@ -328,70 +355,38 @@ const WITH_AI_AND_PRESET_ELSEWHERE = applyShaderToHtml(WITH_AI_ELSEWHERE, {
   def: stampedMesh,
 }).html;
 
-/** The "Created by you" section: its heading, the Create with AI card, and the shaders after it. */
-const createdByYou = () =>
-  Array.from(container.querySelectorAll("section")).find((section) =>
-    section.textContent?.includes("Created by you"),
-  )!;
-
-describe("Created by you", () => {
-  it("lists a shader the agent made for this design, after Create with AI", () => {
-    mount({ html: WITH_AI_ELSEWHERE });
-
-    const section = createdByYou();
-    const labels = Array.from(section.querySelectorAll("button")).map(
-      (item) => item.getAttribute("aria-label") ?? item.textContent,
-    );
-    expect(labels).toEqual(["Create with AI", "Aurora Drift"]);
-  });
-
-  it("does not list a preset that was applied somewhere else in the design", () => {
-    mount({ html: WITH_AI_AND_PRESET_ELSEWHERE });
-
-    expect(createdByYou().textContent).toContain("Aurora Drift");
-    expect(createdByYou().textContent).not.toContain("Mesh Gradient");
-    // It is still a preset to pick, once.
-    expect(
-      Array.from(container.querySelectorAll("button")).filter(
-        (item) => item.getAttribute("aria-label") === "Mesh Gradient",
+describe("saved native shaders", () => {
+  it("lists only the latest custom version and keeps an unapproved draft disabled", () => {
+    const original = NATIVE_EFFECT_LATEST_DEFINITIONS.find((definition) =>
+      definition.placements.includes("fill"),
+    )!;
+    const custom = {
+      ...original,
+      id: "custom-aurora",
+      name: "Aurora Drift",
+      version: 1,
+    };
+    const html = writeEffectsToHtml(BASE_HTML, {
+      schemaVersion: 2,
+      definitions: [custom, { ...custom, version: 2 }],
+      instances: [],
+    });
+    mount({ html });
+    const entries = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Aurora Drift"]',
       ),
-    ).toHaveLength(1);
+    ];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.disabled).toBe(true);
+    act(() => entries[0]!.click());
+    expect(mocks.applied).toHaveLength(0);
   });
 
-  it("lists a preset whose code was edited: it is the user's now", () => {
-    const edited = applyShaderToHtml(THREE_NODES, {
-      nodeId: "footer",
-      def: {
-        ...stampedMesh,
-        glsl: stampedMesh.glsl.replace(
-          "void main() {",
-          "// tweaked\nvoid main() {",
-        ),
-      },
-    }).html;
-    mount({ html: edited });
-
-    expect(createdByYou().textContent).toContain("Mesh Gradient");
-  });
-
-  it("is only the Create with AI card while the design has no shaders of its own", () => {
-    mount({ html: BASE_HTML });
-
-    const section = createdByYou();
-    expect(section.querySelectorAll("button")).toHaveLength(1);
-    expect(section.textContent).toContain("Create with AI");
-  });
-
-  it("applies the picked one to the selected element", async () => {
-    mount({ html: WITH_AI_ELSEWHERE });
-
-    await act(async () => button("Aurora Drift")!.click());
-
-    expect(mocks.applied).toHaveLength(1);
-    const mounts = listShaderMounts(lastWrittenHtml()!);
-    expect(
-      mounts.map((item) => `${item.nodeId}:${item.shaderId}`).sort(),
-    ).toEqual([`aside:${AI_ID}`, `hero:${AI_ID}`]);
+  it("keeps historical GLSL saved shaders out of the native creation catalog", () => {
+    mount({ html: WITH_AI_AND_PRESET_ELSEWHERE });
+    expect(button("Aurora Drift")).toBeUndefined();
+    expect(button("Create with AI")).toBeDefined();
   });
 });
 
@@ -575,16 +570,31 @@ describe("a shader on the element", () => {
  */
 function mountLive(initial: string) {
   let current = initial;
-  mocks.callAction.mockImplementation((name: string) => {
-    if (name === "read-source-file") {
-      return Promise.resolve({
-        content: current,
-        versionHash: "v1",
-        fileId: "file_1",
-      });
-    }
-    throw new Error(`unexpected callAction: ${name}`);
-  });
+  mocks.callAction.mockImplementation(
+    (name: string, args: { operation: NativeEffectEdit }) => {
+      if (name === "edit-native-shader") {
+        const result = editNativeEffectHtml(current, args.operation);
+        if (result.errors.length)
+          return Promise.reject(new Error(result.errors.join(", ")));
+        mocks.applied.push({
+          name,
+          params: { operation: args.operation, edit: { content: result.html } },
+        });
+        return Promise.resolve({
+          content: result.html,
+          instanceIds: result.instanceIds,
+        });
+      }
+      if (name === "read-source-file") {
+        return Promise.resolve({
+          content: current,
+          versionHash: "v1",
+          fileId: "file_1",
+        });
+      }
+      throw new Error(`unexpected callAction: ${name}`);
+    },
+  );
   function Editor() {
     const [content, setContent] = useState(initial);
     return (
@@ -617,16 +627,16 @@ const presetSelect = () =>
   container.querySelector<HTMLElement>('[role="combobox"]');
 
 describe("which of the pane's views shows", () => {
-  it("is the browser while the element has no shader: search, Created by you, Create with AI and the presets", () => {
+  it("shows the native browser and creation handoff while the element has no shader", () => {
     mount({ html: BASE_HTML });
-
-    expect(pane()).toBe("browse");
+    expect(
+      container.querySelector('[data-native-shader-panel="fill"]'),
+    ).not.toBeNull();
     expect(
       container.querySelector('input[aria-label="Search shaders"]'),
     ).not.toBeNull();
-    expect(container.textContent).toContain("Created by you");
     expect(button("Create with AI")).toBeDefined();
-    expect(button("Mesh Gradient")).toBeDefined();
+    expect(button("Nebula")).toBeDefined();
     expect(presetSelect()).toBeNull();
   });
 
@@ -641,14 +651,18 @@ describe("which of the pane's views shows", () => {
     expect(presetSelect()?.textContent).toBe("Mesh Gradient");
   });
 
-  it("switches from the browser to the picked shader's controls", async () => {
+  it("switches from native browsing to shared controls after a committed selection", async () => {
     mountLive(BASE_HTML);
-    expect(pane()).toBe("browse");
-
+    expect(button("Create with AI")).toBeDefined();
     await act(async () => button("Nebula")!.click());
-
-    expect(pane()).toBe("controls");
-    expect(presetSelect()?.textContent).toBe("Nebula");
+    expect(button("Create with AI")).toBeUndefined();
+    expect(
+      container.querySelector('input[aria-label="Search shaders"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("Nebula");
+    expect(
+      container.querySelector('[data-native-shader-panel="fill"]'),
+    ).not.toBeNull();
   });
 
   it("shows Custom for a shader that is not a preset, with the controls that shader exposes", () => {
@@ -704,7 +718,7 @@ describe("which of the pane's views shows", () => {
     expect(lastWrittenHtml()).not.toContain("data-an-shader-fill");
   });
 
-  it("clears the search once a preset is picked, so the preset select still lists them all", async () => {
+  it("leaves search behind when a native selection opens its controls", async () => {
     mountLive(BASE_HTML);
     const search = container.querySelector<HTMLInputElement>(
       'input[aria-label="Search shaders"]',
@@ -716,22 +730,12 @@ describe("which of the pane's views shows", () => {
       )!.set!.call(search, "nebula");
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    expect(button("Create with AI")).toBeUndefined();
     await act(async () => button("Nebula")!.click());
-
-    await act(async () => {
-      presetSelect()!.focus();
-      presetSelect()!.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowDown",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-    const options = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((option) => option.textContent);
-    expect(options).toEqual(expect.arrayContaining(FIGMA_PRESETS));
+    expect(
+      container.querySelector('input[aria-label="Search shaders"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("Nebula");
   });
 });
 
