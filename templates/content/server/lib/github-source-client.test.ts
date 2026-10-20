@@ -167,6 +167,13 @@ describe("GitHub request deadlines", () => {
     expect(requests).toHaveLength(2);
   });
 
+  it("asks again when a read without a deadline shared one that another caller's deadline ended", async () => {
+    github.endedElsewhere = 1;
+    const head = await readGitHubBranchHead({ ...target, branch: "main" });
+    expect(head).toMatchObject({ status: "ok", sha: "c0ffee" });
+    expect(requests).toHaveLength(2);
+  });
+
   it("keeps other failures as they are", async () => {
     github.failure = new Error("socket hang up");
     await expect(
