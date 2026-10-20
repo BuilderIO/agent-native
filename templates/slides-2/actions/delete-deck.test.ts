@@ -260,6 +260,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/file-upload", () => ({
   deleteUploadedFile: (...args: unknown[]) => mocks.deleteUploadedFile(...args),
+  registerFileUploadProvider: vi.fn(),
 }));
 
 vi.mock("drizzle-orm", () => ({

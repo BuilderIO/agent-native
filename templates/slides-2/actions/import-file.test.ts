@@ -94,6 +94,7 @@ vi.mock("../server/handlers/import/pdf-fidelity-parser.js", () => ({
 vi.mock("../server/handlers/import/pptx-assets.js", () => ({
   uploadPptxSlideImages: (...args: unknown[]) =>
     mockUploadPptxSlideImages(...args),
+  assertPptxImageByteLimits: () => {},
   assertPptxImagesRenderable: () => {},
 }));
 

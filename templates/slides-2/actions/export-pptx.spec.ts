@@ -31,6 +31,7 @@ import PptxGenJS from "pptxgenjs";
 
 import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
 import {
+  createRemoteImageByteBudget,
   pptxDeckBindingPath,
   pptxExportRevisionKey,
   safeGeneratedFilename,
@@ -652,6 +653,50 @@ describe("fetchImageAsBase64", () => {
       { signal: expect.any(AbortSignal) },
       { maxRedirects: 3 },
     );
+  });
+
+  it("enforces the per-image limit while streaming the remote response", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(5));
+      },
+      cancel,
+    });
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(body, { headers: { "content-type": "image/png" } }),
+    );
+
+    await expect(
+      fetchImageAsBase64(
+        "https://cdn.example/large.png",
+        undefined,
+        createRemoteImageByteBudget({ maxImageBytes: 4, maxTotalBytes: 8 }),
+      ),
+    ).resolves.toBeNull();
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("enforces an aggregate remote-image limit across an export", async () => {
+    const response = () =>
+      new Response(new Uint8Array(3), {
+        headers: { "content-type": "image/png" },
+      });
+    mocks.ssrfSafeFetch
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response());
+    const budget = createRemoteImageByteBudget({
+      maxImageBytes: 4,
+      maxTotalBytes: 5,
+    });
+
+    await expect(
+      fetchImageAsBase64("https://cdn.example/one.png", undefined, budget),
+    ).resolves.toBe("data:image/png;base64,AAAA");
+    await expect(
+      fetchImageAsBase64("https://cdn.example/two.png", undefined, budget),
+    ).resolves.toBeNull();
+    expect(budget.totalBytes).toBe(3);
   });
 
   it("rejects non-image responses", async () => {

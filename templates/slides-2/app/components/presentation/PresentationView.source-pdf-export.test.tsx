@@ -174,12 +174,64 @@ describe("PresentationView source-backed PDF export", () => {
       '[data-pdf-export-stage] [data-slide-canvas="source-slide"]',
     );
     expect(sourceCanvas?.textContent).toContain("Sandbox-rendered source");
+    expect(sourceCanvas?.className).toContain("bg-white");
+    expect(sourceCanvas?.className).toContain("text-black");
     expect(sourceCanvas?.querySelector("style")?.textContent).toContain(
       '[data-pdf-slide-root="0"]',
     );
     expect(screen.getByTestId("rendered-imported-slide").textContent).toContain(
       "Imported HTML",
     );
+  });
+
+  it("uses source design tokens over the white PDF fallback", async () => {
+    const designTokens = {
+      background: "#123456",
+      text: "#abcdef",
+      accent: "#234567",
+      displayFont: "Arial",
+      bodyFont: "Arial",
+      heroScale: 1,
+      bodyScale: 1,
+      radius: 12,
+    };
+    mocks.artifact = {
+      ...(mocks.artifact as Record<string, unknown>),
+      designTokens,
+    };
+    mocks.renderSandbox.mockResolvedValue({
+      deckId: "deck-live",
+      slideId: "source-slide",
+      revision: 2,
+      sourceHash: "a".repeat(64),
+      width: 1920,
+      height: 1080,
+      html: "<main>Sandbox-rendered source</main>",
+      styles: [],
+      designTokens,
+      assetOrigins: [],
+      fontOrigins: [],
+      fontAssets: [],
+      stepCount: 0,
+    });
+
+    renderPresentation([sourceSlide], "deck-live");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "editorExport.exportPdf" }),
+    );
+
+    await waitFor(() => expect(mocks.exportPdf).toHaveBeenCalled());
+
+    const sourceCanvas = document.querySelector<HTMLElement>(
+      '[data-pdf-export-stage] [data-slide-canvas="source-slide"]',
+    );
+    expect(sourceCanvas?.className).toContain("bg-white");
+    expect(sourceCanvas?.className).toContain("text-black");
+    expect(sourceCanvas?.style.getPropertyValue("--deck-bg")).toBe("#123456");
+    expect(sourceCanvas?.style.getPropertyValue("--deck-ink")).toBe("#abcdef");
+    expect(sourceCanvas?.style.backgroundColor).not.toBe("");
+    expect(sourceCanvas?.style.color).not.toBe("");
   });
 
   it("does not fetch live source artifacts for token-only snapshots", async () => {

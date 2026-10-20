@@ -64,6 +64,7 @@ const mockDb = {
     from: () => ({
       where: () => ({
         limit: async () => (mockDeckRow ? [mockDeckRow] : []),
+        for: async (_mode: string) => [],
       }),
     }),
   }),

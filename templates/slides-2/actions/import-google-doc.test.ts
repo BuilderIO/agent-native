@@ -26,6 +26,7 @@ describe("import-google-doc failures", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   function googleAnswers(status: number, body = "") {
@@ -65,6 +66,56 @@ describe("import-google-doc failures", () => {
     expect(result).toMatchObject({
       source: "public-export",
       text: "Hello deck",
+    });
+  });
+
+  it("rejects an oversized export while streaming its body", async () => {
+    mockGetGoogleDocsAccessToken.mockResolvedValue(null);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1_000_001));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body)));
+
+    await expect(
+      action.run({ url: DOC_ID }, { caller: "http" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "google_doc_unreadable",
+      statusCode: 422,
+      message: expect.stringContaining("exceeds the import size limit"),
+    });
+  });
+
+  it("keeps the export timeout active until the response body is consumed", async () => {
+    mockGetGoogleDocsAccessToken.mockResolvedValue(null);
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const signal = init?.signal as AbortSignal;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            signal.addEventListener("abort", () =>
+              controller.error(new Error("aborted")),
+            );
+          },
+        });
+        return new Response(body);
+      }),
+    );
+
+    const pending = action.run(
+      { url: DOC_ID },
+      { caller: "http" } as never,
+    );
+    await vi.advanceTimersByTimeAsync(20_001);
+
+    await expect(pending).rejects.toMatchObject({
+      errorCode: "google_doc_unreadable",
+      statusCode: 422,
+      message: expect.stringContaining("timed out"),
     });
   });
 

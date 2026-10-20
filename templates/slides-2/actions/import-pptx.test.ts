@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   parsePptx: vi.fn(),
   uploadPptxSlideImages: vi.fn(),
   assertAccess: vi.fn(async () => undefined),
+  notifyClients: vi.fn(),
+  writeAppState: vi.fn(),
+  withSlideAssetReferencesLocked: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -15,6 +18,10 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "owner@example.com",
   getRequestOrgId: () => "org-1",
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -32,6 +39,7 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 });
 
 vi.mock("../server/handlers/import/pptx-assets.js", () => ({
+  assertPptxImageByteLimits: vi.fn(),
   assertPptxImagesRenderable: vi.fn(),
   uploadPptxSlideImages: (...args: unknown[]) =>
     mocks.uploadPptxSlideImages(...args),
@@ -39,6 +47,28 @@ vi.mock("../server/handlers/import/pptx-assets.js", () => ({
 
 vi.mock("../server/handlers/import/pptx-parser.js", () => ({
   parsePptx: (...args: unknown[]) => mocks.parsePptx(...args),
+}));
+
+vi.mock("../server/handlers/decks.js", () => ({
+  notifyClients: (...args: unknown[]) => mocks.notifyClients(...args),
+}));
+
+vi.mock("../server/lib/slide-asset-references.js", () => ({
+  withSlideAssetReferencesLocked: (...args: unknown[]) =>
+    mocks.withSlideAssetReferencesLocked(...args),
+}));
+
+vi.mock("../server/handlers/import/html-converter.js", () => ({
+  convertToSlideHtml: vi.fn(() => "<div class=\"fmd-slide\"></div>"),
+}));
+
+vi.mock("./_imported-slide-source.js", () => ({
+  compileImportedSlideSource: vi.fn(async () => ({
+    content: "<div class=\"fmd-slide\"></div>",
+    sourceTsx: "export default function Slide() { return null; }",
+    revision: 1,
+    sourceHash: "source-hash",
+  })),
 }));
 
 import {
@@ -49,6 +79,14 @@ import { importPptxBufferToDeck } from "./import-pptx";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.notifyClients.mockReset();
+  mocks.writeAppState.mockReset();
+  mocks.withSlideAssetReferencesLocked.mockImplementation(
+    async (...args: unknown[]) => {
+      const [, , , write] = args;
+      return (write as (tx: unknown) => Promise<unknown>)(args[0]);
+    },
+  );
 });
 
 describe("importPptxBufferToDeck parse failures", () => {
@@ -153,5 +191,40 @@ describe("importPptxBufferToDeck app scope", () => {
 
     expect(mocks.assertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
     expect(mocks.uploadPptxSlideImages).not.toHaveBeenCalled();
+  });
+});
+
+describe("importPptxBufferToDeck post-commit effects", () => {
+  it("returns the committed import when notification and refresh fail", async () => {
+    const values = vi.fn().mockResolvedValue(undefined);
+    const db = {
+      insert: vi.fn(() => ({ values })),
+    };
+    mocks.getDb.mockReturnValue(db);
+    mocks.uploadPptxSlideImages.mockResolvedValue({
+      urls: {},
+      assets: {},
+      imageSkippedCount: 0,
+    });
+    mocks.notifyClients.mockRejectedValue(new Error("socket unavailable"));
+    mocks.writeAppState.mockRejectedValue(new Error("refresh store unavailable"));
+
+    const result = await importPptxBufferToDeck({
+      fileBuffer: Buffer.from("pptx"),
+      title: "Imported deck",
+      parsedPresentation: {
+        title: "Imported deck",
+        slides: [{ texts: [], images: [], elements: [] }],
+      },
+    });
+
+    expect(values).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      imported: true,
+      postCommitWarnings: [
+        "client_notification_failed",
+        "refresh_signal_failed",
+      ],
+    });
   });
 });

@@ -13,6 +13,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
 import {
+  assertPptxImageByteLimits,
   assertPptxImagesRenderable,
   uploadPptxSlideImages,
 } from "../server/handlers/import/pptx-assets.js";
@@ -64,6 +65,40 @@ export interface ImportedImageFallback {
   mimeType: string;
   name: string;
   crop?: ParsedImage["crop"];
+}
+
+type ImportPostCommitWarning =
+  | "client_notification_failed"
+  | "refresh_signal_failed";
+
+async function notifyImportedDeckAfterCommit(args: {
+  deckId: string;
+  timestamp: string;
+  source: string;
+}): Promise<ImportPostCommitWarning[]> {
+  const outcomes = await Promise.allSettled([
+    Promise.resolve().then(() => notifyClients(args.deckId)),
+    Promise.resolve().then(() =>
+      writeAppState("refresh-signal", {
+        ts: args.timestamp,
+        source: args.source,
+      }),
+    ),
+  ]);
+  const warnings: ImportPostCommitWarning[] = [];
+  if (outcomes[0]?.status === "rejected") {
+    warnings.push("client_notification_failed");
+  }
+  if (outcomes[1]?.status === "rejected") {
+    warnings.push("refresh_signal_failed");
+  }
+  if (warnings.length > 0) {
+    console.warn(
+      "[slides-2] PPTX import committed with post-commit refresh failures.",
+      warnings,
+    );
+  }
+  return warnings;
 }
 
 export function applyImageFallbacks(
@@ -124,6 +159,7 @@ export async function importPptxBufferToDeck(args: {
   theme: Awaited<ReturnType<typeof parsePptx>>["theme"];
   imported: true;
   url: string;
+  postCommitWarnings?: ImportPostCommitWarning[];
   imagesSkipped?: number;
   tablesDegraded?: number;
 }> {
@@ -145,6 +181,7 @@ export async function importPptxBufferToDeck(args: {
       { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
   }
+  assertPptxImageByteLimits(presentation.slides);
   const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail)
@@ -319,9 +356,9 @@ export async function importPptxBufferToDeck(args: {
         assertDeckWriteApplied(updateResult, deckId, "PPTX import");
         assetBatch.markCommitted();
 
-        await notifyClients(deckId);
-        await writeAppState("refresh-signal", {
-          ts: now,
+        const postCommitWarnings = await notifyImportedDeckAfterCommit({
+          deckId,
+          timestamp: now,
           source,
         });
 
@@ -332,6 +369,7 @@ export async function importPptxBufferToDeck(args: {
           theme: presentation.theme,
           imported: true,
           url: getDeckUrl(deckId),
+          ...(postCommitWarnings.length > 0 ? { postCommitWarnings } : {}),
           ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
           ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
         };
@@ -369,8 +407,11 @@ export async function importPptxBufferToDeck(args: {
     );
     assetBatch.markCommitted();
 
-    await notifyClients(id);
-    await writeAppState("refresh-signal", { ts: now, source });
+    const postCommitWarnings = await notifyImportedDeckAfterCommit({
+      deckId: id,
+      timestamp: now,
+      source,
+    });
 
     return {
       id,
@@ -379,6 +420,7 @@ export async function importPptxBufferToDeck(args: {
       theme: presentation.theme,
       imported: true,
       url: getDeckUrl(id),
+      ...(postCommitWarnings.length > 0 ? { postCommitWarnings } : {}),
       ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
       ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
     };

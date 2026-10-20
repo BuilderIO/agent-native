@@ -3,7 +3,7 @@ import {
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { toSharedDeckSlide } from "@shared/api";
-import { eq } from "drizzle-orm";
+import { eq } from "@agent-native/core/db/schema";
 import {
   defineEventHandler,
   getQuery,

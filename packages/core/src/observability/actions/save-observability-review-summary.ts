@@ -131,6 +131,11 @@ function artifactEvidenceMatches(
 export default defineAction({
   description:
     "Persist a concise human-review summary for a run. Artifact IDs must exactly match IDs returned by get-observability-review-summary-source; do not create, guess, or infer IDs. Include only real design, slide-deck, or analytics artifacts.",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   schema: z
     .object({
       runId: z

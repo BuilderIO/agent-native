@@ -9,17 +9,25 @@ import {
 } from "../shared/google-docs.js";
 
 const DEFAULT_MAX_CHARS = 60_000;
+const MAX_EXPORT_BYTES = 1_000_000;
+const EXPORT_TIMEOUT_MS = 20_000;
 
 class GoogleDocAccessError extends Error {}
 
-async function fetchWithTimeout(
+async function fetchExportText(
   url: string,
   init?: RequestInit,
-): Promise<Response> {
+): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20_000);
+  const timeout = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return await readExportText(response);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new GoogleDocAccessError("Google Docs export timed out.");
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -34,13 +42,47 @@ function isGoogleHtmlAccessPage(text: string, contentType: string | null) {
   );
 }
 
+async function readBoundedExportText(response: Response): Promise<string> {
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_EXPORT_BYTES) {
+    await response.body?.cancel();
+    throw new GoogleDocAccessError(
+      "Google returned an export that exceeds the import size limit.",
+    );
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_EXPORT_BYTES) {
+        await reader.cancel();
+        throw new GoogleDocAccessError(
+          "Google returned an export that exceeds the import size limit.",
+        );
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function readExportText(response: Response): Promise<string> {
-  const text = await response.text();
   if (!response.ok) {
+    await response.body?.cancel();
     throw new GoogleDocAccessError(
       `Google returned HTTP ${response.status} while exporting the document.`,
     );
   }
+  const text = await readBoundedExportText(response);
   if (isGoogleHtmlAccessPage(text, response.headers.get("content-type"))) {
     throw new GoogleDocAccessError(
       "Google returned a sign-in or access page instead of document text.",
@@ -58,18 +100,16 @@ async function exportWithDriveToken(
   token: string,
 ): Promise<string> {
   const params = new URLSearchParams({ mimeType: "text/plain" });
-  const response = await fetchWithTimeout(
+  return fetchExportText(
     `https://www.googleapis.com/drive/v3/files/${documentId}/export?${params}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
-  return readExportText(response);
 }
 
 async function exportPublicDocument(documentId: string): Promise<string> {
-  const response = await fetchWithTimeout(
+  return fetchExportText(
     `https://docs.google.com/document/d/${documentId}/export?format=txt`,
   );
-  return readExportText(response);
 }
 
 export default defineAction({

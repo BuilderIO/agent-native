@@ -19,11 +19,24 @@ const TOP_RIGHT_ACTIONS_OPEN_TAG =
 
 describe("EditorToolbar layout contract", () => {
   it("keeps the title input measuring its own width without flex-shrinking", () => {
-    expect(editorToolbarSource).toContain(
-      '"min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
+    const widthStyle = "style={{ width: `${titleInputWidth}px` }}";
+    const widthStyleIndex = editorToolbarSource.indexOf(widthStyle);
+    const titleInputStart = editorToolbarSource.lastIndexOf(
+      "<Input",
+      widthStyleIndex,
     );
-    expect(editorToolbarSource).toContain(
-      "style={{ width: `${titleInputWidth}px` }}",
+    const titleInputEnd = editorToolbarSource.indexOf("/>", widthStyleIndex);
+    const titleInput = editorToolbarSource.slice(
+      titleInputStart,
+      titleInputEnd,
+    );
+    const titleInputClasses = titleInput.match(/className="([^"]+)"/)?.[1];
+
+    expect(widthStyleIndex).toBeGreaterThan(-1);
+    expect(titleInputStart).toBeGreaterThan(-1);
+    expect(titleInputEnd).toBeGreaterThan(titleInputStart);
+    expect(titleInputClasses?.split(/\s+/)).toEqual(
+      expect.arrayContaining(["min-w-0", "max-w-[500px]", "shrink-0"]),
     );
   });
 

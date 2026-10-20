@@ -15,7 +15,7 @@ function readAppFile(relativePath: string) {
 
 function expectsDesignSystemProp(source: string, componentName: string) {
   expect(source).toMatch(
-    new RegExp(`<${componentName}\\b[\\s\\S]*?designSystem=\\{designSystem\\}`),
+    new RegExp(`<${componentName}\\b[^>]*\\bdesignSystem=\\{designSystem\\}[^>]*>`),
   );
 }
 
@@ -42,7 +42,16 @@ describe("slide design-system propagation", () => {
       "SlideRenderer",
     );
     // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
-    expectsDesignSystemProp(readAppFile("routes/slide.tsx"), "SlideRenderer");
+    expectsDesignSystemProp(
+      // source-read-ok: the standalone preview route delegates rendering to the shared wrapper.
+      readAppFile("routes/slide.tsx"),
+      "SlideContentRenderer",
+    );
+    expectsDesignSystemProp(
+      // source-read-ok: the shared wrapper must keep deck tokens on its HTML renderer branch.
+      readAppFile("components/slides-2-runtime/SlideContentRenderer.tsx"),
+      "SlideRenderer",
+    );
 
     // source-read-ok: the route and preview component graph must pass deck design tokens to each renderer.
     const deckEditorSource = readAppFile("pages/DeckEditor.tsx");

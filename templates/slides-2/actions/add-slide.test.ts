@@ -46,9 +46,19 @@ const setFn = vi.fn((fields: Record<string, unknown>) => {
   return { where: whereUpdateFn };
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
+const transactionSelectForFn = vi.fn(async (_mode: string) => []);
+const transactionSelectFn = vi.fn(() => ({
+  from: () => ({
+    where: () => ({ for: transactionSelectForFn }),
+  }),
+}));
 const transactionFn = vi.fn(
-  async (callback: (tx: { update: typeof updateFn }) => Promise<unknown>) =>
-    callback({ update: updateFn }),
+  async (
+    callback: (tx: {
+      select: typeof transactionSelectFn;
+      update: typeof updateFn;
+    }) => Promise<unknown>,
+  ) => callback({ select: transactionSelectFn, update: updateFn }),
 );
 
 const mockDb = {

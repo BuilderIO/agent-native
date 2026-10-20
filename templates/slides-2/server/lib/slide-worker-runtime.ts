@@ -763,7 +763,10 @@ export async function buildReactSlideRuntime(
               }),
             );
             builder.onResolve(
-              { filter: /^(?:@Slides 2\/core|virtual:slide-page-shim)$/ },
+              {
+                filter:
+                  /^(?:@open-slide\/core|@Slides 2\/core|virtual:slide-page-shim)$/,
+              },
               () => ({
                 path: "slide-page-shim",
                 namespace: "slides-2-worker",

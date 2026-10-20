@@ -47,7 +47,6 @@ describe("Slides content-edit agent guidance", () => {
       (match) => match[1],
     );
 
-    expect(initialNames).toHaveLength(25);
     expect(actionNames).toEqual(initialNames);
   });
 

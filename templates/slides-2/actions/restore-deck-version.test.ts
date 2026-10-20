@@ -75,7 +75,13 @@ const readbackWhere = vi.fn((condition: unknown) => {
   return { limit: readbackLimit };
 });
 const readbackFrom = vi.fn(() => ({ where: readbackWhere }));
-const txSelect = vi.fn(() => ({ from: readbackFrom }));
+const lockWhere = vi.fn(() => ({ for: vi.fn(async (_mode: string) => []) }));
+const txSelect = vi.fn((selection: Record<string, unknown>) => ({
+  from:
+    Object.keys(selection).length === 1 && selection.id === "decks.id"
+      ? vi.fn(() => ({ where: lockWhere }))
+      : readbackFrom,
+}));
 const tx = { update: txUpdate, select: txSelect };
 const mockDb = {
   select: selectFn,
@@ -282,7 +288,8 @@ describe("restore-deck-version action", () => {
         ]),
       }),
     );
-    expect(txSelect).toHaveBeenCalledOnce();
+    expect(txSelect).toHaveBeenCalledTimes(2);
+    expect(lockWhere).toHaveBeenCalledOnce();
     expect(readbackWhereConditions[0]).toEqual({
       column: "decks.id",
       value: "deck-1",

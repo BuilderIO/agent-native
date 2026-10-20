@@ -1,5 +1,5 @@
 import { getSession } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { eq } from "@agent-native/core/db/schema";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { parseHTML } from "linkedom/worker";
 

@@ -140,28 +140,24 @@ export default defineAction({
         await assertDesignSystemReadable(deckDesignSystemId(deck));
         assertNoDeckRenderArtifacts(null, deck);
         const orgId = getRequestOrgId() ?? null;
-        try {
-          await withSlideAssetReferencesLocked(
-            db,
-            deck,
-            { ownerEmail, orgId },
-            async (tx) => {
-              await tx.insert(schema.decks).values({
-                id: deckId,
-                title,
-                data: JSON.stringify(deck),
-                designSystemId: deckDesignSystemId(deck),
-                ...deckClientWriteFields(clientWrite, now),
-                ownerEmail,
-                orgId,
-                createdAt: now,
-                updatedAt: now,
-              });
-            },
-          );
-        } catch {
-          throw deckHttpError(404, "Deck not found");
-        }
+        await withSlideAssetReferencesLocked(
+          db,
+          deck,
+          { ownerEmail, orgId },
+          async (tx) => {
+            await tx.insert(schema.decks).values({
+              id: deckId,
+              title,
+              data: JSON.stringify(deck),
+              designSystemId: deckDesignSystemId(deck),
+              ...deckClientWriteFields(clientWrite, now),
+              ownerEmail,
+              orgId,
+              createdAt: now,
+              updatedAt: now,
+            });
+          },
+        );
       } else if (
         access.role === "owner" ||
         access.role === "admin" ||

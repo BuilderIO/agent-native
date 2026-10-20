@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "@agent-native/core/db/schema";
 
 import { getDb, schema } from "./db/index.js";
 

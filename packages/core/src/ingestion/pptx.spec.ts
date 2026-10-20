@@ -1,7 +1,11 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 
-import { parsePptxPresentation, parsePptxSlideMetadata } from "./pptx.js";
+import {
+  parsePptxPresentation,
+  parsePptxSlideMetadata,
+  PptxImageByteLimitError,
+} from "./pptx.js";
 
 describe("parsePptxSlideMetadata", () => {
   it.each([
@@ -875,6 +879,37 @@ describe("parsePptxPresentation", () => {
     });
   });
 
+  it.each([
+    ["per-image", 2, 100, [pictureSlideXml()], "per-image"],
+    [
+      "aggregate",
+      3,
+      5,
+      [pictureSlideXml(), pictureSlideXml()],
+      "aggregate",
+    ],
+  ] as const)(
+    "streams and enforces the %s expanded image byte limit",
+    async (_label, maxImageBytes, maxTotalImageBytes, slides, limit) => {
+      const fileBuffer = await buildPptxBufferWithParts({
+        slides: [...slides],
+        slideRels: [
+          { id: "rId9", type: "image", target: "../media/image1.png" },
+        ],
+        files: { "ppt/media/image1.png": Buffer.from([1, 2, 3]) },
+      });
+
+      const error = await parsePptxPresentation(fileBuffer, {
+        imageByteLimits: { maxImageBytes, maxTotalImageBytes },
+      }).then(
+        () => null,
+        (failure: unknown) => failure,
+      );
+      expect(error).toBeInstanceOf(PptxImageByteLimitError);
+      expect(error).toMatchObject({ limit });
+    },
+  );
+
   it("inherits size, typeface and bold from the layout placeholder's lstStyle, not just its color", async () => {
     const presentation = await parsePptxPresentation(
       await buildPptxBufferWithParts({
@@ -1467,6 +1502,18 @@ function textSlideXml(
           <a:r>${options.runProperties ?? ""}<a:t>${content}</a:t></a:r>
         </a:p></p:txBody>
       </p:sp>
+    </p:spTree></p:cSld>
+  </p:sld>`;
+}
+
+function pictureSlideXml(): string {
+  return `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+    <p:cSld><p:spTree>
+      <p:pic>
+        <p:nvPicPr><p:cNvPr id="3" name="Image"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+        <p:blipFill><a:blip r:embed="rId9"/></p:blipFill>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+      </p:pic>
     </p:spTree></p:cSld>
   </p:sld>`;
 }

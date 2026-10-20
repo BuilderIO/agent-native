@@ -6,10 +6,14 @@ const state = vi.hoisted(() => ({
     | undefined,
   updatedFields: undefined as Record<string, unknown> | undefined,
   insertedFields: undefined as Record<string, unknown> | undefined,
+  insertFailure: undefined as unknown,
 }));
 const mockNotifyClients = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockCreateDeckVersionSnapshot = vi.hoisted(() => vi.fn());
+const mockWithSlideAssetReferencesLocked = vi.hoisted(() =>
+  vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+);
 
 vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mockTrack(...args),
@@ -41,6 +45,7 @@ vi.mock("../server/db/index.js", () => ({
       update,
       insert: () => ({
         values: async (fields: Record<string, unknown>) => {
+          if (state.insertFailure !== undefined) throw state.insertFailure;
           state.insertedFields = fields;
         },
       }),
@@ -76,6 +81,17 @@ vi.mock("../server/lib/deck-versions.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../server/lib/slide-asset-references.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../server/lib/slide-asset-references.js")
+  >();
+  return {
+    ...actual,
+    withSlideAssetReferencesLocked: (...args: unknown[]) =>
+      mockWithSlideAssetReferencesLocked(...args),
+  };
+});
+
 vi.mock("./patch-deck", () => ({
   withDeckLock: (_deckId: string, callback: () => Promise<unknown>) =>
     callback(),
@@ -104,6 +120,11 @@ vi.mock("./_deck-write.js", async (importOriginal) => {
 
 import saveDeckAction from "./save-deck";
 
+function runUnlockedWrite(...args: unknown[]): Promise<unknown> {
+  const [connection, , , write] = args;
+  return (write as (connection: unknown) => Promise<unknown>)(connection);
+}
+
 const existingResource = () => ({
   id: "deck-1",
   title: "Existing",
@@ -124,6 +145,9 @@ describe("save-deck design-system relation persistence", () => {
     state.access = { role: "owner", resource: existingResource() };
     state.updatedFields = undefined;
     state.insertedFields = undefined;
+    state.insertFailure = undefined;
+    mockWithSlideAssetReferencesLocked.mockReset();
+    mockWithSlideAssetReferencesLocked.mockImplementation(runUnlockedWrite);
     mockCreateDeckVersionSnapshot.mockClear();
     mockNotifyClients.mockClear();
   });
@@ -274,6 +298,61 @@ describe("save-deck design-system relation persistence", () => {
     ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
   });
 
+  it("preserves typed slide-asset failures while saving a new deck", async () => {
+    state.access = undefined;
+    const failure = Object.assign(
+      new Error("One or more slide assets are unavailable to this deck."),
+      { statusCode: 404, errorCode: "slide_asset_unavailable" },
+    );
+    mockWithSlideAssetReferencesLocked.mockRejectedValueOnce(failure);
+
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-new",
+          deck: { title: "New deck", slides: [] },
+        },
+        {},
+      ),
+    ).rejects.toBe(failure);
+  });
+
+  it("preserves plain lock failures while saving a new deck", async () => {
+    state.access = undefined;
+    const failure = new Error("Asset lock query failed");
+    mockWithSlideAssetReferencesLocked.mockRejectedValueOnce(failure);
+
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-new",
+          deck: { title: "New deck", slides: [] },
+        },
+        {},
+      ),
+    ).rejects.toBe(failure);
+    expect(state.insertedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("preserves plain database failures while saving a new deck", async () => {
+    state.access = undefined;
+    const failure = new Error("Deck insert failed");
+    state.insertFailure = failure;
+
+    await expect(
+      saveDeckAction.run(
+        {
+          deckId: "deck-new",
+          deck: { title: "New deck", slides: [] },
+        },
+        {},
+      ),
+    ).rejects.toBe(failure);
+    expect(state.insertedFields).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("normalizes an omitted Slides 2 marker before no-op comparison", async () => {
     const result = await saveDeckAction.run(
       {
@@ -351,6 +430,9 @@ describe("save-deck tracking", () => {
     state.access = { role: "owner", resource: existingResource() };
     state.updatedFields = undefined;
     state.insertedFields = undefined;
+    state.insertFailure = undefined;
+    mockWithSlideAssetReferencesLocked.mockReset();
+    mockWithSlideAssetReferencesLocked.mockImplementation(runUnlockedWrite);
     mockCreateDeckVersionSnapshot.mockClear();
     mockNotifyClients.mockClear();
     mockTrack.mockClear();

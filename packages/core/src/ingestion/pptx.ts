@@ -174,9 +174,59 @@ export interface ParsedPptxPresentation {
   hiddenSlideCount?: number;
 }
 
+export interface PptxImageByteLimits {
+  maxImageBytes: number;
+  maxTotalImageBytes: number;
+}
+
+export const DEFAULT_PPTX_IMAGE_BYTE_LIMITS: Readonly<PptxImageByteLimits> =
+  Object.freeze({
+    maxImageBytes: 10 * 1024 * 1024,
+    maxTotalImageBytes: 50 * 1024 * 1024,
+  });
+
+export class PptxImageByteLimitError extends Error {
+  readonly limit: "per-image" | "aggregate";
+  readonly maxBytes: number;
+
+  constructor(limit: "per-image" | "aggregate", maxBytes: number) {
+    super(`PPTX image data exceeded its ${limit} byte limit.`);
+    this.name = "PptxImageByteLimitError";
+    this.limit = limit;
+    this.maxBytes = maxBytes;
+  }
+}
+
+interface PptxImageByteBudget {
+  totalBytes: number;
+  limits: PptxImageByteLimits;
+}
+
+function resolvePptxImageByteLimits(
+  limits?: Readonly<PptxImageByteLimits>,
+): PptxImageByteLimits {
+  const configured = limits ?? DEFAULT_PPTX_IMAGE_BYTE_LIMITS;
+  if (
+    !Number.isSafeInteger(configured.maxImageBytes) ||
+    configured.maxImageBytes < 0 ||
+    !Number.isSafeInteger(configured.maxTotalImageBytes) ||
+    configured.maxTotalImageBytes < 0
+  ) {
+    throw new RangeError("PPTX image byte limits must be non-negative integers.");
+  }
+  return {
+    maxImageBytes: configured.maxImageBytes,
+    maxTotalImageBytes: configured.maxTotalImageBytes,
+  };
+}
+
 interface ZipFile {
   async(type: "string"): Promise<string>;
   async(type: "nodebuffer"): Promise<Buffer>;
+  nodeStream(type: "nodebuffer"): {
+    [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
+    destroy(error?: Error): unknown;
+  };
 }
 
 interface ZipArchive {
@@ -186,8 +236,13 @@ interface ZipArchive {
 
 export async function parsePptxPresentation(
   fileBuffer: Uint8Array,
-  options: { includeHiddenSlides?: boolean } = {},
+  options: {
+    includeHiddenSlides?: boolean;
+    imageByteLimits?: Readonly<PptxImageByteLimits>;
+  } = {},
 ): Promise<ParsedPptxPresentation> {
+  const imageByteLimits = resolvePptxImageByteLimits(options.imageByteLimits);
+  const imageBudget = { totalBytes: 0, limits: imageByteLimits };
   const dependencies = await loadPptxDependencies();
   const loadZip = dependencies.loadZip.bind(dependencies);
   const parseXml = dependencies.parseXml.bind(dependencies);
@@ -351,6 +406,7 @@ export async function parsePptxPresentation(
         themeCache,
         masterInfoCache,
         templateContextCache,
+        imageBudget,
       })) ?? fallbackContext;
     const number = slideNumber(slidePath);
     elements = await parseSlideElements({
@@ -367,6 +423,7 @@ export async function parsePptxPresentation(
       placeholderDefaults: slideMasterContext.placeholderDefaults,
       slideNumber: slides.length + 1,
       tableStyles,
+      imageBudget,
     });
     images.unshift(...slideMasterContext.layerImages);
     elements.unshift(
@@ -554,6 +611,7 @@ async function resolveSlideMasterContext(args: {
   themeCache: Map<string, Promise<ThemeInfo>>;
   masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
   templateContextCache: Map<string, Promise<SlideTemplateContext | undefined>>;
+  imageBudget: PptxImageByteBudget;
 }): Promise<SlideTemplateContext | undefined> {
   const layoutRelationship = [...args.slideRelationships.values()].find(
     (relationship) => relationship.type.endsWith("/slideLayout"),
@@ -579,6 +637,7 @@ async function buildSlideTemplateContext(args: {
   slideHeightEmu?: number;
   themeCache: Map<string, Promise<ThemeInfo>>;
   masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
+  imageBudget: PptxImageByteBudget;
 }): Promise<SlideTemplateContext | undefined> {
   const layoutPath = args.layoutPath;
   const layoutXml = await args.zip.file(layoutPath)?.async("string");
@@ -670,6 +729,7 @@ async function buildSlideTemplateContext(args: {
         slideHeightEmu: args.slideHeightEmu,
         images: layerImages,
         colorContext,
+        imageBudget: args.imageBudget,
       })),
     );
   }
@@ -714,6 +774,7 @@ async function parseTemplateLayerElements(args: {
   slideHeightEmu?: number;
   images: ParsedPptxImage[];
   colorContext?: ColorContext;
+  imageBudget: PptxImageByteBudget;
 }): Promise<ParsedPptxElement[]> {
   const relsXml = await args.zip
     .file(relsPathForPptxPart(args.path))
@@ -736,6 +797,7 @@ async function parseTemplateLayerElements(args: {
         images,
         tablesDegraded,
         colorContext: args.colorContext,
+        imageBudget: args.imageBudget,
         context: { matrix: IDENTITY_MAT, rotation: 0 },
       })),
     );
@@ -966,6 +1028,7 @@ async function parseSlideElements(args: {
   placeholderDefaults?: PlaceholderDefaults;
   slideNumber?: number;
   tableStyles?: PptxTableStyles;
+  imageBudget: PptxImageByteBudget;
 }): Promise<ParsedPptxElement[]> {
   const fragments = extractDirectShapeFragments(args.xml, "spTree");
   const elements: ParsedPptxElement[] = [];
@@ -996,6 +1059,7 @@ async function parseSlideElements(args: {
         y: 0,
         width: args.slideWidthEmu ?? 0,
         height: args.slideHeightEmu ?? 0,
+        imageBudget: args.imageBudget,
       });
       if (image) {
         args.images.unshift(image.image);
@@ -1021,6 +1085,7 @@ async function parseShapeFragment(
     placeholderDefaults?: PlaceholderDefaults;
     slideNumber?: number;
     tableStyles?: PptxTableStyles;
+    imageBudget: PptxImageByteBudget;
     context: ShapeTransformContext;
   },
 ): Promise<ParsedPptxElement[]> {
@@ -1159,6 +1224,7 @@ async function parseShapeFragment(
       width: transform.width,
       height: transform.height,
       crop: parseImageCrop(node),
+      imageBudget: args.imageBudget,
     });
     if (!image) return [];
     args.images.push(image.image);
@@ -2414,6 +2480,7 @@ async function loadPptxImage(args: {
   width: number;
   height: number;
   crop?: ParsedPptxImage["crop"];
+  imageBudget: PptxImageByteBudget;
 }): Promise<{ image: ParsedPptxImage; element: ParsedPptxElement } | null> {
   if (
     !args.relationship.type.includes("/image") &&
@@ -2431,8 +2498,12 @@ async function loadPptxImage(args: {
   const imageFile = args.zip.file(imagePath);
   if (!imageFile) return null;
   const name = imagePath.split("/").at(-1) ?? "image";
+  const imageData = await readPptxImageWithinBudget(
+    imageFile,
+    args.imageBudget,
+  );
   const image: ParsedPptxImage = {
-    data: new Uint8Array(await imageFile.async("nodebuffer")),
+    data: new Uint8Array(imageData),
     mimeType: imageMimeType(name),
     name,
     aspectRatio:
@@ -2460,6 +2531,36 @@ async function loadPptxImage(args: {
       image,
     },
   };
+}
+
+async function readPptxImageWithinBudget(
+  imageFile: ZipFile,
+  budget: PptxImageByteBudget,
+): Promise<Buffer> {
+  const stream = imageFile.nodeStream("nodebuffer");
+  const chunks: Buffer[] = [];
+  let imageBytes = 0;
+  for await (const chunk of stream) {
+    const nextImageBytes = imageBytes + chunk.byteLength;
+    if (nextImageBytes > budget.limits.maxImageBytes) {
+      stream.destroy();
+      throw new PptxImageByteLimitError(
+        "per-image",
+        budget.limits.maxImageBytes,
+      );
+    }
+    if (budget.totalBytes + nextImageBytes > budget.limits.maxTotalImageBytes) {
+      stream.destroy();
+      throw new PptxImageByteLimitError(
+        "aggregate",
+        budget.limits.maxTotalImageBytes,
+      );
+    }
+    imageBytes = nextImageBytes;
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  budget.totalBytes += imageBytes;
+  return Buffer.concat(chunks, imageBytes);
 }
 
 function flattenElementText(

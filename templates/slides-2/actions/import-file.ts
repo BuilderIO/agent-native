@@ -17,6 +17,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import type { PdfStyleDigest } from "../server/handlers/import/pdf-style-digest.js";
 import {
+  assertPptxImageByteLimits,
   assertPptxImagesRenderable,
   uploadPptxSlideImages,
 } from "../server/handlers/import/pptx-assets.js";
@@ -308,6 +309,7 @@ export default defineAction({
             statusCode: 401,
           });
         const pptxOrgId = getRequestOrgId();
+        assertPptxImageByteLimits(presentation.slides);
         assertPptxImagesRenderable(presentation.slides);
         const pptxThemeFont = presentation.theme?.fonts?.[0];
         const assetBatch = new ImportedAssetBatch({
