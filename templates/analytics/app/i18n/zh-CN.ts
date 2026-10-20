@@ -1278,6 +1278,12 @@ export default {
     viewOnly: "您对此仪表板只有查看权限。",
     saveFailed: "无法保存仪表板",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "“{{title}}”的 BigQuery 费用",
+    panelCostOverTitle: "刷新“{{title}}”的费用较高",
+    panelCostScheduled:
+      "扫描约 {{size}} · 每次刷新 {{perRun}} · 邮件报告每月约 {{perMonth}}",
+    panelCostUnscheduled: "扫描约 {{size}} · 每次刷新 {{perRun}} · 无邮件报告",
+    panelCostOverHint: "缩短日期范围或减少列可以减少扫描量。",
     archived: '已归档 "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "无法存档仪表板",

@@ -1380,6 +1380,14 @@ export default {
     viewOnly: "Tiene acceso de solo lectura a este panel.",
     saveFailed: "No se pudo guardar el panel",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "Coste de BigQuery de «{{title}}»",
+    panelCostOverTitle: "Actualizar «{{title}}» es caro",
+    panelCostScheduled:
+      "~{{size}} analizados · {{perRun}} por actualización · ~{{perMonth}}/mes en informes por correo",
+    panelCostUnscheduled:
+      "~{{size}} analizados · {{perRun}} por actualización · sin informes por correo",
+    panelCostOverHint:
+      "Un intervalo de fechas más corto o menos columnas analizan menos datos.",
     archived: 'Panel archivado: "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "No se pudo archivar el panel",
