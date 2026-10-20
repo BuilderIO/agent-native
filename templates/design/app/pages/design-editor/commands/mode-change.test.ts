@@ -62,8 +62,11 @@ describe("runModeChange Interact navigation", () => {
     args.pendingLiveNonStyleEdits = [{}] as never;
     args.hasPendingVisualEdits = true;
 
-    runModeChange(args, "interact", { targetFileId: targetFile.id });
+    const changed = runModeChange(args, "interact", {
+      targetFileId: targetFile.id,
+    });
 
+    expect(changed).toBe(false);
     expect(args.viewModeRef.current).toBe("overview");
     expect(toast.error).toHaveBeenCalledWith(
       "designEditor.pendingVisualStyles.interactBlocked",
@@ -79,8 +82,11 @@ describe("runModeChange Interact navigation", () => {
   it("enters the requested screen when no edit is pending", () => {
     const args = makeArgs();
 
-    runModeChange(args, "interact", { targetFileId: targetFile.id });
+    const changed = runModeChange(args, "interact", {
+      targetFileId: targetFile.id,
+    });
 
+    expect(changed).toBe(true);
     expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
     expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
       targetFile.id,
@@ -97,11 +103,27 @@ describe("runModeChange Interact navigation", () => {
     expect(returnOptions).not.toBeNull();
     if (!returnOptions) throw new Error("Interact return options are missing");
 
-    runModeChange(args, "interact", returnOptions);
+    const changed = runModeChange(args, "interact", returnOptions);
 
+    expect(changed).toBe(true);
     expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id, {
       keepInteractDevice: true,
     });
+  });
+
+  it("rejects the saved Interact screen when it has been removed", () => {
+    const args = makeArgs();
+    args.files = [activeFile];
+    args.overviewScreens = [{ id: activeFile.id }];
+    const returnOptions = commentModeReturnOptions("interact", targetFile.id);
+
+    expect(returnOptions).not.toBeNull();
+    if (!returnOptions) throw new Error("Interact return options are missing");
+
+    const changed = runModeChange(args, "interact", returnOptions);
+
+    expect(changed).toBe(false);
+    expect(args.enterSingleScreen).not.toHaveBeenCalled();
   });
 
   it("does not change the restored overview selection when pending edits block Interact", () => {

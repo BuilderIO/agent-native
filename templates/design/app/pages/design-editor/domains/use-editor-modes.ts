@@ -793,16 +793,14 @@ export function useEditorModes({
 
   const handleExitReviewCommentMode = useCallback(() => {
     const returnOptions = commentReturnOptionsRef.current;
+    if (returnOptions && !handleModeChange("interact", returnOptions)) return;
+
     commentReturnOptionsRef.current = null;
     setPinMode(false);
     setOverviewCommentPinRequest(null);
     setDrawMode(false);
     setActiveTool("move");
-    if (returnOptions) {
-      handleModeChange("interact", returnOptions);
-    } else {
-      setMode("edit");
-    }
+    if (!returnOptions) setMode("edit");
   }, [handleModeChange]);
 
   const handleOverviewCommentPin = useCallback(
