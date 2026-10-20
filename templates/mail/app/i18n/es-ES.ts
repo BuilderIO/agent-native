@@ -438,6 +438,7 @@ const messages = {
       tryDifferentKeywords: "Prueba con otras palabras clave",
       nothingHere: "Nada aquí todavía",
       loadingMore: "Cargando más...",
+      searchOlderMail: "Busca para encontrar correos más antiguos",
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",

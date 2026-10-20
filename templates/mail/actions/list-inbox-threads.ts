@@ -90,6 +90,7 @@ type InboxResultWindow = {
   /** Rows the active tab's page is cut from: unread-only when requested. */
   activePoolLength: number;
   offset: number;
+  limit: number;
   unreadOnly?: boolean;
   labels: Label[];
   syncing: boolean;
@@ -99,6 +100,12 @@ type InboxResultWindow = {
 };
 
 function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
+  // A page ending at the cap with older rows behind it is a boundary the
+  // client must not page past; the older rows are not reachable through the list.
+  const seen = window.offset + window.pageItems.length;
+  const olderRows = window.activePoolLength > seen;
+  const reachedCap =
+    olderRows && window.offset + window.limit >= INBOX_MAX_PAGE_OFFSET;
   const resultTabs: InboxTab[] = window.tabs.map((tab) => {
     const count = window.counts.get(tab.id) ?? { total: 0, unread: 0 };
     const cachedCount =
@@ -130,6 +137,8 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
       !activeTab?.totalIsLowerBound &&
       window.offset + window.pageItems.length >= window.activePoolLength &&
       window.activePoolLength >= (activeTab?.total ?? 0),
+    hasMore: olderRows && !reachedCap,
+    reachedCap,
     syncing: window.syncing,
     accounts: window.accounts,
     labels: window.labels,
@@ -141,7 +150,7 @@ function buildWindowedResult(
   input: {
     tabs: ResolvedInboxTab[];
     activeTabId: string;
-    page: { offset: number; unreadOnly?: boolean };
+    page: { offset: number; limit: number; unreadOnly?: boolean };
     labels: Label[];
     syncing: boolean;
     accounts: InboxSyncAccountStatus[];
@@ -170,6 +179,7 @@ function buildWindowedResult(
       ? activeCount.unread
       : activeCount.total,
     offset: input.page.offset,
+    limit: input.page.limit,
     unreadOnly: input.page.unreadOnly,
     labels: input.labels,
     syncing: input.syncing,
@@ -223,6 +233,7 @@ function paginateIntoResult(
     pageItems: pageSource.slice(page.offset, page.offset + page.limit),
     activePoolLength: pageSource.length,
     offset: page.offset,
+    limit: page.limit,
     unreadOnly: page.unreadOnly,
     labels,
     syncing,
@@ -408,7 +419,9 @@ export default defineAction({
         const state =
           row?.status === "needs_reauth" || row?.status === "error"
             ? row.status
-            : row?.historyId == null || row?.status === "syncing"
+            : row?.historyId == null ||
+                row?.status === "syncing" ||
+                row?.historyPending
               ? "initial"
               : "ready";
         return {

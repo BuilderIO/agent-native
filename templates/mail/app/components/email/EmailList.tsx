@@ -210,6 +210,8 @@ interface EmailListProps {
   labels?: Label[];
   refetchEmails?: () => unknown;
   hasNextPage?: boolean;
+  /** Paging stopped at the server's offset cap; older mail is out of reach here. */
+  reachedCap?: boolean;
   fetchNextPage?: () => Promise<unknown>;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
@@ -520,6 +522,7 @@ export function EmailList({
   labels: labelsProp,
   refetchEmails,
   hasNextPage: hasNextPageProp,
+  reachedCap = false,
   fetchNextPage: fetchNextPageProp,
   isFetchingNextPage: isFetchingNextPageProp,
   isFetchNextPageError: isFetchNextPageErrorProp,
@@ -2886,6 +2889,17 @@ export function EmailList({
                 {t("mail.error.tryAgain")}
               </button>
             )}
+          </div>
+        )}
+        {reachedCap && !hasNextPage && (
+          <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => void navigate("/all")}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {t("mail.empty.searchOlderMail")}
+            </button>
           </div>
         )}
       </div>

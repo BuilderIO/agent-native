@@ -552,6 +552,33 @@ describe("list-inbox-threads action", () => {
     ).toBeUndefined();
   });
 
+  it("reports the offset cap as reachedCap with no next page", async () => {
+    mocks.readInboxThreads.mockResolvedValue(
+      Array.from({ length: 2_100 }, (_, index) =>
+        row({
+          threadId: `t${index}`,
+          latestMessageId: `m${index}`,
+          latestDate: 1_000_000 - index,
+        }),
+      ),
+    );
+
+    const atCap = await action.run(
+      { tab: "__inbox_all__", limit: 50, offset: 1_950 } as any,
+      undefined as any,
+    );
+    expect(atCap.items).toHaveLength(50);
+    expect(atCap.reachedCap).toBe(true);
+    expect(atCap.hasMore).toBe(false);
+
+    const firstPage = await action.run(
+      { tab: "__inbox_all__", limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+    expect(firstPage.reachedCap).toBe(false);
+    expect(firstPage.hasMore).toBe(true);
+  });
+
   it("counts an AI-important Gmail label as Important through the account label map", async () => {
     mocks.readCachedLabels.mockResolvedValue({
       labels: [],

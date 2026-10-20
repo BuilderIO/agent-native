@@ -425,6 +425,7 @@ const messages = {
       tryDifferentKeywords: "다른 키워드 시도",
       nothingHere: "아직 아무것도 없습니다",
       loadingMore: "더 불러오는 중...",
+      searchOlderMail: "이전 메일을 찾으려면 검색",
     },
     toasts: {
       noEmailSelected: "선택한 이메일이 없습니다.",

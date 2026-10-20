@@ -556,9 +556,13 @@ export function inboxThreadsHasNextPage(
     complete?: boolean;
     lastPageLength?: number;
     pageSize?: number;
+    reachedCap?: boolean;
     totalIsLowerBound?: boolean;
   },
 ): boolean {
+  // The server will not read past its offset cap, so asking for more pages
+  // only returns schema errors. Older mail is reached through All Mail.
+  if (options?.reachedCap) return false;
   if (
     options?.totalIsLowerBound ||
     (options?.complete === false && options.lastPageLength !== undefined)

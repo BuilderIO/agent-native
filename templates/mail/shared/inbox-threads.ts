@@ -84,6 +84,13 @@ export type ListInboxThreadsResult = {
   tabPreviews: Record<string, InboxThreadItem[]>;
   total: number;
   complete?: boolean;
+  /** Older rows exist past this page and can be paged to. */
+  hasMore?: boolean;
+  /**
+   * The page ends at `INBOX_MAX_PAGE_OFFSET` while older rows exist. Paging
+   * stops here; older mail is reached through All Mail or search.
+   */
+  reachedCap?: boolean;
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
   labels: Label[];

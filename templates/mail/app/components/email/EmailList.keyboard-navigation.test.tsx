@@ -267,6 +267,7 @@ function Harness({
   isFetching,
   refetchEmails,
   hasNextPage,
+  reachedCap,
   isFetchingNextPage,
   showPrioritySort,
   jevConfigured = showPrioritySort,
@@ -283,6 +284,7 @@ function Harness({
   isFetching?: boolean;
   refetchEmails?: React.ComponentProps<typeof EmailList>["refetchEmails"];
   hasNextPage?: boolean;
+  reachedCap?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
@@ -310,6 +312,7 @@ function Harness({
         accountErrors={accountErrors}
         read={read}
         hasNextPage={hasNextPage}
+        reachedCap={reachedCap}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
         jevConfigured={jevConfigured}
@@ -1467,6 +1470,21 @@ describe("EmailList keyboard navigation interactions", () => {
           typeof target === "string" ? target : target.id,
         ),
     ).toEqual(["thread-row-4", "thread-row-5", "thread-row-6"]);
+  });
+
+  it("offers All Mail at the offset cap and nothing while pages remain", () => {
+    const atCap = render(<Harness reachedCap hasNextPage={false} />);
+    const affordance = screen.getByRole("button", {
+      name: "mail.empty.searchOlderMail",
+    });
+    fireEvent.click(affordance);
+    expect(mocks.navigate).toHaveBeenCalledWith("/all");
+    atCap.unmount();
+
+    render(<Harness hasNextPage reachedCap={false} />);
+    expect(
+      screen.queryByRole("button", { name: "mail.empty.searchOlderMail" }),
+    ).toBeNull();
   });
 
   it("does not consume navigation shortcuts while an input is focused", () => {

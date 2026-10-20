@@ -77,6 +77,7 @@ export type SyncAccountRow = {
   lastSyncedAt: number | null;
   lastPushGeneration: number;
   lastWatchRenewedAt: number | null;
+  historyPending: boolean;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[] | null;
@@ -160,6 +161,7 @@ function toSyncAccountRow(
     lastSyncedAt: row.lastSyncedAt,
     lastPushGeneration: row.lastPushGeneration,
     lastWatchRenewedAt: row.lastWatchRenewedAt,
+    historyPending: row.historyPending === 1,
     syncClaimId: row.syncClaimId,
     syncClaimedAt: row.syncClaimedAt,
     labels: row.labelsJson
@@ -1405,6 +1407,7 @@ export async function releaseSyncAccount(
 
 export type SyncAccountPatch = Partial<{
   historyId: string | null;
+  historyPending: boolean;
   fullSyncPageToken: string | null;
   fullSyncHistoryId: string | null;
   fullSyncStartedAt: number | null;
@@ -1473,6 +1476,9 @@ export async function patchSyncAccount(
   const { labels, ...rest } = patch;
   const set: Record<string, unknown> = { ...rest, updatedAt: Date.now() };
   if (labels !== undefined) set.labelsJson = JSON.stringify(labels);
+  if (patch.historyPending !== undefined) {
+    set.historyPending = patch.historyPending ? 1 : 0;
+  }
   if (patch.fullSyncReconcilePendingIds !== undefined) {
     set.fullSyncReconcilePendingIdsJson = patch.fullSyncReconcilePendingIds
       ? JSON.stringify(patch.fullSyncReconcilePendingIds)
@@ -1503,6 +1509,7 @@ export async function resetSyncAccountProgress(
     accountEmail,
     {
       historyId: null,
+      historyPending: false,
       fullSyncPageToken: null,
       fullSyncHistoryId: null,
       fullSyncStartedAt: null,

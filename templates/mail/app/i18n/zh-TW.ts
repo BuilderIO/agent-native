@@ -415,6 +415,7 @@ const messages = {
       tryDifferentKeywords: "試試其他關鍵詞",
       nothingHere: "這裡還沒有內容",
       loadingMore: "正在載入更多...",
+      searchOlderMail: "搜尋以找到較早的郵件",
     },
     toasts: {
       noEmailSelected: "未選取郵件。",

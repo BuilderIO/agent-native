@@ -125,7 +125,9 @@ function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
   return {
     accountEmail: row.accountEmail,
     state:
-      row.historyId == null || row.status === "syncing" ? "initial" : "ready",
+      row.historyId == null || row.status === "syncing" || row.historyPending
+        ? "initial"
+        : "ready",
     lastSyncedAt: row.lastSyncedAt,
     pushWatch,
     ...(backfillPending ? { backfillPending: true } : {}),
@@ -748,6 +750,9 @@ async function runIncrementalSyncStep(
         lastRecordId ??
         row.historyId)
       : (lastRecordId ?? row.historyId),
+    // Stays set until history is drained, so the account is never treated as
+    // steady mid catch-up.
+    historyPending: !caughtUp,
     lastError: null,
     lastSyncedAt: syncedAt,
   });
@@ -1126,6 +1131,7 @@ function isFreshSteadyAccount(
     row.status === "idle" &&
     row.fullSyncPageToken == null &&
     row.fullSyncPhase == null &&
+    !row.historyPending &&
     row.lastPushGeneration >= pushGeneration &&
     row.lastSyncedAt != null &&
     now - row.lastSyncedAt < maxAgeMs

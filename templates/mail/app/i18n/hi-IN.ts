@@ -425,6 +425,7 @@ const messages = {
       tryDifferentKeywords: "अलग कीवर्ड आज़माएँ",
       nothingHere: "अभी यहाँ कुछ नहीं",
       loadingMore: "और लोड हो रहा है...",
+      searchOlderMail: "पुराने ईमेल खोजने के लिए खोजें",
     },
     toasts: {
       noEmailSelected: "कोई ईमेल चयनित नहीं।",

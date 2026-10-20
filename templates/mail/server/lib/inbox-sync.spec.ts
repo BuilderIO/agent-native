@@ -1643,6 +1643,44 @@ describe("syncInbox — steady-account short-circuit", () => {
     expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a multi-page history drain non-steady until the last page", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 60_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        historyId: "600",
+        history: [{ id: "510" }],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        history: [{ id: "520" }],
+        nextPageToken: "page-3",
+      })
+      .mockResolvedValueOnce({ historyId: "700", history: [] });
+
+    const first = await syncInbox(OWNER);
+    expect(first.accounts[0].state).toBe("initial");
+    expect(currentRow.historyPending).toBe(true);
+
+    // The window has not passed, but the drain is unfinished, so the next poll
+    // must read the next page instead of short-circuiting.
+    const second = await syncInbox(OWNER);
+    expect(second.accounts[0].state).toBe("initial");
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(2);
+    expect(currentRow.historyPending).toBe(true);
+
+    const drained = await syncInbox(OWNER);
+    expect(drained.accounts[0].state).toBe("ready");
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(3);
+    expect(currentRow.historyPending).toBe(false);
+
+    // Once drained the account is steady again and the window applies.
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(3);
+  });
+
   it("lets a manual refresh force a sync inside the window", async () => {
     steadyRow({
       lastSyncedAt: Date.now() - 1_000,

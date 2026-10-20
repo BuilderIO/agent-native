@@ -729,6 +729,20 @@ describe("inboxThreadsHasNextPage", () => {
     expect(inboxThreadsHasNextPage(100, 250)).toBe(true);
   });
 
+  it("stops at the offset cap even when older rows exist", () => {
+    expect(
+      inboxThreadsHasNextPage(2_000, 2_500, {
+        complete: false,
+        lastPageLength: 50,
+        pageSize: 50,
+        reachedCap: true,
+      }),
+    ).toBe(false);
+    expect(inboxThreadsHasNextPage(1_950, 2_500, { reachedCap: false })).toBe(
+      true,
+    );
+  });
+
   it("is false once every row is loaded", () => {
     expect(inboxThreadsHasNextPage(250, 250)).toBe(false);
   });
