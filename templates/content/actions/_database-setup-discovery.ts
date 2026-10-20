@@ -43,15 +43,15 @@ export async function getDatabaseSetupContract(
       (role === "admin" || role === "owner") && !database.ownerDocumentId,
     sourceComposition: "unsupported",
     properties: mutationContract.properties.map((property) => {
-      const ordinary = setupPropertyTypes.some(
-        (type) => type === property.type,
-      );
+      const editableMetadata =
+        property.type === "blocks" ||
+        setupPropertyTypes.some((type) => type === property.type);
       const reason = !canEdit
         ? "Database edit access required"
         : property.sourceManaged
           ? "Source-managed definition"
-          : !ordinary
-            ? "Blocks and computed definitions use their own actions"
+          : !editableMetadata
+            ? "Computed definitions use their own actions"
             : null;
       return { propertyId: property.id, editable: reason === null, reason };
     }),

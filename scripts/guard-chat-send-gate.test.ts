@@ -233,7 +233,11 @@ test("gates sends and queued writes while allowing optimistic queue display", ()
   }
   async queueMessage() {
     this.setThread();
+    return this.queueMessageWithId();
+  }
+  async queueMessageWithId() {
     await this.assertAiSetupReady();
+    this.setThread();
     await this.invokeRequest(() => this.transport.queueMessage());
   }
   async continueRun(threadId: string, runId: string) {
@@ -258,6 +262,17 @@ test("gates sends and queued writes while allowing optimistic queue display", ()
   );
   assert.deepEqual(violations(file, ungated), [
     "AgentKitClient.sendMessage must await assertAiSetupReady before setThread",
+    "AgentKitClient.queueMessage must await assertAiSetupReady before invokeRequest",
+  ]);
+
+  const ungatedQueueHelper = gated.replace(
+    `  async queueMessageWithId() {
+    await this.assertAiSetupReady();
+    this.setThread();`,
+    `  async queueMessageWithId() {
+    this.setThread();`,
+  );
+  assert.deepEqual(violations(file, ungatedQueueHelper), [
     "AgentKitClient.queueMessage must await assertAiSetupReady before invokeRequest",
   ]);
 

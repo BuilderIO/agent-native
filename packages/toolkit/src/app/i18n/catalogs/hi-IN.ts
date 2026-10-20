@@ -170,6 +170,27 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.creditsTitle": "हर महीने 60 मुफ़्त Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsTitleClips":
+    "मुफ़्त वीडियो स्टोरेज और हर महीने 60 Agent Credits के साथ आज़माएँ",
+  "onboarding.creditsActivate": "मुफ़्त क्रेडिट सक्रिय करें",
+  "onboarding.creditsFinePrint":
+    "यह एक मुफ़्त Builder.io खाता बनाएगा। जारी रखने से आप हमारे",
+  "onboarding.creditsMoreInfo": "अधिक जानकारी",
+  "onboarding.creditsSubtitle":
+    "Builder.io से इस ऐप के लिए एक क्लिक में LLMs, Jev, स्टोरेज और बहुत कुछ के लिए मुफ़्त क्रेडिट पाएँ।",
+  "onboarding.creditsLearnMore": "और जानें",
+  "onboarding.creditsSkip": "छोड़ें",
+  "onboarding.creditsSkipConfirmTitle": "क्या आप निश्चित हैं?",
+  "onboarding.creditsSkipConfirmBody":
+    "Agent-Native ऐप्स को ज़्यादातर सुविधाओं के लिए एक जुड़ा हुआ LLM चाहिए। इसके बिना ज़्यादातर कार्यक्षमता काम नहीं करेगी।",
+  "onboarding.creditsSkipGoBack": "वापस जाएँ",
+  "onboarding.creditsSkipAnyway": "फिर भी छोड़ें",
+  "onboarding.creditsUseCustomKeys": "कस्टम कीज़ का उपयोग करें",
+  "onboarding.creditsAboutLabel": "मुफ़्त क्रेडिट के बारे में",
+  "onboarding.creditsActivating": "मुफ़्त क्रेडिट सक्रिय हो रहे हैं",
+  "onboarding.creditsActivatingTooltip":
+    "Builder LLMs, Jev, स्टोरेज और बहुत कुछ के लिए मुफ़्त क्रेडिट देता है, ताकि आप अपनी कीज़ के बिना इस ऐप की AI सुविधाओं का उपयोग कर सकें।",
   "onboarding.builderConnect": "Builder.io से कनेक्ट करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
@@ -206,7 +227,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.webSearch.label": "वेब खोज",
-  "onboarding.capability.webSearch.keySummary": "Builder द्वारा प्रबंधित वेब खोज",
+  "onboarding.capability.webSearch.keySummary": "वेब खोज",
   "onboarding.capability.webSearch.why":
     "वेब पर मौजूदा सार्वजनिक स्रोत खोजें। Builder द्वारा प्रबंधित खोज शामिल Builder AI क्रेडिट का उपयोग करती है, इसलिए अलग खोज API कुंजी की ज़रूरत नहीं है।",
   "onboarding.capability.systemOne.why":
@@ -962,7 +983,25 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, संपर्क, कंपनियाँ, डील, टिकट, ग्राहक एनालिटिक्स",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "जब वर्कस्पेस द्वारा प्रबंधित HubSpot MCP Auth App कॉन्फ़िगर होता है, तो कोई भी सदस्य OAuth और PKCE के साथ अपना व्यक्तिगत HubSpot खाता कनेक्ट कर सकता है। नहीं तो, कनेक्ट करने से पहले HubSpot Developer Platform में ऐप बनाएँ। मौजूदा HubSpot OAuth कनेक्टर ऐप एक्शन के लिए उपलब्ध रहता है।",
+    "वर्कस्पेस का मालिक HubSpot MCP Auth App सेट अप करने के बाद हर व्यक्ति अपना HubSpot खाता जोड़ता है।",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP सेट अप करें",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "वर्कस्पेस का मालिक HubSpot MCP को एक बार सेट अप करता है। इसके बाद हर सदस्य अपना खाता जोड़ता है।",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "वर्कस्पेस सेटअप ज़रूरी है",
+  "mcpIntegrations.hubspot.setupChecking": "वर्कस्पेस सेटअप जाँचा जा रहा है…",
+  "mcpIntegrations.hubspot.setupUnavailable": "सेटअप की स्थिति उपलब्ध नहीं है",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "वर्कस्पेस OAuth सेटिंग जाँची नहीं जा सकी। फिर से कोशिश करें।",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "HubSpot MCP Auth App बनाएँ, फिर Agent-Native settings → API keys में उसका client ID और secret जोड़ें।",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "वर्कस्पेस के मालिक से HubSpot MCP Auth App बनाने और Agent-Native settings → API keys में उसका client ID और secret जोड़ने को कहें। सेटअप के बाद आप अपना HubSpot खाता जोड़ सकते हैं।",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "HubSpot MCP जोड़ने से पहले किसी वर्कस्पेस से जुड़ें।",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "वर्कस्पेस credentials जोड़ें",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "फिर से जाँचें",
+  "mcpIntegrations.hubspot.retrySetupStatus": "फिर कोशिश करें",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon सपोर्ट डेटा खोजें और अपडेट करें।",
   "mcpIntegrations.catalog.pylon.useCase":
@@ -1826,6 +1865,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "{{protocol}} के ज़रिए एजेंट",
   "settings.audit.allApps": "सभी ऐप",
   "settings.audit.app": "ऐप",
+  "settings.audit.approval": "मंज़ूरी",
+  "settings.audit.approvalAgentChat": "एजेंट चैट में मंज़ूर किया गया",
+  "settings.audit.approvalA2AReview": "एजेंट कार्रवाई समीक्षा पेज पर मंज़ूर किया गया",
+  "settings.audit.approvalMcpClient": "MCP क्लाइंट ने स्वीकार किया (असत्यापित)",
   "settings.audit.changedBy": "बदलने वाला",
   "settings.audit.close": "बंद करें",
   "settings.audit.empty": "इस अवधि में कोई बदलाव नहीं।",
@@ -1838,9 +1881,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "पिछले 90 दिन",
   "settings.audit.loadFailed": "ऑडिट लॉग लोड नहीं हो सका।",
   "settings.audit.loading": "ऑडिट लॉग लोड हो रहा है",
+  "settings.audit.oauthClient": "OAuth क्लाइंट",
   "settings.audit.onBehalfOf": "की ओर से",
   "settings.audit.range": "समय सीमा",
   "settings.audit.refused": "अस्वीकृत",
+  "settings.audit.reportedClient": "स्वयं बताया गया क्लाइंट",
   "settings.audit.result": "परिणाम",
   "settings.audit.showMore": "{{count}} और दिखाएं",
   "settings.audit.succeeded": "सफल",
@@ -2886,6 +2931,10 @@ const messages: ToolkitAgentChatTranslation = {
     "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
   "settingsModel.chatgptLocalOnly":
     "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "ChatGPT प्लान एक्सेस के लिए व्यक्तिगत खाते का उपयोग करें। लोकल डेवलपमेंट में, साइन इन करने से पहले access.autoCreateDefaultOrg को false सेट करें।",
+  "settingsModel.chatgptScopeUnresolved":
+    "ऐप आपके खाते का दायरा सत्यापित नहीं कर सका। स्थानीय सेटअप पूरा करें, फिर सेटिंग्स को दोबारा लोड करें।",
   "settingsModel.chatgptNoDirectUse":
     "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
   "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",

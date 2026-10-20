@@ -26,7 +26,7 @@ export interface McpServer {
   createdAt: number;
   mergedId: string;
   status:
-    | { state: "connected"; toolCount: number }
+    | { state: "connected"; toolCount: number; error?: string }
     | { state: "error"; error: string }
     | { state: "unknown" };
 }

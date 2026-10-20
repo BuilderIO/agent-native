@@ -661,7 +661,6 @@ describe("AgentEngine registry", () => {
         }),
       }));
       const { getStoredModelForEngine } = await import("./registry.js");
-
       expect(
         await getStoredModelForEngine("builder", { appId: "analytics" }),
       ).toBe("gemini-3-1-pro");

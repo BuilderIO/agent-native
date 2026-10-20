@@ -66,6 +66,15 @@ describe("getProvider auto", () => {
     });
   });
 
+  it("explains the supported path for Builder-only image generation", async () => {
+    state.choice = "builder";
+    state.configured.clear();
+
+    await expect(getProvider("auto")).rejects.toThrow(
+      "Builder-managed image generation in Slides runs through Assets' brand-library workflow",
+    );
+  });
+
   it("keeps an explicit provider strict", async () => {
     state.choice = "openai";
     await expect(getProvider("gemini")).resolves.toMatchObject({

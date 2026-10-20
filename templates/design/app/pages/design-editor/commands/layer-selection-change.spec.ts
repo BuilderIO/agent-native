@@ -128,6 +128,7 @@ function selectLayer(args: {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
+  const setViewMode = vi.fn();
 
   runLayerSelectionChange(
     {
@@ -167,7 +168,7 @@ function selectLayer(args: {
       setSelectedLayerIdsState: (value) => {
         selectedLayerIds = typeof value === "function" ? value([]) : value;
       },
-      setViewMode: vi.fn(),
+      setViewMode,
       viewModeRef: { current: "single" },
     },
     selectionIds,
@@ -184,6 +185,7 @@ function selectLayer(args: {
     selectedLayerIds,
     node,
     projections: [projection, secondProjection],
+    setViewMode,
     update,
   };
 }
@@ -225,6 +227,13 @@ function readOnlyWriterArgs(
 }
 
 describe("Layers selection source identity", () => {
+  it("keeps the current screen in single view when selecting its source layer", () => {
+    const result = selectLayer({ sourceHTML: RICH_HTML });
+    expect(result.selectedElement?.sourceId).toBe("button-a");
+    expect(result.setViewMode).toHaveBeenCalledWith("single");
+    expect(result.setViewMode).not.toHaveBeenCalledWith("overview");
+  });
+
   it("persists a selected source node id without adding an undo step", () => {
     const result = selectLayer({});
     expect(result.update).toHaveBeenCalledWith("screen-a", expect.any(String), {

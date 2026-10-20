@@ -109,20 +109,10 @@ async function runScenario(
     notes: {},
     expectedNoise: [],
   };
-  let stopped: unknown;
-  try {
-    await body(scenario);
-  } catch (error) {
-    stopped = error;
-  }
-  const working = [...tabs.tabs.values()];
-  // A scenario that stopped early still reports its tabs, but not marker
-  // counts: the step that failed may have left text the counts misread.
-  const integrity =
-    stopped === undefined
-      ? await observeIntegrity(tabs, reader, id, scenario.markers)
-      : null;
-  const record: ScenarioRecord = {
+  const scenarioRecord = (
+    integrity: ScenarioRecord["integrity"],
+    stoppedEarly?: string,
+  ): ScenarioRecord => ({
     scenario: name,
     tags: testInfo.tags,
     notes: scenario.notes,
@@ -133,67 +123,122 @@ async function runScenario(
     markers: scenario.markers.all.length,
     durationMs: Date.now() - started,
     integrity,
-    ...(stopped === undefined
-      ? {}
-      : {
-          stoppedEarly:
-            stopped instanceof Error ? stopped.message : String(stopped),
-        }),
+    ...(stoppedEarly === undefined ? {} : { stoppedEarly }),
     tabs: [...tabs.tabs.values(), tabs.detached],
-  };
-  writeScenarioRecord(testInfo, record);
-  await testInfo.attach("convergence", {
-    body: JSON.stringify(record, null, 2),
-    contentType: "application/json",
   });
-  if (stopped !== undefined) throw stopped;
-  // The lane fails if it did not run under the conditions it reports.
-  const latency = Number(scenario.notes.saveLatencyMs ?? 0);
-  for (const tab of working) {
-    expect(
-      tab.editorMounts,
-      `${tab.label} reported no editor mount, so its toasts and recovery UI went uncounted`,
-    ).toBeGreaterThan(0);
-    expect(
-      tab.realtimeRefusals,
-      `${tab.label} never asked for the realtime stream, so it did not run beta's poll path`,
-    ).toBeGreaterThan(0);
-    expect(
-      tab.realtimeStreams,
-      `${tab.label} opened a realtime stream the lane should have refused`,
-    ).toBe(0);
-    if (latency > 0 && tab.saveDurationsMs.length)
+  let recordWritten = false;
+  let convergenceAttached = false;
+  try {
+    await body(scenario);
+    const working = [...tabs.tabs.values()];
+    const integrity = await observeIntegrity(
+      tabs,
+      reader,
+      id,
+      scenario.markers,
+    );
+    const record = scenarioRecord(integrity);
+    writeScenarioRecord(testInfo, record);
+    recordWritten = true;
+    await testInfo.attach("convergence", {
+      body: JSON.stringify(record, null, 2),
+      contentType: "application/json",
+    });
+    convergenceAttached = true;
+    // The lane fails if it did not run under the conditions it reports.
+    const latency = Number(scenario.notes.saveLatencyMs ?? 0);
+    for (const tab of working) {
       expect(
-        Math.min(...tab.saveDurationsMs),
-        `${tab.label} answered a save faster than the ${latency} ms latency`,
-      ).toBeGreaterThanOrEqual(latency * 0.9);
-  }
-  if (latency > 0)
-    expect(
-      working.some((tab) => tab.saveDurationsMs.length),
-      "no save was timed under the latency",
-    ).toBe(true);
-  if (BODY_SAVES === "collab-update")
-    for (const tab of working)
+        tab.editorMounts,
+        `${tab.label} reported no editor mount, so its toasts and recovery UI went uncounted`,
+      ).toBeGreaterThan(0);
       expect(
-        Object.keys(tab.saveCodes).filter((code) =>
-          code.startsWith(NOT_DERIVED),
+        tab.realtimeRefusals,
+        `${tab.label} never asked for the realtime stream, so it did not run beta's poll path`,
+      ).toBeGreaterThan(0);
+      expect(
+        tab.realtimeStreams,
+        `${tab.label} opened a realtime stream the lane should have refused`,
+      ).toBe(0);
+      if (latency > 0 && tab.saveDurationsMs.length)
+        expect(
+          Math.min(...tab.saveDurationsMs),
+          `${tab.label} answered a save faster than the ${latency} ms latency`,
+        ).toBeGreaterThanOrEqual(latency * 0.9);
+    }
+    if (latency > 0)
+      expect(
+        working.some((tab) => tab.saveDurationsMs.length),
+        "no save was timed under the latency",
+      ).toBe(true);
+    if (BODY_SAVES === "collab-update")
+      for (const tab of working)
+        expect(
+          Object.keys(tab.saveCodes).filter((code) =>
+            code.startsWith(NOT_DERIVED),
+          ),
+          `${tab.label} heard the server stopped building the body from the live copy, so it went back to update-document saves`,
+        ).toEqual([]);
+    expect(
+      integrityFailures(record),
+      "lost, duplicated or deleted-then-back text",
+    ).toEqual([]);
+    const noise = noiseFailures(record.tabs);
+    for (const expected of scenario.expectedNoise) {
+      const at = noise.indexOf(expected);
+      if (at >= 0) noise.splice(at, 1);
+    }
+    expect(
+      noise,
+      "recovery notices, error toasts or saves sent to History",
+    ).toEqual([]);
+  } catch (error) {
+    const record = scenarioRecord(
+      null,
+      error instanceof Error ? error.message : String(error),
+    );
+    const diagnosticErrors: unknown[] = [];
+    if (!recordWritten) {
+      try {
+        writeScenarioRecord(testInfo, record);
+      } catch (reportError) {
+        diagnosticErrors.push(reportError);
+      }
+    }
+    if (!convergenceAttached) {
+      try {
+        await testInfo.attach("convergence", {
+          body: JSON.stringify(record, null, 2),
+          contentType: "application/json",
+        });
+      } catch (attachmentError) {
+        diagnosticErrors.push(attachmentError);
+      }
+    }
+    try {
+      await testInfo.attach("convergence-partial", {
+        body: JSON.stringify(
+          {
+            ...record,
+            captureState: "incomplete",
+            failureName: error instanceof Error ? error.name : typeof error,
+            diagnostics: tabs.diagnosticSnapshot(),
+          },
+          null,
+          2,
         ),
-        `${tab.label} heard the server stopped building the body from the live copy, so it went back to update-document saves`,
-      ).toEqual([]);
-  expect(
-    integrityFailures(record),
-    "lost, duplicated or deleted-then-back text",
-  ).toEqual([]);
-  const noise = noiseFailures(record.tabs);
-  for (const expected of scenario.expectedNoise) {
-    const at = noise.indexOf(expected);
-    if (at >= 0) noise.splice(at, 1);
+        contentType: "application/json",
+      });
+    } catch (attachmentError) {
+      diagnosticErrors.push(attachmentError);
+    }
+    if (diagnosticErrors.length)
+      throw new AggregateError(
+        [error, ...diagnosticErrors],
+        "Convergence scenario failed and diagnostics could not be fully recorded",
+      );
+    throw error;
   }
-  expect(
-    noise,
-    "recovery notices, error toasts or saves sent to History",
-  ).toEqual([]);
 }
 
 async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {

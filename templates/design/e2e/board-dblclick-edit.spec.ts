@@ -90,7 +90,7 @@ async function openBoard(app: App) {
 }
 
 async function enterVectorPointEditing(page: Page) {
-  const onStroke = await boardPoint(page, "board-vector", 0.5, 0.93);
+  const onStroke = await boardPoint(page, "board-vector", 0.75, 0.43);
   await page.mouse.click(onStroke.x, onStroke.y);
   await expect(
     page.locator('[role="treeitem"][aria-selected="true"]'),

@@ -2,7 +2,7 @@ import {
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
-  useChangeVersion,
+  useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useState } from "react";
 
@@ -122,8 +122,10 @@ export async function setSelectedCreativeContext(
 }
 
 export function useCreativeContextState(options?: { enabled?: boolean }) {
-  const appStateVersion = useChangeVersion("app-state");
   const enabled = options?.enabled ?? true;
+  const appStateVersion = useChangeVersions(
+    enabled ? [`app-state:${CREATIVE_CONTEXT_STATE_KEY}`, "app-state:*"] : [],
+  );
   const [state, setState] = useState<CreativeContextApplicationState>(
     DEFAULT_CREATIVE_CONTEXT_STATE,
   );

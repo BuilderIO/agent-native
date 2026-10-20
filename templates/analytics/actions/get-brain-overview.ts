@@ -15,6 +15,10 @@ import type {
   BrainSourceStatus,
   IndexRunSummary,
 } from "../server/lib/brain-contract.js";
+import {
+  DBT_PROVIDER_ID,
+  dbtConnectionReadinessReason,
+} from "../server/lib/dbt-connection.js";
 import { readIndexSchedule } from "../server/lib/index-schedule.js";
 import {
   listSourceIndexRuns,
@@ -33,9 +37,11 @@ const DICTIONARY_KEY_PREFIX = "data-dict-";
 const SOURCE_STATUS: Record<SourceHealthState, BrainSourceStatus> = {
   connected: "connected",
   configured: "configured",
+  checking: "checking",
   not_connected: "not-connected",
   needs_reauth: "needs-reauth",
   error: "error",
+  unknown: "unknown",
 };
 
 function indexState(
@@ -90,13 +96,22 @@ async function readSourceHealth(): Promise<BrainSource[]> {
   return SOURCE_HEALTH_SOURCES.map(({ id, label }) => {
     const status =
       SOURCE_STATUS[sourceHealthState(id, statusData, queryFailed)];
+    // dbt names the missing step (token, environment, grant) instead of a generic failure.
+    const detail = id === DBT_PROVIDER_ID ? dbtDetail(statusData) : null;
     return {
       id,
       label,
       status,
-      detail: status === "error" ? "Status check failed." : null,
+      detail: detail ?? (status === "error" ? "Status check failed." : null),
     };
   });
+}
+
+function dbtDetail(data: DataSourceStatusResponse | undefined): string | null {
+  const readiness = data?.workspaceConnections?.providers.find(
+    (provider) => provider.provider === DBT_PROVIDER_ID,
+  )?.dbtReadiness;
+  return readiness ? dbtConnectionReadinessReason(readiness) : null;
 }
 
 export default defineAction({

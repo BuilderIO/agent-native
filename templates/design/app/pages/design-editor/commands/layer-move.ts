@@ -42,6 +42,7 @@ import {
   findMovedCodeLayerNodeInProjection,
   removeEmptyGeneratedGroupWrappers,
 } from "@/pages/design-editor/code-layer-state";
+import { adaptAutoTextColorsForCrossScreenNodes } from "@/pages/design-editor/cross-screen-text-color";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getLayerMoveIterationOrder,
@@ -64,6 +65,7 @@ import {
 } from "@/pages/design-editor/html-layer-positioning";
 import {
   isFlowDisplay,
+  getLivePreviewDocument,
   readLiveLayerMoveLayout,
 } from "@/pages/design-editor/live-layer-move-layout";
 import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
@@ -1067,6 +1069,30 @@ export function runLayerMove(
         ),
       );
     }
+  }
+
+  if (sourceContentMap.size > 0) {
+    const liveDestination = getLivePreviewDocument({
+      activeBreakpointWidthState,
+      activeFileId: activeFile?.id,
+      boardFileId,
+      fileId: targetOwner.fileId,
+      overviewScreens,
+    });
+    const movedNodeAttrIds = movedIdOrder.flatMap((draggedId) => {
+      if (
+        codeLayerOwnerByNodeId.get(draggedId)?.fileId === targetOwner.fileId
+      ) {
+        return [];
+      }
+      const nodeId = movedNodeIdByDraggedId.get(draggedId);
+      return nodeId ? [nodeId] : [];
+    });
+    nextDestContent = adaptAutoTextColorsForCrossScreenNodes(
+      nextDestContent,
+      movedNodeAttrIds,
+      liveDestination.status === "resolved" ? liveDestination.document : null,
+    );
   }
 
   const finalDestProjection =

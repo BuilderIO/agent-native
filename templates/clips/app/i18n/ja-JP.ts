@@ -694,6 +694,14 @@ const messages = {
     errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
     errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
   },
+  transcriptHistory: {
+    title: "以前のトランスクリプト",
+    automatic: "自動",
+    restore: "復元",
+    restored: "トランスクリプトを復元しました",
+    restoreFailed: "トランスクリプトを復元できませんでした",
+    undo: "元に戻す",
+  },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
     failedGif: "GIF の生成に失敗しました - より短い範囲を試してください",
@@ -964,8 +972,8 @@ const messages = {
     labMeetings: "会議と文字起こし",
     labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    labWisprFlow: "音声入力",
-    labWisprFlowDescription:
+    labVoiceDictation: "音声入力",
+    labVoiceDictationDescription:
       "Clips Desktop の音声入力を表示または非表示にします。",
     labLookbackContext: "以前の画面時間を含める",
     labLookbackContextDescription:
@@ -1394,6 +1402,15 @@ const messages = {
     playClip: "クリップを再生",
     unsupportedFormat:
       "このブラウザではこの動画を再生できません。Chrome、Edge、Firefoxでリンクを開いてみてください。",
+    youtubeLoading: "YouTube プレーヤーを読み込み中",
+    youtubeUnavailable: "この YouTube 動画は非公開か、削除されています。",
+    youtubeEmbedBlocked:
+      "この動画の所有者は YouTube 以外での再生を許可していません。",
+    youtubeInvalid: "この YouTube リンクは再生できる動画を指していません。",
+    youtubePlaybackFailed: "YouTube はここでこの動画を再生できませんでした。",
+    youtubeApiUnavailable:
+      "YouTube プレーヤーを読み込めませんでした。接続やコンテンツブロッカーを確認してから、再読み込みしてください。",
+    watchOnYouTube: "YouTube で見る",
   },
   searchBar: {
     placeholder: "録画を検索…",
@@ -1671,16 +1688,32 @@ const messages = {
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },
+  chapterList: {
+    add: "チャプターを追加",
+    editLabel: "チャプターを編集",
+    placeholder: "0:00 はじめに\n1:30 次のセクション",
+    errorLineShape:
+      "{{line}} 行目: 時間の後にタイトルを入力してください（例: 「0:48 メモの日付を保存」）。",
+    errorBadTime:
+      "{{line}} 行目: 「{{value}}」は 0:48 のような時間ではありません。",
+    errorDuplicate: "{{line}} 行目: {{value}} にはすでにチャプターがあります。",
+    errorPastEnd: "{{line}} 行目: {{value}} はクリップの終わりより後です。",
+    changedWhileEditing:
+      "編集中にチャプターが変更されました。行を確認してから、もう一度保存すると置き換わります。",
+  },
   chapters: {
-    title: "Chapters (ローカライズ済み)",
-    addHere: "Add here (ローカライズ済み)",
-    empty: "No chapters yet. (ローカライズ済み)",
-    remove: "Remove chapter (ローカライズ済み)",
-    saveFailed: "Failed to save chapters (ローカライズ済み)",
-    duplicateAtPoint:
-      "A chapter already exists at this point (ローカライズ済み)",
-    defaultTitle: "Chapter {{count}} (ローカライズ済み)",
-    seekTo: "Seek to {{time}} (ローカライズ済み)",
+    title: "チャプター",
+    addHere: "ここに追加",
+    empty: "チャプターはまだありません。",
+    remove: "チャプターを削除",
+    saveFailed: "チャプターを保存できませんでした",
+    changedElsewhere:
+      "チャプターが別の場所で変更されたため、最後の変更は保存されませんでした。",
+    unreadable:
+      "保存済みのチャプターの一部を読み取れないため、ここでは変更を保存できません。エージェントにチャプターの置き換えを依頼してください。",
+    duplicateAtPoint: "この位置にはすでにチャプターがあります",
+    defaultTitle: "チャプター {{count}}",
+    seekTo: "{{time}} に移動",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
@@ -1960,6 +1993,8 @@ const messages = {
       "Storage needed to finish Loom import (ローカライズ済み)",
     loomImported: "Loom imported (ローカライズ済み)",
     couldNotImportLoom: "この Loom をインポートできませんでした。",
+    youtubeImported: "YouTube 動画を追加しました",
+    couldNotImportVideo: "この動画をインポートできませんでした。",
     recordingReadyToUpload: "Recording is ready to upload (ローカライズ済み)",
     recordingSaved: "Recording saved (ローカライズ済み)",
     linkCopied: "リンクをコピーしました",
@@ -2068,7 +2103,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "インポート",
     helperText:
-      "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
+      "Loom と YouTube で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
     stageFetching: "動画を取り込んでいます…",
     stageUploading: "元の映像をアップロードしています…",
     stageTranscript:
@@ -2116,6 +2151,33 @@ const messages = {
     copy: "コピー",
     copied: "コピーしました",
     copyFailed: "コピーできませんでした",
+    flowStarting: "音声入力を開始しています…",
+    flowFinalizing: "音声入力を完了しています…",
+    flowBusy: "前の音声入力を完了しています…",
+    flowTranscribing: "文字起こし中…",
+    flowCleaning: "テキストを整えています…",
+    flowPasting: "テキストを貼り付けています…",
+    flowSavingHistory: "履歴に保存しています…",
+    flowPasted: "貼り付けました",
+    flowCopied: "クリップボードにコピーしました",
+    flowPastedHistoryFailed: "貼り付けましたが、履歴に保存できませんでした",
+    flowCopiedHistoryFailed: "コピーしましたが、履歴に保存できませんでした",
+    flowHistoryNotSaved: "音声入力を履歴に保存できませんでした",
+    flowPermissionFailed: "マイクの使用が許可されていません",
+    flowMicrophoneUnavailable: "マイクを利用できません",
+    flowProviderFailed: "音声を文字起こしできませんでした",
+    flowMeetingCaptureActive:
+      "文字起こしをする前に、会議の録音を停止してください",
+    flowPasteFailed: "文字起こしを貼り付けできませんでした",
+    flowCancelled: "音声入力をキャンセルしました",
+    flowRetryHistory: "履歴の保存を再試行",
+    flowDismiss: "閉じる",
+    flowTranscriptRecovery: "文字起こしの復元",
+    flowOriginalTranscript: "元の文字起こしを表示",
+    flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
+    flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowCancelDictation: "音声入力をキャンセル",
+    flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",
     aiCleaned: "AIでクリーンアップ済み",
     original: "オリジナル",

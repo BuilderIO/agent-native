@@ -28,6 +28,7 @@ import {
 } from "@agent-native/core/client/mcp-app-host";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import {
@@ -155,7 +156,6 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { useUndoSelection } from "@/hooks/use-undo-selection";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
@@ -166,6 +166,11 @@ import {
   retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
+import {
+  buildPresentUrl,
+  PRESENTER_WINDOW_FEATURES,
+  presenterWindowName,
+} from "@/lib/deck-present-url";
 import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
 import { getPreset } from "@/lib/design-systems";
 import {
@@ -255,6 +260,9 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 import {
   shouldActivateRectangleTool,
+  shouldActivateScaleTool,
+  shouldActivateHandTool,
+  shouldActivateMoveTool,
   shouldActivateTextTool,
 } from "@/lib/text-tool-shortcut";
 import {
@@ -997,6 +1005,8 @@ export default function DeckEditor() {
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
+  const [handMode, setHandMode] = useState(false);
+  const [scaleMode, setScaleMode] = useState(false);
   const [shapeType, setShapeType] = useState<SlideShapeType | null>(null);
   const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<
     string | null
@@ -1049,6 +1059,32 @@ export default function DeckEditor() {
     setAnimationTargets(NO_ANIMATION_TARGETS);
     setLayersOpen((open) => !open);
   }, [layersOpen]);
+
+  // Move, Hand and Scale are one family: arming any of them drops the
+  // placement and annotation tools, and arming one releases the others.
+  const selectMoveTool = useCallback((tool: "move" | "hand" | "scale") => {
+    setDrawMode(false);
+    setPinMode(false);
+    setTextBoxMode(false);
+    setShapeType(null);
+    setHandMode(tool === "hand");
+    setScaleMode(tool === "scale");
+  }, []);
+  const changeHandMode = useCallback(
+    (active: boolean) => selectMoveTool(active ? "hand" : "move"),
+    [selectMoveTool],
+  );
+  const changeScaleMode = useCallback(
+    (active: boolean) => selectMoveTool(active ? "scale" : "move"),
+    [selectMoveTool],
+  );
+  // Any other tool taking over releases Hand and Scale, whichever path armed it.
+  useEffect(() => {
+    if (drawMode || pinMode || textBoxMode || shapeType) {
+      setHandMode(false);
+      setScaleMode(false);
+    }
+  }, [drawMode, pinMode, textBoxMode, shapeType]);
 
   useEffect(() => {
     setClientAppState(
@@ -1106,6 +1142,10 @@ export default function DeckEditor() {
     }
     setTextBoxMode(next);
   }, [textBoxMode]);
+
+  const armTextBox = useCallback(() => {
+    if (!textBoxMode) toggleTextBoxMode();
+  }, [textBoxMode, toggleTextBoxMode]);
 
   const selectShape = useCallback((type: SlideShapeType) => {
     trackEvent("slide_tool_selected", {
@@ -1213,8 +1253,10 @@ export default function DeckEditor() {
   }, []);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  // Image and video uploads go through core `uploadFile`; the slides
+  // `/api/uploads/status` flag covers reference files and is always true locally.
+  const storageQuery = useFileUploadStatus();
   const insertMediaInputRef = useRef<HTMLInputElement>(null);
-  const storageQuery = useSlideFileStorageStatus();
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
   const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
@@ -4112,6 +4154,19 @@ export default function DeckEditor() {
         return;
       }
 
+      const moveTool = shouldActivateScaleTool(event, options)
+        ? "scale"
+        : shouldActivateHandTool(event, options)
+          ? "hand"
+          : shouldActivateMoveTool(event, options)
+            ? "move"
+            : null;
+      if (moveTool) {
+        event.preventDefault();
+        selectMoveTool(moveTool);
+        return;
+      }
+
       if (!shouldActivateRectangleTool(event, options)) return;
       event.preventDefault();
       selectShape("rectangle");
@@ -4120,7 +4175,7 @@ export default function DeckEditor() {
     document.addEventListener("keydown", handleSlideToolShortcut);
     return () =>
       document.removeEventListener("keydown", handleSlideToolShortcut);
-  }, [canEdit, selectShape]);
+  }, [canEdit, selectMoveTool, selectShape]);
 
   useEffect(() => {
     const handleCommentShortcut = (event: KeyboardEvent) => {
@@ -5119,12 +5174,20 @@ export default function DeckEditor() {
     attemptId: number,
     target: Window | null,
     presentationUrl: string,
+    presenter: { window: Window; url: string } | null,
   ) => {
+    const closeOpenedWindows = () => {
+      if (target && !target.closed) target.close();
+      if (presenter && !presenter.window.closed) presenter.window.close();
+    };
     try {
       await flushDeckSave(id);
       if (presentAttemptRef.current !== attemptId) {
-        if (target && !target.closed) target.close();
+        closeOpenedWindows();
         return;
+      }
+      if (presenter && !presenter.window.closed) {
+        presenter.window.location.href = presenter.url;
       }
       if (target) {
         if (!target.closed) target.location.href = presentationUrl;
@@ -5133,11 +5196,8 @@ export default function DeckEditor() {
       presentNavigationRef.current = true;
       void navigate(presentationUrl);
     } catch (error) {
-      if (presentAttemptRef.current !== attemptId) {
-        if (target && !target.closed) target.close();
-        return;
-      }
-      if (target && !target.closed) target.close();
+      closeOpenedWindows();
+      if (presentAttemptRef.current !== attemptId) return;
       console.error("[slides-present] failed to flush save:", error);
       toast.error(t("settings.saveFailed"));
     } finally {
@@ -5152,10 +5212,12 @@ export default function DeckEditor() {
       return request?.preserveNativeNavigation ? true : undefined;
     }
 
+    const mode = request?.mode ?? "fullscreen";
     trackEvent("slide_presentation_opened", {
       app_name: "slides",
       template_name: "slides",
       navigation: request?.preserveNativeNavigation ? "new_tab" : "current_tab",
+      mode,
     });
 
     const hasInlineDraft = inlineEditFlushRef.current?.() ?? false;
@@ -5164,7 +5226,13 @@ export default function DeckEditor() {
     flushPendingSaves();
     if (request?.preserveNativeNavigation && !hasPendingEdits) return false;
 
-    const presentationUrl = `/deck/${id}/present?slide=${Math.max(0, currentIndex) + 1}`;
+    // Presenter View is a second window beside the audience view, which is
+    // presented the way Full Screen does.
+    const presentationUrl = buildPresentUrl(
+      id,
+      currentIndex,
+      mode === "presenter" ? "fullscreen" : mode,
+    );
     const target = request?.preserveNativeNavigation
       ? window.open("", "_blank")
       : null;
@@ -5172,9 +5240,28 @@ export default function DeckEditor() {
       toast.error(t("settings.saveFailed"));
       return true;
     }
+    // A popup is only allowed while the click is still being handled, so it
+    // opens blank now and gets its address once the save has been flushed.
+    const presenterWindow =
+      mode === "presenter"
+        ? window.open("", presenterWindowName(id), PRESENTER_WINDOW_FEATURES)
+        : null;
+    if (mode === "presenter" && !presenterWindow) {
+      toast.error(t("editorToolbar.presenterViewBlocked"));
+    }
     presentInFlightRef.current = true;
     const attemptId = ++presentAttemptRef.current;
-    void finishPresent(attemptId, target, presentationUrl);
+    void finishPresent(
+      attemptId,
+      target,
+      presentationUrl,
+      presenterWindow
+        ? {
+            window: presenterWindow,
+            url: buildPresentUrl(id, currentIndex, "presenter"),
+          }
+        : null,
+    );
     return request?.preserveNativeNavigation ? true : undefined;
   };
 
@@ -5514,6 +5601,8 @@ export default function DeckEditor() {
                     selectedSlideIds={selectedSlideIds}
                     deckId={id}
                     deckTitle={deck.title}
+                    onAddSlide={handleNewSlideClick}
+                    addSlideGenerating={addSlideGenerating}
                     describeSlideId={describeSlideId}
                     onCloseDescribe={() => setDescribeSlideId(null)}
                     onAwaitAddSlidePersisted={() => flushDeckSave(id)}
@@ -5947,6 +6036,7 @@ export default function DeckEditor() {
             }}
             onDropImage={uploadAndApplyImage}
             onDropVideo={uploadAndApplyVideo}
+            fileStorageConfigured={fileStorageConfigured}
             onDropImageUrl={dropImageUrlOnSlide}
             onToggleObjectFit={toggleObjectFit}
             onChangeObjectPosition={updateObjectPosition}
@@ -5966,6 +6056,12 @@ export default function DeckEditor() {
             }
             recentEdits={deckRecentEdits}
             onComment={openCommentComposer}
+            handMode={handMode}
+            onHandModeChange={changeHandMode}
+            scaleMode={scaleMode}
+            onScaleModeChange={changeScaleMode}
+            onArmTextBox={armTextBox}
+            onArmShape={selectShape}
             drawMode={drawMode}
             onExitDrawMode={() => setDrawMode(false)}
             onToggleLayers={toggleLayers}
@@ -5979,6 +6075,11 @@ export default function DeckEditor() {
             layersOpen={layersOpen}
             onCloseLayers={() => setLayersOpen(false)}
             onOpenAnimations={openAnimationsForTarget}
+            onToggleAnimations={toggleAnimations}
+            commentsOpen={commentsOpen}
+            onToggleComments={toggleComments}
+            onTogglePinMode={togglePinMode}
+            onToggleDrawMode={toggleDrawMode}
             onSelectedAnimationTargetsChange={setAnimationTargets}
             slideId={currentSlide.id}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}

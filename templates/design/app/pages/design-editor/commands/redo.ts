@@ -1103,6 +1103,12 @@ export function runRedo({
             });
           }
           setSelectedElement((prev) => {
+            if (entry.selectionAfter)
+              return resolveLocalHistorySelection(
+                entry.selectionAfter,
+                entry.fileId,
+                entry.after,
+              ).selectedElement;
             if (!prev) return prev;
             return refreshElementInfoFromContent(entry.after, prev, {
               kind: "design-file",
@@ -1117,10 +1123,16 @@ export function runRedo({
             });
           });
           setSelectedLayerIdsState((prev) =>
-            refreshSelectedLayerIdsFromContent(entry.after, prev, {
-              kind: "design-file",
-              fileId: entry.fileId,
-            }),
+            entry.selectionAfter
+              ? resolveLocalHistorySelection(
+                  entry.selectionAfter,
+                  entry.fileId,
+                  entry.after,
+                ).selectedLayerIds
+              : refreshSelectedLayerIdsFromContent(entry.after, prev, {
+                  kind: "design-file",
+                  fileId: entry.fileId,
+                }),
           );
           return true;
         }

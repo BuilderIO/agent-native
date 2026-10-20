@@ -66,6 +66,12 @@ export default {
     sigmaChooseConnectionPlaceholder: "कनेक्शन चुनें",
     sigmaChooseConnectionDescription: "वर्कबुक देखने के लिए Sigma वर्कस्पेस चुनें।",
     sigmaNoConnection: "Sigma कनेक्ट नहीं है",
+    sigmaApiRegion: "Sigma API क्षेत्र",
+    sigmaOAuthConnect: "व्यक्तिगत Sigma खाता कनेक्ट करें",
+    sigmaOAuthAddAnother: "दूसरा Sigma खाता कनेक्ट करें",
+    sigmaOAuthCancel: "रद्द करें",
+    sigmaOAuthDescription:
+      "जिन वर्कबुक तक आपकी पहुँच है, उन्हें देखने के लिए अपने खाते से Sigma में साइन इन करें।",
     sigmaClientId: "क्लाइंट ID",
     sigmaClientSecret: "क्लाइंट सीक्रेट",
     sigmaBaseUrl: "API बेस URL (वैकल्पिक)",
@@ -77,8 +83,7 @@ export default {
     sigmaCredentialStageFailed:
       "अस्थायी Sigma क्रेडेंशियल सेव नहीं हो सके। Vault का ऐक्सेस जाँचें और फिर कोशिश करें।",
     sigmaCredentialsRequired: "पहले Sigma क्लाइंट ID और क्लाइंट सीक्रेट सेव करें।",
-    sigmaBaseUrlInvalid:
-      "sigmacomputing.com डोमेन पर HTTPS Sigma API URL इस्तेमाल करें।",
+    sigmaBaseUrlInvalid: "समर्थित आधिकारिक Sigma API क्षेत्र का URL चुनें।",
     sigmaPersistenceUnavailable:
       "Analytics अभी Sigma कनेक्शन को सुरक्षित रूप से सेव नहीं कर सकता। फिर कोशिश करें।",
     sigmaPolicyInvalid:
@@ -92,7 +97,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics में सेव किए गए Sigma क्रेडेंशियल पढ़े नहीं जा सके। संगठन एडमिन Dispatch में फिर से कनेक्ट कर सकता है या Analytics में क्रेडेंशियल दोबारा दर्ज कर सकता है।",
     sigmaNoConnectionDescription:
-      "Analytics-only कनेक्शन बनाने के लिए यहाँ क्रेडेंशियल दर्ज करें। Dispatch में Analytics के लिए अधिकृत Sigma कनेक्शन यहाँ अपने-आप दिखते हैं; केवल संगठन के एडमिन सीधे क्रेडेंशियल सेव कर सकते हैं।",
+      "अपना व्यक्तिगत Sigma खाता कनेक्ट करें या संगठन के एडमिन द्वारा सेव किए गए क्रेडेंशियल इस्तेमाल करें। Analytics के लिए अधिकृत Dispatch कनेक्शन भी यहाँ दिखते हैं।",
     sigmaOpenDispatch: "Dispatch में कनेक्ट करें",
     sigmaOpenVault: "Vault खोलें",
     sigmaWorkbooksLoadFailed: "Sigma वर्कबुक लोड नहीं हो सकीं",
@@ -622,6 +627,7 @@ export default {
     notConnected: "कनेक्ट नहीं है",
     needsReauth: "पुनः प्रमाणीकरण आवश्यक है",
     error: "त्रुटि",
+    unknown: "अज्ञात",
     indexNotImported: "कोई जनरेट किया गया इंडेक्स आयात नहीं किया गया है।",
     indexUnreadable: "सहेजा गया इंडेक्स पढ़ा नहीं जा सका। मान्य इंडेक्स अपलोड करें।",
     indexReadFailed: "इंडेक्स स्थिति लोड नहीं हो सकी।",
@@ -704,6 +710,42 @@ export default {
     sameNameCheckFailed: "इस मेट्रिक की मौजूदा प्रविष्टियों की जाँच नहीं हो सकी।",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "कंटेंट व्यू के लिए हर पेज के रोज़ाना क्लिक और इंप्रेशन।",
+      serviceAccount: "सर्विस अकाउंट",
+      copyEmail: "ईमेल कॉपी करें",
+      grantHint:
+        "Search Console में हर प्रॉपर्टी पर सेटिंग → उपयोगकर्ता और अनुमतियां में जाकर इस ईमेल को उपयोगकर्ता के रूप में जोड़ें।",
+      noServiceAccount: "पहले Google सर्विस अकाउंट की कुंजी जोड़ें।",
+      openGoogleCloud: "Google Cloud खोलें",
+      invalidServiceAccount: "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकती।",
+      properties: "प्रॉपर्टी",
+      siteLabel: "प्रॉपर्टी",
+      pathLabel: "पाथ प्रीफ़िक्स",
+      addProperty: "प्रॉपर्टी जोड़ें",
+      removeProperty: "प्रॉपर्टी हटाएं",
+      save: "सहेजें",
+      collectDaily: "रोज़ इकट्ठा करें",
+      adminOnly: "केवल संगठन के मालिक और एडमिन इसे बदल सकते हैं।",
+      statusCollecting: "इकट्ठा हो रहा है",
+      statusNeedsAccess: "एक्सेस चाहिए",
+      statusFailed: "पिछला रन विफल रहा",
+      runSucceeded: "{{when}} को इकट्ठा किया गया",
+      runNeedsAccess: "{{when}} तक कोई एक्सेस नहीं",
+      runRunning: "{{when}} से इकट्ठा हो रहा है",
+      runFailed: "{{when}} को विफल",
+      unavailable: "संग्रह की स्थिति उपलब्ध नहीं है: {{message}}",
+      keyUnreadable:
+        "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकी। इसे Google Cloud में फिर से सहेजें।",
+      propertyBareDomain: "डोमेन प्रॉपर्टी के लिए {{suggestion}} का उपयोग करें।",
+      propertyInvalidDomain:
+        "sc-domain: के बाद सिर्फ़ डोमेन लिखें, जैसे {{suggestion}}।",
+      propertyMissingSlash:
+        "URL-प्रीफ़िक्स प्रॉपर्टी / पर खत्म होती हैं। {{suggestion}} का उपयोग करें।",
+      propertyUnrecognized:
+        "sc-domain:example.com या / पर खत्म होने वाली URL-प्रीफ़िक्स प्रॉपर्टी का उपयोग करें।",
+    },
     uploadFile: "फ़ाइल अपलोड करें",
     googleSheetsExport: "Google Sheets निर्यात",
     googleSheetsExportDescription:
@@ -801,6 +843,7 @@ export default {
     bigQueryHealthUnavailable:
       "First-party Analytics pressure की जाँच नहीं हो सकी। backend बदलने से पहले reload करके फिर प्रयास करें।",
     analyticsEventCount: "देखे गए events",
+    analyticsRecentEventCount: "देखे गए events (पिछले 30 दिन)",
     slowQueries24h: "धीमे queries (24 घंटे)",
     maxQueryDuration: "अधिकतम query समय",
     defaultKeyName: "होस्ट किए गए टेम्पलेट",
@@ -1190,6 +1233,8 @@ export default {
     addEventToSeeResults: "कोई ईवेंट जोड़ें और परिणाम देखने के लिए उसे चुनें",
     queryError: "Query error: {{message}}",
     noDataReturned: "कोई डेटा वापस नहीं आया",
+    incompleteResultsWarning:
+      "यह नतीजा अधूरा हो सकता है। छूटी हुई पंक्तियाँ या स्रोत डेटा कुल को प्रभावित कर सकते हैं।",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "द्वारा फ़िल्टर करें",
     pickPropertyToFilter: "फ़िल्टर करने के लिए एक संपत्ति चुनें",
@@ -1279,6 +1324,10 @@ export default {
     dashboardActions: "डैशबोर्ड विवरण और क्रियाएँ",
     certifyForAi: "AI क्वेरी के लिए प्रमाणित करें",
     certifiedForAi: "AI क्वेरी के लिए प्रमाणित",
+    duplicateToCustomize: "कस्टमाइज़ करने के लिए डुप्लिकेट करें",
+    duplicateToCustomizeHint:
+      "बिल्ट-इन डैशबोर्ड हर Analytics रिलीज़ के साथ अपडेट होते हैं। इसे बदलने के लिए अपनी कॉपी बनाएँ।",
+    duplicateFailed: "इस डैशबोर्ड को डुप्लिकेट नहीं किया जा सका।",
     certificationSaved: "डैशबोर्ड को AI क्वेरी के लिए प्रमाणित किया गया",
     certificationFailed: "डैशबोर्ड प्रमाणित नहीं हो सका: {{message}}",
     details: "Details",
@@ -1312,6 +1361,23 @@ export default {
     resetFilters: "फ़िल्टर रीसेट करें",
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
+    drilldownChartPoints: "चार्ट के बिंदु",
+    drilldownPreviousPage: "चार्ट बिंदुओं का पिछला पृष्ठ",
+    drilldownNextPage: "चार्ट बिंदुओं का अगला पृष्ठ",
+    drilldownPageRange: "कुल {{total}} में से {{start}}–{{end}} दिखाए जा रहे हैं",
+    drilldownFilterRows: "पंक्तियाँ फ़िल्टर करें",
+    drilldownShowSql: "SQL दिखाएँ",
+    drilldownHideSql: "SQL छिपाएँ",
+    drilldownDownloadCsv: "CSV डाउनलोड करें",
+    drilldownShowing: "{{total}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं",
+    drilldownCsvTruncated:
+      "अधूरा निर्यात: क्वेरी में {{total}} रिकॉर्ड मिले, लेकिन केवल पहले {{loaded}} लोड किए गए; फ़िल्टर के बाद इस फ़ाइल में {{exported}} शामिल हैं।",
+    drilldownCountMismatch:
+      "चार्ट {{chart}} दिखाता है, लेकिन {{total}} रिकॉर्ड मेल खाते हैं",
+    drilldownAggregateOnly:
+      "इस पैनल में केवल समेकित पंक्तियाँ हैं। क्लिक किए गए बिंदु से मेल खाने वाली पंक्तियाँ हाइलाइट की गई हैं।",
+    drilldownNoRecords: "कोई मेल खाता रिकॉर्ड नहीं",
+    drilldownLoadFailed: "रिकॉर्ड लोड नहीं हो सके",
     filterSeries: "Filter",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",
@@ -1386,6 +1452,22 @@ export default {
     columnShowHidden: "छिपे हुए कॉलम दिखाएँ",
     columnName: "कॉलम का नाम",
     columnResize: "कॉलम का आकार बदलें",
+    rowBreakdownBy: "इसके अनुसार विभाजित करें",
+    rowBreakdownAll: "सभी",
+    rowBreakdownOther: "अन्य",
+    rowBreakdownOtherHint: "छोटे समूह, और वे लोग जिन्हें इस पैनल का SQL छोड़ देता है",
+    rowBreakdownSmallGroup: "{{count}} से कम: दरों को सावधानी से पढ़ें",
+    rowBreakdownNoValue: "(कोई नहीं)",
+    rowBreakdownEmpty: "इस विभाजन के लिए कोई पंक्ति नहीं।",
+    rowBreakdownUnavailable: "इस पैनल के SQL में {{column}} के अनुसार विभाजन नहीं है।",
+    rowBreakdownFromPanel: "इस पैनल की पंक्तियों से। कुछ भी पढ़ा नहीं गया।",
+    rowBreakdownFromCache: "कैश से। कुछ भी पढ़ा नहीं गया।",
+    rowBreakdownAlreadyLoaded: "पहले से लोड है। कुछ भी पढ़ा नहीं गया।",
+    rowBreakdownBytesRead: "{{bytes}} पढ़ा गया",
+    rowBreakdownOverByteCap:
+      "यह विभाजन {{gib}} GiB से ज़्यादा पढ़ेगा, इसलिए यह नहीं चला। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
+    rowBreakdownTruncated:
+      "नतीजा बीच में कट गया, इसलिए कुछ समूह गायब हैं या अन्य में गिने गए हैं।",
     deleteSectionTitle: "अनुभाग हटाएं?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "पैनल हटाएं?",
@@ -2044,10 +2126,6 @@ export default {
     noMatches: "खोज से मेल खाने वाली कोई परिभाषा नहीं है।",
     searchPlaceholder: "परिभाषाएँ खोजें",
     sourceIndex: "स्रोत इंडेक्स",
-    statusApproved: "स्वीकृत",
-    statusSuggested: "सुझाया गया",
-    statusUnreviewed: "बिना समीक्षा",
-    unsourced: "कोई स्रोत नहीं",
   },
   indexPanel: {
     presetDaily: "रोज़ 06:00 बजे",
@@ -2104,6 +2182,8 @@ export default {
     dbtDisabled: "बंद है",
     dbtAdminOnly: "इस कनेक्शन को केवल संगठन के एडमिन बदल सकते हैं।",
     dbtReadFailed: "dbt कनेक्शन लोड नहीं हो सका।",
+    dbtSeveralConnections:
+      "Analytics को कई dbt कनेक्शन की अनुमति है, इसलिए यह पैनल उनमें से किसी एक को संपादित नहीं कर सकता। सेटिंग्स → इंटीग्रेशन में अतिरिक्त कनेक्शन हटाकर केवल एक रखें।",
     dbtSave: "कनेक्शन सहेजें",
     dbtChecking: "जाँच हो रही है",
     dbtSaveFailed: "dbt कनेक्शन सहेजा नहीं जा सका।",

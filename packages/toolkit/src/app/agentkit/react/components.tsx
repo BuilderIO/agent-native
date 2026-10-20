@@ -912,27 +912,29 @@ export function AgentInteractionItem({
       data-kind={interaction.kind}
       data-scope={interaction.scope}
     >
-      {interactionIcon(interaction.kind)}
-      {agent && AgentRenderer ? (
-        <AgentRenderer value={agent} threadId={threadId} />
-      ) : (
-        <AgentIdentityChip
-          id={interaction.agentId}
-          name={agentName}
-          fallbackName={labels.assistant}
-        />
-      )}
-      <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
-      {target && TargetRenderer ? (
-        <TargetRenderer value={target} threadId={threadId} />
-      ) : interaction.targetAgentId ? (
-        <AgentIdentityChip
-          id={interaction.targetAgentId}
-          name={targetName}
-          fallbackName={labels.assistant}
-        />
-      ) : null}
-      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      <span className="agentkit-agent-interaction-head">
+        {interactionIcon(interaction.kind)}
+        {agent && AgentRenderer ? (
+          <AgentRenderer value={agent} threadId={threadId} />
+        ) : (
+          <AgentIdentityChip
+            id={interaction.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
+        )}
+        <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
+        {target && TargetRenderer ? (
+          <TargetRenderer value={target} threadId={threadId} />
+        ) : interaction.targetAgentId ? (
+          <AgentIdentityChip
+            id={interaction.targetAgentId}
+            name={targetName}
+            fallbackName={labels.assistant}
+          />
+        ) : null}
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      </span>
       {detail && (!object || interaction.kind === "failed") ? (
         <span
           {...(interaction.kind === "failed"

@@ -34,6 +34,7 @@ import { designSystemPickerOptions } from "@/components/editor/design-start-pick
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
+import { isHostedInProcess } from "@/host/design-host-channel";
 import {
   acknowledgeDesignSaveOutboxEntry,
   createDesignSaveOutboxEntry,
@@ -795,7 +796,8 @@ export function useEditorFilesAndSaving({
   );
 
   useEffect(() => {
-    if (!design?.title) return;
+    // The page title belongs to an in-process host, not the editor.
+    if (!design?.title || isHostedInProcess()) return;
     const nextTitle = `${normalizeDocumentTitle(design.title, "Untitled design")} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;
@@ -1385,6 +1387,7 @@ export function useEditorFilesAndSaving({
       enabled: canEditDesign && Boolean(id) && !shellMode,
       refetchInterval:
         canEditDesign && Boolean(id) && !shellMode ? 2_000 : false,
+      notifyOnChangeProps: ["data", "error", "status"],
     },
   );
   const remoteVisualEditPending =

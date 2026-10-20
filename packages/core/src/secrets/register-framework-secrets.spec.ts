@@ -14,6 +14,23 @@ describe("framework secret registrations", () => {
     vi.unstubAllGlobals();
   });
 
+  it("registers workspace secrets for the HubSpot MCP Auth App", () => {
+    registerFrameworkSecrets();
+
+    for (const key of ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"]) {
+      expect(getRequiredSecret(key)).toMatchObject({
+        scope: "workspace",
+        kind: "api-key",
+        required: false,
+        docsUrl:
+          "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server",
+      });
+      expect(getRegisteredSecretUsage(key)).toContainEqual(
+        expect.objectContaining({ feature: "HubSpot MCP connections" }),
+      );
+    }
+  });
+
   it("registers a Figma personal access token fallback", async () => {
     registerFrameworkSecrets();
 

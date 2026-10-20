@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RunChunkControl } from "../agent/run-manager.js";
+import type { CurrentTurnRunEvent } from "../agent/run-store.js";
 import {
   buildTriggerContent,
   parseTriggerFrontmatter,
@@ -10,6 +12,61 @@ import {
   processRecurringJobs,
   runJobNow,
 } from "./scheduler.js";
+
+function createRunChunkControl(signal: AbortSignal): RunChunkControl {
+  return {
+    turnSignal: signal,
+    chunkSignal: signal,
+    chunkBoundaryReason: () => null,
+    beginChunk: () => signal,
+    flushEvents: async () => {},
+  };
+}
+
+function mockBackgroundExecutionJournal() {
+  beginAgentExecutionStepMock.mockResolvedValue({
+    status: "execute",
+    wasDispatched: false,
+  });
+  markAgentExecutionStepDispatchedMock.mockResolvedValue();
+  completeAgentExecutionStepMock.mockResolvedValue();
+}
+
+async function withMockExecutionFence<T>(
+  fence: {
+    threadId: string;
+    turnId: string;
+    runId: string;
+    generation: string;
+  },
+  work: () => Promise<T>,
+): Promise<T> {
+  currentExecutionFenceMock.mockReturnValue(fence);
+  try {
+    return await work();
+  } finally {
+    currentExecutionFenceMock.mockReset();
+  }
+}
+
+const beginAgentExecutionStepMock = vi.hoisted(() => vi.fn());
+const markAgentExecutionStepDispatchedMock = vi.hoisted(() => vi.fn());
+const completeAgentExecutionStepMock = vi.hoisted(() => vi.fn());
+const currentExecutionFenceMock = vi.hoisted(() => vi.fn());
+const getCurrentTurnRunEventsForThreadMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../agent/execution-fence.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/execution-fence.js")>()),
+  currentExecutionFence: currentExecutionFenceMock,
+}));
+
+vi.mock("../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/run-store.js")>()),
+  beginAgentExecutionStep: beginAgentExecutionStepMock,
+  markAgentExecutionStepDispatched: markAgentExecutionStepDispatchedMock,
+  completeAgentExecutionStep: completeAgentExecutionStepMock,
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsForThreadMock,
+}));
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
@@ -25,7 +82,7 @@ const getThreadMock = vi.hoisted(() =>
     messageCount: 0,
   })),
 );
-const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
@@ -173,6 +230,37 @@ describe("processRecurringJobs", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
+    mockBackgroundExecutionJournal();
+    getCurrentTurnRunEventsForThreadMock.mockImplementation(
+      async (threadId: string, turnId?: string) =>
+        startRunMock.mock.results.flatMap((result, index) => {
+          if (result.type !== "return") return [];
+          const run = result.value as {
+            runId: string;
+            threadId: string;
+            turnId?: string;
+            events?: Array<{
+              seq: number;
+              event: CurrentTurnRunEvent["event"];
+            }>;
+          };
+          const options = startRunMock.mock.calls[index]?.[4] as
+            | { turnId?: string }
+            | undefined;
+          const runTurnId = run.turnId ?? options?.turnId ?? run.runId;
+          if (
+            run.threadId !== threadId ||
+            (turnId !== undefined && runTurnId !== turnId)
+          ) {
+            return [];
+          }
+          return (run.events ?? []).map(({ seq, event }) => ({
+            runId: run.runId,
+            seq,
+            event,
+          }));
+        }),
+    );
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({
       execute: dbExecuteMock,
@@ -243,15 +331,19 @@ Summarize the inbox.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: { status: string }) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
         const activeRun = {
           runId,
           threadId,
+          turnId: options?.turnId ?? runId,
           status: "running",
           abort,
+          finalized: Promise.resolve(),
           events: [
             {
               seq: 0,
@@ -264,9 +356,13 @@ Summarize the inbox.`,
             },
           ],
         };
-        void Promise.resolve().then(async () => {
+        activeRun.finalized = Promise.resolve().then(async () => {
           try {
-            await runFn(vi.fn(), abort.signal);
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
             activeRun.status = "completed";
           } catch {
             activeRun.status = "errored";
@@ -731,7 +827,10 @@ Process the feedback.`,
       }),
       expect.any(Number),
       expect.any(Object),
-      undefined,
+      expect.objectContaining({
+        flushEvents: expect.any(Function),
+        beginChunk: expect.any(Function),
+      }),
       expect.any(Function),
     );
   });
@@ -1395,19 +1494,54 @@ Post the digest.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: any) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
-          await runFn(vi.fn(), abort.signal);
-          activeRun.status = "completed";
-          await onComplete?.({
-            ...activeRun,
-            events: [{ seq: 0, event: { type: "text", text: "Digest ready" } }],
-          });
-        });
+        const turnId = options?.turnId ?? runId;
+        const activeRun = {
+          runId,
+          threadId,
+          turnId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = withMockExecutionFence(
+          {
+            threadId,
+            turnId,
+            runId,
+            generation: "1",
+          },
+          async () => {
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
+            activeRun.status = "completed";
+            const events = [
+              {
+                seq: 0,
+                event: {
+                  type: "tool_done",
+                  tool: "send-notification",
+                  result: "Sent",
+                  completedSideEffect: true,
+                },
+              },
+              { seq: 1, event: { type: "text", text: "Digest ready" } },
+            ];
+            Object.assign(activeRun, { events });
+            await onComplete?.({
+              ...activeRun,
+              events,
+            });
+          },
+        );
         return activeRun;
       },
     );
@@ -1419,6 +1553,8 @@ Post the digest.`,
       model: "test-model",
     });
 
+    expect(startRunMock).toHaveBeenCalledOnce();
+    expect(beginAgentExecutionStepMock).toHaveBeenCalledOnce();
     expect(sendMessageToTargetMock).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Digest ready" }),
       {
@@ -1491,23 +1627,37 @@ Post the digest.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: any) => void | Promise<void>,
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
-          await runFn(vi.fn(), abort.signal);
+        const activeRun = {
+          runId,
+          threadId,
+          turnId: runId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = Promise.resolve().then(async () => {
+          await runFn(
+            vi.fn(),
+            abort.signal,
+            createRunChunkControl(abort.signal),
+          );
           activeRun.status = "completed";
+          const events = [
+            { seq: 0, event: { type: "text", text: "Half a digest" } },
+            {
+              seq: 1,
+              event: { type: "auto_continue", reason: "run_timeout" },
+            },
+          ];
+          Object.assign(activeRun, { events });
           await onComplete?.({
             ...activeRun,
-            events: [
-              { seq: 0, event: { type: "text", text: "Half a digest" } },
-              {
-                seq: 1,
-                event: { type: "auto_continue", reason: "run_timeout" },
-              },
-            ],
+            events,
           });
         });
         return activeRun;
@@ -1555,26 +1705,62 @@ Post the digest.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: any) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
-        const activeRun = { runId, threadId, status: "running", abort };
-        void Promise.resolve().then(async () => {
-          await runFn(vi.fn(), abort.signal);
-          activeRun.status = "completed";
-          await onComplete?.({
-            ...activeRun,
-            events: [
+        const turnId = options?.turnId ?? runId;
+        const activeRun = {
+          runId,
+          threadId,
+          turnId,
+          status: "running",
+          abort,
+          finalized: Promise.resolve(),
+        };
+        activeRun.finalized = withMockExecutionFence(
+          {
+            threadId,
+            turnId,
+            runId,
+            generation: "1",
+          },
+          async () => {
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
+            activeRun.status = "completed";
+            const events = [
               {
                 seq: 0,
-                event: { type: "auto_continue", reason: "network_interrupted" },
+                event: {
+                  type: "auto_continue",
+                  reason: "network_interrupted",
+                },
               },
-              { seq: 1, event: { type: "text", text: "Digest ready" } },
-              { seq: 2, event: { type: "done" } },
-            ],
-          });
-        });
+              {
+                seq: 1,
+                event: {
+                  type: "tool_done",
+                  tool: "send-notification",
+                  result: "Sent",
+                  completedSideEffect: true,
+                },
+              },
+              { seq: 2, event: { type: "text", text: "Digest ready" } },
+              { seq: 3, event: { type: "done" } },
+            ];
+            Object.assign(activeRun, { events });
+            await onComplete?.({
+              ...activeRun,
+              events,
+            });
+          },
+        );
         return activeRun;
       },
     );

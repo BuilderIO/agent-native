@@ -56,6 +56,16 @@ const tally = (
   );
 };
 
+const answers = (tab: TabRecord) => ({
+  ...tab.saveOutcomes,
+  ...Object.fromEntries(
+    Object.entries(tab.lateSaveOutcomes).map(([outcome, count]) => [
+      `late ${outcome}`,
+      count,
+    ]),
+  ),
+});
+
 const distinct = (
   record: ScenarioRecord,
   field: "lost" | "duplicated" | "resurrected",
@@ -79,7 +89,7 @@ for (const record of records) {
   const tabs = record.tabs;
   const gate = `${record.gate ?? "unrecorded"}, ${record.tags.includes(`@${KNOWN_LOSS}`) ? "known loss" : "required"}`;
   lines.push(
-    `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${distinct(record, "resurrected")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, (tab) => tab.saveOutcomes)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
+    `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${distinct(record, "resurrected")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, answers)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
   );
 }
 

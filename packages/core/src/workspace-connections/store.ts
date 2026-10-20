@@ -1516,6 +1516,48 @@ export async function resolveWorkspaceConnectionForApp({
   };
 }
 
+export interface ResolveWorkspaceConnectionsForAppOptions {
+  appId: string;
+  provider: string;
+  includeDisabled?: boolean;
+}
+
+// Every connection the request user may use for an app, loaded once: one
+// connection list, one user-scope filter, one grant list. A row the user cannot
+// reach or the app is not granted is absent, the same rule that
+// resolveWorkspaceConnectionForApp applies to a single id.
+export async function resolveWorkspaceConnectionsForApp({
+  appId,
+  provider,
+  includeDisabled = false,
+}: ResolveWorkspaceConnectionsForAppOptions): Promise<
+  WorkspaceConnectionForApp[]
+> {
+  const normalizedAppId = normalizeRequiredString(
+    appId,
+    "resolveWorkspaceConnectionsForApp appId",
+  );
+  const scope = requireWorkspaceConnectionScope();
+  const requestedConnections = await listWorkspaceConnections({
+    provider,
+    includeDisabled,
+  });
+  const userConnections = await filterWorkspaceConnectionsForUser(
+    requestedConnections,
+    scope,
+  );
+  const grants = await listWorkspaceConnectionGrants({
+    provider,
+    appId: normalizedAppId,
+  });
+  return userConnections
+    .map((connection) => connectionForApp(connection, normalizedAppId, grants))
+    .filter((connection) => connection.appAccess.available)
+    .filter(
+      (connection) => includeDisabled || connection.status !== "disabled",
+    );
+}
+
 async function getGrantedConnectionIdsForApp(
   client: DbExec,
   scope: ReturnType<typeof requireWorkspaceConnectionScope>,

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { z } from "zod";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
+import { defineAction } from "../action.js";
 import {
   getOrCreateRequestDbPool,
   getRequestDbPool,
@@ -17,6 +20,11 @@ import {
 const recoveredResultPrefix =
   "(Recovered from prior interrupted chunk — action already completed.)\n\n";
 
+/** The ledger key of a call prepared to `args`. */
+function ledgerKey(toolName: string, args: unknown): string {
+  return `${toolName}#${actionArgumentsHash(args)}`;
+}
+
 const writeLedgerMock = vi.hoisted(() =>
   vi.fn<
     (
@@ -26,15 +34,20 @@ const writeLedgerMock = vi.hoisted(() =>
       artifacts: unknown[],
       resultIsString?: boolean,
       chatUIResultJson?: string,
+      argumentsHash?: string,
     ) => Promise<void>
   >(),
 );
 const readLedgerMock = vi.hoisted(() =>
   vi.fn<
-    () => Promise<{
+    (
+      threadId: string,
+      toolKey: string,
+    ) => Promise<{
       result: string;
       resultIsString?: boolean;
       chatUIResult?: unknown;
+      argumentsHash?: string;
       artifacts: Array<{
         kind: "image";
         id: string;
@@ -151,10 +164,7 @@ describe("tool-call result ledger", () => {
     currentTurnEventsMock.mockResolvedValue([]);
   });
 
-  it("writes a ledger entry for a dynamically classified write", async () => {
-    // Simulate the zombie path: the action promise resolves normally (no race),
-    // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
-    // must be called with the thread + tool key.
+  it("emits a dynamically classified write result without a zombie ledger entry", async () => {
     const action = makeWriteAction();
     action.readOnly = true;
     action.planMode = {
@@ -185,6 +195,7 @@ describe("tool-call result ledger", () => {
         };
       },
     };
+    const events: any[] = [];
 
     await runAgentLoop({
       engine: singleToolEngine("save-data", { payload: "x" }),
@@ -193,19 +204,20 @@ describe("tool-call result ledger", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: { "save-data": action },
-      send: () => {},
+      send: (event) => events.push(event),
       signal: new AbortController().signal,
       threadId: "thread-zombie",
     });
 
-    expect(writeLedgerMock).toHaveBeenCalledWith(
-      "thread-zombie",
-      expect.stringContaining("save-data"),
-      JSON.stringify(actionResult, null, 2),
-      [],
-      false,
-      JSON.stringify(widgetResult),
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        completedSideEffect: true,
+        chatUIResult: widgetResult,
+      }),
     );
+    expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
   it("keeps the request pool alive through a late zombie ledger write", async () => {
@@ -307,7 +319,7 @@ describe("tool-call result ledger", () => {
     expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
-  it("emits and ledgers artifact receipts before the tool result is capped", async () => {
+  it("emits artifact receipts before the tool result is capped", async () => {
     const action = makeWriteAction();
     action.maxResultChars = 80;
     (action.run as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -348,18 +360,7 @@ describe("tool-call result ledger", () => {
         artifacts: [receipt],
       }),
     );
-    expect(writeLedgerMock).toHaveBeenCalledWith(
-      "thread-artifact",
-      expect.stringContaining("generate-asset"),
-      expect.stringContaining('"payload"'),
-      [receipt],
-      false,
-      undefined,
-    );
-    const zombieWrite = writeLedgerMock.mock.calls.find(
-      ([threadId]) => threadId === "thread-artifact",
-    );
-    expect(zombieWrite?.[2]).not.toContain("_agentImages");
+    expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
   it("keeps a draft delete as ordinary tool work when chatUI.when does not match", async () => {
@@ -483,14 +484,7 @@ describe("tool-call result ledger", () => {
       chatUI: { renderer: "mail.draft-created" },
       chatUIResult: widgetResult,
     });
-    expect(writeLedgerMock).toHaveBeenCalledWith(
-      "thread-structured-widget",
-      expect.stringContaining("manage-draft"),
-      JSON.stringify(result, null, 2),
-      [],
-      false,
-      JSON.stringify(widgetResult),
-    );
+    expect(writeLedgerMock).not.toHaveBeenCalled();
   });
 
   it("emits widgets when the transcript result is truncated", async () => {
@@ -540,6 +534,7 @@ describe("tool-call result ledger", () => {
       result: PRIOR_RESULT,
       resultIsString: true,
       artifacts,
+      argumentsHash: actionArgumentsHash({ content: "big" }),
     });
 
     const action = makeWriteAction();
@@ -592,6 +587,10 @@ describe("tool-call result ledger", () => {
     });
 
     expect(action.run).not.toHaveBeenCalled();
+    expect(readLedgerMock).toHaveBeenCalledWith(
+      "thread-resume",
+      ledgerKey("save-data", { content: "big" }),
+    );
 
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -698,6 +697,7 @@ describe("tool-call result ledger", () => {
       resultIsString: false,
       artifacts: [],
       chatUIResult: result,
+      argumentsHash: actionArgumentsHash(input),
     });
 
     const action = makeWriteAction();
@@ -771,6 +771,7 @@ describe("tool-call result ledger", () => {
       result,
       resultIsString: true,
       artifacts: [],
+      argumentsHash: actionArgumentsHash(input),
     });
 
     const action = makeWriteAction();
@@ -838,7 +839,11 @@ describe("tool-call result ledger", () => {
     const result = JSON.stringify({
       deepLink: "/_agent-native/open?composeDraftId=draft-1",
     });
-    readLedgerMock.mockResolvedValue({ result, artifacts: [] });
+    readLedgerMock.mockResolvedValue({
+      result,
+      artifacts: [],
+      argumentsHash: actionArgumentsHash(input),
+    });
 
     const action = makeWriteAction();
     action.chatUI = {
@@ -906,9 +911,11 @@ describe("tool-call result ledger", () => {
   });
 
   it("waits briefly for a late zombie ledger result before re-executing", async () => {
-    readLedgerMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
+    readLedgerMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      result: "late zombie result",
+      artifacts: [],
+      argumentsHash: actionArgumentsHash({ content: "slow" }),
+    });
 
     const action = makeWriteAction();
     const events: any[] = [];
@@ -978,9 +985,11 @@ describe("tool-call result ledger", () => {
   });
 
   it("recovers a timed out dynamically classified write from its ledger", async () => {
-    readLedgerMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
+    readLedgerMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      result: "late zombie result",
+      artifacts: [],
+      argumentsHash: actionArgumentsHash({ content: "slow" }),
+    });
 
     const action = makeWriteAction();
     action.readOnly = true;
@@ -1123,6 +1132,8 @@ describe("tool-call result ledger", () => {
         type: "tool_done",
         tool: "save-data",
         result: "journaled-result",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ content: "already-done" }),
         chatUI: { renderer: "mail.draft-created" },
         chatUIResult,
       },
@@ -1221,6 +1232,150 @@ describe("tool-call result ledger", () => {
         tool: "save-data",
         isError: true,
         result: expect.stringContaining("could not recover its result"),
+      }),
+    );
+  });
+
+  it("stops instead of recovering a ledger result that recorded no arguments", async () => {
+    // Recorded before calls bound their arguments: nothing says which
+    // arguments produced it, so the earlier attempt stays unknown.
+    readLedgerMock.mockResolvedValue({
+      result: "legacy-result",
+      resultIsString: true,
+      artifacts: [],
+    });
+
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "legacy" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "save this" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-legacy",
+              name: "save-data",
+              input: { content: "legacy" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-legacy",
+              toolName: "save-data",
+              toolInput: '{"content":"legacy"}',
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume-unbound",
+    });
+
+    expect(readLedgerMock).toHaveBeenCalledWith(
+      "thread-resume-unbound",
+      ledgerKey("save-data", { content: "legacy" }),
+    );
+    expect(action.run).not.toHaveBeenCalled();
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(toolDone).toMatchObject({
+      isError: true,
+      result: expect.stringContaining("could not recover its result"),
+    });
+    expect(toolDone?.replayed).toBeUndefined();
+    expect(toolDone?.result).not.toContain("legacy-result");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+      }),
+    );
+  });
+
+  it("never recovers a result recorded for differently prepared arguments", async () => {
+    const ran: number[] = [];
+    const publish = defineAction({
+      description: "Stamp the draft.",
+      schema: z.object({ stamp: z.number().default(() => 2) }),
+      readOnly: false,
+      run: async (args) => {
+        ran.push(args.stamp);
+        return `published stamp ${args.stamp}`;
+      },
+    }) as unknown as ActionEntry;
+    // The earlier call, sent the same raw `{}`, prepared `{ stamp: 1 }` and
+    // timed out; its late result is in the ledger.
+    const earlierHash = actionArgumentsHash({ stamp: 1 });
+    currentTurnEventsMock.mockResolvedValue([
+      { type: "tool_start", id: "old", tool: "publish", input: {} },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "publish",
+        input: {},
+        result: "Tool call timed out after 1 seconds",
+        isError: true,
+        outcomeUnknown: true,
+        argumentsHash: earlierHash,
+      },
+    ]);
+    readLedgerMock.mockResolvedValue({
+      result: "published stamp 1",
+      resultIsString: true,
+      artifacts: [],
+      argumentsHash: earlierHash,
+    });
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("publish", {}),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Publish." }] },
+      ],
+      actions: { publish },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-zombie-other-arguments",
+      internalContinuation: true,
+    });
+
+    expect(readLedgerMock).toHaveBeenCalledWith(
+      "thread-zombie-other-arguments",
+      ledgerKey("publish", { stamp: 2 }),
+    );
+    expect(ran).toEqual([]);
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(toolDone?.replayed).not.toBe(true);
+    expect(toolDone?.result).not.toContain("published stamp 1");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
       }),
     );
   });
@@ -1391,6 +1546,76 @@ describe("tool-call result ledger", () => {
     expect(action.run).not.toHaveBeenCalled();
   });
 
+  it("recovers a read abandoned after its nested write ran from its ledger", async () => {
+    let writes = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const abort = new AbortController();
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read the draft, saving it first.",
+      schema: z.object({}),
+      readOnly: true,
+      dedupe: false,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        if (writes === 1) {
+          abort.abort();
+          await held;
+        }
+        return "read and saved";
+      },
+    }) as unknown as ActionEntry;
+    const turn = async (signal: AbortSignal, internalContinuation = false) => {
+      const events: any[] = [];
+      await runAgentLoop({
+        engine: singleToolEngine("read-draft"),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Read." }] },
+        ],
+        actions: { "read-draft": read },
+        send: (event) => events.push(event),
+        signal,
+        threadId: "thread-abandoned-read",
+        internalContinuation,
+      });
+      return events;
+    };
+
+    const first = await turn(abort.signal);
+    expect(first.find((event) => event.type === "tool_done")).toMatchObject({
+      outcomeUnknown: true,
+    });
+    release();
+    await vi.waitFor(() => expect(writeLedgerMock).toHaveBeenCalledTimes(1));
+    const [, toolKey, result, , , , argumentsHash] =
+      writeLedgerMock.mock.calls[0]!;
+    expect(toolKey).toBe(ledgerKey("read-draft", {}));
+    currentTurnEventsMock.mockResolvedValue(first);
+    readLedgerMock.mockResolvedValue({
+      result,
+      resultIsString: true,
+      argumentsHash,
+      artifacts: [],
+    });
+
+    const next = await turn(new AbortController().signal, true);
+    expect(next.find((event) => event.type === "tool_done")).toMatchObject({
+      replayed: true,
+    });
+    expect(writes).toBe(1);
+  });
+
   it("never consults the ledger for read-only tools", async () => {
     readLedgerMock.mockResolvedValue({
       result: "should-not-be-used",
@@ -1447,14 +1672,8 @@ describe("tool-call result ledger", () => {
     });
 
     expect(readLedgerMock).not.toHaveBeenCalled();
-
-    expect(action.run).not.toHaveBeenCalled();
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool_done",
-        tool: "get-data",
-        result: expect.stringContaining("Skipped duplicate read-only call"),
-      }),
-    );
+    // The interrupted read recorded no arguments it ran with, so it is
+    // neither recovered nor reused: it reads again.
+    expect(action.run).toHaveBeenCalledTimes(1);
   });
 });
