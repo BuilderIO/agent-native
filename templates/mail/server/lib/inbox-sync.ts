@@ -970,12 +970,17 @@ async function runIncrementalSyncStep(
       ...dueDegradedVerify,
     ]),
   ];
+  // Failing verify ids that are not due this step are looked up too, so one
+  // whose row is gone can be dropped now rather than when its retry comes due.
+  const cacheLookupIds = [
+    ...new Set([...archiveCandidates, ...row.degraded.verify]),
+  ];
   const cachedCandidates = new Set<string>();
-  for (let i = 0; i < archiveCandidates.length; i += CACHE_LOOKUP_CHUNK) {
+  for (let i = 0; i < cacheLookupIds.length; i += CACHE_LOOKUP_CHUNK) {
     for (const threadId of await readInboxThreadIds(
       ownerEmail,
       accountEmail,
-      archiveCandidates.slice(i, i + CACHE_LOOKUP_CHUNK),
+      cacheLookupIds.slice(i, i + CACHE_LOOKUP_CHUNK),
     )) {
       cachedCandidates.add(threadId);
     }
@@ -1208,13 +1213,17 @@ async function runIncrementalSyncStep(
       ...hydrateFailed.keys(),
     ]),
   ];
+  // A failing verify id with no cached in-inbox row left (trimmed or purged)
+  // has nothing to verify or delete, so it leaves the degraded list. A failing
+  // hydrate id leaves only when its read confirms the thread is gone (404),
+  // which is already the case: it is then neither untried nor failed.
   const degradedVerify = [
     ...new Set([
       ...row.degraded.verify.filter((id) => !queuedVerify.has(id)),
       ...verifyUntried.filter((id) => priorFailedVerify.has(id)),
       ...verifyFailed.keys(),
     ]),
-  ];
+  ].filter((id) => cachedCandidates.has(id));
   const attempts: NonNullable<SyncDegraded["attempts"]> = {};
   for (const [list, ids, failed] of [
     ["h", degradedHydrate, hydrateFailed],

@@ -1831,6 +1831,67 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(result.degraded).toEqual({ count: 1, kind: "malformed_response" });
   });
 
+  it("drops failing verify ids whose cached row is gone, due or not, and keeps the rest", async () => {
+    const now = Date.now();
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      degraded: {
+        hydrate: [],
+        verify: ["purged-due", "purged-waiting", "cached-waiting"],
+        kind: "http_500",
+        attempts: {
+          "v:purged-waiting": { count: 3, nextAt: now + 3_600_000 },
+          "v:cached-waiting": { count: 3, nextAt: now + 3_600_000 },
+        },
+      },
+    });
+    fakeRows = [{ threadId: "cached-waiting" }];
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValue([]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(currentRow.degraded.verify).toEqual(["cached-waiting"]);
+    expect(Object.keys(currentRow.degraded.attempts)).toEqual([
+      "v:cached-waiting",
+    ]);
+    expect(result.degraded).toMatchObject({ count: 1 });
+    // Nothing was left to read for the purged ids.
+    expect(mocks.gmailBatchGetThreads).not.toHaveBeenCalled();
+  });
+
+  it("drops a failing hydrate id once a read confirms the thread is gone", async () => {
+    currentRow = baseRow({
+      historyId: "1000",
+      archiveHistoryId: "1000",
+      degraded: {
+        hydrate: ["gone", "still-bad"],
+        verify: [],
+        kind: "http_500",
+      },
+    });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[]) =>
+        requested.map((id) =>
+          id === "gone"
+            ? { id, data: null, error: "HTTP 404 not found" }
+            : { id, data: null, error: "HTTP 500 backend" },
+        ),
+    );
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(currentRow.degraded.hydrate).toEqual(["still-bad"]);
+  });
+
   it("keeps a failing candidate pending at the back and still hydrates new mail", async () => {
     currentRow = baseRow({ historyId: "1000" });
     fakeRows = [{ threadId: "bad" }, { threadId: "good" }];
