@@ -12,7 +12,10 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
-import { currentExecutionFence } from "./execution-fence.js";
+import {
+  currentExecutionFence,
+  withExecutionFence,
+} from "./execution-fence.js";
 import type { AgentChatEvent } from "./types.js";
 
 const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
@@ -89,6 +92,7 @@ vi.mock("./run-store.js", () => ({
   markRunAborted: vi.fn(() => Promise.resolve()),
   markRunAbortedAtSafeBoundary: vi.fn(() => Promise.resolve(false)),
   markTurnAborted: vi.fn(() => Promise.resolve()),
+  getRunTurnRef: vi.fn(() => Promise.resolve(null)),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
@@ -207,6 +211,7 @@ import {
   abortRun,
   abortRunDurably,
   abortRunAtSafeBoundaryDurably,
+  abortTurnDurably,
   abortTurnByRefDurably,
   endsAfterToolResultWithoutAssistantFinal,
   engineRequestShapeTags,
@@ -257,6 +262,7 @@ import {
   markRunAborted,
   markRunAbortedAtSafeBoundary,
   markTurnAborted,
+  getRunTurnRef,
   updateRunStatus,
   updateRunStatusIfRunning,
   ensureTerminalRunEvent,
@@ -350,6 +356,10 @@ describe("run manager soft timeout", () => {
     vi.mocked(insertRun).mockResolvedValue(undefined);
     vi.mocked(insertRunEvent).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
+    vi.mocked(markTurnAborted).mockReset();
+    vi.mocked(markTurnAborted).mockResolvedValue("aborted");
+    vi.mocked(getRunTurnRef).mockReset();
+    vi.mocked(getRunTurnRef).mockResolvedValue(null);
     vi.mocked(insertRunEvent).mockClear();
     vi.mocked(updateRunStatus).mockClear();
     vi.mocked(updateRunStatusIfRunning).mockReset();
@@ -1722,6 +1732,80 @@ describe("run manager soft timeout", () => {
       "turn-ref-abort",
       "dismissed",
     );
+  });
+
+  it("does not abort a replacement in-memory run when a stale turn abort is rejected", async () => {
+    const threadId = "thread-stale-turn-abort";
+    const turnId = "turn-stale-turn-abort";
+    const staleRun = startRun(
+      "run-stale-turn-abort",
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId },
+    );
+    const replacementRun = startRun(
+      "run-replacement-turn-abort",
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, turnId },
+    );
+    const staleFence = {
+      threadId,
+      turnId,
+      runId: staleRun.runId,
+      generation: "1",
+    };
+    vi.mocked(markTurnAborted).mockRejectedValueOnce(
+      new Error("stale execution fence"),
+    );
+
+    await expect(
+      withExecutionFence(staleFence, () =>
+        abortTurnByRefDurably(threadId, turnId, "user"),
+      ),
+    ).rejects.toThrow("stale execution fence");
+
+    expect(staleRun.abort.signal.aborted).toBe(true);
+    expect(replacementRun.abort.signal.aborted).toBe(false);
+    await staleRun.finalized;
+    replacementRun.abort.abort("test cleanup");
+    await replacementRun.finalized;
+  });
+
+  it("propagates durable turn-marker failures so callers can retry", async () => {
+    vi.mocked(getRunTurnRef).mockResolvedValue({
+      threadId: "thread-marker-retry",
+      turnId: "turn-marker-retry",
+    });
+    vi.mocked(markTurnAborted).mockRejectedValueOnce(
+      new Error("turn marker store unavailable"),
+    );
+
+    await expect(abortTurnDurably("run-marker-retry")).rejects.toThrow(
+      "turn marker store unavailable",
+    );
+    expect(markTurnAborted).toHaveBeenCalledWith(
+      "thread-marker-retry",
+      "turn-marker-retry",
+      "user",
+    );
+  });
+
+  it("fails when a durable turn abort has no persisted run reference", async () => {
+    await expect(abortTurnDurably("run-reference-missing")).rejects.toThrow(
+      "Cannot durably abort turn for missing run run-reference-missing",
+    );
+    expect(markTurnAborted).not.toHaveBeenCalled();
   });
 
   it("replays every chunk of a completed logical turn as one stream", async () => {

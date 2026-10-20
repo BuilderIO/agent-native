@@ -159,7 +159,7 @@ function proposalResult(proposal: NodeRewriteProposal) {
     {
       type: "node-html-preview",
       proposalId: proposal.proposalId,
-      target: proposal.resolvedTarget,
+      target: proposal.target,
       html: proposal.variants[0]!.html,
       operation: "preview",
     },

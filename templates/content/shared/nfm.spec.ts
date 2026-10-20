@@ -874,6 +874,111 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("protective whitespace spans", () => {
+    it.each([
+      "<span>\tactual-tab text</span>",
+      "<span>  </span>",
+      "<span>\t</span>",
+      "- Parent\n\t<span>\tactual-tab text</span>",
+      "- Parent\n\t<span>  </span>",
+    ])("round-trips %j without interpreting text as block syntax", (nfm) => {
+      const doc = nfmToDoc(nfm);
+      const serialized = docToNfm(doc);
+
+      expect(nfmToDoc(serialized)).toEqual(doc);
+      expect(serialized).toBe(nfm);
+      expect(canonicalizeNfm(serialized)).toBe(serialized);
+    });
+
+    it.each([
+      ["a leading tab", "\tactual-tab text"],
+      ["only spaces", "  "],
+      ["only a tab", "\t"],
+    ])("keeps unmarked text with %s", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const paragraphs = nfmToDoc(serialized).content ?? [];
+
+      expect(serialized).toBe(`before\n<span>${text}</span>\nafter`);
+      expect(
+        paragraphs.map((node) =>
+          (node.content ?? []).map((child) => child.text).join(""),
+        ),
+      ).toEqual(["before", text, "after"]);
+      expect(docToNfm(nfmToDoc(serialized))).toBe(serialized);
+    });
+
+    it("leaves whitespace inside a line unwrapped", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "One", marks: [{ type: "bold" }] },
+              { type: "text", text: " " },
+              { type: "text", text: "\tTwo" },
+              { type: "text", text: "\n", marks: [{ type: "code" }] },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe("**One** \tTwo`<br>`");
+    });
+
+    it.each([
+      ["a newline", "\n"],
+      ["a space and a newline", " \n"],
+      ["a tab and a newline", "\t\n"],
+    ])("never wraps text with %s in a span", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const texts = (nfmToDoc(serialized).content ?? []).flatMap((node) =>
+        (node.content ?? []).map((child) => child.text ?? ""),
+      );
+
+      expect(serialized).not.toContain("<span>");
+      expect(texts.join("")).not.toContain("span>");
+    });
+
+    it.each([
+      ["bold", "\tfoo", "**\tfoo**"],
+      ["italic", "\tfoo", "*\tfoo*"],
+    ])("leaves %s text that starts a line unwrapped", (mark, text, nfm) => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text, marks: [{ type: mark }] }],
+          },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const marks = nfmToDoc(serialized).content?.[0]?.content?.flatMap(
+        (child) => (child.marks ?? []).map((m) => m.type),
+      );
+
+      expect(serialized).toBe(nfm);
+      expect(marks).not.toContain("notionSpan");
+    });
+  });
+
   describe("dual inline colors", () => {
     it("serializes inline code without losing its color", () => {
       const doc = {

@@ -939,7 +939,24 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM、聯絡人、公司、交易、工單、客戶分析",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "設定由工作區管理的 HubSpot MCP Auth App 後，任何成員都可以使用 OAuth 和 PKCE 連線個人 HubSpot 帳戶。否則，請在連線前於 HubSpot Developer Platform 建立應用程式；現有的 HubSpot OAuth 連接器仍可供應用程式操作使用。",
+    "工作區擁有者設定 HubSpot MCP Auth App 後，每位成員都可以連結自己的 HubSpot 帳戶。",
+  "mcpIntegrations.hubspot.setupTitle": "設定 HubSpot MCP",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "工作區擁有者只需設定一次 HubSpot MCP。之後每位成員都可以連結自己的帳戶。",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "需要設定工作區",
+  "mcpIntegrations.hubspot.setupChecking": "正在檢查工作區設定…",
+  "mcpIntegrations.hubspot.setupUnavailable": "無法取得設定狀態",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "無法檢查工作區 OAuth 設定，請重試。",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "建立 HubSpot MCP Auth App，然後在 Agent-Native settings → API keys 中新增用戶端 ID 和密鑰。",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "請工作區擁有者建立 HubSpot MCP Auth App，並在 Agent-Native settings → API keys 中新增用戶端 ID 和密鑰。設定完成後，你可以連結自己的 HubSpot 帳戶。",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "請先加入工作區，再連結 HubSpot MCP。",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials": "新增工作區憑證",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "重新檢查",
+  "mcpIntegrations.hubspot.retrySetupStatus": "重試",
   "mcpIntegrations.catalog.pylon.description": "搜尋及更新 Pylon 支援資料。",
   "mcpIntegrations.catalog.pylon.useCase": "客戶支援、議題、客戶、聯絡人、對話",
   "mcpIntegrations.catalog.pylon.setupNote":

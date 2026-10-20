@@ -343,6 +343,10 @@
     {
       "name": "chat-thread-durable-submission-inbox",
       "checksum": "953882e24b68e4fb"
+    },
+    {
+      "name": "chat-thread-inbox-interrupt-replay",
+      "checksum": "904890f43aebd9fe"
     }
   ],
   "checkpoints": [

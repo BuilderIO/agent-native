@@ -1387,24 +1387,53 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
-    expect(config.routes).toContainEqual({
-      src: "/dispatch/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+    const immutableAssetRoutes = config.routes.filter(
+      (route: { headers?: Record<string, string> }) =>
+        route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+    expect(immutableAssetRoutes).toEqual([
+      {
+        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
-    expect(config.routes).toContainEqual({
-      src: "/starter/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      {
+        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
+    ]);
+    expect(immutableAssetRoutes).toHaveLength(2);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/chunks/chunk-12345678.js"),
+      ),
+    ).toEqual([true, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/starter/assets/app-aB12_cdE.js"),
+      ),
+    ).toEqual([false, true]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/app.js"),
+      ),
+    ).toEqual([false, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test(
+          "/dispatch/assets/nested/missing-aB12_cdE.js",
+        ),
+      ),
+    ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(
       expect.objectContaining({ src: "/dispatch/assets/app\\.js" }),
     );
@@ -2618,6 +2647,11 @@ function writeVercelAppBuildOutput(
   fs.writeFileSync(path.join(staticDir, "assets", "app.js"), "export {};");
   fs.writeFileSync(
     path.join(staticDir, "assets", "app-aB12_cdE.js"),
+    "export {};",
+  );
+  fs.mkdirSync(path.join(staticDir, "assets", "chunks"), { recursive: true });
+  fs.writeFileSync(
+    path.join(staticDir, "assets", "chunks", "chunk-12345678.js"),
     "export {};",
   );
   fs.writeFileSync(path.join(staticDir, "favicon.ico"), "");
