@@ -445,7 +445,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 26
     strategy:
       fail-fast: false
       matrix:
@@ -497,7 +497,7 @@ jobs:
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
-        timeout-minutes: 15
+        timeout-minutes: 21
         env:
           E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
@@ -524,7 +524,7 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 17
+        timeout-minutes: 23
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           E2E_LOG_TEST_PROGRESS: "1"
@@ -765,7 +765,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]' && needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 22
+    timeout-minutes: 28
     strategy:
       fail-fast: false
       matrix:
@@ -844,7 +844,7 @@ jobs:
 
       - name: Run changed Design E2E specs
         working-directory: templates/design
-        timeout-minutes: 18
+        timeout-minutes: 24
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs }}

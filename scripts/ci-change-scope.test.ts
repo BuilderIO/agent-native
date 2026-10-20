@@ -1382,8 +1382,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     changedSpecRegressions,
-    /^        timeout-minutes: 18$/m,
-    "the changed-spec diagnostic step must fit inside its 22-minute job after setup",
+    /^        timeout-minutes: 24$/m,
+    "the changed-spec diagnostic step must fit inside its 28-minute job after setup",
   );
   assert.match(
     changedSpecRegressions,
@@ -1746,50 +1746,57 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /^    timeout-minutes: 20$/m,
-    "all Design core shards keep the exact twenty-minute cap",
+    /^    timeout-minutes: 26$/m,
+    "all Design core shards keep the exact twenty-six-minute cap",
   );
   const screenHistoryRunBudgetMinutes = 5;
-  const screenHistorySetupBudgetMinutes = 5;
+  const screenHistorySetupBudgetMinutes = 11;
   const screenHistoryWebServerBudgetMinutes = 5;
   const designRegressionRunBudgetMinutes = 7;
+  const designRegressionSetupBudgetMinutes = 11;
+  const designRegressionWebServerBudgetMinutes = 5;
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout === 20,
-    `regular Design acceptance shards must keep the exact twenty-minute cap (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 26,
+    `regular Design acceptance shards must keep the exact twenty-six-minute cap (got ${jobTimeout})`,
   );
   assert.ok(
-    jobTimeout < 21,
-    "Design acceptance must stay below twenty-one minutes",
+    jobTimeout < 27,
+    "Design acceptance must stay below twenty-seven minutes",
   );
   assert.ok(
-    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 22,
-    `changed-spec diagnostics must have the exact twenty-two-minute cap (got ${diagnosticJobTimeout})`,
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 28,
+    `changed-spec diagnostics must have the exact twenty-eight-minute cap (got ${diagnosticJobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 17 &&
+      stepTimeout === 23 &&
       stepTimeout >=
         designRegressionRunBudgetMinutes +
-          screenHistorySetupBudgetMinutes +
-          screenHistoryWebServerBudgetMinutes &&
+          designRegressionSetupBudgetMinutes +
+          designRegressionWebServerBudgetMinutes &&
       jobTimeout >= stepTimeout + 3,
-    `focused Design tests need seven minutes for Playwright, five minutes for setup, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${stepTimeout})`,
+    `focused Design tests need seven minutes for Playwright, eleven minutes for global setup including seeding and warmups, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
-      screenHistoryStepTimeout === 15 &&
+      screenHistoryStepTimeout === 21 &&
       screenHistoryStepTimeout >=
         screenHistoryRunBudgetMinutes +
           screenHistorySetupBudgetMinutes +
           screenHistoryWebServerBudgetMinutes &&
       jobTimeout >= screenHistoryStepTimeout + 3,
-    `Screen-history tests need five minutes for the Playwright run, five minutes for global setup, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+    `Screen-history tests need five minutes for the Playwright run, eleven minutes for global setup including seeding and warmups, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
+  const changedSpecRunBudgetMinutes = 8;
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 18 &&
+      changedSpecStepTimeout === 24 &&
+      changedSpecStepTimeout >=
+        changedSpecRunBudgetMinutes +
+          screenHistorySetupBudgetMinutes +
+          screenHistoryWebServerBudgetMinutes &&
       diagnosticJobTimeout >= changedSpecStepTimeout + 4,
-    `changed-spec diagnostics need the exact eighteen-minute cap and four minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
+    `changed-spec diagnostics need eight minutes for Playwright, eleven minutes for global setup including seeding and warmups, and five minutes for webServer startup, with job headroom (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const coreShardEntries = [
     ...coreJob.matchAll(
