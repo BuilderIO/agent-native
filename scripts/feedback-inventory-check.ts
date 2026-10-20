@@ -1550,7 +1550,7 @@ function validateHistoricalReactionMarks(
       (!["Fixed", "Partially fixed", "Verified locally"].includes(
         previous.disposition,
       ) ||
-        !replyStatesDisposition(previous.text, previous.disposition))
+        !replyStartsWithDisposition(previous.text, previous.disposition))
     ) {
       throw new Error(
         `${label}: historical ✅ needs a prior verified disposition stated in its captured reply`,
@@ -1858,6 +1858,16 @@ function replyStatesDisposition(text: string, disposition: string): boolean {
     disposition.toLowerCase() === "fixed" &&
     /\bis\s+fixed(?=$|[\s:—–.!?;,()-])/i.test(visibleText)
   );
+}
+
+function replyStartsWithDisposition(
+  text: string,
+  disposition: string,
+): boolean {
+  const visibleText = text.replace(/[*_`]/g, "").trim();
+  const escapedDisposition = disposition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const label = new RegExp(`^${escapedDisposition}(?=$|[\\s:—–.!?;,()-])`, "i");
+  return label.test(visibleText);
 }
 
 function validateStatusReactionLanguage(
@@ -11859,6 +11869,36 @@ if (args[0] === "--self-test" && args.length === 1) {
       historicalCheckWithoutStatedDisposition,
       "historical ✅ needs a prior verified disposition stated in its captured reply",
     );
+    const historicalCheckWithNoncanonicalFixedWording = structuredClone(
+      historicalCheckInventory,
+    );
+    historicalCheckWithNoncanonicalFixedWording.channels[0]!.pages[0]!.parents =
+      historicalCheckWithNoncanonicalFixedWording.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "white_check_mark"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                            text: "In progress: The initial route screen is fixed in the open PR; merge pending. this was sent from a bot.",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical checkmark with a noncanonical fixed mention",
+      historicalCheckWithNoncanonicalFixedWording,
+      "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
     expectHistoricalMarkFailure(
       "historical ticket withdrawal needs the assigned owner's reply",
       {
@@ -14889,7 +14929,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 16} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 17} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
