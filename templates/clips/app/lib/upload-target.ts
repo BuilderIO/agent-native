@@ -36,14 +36,20 @@ export function hostedUploadLimits(
     : null;
 }
 
-/**
- * Open the server upload a take streams into, or resolve null to record it
- * into the local copy instead. Without an intake it never throws: no owner
- * at capture, no storage, an unreadable status, a refused create (including
- * a 409 because another account signed in since capture began) or a lost
- * response all record locally, and the row the server may have inserted is
- * dropped. An intake upload has no local fallback, so its failures throw.
- */
+export type UploadTargetErrorCode =
+  | "session_expired"
+  | "storage_setup_required"
+  | "storage_status_unavailable"
+  | "upload_target_unavailable";
+
+export class UploadTargetError extends Error {
+  constructor(readonly code: UploadTargetErrorCode) {
+    super(code);
+    this.name = "UploadTargetError";
+  }
+}
+
+/** Open the server upload a take streams into. A take cannot start without it. */
 export async function openUploadTarget(options: {
   intake: boolean;
   /** The account signed in when capture started; the server refuses any other. */
@@ -66,18 +72,24 @@ export async function openUploadTarget(options: {
   let serverId: string | undefined;
   let uploadStatus: VideoStorageUploadStatus | null = null;
   if (!intake) {
-    // An ownerless take is claimed explicitly after Stop, never streamed.
-    if (!options.ownerEmail) return null;
-    uploadStatus = await options.fetchStatus();
+    if (!options.ownerEmail) {
+      throw new UploadTargetError("session_expired");
+    }
+    try {
+      uploadStatus = await options.fetchStatus();
+    } catch {
+      if (options.isStale()) return null;
+      throw new UploadTargetError("storage_status_unavailable");
+    }
+    if (options.isStale()) return null;
+    if (!uploadStatus) {
+      throw new UploadTargetError("storage_status_unavailable");
+    }
     const hasUploadStorage =
       uploadStatus?.mode === "own" ||
       (uploadStatus?.mode === "hosted" && uploadStatus.hostedRemaining > 0);
-    if (
-      options.isStale() ||
-      uploadStatus?.configured !== true ||
-      !hasUploadStorage
-    ) {
-      return null;
+    if (uploadStatus.configured !== true || !hasUploadStorage) {
+      throw new UploadTargetError("storage_setup_required");
     }
     serverId = options.newId();
   }
@@ -96,7 +108,7 @@ export async function openUploadTarget(options: {
     });
     // The server may have inserted the row before the response was lost.
     options.dropRow(serverId!);
-    return null;
+    throw new UploadTargetError("upload_target_unavailable");
   }
   if (res.ok) {
     const created = (await res.json()) as {
@@ -106,7 +118,7 @@ export async function openUploadTarget(options: {
     if (!info?.id) {
       if (intake) throw new Error("create-recording did not return an id");
       options.dropRow(serverId!);
-      return null;
+      throw new UploadTargetError("upload_target_unavailable");
     }
     // Cancelled while the row was being opened: drop it, keep nothing.
     if (!intake && options.isStale()) {
@@ -127,40 +139,13 @@ export async function openUploadTarget(options: {
     throw new Error(body?.error ?? `create-recording failed (${res.status})`);
   }
   // Storage read as connected but the server opened no upload (an expired
-  // grant, an outage, a lost session, another account): the take records
-  // locally and keeps its capture-time owner.
+  // grant, an outage, a lost session, another account): stop before capture.
   options.onCreateFailed?.({ kind: "http", status: res.status });
   options.dropRow(serverId!);
-  return null;
-}
-
-const UNSETTLED = Symbol("unsettled");
-
-/**
- * What a take's upload target has settled to by the time capture starts, or
- * null when it is still resolving: capture never waits on storage. A target
- * that settles later is handed to `onLate`, so the row it opened is cleaned up.
- */
-export async function uploadTargetAtStart<T>(
-  target: Promise<T | null>,
-  onLate: (late: T) => void,
-): Promise<T | null> {
-  const settled = await Promise.race([
-    target,
-    new Promise<typeof UNSETTLED>((resolve) =>
-      setTimeout(() => resolve(UNSETTLED), 0),
-    ),
-  ]);
-  if (settled !== UNSETTLED) return settled;
-  void target.then(
-    (late) => {
-      if (late) onLate(late);
-    },
-    () => {
-      // coercion-ok: a target that failed opened nothing to clean up.
-    },
-  );
-  return null;
+  if (res.status === 401 || res.status === 403) {
+    throw new UploadTargetError("session_expired");
+  }
+  throw new UploadTargetError("upload_target_unavailable");
 }
 
 /**

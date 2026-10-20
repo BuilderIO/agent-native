@@ -23,8 +23,6 @@ import {
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
-  shouldAllowSkippingStorageSetup,
-  shouldPersistFirstRunStorageSetupDismissal,
   shouldPreserveFirstRunStorageSetupIntent,
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
@@ -126,7 +124,6 @@ describe("record route lifecycle shell", () => {
       shouldShowFirstRunStorageSetup({
         storageConfigured: false,
         storageStatusUnavailable: false,
-        dismissal: "not-dismissed",
         hasPendingUpload: false,
         isClipIntake: false,
         connectStorageRequested: false,
@@ -134,7 +131,19 @@ describe("record route lifecycle shell", () => {
     ).toBe(true);
   });
 
-  it("offers the first-run choice and Skip when storage status is unavailable", () => {
+  it("still requires storage for users who previously skipped setup", () => {
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured: false,
+        storageStatusUnavailable: false,
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("requires storage setup when storage status is unavailable", () => {
     const storageConfigured = null;
     const storageStatusUnavailable = isStorageStatusUnavailable({
       storageConfigured,
@@ -143,22 +152,12 @@ describe("record route lifecycle shell", () => {
     const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
       storageConfigured,
       storageStatusUnavailable,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: false,
     });
 
     expect(firstRunStorageSetup).toBe(true);
-    expect(
-      shouldAllowSkippingStorageSetup({
-        firstRunStorageSetup,
-        firstRunStorageSetupIntent: false,
-        connectStorageRequested: false,
-        hasPendingUpload: false,
-        isClipIntake: false,
-      }),
-    ).toBe(true);
   });
 
   it("keeps cached configured storage out of first-run setup after a refetch error", () => {
@@ -174,7 +173,6 @@ describe("record route lifecycle shell", () => {
       shouldShowFirstRunStorageSetup({
         storageConfigured,
         storageStatusUnavailable: true,
-        dismissal: "not-dismissed",
         hasPendingUpload: false,
         isClipIntake: false,
         connectStorageRequested: false,
@@ -186,7 +184,6 @@ describe("record route lifecycle shell", () => {
     const intent = shouldPreserveFirstRunStorageSetupIntent({
       firstRunStorageSetup: true,
       currentIntent: false,
-      dismissal: "not-dismissed",
     });
 
     expect(intent).toBe(true);
@@ -194,57 +191,14 @@ describe("record route lifecycle shell", () => {
       shouldPreserveFirstRunStorageSetupIntent({
         firstRunStorageSetup: false,
         currentIntent: intent,
-        dismissal: "not-dismissed",
       }),
     ).toBe(true);
-    expect(
-      shouldPreserveFirstRunStorageSetupIntent({
-        firstRunStorageSetup: false,
-        currentIntent: intent,
-        dismissal: "dismissed",
-      }),
-    ).toBe(false);
-  });
-
-  it.each([
-    {
-      label: "the first-run prompt",
-      input: {
-        firstRunStorageSetup: true,
-        firstRunStorageSetupIntent: false,
-        connectStorageRequested: false,
-      },
-    },
-    {
-      label: "a storage setup link",
-      input: {
-        firstRunStorageSetup: false,
-        firstRunStorageSetupIntent: false,
-        connectStorageRequested: true,
-      },
-    },
-  ])("persists a skipped storage choice for $label", ({ input }) => {
-    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
-  });
-
-  it("keeps Skip available and saves dismissal for latched setup intent", () => {
-    const input = {
-      firstRunStorageSetup: false,
-      firstRunStorageSetupIntent: true,
-      connectStorageRequested: false,
-      hasPendingUpload: false,
-      isClipIntake: false,
-    };
-
-    expect(shouldAllowSkippingStorageSetup(input)).toBe(true);
-    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
   });
 
   it.each([
     {
       storageConfigured: true,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: false,
@@ -252,7 +206,6 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: null,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: false,
@@ -260,15 +213,6 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: false,
       storageStatusUnavailable: false,
-      dismissal: "dismissed",
-      hasPendingUpload: false,
-      isClipIntake: false,
-      connectStorageRequested: false,
-    },
-    {
-      storageConfigured: false,
-      storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: true,
       isClipIntake: false,
       connectStorageRequested: false,
@@ -276,7 +220,6 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: false,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: true,
       connectStorageRequested: false,
@@ -284,12 +227,11 @@ describe("record route lifecycle shell", () => {
     {
       storageConfigured: false,
       storageStatusUnavailable: false,
-      dismissal: "not-dismissed",
       hasPendingUpload: false,
       isClipIntake: false,
       connectStorageRequested: true,
     },
-  ] as const)("does not show the first-run prompt for $dismissal", (input) => {
+  ] as const)("does not show the first-run prompt for this input", (input) => {
     expect(shouldShowFirstRunStorageSetup(input)).toBe(false);
   });
 

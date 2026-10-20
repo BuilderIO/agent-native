@@ -4,43 +4,7 @@ import {
   abandonUploadTarget,
   hostedUploadLimits,
   openUploadTarget,
-  uploadTargetAtStart,
 } from "./upload-target";
-
-describe("uploadTargetAtStart", () => {
-  it("uses a target that settled during the countdown", async () => {
-    const onLate = vi.fn();
-    const target = Promise.resolve({ id: "srv-1" });
-    await target;
-
-    await expect(uploadTargetAtStart(target, onLate)).resolves.toEqual({
-      id: "srv-1",
-    });
-    expect(onLate).not.toHaveBeenCalled();
-  });
-
-  it("starts capture at once when the storage status never answers", async () => {
-    const hung = new Promise<{ id: string } | null>(() => {});
-
-    const started = Date.now();
-    await expect(uploadTargetAtStart(hung, vi.fn())).resolves.toBeNull();
-    expect(Date.now() - started).toBeLessThan(100);
-  });
-
-  it("hands a row that opens after capture started over for cleanup", async () => {
-    let open!: (value: { id: string } | null) => void;
-    const slow = new Promise<{ id: string } | null>((resolve) => {
-      open = resolve;
-    });
-    const onLate = vi.fn();
-
-    await expect(uploadTargetAtStart(slow, onLate)).resolves.toBeNull();
-    open({ id: "srv-late" });
-    await vi.waitFor(() =>
-      expect(onLate).toHaveBeenCalledWith({ id: "srv-late" }),
-    );
-  });
-});
 
 describe("openUploadTarget", () => {
   const target = {
@@ -86,7 +50,7 @@ describe("openUploadTarget", () => {
     });
   });
 
-  it("records locally, with no row, when another account signed in since capture began", async () => {
+  it("stops when another account signed in since capture began", async () => {
     const { result, dropRow } = open(async () =>
       Response.json(
         { error: "This recording belongs to another account." },
@@ -94,11 +58,13 @@ describe("openUploadTarget", () => {
       ),
     );
 
-    await expect(result).resolves.toBeNull();
+    await expect(result).rejects.toMatchObject({
+      code: "upload_target_unavailable",
+    });
     expect(dropRow).toHaveBeenCalledWith("srv-1");
   });
 
-  it("keeps capture local when storage rejects upload creation", async () => {
+  it("stops when storage rejects upload creation", async () => {
     const onCreateFailed = vi.fn();
     const dropRow = vi.fn();
     const result = openUploadTarget({
@@ -122,7 +88,9 @@ describe("openUploadTarget", () => {
       onCreateFailed,
     });
 
-    await expect(result).resolves.toBeNull();
+    await expect(result).rejects.toMatchObject({
+      code: "upload_target_unavailable",
+    });
     expect(dropRow).toHaveBeenCalledWith("srv-1");
     expect(onCreateFailed).toHaveBeenCalledWith({
       kind: "http",
@@ -130,21 +98,41 @@ describe("openUploadTarget", () => {
     });
   });
 
-  it("drops the row a lost response may have left, and records locally", async () => {
+  it("drops the row a lost response may have left, then stops", async () => {
     const { result, dropRow } = open(async () => {
       throw new TypeError("Failed to fetch");
     });
 
-    await expect(result).resolves.toBeNull();
+    await expect(result).rejects.toMatchObject({
+      code: "upload_target_unavailable",
+    });
     expect(dropRow).toHaveBeenCalledWith("srv-1");
   });
 
-  it("never opens a row for a take with no owner at capture", async () => {
+  it("requires an owner before opening an upload row", async () => {
     const create = vi.fn();
     const { result } = open(create, null);
 
-    await expect(result).resolves.toBeNull();
+    await expect(result).rejects.toMatchObject({ code: "session_expired" });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("stops when storage status cannot be read", async () => {
+    const result = openUploadTarget({
+      intake: false,
+      ownerEmail: "me@example.com",
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => {
+        throw new Error("storage status request failed");
+      },
+      create: vi.fn(),
+      dropRow: vi.fn(),
+    });
+
+    await expect(result).rejects.toMatchObject({
+      code: "storage_status_unavailable",
+    });
   });
 
   it("keeps hosted limits with the upload target, without limiting own storage", async () => {
@@ -190,7 +178,7 @@ describe("openUploadTarget", () => {
     await expect(own).resolves.toEqual(target);
   });
 
-  it("does not create an upload row after hosted trial clips are exhausted", async () => {
+  it("requires storage after hosted trial clips are exhausted", async () => {
     const create = vi.fn();
     const result = openUploadTarget({
       intake: false,
@@ -208,7 +196,9 @@ describe("openUploadTarget", () => {
       dropRow: vi.fn(),
     });
 
-    await expect(result).resolves.toBeNull();
+    await expect(result).rejects.toMatchObject({
+      code: "storage_setup_required",
+    });
     expect(create).not.toHaveBeenCalled();
   });
 });
