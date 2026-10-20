@@ -577,7 +577,10 @@ describe("run event batches", () => {
           eventData: '{"type":"text","text":"late"}',
         },
       ]),
-    ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
 
     const rows = await pglite.query(
       "SELECT seq, event_at, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",

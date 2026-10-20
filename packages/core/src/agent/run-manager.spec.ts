@@ -13,6 +13,7 @@ import {
 } from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
 import { currentExecutionFence } from "./execution-fence.js";
+import { AgentRunEventNotPersistedError } from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
 const RUN_RECORD_MISSING_ERROR_CODE = "run_record_missing";
@@ -26,6 +27,15 @@ const mockInsertRunEvent = vi.hoisted(() =>
 );
 
 vi.mock("./run-store.js", () => ({
+  AgentRunEventNotPersistedError: class AgentRunEventNotPersistedError extends Error {
+    readonly terminalRun: boolean;
+
+    constructor(runId: string, seq: number, terminalRun = false) {
+      super(`Run event was not persisted: ${runId} sequence ${seq}`);
+      this.name = "AgentRunEventNotPersistedError";
+      this.terminalRun = terminalRun;
+    }
+  },
   TurnExecutionLeaseBusyError: class extends Error {
     readonly code = "turn_execution_lease_busy";
 
@@ -1988,6 +1998,41 @@ describe("run manager soft timeout", () => {
     }
 
     expect(markRunAborted).not.toHaveBeenCalled();
+    expect(run.status).toBe("aborted");
+    await run.finalized;
+  });
+
+  it("repairs an abort marker after a terminal run rejects queued events", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-terminal-event-flush-failure",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-terminal-event-flush-failure",
+      "thread-terminal-event-flush-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+
+    try {
+      await expect(abortRunDurably(run.runId, "user")).rejects.toBe(
+        terminalEventError,
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user");
     expect(run.status).toBe("aborted");
     await run.finalized;
   });
@@ -5803,6 +5848,43 @@ describe("run manager soft timeout", () => {
         seq: 0,
         event: { type: "text", text: "not persisted" },
       });
+    } finally {
+      if (priorInsertRunEvents) {
+        vi.mocked(insertRunEvents).mockImplementation(priorInsertRunEvents);
+      }
+    }
+  });
+
+  it("drops queued events when the run has already become terminal", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-batch-terminal",
+      0,
+      true,
+    );
+    const priorInsertRunEvents = vi
+      .mocked(insertRunEvents)
+      .getMockImplementation();
+    vi.mocked(insertRunEvents).mockRejectedValueOnce(terminalEventError);
+    const published: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-batch-terminal",
+        "thread-batch-terminal",
+        async (send) => {
+          send({ type: "text", text: "not persisted" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add(({ event }) => published.push(event));
+
+      await expect(run.finalized).rejects.toBe(terminalEventError);
+      expect(published).not.toContainEqual({
+        type: "text",
+        text: "not persisted",
+      });
+      await expect(run.flushEvents?.()).resolves.toBeUndefined();
     } finally {
       if (priorInsertRunEvents) {
         vi.mocked(insertRunEvents).mockImplementation(priorInsertRunEvents);

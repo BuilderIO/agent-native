@@ -3707,9 +3707,12 @@ function persistedRunEventData(
 }
 
 export class AgentRunEventNotPersistedError extends Error {
-  constructor(runId: string, seq: number) {
+  readonly terminalRun: boolean;
+
+  constructor(runId: string, seq: number, terminalRun = false) {
     super(`Run event was not persisted: ${runId} sequence ${seq}`);
     this.name = "AgentRunEventNotPersistedError";
+    this.terminalRun = terminalRun;
   }
 }
 
@@ -3820,7 +3823,17 @@ export async function insertRunEvents(
           Number(row.event_at) !== event.eventAt ||
           String(row.event_data) !== event.eventData
         ) {
-          throw new AgentRunEventNotPersistedError(runId, event.seq);
+          const run = await tx.execute({
+            sql: "SELECT status FROM agent_runs WHERE id = ?",
+            args: [runId],
+          });
+          const status = (run.rows[0] as { status?: string } | undefined)
+            ?.status;
+          throw new AgentRunEventNotPersistedError(
+            runId,
+            event.seq,
+            status !== "running",
+          );
         }
       }
     }
