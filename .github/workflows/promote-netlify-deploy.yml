@@ -92,6 +92,7 @@ jobs:
             && 'agent-native-production-site-design-slides'
             || format('agent-native-production-site-{0}', matrix.site) }}
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

@@ -318,6 +318,7 @@ jobs:
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
+      queue: max
     outputs:
       cutover_acquired: ${{ steps.pause.outputs.cutover_acquired }}
       has_git_connected_build: ${{ steps.pause.outputs.has_git_connected_build }}
@@ -533,6 +534,7 @@ jobs:
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:

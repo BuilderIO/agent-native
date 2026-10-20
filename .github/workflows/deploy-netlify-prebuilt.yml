@@ -185,10 +185,8 @@ concurrency:
   # Beta and production lanes share the canonical production site queue so a
   # beta migration cannot race its production cutover. Design and Slides use
   # one production database, so they intentionally share one queue as well.
-  # Keep an accepted publisher alive and coalesce only pending beta children;
-  # manual validation must not evict a pending automatic publish. Production
-  # callers hand the current main source back to the beta workflow after their
-  # operation, so this shared queue remains the migration exclusion boundary.
+  # Keep every accepted publisher in FIFO order. Beta freshness checks prevent
+  # stale queued sources from publishing after a newer source reaches the queue.
   group: >-
     ${{ inputs.target == 'beta'
         && github.event_name == 'workflow_dispatch'
@@ -226,6 +224,7 @@ concurrency:
         && format('netlify-prebuilt-preview-{0}-{1}', inputs.caller, inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   deploy:
@@ -693,6 +692,7 @@ jobs:
           DEPLOY: ${{ inputs.deploy }}
           NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
+          NETLIFY_ACCOUNT_ID: builder-io
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations || (inputs.target == 'production' && (steps.target.outputs.source_template == 'mail' || steps.target.outputs.source_template == '@agent-native/docs')) }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
@@ -774,13 +774,24 @@ jobs:
           if [[ ( "$TARGET" == "beta" || "$TARGET" == "production" || "$TARGET" == "preview" ) && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
-          build_args=(build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE")
           if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then
             # The PR build is intentionally secret-free. Offline mode keeps
             # Netlify CLI from querying site config with a deployment token.
-            build_args+=(--offline)
+            netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE" --offline
+          else
+            # Fetch the site context separately so a Netlify extensions API
+            # outage cannot block the local prebuilt build.
+            umask 077
+            build_environment_file="$(mktemp "$RUNNER_TEMP/netlify-build-environment.XXXXXX")"
+            trap 'rm -f "$build_environment_file"' EXIT
+            netlify api getEnvVars \
+              --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\"}" \
+              > "$build_environment_file"
+            node --experimental-strip-types scripts/netlify-prebuilt-build.ts \
+              --env-file "$build_environment_file" \
+              --context "$BUILD_CONTEXT" \
+              --filter "$SOURCE_TEMPLATE"
           fi
-          netlify "${build_args[@]}"
           unset ANALYTICS_DATABASE_URL_SECRET
 
       - name: Verify paired client and publish artifacts

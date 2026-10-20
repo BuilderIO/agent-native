@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +26,7 @@ import {
 } from "./guard-netlify-prebuilt-workflow.ts";
 import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
 import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
+import { resolveNetlifyBuildEnvironment } from "./netlify-prebuilt-build.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -172,6 +173,125 @@ describe("Google callback deploy verification guard", () => {
     assert.ok(
       relayIndex >= 0 && relayIndex < packageIndex && relayIndex < uploadIndex,
     );
+  });
+});
+
+describe("Netlify offline prebuilt build environment", () => {
+  it("selects site context variables over inherited values like Netlify builds", () => {
+    const environment = resolveNetlifyBuildEnvironment(
+      [
+        {
+          key: "DATABASE_URL",
+          values: [
+            { context: "production", value: "postgresql://site.invalid/db" },
+            { context: "all", value: "postgresql://all.invalid/db" },
+          ],
+        },
+        {
+          key: "SITE_ONLY",
+          values: [{ context: "all", value: "site-value" }],
+        },
+      ],
+      "production",
+      { DATABASE_URL: "postgresql://build-only.invalid/db", PATH: "/usr/bin" },
+    );
+
+    assert.equal(environment.DATABASE_URL, "postgresql://site.invalid/db");
+    assert.equal(environment.SITE_ONLY, "site-value");
+    assert.equal(environment.PATH, "/usr/bin");
+  });
+
+  it("fails loudly when the Netlify environment response is unreadable", () => {
+    assert.throws(
+      () =>
+        resolveNetlifyBuildEnvironment({ unavailable: true }, "production", {}),
+      /Netlify environment response must be an array/,
+    );
+  });
+
+  it("passes context variables to an offline build and removes its secret file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "netlify-prebuilt-build-"));
+    const binaryDirectory = join(directory, "bin");
+    mkdirSync(binaryDirectory);
+    const netlifyPath = join(binaryDirectory, "netlify");
+    const resultPath = join(directory, "result.json");
+    const environmentPath = join(directory, "environment.json");
+    const resultScript = `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
+  args: process.argv.slice(2),
+  siteValue: process.env.SITE_ONLY,
+}));
+`;
+
+    try {
+      writeFileSync(netlifyPath, resultScript, { mode: 0o755 });
+      writeFileSync(
+        environmentPath,
+        JSON.stringify([
+          {
+            key: "SITE_ONLY",
+            values: [{ context: "production", value: "from-site" }],
+          },
+        ]),
+      );
+
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          "scripts/netlify-prebuilt-build.ts",
+          "--env-file",
+          environmentPath,
+          "--context",
+          "production",
+          "--filter",
+          "starter",
+        ],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            NETLIFY_TEST_RESULT: resultPath,
+            PATH: `${binaryDirectory}:${process.env.PATH ?? ""}`,
+            SITE_ONLY: "inherited",
+          },
+          stdio: "pipe",
+        },
+      );
+
+      const result = JSON.parse(readFileSync(resultPath, "utf8"));
+      assert.deepEqual(result.args, [
+        "build",
+        "--context",
+        "production",
+        "--filter",
+        "starter",
+        "--offline",
+      ]);
+      assert.equal(result.siteValue, "from-site");
+      assert.equal(existsSync(environmentPath), false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("uses explicit environment retrieval for authenticated offline builds", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const deploy = (workflow.jobs as Record<string, Workflow>).deploy;
+    const build = (deploy.steps as Array<Workflow>).find(
+      (step) => step.name === "Build with the Netlify project configuration",
+    );
+    const run = String(build?.run);
+    const env = build?.env as Record<string, unknown>;
+
+    assert.equal(env.NETLIFY_ACCOUNT_ID, "builder-io");
+    assert.match(run, /netlify api getEnvVars/);
+    assert.match(run, /scripts\/netlify-prebuilt-build\.ts/);
+    assert.match(run, /--offline/);
+    assert.match(run, /"\$TARGET" == "preview" && "\$DEPLOY" != "true"/);
   });
 });
 
@@ -336,7 +456,10 @@ describe("Netlify PR preview workflow guard", () => {
       String((deploymentStep?.with as Workflow).script),
       /state: 'inactive'/,
     );
-    assert.match(reusableSource, /build_args\+=\(--offline\)/);
+    assert.match(
+      reusableSource,
+      /netlify build --context "\$BUILD_CONTEXT" --filter "\$SOURCE_TEMPLATE" --offline/,
+    );
     assert.match(
       trustedPreviewBuildSource,
       /netlify build --context "\$BUILD_CONTEXT" --filter "\$SOURCE_TEMPLATE" --offline/,
@@ -691,6 +814,7 @@ describe("production Netlify site concurrency guard", () => {
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
     assert.deepEqual(validateReusableWorkflowConcurrency(reusable), []);
+    assert.equal((reusable.concurrency as Workflow).queue, "max");
     assert.match(
       String((reusable.concurrency as Workflow).group),
       /inputs\.target == 'preview'[\s\S]*netlify-prebuilt-preview-\{0\}-\{1\}/,
@@ -3331,6 +3455,7 @@ describe("production Netlify site concurrency guard", () => {
       (ownership?.concurrency as Workflow)?.group,
       "agent-native-production-site-fw",
     );
+    assert.equal((ownership?.concurrency as Workflow)?.queue, "max");
     assert.equal(
       (ownership?.outputs as Workflow)?.cutover_acquired,
       "${{ steps.pause.outputs.cutover_acquired }}",
@@ -3348,6 +3473,7 @@ describe("production Netlify site concurrency guard", () => {
       (restore?.concurrency as Workflow)?.group,
       "agent-native-production-site-fw",
     );
+    assert.equal((restore?.concurrency as Workflow)?.queue, "max");
     const restoreStep = (restore?.steps as Array<Workflow>).find(
       (step) => step.name === "Restore the prior docs build setting",
     );
@@ -3358,6 +3484,7 @@ describe("production Netlify site concurrency guard", () => {
 
   it("keeps the fleet caller queue distinct from the shared site queues", () => {
     assert.deepEqual(validateProductionSiteConcurrency(workflows()), []);
+    assert.equal((workflows().production.concurrency as Workflow).queue, "max");
   });
 
   it("rejects the shared site queue on the fleet caller", () => {
@@ -3423,6 +3550,23 @@ describe("production Netlify site concurrency guard", () => {
       issues.some((issue) =>
         issue.includes(
           "promote-netlify-deploy.yml promote job concurrency.cancel-in-progress must be false",
+        ),
+      ),
+    );
+  });
+
+  it("rejects a production site queue that drops pending work", () => {
+    const mutated = workflows();
+    const promoteJobs = mutated.promote.jobs as Record<string, Workflow>;
+    const promote = promoteJobs.promote;
+    const concurrency = promote.concurrency as Record<string, unknown>;
+    delete concurrency.queue;
+
+    const issues = validateProductionSiteConcurrency(mutated);
+    assert(
+      issues.some((issue) =>
+        issue.includes(
+          "promote-netlify-deploy.yml promote job concurrency.queue must be max",
         ),
       ),
     );
