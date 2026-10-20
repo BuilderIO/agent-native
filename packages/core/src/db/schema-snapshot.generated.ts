@@ -4,378 +4,378 @@
 import type { SchemaSnapshot } from "./store-registry.js";
 
 export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
-  statements: [
-    'CREATE SEQUENCE IF NOT EXISTS "agent_chat_submission_inbox_queue_order_seq";',
-    'CREATE SEQUENCE IF NOT EXISTS "app_resource_change_seq";',
-    'CREATE SEQUENCE IF NOT EXISTS "automation_trigger_event_queue_sequence_id_seq";',
-    'CREATE TABLE "_better_auth_migrations" (\n  "version" bigint NOT NULL\n);',
-    'CREATE TABLE "_better_auth_migrations_named" (\n  "name" text NOT NULL,\n  "version" bigint,\n  "applied_at" timestamp without time zone DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "_collab_awareness" (\n  "doc_id" text NOT NULL,\n  "client_id" bigint NOT NULL,\n  "state" text NOT NULL,\n  "last_seen" bigint NOT NULL\n);',
-    'CREATE TABLE "_collab_docs" (\n  "doc_id" text NOT NULL,\n  "yjs_state" text NOT NULL,\n  "text_snapshot" text DEFAULT \'\'::text NOT NULL,\n  "version" integer DEFAULT 0 NOT NULL,\n  "updated_at" text DEFAULT (now())::text NOT NULL\n);',
-    'CREATE TABLE "_context_xray_migrations" (\n  "version" bigint NOT NULL\n);',
-    'CREATE TABLE "_context_xray_migrations_named" (\n  "name" text NOT NULL,\n  "version" bigint,\n  "applied_at" timestamp without time zone DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "_observational_memory_migrations" (\n  "version" bigint NOT NULL\n);',
-    'CREATE TABLE "_observational_memory_migrations_named" (\n  "name" text NOT NULL,\n  "version" bigint,\n  "applied_at" timestamp without time zone DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "_org_migrations" (\n  "version" bigint NOT NULL\n);',
-    'CREATE TABLE "_org_migrations_named" (\n  "name" text NOT NULL,\n  "version" bigint,\n  "applied_at" timestamp without time zone DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "a2a_approvals" (\n  "id" text NOT NULL,\n  "task_id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "tool_name" text NOT NULL,\n  "tool_input" text NOT NULL,\n  "approval_key" text NOT NULL,\n  "call_id" text NOT NULL,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "result" text,\n  "expires_at" bigint NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "a2a_tasks" (\n  "id" text NOT NULL,\n  "context_id" text,\n  "status_state" text DEFAULT \'submitted\'::text NOT NULL,\n  "status_message" text,\n  "status_timestamp" text NOT NULL,\n  "history" text DEFAULT \'[]\'::text NOT NULL,\n  "artifacts" text DEFAULT \'[]\'::text NOT NULL,\n  "metadata" text,\n  "owner_email" text,\n  "owner_scope" text DEFAULT \'\'::text NOT NULL,\n  "idempotency_key" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "account" (\n  "id" text NOT NULL,\n  "account_id" text NOT NULL,\n  "provider_id" text NOT NULL,\n  "user_id" text NOT NULL,\n  "access_token" text,\n  "refresh_token" text,\n  "id_token" text,\n  "access_token_expires_at" timestamp with time zone,\n  "refresh_token_expires_at" timestamp with time zone,\n  "scope" text,\n  "password" text,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "agent_audit_log" (\n  "id" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "action" text NOT NULL,\n  "caller" text NOT NULL,\n  "actor_kind" text NOT NULL,\n  "actor_email" text,\n  "org_id" text,\n  "thread_id" text,\n  "turn_id" text,\n  "target_type" text,\n  "target_id" text,\n  "status" text DEFAULT \'success\'::text NOT NULL,\n  "summary" text,\n  "input" text,\n  "error_code" text,\n  "owner_email" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "run_id" text,\n  "task_id" text,\n  "parent_task_id" text,\n  "source_kind" text,\n  "source_platform" text,\n  "source_id" text,\n  "source_url" text,\n  "network_protocol" text,\n  "network_id" text,\n  "network_peer" text,\n  "app" text,\n  "reported_client_name" text,\n  "reported_client_version" text,\n  "oauth_client_id" text,\n  "approval" text\n);',
-    'CREATE TABLE "agent_chat_submission_inbox" (\n  "thread_id" text NOT NULL,\n  "message_id" text NOT NULL,\n  "state" text NOT NULL,\n  "actor_email" text NOT NULL,\n  "actor_auth_user_id" text,\n  "actor_identity_authenticated_at_ms" bigint,\n  "actor_name" text,\n  "actor_org_id" text,\n  "actor_org_scope" text,\n  "actor_anonymous" boolean DEFAULT false NOT NULL,\n  "payload_hash" text NOT NULL,\n  "payload_json" text NOT NULL,\n  "interrupt_active_run" boolean DEFAULT false NOT NULL,\n  "submitted_run_id" text,\n  "queue_order" bigint DEFAULT nextval(\'agent_chat_submission_inbox_queue_order_seq\'::regclass) NOT NULL,\n  "move_to_top_at" bigint,\n  "retry_after" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_checkpoints" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "run_id" text,\n  "commit_sha" text NOT NULL,\n  "message" text DEFAULT \'\'::text NOT NULL,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_eval_datasets" (\n  "id" text NOT NULL,\n  "name" text NOT NULL,\n  "description" text DEFAULT \'\'::text NOT NULL,\n  "entries" text DEFAULT \'[]\'::text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "user_id" text,\n  "idempotency_key" text\n);',
-    'CREATE TABLE "agent_evals" (\n  "id" text NOT NULL,\n  "run_id" text NOT NULL,\n  "thread_id" text,\n  "user_id" text,\n  "eval_type" text NOT NULL,\n  "criteria" text NOT NULL,\n  "score" real DEFAULT 0 NOT NULL,\n  "reasoning" text,\n  "metadata" text,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_execution_leases" (\n  "thread_id" text NOT NULL,\n  "turn_id" text NOT NULL,\n  "generation" bigint NOT NULL,\n  "owner_run_id" text NOT NULL,\n  "lease_expires_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL\n);',
-    'CREATE TABLE "agent_execution_steps" (\n  "thread_id" text NOT NULL,\n  "turn_id" text NOT NULL,\n  "step_id" text NOT NULL,\n  "operation_id" text NOT NULL,\n  "tool_name" text NOT NULL,\n  "input_json" text NOT NULL,\n  "replay_policy" text NOT NULL,\n  "status" text NOT NULL,\n  "run_id" text NOT NULL,\n  "generation" bigint NOT NULL,\n  "result_json" text,\n  "receipt_json" text,\n  "error_json" text,\n  "dispatched_at" timestamp with time zone,\n  "completed_at" timestamp with time zone,\n  "created_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,\n  "updated_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL\n);',
-    'CREATE TABLE "agent_experiment_assignments" (\n  "experiment_id" text NOT NULL,\n  "user_id" text NOT NULL,\n  "variant_id" text NOT NULL,\n  "assigned_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_experiment_results" (\n  "id" text NOT NULL,\n  "experiment_id" text NOT NULL,\n  "variant_id" text NOT NULL,\n  "metric" text NOT NULL,\n  "value" real DEFAULT 0 NOT NULL,\n  "sample_size" bigint DEFAULT 0 NOT NULL,\n  "confidence_low" real DEFAULT 0 NOT NULL,\n  "confidence_high" real DEFAULT 0 NOT NULL,\n  "computed_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_experiments" (\n  "id" text NOT NULL,\n  "name" text NOT NULL,\n  "status" text DEFAULT \'draft\'::text NOT NULL,\n  "variants" text DEFAULT \'[]\'::text NOT NULL,\n  "metrics" text DEFAULT \'[]\'::text NOT NULL,\n  "assignment_level" text DEFAULT \'user\'::text NOT NULL,\n  "started_at" bigint,\n  "ended_at" bigint,\n  "created_at" bigint NOT NULL,\n  "owner_email" text\n);',
-    'CREATE TABLE "agent_feedback" (\n  "id" text NOT NULL,\n  "run_id" text,\n  "thread_id" text,\n  "message_seq" bigint,\n  "feedback_type" text NOT NULL,\n  "value" text DEFAULT \'\'::text NOT NULL,\n  "idempotency_key" text,\n  "user_id" text,\n  "org_id" text,\n  "source" text DEFAULT \'chat\'::text NOT NULL,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_harness_sessions" (\n  "id" text NOT NULL,\n  "harness_name" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "run_id" text,\n  "provider_session_id" text,\n  "status" text DEFAULT \'idle\'::text NOT NULL,\n  "resume_state" text,\n  "workspace_ref" text,\n  "pending_approval" text,\n  "resolved_approval_ids" text,\n  "owner_email" text,\n  "org_id" text,\n  "generation" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "stopped_at" bigint\n);',
-    'CREATE TABLE "agent_human_review_summaries" (\n  "run_id" text NOT NULL,\n  "org_id" text NOT NULL,\n  "ask" text NOT NULL,\n  "outcome" text NOT NULL,\n  "artifacts" text DEFAULT \'[]\'::text NOT NULL,\n  "created_by" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_instruction_updates" (\n  "id" text NOT NULL,\n  "run_id" text NOT NULL,\n  "thread_id" text,\n  "target" text NOT NULL,\n  "instruction" text NOT NULL,\n  "feedback" text DEFAULT \'\'::text NOT NULL,\n  "status" text DEFAULT \'draft\'::text NOT NULL,\n  "user_id" text NOT NULL,\n  "org_id" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_native_browser_session_requests" (\n  "owner_email" text NOT NULL,\n  "session_id" text NOT NULL,\n  "request_id" text NOT NULL,\n  "type" text NOT NULL,\n  "name" text,\n  "command" text,\n  "payload_json" text,\n  "status" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "claimed_at" bigint,\n  "completed_at" bigint,\n  "expires_at" bigint NOT NULL,\n  "result_json" text,\n  "error" text\n);',
-    'CREATE TABLE "agent_native_browser_sessions" (\n  "owner_email" text NOT NULL,\n  "session_id" text NOT NULL,\n  "label" text,\n  "url" text,\n  "session_json" text NOT NULL,\n  "context_json" text,\n  "actions_json" text,\n  "connected_at" bigint NOT NULL,\n  "last_seen_at" bigint NOT NULL,\n  "expires_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_native_embed_session_revocations" (\n  "owner_hash" text NOT NULL,\n  "revoked_before" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_native_embed_tickets" (\n  "ticket_hash" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "target_path" text NOT NULL,\n  "scope" text,\n  "created_at" bigint NOT NULL,\n  "expires_at" bigint NOT NULL,\n  "consumed_at" bigint,\n  "renewal_expires_at" bigint,\n  "session_active_until" bigint\n);',
-    'CREATE TABLE "agent_resource_versions" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "version_number" bigint NOT NULL,\n  "created_at" text NOT NULL,\n  "created_by" text,\n  "actor_kind" text DEFAULT \'human\'::text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "title" text,\n  "summary" text,\n  "snapshot_json" text NOT NULL,\n  "metadata_json" text\n);',
-    'CREATE TABLE "agent_review_comment_reactions" (\n  "comment_id" text NOT NULL,\n  "actor_email" text NOT NULL,\n  "reaction" text NOT NULL,\n  "created_at" text NOT NULL\n);',
-    'CREATE TABLE "agent_review_comments" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "parent_comment_id" text,\n  "target_id" text,\n  "kind" text DEFAULT \'comment\'::text NOT NULL,\n  "status" text DEFAULT \'open\'::text NOT NULL,\n  "anchor_json" text,\n  "body" text NOT NULL,\n  "author_email" text,\n  "author_name" text,\n  "created_by" text DEFAULT \'human\'::text NOT NULL,\n  "resolution_target" text,\n  "reply_route_target" text DEFAULT \'legacy\'::text,\n  "notification_completed_at" text,\n  "mentions_json" text,\n  "owner_email" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "resolved_by" text,\n  "resolved_at" text,\n  "consumed_at" text,\n  "deleted_by" text,\n  "deleted_at" text,\n  "created_at" text NOT NULL,\n  "updated_at" text NOT NULL,\n  "metadata_json" text\n);',
-    'CREATE TABLE "agent_review_notification_deliveries" (\n  "comment_id" text NOT NULL,\n  "recipient_email" text NOT NULL,\n  "claim_token" text NOT NULL,\n  "claimed_at" text NOT NULL,\n  "sent_at" text\n);',
-    'CREATE TABLE "agent_review_statuses" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "status" text NOT NULL,\n  "note" text,\n  "updated_by" text,\n  "updated_at" text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "metadata_json" text\n);',
-    'CREATE TABLE "agent_review_suggestion_amendments" (\n  "idempotency_key" text NOT NULL,\n  "suggestion_id" text NOT NULL,\n  "revision" integer NOT NULL,\n  "author_email" text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "request_json" text NOT NULL,\n  "before_json" text NOT NULL,\n  "after_json" text NOT NULL,\n  "created_at" text NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestion_creations" (\n  "idempotency_key" text NOT NULL,\n  "suggestion_id" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text,\n  "request_hash" text,\n  "created_at" text NOT NULL,\n  "receipt_version" integer DEFAULT 1 NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestion_decisions" (\n  "id" text NOT NULL,\n  "suggestion_id" text NOT NULL,\n  "idempotency_key" text NOT NULL,\n  "reviewer" text,\n  "decision" text NOT NULL,\n  "observed_base" text,\n  "outcome" text NOT NULL,\n  "detail" text,\n  "created_at" text NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestion_operations" (\n  "id" text NOT NULL,\n  "suggestion_id" text NOT NULL,\n  "ordinal" integer NOT NULL,\n  "operation_kind" text NOT NULL,\n  "target_id" text,\n  "before_json" text,\n  "after_json" text,\n  "anchor_json" text,\n  "dependencies_json" text,\n  "schema_version" integer NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestion_proposal_creations" (\n  "idempotency_key" text NOT NULL,\n  "proposal_id" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text NOT NULL,\n  "request_hash" text NOT NULL,\n  "suggestion_ids_json" text NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestion_proposal_decisions" (\n  "idempotency_key" text NOT NULL,\n  "proposal_id" text NOT NULL,\n  "reviewer" text,\n  "decision" text NOT NULL,\n  "request_json" text NOT NULL,\n  "suggestion_ids_json" text NOT NULL,\n  "created_at" text NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestion_proposals" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "adapter_kind" text NOT NULL,\n  "summary" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text NOT NULL,\n  "created_at" text NOT NULL\n);',
-    'CREATE TABLE "agent_review_suggestions" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "adapter_kind" text NOT NULL,\n  "adapter_version" integer NOT NULL,\n  "thread_id" text NOT NULL,\n  "author_email" text,\n  "actor_kind" text NOT NULL,\n  "base_revision" text NOT NULL,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "summary" text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "created_at" text NOT NULL,\n  "updated_at" text NOT NULL,\n  "metadata_json" text,\n  "revision" integer DEFAULT 1 NOT NULL,\n  "proposal_id" text\n);',
-    'CREATE TABLE "agent_review_thread_preferences" (\n  "thread_id" text NOT NULL,\n  "user_email" text NOT NULL,\n  "muted" integer DEFAULT 0 NOT NULL,\n  "unread" integer DEFAULT 0 NOT NULL,\n  "updated_at" text NOT NULL\n);',
-    'CREATE TABLE "agent_run_events" (\n  "run_id" text NOT NULL,\n  "seq" bigint NOT NULL,\n  "event_at" bigint,\n  "event_data" text NOT NULL\n);',
-    'CREATE TABLE "agent_run_outcome_daily" (\n  "day" text NOT NULL,\n  "status" text NOT NULL,\n  "terminal_reason" text DEFAULT \'\'::text NOT NULL,\n  "run_count" bigint DEFAULT 0 NOT NULL\n);',
-    'CREATE TABLE "agent_runs" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "status" text DEFAULT \'running\'::text NOT NULL,\n  "abort_reason" text,\n  "started_at" bigint NOT NULL,\n  "completed_at" bigint,\n  "heartbeat_at" bigint,\n  "last_progress_at" bigint,\n  "turn_id" text,\n  "error_code" text,\n  "error_detail" text,\n  "terminal_reason" text,\n  "dispatch_mode" text,\n  "diag_stage" text,\n  "dispatch_payload" text,\n  "peak_rss_mb" bigint,\n  "continuation_order" bigint,\n  "thread_projection_pending" boolean DEFAULT false NOT NULL,\n  "worker_stage" text,\n  "in_flight_since" bigint,\n  "auto_continue_of" text,\n  "worker_generation" bigint\n);',
-    'CREATE TABLE "agent_satisfaction_scores" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "user_id" text,\n  "frustration_score" real DEFAULT 0 NOT NULL,\n  "rephrasing_score" real DEFAULT 0 NOT NULL,\n  "abandonment_score" real DEFAULT 0 NOT NULL,\n  "sentiment_score" real DEFAULT 0 NOT NULL,\n  "length_trend_score" real DEFAULT 0 NOT NULL,\n  "computed_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_team_run_queue" (\n  "task_id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "run_id" text NOT NULL,\n  "status" text DEFAULT \'queued\'::text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "payload" text NOT NULL,\n  "continuation_count" bigint DEFAULT 0 NOT NULL,\n  "attempts" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "reconciliation_attempted_at" bigint\n);',
-    'CREATE TABLE "agent_tool_approval_policies" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "tool_name" text NOT NULL,\n  "enabled" boolean NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "tool_revision" text\n);',
-    'CREATE TABLE "agent_tool_approvals" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "thread_id" text,\n  "turn_id" text,\n  "tool_name" text NOT NULL,\n  "call_id" text NOT NULL,\n  "approval_key_hash" text NOT NULL,\n  "status" text NOT NULL,\n  "expires_at" bigint NOT NULL,\n  "consumed_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "tool_revision" text,\n  "arguments_hash" text\n);',
-    'CREATE TABLE "agent_tool_ledger" (\n  "thread_id" text NOT NULL,\n  "tool_key" text NOT NULL,\n  "result_summary" text NOT NULL,\n  "result_is_string" boolean,\n  "artifacts_json" text,\n  "chat_ui_result_json" text,\n  "completed_at" bigint NOT NULL,\n  "arguments_hash" text\n);',
-    'CREATE TABLE "agent_trace_spans" (\n  "id" text NOT NULL,\n  "run_id" text NOT NULL,\n  "thread_id" text,\n  "user_id" text,\n  "org_id" text,\n  "parent_span_id" text,\n  "span_type" text NOT NULL,\n  "name" text NOT NULL,\n  "input_tokens" bigint DEFAULT 0 NOT NULL,\n  "output_tokens" bigint DEFAULT 0 NOT NULL,\n  "cache_read_tokens" bigint DEFAULT 0 NOT NULL,\n  "cache_write_tokens" bigint DEFAULT 0 NOT NULL,\n  "cost_cents_x100" bigint DEFAULT 0 NOT NULL,\n  "duration_ms" bigint DEFAULT 0 NOT NULL,\n  "status" text DEFAULT \'success\'::text NOT NULL,\n  "error_message" text,\n  "metadata" text,\n  "created_at" bigint NOT NULL,\n  "ended_at" bigint\n);',
-    'CREATE TABLE "agent_trace_summaries" (\n  "run_id" text NOT NULL,\n  "thread_id" text,\n  "user_id" text,\n  "org_id" text,\n  "total_spans" bigint DEFAULT 0 NOT NULL,\n  "llm_calls" bigint DEFAULT 0 NOT NULL,\n  "tool_calls" bigint DEFAULT 0 NOT NULL,\n  "successful_tools" bigint DEFAULT 0 NOT NULL,\n  "failed_tools" bigint DEFAULT 0 NOT NULL,\n  "total_duration_ms" bigint DEFAULT 0 NOT NULL,\n  "total_cost_cents_x100" bigint DEFAULT 0 NOT NULL,\n  "total_input_tokens" bigint DEFAULT 0 NOT NULL,\n  "total_output_tokens" bigint DEFAULT 0 NOT NULL,\n  "model" text DEFAULT \'\'::text NOT NULL,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "agent_turn_initiators" (\n  "thread_id" text NOT NULL,\n  "turn_id" text NOT NULL,\n  "principal_email" text NOT NULL,\n  "auth_user_id" text,\n  "org_id" text,\n  "org_scope" text,\n  "is_anonymous" boolean DEFAULT false NOT NULL,\n  "first_run_id" text NOT NULL,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "app_member_roles" (\n  "id" text NOT NULL,\n  "org_id" text NOT NULL,\n  "app_id" text NOT NULL,\n  "email" text NOT NULL,\n  "role" text NOT NULL,\n  "updated_by" text NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "app_permission_overrides" (\n  "org_id" text NOT NULL,\n  "app_id" text NOT NULL,\n  "permission" text NOT NULL,\n  "roles_json" text NOT NULL,\n  "updated_by" text NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "app_resource_change_consumers" (\n  "app" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "consumer" text NOT NULL,\n  "registered_at" timestamp with time zone DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "app_resource_changes" (\n  "consumer" text NOT NULL,\n  "app" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "reason" text NOT NULL,\n  "seq" bigint NOT NULL,\n  "changed_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,\n  "available_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,\n  "attempts" integer DEFAULT 0 NOT NULL,\n  "failed_at" timestamp with time zone\n);',
-    'CREATE TABLE "app_secrets" (\n  "id" text NOT NULL,\n  "scope" text NOT NULL,\n  "scope_id" text NOT NULL,\n  "key" text NOT NULL,\n  "encrypted_value" text NOT NULL,\n  "shared_encrypted_value" text,\n  "description" text,\n  "url_allowlist" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "application_state" (\n  "session_id" text NOT NULL,\n  "key" text NOT NULL,\n  "value" text NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "automation_runs" (\n  "id" text NOT NULL,\n  "owner" text NOT NULL,\n  "automation" text NOT NULL,\n  "path" text NOT NULL,\n  "scope" text,\n  "org_id" text,\n  "app_id" text,\n  "run_id" text,\n  "thread_id" text,\n  "status" text DEFAULT \'running\'::text NOT NULL,\n  "started_at" bigint NOT NULL,\n  "finished_at" bigint,\n  "error" text,\n  "error_code" text,\n  "notification_email" text,\n  "failure_alerted" bigint DEFAULT 0 NOT NULL,\n  "failure_alert_state" text,\n  "failure_alert_attempts" bigint DEFAULT 0 NOT NULL,\n  "failure_alert_next_attempt_at" bigint,\n  "failure_alert_claimed_at" bigint,\n  "failure_alert_provider" text,\n  "failure_alert_first_attempt_at" bigint,\n  "failure_alert_unsubscribe_token" text,\n  "claimed_at" bigint,\n  "dispatch_pending" bigint DEFAULT 0 NOT NULL\n);',
-    'CREATE TABLE "automation_scheduler_health" (\n  "id" text NOT NULL,\n  "app_id" text DEFAULT \'default\'::text NOT NULL,\n  "org_id" text,\n  "last_checked_at" bigint,\n  "last_dispatched_at" bigint,\n  "last_error" text,\n  "runtime" text,\n  "updated_at" bigint NOT NULL,\n  "lease_owner" text,\n  "lease_expires_at" bigint\n);',
-    'CREATE TABLE "automation_trigger_event_queue" (\n  "id" text NOT NULL,\n  "sequence_id" bigint DEFAULT nextval(\'automation_trigger_event_queue_sequence_id_seq\'::regclass) NOT NULL,\n  "trigger_id" text NOT NULL,\n  "trigger_owner" text NOT NULL,\n  "trigger_path" text NOT NULL,\n  "app_id" text,\n  "event_name" text NOT NULL,\n  "event_id" text NOT NULL,\n  "payload" text NOT NULL,\n  "event_owner" text,\n  "emitted_at" text NOT NULL,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "attempts" bigint DEFAULT 0 NOT NULL,\n  "failure_attempts" bigint DEFAULT 0 NOT NULL,\n  "available_at" bigint NOT NULL,\n  "claimed_at" bigint,\n  "created_at" bigint NOT NULL,\n  "completed_at" bigint,\n  "last_error" text\n);',
-    'CREATE TABLE "automation_trigger_event_queue_sweep_state" (\n  "scope_key" text NOT NULL,\n  "last_trigger_id" text,\n  "purge_after" bigint DEFAULT 0 NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "automation_webhook_tokens" (\n  "token_hash" text NOT NULL,\n  "automation_id" text NOT NULL,\n  "owner" text NOT NULL,\n  "path" text NOT NULL,\n  "secret_scope" text NOT NULL,\n  "secret_scope_id" text NOT NULL,\n  "secret_key" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "chat_thread_shares" (\n  "id" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "principal_type" text NOT NULL,\n  "principal_id" text NOT NULL,\n  "role" text DEFAULT \'viewer\'::text NOT NULL,\n  "created_by" text NOT NULL,\n  "created_at" text DEFAULT now() NOT NULL,\n  "notified_at" text\n);',
-    'CREATE TABLE "chat_threads" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "title" text DEFAULT \'\'::text NOT NULL,\n  "preview" text DEFAULT \'\'::text NOT NULL,\n  "thread_data" text DEFAULT \'{}\'::text NOT NULL,\n  "message_count" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "scope_type" text,\n  "scope_id" text,\n  "scope_label" text,\n  "pinned_at" bigint,\n  "archived_at" bigint,\n  "share_token_hash" text,\n  "source_platform" text,\n  "source_app_id" text,\n  "source_url" text,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL\n);',
-    'CREATE TABLE "context_directives" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "segment_id" text NOT NULL,\n  "action" text NOT NULL,\n  "summary_text" text,\n  "created_by" text DEFAULT \'user\'::text NOT NULL,\n  "active" integer DEFAULT 1 NOT NULL,\n  "origin_turn" text,\n  "created_at" integer NOT NULL,\n  "updated_at" integer NOT NULL,\n  "owner_email" text DEFAULT \'local@localhost\'::text NOT NULL,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL\n);',
-    'CREATE TABLE "custom_api_providers" (\n  "id" text NOT NULL,\n  "scope" text NOT NULL,\n  "scope_id" text NOT NULL,\n  "label" text NOT NULL,\n  "base_url" text NOT NULL,\n  "auth_json" text NOT NULL,\n  "docs_urls_json" text NOT NULL,\n  "allowed_host_suffixes_json" text NOT NULL,\n  "default_headers_json" text NOT NULL,\n  "notes" text DEFAULT \'\'::text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "data_program_runs" (\n  "id" text NOT NULL,\n  "program_id" text NOT NULL,\n  "params_hash" text NOT NULL,\n  "params_json" text NOT NULL,\n  "status" text NOT NULL,\n  "rows_json" text,\n  "schema_json" text,\n  "truncated" integer DEFAULT 0 NOT NULL,\n  "row_count" bigint DEFAULT 0 NOT NULL,\n  "byte_size" bigint DEFAULT 0 NOT NULL,\n  "error_code" text,\n  "error_message" text,\n  "logs_tail" text,\n  "execution_id" text,\n  "triggered_by" text NOT NULL,\n  "started_at" bigint NOT NULL,\n  "finished_at" bigint,\n  "duration_ms" bigint\n);',
-    'CREATE TABLE "data_program_shares" (\n  "id" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "principal_type" text NOT NULL,\n  "principal_id" text NOT NULL,\n  "role" text DEFAULT \'viewer\'::text NOT NULL,\n  "created_by" text NOT NULL,\n  "created_at" text DEFAULT now() NOT NULL,\n  "notified_at" text\n);',
-    'CREATE TABLE "data_programs" (\n  "id" text NOT NULL,\n  "app_id" text NOT NULL,\n  "name" text NOT NULL,\n  "title" text NOT NULL,\n  "description" text DEFAULT \'\'::text NOT NULL,\n  "code" text NOT NULL,\n  "params_schema" text,\n  "default_params" text,\n  "output_columns" text,\n  "refresh_mode" text DEFAULT \'ttl\'::text NOT NULL,\n  "refresh_ttl_ms" integer DEFAULT 300000 NOT NULL,\n  "background" integer DEFAULT 0 NOT NULL,\n  "created_at" text DEFAULT now() NOT NULL,\n  "updated_at" text DEFAULT now() NOT NULL,\n  "archived_at" text,\n  "owner_email" text DEFAULT \'local@localhost\'::text NOT NULL,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL\n);',
-    'CREATE TABLE "email_log" (\n  "id" text NOT NULL,\n  "org_id" text,\n  "template_id" text,\n  "app" text,\n  "recipient" text NOT NULL,\n  "sender" text NOT NULL,\n  "subject" text NOT NULL,\n  "status" text NOT NULL,\n  "error" text,\n  "provider" text NOT NULL,\n  "request_payload" text,\n  "response_status" bigint,\n  "response_body" text,\n  "html_body" text,\n  "text_body" text,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "identity_rekeys" (\n  "id" text NOT NULL,\n  "old_email" text NOT NULL,\n  "new_email" text NOT NULL,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "error" text,\n  "actor_email" text,\n  "counts_json" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "completed_at" bigint\n);',
-    'CREATE TABLE "identity_retired_emails" (\n  "email" text NOT NULL,\n  "retired_at" bigint NOT NULL\n);',
-    'CREATE TABLE "identity_sso_flow_state" (\n  "state" text NOT NULL,\n  "return_path" text,\n  "app_id" text NOT NULL,\n  "client_id" text NOT NULL,\n  "redirect_uri" text NOT NULL,\n  "authority" text NOT NULL,\n  "code_challenge" text NOT NULL,\n  "created_at" bigint,\n  "expires_at" bigint,\n  "consumed_at" bigint\n);',
-    'CREATE TABLE "identity_sso_jti" (\n  "jti" text NOT NULL,\n  "seen_at" bigint\n);',
-    'CREATE TABLE "integration_a2a_continuations" (\n  "id" text NOT NULL,\n  "integration_task_id" text NOT NULL,\n  "platform" text NOT NULL,\n  "external_thread_id" text NOT NULL,\n  "incoming_payload" text NOT NULL,\n  "placeholder_ref" text,\n  "progress_ref" text,\n  "progress_ref_claimed" bigint DEFAULT 0 NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "agent_name" text NOT NULL,\n  "agent_url" text NOT NULL,\n  "dedupe_key" text,\n  "a2a_task_id" text NOT NULL,\n  "a2a_auth_token" text,\n  "verified_artifact_checkpoint" text,\n  "terminal_delivery_kind" text,\n  "terminal_delivery_confirmed_at" bigint,\n  "terminal_history_payload" text,\n  "status" text NOT NULL,\n  "attempts" bigint DEFAULT 0 NOT NULL,\n  "next_check_at" bigint NOT NULL,\n  "error_message" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "completed_at" bigint\n);',
-    'CREATE TABLE "integration_awaiting_inputs" (\n  "platform" text NOT NULL,\n  "external_thread_id" text NOT NULL,\n  "requester_id" text NOT NULL,\n  "expires_at" bigint NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_campaigns" (\n  "id" text NOT NULL,\n  "integration_task_id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "turn_id" text NOT NULL,\n  "status" text NOT NULL,\n  "chunk_count" bigint DEFAULT 0 NOT NULL,\n  "current_run_id" text,\n  "lease_token" text,\n  "lease_expires_at" bigint,\n  "next_run_at" bigint NOT NULL,\n  "progress_ref" text,\n  "checkpoint" text,\n  "error_message" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "completed_at" bigint\n);',
-    'CREATE TABLE "integration_computer_approvals" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "device_id" text NOT NULL,\n  "task_id" text NOT NULL,\n  "run_id" text NOT NULL,\n  "operation_class" text NOT NULL,\n  "approval_scope" text NOT NULL,\n  "action_hash" text NOT NULL,\n  "status" text NOT NULL,\n  "decision_result_json" text,\n  "decided_by" text,\n  "decided_at" bigint,\n  "expires_at" bigint NOT NULL,\n  "consumed_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_configs" (\n  "platform" text NOT NULL,\n  "config_key" text NOT NULL,\n  "config_data" text NOT NULL,\n  "owner" text,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_controls" (\n  "id" text NOT NULL,\n  "action" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "requester_id" text NOT NULL,\n  "team_id" text NOT NULL,\n  "api_app_id" text,\n  "channel_id" text NOT NULL,\n  "message_ts" text NOT NULL,\n  "run_id" text,\n  "approval_key" text,\n  "incoming_json" text NOT NULL,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "expires_at" bigint NOT NULL,\n  "created_at" bigint NOT NULL,\n  "claimed_at" bigint\n);',
-    'CREATE TABLE "integration_conversation_scopes" (\n  "id" text NOT NULL,\n  "platform" text NOT NULL,\n  "tenant_id" text NOT NULL,\n  "conversation_id" text NOT NULL,\n  "conversation_type" text NOT NULL,\n  "trust_level" text DEFAULT \'unknown\'::text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "installation_id" text,\n  "service_owner_email" text NOT NULL,\n  "default_model" text,\n  "require_mention" bigint DEFAULT 1 NOT NULL,\n  "allow_direct_messages" bigint DEFAULT 0 NOT NULL,\n  "allow_guests" bigint DEFAULT 0 NOT NULL,\n  "allow_external_shared" bigint DEFAULT 0 NOT NULL,\n  "allow_unknown_trust" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_identity_links" (\n  "id" text NOT NULL,\n  "platform" text NOT NULL,\n  "tenant_id" text NOT NULL,\n  "external_user_id" text NOT NULL,\n  "user_email" text NOT NULL,\n  "org_id" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_installations" (\n  "id" text NOT NULL,\n  "platform" text NOT NULL,\n  "installation_key" text NOT NULL,\n  "team_id" text,\n  "team_name" text,\n  "enterprise_id" text,\n  "enterprise_name" text,\n  "is_enterprise_install" bigint DEFAULT 0 NOT NULL,\n  "api_app_id" text,\n  "bot_user_id" text,\n  "scopes_json" text DEFAULT \'[]\'::text NOT NULL,\n  "installed_by_external_user_id" text,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "token_secret_key" text NOT NULL,\n  "secret_scope" text NOT NULL,\n  "secret_scope_id" text NOT NULL,\n  "status" text DEFAULT \'connected\'::text NOT NULL,\n  "health" text DEFAULT \'unknown\'::text NOT NULL,\n  "last_error" text,\n  "health_checked_at" bigint,\n  "last_healthy_at" bigint,\n  "token_expires_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "disconnected_at" bigint\n);',
-    'CREATE TABLE "integration_pending_tasks" (\n  "id" text NOT NULL,\n  "platform" text NOT NULL,\n  "external_thread_id" text NOT NULL,\n  "payload" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "status" text NOT NULL,\n  "attempts" bigint DEFAULT 0 NOT NULL,\n  "dispatch_attempts" bigint DEFAULT 0 NOT NULL,\n  "last_dispatch_at" bigint,\n  "last_dispatch_outcome" text,\n  "dispatch_scope" text,\n  "error_message" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "completed_at" bigint,\n  "external_event_key" text\n);',
-    'CREATE TABLE "integration_remote_commands" (\n  "id" text NOT NULL,\n  "device_id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "kind" text NOT NULL,\n  "params_json" text NOT NULL,\n  "status" text NOT NULL,\n  "result_json" text,\n  "platform" text,\n  "external_thread_id" text,\n  "computer_task_id" text,\n  "computer_run_id" text,\n  "computer_sequence" bigint,\n  "idempotency_key" text,\n  "operation_class" text,\n  "approval_scope" text,\n  "action_hash" text,\n  "lease_expires_at" bigint,\n  "attempts" bigint DEFAULT 0 NOT NULL,\n  "next_check_at" bigint NOT NULL,\n  "claimed_at" bigint,\n  "completed_at" bigint,\n  "error_message" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_remote_devices" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "label" text NOT NULL,\n  "platform" text,\n  "app_version" text,\n  "host_name" text,\n  "metadata_json" text,\n  "device_token_hash" text NOT NULL,\n  "last_seen_at" bigint,\n  "status" text NOT NULL,\n  "revoked_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_remote_push_notifications" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "registration_id" text NOT NULL,\n  "payload_json" text NOT NULL,\n  "status" text NOT NULL,\n  "attempts" bigint DEFAULT 0 NOT NULL,\n  "provider_ticket_id" text,\n  "next_attempt_at" bigint DEFAULT 0 NOT NULL,\n  "last_error" text,\n  "delivered_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_remote_push_registrations" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "provider" text NOT NULL,\n  "platform" text,\n  "client_device_id" text,\n  "label" text,\n  "token" text NOT NULL,\n  "token_hash" text NOT NULL,\n  "status" text NOT NULL,\n  "last_seen_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_remote_run_events" (\n  "device_id" text NOT NULL,\n  "remote_run_id" text NOT NULL,\n  "seq" bigint NOT NULL,\n  "event_json" text NOT NULL,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_thread_mappings" (\n  "platform" text NOT NULL,\n  "external_thread_id" text NOT NULL,\n  "internal_thread_id" text NOT NULL,\n  "platform_context" text DEFAULT \'{}\'::text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_usage_budget_events" (\n  "id" text NOT NULL,\n  "budget_id" text NOT NULL,\n  "window_start" bigint NOT NULL,\n  "threshold_bps" bigint NOT NULL,\n  "observed_micros" bigint NOT NULL,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_usage_budget_windows" (\n  "budget_id" text NOT NULL,\n  "window_start" bigint NOT NULL,\n  "used_micros" bigint DEFAULT 0 NOT NULL,\n  "reserved_micros" bigint DEFAULT 0 NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_usage_budgets" (\n  "id" text NOT NULL,\n  "partition_key" text NOT NULL,\n  "subject_type" text NOT NULL,\n  "subject_id" text NOT NULL,\n  "period" text NOT NULL,\n  "limit_micros" bigint NOT NULL,\n  "threshold_bps" bigint DEFAULT 8000 NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "integration_usage_reservations" (\n  "id" text NOT NULL,\n  "reservation_key" text NOT NULL,\n  "budget_id" text NOT NULL,\n  "window_start" bigint NOT NULL,\n  "estimated_cost_micros" bigint NOT NULL,\n  "settled_cost_micros" bigint,\n  "status" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "invitation" (\n  "id" text NOT NULL,\n  "organization_id" text NOT NULL,\n  "email" text NOT NULL,\n  "role" text,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "expires_at" timestamp with time zone NOT NULL,\n  "inviter_id" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "jwks" (\n  "id" text NOT NULL,\n  "public_key" text NOT NULL,\n  "private_key" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "expires_at" timestamp with time zone,\n  "alg" text,\n  "crv" text\n);',
-    'CREATE TABLE "mcp_action_approvals" (\n  "nonce" text NOT NULL,\n  "caller_key" text NOT NULL,\n  "action_name" text NOT NULL,\n  "arguments_hash" text NOT NULL,\n  "expires_at" bigint NOT NULL,\n  "consumed_at" bigint\n);',
-    'CREATE TABLE "mcp_connect_tokens" (\n  "id" text NOT NULL,\n  "jti" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "label" text,\n  "kind" text DEFAULT \'personal\'::text NOT NULL,\n  "service_name" text,\n  "created_by" text,\n  "created_at" bigint,\n  "last_used_at" bigint,\n  "revoked_at" bigint\n);',
-    'CREATE TABLE "mcp_device_codes" (\n  "device_code" text NOT NULL,\n  "user_code" text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "status" text DEFAULT \'pending\'::text NOT NULL,\n  "token_jti" text,\n  "catalog_scope" text,\n  "created_at" bigint,\n  "expires_at" bigint,\n  "consumed_at" bigint,\n  "client" text,\n  "purpose" text\n);',
-    'CREATE TABLE "mcp_oauth_clients" (\n  "client_id" text NOT NULL,\n  "client_name" text,\n  "redirect_uris" text NOT NULL,\n  "grant_types" text,\n  "response_types" text,\n  "token_endpoint_auth_method" text,\n  "application_type" text,\n  "created_at" bigint\n);',
-    'CREATE TABLE "mcp_oauth_codes" (\n  "code" text NOT NULL,\n  "client_id" text NOT NULL,\n  "redirect_uri" text NOT NULL,\n  "code_challenge" text NOT NULL,\n  "code_challenge_method" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "issued_for_email" text,\n  "org_id" text,\n  "org_domain" text,\n  "scope" text NOT NULL,\n  "resource" text NOT NULL,\n  "created_at" bigint,\n  "expires_at" bigint,\n  "consumed_at" bigint,\n  "client_name" text\n);',
-    'CREATE TABLE "mcp_oauth_refresh_tokens" (\n  "id" text NOT NULL,\n  "token_hash" text NOT NULL,\n  "client_id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "issued_for_email" text,\n  "org_id" text,\n  "org_domain" text,\n  "scope" text NOT NULL,\n  "resource" text NOT NULL,\n  "created_at" bigint,\n  "expires_at" bigint,\n  "last_used_at" bigint,\n  "revoked_at" bigint,\n  "replaced_by_hash" text\n);',
-    'CREATE TABLE "member" (\n  "id" text NOT NULL,\n  "organization_id" text NOT NULL,\n  "user_id" text NOT NULL,\n  "role" text DEFAULT \'member\'::text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "notification_delivery_state" (\n  "notification_id" text NOT NULL,\n  "delivery_key" text NOT NULL,\n  "state" text NOT NULL,\n  "claim_token" text,\n  "lease_expires_at" bigint NOT NULL,\n  "completed_at" bigint\n);',
-    'CREATE TABLE "notifications" (\n  "id" text NOT NULL,\n  "owner" text NOT NULL,\n  "severity" text NOT NULL,\n  "title" text NOT NULL,\n  "body" text,\n  "metadata" text,\n  "delivered_channels" text DEFAULT \'[]\'::text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "read_at" bigint\n);',
-    'CREATE TABLE "oauth_tokens" (\n  "provider" text NOT NULL,\n  "account_id" text NOT NULL,\n  "owner" text,\n  "tokens" text NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "revision" bigint NOT NULL,\n  "display_name" text\n);',
-    'CREATE TABLE "observational_memory" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "tier" text NOT NULL,\n  "text" text NOT NULL,\n  "token_estimate" bigint DEFAULT 0 NOT NULL,\n  "source_start_index" bigint,\n  "source_end_index" bigint,\n  "source_message_count" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL\n);',
-    'CREATE TABLE "org_invitations" (\n  "id" text NOT NULL,\n  "org_id" text NOT NULL,\n  "email" text NOT NULL,\n  "invited_by" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "status" text NOT NULL,\n  "role" text,\n  "app_roles_json" text\n);',
-    'CREATE TABLE "org_members" (\n  "id" text NOT NULL,\n  "org_id" text NOT NULL,\n  "email" text NOT NULL,\n  "role" text NOT NULL,\n  "joined_at" bigint NOT NULL,\n  "federation_removal_pending_at" bigint\n);',
-    'CREATE TABLE "org_scim_memberships" (\n  "id" text NOT NULL,\n  "org_id" text NOT NULL,\n  "user_id" text NOT NULL,\n  "created_membership" boolean DEFAULT false NOT NULL,\n  "created_at" bigint NOT NULL,\n  "member_id" text\n);',
-    'CREATE TABLE "organization" (\n  "id" text NOT NULL,\n  "name" text NOT NULL,\n  "slug" text NOT NULL,\n  "logo" text,\n  "metadata" text,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "organizations" (\n  "id" text NOT NULL,\n  "name" text NOT NULL,\n  "created_by" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "allowed_domain" text,\n  "a2a_secret" text,\n  "workspace_url" text,\n  "required_auth_provider" text,\n  "identity_authority" text,\n  "identity_id" text,\n  "federation_roster_initialized_at" bigint,\n  "icon_json" text,\n  "icon_revision" bigint DEFAULT 0 NOT NULL\n);',
-    'CREATE TABLE "private_icon_assets" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "mime_type" text NOT NULL,\n  "filename" text,\n  "alt" text,\n  "size" bigint NOT NULL,\n  "sha256" text NOT NULL,\n  "blob_handle_json" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "progress_runs" (\n  "id" text NOT NULL,\n  "owner" text NOT NULL,\n  "title" text NOT NULL,\n  "step" text,\n  "percent" bigint,\n  "status" text DEFAULT \'running\'::text NOT NULL,\n  "metadata" text,\n  "started_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "completed_at" bigint\n);',
-    'CREATE TABLE "provider_api_cooldowns" (\n  "quota_key" text NOT NULL,\n  "provider_id" text NOT NULL,\n  "scope_key" text NOT NULL,\n  "cooldown_until" bigint NOT NULL,\n  "status" bigint,\n  "reason" text,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "provider_corpus_job_hits" (\n  "job_id" text NOT NULL,\n  "hit_index" bigint NOT NULL,\n  "hit_data" text NOT NULL\n);',
-    'CREATE TABLE "provider_corpus_jobs" (\n  "id" text NOT NULL,\n  "app_id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "name" text NOT NULL,\n  "mode" text NOT NULL,\n  "status" text NOT NULL,\n  "provider" text NOT NULL,\n  "request_json" text NOT NULL,\n  "pagination_json" text,\n  "batch_json" text,\n  "search_json" text NOT NULL,\n  "limits_json" text NOT NULL,\n  "checkpoint_json" text NOT NULL,\n  "pages_processed" bigint DEFAULT 0 NOT NULL,\n  "batches_processed" bigint DEFAULT 0 NOT NULL,\n  "items_processed" bigint DEFAULT 0 NOT NULL,\n  "matched_items" bigint DEFAULT 0 NOT NULL,\n  "total_hits" bigint DEFAULT 0 NOT NULL,\n  "stored_hits" bigint DEFAULT 0 NOT NULL,\n  "error" text,\n  "next_resume_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "recap_images" (\n  "token" text NOT NULL,\n  "png_base64" text NOT NULL,\n  "content_type" text DEFAULT \'image/png\'::text NOT NULL,\n  "byte_length" bigint DEFAULT 0 NOT NULL,\n  "owner_email" text,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "resource_access_requests" (\n  "id" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "requester_email" text NOT NULL,\n  "requester_name" text,\n  "owner_email" text NOT NULL,\n  "note" text,\n  "state" text NOT NULL,\n  "generation" integer DEFAULT 1 NOT NULL,\n  "requested_at" bigint NOT NULL,\n  "created_at" bigint NOT NULL,\n  "decided_by" text,\n  "decided_at" bigint,\n  "granted_role" text,\n  "delivery" text\n);',
-    'CREATE TABLE "resources" (\n  "id" text NOT NULL,\n  "path" text NOT NULL,\n  "owner" text NOT NULL,\n  "content" text DEFAULT \'\'::text NOT NULL,\n  "mime_type" text DEFAULT \'text/markdown\'::text NOT NULL,\n  "size" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "created_by" text DEFAULT \'user\'::text NOT NULL,\n  "visibility" text DEFAULT \'workspace\'::text NOT NULL,\n  "thread_id" text,\n  "run_id" text,\n  "expires_at" bigint,\n  "metadata" text\n);',
-    'CREATE TABLE "sandbox_executions" (\n  "id" text NOT NULL,\n  "owner" text NOT NULL,\n  "org_id" text,\n  "thread_id" text,\n  "runtime" text DEFAULT \'node\'::text NOT NULL,\n  "code" text NOT NULL,\n  "status" text DEFAULT \'queued\'::text NOT NULL,\n  "timeout_ms" bigint NOT NULL,\n  "max_output_chars" bigint NOT NULL,\n  "attempt_count" bigint DEFAULT 0 NOT NULL,\n  "max_attempts" bigint DEFAULT 2 NOT NULL,\n  "claim_token" text,\n  "lease_expires_at" bigint,\n  "stdout" text DEFAULT \'\'::text NOT NULL,\n  "stderr" text DEFAULT \'\'::text NOT NULL,\n  "stdout_truncated" bigint DEFAULT 0 NOT NULL,\n  "stderr_truncated" bigint DEFAULT 0 NOT NULL,\n  "exit_code" bigint,\n  "timed_out" bigint DEFAULT 0 NOT NULL,\n  "error" text,\n  "bridge_tools_used" text,\n  "allowed_action_names" text,\n  "created_at" bigint NOT NULL,\n  "started_at" bigint,\n  "finished_at" bigint,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "scim_connection_binding" (\n  "id" text NOT NULL,\n  "connection_id" text NOT NULL,\n  "connection_key" text NOT NULL,\n  "provisioning_domain_id" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "decommissioned_at" timestamp with time zone,\n  "decommission_status" text DEFAULT \'active\'::text NOT NULL,\n  "decommission_cursor_user_id" text,\n  "decommission_reconciled_user_count" bigint DEFAULT 0 NOT NULL,\n  "decommission_batch_count" bigint DEFAULT 0 NOT NULL,\n  "decommission_revision" bigint DEFAULT 0 NOT NULL,\n  "decommission_completed_at" timestamp with time zone,\n  "decommission_lease_id" text,\n  "decommission_lease_expires_at" timestamp with time zone\n);',
-    'CREATE TABLE "scim_group" (\n  "id" text NOT NULL,\n  "connection_id" text NOT NULL,\n  "provisioning_domain_id" text NOT NULL,\n  "revision" bigint DEFAULT 0 NOT NULL,\n  "display_name" text NOT NULL,\n  "display_name_key" text NOT NULL,\n  "external_id" text,\n  "external_id_key" text,\n  "order_key" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "scim_group_member" (\n  "id" text NOT NULL,\n  "connection_id" text NOT NULL,\n  "group_id" text NOT NULL,\n  "scim_user_id" text NOT NULL,\n  "membership_key" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "scim_identity_tombstone" (\n  "id" text NOT NULL,\n  "connection_id" text NOT NULL,\n  "provisioning_domain_id" text NOT NULL,\n  "external_id" text NOT NULL,\n  "external_id_key" text NOT NULL,\n  "user_id" text NOT NULL,\n  "profile" text NOT NULL,\n  "deleted_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "scim_managed_connection" (\n  "id" text NOT NULL,\n  "creation_request_id" text NOT NULL,\n  "connection_id" text NOT NULL,\n  "provisioning_domain_id" text NOT NULL,\n  "status" text NOT NULL,\n  "revision" bigint NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "created_by" text NOT NULL,\n  "decommission_started_at" timestamp with time zone,\n  "decommission_started_by" text,\n  "decommissioned_at" timestamp with time zone,\n  "decommissioned_by" text\n);',
-    'CREATE TABLE "scim_managed_connection_event" (\n  "id" text NOT NULL,\n  "connection_record_id" text NOT NULL,\n  "event_key" text NOT NULL,\n  "sequence" bigint NOT NULL,\n  "type" text NOT NULL,\n  "actor_id" text NOT NULL,\n  "credential_id" text,\n  "created_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "scim_managed_credential" (\n  "id" text NOT NULL,\n  "connection_record_id" text NOT NULL,\n  "credential_id" text NOT NULL,\n  "token_digest" text NOT NULL,\n  "hash_version" text NOT NULL,\n  "active_slot_key" text NOT NULL,\n  "status" text NOT NULL,\n  "serialized_scopes" text NOT NULL,\n  "expires_at" timestamp with time zone NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "created_by" text NOT NULL,\n  "last_used_at" timestamp with time zone,\n  "revoked_at" timestamp with time zone,\n  "revoked_by" text,\n  "decommissioned_at" timestamp with time zone\n);',
-    'CREATE TABLE "scim_projection_grant" (\n  "id" text NOT NULL,\n  "connection_id" text NOT NULL,\n  "provisioning_domain_id" text NOT NULL,\n  "scim_user_id" text NOT NULL,\n  "user_id" text NOT NULL,\n  "source_kind" text NOT NULL,\n  "source_id" text NOT NULL,\n  "source_value" text,\n  "role" text NOT NULL,\n  "grant_key" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "scim_subject" (\n  "id" text NOT NULL,\n  "user_id" text NOT NULL,\n  "profile_source_id" text,\n  "revision" bigint NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "scim_user" (\n  "id" text NOT NULL,\n  "connection_id" text NOT NULL,\n  "provisioning_domain_id" text NOT NULL,\n  "user_id" text NOT NULL,\n  "connection_user_key" text NOT NULL,\n  "user_name" text NOT NULL,\n  "user_name_key" text NOT NULL,\n  "primary_email" text NOT NULL,\n  "work_email_value_index" text NOT NULL,\n  "email_value_index" text NOT NULL,\n  "display_name" text NOT NULL,\n  "formatted_name" text NOT NULL,\n  "given_name" text,\n  "family_name" text,\n  "serialized_emails" text NOT NULL,\n  "serialized_attributes" text,\n  "external_id" text,\n  "external_id_key" text,\n  "active" boolean NOT NULL,\n  "order_key" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "search_index_state" (\n  "app" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "target_version" integer NOT NULL,\n  "index_version" integer,\n  "rebuild_high_seq" bigint,\n  "rebuild_started_at" timestamp with time zone,\n  "rebuild_completed_at" timestamp with time zone\n);',
-    'CREATE TABLE "search_resources" (\n  "app" text NOT NULL,\n  "resource_type" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "title" text DEFAULT \'\'::text NOT NULL,\n  "title_norm" text DEFAULT \'\'::text NOT NULL,\n  "summary_norm" text DEFAULT \'\'::text NOT NULL,\n  "doc_vector" tsvector DEFAULT \'\'::tsvector NOT NULL,\n  "positions_complete" boolean DEFAULT true NOT NULL,\n  "modified_at" timestamp with time zone,\n  "content_hash" text NOT NULL,\n  "index_version" integer NOT NULL,\n  "indexed_seq" bigint NOT NULL,\n  "indexed_at" timestamp with time zone DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "service_principal_policies" (\n  "org_id" text NOT NULL,\n  "service_name" text NOT NULL,\n  "owner_email" text,\n  "team" text,\n  "risk_tier" text DEFAULT \'medium\'::text NOT NULL,\n  "purpose" text,\n  "lifecycle" text DEFAULT \'active\'::text NOT NULL,\n  "allowed_actions" text,\n  "lifecycle_reason" text,\n  "lifecycle_changed_by" text,\n  "lifecycle_changed_at" bigint,\n  "created_at" bigint,\n  "updated_at" bigint\n);',
-    'CREATE TABLE "session" (\n  "id" text NOT NULL,\n  "expires_at" timestamp with time zone NOT NULL,\n  "token" text NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL,\n  "ip_address" text,\n  "user_agent" text,\n  "user_id" text NOT NULL,\n  "active_organization_id" text\n);',
-    'CREATE TABLE "sessions" (\n  "token" text NOT NULL,\n  "email" text,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "settings" (\n  "key" text NOT NULL,\n  "value" text NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "sso_provider" (\n  "id" text NOT NULL,\n  "issuer" text NOT NULL,\n  "oidc_config" text,\n  "saml_config" text,\n  "user_id" text,\n  "provider_id" text NOT NULL,\n  "organization_id" text,\n  "domain" text NOT NULL,\n  "domain_verified" boolean\n);',
-    'CREATE TABLE "staged_dataset_rows" (\n  "dataset_id" text NOT NULL,\n  "row_index" bigint NOT NULL,\n  "row_data" text NOT NULL\n);',
-    'CREATE TABLE "staged_datasets" (\n  "id" text NOT NULL,\n  "app_id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "name" text NOT NULL,\n  "columns" text NOT NULL,\n  "row_count" bigint DEFAULT 0 NOT NULL,\n  "byte_size" bigint DEFAULT 0 NOT NULL,\n  "byte_size_utf8_updated_at" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "sync_events" (\n  "id" text NOT NULL,\n  "version" bigint NOT NULL,\n  "event_json" text NOT NULL,\n  "source" text NOT NULL,\n  "type" text NOT NULL,\n  "event_key" text,\n  "owner" text,\n  "org_id" text,\n  "resource_type" text,\n  "resource_id" text,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "sync_events_prune_state" (\n  "id" integer NOT NULL,\n  "cursor_version" bigint DEFAULT 0 NOT NULL,\n  "lease_owner" text,\n  "lease_expires_at" bigint,\n  "last_run_at" bigint,\n  "last_checked_at" bigint,\n  "last_success_at" bigint,\n  "last_deleted" bigint DEFAULT 0 NOT NULL,\n  "total_deleted" bigint DEFAULT 0 NOT NULL,\n  "backlog" boolean DEFAULT false NOT NULL,\n  "consecutive_failures" integer DEFAULT 0 NOT NULL,\n  "last_error" text,\n  "last_error_at" bigint\n);',
-    'CREATE TABLE "sync_version" (\n  "id" integer NOT NULL,\n  "v" bigint NOT NULL\n);',
-    'CREATE TABLE "token_usage" (\n  "id" bigint NOT NULL,\n  "owner_email" text NOT NULL,\n  "input_tokens" bigint DEFAULT 0 NOT NULL,\n  "output_tokens" bigint DEFAULT 0 NOT NULL,\n  "cache_read_tokens" bigint DEFAULT 0 NOT NULL,\n  "cache_write_tokens" bigint DEFAULT 0 NOT NULL,\n  "cost_cents_x100" bigint DEFAULT 0 NOT NULL,\n  "builder_credits_used" numeric,\n  "engine_name" text,\n  "cost_source" text DEFAULT \'estimated\'::text NOT NULL,\n  "model" text DEFAULT \'\'::text NOT NULL,\n  "label" text DEFAULT \'chat\'::text NOT NULL,\n  "app" text DEFAULT \'\'::text NOT NULL,\n  "ref_id" text DEFAULT \'\'::text NOT NULL,\n  "org_id" text,\n  "run_id" text,\n  "thread_id" text,\n  "task_id" text,\n  "integration_scope_id" text,\n  "source_platform" text,\n  "source_id" text,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "tool_consents" (\n  "viewer_email" text NOT NULL,\n  "tool_id" text NOT NULL,\n  "content_hash" text NOT NULL,\n  "granted_at" text DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "tool_data" (\n  "id" text NOT NULL,\n  "tool_id" text NOT NULL,\n  "collection" text NOT NULL,\n  "item_id" text,\n  "data" text NOT NULL,\n  "owner_email" text DEFAULT \'local@localhost\'::text NOT NULL,\n  "scope" text DEFAULT \'user\'::text NOT NULL,\n  "org_id" text,\n  "scope_key" text DEFAULT \'local@localhost\'::text NOT NULL,\n  "created_at" text DEFAULT now() NOT NULL,\n  "updated_at" text DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "tool_hidden_extensions" (\n  "id" text NOT NULL,\n  "tool_id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "created_at" text DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "tool_history" (\n  "id" text NOT NULL,\n  "tool_id" text NOT NULL,\n  "version" integer NOT NULL,\n  "operation" text NOT NULL,\n  "summary" text DEFAULT \'\'::text NOT NULL,\n  "name" text NOT NULL,\n  "description" text DEFAULT \'\'::text NOT NULL,\n  "content" text DEFAULT \'\'::text NOT NULL,\n  "icon" text,\n  "actor_email" text,\n  "owner_email" text DEFAULT \'local@localhost\'::text NOT NULL,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL,\n  "created_at" text DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "tool_shares" (\n  "id" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "principal_type" text NOT NULL,\n  "principal_id" text NOT NULL,\n  "role" text DEFAULT \'viewer\'::text NOT NULL,\n  "created_by" text NOT NULL,\n  "created_at" text DEFAULT now() NOT NULL,\n  "notified_at" text\n);',
-    'CREATE TABLE "tool_slot_installs" (\n  "id" text NOT NULL,\n  "tool_id" text NOT NULL,\n  "slot_id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "position" integer DEFAULT 0 NOT NULL,\n  "config" text,\n  "created_at" text DEFAULT now() NOT NULL,\n  "updated_at" text DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "tool_slots" (\n  "id" text NOT NULL,\n  "tool_id" text NOT NULL,\n  "slot_id" text NOT NULL,\n  "config" text,\n  "created_at" text DEFAULT now() NOT NULL\n);',
-    'CREATE TABLE "tools" (\n  "id" text NOT NULL,\n  "name" text NOT NULL,\n  "description" text DEFAULT \'\'::text NOT NULL,\n  "content" text DEFAULT \'\'::text NOT NULL,\n  "icon" text,\n  "created_at" text DEFAULT now() NOT NULL,\n  "updated_at" text DEFAULT now() NOT NULL,\n  "archived_at" text,\n  "hidden_at" text,\n  "hidden_by" text,\n  "owner_email" text DEFAULT \'local@localhost\'::text NOT NULL,\n  "org_id" text,\n  "visibility" text DEFAULT \'private\'::text NOT NULL\n);',
-    'CREATE TABLE "twoFactor" (\n  "id" text NOT NULL,\n  "secret" text NOT NULL,\n  "backup_codes" text NOT NULL,\n  "user_id" text NOT NULL,\n  "verified" boolean DEFAULT true NOT NULL,\n  "failed_verification_count" bigint DEFAULT 0 NOT NULL,\n  "locked_until" timestamp with time zone\n);',
-    'CREATE TABLE "usage_alert_events" (\n  "id" text NOT NULL,\n  "rule_id" text NOT NULL,\n  "window_start" bigint NOT NULL,\n  "notification_id" text,\n  "created_at" bigint NOT NULL\n);',
-    'CREATE TABLE "usage_alert_rules" (\n  "id" text NOT NULL,\n  "scope" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "app_id" text,\n  "unit" text NOT NULL,\n  "period" text NOT NULL,\n  "limit_value" bigint NOT NULL,\n  "channels" text NOT NULL,\n  "enabled" bigint DEFAULT 1 NOT NULL,\n  "is_default" bigint DEFAULT 0 NOT NULL,\n  "dismissed_window_start" bigint,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL\n);',
-    'CREATE TABLE "user" (\n  "id" text NOT NULL,\n  "name" text NOT NULL,\n  "email" text NOT NULL,\n  "email_verified" boolean DEFAULT false NOT NULL,\n  "image" text,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL,\n  "onboarding_role" text,\n  "two_factor_enabled" boolean DEFAULT false NOT NULL,\n  "first_touch_utm_source" text,\n  "first_touch_utm_medium" text,\n  "first_touch_utm_campaign" text,\n  "first_touch_utm_term" text,\n  "first_touch_gclid" text,\n  "first_touch_msclkid" text,\n  "first_touch_vector_source" text,\n  "first_touch_referrer" text\n);',
-    'CREATE TABLE "verification" (\n  "id" text NOT NULL,\n  "identifier" text NOT NULL,\n  "value" text NOT NULL,\n  "expires_at" timestamp with time zone NOT NULL,\n  "created_at" timestamp with time zone NOT NULL,\n  "updated_at" timestamp with time zone NOT NULL\n);',
-    'CREATE TABLE "workspace_app_shares" (\n  "id" text NOT NULL,\n  "resource_id" text NOT NULL,\n  "principal_type" text NOT NULL,\n  "principal_id" text NOT NULL,\n  "role" text DEFAULT \'viewer\'::text NOT NULL,\n  "created_at" text NOT NULL,\n  "created_by" text DEFAULT \'\'::text NOT NULL,\n  "notified_at" text\n);',
-    'CREATE TABLE "workspace_apps" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "visibility" text DEFAULT \'org\'::text NOT NULL,\n  "name" text NOT NULL,\n  "description" text,\n  "path" text NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "org_enabled" boolean DEFAULT true NOT NULL\n);',
-    'CREATE TABLE "workspace_connection_grants" (\n  "id" text NOT NULL,\n  "connection_id" text DEFAULT \'\'::text NOT NULL,\n  "provider" text DEFAULT \'\'::text NOT NULL,\n  "app_id" text DEFAULT \'\'::text NOT NULL,\n  "scopes_json" text DEFAULT \'[]\'::text NOT NULL,\n  "config_json" text DEFAULT \'{}\'::text NOT NULL,\n  "credential_refs_json" text DEFAULT \'[]\'::text NOT NULL,\n  "granted_by_email" text DEFAULT \'\'::text NOT NULL,\n  "owner_email" text DEFAULT \'\'::text NOT NULL,\n  "org_id" text,\n  "created_at" bigint DEFAULT 0 NOT NULL,\n  "updated_at" bigint DEFAULT 0 NOT NULL,\n  "last_used_at" bigint\n);',
-    'CREATE TABLE "workspace_connections" (\n  "id" text NOT NULL,\n  "provider" text DEFAULT \'\'::text NOT NULL,\n  "label" text DEFAULT \'\'::text NOT NULL,\n  "account_id" text,\n  "account_label" text,\n  "status" text DEFAULT \'connected\'::text NOT NULL,\n  "scopes_json" text DEFAULT \'[]\'::text NOT NULL,\n  "config_json" text DEFAULT \'{}\'::text NOT NULL,\n  "allowed_apps_json" text DEFAULT \'[]\'::text NOT NULL,\n  "allowed_users_json" text DEFAULT \'[]\'::text NOT NULL,\n  "allowed_user_groups_json" text DEFAULT \'[]\'::text NOT NULL,\n  "credential_refs_json" text DEFAULT \'[]\'::text NOT NULL,\n  "owner_email" text DEFAULT \'\'::text NOT NULL,\n  "org_id" text,\n  "created_at" bigint DEFAULT 0 NOT NULL,\n  "updated_at" bigint DEFAULT 0 NOT NULL,\n  "last_used_at" bigint,\n  "last_checked_at" bigint,\n  "last_error" text\n);',
-    'CREATE TABLE "workspace_user_groups" (\n  "id" text NOT NULL,\n  "org_id" text DEFAULT \'\'::text NOT NULL,\n  "name" text DEFAULT \'\'::text NOT NULL,\n  "normalized_name" text,\n  "member_emails_json" text DEFAULT \'[]\'::text NOT NULL,\n  "created_by_email" text DEFAULT \'\'::text NOT NULL,\n  "created_at" bigint DEFAULT 0 NOT NULL,\n  "updated_at" bigint DEFAULT 0 NOT NULL\n);',
-    'ALTER TABLE "_better_auth_migrations" ADD CONSTRAINT "_better_auth_migrations_pkey" PRIMARY KEY (version);',
-    'ALTER TABLE "_better_auth_migrations_named" ADD CONSTRAINT "_better_auth_migrations_named_pkey" PRIMARY KEY (name);',
-    'ALTER TABLE "_collab_awareness" ADD CONSTRAINT "_collab_awareness_pkey" PRIMARY KEY (doc_id, client_id);',
-    'ALTER TABLE "_collab_docs" ADD CONSTRAINT "_collab_docs_pkey" PRIMARY KEY (doc_id);',
-    'ALTER TABLE "_context_xray_migrations" ADD CONSTRAINT "_context_xray_migrations_pkey" PRIMARY KEY (version);',
-    'ALTER TABLE "_context_xray_migrations_named" ADD CONSTRAINT "_context_xray_migrations_named_pkey" PRIMARY KEY (name);',
-    'ALTER TABLE "_observational_memory_migrations" ADD CONSTRAINT "_observational_memory_migrations_pkey" PRIMARY KEY (version);',
-    'ALTER TABLE "_observational_memory_migrations_named" ADD CONSTRAINT "_observational_memory_migrations_named_pkey" PRIMARY KEY (name);',
-    'ALTER TABLE "_org_migrations" ADD CONSTRAINT "_org_migrations_pkey" PRIMARY KEY (version);',
-    'ALTER TABLE "_org_migrations_named" ADD CONSTRAINT "_org_migrations_named_pkey" PRIMARY KEY (name);',
-    'ALTER TABLE "a2a_approvals" ADD CONSTRAINT "a2a_approvals_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "a2a_approvals" ADD CONSTRAINT "a2a_approvals_task_id_key" UNIQUE (task_id);',
-    'ALTER TABLE "a2a_tasks" ADD CONSTRAINT "a2a_tasks_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "account" ADD CONSTRAINT "account_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_audit_log" ADD CONSTRAINT "agent_audit_log_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_chat_submission_inbox" ADD CONSTRAINT "agent_chat_submission_inbox_pkey" PRIMARY KEY (thread_id, message_id);',
-    'ALTER TABLE "agent_checkpoints" ADD CONSTRAINT "agent_checkpoints_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_eval_datasets" ADD CONSTRAINT "agent_eval_datasets_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_evals" ADD CONSTRAINT "agent_evals_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_execution_leases" ADD CONSTRAINT "agent_execution_leases_pkey" PRIMARY KEY (thread_id, turn_id);',
-    'ALTER TABLE "agent_execution_steps" ADD CONSTRAINT "agent_execution_steps_pkey" PRIMARY KEY (thread_id, turn_id, step_id);',
-    'ALTER TABLE "agent_experiment_assignments" ADD CONSTRAINT "agent_experiment_assignments_pkey" PRIMARY KEY (experiment_id, user_id);',
-    'ALTER TABLE "agent_experiment_results" ADD CONSTRAINT "agent_experiment_results_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_experiments" ADD CONSTRAINT "agent_experiments_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_feedback" ADD CONSTRAINT "agent_feedback_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_harness_sessions" ADD CONSTRAINT "agent_harness_sessions_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_human_review_summaries" ADD CONSTRAINT "agent_human_review_summaries_pkey" PRIMARY KEY (run_id);',
-    'ALTER TABLE "agent_instruction_updates" ADD CONSTRAINT "agent_instruction_updates_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_native_browser_session_requests" ADD CONSTRAINT "agent_native_browser_session_requests_pkey" PRIMARY KEY (owner_email, request_id);',
-    'ALTER TABLE "agent_native_browser_sessions" ADD CONSTRAINT "agent_native_browser_sessions_pkey" PRIMARY KEY (owner_email, session_id);',
-    'ALTER TABLE "agent_native_embed_session_revocations" ADD CONSTRAINT "agent_native_embed_session_revocations_pkey" PRIMARY KEY (owner_hash);',
-    'ALTER TABLE "agent_native_embed_tickets" ADD CONSTRAINT "agent_native_embed_tickets_pkey" PRIMARY KEY (ticket_hash);',
-    'ALTER TABLE "agent_resource_versions" ADD CONSTRAINT "agent_resource_versions_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_review_comment_reactions" ADD CONSTRAINT "agent_review_comment_reactions_pkey" PRIMARY KEY (comment_id, actor_email, reaction);',
-    'ALTER TABLE "agent_review_comments" ADD CONSTRAINT "agent_review_comments_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_review_notification_deliveries" ADD CONSTRAINT "agent_review_notification_deliveries_pkey" PRIMARY KEY (comment_id, recipient_email);',
-    'ALTER TABLE "agent_review_statuses" ADD CONSTRAINT "agent_review_statuses_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_review_suggestion_amendments" ADD CONSTRAINT "agent_review_suggestion_amendments_pkey" PRIMARY KEY (idempotency_key);',
-    'ALTER TABLE "agent_review_suggestion_amendments" ADD CONSTRAINT "agent_review_suggestion_amendments_suggestion_id_revision_key" UNIQUE (suggestion_id, revision);',
-    'ALTER TABLE "agent_review_suggestion_creations" ADD CONSTRAINT "agent_review_suggestion_creations_pkey" PRIMARY KEY (idempotency_key);',
-    'ALTER TABLE "agent_review_suggestion_creations" ADD CONSTRAINT "agent_review_suggestion_creations_suggestion_id_key" UNIQUE (suggestion_id);',
-    'ALTER TABLE "agent_review_suggestion_decisions" ADD CONSTRAINT "agent_review_suggestion_decisions_idempotency_key_key" UNIQUE (idempotency_key);',
-    'ALTER TABLE "agent_review_suggestion_decisions" ADD CONSTRAINT "agent_review_suggestion_decisions_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_review_suggestion_operations" ADD CONSTRAINT "agent_review_suggestion_operations_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_review_suggestion_proposal_creations" ADD CONSTRAINT "agent_review_suggestion_proposal_creations_pkey" PRIMARY KEY (idempotency_key);',
-    'ALTER TABLE "agent_review_suggestion_proposal_decisions" ADD CONSTRAINT "agent_review_suggestion_proposal_decisions_pkey" PRIMARY KEY (idempotency_key);',
-    'ALTER TABLE "agent_review_suggestion_proposals" ADD CONSTRAINT "agent_review_suggestion_proposals_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_review_suggestions" ADD CONSTRAINT "agent_review_suggestions_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_review_thread_preferences" ADD CONSTRAINT "agent_review_thread_preferences_pkey" PRIMARY KEY (thread_id, user_email);',
-    'ALTER TABLE "agent_run_events" ADD CONSTRAINT "agent_run_events_pkey" PRIMARY KEY (run_id, seq);',
-    'ALTER TABLE "agent_run_outcome_daily" ADD CONSTRAINT "agent_run_outcome_daily_pkey" PRIMARY KEY (day, status, terminal_reason);',
-    'ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_satisfaction_scores" ADD CONSTRAINT "agent_satisfaction_scores_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_team_run_queue" ADD CONSTRAINT "agent_team_run_queue_pkey" PRIMARY KEY (task_id);',
-    'ALTER TABLE "agent_tool_approval_policies" ADD CONSTRAINT "agent_tool_approval_policies_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_tool_approvals" ADD CONSTRAINT "agent_tool_approvals_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_tool_ledger" ADD CONSTRAINT "agent_tool_ledger_pkey" PRIMARY KEY (thread_id, tool_key);',
-    'ALTER TABLE "agent_trace_spans" ADD CONSTRAINT "agent_trace_spans_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "agent_trace_summaries" ADD CONSTRAINT "agent_trace_summaries_pkey" PRIMARY KEY (run_id);',
-    'ALTER TABLE "agent_turn_initiators" ADD CONSTRAINT "agent_turn_initiators_pkey" PRIMARY KEY (thread_id, turn_id);',
-    'ALTER TABLE "app_member_roles" ADD CONSTRAINT "app_member_roles_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "app_permission_overrides" ADD CONSTRAINT "app_permission_overrides_org_id_app_id_permission_key" UNIQUE (org_id, app_id, permission);',
-    'ALTER TABLE "app_resource_change_consumers" ADD CONSTRAINT "app_resource_change_consumers_pkey" PRIMARY KEY (app, resource_type, consumer);',
-    'ALTER TABLE "app_resource_changes" ADD CONSTRAINT "app_resource_changes_pkey" PRIMARY KEY (consumer, app, resource_type, resource_id);',
-    'ALTER TABLE "app_secrets" ADD CONSTRAINT "app_secrets_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "app_secrets" ADD CONSTRAINT "app_secrets_scope_scope_id_key_key" UNIQUE (scope, scope_id, key);',
-    'ALTER TABLE "application_state" ADD CONSTRAINT "application_state_pkey" PRIMARY KEY (session_id, key);',
-    'ALTER TABLE "automation_runs" ADD CONSTRAINT "automation_runs_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "automation_scheduler_health" ADD CONSTRAINT "automation_scheduler_health_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "automation_trigger_event_queue" ADD CONSTRAINT "automation_trigger_event_queue_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "automation_trigger_event_queue" ADD CONSTRAINT "automation_trigger_event_queue_sequence_id_key" UNIQUE (sequence_id);',
-    'ALTER TABLE "automation_trigger_event_queue_sweep_state" ADD CONSTRAINT "automation_trigger_event_queue_sweep_state_pkey" PRIMARY KEY (scope_key);',
-    'ALTER TABLE "automation_webhook_tokens" ADD CONSTRAINT "automation_webhook_tokens_automation_id_key" UNIQUE (automation_id);',
-    'ALTER TABLE "automation_webhook_tokens" ADD CONSTRAINT "automation_webhook_tokens_pkey" PRIMARY KEY (token_hash);',
-    'ALTER TABLE "chat_thread_shares" ADD CONSTRAINT "chat_thread_shares_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "chat_threads" ADD CONSTRAINT "chat_threads_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "context_directives" ADD CONSTRAINT "context_directives_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "custom_api_providers" ADD CONSTRAINT "custom_api_providers_pkey" PRIMARY KEY (scope, scope_id, id);',
-    'ALTER TABLE "data_program_runs" ADD CONSTRAINT "data_program_runs_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "data_program_shares" ADD CONSTRAINT "data_program_shares_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "data_programs" ADD CONSTRAINT "data_programs_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "email_log" ADD CONSTRAINT "email_log_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "identity_rekeys" ADD CONSTRAINT "identity_rekeys_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "identity_retired_emails" ADD CONSTRAINT "identity_retired_emails_pkey" PRIMARY KEY (email);',
-    'ALTER TABLE "identity_sso_flow_state" ADD CONSTRAINT "identity_sso_flow_state_pkey" PRIMARY KEY (state);',
-    'ALTER TABLE "identity_sso_jti" ADD CONSTRAINT "identity_sso_jti_pkey" PRIMARY KEY (jti);',
-    'ALTER TABLE "integration_a2a_continuations" ADD CONSTRAINT "integration_a2a_continuations_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_awaiting_inputs" ADD CONSTRAINT "integration_awaiting_inputs_pkey" PRIMARY KEY (platform, external_thread_id);',
-    'ALTER TABLE "integration_campaigns" ADD CONSTRAINT "integration_campaigns_integration_task_id_key" UNIQUE (integration_task_id);',
-    'ALTER TABLE "integration_campaigns" ADD CONSTRAINT "integration_campaigns_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_computer_approvals" ADD CONSTRAINT "integration_computer_approvals_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_configs" ADD CONSTRAINT "integration_configs_pkey" PRIMARY KEY (platform, config_key);',
-    'ALTER TABLE "integration_controls" ADD CONSTRAINT "integration_controls_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_conversation_scopes" ADD CONSTRAINT "integration_conversation_scopes_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_identity_links" ADD CONSTRAINT "integration_identity_links_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_installations" ADD CONSTRAINT "integration_installations_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_pending_tasks" ADD CONSTRAINT "integration_pending_tasks_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_remote_commands" ADD CONSTRAINT "integration_remote_commands_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_remote_devices" ADD CONSTRAINT "integration_remote_devices_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_remote_push_notifications" ADD CONSTRAINT "integration_remote_push_notifications_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_remote_push_registrations" ADD CONSTRAINT "integration_remote_push_registrations_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_thread_mappings" ADD CONSTRAINT "integration_thread_mappings_pkey" PRIMARY KEY (platform, external_thread_id);',
-    'ALTER TABLE "integration_usage_budget_events" ADD CONSTRAINT "integration_usage_budget_events_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_usage_budget_windows" ADD CONSTRAINT "integration_usage_budget_windows_pkey" PRIMARY KEY (budget_id, window_start);',
-    'ALTER TABLE "integration_usage_budgets" ADD CONSTRAINT "integration_usage_budgets_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "integration_usage_reservations" ADD CONSTRAINT "integration_usage_reservations_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "invitation" ADD CONSTRAINT "invitation_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "jwks" ADD CONSTRAINT "jwks_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "mcp_action_approvals" ADD CONSTRAINT "mcp_action_approvals_pkey" PRIMARY KEY (nonce);',
-    'ALTER TABLE "mcp_connect_tokens" ADD CONSTRAINT "mcp_connect_tokens_jti_key" UNIQUE (jti);',
-    'ALTER TABLE "mcp_connect_tokens" ADD CONSTRAINT "mcp_connect_tokens_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "mcp_device_codes" ADD CONSTRAINT "mcp_device_codes_pkey" PRIMARY KEY (device_code);',
-    'ALTER TABLE "mcp_oauth_clients" ADD CONSTRAINT "mcp_oauth_clients_pkey" PRIMARY KEY (client_id);',
-    'ALTER TABLE "mcp_oauth_codes" ADD CONSTRAINT "mcp_oauth_codes_pkey" PRIMARY KEY (code);',
-    'ALTER TABLE "mcp_oauth_refresh_tokens" ADD CONSTRAINT "mcp_oauth_refresh_tokens_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "mcp_oauth_refresh_tokens" ADD CONSTRAINT "mcp_oauth_refresh_tokens_token_hash_key" UNIQUE (token_hash);',
-    'ALTER TABLE "member" ADD CONSTRAINT "member_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "notification_delivery_state" ADD CONSTRAINT "notification_delivery_state_pkey" PRIMARY KEY (notification_id, delivery_key);',
-    'ALTER TABLE "notifications" ADD CONSTRAINT "notifications_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "oauth_tokens" ADD CONSTRAINT "oauth_tokens_pkey" PRIMARY KEY (provider, account_id);',
-    'ALTER TABLE "observational_memory" ADD CONSTRAINT "observational_memory_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "org_invitations" ADD CONSTRAINT "org_invitations_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "org_members" ADD CONSTRAINT "org_members_org_id_email_key" UNIQUE (org_id, email);',
-    'ALTER TABLE "org_members" ADD CONSTRAINT "org_members_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "org_scim_memberships" ADD CONSTRAINT "org_scim_memberships_org_id_user_id_key" UNIQUE (org_id, user_id);',
-    'ALTER TABLE "org_scim_memberships" ADD CONSTRAINT "org_scim_memberships_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "organization" ADD CONSTRAINT "organization_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "organization" ADD CONSTRAINT "organization_slug_key" UNIQUE (slug);',
-    'ALTER TABLE "organizations" ADD CONSTRAINT "organizations_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "private_icon_assets" ADD CONSTRAINT "private_icon_assets_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "progress_runs" ADD CONSTRAINT "progress_runs_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "provider_api_cooldowns" ADD CONSTRAINT "provider_api_cooldowns_pkey" PRIMARY KEY (quota_key);',
-    'ALTER TABLE "provider_corpus_job_hits" ADD CONSTRAINT "provider_corpus_job_hits_pkey" PRIMARY KEY (job_id, hit_index);',
-    'ALTER TABLE "provider_corpus_jobs" ADD CONSTRAINT "provider_corpus_jobs_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "recap_images" ADD CONSTRAINT "recap_images_pkey" PRIMARY KEY (token);',
-    'ALTER TABLE "resource_access_requests" ADD CONSTRAINT "resource_access_requests_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "resources" ADD CONSTRAINT "resources_path_owner_key" UNIQUE (path, owner);',
-    'ALTER TABLE "resources" ADD CONSTRAINT "resources_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "sandbox_executions" ADD CONSTRAINT "sandbox_executions_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_connection_binding" ADD CONSTRAINT "scim_connection_binding_connection_key_key" UNIQUE (connection_key);',
-    'ALTER TABLE "scim_connection_binding" ADD CONSTRAINT "scim_connection_binding_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_group" ADD CONSTRAINT "scim_group_display_name_key_key" UNIQUE (display_name_key);',
-    'ALTER TABLE "scim_group" ADD CONSTRAINT "scim_group_external_id_key_key" UNIQUE (external_id_key);',
-    'ALTER TABLE "scim_group" ADD CONSTRAINT "scim_group_order_key_key" UNIQUE (order_key);',
-    'ALTER TABLE "scim_group" ADD CONSTRAINT "scim_group_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_group_member" ADD CONSTRAINT "scim_group_member_membership_key_key" UNIQUE (membership_key);',
-    'ALTER TABLE "scim_group_member" ADD CONSTRAINT "scim_group_member_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_identity_tombstone" ADD CONSTRAINT "scim_identity_tombstone_external_id_key_key" UNIQUE (external_id_key);',
-    'ALTER TABLE "scim_identity_tombstone" ADD CONSTRAINT "scim_identity_tombstone_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_managed_connection" ADD CONSTRAINT "scim_managed_connection_connection_id_key" UNIQUE (connection_id);',
-    'ALTER TABLE "scim_managed_connection" ADD CONSTRAINT "scim_managed_connection_creation_request_id_key" UNIQUE (creation_request_id);',
-    'ALTER TABLE "scim_managed_connection" ADD CONSTRAINT "scim_managed_connection_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_managed_connection_event" ADD CONSTRAINT "scim_managed_connection_event_event_key_key" UNIQUE (event_key);',
-    'ALTER TABLE "scim_managed_connection_event" ADD CONSTRAINT "scim_managed_connection_event_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_managed_credential" ADD CONSTRAINT "scim_managed_credential_active_slot_key_key" UNIQUE (active_slot_key);',
-    'ALTER TABLE "scim_managed_credential" ADD CONSTRAINT "scim_managed_credential_credential_id_key" UNIQUE (credential_id);',
-    'ALTER TABLE "scim_managed_credential" ADD CONSTRAINT "scim_managed_credential_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_projection_grant" ADD CONSTRAINT "scim_projection_grant_grant_key_key" UNIQUE (grant_key);',
-    'ALTER TABLE "scim_projection_grant" ADD CONSTRAINT "scim_projection_grant_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_subject" ADD CONSTRAINT "scim_subject_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_subject" ADD CONSTRAINT "scim_subject_user_id_key" UNIQUE (user_id);',
-    'ALTER TABLE "scim_user" ADD CONSTRAINT "scim_user_connection_user_key_key" UNIQUE (connection_user_key);',
-    'ALTER TABLE "scim_user" ADD CONSTRAINT "scim_user_external_id_key_key" UNIQUE (external_id_key);',
-    'ALTER TABLE "scim_user" ADD CONSTRAINT "scim_user_order_key_key" UNIQUE (order_key);',
-    'ALTER TABLE "scim_user" ADD CONSTRAINT "scim_user_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "scim_user" ADD CONSTRAINT "scim_user_user_name_key_key" UNIQUE (user_name_key);',
-    'ALTER TABLE "search_index_state" ADD CONSTRAINT "search_index_state_pkey" PRIMARY KEY (app, resource_type);',
-    'ALTER TABLE "search_resources" ADD CONSTRAINT "search_resources_pkey" PRIMARY KEY (app, resource_type, resource_id);',
-    'ALTER TABLE "service_principal_policies" ADD CONSTRAINT "service_principal_policies_pkey" PRIMARY KEY (org_id, service_name);',
-    'ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "session" ADD CONSTRAINT "session_token_key" UNIQUE (token);',
-    'ALTER TABLE "sessions" ADD CONSTRAINT "sessions_pkey" PRIMARY KEY (token);',
-    'ALTER TABLE "settings" ADD CONSTRAINT "settings_pkey" PRIMARY KEY (key);',
-    'ALTER TABLE "sso_provider" ADD CONSTRAINT "sso_provider_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "sso_provider" ADD CONSTRAINT "sso_provider_provider_id_key" UNIQUE (provider_id);',
-    'ALTER TABLE "staged_dataset_rows" ADD CONSTRAINT "staged_dataset_rows_pkey" PRIMARY KEY (dataset_id, row_index);',
-    'ALTER TABLE "staged_datasets" ADD CONSTRAINT "staged_datasets_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "sync_events" ADD CONSTRAINT "sync_events_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "sync_events_prune_state" ADD CONSTRAINT "sync_events_prune_state_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "sync_version" ADD CONSTRAINT "sync_version_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "token_usage" ADD CONSTRAINT "token_usage_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "tool_consents" ADD CONSTRAINT "tool_consents_pkey" PRIMARY KEY (viewer_email, tool_id, content_hash);',
-    'ALTER TABLE "tool_data" ADD CONSTRAINT "tool_data_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "tool_hidden_extensions" ADD CONSTRAINT "tool_hidden_extensions_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "tool_history" ADD CONSTRAINT "tool_history_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "tool_shares" ADD CONSTRAINT "tool_shares_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "tool_slot_installs" ADD CONSTRAINT "tool_slot_installs_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "tool_slots" ADD CONSTRAINT "tool_slots_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "tools" ADD CONSTRAINT "tools_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "twoFactor" ADD CONSTRAINT "twoFactor_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "usage_alert_events" ADD CONSTRAINT "usage_alert_events_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "usage_alert_rules" ADD CONSTRAINT "usage_alert_rules_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "user" ADD CONSTRAINT "user_email_key" UNIQUE (email);',
-    'ALTER TABLE "user" ADD CONSTRAINT "user_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "verification" ADD CONSTRAINT "verification_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "workspace_app_shares" ADD CONSTRAINT "workspace_app_shares_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "workspace_app_shares" ADD CONSTRAINT "workspace_app_shares_resource_id_principal_type_principal_i_key" UNIQUE (resource_id, principal_type, principal_id);',
-    'ALTER TABLE "workspace_apps" ADD CONSTRAINT "workspace_apps_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "workspace_connection_grants" ADD CONSTRAINT "workspace_connection_grants_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "workspace_connections" ADD CONSTRAINT "workspace_connections_pkey" PRIMARY KEY (id);',
-    'ALTER TABLE "workspace_user_groups" ADD CONSTRAINT "workspace_user_groups_pkey" PRIMARY KEY (id);',
+  "statements": [
+    "CREATE SEQUENCE IF NOT EXISTS \"agent_chat_submission_inbox_queue_order_seq\";",
+    "CREATE SEQUENCE IF NOT EXISTS \"app_resource_change_seq\";",
+    "CREATE SEQUENCE IF NOT EXISTS \"automation_trigger_event_queue_sequence_id_seq\";",
+    "CREATE TABLE \"_better_auth_migrations\" (\n  \"version\" bigint NOT NULL\n);",
+    "CREATE TABLE \"_better_auth_migrations_named\" (\n  \"name\" text NOT NULL,\n  \"version\" bigint,\n  \"applied_at\" timestamp without time zone DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"_collab_awareness\" (\n  \"doc_id\" text NOT NULL,\n  \"client_id\" bigint NOT NULL,\n  \"state\" text NOT NULL,\n  \"last_seen\" bigint NOT NULL\n);",
+    "CREATE TABLE \"_collab_docs\" (\n  \"doc_id\" text NOT NULL,\n  \"yjs_state\" text NOT NULL,\n  \"text_snapshot\" text DEFAULT ''::text NOT NULL,\n  \"version\" integer DEFAULT 0 NOT NULL,\n  \"updated_at\" text DEFAULT (now())::text NOT NULL\n);",
+    "CREATE TABLE \"_context_xray_migrations\" (\n  \"version\" bigint NOT NULL\n);",
+    "CREATE TABLE \"_context_xray_migrations_named\" (\n  \"name\" text NOT NULL,\n  \"version\" bigint,\n  \"applied_at\" timestamp without time zone DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"_observational_memory_migrations\" (\n  \"version\" bigint NOT NULL\n);",
+    "CREATE TABLE \"_observational_memory_migrations_named\" (\n  \"name\" text NOT NULL,\n  \"version\" bigint,\n  \"applied_at\" timestamp without time zone DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"_org_migrations\" (\n  \"version\" bigint NOT NULL\n);",
+    "CREATE TABLE \"_org_migrations_named\" (\n  \"name\" text NOT NULL,\n  \"version\" bigint,\n  \"applied_at\" timestamp without time zone DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"a2a_approvals\" (\n  \"id\" text NOT NULL,\n  \"task_id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"tool_name\" text NOT NULL,\n  \"tool_input\" text NOT NULL,\n  \"approval_key\" text NOT NULL,\n  \"call_id\" text NOT NULL,\n  \"status\" text DEFAULT 'pending'::text NOT NULL,\n  \"result\" text,\n  \"expires_at\" bigint NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"a2a_tasks\" (\n  \"id\" text NOT NULL,\n  \"context_id\" text,\n  \"status_state\" text DEFAULT 'submitted'::text NOT NULL,\n  \"status_message\" text,\n  \"status_timestamp\" text NOT NULL,\n  \"history\" text DEFAULT '[]'::text NOT NULL,\n  \"artifacts\" text DEFAULT '[]'::text NOT NULL,\n  \"metadata\" text,\n  \"owner_email\" text,\n  \"owner_scope\" text DEFAULT ''::text NOT NULL,\n  \"idempotency_key\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"account\" (\n  \"id\" text NOT NULL,\n  \"account_id\" text NOT NULL,\n  \"provider_id\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"access_token\" text,\n  \"refresh_token\" text,\n  \"id_token\" text,\n  \"access_token_expires_at\" timestamp with time zone,\n  \"refresh_token_expires_at\" timestamp with time zone,\n  \"scope\" text,\n  \"password\" text,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"agent_audit_log\" (\n  \"id\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"action\" text NOT NULL,\n  \"caller\" text NOT NULL,\n  \"actor_kind\" text NOT NULL,\n  \"actor_email\" text,\n  \"org_id\" text,\n  \"thread_id\" text,\n  \"turn_id\" text,\n  \"target_type\" text,\n  \"target_id\" text,\n  \"status\" text DEFAULT 'success'::text NOT NULL,\n  \"summary\" text,\n  \"input\" text,\n  \"error_code\" text,\n  \"owner_email\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL,\n  \"run_id\" text,\n  \"task_id\" text,\n  \"parent_task_id\" text,\n  \"source_kind\" text,\n  \"source_platform\" text,\n  \"source_id\" text,\n  \"source_url\" text,\n  \"network_protocol\" text,\n  \"network_id\" text,\n  \"network_peer\" text,\n  \"app\" text,\n  \"reported_client_name\" text,\n  \"reported_client_version\" text,\n  \"oauth_client_id\" text,\n  \"approval\" text\n);",
+    "CREATE TABLE \"agent_chat_submission_inbox\" (\n  \"thread_id\" text NOT NULL,\n  \"message_id\" text NOT NULL,\n  \"state\" text NOT NULL,\n  \"actor_email\" text NOT NULL,\n  \"actor_auth_user_id\" text,\n  \"actor_identity_authenticated_at_ms\" bigint,\n  \"actor_name\" text,\n  \"actor_org_id\" text,\n  \"actor_org_scope\" text,\n  \"actor_anonymous\" boolean DEFAULT false NOT NULL,\n  \"payload_hash\" text NOT NULL,\n  \"payload_json\" text NOT NULL,\n  \"interrupt_active_run\" boolean DEFAULT false NOT NULL,\n  \"submitted_run_id\" text,\n  \"queue_order\" bigint DEFAULT nextval('agent_chat_submission_inbox_queue_order_seq'::regclass) NOT NULL,\n  \"move_to_top_at\" bigint,\n  \"retry_after\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"interrupt_run_id\" text\n);",
+    "CREATE TABLE \"agent_checkpoints\" (\n  \"id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"run_id\" text,\n  \"commit_sha\" text NOT NULL,\n  \"message\" text DEFAULT ''::text NOT NULL,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_eval_datasets\" (\n  \"id\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"description\" text DEFAULT ''::text NOT NULL,\n  \"entries\" text DEFAULT '[]'::text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"user_id\" text,\n  \"idempotency_key\" text\n);",
+    "CREATE TABLE \"agent_evals\" (\n  \"id\" text NOT NULL,\n  \"run_id\" text NOT NULL,\n  \"thread_id\" text,\n  \"user_id\" text,\n  \"eval_type\" text NOT NULL,\n  \"criteria\" text NOT NULL,\n  \"score\" real DEFAULT 0 NOT NULL,\n  \"reasoning\" text,\n  \"metadata\" text,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_execution_leases\" (\n  \"thread_id\" text NOT NULL,\n  \"turn_id\" text NOT NULL,\n  \"generation\" bigint NOT NULL,\n  \"owner_run_id\" text NOT NULL,\n  \"lease_expires_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone DEFAULT clock_timestamp() NOT NULL\n);",
+    "CREATE TABLE \"agent_execution_steps\" (\n  \"thread_id\" text NOT NULL,\n  \"turn_id\" text NOT NULL,\n  \"step_id\" text NOT NULL,\n  \"operation_id\" text NOT NULL,\n  \"tool_name\" text NOT NULL,\n  \"input_json\" text NOT NULL,\n  \"replay_policy\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"run_id\" text NOT NULL,\n  \"generation\" bigint NOT NULL,\n  \"result_json\" text,\n  \"receipt_json\" text,\n  \"error_json\" text,\n  \"dispatched_at\" timestamp with time zone,\n  \"completed_at\" timestamp with time zone,\n  \"created_at\" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,\n  \"updated_at\" timestamp with time zone DEFAULT clock_timestamp() NOT NULL\n);",
+    "CREATE TABLE \"agent_experiment_assignments\" (\n  \"experiment_id\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"variant_id\" text NOT NULL,\n  \"assigned_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_experiment_results\" (\n  \"id\" text NOT NULL,\n  \"experiment_id\" text NOT NULL,\n  \"variant_id\" text NOT NULL,\n  \"metric\" text NOT NULL,\n  \"value\" real DEFAULT 0 NOT NULL,\n  \"sample_size\" bigint DEFAULT 0 NOT NULL,\n  \"confidence_low\" real DEFAULT 0 NOT NULL,\n  \"confidence_high\" real DEFAULT 0 NOT NULL,\n  \"computed_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_experiments\" (\n  \"id\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"status\" text DEFAULT 'draft'::text NOT NULL,\n  \"variants\" text DEFAULT '[]'::text NOT NULL,\n  \"metrics\" text DEFAULT '[]'::text NOT NULL,\n  \"assignment_level\" text DEFAULT 'user'::text NOT NULL,\n  \"started_at\" bigint,\n  \"ended_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"owner_email\" text\n);",
+    "CREATE TABLE \"agent_feedback\" (\n  \"id\" text NOT NULL,\n  \"run_id\" text,\n  \"thread_id\" text,\n  \"message_seq\" bigint,\n  \"feedback_type\" text NOT NULL,\n  \"value\" text DEFAULT ''::text NOT NULL,\n  \"idempotency_key\" text,\n  \"user_id\" text,\n  \"org_id\" text,\n  \"source\" text DEFAULT 'chat'::text NOT NULL,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_harness_sessions\" (\n  \"id\" text NOT NULL,\n  \"harness_name\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"run_id\" text,\n  \"provider_session_id\" text,\n  \"status\" text DEFAULT 'idle'::text NOT NULL,\n  \"resume_state\" text,\n  \"workspace_ref\" text,\n  \"pending_approval\" text,\n  \"resolved_approval_ids\" text,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"generation\" bigint DEFAULT 0 NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"stopped_at\" bigint\n);",
+    "CREATE TABLE \"agent_human_review_summaries\" (\n  \"run_id\" text NOT NULL,\n  \"org_id\" text NOT NULL,\n  \"ask\" text NOT NULL,\n  \"outcome\" text NOT NULL,\n  \"artifacts\" text DEFAULT '[]'::text NOT NULL,\n  \"created_by\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_instruction_updates\" (\n  \"id\" text NOT NULL,\n  \"run_id\" text NOT NULL,\n  \"thread_id\" text,\n  \"target\" text NOT NULL,\n  \"instruction\" text NOT NULL,\n  \"feedback\" text DEFAULT ''::text NOT NULL,\n  \"status\" text DEFAULT 'draft'::text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"org_id\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_native_browser_session_requests\" (\n  \"owner_email\" text NOT NULL,\n  \"session_id\" text NOT NULL,\n  \"request_id\" text NOT NULL,\n  \"type\" text NOT NULL,\n  \"name\" text,\n  \"command\" text,\n  \"payload_json\" text,\n  \"status\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"claimed_at\" bigint,\n  \"completed_at\" bigint,\n  \"expires_at\" bigint NOT NULL,\n  \"result_json\" text,\n  \"error\" text\n);",
+    "CREATE TABLE \"agent_native_browser_sessions\" (\n  \"owner_email\" text NOT NULL,\n  \"session_id\" text NOT NULL,\n  \"label\" text,\n  \"url\" text,\n  \"session_json\" text NOT NULL,\n  \"context_json\" text,\n  \"actions_json\" text,\n  \"connected_at\" bigint NOT NULL,\n  \"last_seen_at\" bigint NOT NULL,\n  \"expires_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_native_embed_session_revocations\" (\n  \"owner_hash\" text NOT NULL,\n  \"revoked_before\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_native_embed_tickets\" (\n  \"ticket_hash\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"target_path\" text NOT NULL,\n  \"scope\" text,\n  \"created_at\" bigint NOT NULL,\n  \"expires_at\" bigint NOT NULL,\n  \"consumed_at\" bigint,\n  \"renewal_expires_at\" bigint,\n  \"session_active_until\" bigint\n);",
+    "CREATE TABLE \"agent_resource_versions\" (\n  \"id\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"version_number\" bigint NOT NULL,\n  \"created_at\" text NOT NULL,\n  \"created_by\" text,\n  \"actor_kind\" text DEFAULT 'human'::text NOT NULL,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL,\n  \"title\" text,\n  \"summary\" text,\n  \"snapshot_json\" text NOT NULL,\n  \"metadata_json\" text\n);",
+    "CREATE TABLE \"agent_review_comment_reactions\" (\n  \"comment_id\" text NOT NULL,\n  \"actor_email\" text NOT NULL,\n  \"reaction\" text NOT NULL,\n  \"created_at\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_review_comments\" (\n  \"id\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"parent_comment_id\" text,\n  \"target_id\" text,\n  \"kind\" text DEFAULT 'comment'::text NOT NULL,\n  \"status\" text DEFAULT 'open'::text NOT NULL,\n  \"anchor_json\" text,\n  \"body\" text NOT NULL,\n  \"author_email\" text,\n  \"author_name\" text,\n  \"created_by\" text DEFAULT 'human'::text NOT NULL,\n  \"resolution_target\" text,\n  \"reply_route_target\" text DEFAULT 'legacy'::text,\n  \"notification_completed_at\" text,\n  \"mentions_json\" text,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL,\n  \"resolved_by\" text,\n  \"resolved_at\" text,\n  \"consumed_at\" text,\n  \"deleted_by\" text,\n  \"deleted_at\" text,\n  \"created_at\" text NOT NULL,\n  \"updated_at\" text NOT NULL,\n  \"metadata_json\" text\n);",
+    "CREATE TABLE \"agent_review_notification_deliveries\" (\n  \"comment_id\" text NOT NULL,\n  \"recipient_email\" text NOT NULL,\n  \"claim_token\" text NOT NULL,\n  \"claimed_at\" text NOT NULL,\n  \"sent_at\" text\n);",
+    "CREATE TABLE \"agent_review_statuses\" (\n  \"id\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"note\" text,\n  \"updated_by\" text,\n  \"updated_at\" text NOT NULL,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL,\n  \"metadata_json\" text\n);",
+    "CREATE TABLE \"agent_review_suggestion_amendments\" (\n  \"idempotency_key\" text NOT NULL,\n  \"suggestion_id\" text NOT NULL,\n  \"revision\" integer NOT NULL,\n  \"author_email\" text NOT NULL,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL,\n  \"request_json\" text NOT NULL,\n  \"before_json\" text NOT NULL,\n  \"after_json\" text NOT NULL,\n  \"created_at\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_review_suggestion_creations\" (\n  \"idempotency_key\" text NOT NULL,\n  \"suggestion_id\" text NOT NULL,\n  \"author_email\" text,\n  \"actor_kind\" text,\n  \"request_hash\" text,\n  \"created_at\" text NOT NULL,\n  \"receipt_version\" integer DEFAULT 1 NOT NULL\n);",
+    "CREATE TABLE \"agent_review_suggestion_decisions\" (\n  \"id\" text NOT NULL,\n  \"suggestion_id\" text NOT NULL,\n  \"idempotency_key\" text NOT NULL,\n  \"reviewer\" text,\n  \"decision\" text NOT NULL,\n  \"observed_base\" text,\n  \"outcome\" text NOT NULL,\n  \"detail\" text,\n  \"created_at\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_review_suggestion_operations\" (\n  \"id\" text NOT NULL,\n  \"suggestion_id\" text NOT NULL,\n  \"ordinal\" integer NOT NULL,\n  \"operation_kind\" text NOT NULL,\n  \"target_id\" text,\n  \"before_json\" text,\n  \"after_json\" text,\n  \"anchor_json\" text,\n  \"dependencies_json\" text,\n  \"schema_version\" integer NOT NULL\n);",
+    "CREATE TABLE \"agent_review_suggestion_proposal_creations\" (\n  \"idempotency_key\" text NOT NULL,\n  \"proposal_id\" text NOT NULL,\n  \"author_email\" text,\n  \"actor_kind\" text NOT NULL,\n  \"request_hash\" text NOT NULL,\n  \"suggestion_ids_json\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_review_suggestion_proposal_decisions\" (\n  \"idempotency_key\" text NOT NULL,\n  \"proposal_id\" text NOT NULL,\n  \"reviewer\" text,\n  \"decision\" text NOT NULL,\n  \"request_json\" text NOT NULL,\n  \"suggestion_ids_json\" text NOT NULL,\n  \"created_at\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_review_suggestion_proposals\" (\n  \"id\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"adapter_kind\" text NOT NULL,\n  \"summary\" text NOT NULL,\n  \"author_email\" text,\n  \"actor_kind\" text NOT NULL,\n  \"created_at\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_review_suggestions\" (\n  \"id\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"adapter_kind\" text NOT NULL,\n  \"adapter_version\" integer NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"author_email\" text,\n  \"actor_kind\" text NOT NULL,\n  \"base_revision\" text NOT NULL,\n  \"status\" text DEFAULT 'pending'::text NOT NULL,\n  \"summary\" text NOT NULL,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL,\n  \"created_at\" text NOT NULL,\n  \"updated_at\" text NOT NULL,\n  \"metadata_json\" text,\n  \"revision\" integer DEFAULT 1 NOT NULL,\n  \"proposal_id\" text\n);",
+    "CREATE TABLE \"agent_review_thread_preferences\" (\n  \"thread_id\" text NOT NULL,\n  \"user_email\" text NOT NULL,\n  \"muted\" integer DEFAULT 0 NOT NULL,\n  \"unread\" integer DEFAULT 0 NOT NULL,\n  \"updated_at\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_run_events\" (\n  \"run_id\" text NOT NULL,\n  \"seq\" bigint NOT NULL,\n  \"event_at\" bigint,\n  \"event_data\" text NOT NULL\n);",
+    "CREATE TABLE \"agent_run_outcome_daily\" (\n  \"day\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"terminal_reason\" text DEFAULT ''::text NOT NULL,\n  \"run_count\" bigint DEFAULT 0 NOT NULL\n);",
+    "CREATE TABLE \"agent_runs\" (\n  \"id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"status\" text DEFAULT 'running'::text NOT NULL,\n  \"abort_reason\" text,\n  \"started_at\" bigint NOT NULL,\n  \"completed_at\" bigint,\n  \"heartbeat_at\" bigint,\n  \"last_progress_at\" bigint,\n  \"turn_id\" text,\n  \"error_code\" text,\n  \"error_detail\" text,\n  \"terminal_reason\" text,\n  \"dispatch_mode\" text,\n  \"diag_stage\" text,\n  \"dispatch_payload\" text,\n  \"peak_rss_mb\" bigint,\n  \"continuation_order\" bigint,\n  \"thread_projection_pending\" boolean DEFAULT false NOT NULL,\n  \"worker_stage\" text,\n  \"in_flight_since\" bigint,\n  \"auto_continue_of\" text,\n  \"worker_generation\" bigint\n);",
+    "CREATE TABLE \"agent_satisfaction_scores\" (\n  \"id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"user_id\" text,\n  \"frustration_score\" real DEFAULT 0 NOT NULL,\n  \"rephrasing_score\" real DEFAULT 0 NOT NULL,\n  \"abandonment_score\" real DEFAULT 0 NOT NULL,\n  \"sentiment_score\" real DEFAULT 0 NOT NULL,\n  \"length_trend_score\" real DEFAULT 0 NOT NULL,\n  \"computed_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_team_run_queue\" (\n  \"task_id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"run_id\" text NOT NULL,\n  \"status\" text DEFAULT 'queued'::text NOT NULL,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"payload\" text NOT NULL,\n  \"continuation_count\" bigint DEFAULT 0 NOT NULL,\n  \"attempts\" bigint DEFAULT 0 NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"reconciliation_attempted_at\" bigint\n);",
+    "CREATE TABLE \"agent_tool_approval_policies\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"tool_name\" text NOT NULL,\n  \"enabled\" boolean NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"tool_revision\" text\n);",
+    "CREATE TABLE \"agent_tool_approvals\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"thread_id\" text,\n  \"turn_id\" text,\n  \"tool_name\" text NOT NULL,\n  \"call_id\" text NOT NULL,\n  \"approval_key_hash\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"expires_at\" bigint NOT NULL,\n  \"consumed_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"tool_revision\" text,\n  \"arguments_hash\" text\n);",
+    "CREATE TABLE \"agent_tool_ledger\" (\n  \"thread_id\" text NOT NULL,\n  \"tool_key\" text NOT NULL,\n  \"result_summary\" text NOT NULL,\n  \"result_is_string\" boolean,\n  \"artifacts_json\" text,\n  \"chat_ui_result_json\" text,\n  \"completed_at\" bigint NOT NULL,\n  \"arguments_hash\" text\n);",
+    "CREATE TABLE \"agent_trace_spans\" (\n  \"id\" text NOT NULL,\n  \"run_id\" text NOT NULL,\n  \"thread_id\" text,\n  \"user_id\" text,\n  \"org_id\" text,\n  \"parent_span_id\" text,\n  \"span_type\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"input_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"output_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"cache_read_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"cache_write_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"cost_cents_x100\" bigint DEFAULT 0 NOT NULL,\n  \"duration_ms\" bigint DEFAULT 0 NOT NULL,\n  \"status\" text DEFAULT 'success'::text NOT NULL,\n  \"error_message\" text,\n  \"metadata\" text,\n  \"created_at\" bigint NOT NULL,\n  \"ended_at\" bigint\n);",
+    "CREATE TABLE \"agent_trace_summaries\" (\n  \"run_id\" text NOT NULL,\n  \"thread_id\" text,\n  \"user_id\" text,\n  \"org_id\" text,\n  \"total_spans\" bigint DEFAULT 0 NOT NULL,\n  \"llm_calls\" bigint DEFAULT 0 NOT NULL,\n  \"tool_calls\" bigint DEFAULT 0 NOT NULL,\n  \"successful_tools\" bigint DEFAULT 0 NOT NULL,\n  \"failed_tools\" bigint DEFAULT 0 NOT NULL,\n  \"total_duration_ms\" bigint DEFAULT 0 NOT NULL,\n  \"total_cost_cents_x100\" bigint DEFAULT 0 NOT NULL,\n  \"total_input_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"total_output_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"model\" text DEFAULT ''::text NOT NULL,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"agent_turn_initiators\" (\n  \"thread_id\" text NOT NULL,\n  \"turn_id\" text NOT NULL,\n  \"principal_email\" text NOT NULL,\n  \"auth_user_id\" text,\n  \"org_id\" text,\n  \"org_scope\" text,\n  \"is_anonymous\" boolean DEFAULT false NOT NULL,\n  \"first_run_id\" text NOT NULL,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"app_member_roles\" (\n  \"id\" text NOT NULL,\n  \"org_id\" text NOT NULL,\n  \"app_id\" text NOT NULL,\n  \"email\" text NOT NULL,\n  \"role\" text NOT NULL,\n  \"updated_by\" text NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"app_permission_overrides\" (\n  \"org_id\" text NOT NULL,\n  \"app_id\" text NOT NULL,\n  \"permission\" text NOT NULL,\n  \"roles_json\" text NOT NULL,\n  \"updated_by\" text NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"app_resource_change_consumers\" (\n  \"app\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"consumer\" text NOT NULL,\n  \"registered_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"app_resource_changes\" (\n  \"consumer\" text NOT NULL,\n  \"app\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"reason\" text NOT NULL,\n  \"seq\" bigint NOT NULL,\n  \"changed_at\" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,\n  \"available_at\" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,\n  \"attempts\" integer DEFAULT 0 NOT NULL,\n  \"failed_at\" timestamp with time zone\n);",
+    "CREATE TABLE \"app_secrets\" (\n  \"id\" text NOT NULL,\n  \"scope\" text NOT NULL,\n  \"scope_id\" text NOT NULL,\n  \"key\" text NOT NULL,\n  \"encrypted_value\" text NOT NULL,\n  \"shared_encrypted_value\" text,\n  \"description\" text,\n  \"url_allowlist\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"application_state\" (\n  \"session_id\" text NOT NULL,\n  \"key\" text NOT NULL,\n  \"value\" text NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"automation_runs\" (\n  \"id\" text NOT NULL,\n  \"owner\" text NOT NULL,\n  \"automation\" text NOT NULL,\n  \"path\" text NOT NULL,\n  \"scope\" text,\n  \"org_id\" text,\n  \"app_id\" text,\n  \"run_id\" text,\n  \"thread_id\" text,\n  \"status\" text DEFAULT 'running'::text NOT NULL,\n  \"started_at\" bigint NOT NULL,\n  \"finished_at\" bigint,\n  \"error\" text,\n  \"error_code\" text,\n  \"notification_email\" text,\n  \"failure_alerted\" bigint DEFAULT 0 NOT NULL,\n  \"failure_alert_state\" text,\n  \"failure_alert_attempts\" bigint DEFAULT 0 NOT NULL,\n  \"failure_alert_next_attempt_at\" bigint,\n  \"failure_alert_claimed_at\" bigint,\n  \"failure_alert_provider\" text,\n  \"failure_alert_first_attempt_at\" bigint,\n  \"failure_alert_unsubscribe_token\" text,\n  \"claimed_at\" bigint,\n  \"dispatch_pending\" bigint DEFAULT 0 NOT NULL\n);",
+    "CREATE TABLE \"automation_scheduler_health\" (\n  \"id\" text NOT NULL,\n  \"app_id\" text DEFAULT 'default'::text NOT NULL,\n  \"org_id\" text,\n  \"last_checked_at\" bigint,\n  \"last_dispatched_at\" bigint,\n  \"last_error\" text,\n  \"runtime\" text,\n  \"updated_at\" bigint NOT NULL,\n  \"lease_owner\" text,\n  \"lease_expires_at\" bigint\n);",
+    "CREATE TABLE \"automation_trigger_event_queue\" (\n  \"id\" text NOT NULL,\n  \"sequence_id\" bigint DEFAULT nextval('automation_trigger_event_queue_sequence_id_seq'::regclass) NOT NULL,\n  \"trigger_id\" text NOT NULL,\n  \"trigger_owner\" text NOT NULL,\n  \"trigger_path\" text NOT NULL,\n  \"app_id\" text,\n  \"event_name\" text NOT NULL,\n  \"event_id\" text NOT NULL,\n  \"payload\" text NOT NULL,\n  \"event_owner\" text,\n  \"emitted_at\" text NOT NULL,\n  \"status\" text DEFAULT 'pending'::text NOT NULL,\n  \"attempts\" bigint DEFAULT 0 NOT NULL,\n  \"failure_attempts\" bigint DEFAULT 0 NOT NULL,\n  \"available_at\" bigint NOT NULL,\n  \"claimed_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"completed_at\" bigint,\n  \"last_error\" text\n);",
+    "CREATE TABLE \"automation_trigger_event_queue_sweep_state\" (\n  \"scope_key\" text NOT NULL,\n  \"last_trigger_id\" text,\n  \"purge_after\" bigint DEFAULT 0 NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"automation_webhook_tokens\" (\n  \"token_hash\" text NOT NULL,\n  \"automation_id\" text NOT NULL,\n  \"owner\" text NOT NULL,\n  \"path\" text NOT NULL,\n  \"secret_scope\" text NOT NULL,\n  \"secret_scope_id\" text NOT NULL,\n  \"secret_key\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"chat_thread_shares\" (\n  \"id\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"principal_type\" text NOT NULL,\n  \"principal_id\" text NOT NULL,\n  \"role\" text DEFAULT 'viewer'::text NOT NULL,\n  \"created_by\" text NOT NULL,\n  \"created_at\" text DEFAULT now() NOT NULL,\n  \"notified_at\" text\n);",
+    "CREATE TABLE \"chat_threads\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"title\" text DEFAULT ''::text NOT NULL,\n  \"preview\" text DEFAULT ''::text NOT NULL,\n  \"thread_data\" text DEFAULT '{}'::text NOT NULL,\n  \"message_count\" bigint DEFAULT 0 NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"scope_type\" text,\n  \"scope_id\" text,\n  \"scope_label\" text,\n  \"pinned_at\" bigint,\n  \"archived_at\" bigint,\n  \"share_token_hash\" text,\n  \"source_platform\" text,\n  \"source_app_id\" text,\n  \"source_url\" text,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL\n);",
+    "CREATE TABLE \"context_directives\" (\n  \"id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"segment_id\" text NOT NULL,\n  \"action\" text NOT NULL,\n  \"summary_text\" text,\n  \"created_by\" text DEFAULT 'user'::text NOT NULL,\n  \"active\" integer DEFAULT 1 NOT NULL,\n  \"origin_turn\" text,\n  \"created_at\" integer NOT NULL,\n  \"updated_at\" integer NOT NULL,\n  \"owner_email\" text DEFAULT 'local@localhost'::text NOT NULL,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL\n);",
+    "CREATE TABLE \"custom_api_providers\" (\n  \"id\" text NOT NULL,\n  \"scope\" text NOT NULL,\n  \"scope_id\" text NOT NULL,\n  \"label\" text NOT NULL,\n  \"base_url\" text NOT NULL,\n  \"auth_json\" text NOT NULL,\n  \"docs_urls_json\" text NOT NULL,\n  \"allowed_host_suffixes_json\" text NOT NULL,\n  \"default_headers_json\" text NOT NULL,\n  \"notes\" text DEFAULT ''::text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"data_program_runs\" (\n  \"id\" text NOT NULL,\n  \"program_id\" text NOT NULL,\n  \"params_hash\" text NOT NULL,\n  \"params_json\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"rows_json\" text,\n  \"schema_json\" text,\n  \"truncated\" integer DEFAULT 0 NOT NULL,\n  \"row_count\" bigint DEFAULT 0 NOT NULL,\n  \"byte_size\" bigint DEFAULT 0 NOT NULL,\n  \"error_code\" text,\n  \"error_message\" text,\n  \"logs_tail\" text,\n  \"execution_id\" text,\n  \"triggered_by\" text NOT NULL,\n  \"started_at\" bigint NOT NULL,\n  \"finished_at\" bigint,\n  \"duration_ms\" bigint\n);",
+    "CREATE TABLE \"data_program_shares\" (\n  \"id\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"principal_type\" text NOT NULL,\n  \"principal_id\" text NOT NULL,\n  \"role\" text DEFAULT 'viewer'::text NOT NULL,\n  \"created_by\" text NOT NULL,\n  \"created_at\" text DEFAULT now() NOT NULL,\n  \"notified_at\" text\n);",
+    "CREATE TABLE \"data_programs\" (\n  \"id\" text NOT NULL,\n  \"app_id\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"title\" text NOT NULL,\n  \"description\" text DEFAULT ''::text NOT NULL,\n  \"code\" text NOT NULL,\n  \"params_schema\" text,\n  \"default_params\" text,\n  \"output_columns\" text,\n  \"refresh_mode\" text DEFAULT 'ttl'::text NOT NULL,\n  \"refresh_ttl_ms\" integer DEFAULT 300000 NOT NULL,\n  \"background\" integer DEFAULT 0 NOT NULL,\n  \"created_at\" text DEFAULT now() NOT NULL,\n  \"updated_at\" text DEFAULT now() NOT NULL,\n  \"archived_at\" text,\n  \"owner_email\" text DEFAULT 'local@localhost'::text NOT NULL,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL\n);",
+    "CREATE TABLE \"email_log\" (\n  \"id\" text NOT NULL,\n  \"org_id\" text,\n  \"template_id\" text,\n  \"app\" text,\n  \"recipient\" text NOT NULL,\n  \"sender\" text NOT NULL,\n  \"subject\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"error\" text,\n  \"provider\" text NOT NULL,\n  \"request_payload\" text,\n  \"response_status\" bigint,\n  \"response_body\" text,\n  \"html_body\" text,\n  \"text_body\" text,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"identity_rekeys\" (\n  \"id\" text NOT NULL,\n  \"old_email\" text NOT NULL,\n  \"new_email\" text NOT NULL,\n  \"status\" text DEFAULT 'pending'::text NOT NULL,\n  \"error\" text,\n  \"actor_email\" text,\n  \"counts_json\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"completed_at\" bigint\n);",
+    "CREATE TABLE \"identity_retired_emails\" (\n  \"email\" text NOT NULL,\n  \"retired_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"identity_sso_flow_state\" (\n  \"state\" text NOT NULL,\n  \"return_path\" text,\n  \"app_id\" text NOT NULL,\n  \"client_id\" text NOT NULL,\n  \"redirect_uri\" text NOT NULL,\n  \"authority\" text NOT NULL,\n  \"code_challenge\" text NOT NULL,\n  \"created_at\" bigint,\n  \"expires_at\" bigint,\n  \"consumed_at\" bigint\n);",
+    "CREATE TABLE \"identity_sso_jti\" (\n  \"jti\" text NOT NULL,\n  \"seen_at\" bigint\n);",
+    "CREATE TABLE \"integration_a2a_continuations\" (\n  \"id\" text NOT NULL,\n  \"integration_task_id\" text NOT NULL,\n  \"platform\" text NOT NULL,\n  \"external_thread_id\" text NOT NULL,\n  \"incoming_payload\" text NOT NULL,\n  \"placeholder_ref\" text,\n  \"progress_ref\" text,\n  \"progress_ref_claimed\" bigint DEFAULT 0 NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"agent_name\" text NOT NULL,\n  \"agent_url\" text NOT NULL,\n  \"dedupe_key\" text,\n  \"a2a_task_id\" text NOT NULL,\n  \"a2a_auth_token\" text,\n  \"verified_artifact_checkpoint\" text,\n  \"terminal_delivery_kind\" text,\n  \"terminal_delivery_confirmed_at\" bigint,\n  \"terminal_history_payload\" text,\n  \"status\" text NOT NULL,\n  \"attempts\" bigint DEFAULT 0 NOT NULL,\n  \"next_check_at\" bigint NOT NULL,\n  \"error_message\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"completed_at\" bigint\n);",
+    "CREATE TABLE \"integration_awaiting_inputs\" (\n  \"platform\" text NOT NULL,\n  \"external_thread_id\" text NOT NULL,\n  \"requester_id\" text NOT NULL,\n  \"expires_at\" bigint NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_campaigns\" (\n  \"id\" text NOT NULL,\n  \"integration_task_id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"turn_id\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"chunk_count\" bigint DEFAULT 0 NOT NULL,\n  \"current_run_id\" text,\n  \"lease_token\" text,\n  \"lease_expires_at\" bigint,\n  \"next_run_at\" bigint NOT NULL,\n  \"progress_ref\" text,\n  \"checkpoint\" text,\n  \"error_message\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"completed_at\" bigint\n);",
+    "CREATE TABLE \"integration_computer_approvals\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"device_id\" text NOT NULL,\n  \"task_id\" text NOT NULL,\n  \"run_id\" text NOT NULL,\n  \"operation_class\" text NOT NULL,\n  \"approval_scope\" text NOT NULL,\n  \"action_hash\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"decision_result_json\" text,\n  \"decided_by\" text,\n  \"decided_at\" bigint,\n  \"expires_at\" bigint NOT NULL,\n  \"consumed_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_configs\" (\n  \"platform\" text NOT NULL,\n  \"config_key\" text NOT NULL,\n  \"config_data\" text NOT NULL,\n  \"owner\" text,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_controls\" (\n  \"id\" text NOT NULL,\n  \"action\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"requester_id\" text NOT NULL,\n  \"team_id\" text NOT NULL,\n  \"api_app_id\" text,\n  \"channel_id\" text NOT NULL,\n  \"message_ts\" text NOT NULL,\n  \"run_id\" text,\n  \"approval_key\" text,\n  \"incoming_json\" text NOT NULL,\n  \"status\" text DEFAULT 'pending'::text NOT NULL,\n  \"expires_at\" bigint NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"claimed_at\" bigint\n);",
+    "CREATE TABLE \"integration_conversation_scopes\" (\n  \"id\" text NOT NULL,\n  \"platform\" text NOT NULL,\n  \"tenant_id\" text NOT NULL,\n  \"conversation_id\" text NOT NULL,\n  \"conversation_type\" text NOT NULL,\n  \"trust_level\" text DEFAULT 'unknown'::text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"installation_id\" text,\n  \"service_owner_email\" text NOT NULL,\n  \"default_model\" text,\n  \"require_mention\" bigint DEFAULT 1 NOT NULL,\n  \"allow_direct_messages\" bigint DEFAULT 0 NOT NULL,\n  \"allow_guests\" bigint DEFAULT 0 NOT NULL,\n  \"allow_external_shared\" bigint DEFAULT 0 NOT NULL,\n  \"allow_unknown_trust\" bigint DEFAULT 0 NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_identity_links\" (\n  \"id\" text NOT NULL,\n  \"platform\" text NOT NULL,\n  \"tenant_id\" text NOT NULL,\n  \"external_user_id\" text NOT NULL,\n  \"user_email\" text NOT NULL,\n  \"org_id\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_installations\" (\n  \"id\" text NOT NULL,\n  \"platform\" text NOT NULL,\n  \"installation_key\" text NOT NULL,\n  \"team_id\" text,\n  \"team_name\" text,\n  \"enterprise_id\" text,\n  \"enterprise_name\" text,\n  \"is_enterprise_install\" bigint DEFAULT 0 NOT NULL,\n  \"api_app_id\" text,\n  \"bot_user_id\" text,\n  \"scopes_json\" text DEFAULT '[]'::text NOT NULL,\n  \"installed_by_external_user_id\" text,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"token_secret_key\" text NOT NULL,\n  \"secret_scope\" text NOT NULL,\n  \"secret_scope_id\" text NOT NULL,\n  \"status\" text DEFAULT 'connected'::text NOT NULL,\n  \"health\" text DEFAULT 'unknown'::text NOT NULL,\n  \"last_error\" text,\n  \"health_checked_at\" bigint,\n  \"last_healthy_at\" bigint,\n  \"token_expires_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"disconnected_at\" bigint\n);",
+    "CREATE TABLE \"integration_pending_tasks\" (\n  \"id\" text NOT NULL,\n  \"platform\" text NOT NULL,\n  \"external_thread_id\" text NOT NULL,\n  \"payload\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"status\" text NOT NULL,\n  \"attempts\" bigint DEFAULT 0 NOT NULL,\n  \"dispatch_attempts\" bigint DEFAULT 0 NOT NULL,\n  \"last_dispatch_at\" bigint,\n  \"last_dispatch_outcome\" text,\n  \"dispatch_scope\" text,\n  \"error_message\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"completed_at\" bigint,\n  \"external_event_key\" text\n);",
+    "CREATE TABLE \"integration_remote_commands\" (\n  \"id\" text NOT NULL,\n  \"device_id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"kind\" text NOT NULL,\n  \"params_json\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"result_json\" text,\n  \"platform\" text,\n  \"external_thread_id\" text,\n  \"computer_task_id\" text,\n  \"computer_run_id\" text,\n  \"computer_sequence\" bigint,\n  \"idempotency_key\" text,\n  \"operation_class\" text,\n  \"approval_scope\" text,\n  \"action_hash\" text,\n  \"lease_expires_at\" bigint,\n  \"attempts\" bigint DEFAULT 0 NOT NULL,\n  \"next_check_at\" bigint NOT NULL,\n  \"claimed_at\" bigint,\n  \"completed_at\" bigint,\n  \"error_message\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_remote_devices\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"label\" text NOT NULL,\n  \"platform\" text,\n  \"app_version\" text,\n  \"host_name\" text,\n  \"metadata_json\" text,\n  \"device_token_hash\" text NOT NULL,\n  \"last_seen_at\" bigint,\n  \"status\" text NOT NULL,\n  \"revoked_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_remote_push_notifications\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"registration_id\" text NOT NULL,\n  \"payload_json\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"attempts\" bigint DEFAULT 0 NOT NULL,\n  \"provider_ticket_id\" text,\n  \"next_attempt_at\" bigint DEFAULT 0 NOT NULL,\n  \"last_error\" text,\n  \"delivered_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_remote_push_registrations\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"provider\" text NOT NULL,\n  \"platform\" text,\n  \"client_device_id\" text,\n  \"label\" text,\n  \"token\" text NOT NULL,\n  \"token_hash\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"last_seen_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_remote_run_events\" (\n  \"device_id\" text NOT NULL,\n  \"remote_run_id\" text NOT NULL,\n  \"seq\" bigint NOT NULL,\n  \"event_json\" text NOT NULL,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_thread_mappings\" (\n  \"platform\" text NOT NULL,\n  \"external_thread_id\" text NOT NULL,\n  \"internal_thread_id\" text NOT NULL,\n  \"platform_context\" text DEFAULT '{}'::text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_usage_budget_events\" (\n  \"id\" text NOT NULL,\n  \"budget_id\" text NOT NULL,\n  \"window_start\" bigint NOT NULL,\n  \"threshold_bps\" bigint NOT NULL,\n  \"observed_micros\" bigint NOT NULL,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_usage_budget_windows\" (\n  \"budget_id\" text NOT NULL,\n  \"window_start\" bigint NOT NULL,\n  \"used_micros\" bigint DEFAULT 0 NOT NULL,\n  \"reserved_micros\" bigint DEFAULT 0 NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_usage_budgets\" (\n  \"id\" text NOT NULL,\n  \"partition_key\" text NOT NULL,\n  \"subject_type\" text NOT NULL,\n  \"subject_id\" text NOT NULL,\n  \"period\" text NOT NULL,\n  \"limit_micros\" bigint NOT NULL,\n  \"threshold_bps\" bigint DEFAULT 8000 NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"integration_usage_reservations\" (\n  \"id\" text NOT NULL,\n  \"reservation_key\" text NOT NULL,\n  \"budget_id\" text NOT NULL,\n  \"window_start\" bigint NOT NULL,\n  \"estimated_cost_micros\" bigint NOT NULL,\n  \"settled_cost_micros\" bigint,\n  \"status\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"invitation\" (\n  \"id\" text NOT NULL,\n  \"organization_id\" text NOT NULL,\n  \"email\" text NOT NULL,\n  \"role\" text,\n  \"status\" text DEFAULT 'pending'::text NOT NULL,\n  \"expires_at\" timestamp with time zone NOT NULL,\n  \"inviter_id\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"jwks\" (\n  \"id\" text NOT NULL,\n  \"public_key\" text NOT NULL,\n  \"private_key\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"expires_at\" timestamp with time zone,\n  \"alg\" text,\n  \"crv\" text\n);",
+    "CREATE TABLE \"mcp_action_approvals\" (\n  \"nonce\" text NOT NULL,\n  \"caller_key\" text NOT NULL,\n  \"action_name\" text NOT NULL,\n  \"arguments_hash\" text NOT NULL,\n  \"expires_at\" bigint NOT NULL,\n  \"consumed_at\" bigint\n);",
+    "CREATE TABLE \"mcp_connect_tokens\" (\n  \"id\" text NOT NULL,\n  \"jti\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"label\" text,\n  \"kind\" text DEFAULT 'personal'::text NOT NULL,\n  \"service_name\" text,\n  \"created_by\" text,\n  \"created_at\" bigint,\n  \"last_used_at\" bigint,\n  \"revoked_at\" bigint\n);",
+    "CREATE TABLE \"mcp_device_codes\" (\n  \"device_code\" text NOT NULL,\n  \"user_code\" text NOT NULL,\n  \"owner_email\" text,\n  \"org_id\" text,\n  \"status\" text DEFAULT 'pending'::text NOT NULL,\n  \"token_jti\" text,\n  \"catalog_scope\" text,\n  \"created_at\" bigint,\n  \"expires_at\" bigint,\n  \"consumed_at\" bigint,\n  \"client\" text,\n  \"purpose\" text\n);",
+    "CREATE TABLE \"mcp_oauth_clients\" (\n  \"client_id\" text NOT NULL,\n  \"client_name\" text,\n  \"redirect_uris\" text NOT NULL,\n  \"grant_types\" text,\n  \"response_types\" text,\n  \"token_endpoint_auth_method\" text,\n  \"application_type\" text,\n  \"created_at\" bigint\n);",
+    "CREATE TABLE \"mcp_oauth_codes\" (\n  \"code\" text NOT NULL,\n  \"client_id\" text NOT NULL,\n  \"redirect_uri\" text NOT NULL,\n  \"code_challenge\" text NOT NULL,\n  \"code_challenge_method\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"issued_for_email\" text,\n  \"org_id\" text,\n  \"org_domain\" text,\n  \"scope\" text NOT NULL,\n  \"resource\" text NOT NULL,\n  \"created_at\" bigint,\n  \"expires_at\" bigint,\n  \"consumed_at\" bigint,\n  \"client_name\" text\n);",
+    "CREATE TABLE \"mcp_oauth_refresh_tokens\" (\n  \"id\" text NOT NULL,\n  \"token_hash\" text NOT NULL,\n  \"client_id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"issued_for_email\" text,\n  \"org_id\" text,\n  \"org_domain\" text,\n  \"scope\" text NOT NULL,\n  \"resource\" text NOT NULL,\n  \"created_at\" bigint,\n  \"expires_at\" bigint,\n  \"last_used_at\" bigint,\n  \"revoked_at\" bigint,\n  \"replaced_by_hash\" text\n);",
+    "CREATE TABLE \"member\" (\n  \"id\" text NOT NULL,\n  \"organization_id\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"role\" text DEFAULT 'member'::text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"notification_delivery_state\" (\n  \"notification_id\" text NOT NULL,\n  \"delivery_key\" text NOT NULL,\n  \"state\" text NOT NULL,\n  \"claim_token\" text,\n  \"lease_expires_at\" bigint NOT NULL,\n  \"completed_at\" bigint\n);",
+    "CREATE TABLE \"notifications\" (\n  \"id\" text NOT NULL,\n  \"owner\" text NOT NULL,\n  \"severity\" text NOT NULL,\n  \"title\" text NOT NULL,\n  \"body\" text,\n  \"metadata\" text,\n  \"delivered_channels\" text DEFAULT '[]'::text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"read_at\" bigint\n);",
+    "CREATE TABLE \"oauth_tokens\" (\n  \"provider\" text NOT NULL,\n  \"account_id\" text NOT NULL,\n  \"owner\" text,\n  \"tokens\" text NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"revision\" bigint NOT NULL,\n  \"display_name\" text\n);",
+    "CREATE TABLE \"observational_memory\" (\n  \"id\" text NOT NULL,\n  \"thread_id\" text NOT NULL,\n  \"tier\" text NOT NULL,\n  \"text\" text NOT NULL,\n  \"token_estimate\" bigint DEFAULT 0 NOT NULL,\n  \"source_start_index\" bigint,\n  \"source_end_index\" bigint,\n  \"source_message_count\" bigint DEFAULT 0 NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL\n);",
+    "CREATE TABLE \"org_invitations\" (\n  \"id\" text NOT NULL,\n  \"org_id\" text NOT NULL,\n  \"email\" text NOT NULL,\n  \"invited_by\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"status\" text NOT NULL,\n  \"role\" text,\n  \"app_roles_json\" text\n);",
+    "CREATE TABLE \"org_members\" (\n  \"id\" text NOT NULL,\n  \"org_id\" text NOT NULL,\n  \"email\" text NOT NULL,\n  \"role\" text NOT NULL,\n  \"joined_at\" bigint NOT NULL,\n  \"federation_removal_pending_at\" bigint\n);",
+    "CREATE TABLE \"org_scim_memberships\" (\n  \"id\" text NOT NULL,\n  \"org_id\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"created_membership\" boolean DEFAULT false NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"member_id\" text\n);",
+    "CREATE TABLE \"organization\" (\n  \"id\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"slug\" text NOT NULL,\n  \"logo\" text,\n  \"metadata\" text,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"organizations\" (\n  \"id\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"created_by\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"allowed_domain\" text,\n  \"a2a_secret\" text,\n  \"workspace_url\" text,\n  \"required_auth_provider\" text,\n  \"identity_authority\" text,\n  \"identity_id\" text,\n  \"federation_roster_initialized_at\" bigint,\n  \"icon_json\" text,\n  \"icon_revision\" bigint DEFAULT 0 NOT NULL\n);",
+    "CREATE TABLE \"private_icon_assets\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"mime_type\" text NOT NULL,\n  \"filename\" text,\n  \"alt\" text,\n  \"size\" bigint NOT NULL,\n  \"sha256\" text NOT NULL,\n  \"blob_handle_json\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"progress_runs\" (\n  \"id\" text NOT NULL,\n  \"owner\" text NOT NULL,\n  \"title\" text NOT NULL,\n  \"step\" text,\n  \"percent\" bigint,\n  \"status\" text DEFAULT 'running'::text NOT NULL,\n  \"metadata\" text,\n  \"started_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"completed_at\" bigint\n);",
+    "CREATE TABLE \"provider_api_cooldowns\" (\n  \"quota_key\" text NOT NULL,\n  \"provider_id\" text NOT NULL,\n  \"scope_key\" text NOT NULL,\n  \"cooldown_until\" bigint NOT NULL,\n  \"status\" bigint,\n  \"reason\" text,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"provider_corpus_job_hits\" (\n  \"job_id\" text NOT NULL,\n  \"hit_index\" bigint NOT NULL,\n  \"hit_data\" text NOT NULL\n);",
+    "CREATE TABLE \"provider_corpus_jobs\" (\n  \"id\" text NOT NULL,\n  \"app_id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"mode\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"provider\" text NOT NULL,\n  \"request_json\" text NOT NULL,\n  \"pagination_json\" text,\n  \"batch_json\" text,\n  \"search_json\" text NOT NULL,\n  \"limits_json\" text NOT NULL,\n  \"checkpoint_json\" text NOT NULL,\n  \"pages_processed\" bigint DEFAULT 0 NOT NULL,\n  \"batches_processed\" bigint DEFAULT 0 NOT NULL,\n  \"items_processed\" bigint DEFAULT 0 NOT NULL,\n  \"matched_items\" bigint DEFAULT 0 NOT NULL,\n  \"total_hits\" bigint DEFAULT 0 NOT NULL,\n  \"stored_hits\" bigint DEFAULT 0 NOT NULL,\n  \"error\" text,\n  \"next_resume_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"recap_images\" (\n  \"token\" text NOT NULL,\n  \"png_base64\" text NOT NULL,\n  \"content_type\" text DEFAULT 'image/png'::text NOT NULL,\n  \"byte_length\" bigint DEFAULT 0 NOT NULL,\n  \"owner_email\" text,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"resource_access_requests\" (\n  \"id\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"requester_email\" text NOT NULL,\n  \"requester_name\" text,\n  \"owner_email\" text NOT NULL,\n  \"note\" text,\n  \"state\" text NOT NULL,\n  \"generation\" integer DEFAULT 1 NOT NULL,\n  \"requested_at\" bigint NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"decided_by\" text,\n  \"decided_at\" bigint,\n  \"granted_role\" text,\n  \"delivery\" text\n);",
+    "CREATE TABLE \"resources\" (\n  \"id\" text NOT NULL,\n  \"path\" text NOT NULL,\n  \"owner\" text NOT NULL,\n  \"content\" text DEFAULT ''::text NOT NULL,\n  \"mime_type\" text DEFAULT 'text/markdown'::text NOT NULL,\n  \"size\" bigint DEFAULT 0 NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"created_by\" text DEFAULT 'user'::text NOT NULL,\n  \"visibility\" text DEFAULT 'workspace'::text NOT NULL,\n  \"thread_id\" text,\n  \"run_id\" text,\n  \"expires_at\" bigint,\n  \"metadata\" text\n);",
+    "CREATE TABLE \"sandbox_executions\" (\n  \"id\" text NOT NULL,\n  \"owner\" text NOT NULL,\n  \"org_id\" text,\n  \"thread_id\" text,\n  \"runtime\" text DEFAULT 'node'::text NOT NULL,\n  \"code\" text NOT NULL,\n  \"status\" text DEFAULT 'queued'::text NOT NULL,\n  \"timeout_ms\" bigint NOT NULL,\n  \"max_output_chars\" bigint NOT NULL,\n  \"attempt_count\" bigint DEFAULT 0 NOT NULL,\n  \"max_attempts\" bigint DEFAULT 2 NOT NULL,\n  \"claim_token\" text,\n  \"lease_expires_at\" bigint,\n  \"stdout\" text DEFAULT ''::text NOT NULL,\n  \"stderr\" text DEFAULT ''::text NOT NULL,\n  \"stdout_truncated\" bigint DEFAULT 0 NOT NULL,\n  \"stderr_truncated\" bigint DEFAULT 0 NOT NULL,\n  \"exit_code\" bigint,\n  \"timed_out\" bigint DEFAULT 0 NOT NULL,\n  \"error\" text,\n  \"bridge_tools_used\" text,\n  \"allowed_action_names\" text,\n  \"created_at\" bigint NOT NULL,\n  \"started_at\" bigint,\n  \"finished_at\" bigint,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"scim_connection_binding\" (\n  \"id\" text NOT NULL,\n  \"connection_id\" text NOT NULL,\n  \"connection_key\" text NOT NULL,\n  \"provisioning_domain_id\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"decommissioned_at\" timestamp with time zone,\n  \"decommission_status\" text DEFAULT 'active'::text NOT NULL,\n  \"decommission_cursor_user_id\" text,\n  \"decommission_reconciled_user_count\" bigint DEFAULT 0 NOT NULL,\n  \"decommission_batch_count\" bigint DEFAULT 0 NOT NULL,\n  \"decommission_revision\" bigint DEFAULT 0 NOT NULL,\n  \"decommission_completed_at\" timestamp with time zone,\n  \"decommission_lease_id\" text,\n  \"decommission_lease_expires_at\" timestamp with time zone\n);",
+    "CREATE TABLE \"scim_group\" (\n  \"id\" text NOT NULL,\n  \"connection_id\" text NOT NULL,\n  \"provisioning_domain_id\" text NOT NULL,\n  \"revision\" bigint DEFAULT 0 NOT NULL,\n  \"display_name\" text NOT NULL,\n  \"display_name_key\" text NOT NULL,\n  \"external_id\" text,\n  \"external_id_key\" text,\n  \"order_key\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"scim_group_member\" (\n  \"id\" text NOT NULL,\n  \"connection_id\" text NOT NULL,\n  \"group_id\" text NOT NULL,\n  \"scim_user_id\" text NOT NULL,\n  \"membership_key\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"scim_identity_tombstone\" (\n  \"id\" text NOT NULL,\n  \"connection_id\" text NOT NULL,\n  \"provisioning_domain_id\" text NOT NULL,\n  \"external_id\" text NOT NULL,\n  \"external_id_key\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"profile\" text NOT NULL,\n  \"deleted_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"scim_managed_connection\" (\n  \"id\" text NOT NULL,\n  \"creation_request_id\" text NOT NULL,\n  \"connection_id\" text NOT NULL,\n  \"provisioning_domain_id\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"revision\" bigint NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"created_by\" text NOT NULL,\n  \"decommission_started_at\" timestamp with time zone,\n  \"decommission_started_by\" text,\n  \"decommissioned_at\" timestamp with time zone,\n  \"decommissioned_by\" text\n);",
+    "CREATE TABLE \"scim_managed_connection_event\" (\n  \"id\" text NOT NULL,\n  \"connection_record_id\" text NOT NULL,\n  \"event_key\" text NOT NULL,\n  \"sequence\" bigint NOT NULL,\n  \"type\" text NOT NULL,\n  \"actor_id\" text NOT NULL,\n  \"credential_id\" text,\n  \"created_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"scim_managed_credential\" (\n  \"id\" text NOT NULL,\n  \"connection_record_id\" text NOT NULL,\n  \"credential_id\" text NOT NULL,\n  \"token_digest\" text NOT NULL,\n  \"hash_version\" text NOT NULL,\n  \"active_slot_key\" text NOT NULL,\n  \"status\" text NOT NULL,\n  \"serialized_scopes\" text NOT NULL,\n  \"expires_at\" timestamp with time zone NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"created_by\" text NOT NULL,\n  \"last_used_at\" timestamp with time zone,\n  \"revoked_at\" timestamp with time zone,\n  \"revoked_by\" text,\n  \"decommissioned_at\" timestamp with time zone\n);",
+    "CREATE TABLE \"scim_projection_grant\" (\n  \"id\" text NOT NULL,\n  \"connection_id\" text NOT NULL,\n  \"provisioning_domain_id\" text NOT NULL,\n  \"scim_user_id\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"source_kind\" text NOT NULL,\n  \"source_id\" text NOT NULL,\n  \"source_value\" text,\n  \"role\" text NOT NULL,\n  \"grant_key\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"scim_subject\" (\n  \"id\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"profile_source_id\" text,\n  \"revision\" bigint NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"scim_user\" (\n  \"id\" text NOT NULL,\n  \"connection_id\" text NOT NULL,\n  \"provisioning_domain_id\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"connection_user_key\" text NOT NULL,\n  \"user_name\" text NOT NULL,\n  \"user_name_key\" text NOT NULL,\n  \"primary_email\" text NOT NULL,\n  \"work_email_value_index\" text NOT NULL,\n  \"email_value_index\" text NOT NULL,\n  \"display_name\" text NOT NULL,\n  \"formatted_name\" text NOT NULL,\n  \"given_name\" text,\n  \"family_name\" text,\n  \"serialized_emails\" text NOT NULL,\n  \"serialized_attributes\" text,\n  \"external_id\" text,\n  \"external_id_key\" text,\n  \"active\" boolean NOT NULL,\n  \"order_key\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"search_index_state\" (\n  \"app\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"target_version\" integer NOT NULL,\n  \"index_version\" integer,\n  \"rebuild_high_seq\" bigint,\n  \"rebuild_started_at\" timestamp with time zone,\n  \"rebuild_completed_at\" timestamp with time zone\n);",
+    "CREATE TABLE \"search_resources\" (\n  \"app\" text NOT NULL,\n  \"resource_type\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"title\" text DEFAULT ''::text NOT NULL,\n  \"title_norm\" text DEFAULT ''::text NOT NULL,\n  \"summary_norm\" text DEFAULT ''::text NOT NULL,\n  \"doc_vector\" tsvector DEFAULT ''::tsvector NOT NULL,\n  \"positions_complete\" boolean DEFAULT true NOT NULL,\n  \"modified_at\" timestamp with time zone,\n  \"content_hash\" text NOT NULL,\n  \"index_version\" integer NOT NULL,\n  \"indexed_seq\" bigint NOT NULL,\n  \"indexed_at\" timestamp with time zone DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"service_principal_policies\" (\n  \"org_id\" text NOT NULL,\n  \"service_name\" text NOT NULL,\n  \"owner_email\" text,\n  \"team\" text,\n  \"risk_tier\" text DEFAULT 'medium'::text NOT NULL,\n  \"purpose\" text,\n  \"lifecycle\" text DEFAULT 'active'::text NOT NULL,\n  \"allowed_actions\" text,\n  \"lifecycle_reason\" text,\n  \"lifecycle_changed_by\" text,\n  \"lifecycle_changed_at\" bigint,\n  \"created_at\" bigint,\n  \"updated_at\" bigint\n);",
+    "CREATE TABLE \"session\" (\n  \"id\" text NOT NULL,\n  \"expires_at\" timestamp with time zone NOT NULL,\n  \"token\" text NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL,\n  \"ip_address\" text,\n  \"user_agent\" text,\n  \"user_id\" text NOT NULL,\n  \"active_organization_id\" text\n);",
+    "CREATE TABLE \"sessions\" (\n  \"token\" text NOT NULL,\n  \"email\" text,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"settings\" (\n  \"key\" text NOT NULL,\n  \"value\" text NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"sso_provider\" (\n  \"id\" text NOT NULL,\n  \"issuer\" text NOT NULL,\n  \"oidc_config\" text,\n  \"saml_config\" text,\n  \"user_id\" text,\n  \"provider_id\" text NOT NULL,\n  \"organization_id\" text,\n  \"domain\" text NOT NULL,\n  \"domain_verified\" boolean\n);",
+    "CREATE TABLE \"staged_dataset_rows\" (\n  \"dataset_id\" text NOT NULL,\n  \"row_index\" bigint NOT NULL,\n  \"row_data\" text NOT NULL\n);",
+    "CREATE TABLE \"staged_datasets\" (\n  \"id\" text NOT NULL,\n  \"app_id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"columns\" text NOT NULL,\n  \"row_count\" bigint DEFAULT 0 NOT NULL,\n  \"byte_size\" bigint DEFAULT 0 NOT NULL,\n  \"byte_size_utf8_updated_at\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"sync_events\" (\n  \"id\" text NOT NULL,\n  \"version\" bigint NOT NULL,\n  \"event_json\" text NOT NULL,\n  \"source\" text NOT NULL,\n  \"type\" text NOT NULL,\n  \"event_key\" text,\n  \"owner\" text,\n  \"org_id\" text,\n  \"resource_type\" text,\n  \"resource_id\" text,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"sync_events_prune_state\" (\n  \"id\" integer NOT NULL,\n  \"cursor_version\" bigint DEFAULT 0 NOT NULL,\n  \"lease_owner\" text,\n  \"lease_expires_at\" bigint,\n  \"last_run_at\" bigint,\n  \"last_checked_at\" bigint,\n  \"last_success_at\" bigint,\n  \"last_deleted\" bigint DEFAULT 0 NOT NULL,\n  \"total_deleted\" bigint DEFAULT 0 NOT NULL,\n  \"backlog\" boolean DEFAULT false NOT NULL,\n  \"consecutive_failures\" integer DEFAULT 0 NOT NULL,\n  \"last_error\" text,\n  \"last_error_at\" bigint\n);",
+    "CREATE TABLE \"sync_version\" (\n  \"id\" integer NOT NULL,\n  \"v\" bigint NOT NULL\n);",
+    "CREATE TABLE \"token_usage\" (\n  \"id\" bigint NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"input_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"output_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"cache_read_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"cache_write_tokens\" bigint DEFAULT 0 NOT NULL,\n  \"cost_cents_x100\" bigint DEFAULT 0 NOT NULL,\n  \"builder_credits_used\" numeric,\n  \"engine_name\" text,\n  \"cost_source\" text DEFAULT 'estimated'::text NOT NULL,\n  \"model\" text DEFAULT ''::text NOT NULL,\n  \"label\" text DEFAULT 'chat'::text NOT NULL,\n  \"app\" text DEFAULT ''::text NOT NULL,\n  \"ref_id\" text DEFAULT ''::text NOT NULL,\n  \"org_id\" text,\n  \"run_id\" text,\n  \"thread_id\" text,\n  \"task_id\" text,\n  \"integration_scope_id\" text,\n  \"source_platform\" text,\n  \"source_id\" text,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"tool_consents\" (\n  \"viewer_email\" text NOT NULL,\n  \"tool_id\" text NOT NULL,\n  \"content_hash\" text NOT NULL,\n  \"granted_at\" text DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"tool_data\" (\n  \"id\" text NOT NULL,\n  \"tool_id\" text NOT NULL,\n  \"collection\" text NOT NULL,\n  \"item_id\" text,\n  \"data\" text NOT NULL,\n  \"owner_email\" text DEFAULT 'local@localhost'::text NOT NULL,\n  \"scope\" text DEFAULT 'user'::text NOT NULL,\n  \"org_id\" text,\n  \"scope_key\" text DEFAULT 'local@localhost'::text NOT NULL,\n  \"created_at\" text DEFAULT now() NOT NULL,\n  \"updated_at\" text DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"tool_hidden_extensions\" (\n  \"id\" text NOT NULL,\n  \"tool_id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"created_at\" text DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"tool_history\" (\n  \"id\" text NOT NULL,\n  \"tool_id\" text NOT NULL,\n  \"version\" integer NOT NULL,\n  \"operation\" text NOT NULL,\n  \"summary\" text DEFAULT ''::text NOT NULL,\n  \"name\" text NOT NULL,\n  \"description\" text DEFAULT ''::text NOT NULL,\n  \"content\" text DEFAULT ''::text NOT NULL,\n  \"icon\" text,\n  \"actor_email\" text,\n  \"owner_email\" text DEFAULT 'local@localhost'::text NOT NULL,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL,\n  \"created_at\" text DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"tool_shares\" (\n  \"id\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"principal_type\" text NOT NULL,\n  \"principal_id\" text NOT NULL,\n  \"role\" text DEFAULT 'viewer'::text NOT NULL,\n  \"created_by\" text NOT NULL,\n  \"created_at\" text DEFAULT now() NOT NULL,\n  \"notified_at\" text\n);",
+    "CREATE TABLE \"tool_slot_installs\" (\n  \"id\" text NOT NULL,\n  \"tool_id\" text NOT NULL,\n  \"slot_id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"position\" integer DEFAULT 0 NOT NULL,\n  \"config\" text,\n  \"created_at\" text DEFAULT now() NOT NULL,\n  \"updated_at\" text DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"tool_slots\" (\n  \"id\" text NOT NULL,\n  \"tool_id\" text NOT NULL,\n  \"slot_id\" text NOT NULL,\n  \"config\" text,\n  \"created_at\" text DEFAULT now() NOT NULL\n);",
+    "CREATE TABLE \"tools\" (\n  \"id\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"description\" text DEFAULT ''::text NOT NULL,\n  \"content\" text DEFAULT ''::text NOT NULL,\n  \"icon\" text,\n  \"created_at\" text DEFAULT now() NOT NULL,\n  \"updated_at\" text DEFAULT now() NOT NULL,\n  \"archived_at\" text,\n  \"hidden_at\" text,\n  \"hidden_by\" text,\n  \"owner_email\" text DEFAULT 'local@localhost'::text NOT NULL,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'private'::text NOT NULL\n);",
+    "CREATE TABLE \"twoFactor\" (\n  \"id\" text NOT NULL,\n  \"secret\" text NOT NULL,\n  \"backup_codes\" text NOT NULL,\n  \"user_id\" text NOT NULL,\n  \"verified\" boolean DEFAULT true NOT NULL,\n  \"failed_verification_count\" bigint DEFAULT 0 NOT NULL,\n  \"locked_until\" timestamp with time zone\n);",
+    "CREATE TABLE \"usage_alert_events\" (\n  \"id\" text NOT NULL,\n  \"rule_id\" text NOT NULL,\n  \"window_start\" bigint NOT NULL,\n  \"notification_id\" text,\n  \"created_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"usage_alert_rules\" (\n  \"id\" text NOT NULL,\n  \"scope\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"app_id\" text,\n  \"unit\" text NOT NULL,\n  \"period\" text NOT NULL,\n  \"limit_value\" bigint NOT NULL,\n  \"channels\" text NOT NULL,\n  \"enabled\" bigint DEFAULT 1 NOT NULL,\n  \"is_default\" bigint DEFAULT 0 NOT NULL,\n  \"dismissed_window_start\" bigint,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL\n);",
+    "CREATE TABLE \"user\" (\n  \"id\" text NOT NULL,\n  \"name\" text NOT NULL,\n  \"email\" text NOT NULL,\n  \"email_verified\" boolean DEFAULT false NOT NULL,\n  \"image\" text,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL,\n  \"onboarding_role\" text,\n  \"two_factor_enabled\" boolean DEFAULT false NOT NULL,\n  \"first_touch_utm_source\" text,\n  \"first_touch_utm_medium\" text,\n  \"first_touch_utm_campaign\" text,\n  \"first_touch_utm_term\" text,\n  \"first_touch_gclid\" text,\n  \"first_touch_msclkid\" text,\n  \"first_touch_vector_source\" text,\n  \"first_touch_referrer\" text\n);",
+    "CREATE TABLE \"verification\" (\n  \"id\" text NOT NULL,\n  \"identifier\" text NOT NULL,\n  \"value\" text NOT NULL,\n  \"expires_at\" timestamp with time zone NOT NULL,\n  \"created_at\" timestamp with time zone NOT NULL,\n  \"updated_at\" timestamp with time zone NOT NULL\n);",
+    "CREATE TABLE \"workspace_app_shares\" (\n  \"id\" text NOT NULL,\n  \"resource_id\" text NOT NULL,\n  \"principal_type\" text NOT NULL,\n  \"principal_id\" text NOT NULL,\n  \"role\" text DEFAULT 'viewer'::text NOT NULL,\n  \"created_at\" text NOT NULL,\n  \"created_by\" text DEFAULT ''::text NOT NULL,\n  \"notified_at\" text\n);",
+    "CREATE TABLE \"workspace_apps\" (\n  \"id\" text NOT NULL,\n  \"owner_email\" text NOT NULL,\n  \"org_id\" text,\n  \"visibility\" text DEFAULT 'org'::text NOT NULL,\n  \"name\" text NOT NULL,\n  \"description\" text,\n  \"path\" text NOT NULL,\n  \"created_at\" bigint NOT NULL,\n  \"updated_at\" bigint NOT NULL,\n  \"org_enabled\" boolean DEFAULT true NOT NULL\n);",
+    "CREATE TABLE \"workspace_connection_grants\" (\n  \"id\" text NOT NULL,\n  \"connection_id\" text DEFAULT ''::text NOT NULL,\n  \"provider\" text DEFAULT ''::text NOT NULL,\n  \"app_id\" text DEFAULT ''::text NOT NULL,\n  \"scopes_json\" text DEFAULT '[]'::text NOT NULL,\n  \"config_json\" text DEFAULT '{}'::text NOT NULL,\n  \"credential_refs_json\" text DEFAULT '[]'::text NOT NULL,\n  \"granted_by_email\" text DEFAULT ''::text NOT NULL,\n  \"owner_email\" text DEFAULT ''::text NOT NULL,\n  \"org_id\" text,\n  \"created_at\" bigint DEFAULT 0 NOT NULL,\n  \"updated_at\" bigint DEFAULT 0 NOT NULL,\n  \"last_used_at\" bigint\n);",
+    "CREATE TABLE \"workspace_connections\" (\n  \"id\" text NOT NULL,\n  \"provider\" text DEFAULT ''::text NOT NULL,\n  \"label\" text DEFAULT ''::text NOT NULL,\n  \"account_id\" text,\n  \"account_label\" text,\n  \"status\" text DEFAULT 'connected'::text NOT NULL,\n  \"scopes_json\" text DEFAULT '[]'::text NOT NULL,\n  \"config_json\" text DEFAULT '{}'::text NOT NULL,\n  \"allowed_apps_json\" text DEFAULT '[]'::text NOT NULL,\n  \"allowed_users_json\" text DEFAULT '[]'::text NOT NULL,\n  \"allowed_user_groups_json\" text DEFAULT '[]'::text NOT NULL,\n  \"credential_refs_json\" text DEFAULT '[]'::text NOT NULL,\n  \"owner_email\" text DEFAULT ''::text NOT NULL,\n  \"org_id\" text,\n  \"created_at\" bigint DEFAULT 0 NOT NULL,\n  \"updated_at\" bigint DEFAULT 0 NOT NULL,\n  \"last_used_at\" bigint,\n  \"last_checked_at\" bigint,\n  \"last_error\" text\n);",
+    "CREATE TABLE \"workspace_user_groups\" (\n  \"id\" text NOT NULL,\n  \"org_id\" text DEFAULT ''::text NOT NULL,\n  \"name\" text DEFAULT ''::text NOT NULL,\n  \"normalized_name\" text,\n  \"member_emails_json\" text DEFAULT '[]'::text NOT NULL,\n  \"created_by_email\" text DEFAULT ''::text NOT NULL,\n  \"created_at\" bigint DEFAULT 0 NOT NULL,\n  \"updated_at\" bigint DEFAULT 0 NOT NULL\n);",
+    "ALTER TABLE \"_better_auth_migrations\" ADD CONSTRAINT \"_better_auth_migrations_pkey\" PRIMARY KEY (version);",
+    "ALTER TABLE \"_better_auth_migrations_named\" ADD CONSTRAINT \"_better_auth_migrations_named_pkey\" PRIMARY KEY (name);",
+    "ALTER TABLE \"_collab_awareness\" ADD CONSTRAINT \"_collab_awareness_pkey\" PRIMARY KEY (doc_id, client_id);",
+    "ALTER TABLE \"_collab_docs\" ADD CONSTRAINT \"_collab_docs_pkey\" PRIMARY KEY (doc_id);",
+    "ALTER TABLE \"_context_xray_migrations\" ADD CONSTRAINT \"_context_xray_migrations_pkey\" PRIMARY KEY (version);",
+    "ALTER TABLE \"_context_xray_migrations_named\" ADD CONSTRAINT \"_context_xray_migrations_named_pkey\" PRIMARY KEY (name);",
+    "ALTER TABLE \"_observational_memory_migrations\" ADD CONSTRAINT \"_observational_memory_migrations_pkey\" PRIMARY KEY (version);",
+    "ALTER TABLE \"_observational_memory_migrations_named\" ADD CONSTRAINT \"_observational_memory_migrations_named_pkey\" PRIMARY KEY (name);",
+    "ALTER TABLE \"_org_migrations\" ADD CONSTRAINT \"_org_migrations_pkey\" PRIMARY KEY (version);",
+    "ALTER TABLE \"_org_migrations_named\" ADD CONSTRAINT \"_org_migrations_named_pkey\" PRIMARY KEY (name);",
+    "ALTER TABLE \"a2a_approvals\" ADD CONSTRAINT \"a2a_approvals_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"a2a_approvals\" ADD CONSTRAINT \"a2a_approvals_task_id_key\" UNIQUE (task_id);",
+    "ALTER TABLE \"a2a_tasks\" ADD CONSTRAINT \"a2a_tasks_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"account\" ADD CONSTRAINT \"account_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_audit_log\" ADD CONSTRAINT \"agent_audit_log_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_chat_submission_inbox\" ADD CONSTRAINT \"agent_chat_submission_inbox_pkey\" PRIMARY KEY (thread_id, message_id);",
+    "ALTER TABLE \"agent_checkpoints\" ADD CONSTRAINT \"agent_checkpoints_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_eval_datasets\" ADD CONSTRAINT \"agent_eval_datasets_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_evals\" ADD CONSTRAINT \"agent_evals_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_execution_leases\" ADD CONSTRAINT \"agent_execution_leases_pkey\" PRIMARY KEY (thread_id, turn_id);",
+    "ALTER TABLE \"agent_execution_steps\" ADD CONSTRAINT \"agent_execution_steps_pkey\" PRIMARY KEY (thread_id, turn_id, step_id);",
+    "ALTER TABLE \"agent_experiment_assignments\" ADD CONSTRAINT \"agent_experiment_assignments_pkey\" PRIMARY KEY (experiment_id, user_id);",
+    "ALTER TABLE \"agent_experiment_results\" ADD CONSTRAINT \"agent_experiment_results_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_experiments\" ADD CONSTRAINT \"agent_experiments_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_feedback\" ADD CONSTRAINT \"agent_feedback_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_harness_sessions\" ADD CONSTRAINT \"agent_harness_sessions_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_human_review_summaries\" ADD CONSTRAINT \"agent_human_review_summaries_pkey\" PRIMARY KEY (run_id);",
+    "ALTER TABLE \"agent_instruction_updates\" ADD CONSTRAINT \"agent_instruction_updates_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_native_browser_session_requests\" ADD CONSTRAINT \"agent_native_browser_session_requests_pkey\" PRIMARY KEY (owner_email, request_id);",
+    "ALTER TABLE \"agent_native_browser_sessions\" ADD CONSTRAINT \"agent_native_browser_sessions_pkey\" PRIMARY KEY (owner_email, session_id);",
+    "ALTER TABLE \"agent_native_embed_session_revocations\" ADD CONSTRAINT \"agent_native_embed_session_revocations_pkey\" PRIMARY KEY (owner_hash);",
+    "ALTER TABLE \"agent_native_embed_tickets\" ADD CONSTRAINT \"agent_native_embed_tickets_pkey\" PRIMARY KEY (ticket_hash);",
+    "ALTER TABLE \"agent_resource_versions\" ADD CONSTRAINT \"agent_resource_versions_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_review_comment_reactions\" ADD CONSTRAINT \"agent_review_comment_reactions_pkey\" PRIMARY KEY (comment_id, actor_email, reaction);",
+    "ALTER TABLE \"agent_review_comments\" ADD CONSTRAINT \"agent_review_comments_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_review_notification_deliveries\" ADD CONSTRAINT \"agent_review_notification_deliveries_pkey\" PRIMARY KEY (comment_id, recipient_email);",
+    "ALTER TABLE \"agent_review_statuses\" ADD CONSTRAINT \"agent_review_statuses_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_review_suggestion_amendments\" ADD CONSTRAINT \"agent_review_suggestion_amendments_pkey\" PRIMARY KEY (idempotency_key);",
+    "ALTER TABLE \"agent_review_suggestion_amendments\" ADD CONSTRAINT \"agent_review_suggestion_amendments_suggestion_id_revision_key\" UNIQUE (suggestion_id, revision);",
+    "ALTER TABLE \"agent_review_suggestion_creations\" ADD CONSTRAINT \"agent_review_suggestion_creations_pkey\" PRIMARY KEY (idempotency_key);",
+    "ALTER TABLE \"agent_review_suggestion_creations\" ADD CONSTRAINT \"agent_review_suggestion_creations_suggestion_id_key\" UNIQUE (suggestion_id);",
+    "ALTER TABLE \"agent_review_suggestion_decisions\" ADD CONSTRAINT \"agent_review_suggestion_decisions_idempotency_key_key\" UNIQUE (idempotency_key);",
+    "ALTER TABLE \"agent_review_suggestion_decisions\" ADD CONSTRAINT \"agent_review_suggestion_decisions_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_review_suggestion_operations\" ADD CONSTRAINT \"agent_review_suggestion_operations_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_review_suggestion_proposal_creations\" ADD CONSTRAINT \"agent_review_suggestion_proposal_creations_pkey\" PRIMARY KEY (idempotency_key);",
+    "ALTER TABLE \"agent_review_suggestion_proposal_decisions\" ADD CONSTRAINT \"agent_review_suggestion_proposal_decisions_pkey\" PRIMARY KEY (idempotency_key);",
+    "ALTER TABLE \"agent_review_suggestion_proposals\" ADD CONSTRAINT \"agent_review_suggestion_proposals_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_review_suggestions\" ADD CONSTRAINT \"agent_review_suggestions_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_review_thread_preferences\" ADD CONSTRAINT \"agent_review_thread_preferences_pkey\" PRIMARY KEY (thread_id, user_email);",
+    "ALTER TABLE \"agent_run_events\" ADD CONSTRAINT \"agent_run_events_pkey\" PRIMARY KEY (run_id, seq);",
+    "ALTER TABLE \"agent_run_outcome_daily\" ADD CONSTRAINT \"agent_run_outcome_daily_pkey\" PRIMARY KEY (day, status, terminal_reason);",
+    "ALTER TABLE \"agent_runs\" ADD CONSTRAINT \"agent_runs_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_satisfaction_scores\" ADD CONSTRAINT \"agent_satisfaction_scores_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_team_run_queue\" ADD CONSTRAINT \"agent_team_run_queue_pkey\" PRIMARY KEY (task_id);",
+    "ALTER TABLE \"agent_tool_approval_policies\" ADD CONSTRAINT \"agent_tool_approval_policies_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_tool_approvals\" ADD CONSTRAINT \"agent_tool_approvals_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_tool_ledger\" ADD CONSTRAINT \"agent_tool_ledger_pkey\" PRIMARY KEY (thread_id, tool_key);",
+    "ALTER TABLE \"agent_trace_spans\" ADD CONSTRAINT \"agent_trace_spans_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"agent_trace_summaries\" ADD CONSTRAINT \"agent_trace_summaries_pkey\" PRIMARY KEY (run_id);",
+    "ALTER TABLE \"agent_turn_initiators\" ADD CONSTRAINT \"agent_turn_initiators_pkey\" PRIMARY KEY (thread_id, turn_id);",
+    "ALTER TABLE \"app_member_roles\" ADD CONSTRAINT \"app_member_roles_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"app_permission_overrides\" ADD CONSTRAINT \"app_permission_overrides_org_id_app_id_permission_key\" UNIQUE (org_id, app_id, permission);",
+    "ALTER TABLE \"app_resource_change_consumers\" ADD CONSTRAINT \"app_resource_change_consumers_pkey\" PRIMARY KEY (app, resource_type, consumer);",
+    "ALTER TABLE \"app_resource_changes\" ADD CONSTRAINT \"app_resource_changes_pkey\" PRIMARY KEY (consumer, app, resource_type, resource_id);",
+    "ALTER TABLE \"app_secrets\" ADD CONSTRAINT \"app_secrets_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"app_secrets\" ADD CONSTRAINT \"app_secrets_scope_scope_id_key_key\" UNIQUE (scope, scope_id, key);",
+    "ALTER TABLE \"application_state\" ADD CONSTRAINT \"application_state_pkey\" PRIMARY KEY (session_id, key);",
+    "ALTER TABLE \"automation_runs\" ADD CONSTRAINT \"automation_runs_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"automation_scheduler_health\" ADD CONSTRAINT \"automation_scheduler_health_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"automation_trigger_event_queue\" ADD CONSTRAINT \"automation_trigger_event_queue_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"automation_trigger_event_queue\" ADD CONSTRAINT \"automation_trigger_event_queue_sequence_id_key\" UNIQUE (sequence_id);",
+    "ALTER TABLE \"automation_trigger_event_queue_sweep_state\" ADD CONSTRAINT \"automation_trigger_event_queue_sweep_state_pkey\" PRIMARY KEY (scope_key);",
+    "ALTER TABLE \"automation_webhook_tokens\" ADD CONSTRAINT \"automation_webhook_tokens_automation_id_key\" UNIQUE (automation_id);",
+    "ALTER TABLE \"automation_webhook_tokens\" ADD CONSTRAINT \"automation_webhook_tokens_pkey\" PRIMARY KEY (token_hash);",
+    "ALTER TABLE \"chat_thread_shares\" ADD CONSTRAINT \"chat_thread_shares_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"chat_threads\" ADD CONSTRAINT \"chat_threads_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"context_directives\" ADD CONSTRAINT \"context_directives_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"custom_api_providers\" ADD CONSTRAINT \"custom_api_providers_pkey\" PRIMARY KEY (scope, scope_id, id);",
+    "ALTER TABLE \"data_program_runs\" ADD CONSTRAINT \"data_program_runs_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"data_program_shares\" ADD CONSTRAINT \"data_program_shares_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"data_programs\" ADD CONSTRAINT \"data_programs_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"email_log\" ADD CONSTRAINT \"email_log_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"identity_rekeys\" ADD CONSTRAINT \"identity_rekeys_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"identity_retired_emails\" ADD CONSTRAINT \"identity_retired_emails_pkey\" PRIMARY KEY (email);",
+    "ALTER TABLE \"identity_sso_flow_state\" ADD CONSTRAINT \"identity_sso_flow_state_pkey\" PRIMARY KEY (state);",
+    "ALTER TABLE \"identity_sso_jti\" ADD CONSTRAINT \"identity_sso_jti_pkey\" PRIMARY KEY (jti);",
+    "ALTER TABLE \"integration_a2a_continuations\" ADD CONSTRAINT \"integration_a2a_continuations_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_awaiting_inputs\" ADD CONSTRAINT \"integration_awaiting_inputs_pkey\" PRIMARY KEY (platform, external_thread_id);",
+    "ALTER TABLE \"integration_campaigns\" ADD CONSTRAINT \"integration_campaigns_integration_task_id_key\" UNIQUE (integration_task_id);",
+    "ALTER TABLE \"integration_campaigns\" ADD CONSTRAINT \"integration_campaigns_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_computer_approvals\" ADD CONSTRAINT \"integration_computer_approvals_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_configs\" ADD CONSTRAINT \"integration_configs_pkey\" PRIMARY KEY (platform, config_key);",
+    "ALTER TABLE \"integration_controls\" ADD CONSTRAINT \"integration_controls_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_conversation_scopes\" ADD CONSTRAINT \"integration_conversation_scopes_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_identity_links\" ADD CONSTRAINT \"integration_identity_links_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_installations\" ADD CONSTRAINT \"integration_installations_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_pending_tasks\" ADD CONSTRAINT \"integration_pending_tasks_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_remote_commands\" ADD CONSTRAINT \"integration_remote_commands_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_remote_devices\" ADD CONSTRAINT \"integration_remote_devices_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_remote_push_notifications\" ADD CONSTRAINT \"integration_remote_push_notifications_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_remote_push_registrations\" ADD CONSTRAINT \"integration_remote_push_registrations_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_thread_mappings\" ADD CONSTRAINT \"integration_thread_mappings_pkey\" PRIMARY KEY (platform, external_thread_id);",
+    "ALTER TABLE \"integration_usage_budget_events\" ADD CONSTRAINT \"integration_usage_budget_events_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_usage_budget_windows\" ADD CONSTRAINT \"integration_usage_budget_windows_pkey\" PRIMARY KEY (budget_id, window_start);",
+    "ALTER TABLE \"integration_usage_budgets\" ADD CONSTRAINT \"integration_usage_budgets_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"integration_usage_reservations\" ADD CONSTRAINT \"integration_usage_reservations_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"invitation\" ADD CONSTRAINT \"invitation_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"jwks\" ADD CONSTRAINT \"jwks_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"mcp_action_approvals\" ADD CONSTRAINT \"mcp_action_approvals_pkey\" PRIMARY KEY (nonce);",
+    "ALTER TABLE \"mcp_connect_tokens\" ADD CONSTRAINT \"mcp_connect_tokens_jti_key\" UNIQUE (jti);",
+    "ALTER TABLE \"mcp_connect_tokens\" ADD CONSTRAINT \"mcp_connect_tokens_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"mcp_device_codes\" ADD CONSTRAINT \"mcp_device_codes_pkey\" PRIMARY KEY (device_code);",
+    "ALTER TABLE \"mcp_oauth_clients\" ADD CONSTRAINT \"mcp_oauth_clients_pkey\" PRIMARY KEY (client_id);",
+    "ALTER TABLE \"mcp_oauth_codes\" ADD CONSTRAINT \"mcp_oauth_codes_pkey\" PRIMARY KEY (code);",
+    "ALTER TABLE \"mcp_oauth_refresh_tokens\" ADD CONSTRAINT \"mcp_oauth_refresh_tokens_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"mcp_oauth_refresh_tokens\" ADD CONSTRAINT \"mcp_oauth_refresh_tokens_token_hash_key\" UNIQUE (token_hash);",
+    "ALTER TABLE \"member\" ADD CONSTRAINT \"member_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"notification_delivery_state\" ADD CONSTRAINT \"notification_delivery_state_pkey\" PRIMARY KEY (notification_id, delivery_key);",
+    "ALTER TABLE \"notifications\" ADD CONSTRAINT \"notifications_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"oauth_tokens\" ADD CONSTRAINT \"oauth_tokens_pkey\" PRIMARY KEY (provider, account_id);",
+    "ALTER TABLE \"observational_memory\" ADD CONSTRAINT \"observational_memory_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"org_invitations\" ADD CONSTRAINT \"org_invitations_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"org_members\" ADD CONSTRAINT \"org_members_org_id_email_key\" UNIQUE (org_id, email);",
+    "ALTER TABLE \"org_members\" ADD CONSTRAINT \"org_members_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"org_scim_memberships\" ADD CONSTRAINT \"org_scim_memberships_org_id_user_id_key\" UNIQUE (org_id, user_id);",
+    "ALTER TABLE \"org_scim_memberships\" ADD CONSTRAINT \"org_scim_memberships_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"organization\" ADD CONSTRAINT \"organization_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"organization\" ADD CONSTRAINT \"organization_slug_key\" UNIQUE (slug);",
+    "ALTER TABLE \"organizations\" ADD CONSTRAINT \"organizations_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"private_icon_assets\" ADD CONSTRAINT \"private_icon_assets_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"progress_runs\" ADD CONSTRAINT \"progress_runs_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"provider_api_cooldowns\" ADD CONSTRAINT \"provider_api_cooldowns_pkey\" PRIMARY KEY (quota_key);",
+    "ALTER TABLE \"provider_corpus_job_hits\" ADD CONSTRAINT \"provider_corpus_job_hits_pkey\" PRIMARY KEY (job_id, hit_index);",
+    "ALTER TABLE \"provider_corpus_jobs\" ADD CONSTRAINT \"provider_corpus_jobs_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"recap_images\" ADD CONSTRAINT \"recap_images_pkey\" PRIMARY KEY (token);",
+    "ALTER TABLE \"resource_access_requests\" ADD CONSTRAINT \"resource_access_requests_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"resources\" ADD CONSTRAINT \"resources_path_owner_key\" UNIQUE (path, owner);",
+    "ALTER TABLE \"resources\" ADD CONSTRAINT \"resources_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"sandbox_executions\" ADD CONSTRAINT \"sandbox_executions_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_connection_binding\" ADD CONSTRAINT \"scim_connection_binding_connection_key_key\" UNIQUE (connection_key);",
+    "ALTER TABLE \"scim_connection_binding\" ADD CONSTRAINT \"scim_connection_binding_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_group\" ADD CONSTRAINT \"scim_group_display_name_key_key\" UNIQUE (display_name_key);",
+    "ALTER TABLE \"scim_group\" ADD CONSTRAINT \"scim_group_external_id_key_key\" UNIQUE (external_id_key);",
+    "ALTER TABLE \"scim_group\" ADD CONSTRAINT \"scim_group_order_key_key\" UNIQUE (order_key);",
+    "ALTER TABLE \"scim_group\" ADD CONSTRAINT \"scim_group_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_group_member\" ADD CONSTRAINT \"scim_group_member_membership_key_key\" UNIQUE (membership_key);",
+    "ALTER TABLE \"scim_group_member\" ADD CONSTRAINT \"scim_group_member_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_identity_tombstone\" ADD CONSTRAINT \"scim_identity_tombstone_external_id_key_key\" UNIQUE (external_id_key);",
+    "ALTER TABLE \"scim_identity_tombstone\" ADD CONSTRAINT \"scim_identity_tombstone_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_managed_connection\" ADD CONSTRAINT \"scim_managed_connection_connection_id_key\" UNIQUE (connection_id);",
+    "ALTER TABLE \"scim_managed_connection\" ADD CONSTRAINT \"scim_managed_connection_creation_request_id_key\" UNIQUE (creation_request_id);",
+    "ALTER TABLE \"scim_managed_connection\" ADD CONSTRAINT \"scim_managed_connection_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_managed_connection_event\" ADD CONSTRAINT \"scim_managed_connection_event_event_key_key\" UNIQUE (event_key);",
+    "ALTER TABLE \"scim_managed_connection_event\" ADD CONSTRAINT \"scim_managed_connection_event_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_managed_credential\" ADD CONSTRAINT \"scim_managed_credential_active_slot_key_key\" UNIQUE (active_slot_key);",
+    "ALTER TABLE \"scim_managed_credential\" ADD CONSTRAINT \"scim_managed_credential_credential_id_key\" UNIQUE (credential_id);",
+    "ALTER TABLE \"scim_managed_credential\" ADD CONSTRAINT \"scim_managed_credential_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_projection_grant\" ADD CONSTRAINT \"scim_projection_grant_grant_key_key\" UNIQUE (grant_key);",
+    "ALTER TABLE \"scim_projection_grant\" ADD CONSTRAINT \"scim_projection_grant_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_subject\" ADD CONSTRAINT \"scim_subject_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_subject\" ADD CONSTRAINT \"scim_subject_user_id_key\" UNIQUE (user_id);",
+    "ALTER TABLE \"scim_user\" ADD CONSTRAINT \"scim_user_connection_user_key_key\" UNIQUE (connection_user_key);",
+    "ALTER TABLE \"scim_user\" ADD CONSTRAINT \"scim_user_external_id_key_key\" UNIQUE (external_id_key);",
+    "ALTER TABLE \"scim_user\" ADD CONSTRAINT \"scim_user_order_key_key\" UNIQUE (order_key);",
+    "ALTER TABLE \"scim_user\" ADD CONSTRAINT \"scim_user_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"scim_user\" ADD CONSTRAINT \"scim_user_user_name_key_key\" UNIQUE (user_name_key);",
+    "ALTER TABLE \"search_index_state\" ADD CONSTRAINT \"search_index_state_pkey\" PRIMARY KEY (app, resource_type);",
+    "ALTER TABLE \"search_resources\" ADD CONSTRAINT \"search_resources_pkey\" PRIMARY KEY (app, resource_type, resource_id);",
+    "ALTER TABLE \"service_principal_policies\" ADD CONSTRAINT \"service_principal_policies_pkey\" PRIMARY KEY (org_id, service_name);",
+    "ALTER TABLE \"session\" ADD CONSTRAINT \"session_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"session\" ADD CONSTRAINT \"session_token_key\" UNIQUE (token);",
+    "ALTER TABLE \"sessions\" ADD CONSTRAINT \"sessions_pkey\" PRIMARY KEY (token);",
+    "ALTER TABLE \"settings\" ADD CONSTRAINT \"settings_pkey\" PRIMARY KEY (key);",
+    "ALTER TABLE \"sso_provider\" ADD CONSTRAINT \"sso_provider_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"sso_provider\" ADD CONSTRAINT \"sso_provider_provider_id_key\" UNIQUE (provider_id);",
+    "ALTER TABLE \"staged_dataset_rows\" ADD CONSTRAINT \"staged_dataset_rows_pkey\" PRIMARY KEY (dataset_id, row_index);",
+    "ALTER TABLE \"staged_datasets\" ADD CONSTRAINT \"staged_datasets_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"sync_events\" ADD CONSTRAINT \"sync_events_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"sync_events_prune_state\" ADD CONSTRAINT \"sync_events_prune_state_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"sync_version\" ADD CONSTRAINT \"sync_version_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"token_usage\" ADD CONSTRAINT \"token_usage_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"tool_consents\" ADD CONSTRAINT \"tool_consents_pkey\" PRIMARY KEY (viewer_email, tool_id, content_hash);",
+    "ALTER TABLE \"tool_data\" ADD CONSTRAINT \"tool_data_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"tool_hidden_extensions\" ADD CONSTRAINT \"tool_hidden_extensions_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"tool_history\" ADD CONSTRAINT \"tool_history_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"tool_shares\" ADD CONSTRAINT \"tool_shares_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"tool_slot_installs\" ADD CONSTRAINT \"tool_slot_installs_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"tool_slots\" ADD CONSTRAINT \"tool_slots_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"tools\" ADD CONSTRAINT \"tools_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"twoFactor\" ADD CONSTRAINT \"twoFactor_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"usage_alert_events\" ADD CONSTRAINT \"usage_alert_events_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"usage_alert_rules\" ADD CONSTRAINT \"usage_alert_rules_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"user\" ADD CONSTRAINT \"user_email_key\" UNIQUE (email);",
+    "ALTER TABLE \"user\" ADD CONSTRAINT \"user_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"verification\" ADD CONSTRAINT \"verification_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"workspace_app_shares\" ADD CONSTRAINT \"workspace_app_shares_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"workspace_app_shares\" ADD CONSTRAINT \"workspace_app_shares_resource_id_principal_type_principal_i_key\" UNIQUE (resource_id, principal_type, principal_id);",
+    "ALTER TABLE \"workspace_apps\" ADD CONSTRAINT \"workspace_apps_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"workspace_connection_grants\" ADD CONSTRAINT \"workspace_connection_grants_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"workspace_connections\" ADD CONSTRAINT \"workspace_connections_pkey\" PRIMARY KEY (id);",
+    "ALTER TABLE \"workspace_user_groups\" ADD CONSTRAINT \"workspace_user_groups_pkey\" PRIMARY KEY (id);",
     "CREATE UNIQUE INDEX idx_a2a_tasks_org_scope_idempotency ON public.a2a_tasks USING btree (owner_scope, idempotency_key) WHERE ((owner_email IS NULL) AND (idempotency_key IS NOT NULL));",
     "CREATE UNIQUE INDEX idx_a2a_tasks_owner_scope_idempotency ON public.a2a_tasks USING btree (owner_email, owner_scope, idempotency_key);",
     "CREATE INDEX idx_a2a_tasks_recovery_created ON public.a2a_tasks USING btree (created_at) WHERE (status_state = ANY (ARRAY['submitted'::text, 'working'::text, 'processing'::text]));",
@@ -600,11 +600,11 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     "CREATE INDEX tools_org_idx ON public.tools USING btree (org_id);",
     "CREATE INDEX tools_owner_idx ON public.tools USING btree (owner_email);",
     "CREATE INDEX tools_updated_at_idx ON public.tools USING btree (updated_at);",
-    'CREATE INDEX "twoFactor_secret_idx" ON public."twoFactor" USING btree (secret);',
-    'CREATE INDEX "twoFactor_user_id_idx" ON public."twoFactor" USING btree (user_id);',
+    "CREATE INDEX \"twoFactor_secret_idx\" ON public.\"twoFactor\" USING btree (secret);",
+    "CREATE INDEX \"twoFactor_user_id_idx\" ON public.\"twoFactor\" USING btree (user_id);",
     "CREATE UNIQUE INDEX idx_usage_alert_events_rule_window ON public.usage_alert_events USING btree (rule_id, window_start);",
     "CREATE INDEX idx_usage_alert_rules_owner ON public.usage_alert_rules USING btree (owner_email, org_id, scope);",
-    'CREATE INDEX better_auth_user_lower_email_idx ON public."user" USING btree (lower(email));',
+    "CREATE INDEX better_auth_user_lower_email_idx ON public.\"user\" USING btree (lower(email));",
     "CREATE INDEX workspace_app_shares_access_principal_idx ON public.workspace_app_shares USING btree (principal_type, principal_id);",
     "CREATE INDEX workspace_app_shares_access_principal_lower_idx ON public.workspace_app_shares USING btree (principal_type, lower(principal_id));",
     "CREATE INDEX workspace_app_shares_access_resource_idx ON public.workspace_app_shares USING btree (resource_id);",
@@ -619,9 +619,9 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     "CREATE INDEX idx_workspace_user_groups_org_updated ON public.workspace_user_groups USING btree (org_id, updated_at);",
     "CREATE OR REPLACE FUNCTION public.agent_native_app_resource_changed(p_app text, p_resource_type text, p_resource_id text, p_reason text)\n RETURNS void\n LANGUAGE sql\nAS $function$\n    INSERT INTO app_resource_changes AS existing\n      (consumer, app, resource_type, resource_id, reason, seq, changed_at, available_at, attempts, failed_at)\n    SELECT consumer, p_app, p_resource_type, p_resource_id, p_reason,\n      nextval('app_resource_change_seq'), clock_timestamp(), clock_timestamp(), 0, NULL\n    FROM app_resource_change_consumers\n    WHERE app = p_app AND resource_type = p_resource_type\n    ON CONFLICT (consumer, app, resource_type, resource_id) DO UPDATE SET\n      reason = EXCLUDED.reason,\n      seq = nextval('app_resource_change_seq'),\n      changed_at = EXCLUDED.changed_at,\n      available_at = EXCLUDED.available_at,\n      attempts = 0,\n      failed_at = NULL\n  $function$;",
     "CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$BEGIN\n        NEW.normalized_name := LOWER(BTRIM(NEW.name));\n        RETURN NEW;\n      END;$function$;",
-    "CREATE TRIGGER trg_workspace_user_groups_normalized_name BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups FOR EACH ROW EXECUTE FUNCTION workspace_user_groups_set_normalized_name();",
+    "CREATE TRIGGER trg_workspace_user_groups_normalized_name BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups FOR EACH ROW EXECUTE FUNCTION workspace_user_groups_set_normalized_name();"
   ],
-  tables: [
+  "tables": [
     "_better_auth_migrations",
     "_better_auth_migrations_named",
     "_collab_awareness",
@@ -788,391 +788,1300 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     "workspace_apps",
     "workspace_connection_grants",
     "workspace_connections",
-    "workspace_user_groups",
+    "workspace_user_groups"
   ],
-  migrations: [
-    ["a2a_continuations", "baseline", null],
-    ["a2a_continuations", "indexes-after-backfill", null],
-    ["a2a_tasks", "baseline", null],
+  "migrations": [
+    [
+      "a2a_continuations",
+      "baseline",
+      null
+    ],
+    [
+      "a2a_continuations",
+      "indexes-after-backfill",
+      null
+    ],
+    [
+      "a2a_tasks",
+      "baseline",
+      null
+    ],
     [
       "agent_harness_sessions",
       "agent-harness-sessions-base-table",
-      "709f6e82e6323dcb",
+      "709f6e82e6323dcb"
     ],
     [
       "agent_harness_sessions",
       "agent-harness-sessions-generation",
-      "e93055de6007e793",
+      "e93055de6007e793"
     ],
     [
       "agent_harness_sessions",
       "agent-harness-sessions-state-columns",
-      "91875faf324c0ef2",
+      "91875faf324c0ef2"
     ],
     [
       "agent_harness_sessions",
       "agent-harness-sessions-widen-millisecond-timestamps",
-      "1e9e1af1581a9742",
+      "1e9e1af1581a9742"
     ],
-    ["agent_harness_sessions", "baseline", null],
-    ["agent_runs", "agent-run-auto-continue-of", "00eb09bcf9ca7fb0"],
-    ["agent_runs", "agent-run-base-tables", "ac6ed4a256f28116"],
-    ["agent_runs", "agent-run-continuation-order", "efb06f1b4c911719"],
+    [
+      "agent_harness_sessions",
+      "baseline",
+      null
+    ],
+    [
+      "agent_runs",
+      "agent-run-auto-continue-of",
+      "00eb09bcf9ca7fb0"
+    ],
+    [
+      "agent_runs",
+      "agent-run-base-tables",
+      "ac6ed4a256f28116"
+    ],
+    [
+      "agent_runs",
+      "agent-run-continuation-order",
+      "efb06f1b4c911719"
+    ],
     [
       "agent_runs",
       "agent-run-liveness-and-diagnostics-columns",
-      "2a9d24ed6ffbea78",
+      "2a9d24ed6ffbea78"
     ],
-    ["agent_runs", "agent-run-thread-projection-retry", "d564128e21e3b424"],
-    ["agent_runs", "agent-tool-ledger-arguments-hash", "495946626eda9dc4"],
-    ["agent_runs", "agent-tool-ledger-chat-ui-result", "288137f1126005f6"],
-    ["agent_runs", "agent-tool-ledger-result-type", "d4fe90219a833db8"],
-    ["agent_runs", "agent-turn-execution-leases-and-steps", "bc8cfdc3fc695e2a"],
-    ["agent_runs", "baseline", null],
-    ["agent_runs", "widen-bigint", null],
-    ["agent_team_run_queue", "baseline", null],
+    [
+      "agent_runs",
+      "agent-run-thread-projection-retry",
+      "d564128e21e3b424"
+    ],
+    [
+      "agent_runs",
+      "agent-tool-ledger-arguments-hash",
+      "495946626eda9dc4"
+    ],
+    [
+      "agent_runs",
+      "agent-tool-ledger-chat-ui-result",
+      "288137f1126005f6"
+    ],
+    [
+      "agent_runs",
+      "agent-tool-ledger-result-type",
+      "d4fe90219a833db8"
+    ],
+    [
+      "agent_runs",
+      "agent-turn-execution-leases-and-steps",
+      "bc8cfdc3fc695e2a"
+    ],
+    [
+      "agent_runs",
+      "baseline",
+      null
+    ],
+    [
+      "agent_runs",
+      "widen-bigint",
+      null
+    ],
+    [
+      "agent_team_run_queue",
+      "baseline",
+      null
+    ],
     [
       "agent_tool_approval_policies",
       "agent-tool-approval-policies-table-and-index",
-      "bb1c9e53c85d4f40",
+      "bb1c9e53c85d4f40"
     ],
-    ["agent_tool_approval_policies", "baseline", null],
-    ["agent_tool_approval_policies", "tool-revision", null],
+    [
+      "agent_tool_approval_policies",
+      "baseline",
+      null
+    ],
+    [
+      "agent_tool_approval_policies",
+      "tool-revision",
+      null
+    ],
     [
       "agent_tool_approvals",
       "agent-tool-approvals-logical-binding-index",
-      "6e7debaee18fb19e",
+      "6e7debaee18fb19e"
     ],
     [
       "agent_tool_approvals",
       "agent-tool-approvals-recovery-index",
-      "fdca5e603cce164c",
+      "fdca5e603cce164c"
     ],
     [
       "agent_tool_approvals",
       "agent-tool-approvals-table-and-index",
-      "8ba8562ff05494fb",
+      "8ba8562ff05494fb"
     ],
-    ["agent_tool_approvals", "arguments-hash", null],
-    ["agent_tool_approvals", "baseline", null],
-    ["agent_tool_approvals", "tool-revision", null],
-    ["app_resource_changes", "baseline", null],
-    ["app_secrets", "baseline", null],
-    ["application_state", "baseline", null],
-    ["application_state", "indexes", null],
-    ["application_state", "widen-bigint", null],
-    ["audit", "baseline", null],
-    ["audit", "mcp-client-attribution", "bc0ea72722e10241"],
-    ["auth_sessions", "baseline", null],
-    ["auth_sessions", "widen-bigint", null],
-    ["automation_run_history", "automation-runs-app-id", "48a8d098bd64ed91"],
+    [
+      "agent_tool_approvals",
+      "arguments-hash",
+      null
+    ],
+    [
+      "agent_tool_approvals",
+      "baseline",
+      null
+    ],
+    [
+      "agent_tool_approvals",
+      "tool-revision",
+      null
+    ],
+    [
+      "app_resource_changes",
+      "baseline",
+      null
+    ],
+    [
+      "app_secrets",
+      "baseline",
+      null
+    ],
+    [
+      "application_state",
+      "baseline",
+      null
+    ],
+    [
+      "application_state",
+      "indexes",
+      null
+    ],
+    [
+      "application_state",
+      "widen-bigint",
+      null
+    ],
+    [
+      "audit",
+      "baseline",
+      null
+    ],
+    [
+      "audit",
+      "mcp-client-attribution",
+      "bc0ea72722e10241"
+    ],
+    [
+      "auth_sessions",
+      "baseline",
+      null
+    ],
+    [
+      "auth_sessions",
+      "widen-bigint",
+      null
+    ],
+    [
+      "automation_run_history",
+      "automation-runs-app-id",
+      "48a8d098bd64ed91"
+    ],
     [
       "automation_run_history",
       "automation-runs-claimed-at",
-      "9d1c3994e5887d2f",
+      "9d1c3994e5887d2f"
     ],
     [
       "automation_run_history",
       "automation-runs-dispatch-pending",
-      "110d2c93fba69a3f",
+      "110d2c93fba69a3f"
     ],
     [
       "automation_run_history",
       "automation-runs-error-code",
-      "d31999550cf54e2d",
+      "d31999550cf54e2d"
     ],
     [
       "automation_run_history",
       "automation-runs-failure-alert-delivery",
-      "0ad391513d7c511c",
+      "0ad391513d7c511c"
     ],
     [
       "automation_run_history",
       "automation-runs-failure-alerted",
-      "c6aab02ee88bf93d",
+      "c6aab02ee88bf93d"
     ],
     [
       "automation_run_history",
       "automation-runs-notification-email",
-      "db8402925a12ae73",
+      "db8402925a12ae73"
     ],
-    ["automation_run_history", "automation-runs-table", "05e4a639e8e40142"],
-    ["automation_run_history", "baseline", null],
+    [
+      "automation_run_history",
+      "automation-runs-table",
+      "05e4a639e8e40142"
+    ],
+    [
+      "automation_run_history",
+      "baseline",
+      null
+    ],
     [
       "automation_trigger_events",
       "automation-trigger-event-active-head-index",
-      "dad2945b14f0de23",
+      "dad2945b14f0de23"
     ],
     [
       "automation_trigger_events",
       "automation-trigger-event-failure-attempts",
-      "62e7a1833ef325b0",
+      "62e7a1833ef325b0"
     ],
     [
       "automation_trigger_events",
       "automation-trigger-event-queue",
-      "40d51d285df8b7a6",
+      "40d51d285df8b7a6"
     ],
     [
       "automation_trigger_events",
       "automation-trigger-event-queue-sweep-state",
-      "89eb2b9ac8a2eb2f",
+      "89eb2b9ac8a2eb2f"
     ],
     [
       "automation_trigger_events",
       "automation-trigger-event-stale-mail-index",
-      "f036574b0be6169c",
+      "f036574b0be6169c"
     ],
-    ["automation_trigger_events", "baseline", null],
-    ["automation_webhook_tokens", "baseline", null],
-    ["awaiting_inputs", "baseline", null],
-    ["better_auth", "better-auth-add-onboarding-role", "0027c79db097e5a1"],
-    ["better_auth", "better-auth-core-tables", "75b2ff3e3f1ac565"],
+    [
+      "automation_trigger_events",
+      "baseline",
+      null
+    ],
+    [
+      "automation_webhook_tokens",
+      "baseline",
+      null
+    ],
+    [
+      "awaiting_inputs",
+      "baseline",
+      null
+    ],
+    [
+      "better_auth",
+      "better-auth-add-onboarding-role",
+      "0027c79db097e5a1"
+    ],
+    [
+      "better_auth",
+      "better-auth-core-tables",
+      "75b2ff3e3f1ac565"
+    ],
     [
       "better_auth",
       "better-auth-enterprise-sso-scim-tables",
-      "78ba4bda1e35307e",
+      "78ba4bda1e35307e"
     ],
-    ["better_auth", "better-auth-identity-rekey-ledger", "308592b25b569305"],
-    ["better_auth", "better-auth-jwks-alg-crv-columns", "3037835edbd46471"],
-    ["better_auth", "better-auth-repair-user-columns", "27d1d3f6cf568efa"],
-    ["better_auth", "better-auth-two-factor-tables", "4ecf3fcd74e022cd"],
+    [
+      "better_auth",
+      "better-auth-identity-rekey-ledger",
+      "308592b25b569305"
+    ],
+    [
+      "better_auth",
+      "better-auth-jwks-alg-crv-columns",
+      "3037835edbd46471"
+    ],
+    [
+      "better_auth",
+      "better-auth-repair-user-columns",
+      "27d1d3f6cf568efa"
+    ],
+    [
+      "better_auth",
+      "better-auth-two-factor-tables",
+      "4ecf3fcd74e022cd"
+    ],
     [
       "better_auth",
       "better-auth-user-first-touch-attribution",
-      "dc221b676c0dc61d",
+      "dc221b676c0dc61d"
     ],
-    ["better_auth", "better-auth-user-lower-email-index", "897b1ce483af6484"],
-    ["better_auth", "legacy-auth-sessions-table", "d67c1d034b1b3611"],
-    ["browser_sessions", "baseline", null],
-    ["chat_threads", "baseline", null],
+    [
+      "better_auth",
+      "better-auth-user-lower-email-index",
+      "897b1ce483af6484"
+    ],
+    [
+      "better_auth",
+      "legacy-auth-sessions-table",
+      "d67c1d034b1b3611"
+    ],
+    [
+      "browser_sessions",
+      "baseline",
+      null
+    ],
+    [
+      "chat_threads",
+      "baseline",
+      null
+    ],
     [
       "chat_threads",
       "chat-thread-durable-submission-inbox",
-      "953882e24b68e4fb",
+      "953882e24b68e4fb"
     ],
-    ["chat_threads", "chat-thread-shares-notified-at", "f2a3dce63fe66310"],
-    ["chat_threads", "chat-threads-base-tables", "bfeaaa8ca4af1288"],
+    [
+      "chat_threads",
+      "chat-thread-inbox-interrupt-replay",
+      "904890f43aebd9fe"
+    ],
+    [
+      "chat_threads",
+      "chat-thread-shares-notified-at",
+      "f2a3dce63fe66310"
+    ],
+    [
+      "chat_threads",
+      "chat-threads-base-tables",
+      "bfeaaa8ca4af1288"
+    ],
     [
       "chat_threads",
       "chat-threads-scope-and-sharing-columns",
-      "76d071b18224f89b",
+      "76d071b18224f89b"
     ],
-    ["chat_threads", "indexes", null],
-    ["chat_threads", "widen-bigint", null],
-    ["checkpoints", "baseline", null],
-    ["collab_awareness", "baseline", null],
-    ["collab_docs", "baseline", null],
-    ["computer_approvals", "baseline", null],
-    ["context_xray", "v1201", "2f2ba296f2557648"],
-    ["context_xray", "v1202", "b054e1ecc38d7637"],
-    ["context_xray", "v1203", "5995dc62534cdd11"],
-    ["conversation_scopes", "baseline", null],
-    ["custom_api_providers", "baseline", null],
-    ["custom_api_providers", "widen-bigint", null],
-    ["data_programs", "baseline", null],
-    ["email_log", "baseline", null],
-    ["email_log", "columns-and-indexes", null],
-    ["email_log", "widen-bigint", null],
-    ["embed_sessions", "baseline", null],
-    ["extension_slots", "baseline", "2324076d4536f1ed"],
-    ["extensions", "baseline", null],
-    ["extensions", "drop-legacy-tool-data-index", "4218fe7cb07d6a1c"],
-    ["extensions", "extension-indexes-and-tables", null],
-    ["extensions", "tool-data-tables", null],
-    ["identity_links", "baseline", null],
-    ["identity_retired_emails", "baseline", null],
-    ["identity_sso", "baseline", null],
-    ["identity_sso", "identity-sso-flow-state-and-jti", "0ef131c592e35909"],
-    ["identity_sso", "identity-sso-timestamps-bigint", "a17c0175452484cc"],
-    ["integration_campaigns", "baseline", null],
-    ["integration_configs", "baseline", null],
-    ["integration_controls", "baseline", null],
-    ["integration_installations", "baseline", null],
-    ["mcp_approvals", "baseline", null],
-    ["mcp_connect", "baseline", null],
-    ["mcp_oauth", "baseline", null],
-    ["notifications", "baseline", null],
-    ["oauth_tokens", "baseline", null],
-    ["oauth_tokens", "oauth-tokens-display-name-column", "ea7cbba8dff602f8"],
-    ["oauth_tokens", "oauth-tokens-owner-column", "2b02d7f09707be90"],
-    ["oauth_tokens", "oauth-tokens-revision-column", "73d74fcfed62aa4e"],
-    ["oauth_tokens", "oauth-tokens-table", "8c7ddcbbb856d01f"],
-    ["oauth_tokens", "widen-bigint", null],
-    ["observability", "baseline", null],
-    ["observational_memory", "baseline", null],
-    ["observational_memory", "v1", "7a806bf7eff7003d"],
-    ["observational_memory", "v2", "709cf34a16ab7e21"],
-    ["observational_memory", "v3", "c931860ca61eda1d"],
-    ["observational_memory", "widen-bigint", null],
-    ["org", "agent-audit-log-base-table", "603e8ce5e70f1cc5"],
+    [
+      "chat_threads",
+      "indexes",
+      null
+    ],
+    [
+      "chat_threads",
+      "widen-bigint",
+      null
+    ],
+    [
+      "checkpoints",
+      "baseline",
+      null
+    ],
+    [
+      "collab_awareness",
+      "baseline",
+      null
+    ],
+    [
+      "collab_docs",
+      "baseline",
+      null
+    ],
+    [
+      "computer_approvals",
+      "baseline",
+      null
+    ],
+    [
+      "context_xray",
+      "v1201",
+      "2f2ba296f2557648"
+    ],
+    [
+      "context_xray",
+      "v1202",
+      "b054e1ecc38d7637"
+    ],
+    [
+      "context_xray",
+      "v1203",
+      "5995dc62534cdd11"
+    ],
+    [
+      "conversation_scopes",
+      "baseline",
+      null
+    ],
+    [
+      "custom_api_providers",
+      "baseline",
+      null
+    ],
+    [
+      "custom_api_providers",
+      "widen-bigint",
+      null
+    ],
+    [
+      "data_programs",
+      "baseline",
+      null
+    ],
+    [
+      "email_log",
+      "baseline",
+      null
+    ],
+    [
+      "email_log",
+      "columns-and-indexes",
+      null
+    ],
+    [
+      "email_log",
+      "widen-bigint",
+      null
+    ],
+    [
+      "embed_sessions",
+      "baseline",
+      null
+    ],
+    [
+      "extension_slots",
+      "baseline",
+      "2324076d4536f1ed"
+    ],
+    [
+      "extensions",
+      "baseline",
+      null
+    ],
+    [
+      "extensions",
+      "drop-legacy-tool-data-index",
+      "4218fe7cb07d6a1c"
+    ],
+    [
+      "extensions",
+      "extension-indexes-and-tables",
+      null
+    ],
+    [
+      "extensions",
+      "tool-data-tables",
+      null
+    ],
+    [
+      "identity_links",
+      "baseline",
+      null
+    ],
+    [
+      "identity_retired_emails",
+      "baseline",
+      null
+    ],
+    [
+      "identity_sso",
+      "baseline",
+      null
+    ],
+    [
+      "identity_sso",
+      "identity-sso-flow-state-and-jti",
+      "0ef131c592e35909"
+    ],
+    [
+      "identity_sso",
+      "identity-sso-timestamps-bigint",
+      "a17c0175452484cc"
+    ],
+    [
+      "integration_campaigns",
+      "baseline",
+      null
+    ],
+    [
+      "integration_configs",
+      "baseline",
+      null
+    ],
+    [
+      "integration_controls",
+      "baseline",
+      null
+    ],
+    [
+      "integration_installations",
+      "baseline",
+      null
+    ],
+    [
+      "mcp_approvals",
+      "baseline",
+      null
+    ],
+    [
+      "mcp_connect",
+      "baseline",
+      null
+    ],
+    [
+      "mcp_oauth",
+      "baseline",
+      null
+    ],
+    [
+      "notifications",
+      "baseline",
+      null
+    ],
+    [
+      "oauth_tokens",
+      "baseline",
+      null
+    ],
+    [
+      "oauth_tokens",
+      "oauth-tokens-display-name-column",
+      "ea7cbba8dff602f8"
+    ],
+    [
+      "oauth_tokens",
+      "oauth-tokens-owner-column",
+      "2b02d7f09707be90"
+    ],
+    [
+      "oauth_tokens",
+      "oauth-tokens-revision-column",
+      "73d74fcfed62aa4e"
+    ],
+    [
+      "oauth_tokens",
+      "oauth-tokens-table",
+      "8c7ddcbbb856d01f"
+    ],
+    [
+      "oauth_tokens",
+      "widen-bigint",
+      null
+    ],
+    [
+      "observability",
+      "baseline",
+      null
+    ],
+    [
+      "observational_memory",
+      "baseline",
+      null
+    ],
+    [
+      "observational_memory",
+      "v1",
+      "7a806bf7eff7003d"
+    ],
+    [
+      "observational_memory",
+      "v2",
+      "709cf34a16ab7e21"
+    ],
+    [
+      "observational_memory",
+      "v3",
+      "c931860ca61eda1d"
+    ],
+    [
+      "observational_memory",
+      "widen-bigint",
+      null
+    ],
+    [
+      "org",
+      "agent-audit-log-base-table",
+      "603e8ce5e70f1cc5"
+    ],
     [
       "org",
       "app-member-roles-drop-single-role-unique-index",
-      "8ef975bf717d45df",
+      "8ef975bf717d45df"
     ],
     [
       "org",
       "app-member-roles-unique-org-app-email-role-idx",
-      "d0000b15f8f45305",
+      "d0000b15f8f45305"
     ],
     [
       "org",
       "app-member-roles-unique-org-app-lower-email-idx",
-      "619796384ec54584",
+      "619796384ec54584"
     ],
     [
       "org",
       "app-permission-overrides-and-invitation-roles",
-      "2e162a535fca593d",
+      "2e162a535fca593d"
     ],
-    ["org", "app-permission-overrides-table", "1e492c41cd03d75f"],
-    ["org", "org-members-unique-lower-email-idx", "9e7813ab2fe6720c"],
-    ["org", "org-scim-membership-member-id", "cd1c4fb7479507d3"],
-    ["org", "org-scim-membership-ownership", "09ca1c03026cda83"],
-    ["org", "org-tables-timestamps-bigint", "a71b72b885bd5585"],
-    ["org", "organization-federation-removal-pending", "47fe40eb2ea33753"],
-    ["org", "organization-federation-roster-initialized", "3307d4d99818c2f0"],
-    ["org", "organization-identity-federation", "e24bac924c2d4c7a"],
-    ["org", "organization-visual-identity", "e30df3489d7187bb"],
-    ["org", "private-icon-assets", "005daf4cb4bf77f7"],
-    ["org", "suggestion-creations-receipt-version", "8705cb2b9fa98789"],
-    ["org", "v1001", "c7f32cba7a4d7c50"],
-    ["org", "v1002", "c550fb646f72f6a9"],
-    ["org", "v1003", "9dee084c9156839f"],
-    ["org", "v1004", "30fafc09e4ae3f42"],
-    ["org", "v1005", "156a4cf057c45837"],
-    ["org", "v1006", "2c32d8ae938a9d90"],
-    ["org", "v1007", "829a1c6909e1deb5"],
-    ["org", "v1008", "fbbd67d26bc122f0"],
-    ["org", "v1011", "3453588c2a8efbe9"],
-    ["org", "v1013", "2efec8e77b5a5580"],
-    ["org", "v1014", "efed0abeadc61353"],
-    ["org", "v1015", "a04e7db4b8eb3441"],
-    ["org", "v1016", "dce510c185fa90d3"],
-    ["org", "workspace-app-access-indexes", "36e990834036b883"],
-    ["org", "workspace-app-org-enabled", "b33be6e242066217"],
-    ["org", "workspace-app-shares-notified-at", "3df53f2c8dd33d8f"],
-    ["pending_tasks", "baseline", null],
-    ["progress", "baseline", null],
-    ["provider_corpus_jobs", "baseline", null],
-    ["provider_corpus_jobs", "indexes", null],
-    ["provider_corpus_jobs", "widen-bigint", null],
-    ["provider_quota_cooldowns", "baseline", null],
-    ["recap_images", "baseline", null],
-    ["remote_commands", "baseline", null],
-    ["remote_devices", "baseline", null],
-    ["remote_devices", "remote-device-table-and-indexes", "f6b9d7421da71549"],
-    ["remote_push", "baseline", null],
-    ["remote_run_events", "baseline", null],
-    ["resource_access_requests", "baseline", null],
-    ["resource_versions", "baseline", null],
-    ["resources", "baseline", null],
-    ["resources", "path-pattern-index", null],
-    ["resources", "visibility-expires-index", null],
-    ["resources", "widen-bigint", null],
-    ["review", "baseline", null],
-    ["review_suggestions", "baseline", null],
-    ["sandbox_executions", "baseline", null],
+    [
+      "org",
+      "app-permission-overrides-table",
+      "1e492c41cd03d75f"
+    ],
+    [
+      "org",
+      "org-members-unique-lower-email-idx",
+      "9e7813ab2fe6720c"
+    ],
+    [
+      "org",
+      "org-scim-membership-member-id",
+      "cd1c4fb7479507d3"
+    ],
+    [
+      "org",
+      "org-scim-membership-ownership",
+      "09ca1c03026cda83"
+    ],
+    [
+      "org",
+      "org-tables-timestamps-bigint",
+      "a71b72b885bd5585"
+    ],
+    [
+      "org",
+      "organization-federation-removal-pending",
+      "47fe40eb2ea33753"
+    ],
+    [
+      "org",
+      "organization-federation-roster-initialized",
+      "3307d4d99818c2f0"
+    ],
+    [
+      "org",
+      "organization-identity-federation",
+      "e24bac924c2d4c7a"
+    ],
+    [
+      "org",
+      "organization-visual-identity",
+      "e30df3489d7187bb"
+    ],
+    [
+      "org",
+      "private-icon-assets",
+      "005daf4cb4bf77f7"
+    ],
+    [
+      "org",
+      "suggestion-creations-receipt-version",
+      "8705cb2b9fa98789"
+    ],
+    [
+      "org",
+      "v1001",
+      "c7f32cba7a4d7c50"
+    ],
+    [
+      "org",
+      "v1002",
+      "c550fb646f72f6a9"
+    ],
+    [
+      "org",
+      "v1003",
+      "9dee084c9156839f"
+    ],
+    [
+      "org",
+      "v1004",
+      "30fafc09e4ae3f42"
+    ],
+    [
+      "org",
+      "v1005",
+      "156a4cf057c45837"
+    ],
+    [
+      "org",
+      "v1006",
+      "2c32d8ae938a9d90"
+    ],
+    [
+      "org",
+      "v1007",
+      "829a1c6909e1deb5"
+    ],
+    [
+      "org",
+      "v1008",
+      "fbbd67d26bc122f0"
+    ],
+    [
+      "org",
+      "v1011",
+      "3453588c2a8efbe9"
+    ],
+    [
+      "org",
+      "v1013",
+      "2efec8e77b5a5580"
+    ],
+    [
+      "org",
+      "v1014",
+      "efed0abeadc61353"
+    ],
+    [
+      "org",
+      "v1015",
+      "a04e7db4b8eb3441"
+    ],
+    [
+      "org",
+      "v1016",
+      "dce510c185fa90d3"
+    ],
+    [
+      "org",
+      "workspace-app-access-indexes",
+      "36e990834036b883"
+    ],
+    [
+      "org",
+      "workspace-app-org-enabled",
+      "b33be6e242066217"
+    ],
+    [
+      "org",
+      "workspace-app-shares-notified-at",
+      "3df53f2c8dd33d8f"
+    ],
+    [
+      "pending_tasks",
+      "baseline",
+      null
+    ],
+    [
+      "progress",
+      "baseline",
+      null
+    ],
+    [
+      "provider_corpus_jobs",
+      "baseline",
+      null
+    ],
+    [
+      "provider_corpus_jobs",
+      "indexes",
+      null
+    ],
+    [
+      "provider_corpus_jobs",
+      "widen-bigint",
+      null
+    ],
+    [
+      "provider_quota_cooldowns",
+      "baseline",
+      null
+    ],
+    [
+      "recap_images",
+      "baseline",
+      null
+    ],
+    [
+      "remote_commands",
+      "baseline",
+      null
+    ],
+    [
+      "remote_devices",
+      "baseline",
+      null
+    ],
+    [
+      "remote_devices",
+      "remote-device-table-and-indexes",
+      "f6b9d7421da71549"
+    ],
+    [
+      "remote_push",
+      "baseline",
+      null
+    ],
+    [
+      "remote_run_events",
+      "baseline",
+      null
+    ],
+    [
+      "resource_access_requests",
+      "baseline",
+      null
+    ],
+    [
+      "resource_versions",
+      "baseline",
+      null
+    ],
+    [
+      "resources",
+      "baseline",
+      null
+    ],
+    [
+      "resources",
+      "path-pattern-index",
+      null
+    ],
+    [
+      "resources",
+      "visibility-expires-index",
+      null
+    ],
+    [
+      "resources",
+      "widen-bigint",
+      null
+    ],
+    [
+      "review",
+      "baseline",
+      null
+    ],
+    [
+      "review_suggestions",
+      "baseline",
+      null
+    ],
+    [
+      "sandbox_executions",
+      "baseline",
+      null
+    ],
     [
       "scheduler_health",
       "automation-scheduler-health-lease",
-      "d6a4998c3d5b4fd1",
+      "d6a4998c3d5b4fd1"
     ],
     [
       "scheduler_health",
       "automation-scheduler-health-table",
-      "211a9aced4e5b550",
+      "211a9aced4e5b550"
     ],
-    ["scheduler_health", "baseline", null],
-    ["search_resources", "baseline", null],
-    ["service_principal_policies", "baseline", null],
-    ["settings", "baseline", null],
-    ["settings", "indexes", null],
-    ["settings", "widen-bigint", null],
-    ["staged_datasets", "baseline", null],
-    ["staged_datasets", "indexes", null],
-    ["staged_datasets", "widen-bigint", null],
-    ["sync_events", "baseline", null],
-    ["sync_events_prune_state", "baseline", null],
-    ["thread_mappings", "baseline", null],
-    ["usage", "baseline", null],
-    ["usage", "indexes", null],
-    ["usage", "widen-bigint", null],
-    ["usage_alerts", "baseline", null],
-    ["usage_alerts", "usage-alert-default-column", "5fc7cb1ccb6873ab"],
-    ["usage_alerts", "usage-alert-notification-column", "6bf0a66d6dd9c131"],
-    ["usage_alerts", "usage-alert-rules-and-events-tables", "b0b123d2d2fe1941"],
-    ["usage_budgets", "baseline", null],
-    ["workspace_connections", "baseline", null],
-    ["workspace_connections", "v1", "90de1807614ef821"],
-    ["workspace_connections", "v2", "2301affd4acb941c"],
-    ["workspace_connections", "v3", "258fd20e2058890a"],
-    ["workspace_connections", "v4", "d1b7e6139ee84514"],
-    ["workspace_connections", "v5", "ad39b83040e92a4b"],
-    ["workspace_connections", "v6", "ac28e025039da66a"],
-    ["workspace_connections", "v7", "27d57be3f9f535ad"],
-    ["workspace_user_groups", "baseline", null],
-    ["workspace_user_groups", "v10", "6908298ccdce8ea6"],
-    ["workspace_user_groups", "v11", "9d51b0a350f3732b"],
-    ["workspace_user_groups", "v12", "9d51b0a350f3732b"],
-    ["workspace_user_groups", "v13", "f2d372060f300501"],
-    ["workspace_user_groups", "v14", "75d25dd8c52ada33"],
-    ["workspace_user_groups", "v8", "69b4d474b17225bc"],
-    ["workspace_user_groups", "v9", "a7fbcc459812be31"],
+    [
+      "scheduler_health",
+      "baseline",
+      null
+    ],
+    [
+      "search_resources",
+      "baseline",
+      null
+    ],
+    [
+      "service_principal_policies",
+      "baseline",
+      null
+    ],
+    [
+      "settings",
+      "baseline",
+      null
+    ],
+    [
+      "settings",
+      "indexes",
+      null
+    ],
+    [
+      "settings",
+      "widen-bigint",
+      null
+    ],
+    [
+      "staged_datasets",
+      "baseline",
+      null
+    ],
+    [
+      "staged_datasets",
+      "indexes",
+      null
+    ],
+    [
+      "staged_datasets",
+      "widen-bigint",
+      null
+    ],
+    [
+      "sync_events",
+      "baseline",
+      null
+    ],
+    [
+      "sync_events_prune_state",
+      "baseline",
+      null
+    ],
+    [
+      "thread_mappings",
+      "baseline",
+      null
+    ],
+    [
+      "usage",
+      "baseline",
+      null
+    ],
+    [
+      "usage",
+      "indexes",
+      null
+    ],
+    [
+      "usage",
+      "widen-bigint",
+      null
+    ],
+    [
+      "usage_alerts",
+      "baseline",
+      null
+    ],
+    [
+      "usage_alerts",
+      "usage-alert-default-column",
+      "5fc7cb1ccb6873ab"
+    ],
+    [
+      "usage_alerts",
+      "usage-alert-notification-column",
+      "6bf0a66d6dd9c131"
+    ],
+    [
+      "usage_alerts",
+      "usage-alert-rules-and-events-tables",
+      "b0b123d2d2fe1941"
+    ],
+    [
+      "usage_budgets",
+      "baseline",
+      null
+    ],
+    [
+      "workspace_connections",
+      "baseline",
+      null
+    ],
+    [
+      "workspace_connections",
+      "v1",
+      "90de1807614ef821"
+    ],
+    [
+      "workspace_connections",
+      "v2",
+      "2301affd4acb941c"
+    ],
+    [
+      "workspace_connections",
+      "v3",
+      "258fd20e2058890a"
+    ],
+    [
+      "workspace_connections",
+      "v4",
+      "d1b7e6139ee84514"
+    ],
+    [
+      "workspace_connections",
+      "v5",
+      "ad39b83040e92a4b"
+    ],
+    [
+      "workspace_connections",
+      "v6",
+      "ac28e025039da66a"
+    ],
+    [
+      "workspace_connections",
+      "v7",
+      "27d57be3f9f535ad"
+    ],
+    [
+      "workspace_user_groups",
+      "baseline",
+      null
+    ],
+    [
+      "workspace_user_groups",
+      "v10",
+      "6908298ccdce8ea6"
+    ],
+    [
+      "workspace_user_groups",
+      "v11",
+      "9d51b0a350f3732b"
+    ],
+    [
+      "workspace_user_groups",
+      "v12",
+      "9d51b0a350f3732b"
+    ],
+    [
+      "workspace_user_groups",
+      "v13",
+      "f2d372060f300501"
+    ],
+    [
+      "workspace_user_groups",
+      "v14",
+      "75d25dd8c52ada33"
+    ],
+    [
+      "workspace_user_groups",
+      "v8",
+      "69b4d474b17225bc"
+    ],
+    [
+      "workspace_user_groups",
+      "v9",
+      "a7fbcc459812be31"
+    ]
   ],
-  bootLists: [
-    ["_better_auth_migrations", 1, "better-auth-core-tables"],
-    ["_better_auth_migrations", 2, "better-auth-repair-user-columns"],
-    ["_better_auth_migrations", 3, "legacy-auth-sessions-table"],
-    ["_better_auth_migrations", 5, "better-auth-add-onboarding-role"],
-    ["_better_auth_migrations", 11, "better-auth-user-lower-email-index"],
-    ["_better_auth_migrations", 6, "better-auth-enterprise-sso-scim-tables"],
-    ["_better_auth_migrations", 7, "better-auth-identity-rekey-ledger"],
-    ["_better_auth_migrations", 8, "better-auth-jwks-alg-crv-columns"],
-    ["_better_auth_migrations", 9, "better-auth-two-factor-tables"],
-    ["_better_auth_migrations", 10, "better-auth-user-first-touch-attribution"],
-    ["_context_xray_migrations", 1201, null],
-    ["_context_xray_migrations", 1202, null],
-    ["_context_xray_migrations", 1203, null],
-    ["_observational_memory_migrations", 1, null],
-    ["_observational_memory_migrations", 2, null],
-    ["_observational_memory_migrations", 3, null],
-    ["_org_migrations", 1001, null],
-    ["_org_migrations", 1002, null],
-    ["_org_migrations", 1003, null],
-    ["_org_migrations", 1004, null],
-    ["_org_migrations", 1005, null],
-    ["_org_migrations", 1006, null],
-    ["_org_migrations", 1007, null],
-    ["_org_migrations", 1008, null],
-    ["_org_migrations", 1010, "org-members-unique-lower-email-idx"],
-    ["_org_migrations", 1011, null],
+  "bootLists": [
+    [
+      "_better_auth_migrations",
+      1,
+      "better-auth-core-tables"
+    ],
+    [
+      "_better_auth_migrations",
+      2,
+      "better-auth-repair-user-columns"
+    ],
+    [
+      "_better_auth_migrations",
+      3,
+      "legacy-auth-sessions-table"
+    ],
+    [
+      "_better_auth_migrations",
+      5,
+      "better-auth-add-onboarding-role"
+    ],
+    [
+      "_better_auth_migrations",
+      11,
+      "better-auth-user-lower-email-index"
+    ],
+    [
+      "_better_auth_migrations",
+      6,
+      "better-auth-enterprise-sso-scim-tables"
+    ],
+    [
+      "_better_auth_migrations",
+      7,
+      "better-auth-identity-rekey-ledger"
+    ],
+    [
+      "_better_auth_migrations",
+      8,
+      "better-auth-jwks-alg-crv-columns"
+    ],
+    [
+      "_better_auth_migrations",
+      9,
+      "better-auth-two-factor-tables"
+    ],
+    [
+      "_better_auth_migrations",
+      10,
+      "better-auth-user-first-touch-attribution"
+    ],
+    [
+      "_context_xray_migrations",
+      1201,
+      null
+    ],
+    [
+      "_context_xray_migrations",
+      1202,
+      null
+    ],
+    [
+      "_context_xray_migrations",
+      1203,
+      null
+    ],
+    [
+      "_observational_memory_migrations",
+      1,
+      null
+    ],
+    [
+      "_observational_memory_migrations",
+      2,
+      null
+    ],
+    [
+      "_observational_memory_migrations",
+      3,
+      null
+    ],
+    [
+      "_org_migrations",
+      1001,
+      null
+    ],
+    [
+      "_org_migrations",
+      1002,
+      null
+    ],
+    [
+      "_org_migrations",
+      1003,
+      null
+    ],
+    [
+      "_org_migrations",
+      1004,
+      null
+    ],
+    [
+      "_org_migrations",
+      1005,
+      null
+    ],
+    [
+      "_org_migrations",
+      1006,
+      null
+    ],
+    [
+      "_org_migrations",
+      1007,
+      null
+    ],
+    [
+      "_org_migrations",
+      1008,
+      null
+    ],
+    [
+      "_org_migrations",
+      1010,
+      "org-members-unique-lower-email-idx"
+    ],
+    [
+      "_org_migrations",
+      1011,
+      null
+    ],
     [
       "_org_migrations",
       1012,
-      "app-member-roles-unique-org-app-lower-email-idx",
+      "app-member-roles-unique-org-app-lower-email-idx"
     ],
-    ["_org_migrations", 1013, null],
-    ["_org_migrations", 1014, null],
-    ["_org_migrations", 1015, null],
-    ["_org_migrations", 1016, null],
-    ["_org_migrations", 1017, "workspace-app-access-indexes"],
-    ["_org_migrations", 1019, "organization-identity-federation"],
-    ["_org_migrations", 1020, "organization-federation-removal-pending"],
-    ["_org_migrations", 1021, "organization-federation-roster-initialized"],
-    ["_org_migrations", 1022, "org-tables-timestamps-bigint"],
-    ["_org_migrations", 1023, "workspace-app-shares-notified-at"],
-    ["_org_migrations", 1024, "suggestion-creations-receipt-version"],
-    ["_org_migrations", 1025, "app-member-roles-drop-single-role-unique-index"],
-    ["_org_migrations", 1026, "app-member-roles-unique-org-app-email-role-idx"],
-    ["_org_migrations", 1027, "app-permission-overrides-and-invitation-roles"],
-    ["_org_migrations", 1028, "app-permission-overrides-table"],
-    ["_org_migrations", 1029, "org-scim-membership-ownership"],
-    ["_org_migrations", 1030, "org-scim-membership-member-id"],
-    ["_org_migrations", 1031, "workspace-app-org-enabled"],
-    ["_org_migrations", 1032, "agent-audit-log-base-table"],
-    ["_org_migrations", 1033, "organization-visual-identity"],
-    ["_org_migrations", 1034, "private-icon-assets"],
-  ],
+    [
+      "_org_migrations",
+      1013,
+      null
+    ],
+    [
+      "_org_migrations",
+      1014,
+      null
+    ],
+    [
+      "_org_migrations",
+      1015,
+      null
+    ],
+    [
+      "_org_migrations",
+      1016,
+      null
+    ],
+    [
+      "_org_migrations",
+      1017,
+      "workspace-app-access-indexes"
+    ],
+    [
+      "_org_migrations",
+      1019,
+      "organization-identity-federation"
+    ],
+    [
+      "_org_migrations",
+      1020,
+      "organization-federation-removal-pending"
+    ],
+    [
+      "_org_migrations",
+      1021,
+      "organization-federation-roster-initialized"
+    ],
+    [
+      "_org_migrations",
+      1022,
+      "org-tables-timestamps-bigint"
+    ],
+    [
+      "_org_migrations",
+      1023,
+      "workspace-app-shares-notified-at"
+    ],
+    [
+      "_org_migrations",
+      1024,
+      "suggestion-creations-receipt-version"
+    ],
+    [
+      "_org_migrations",
+      1025,
+      "app-member-roles-drop-single-role-unique-index"
+    ],
+    [
+      "_org_migrations",
+      1026,
+      "app-member-roles-unique-org-app-email-role-idx"
+    ],
+    [
+      "_org_migrations",
+      1027,
+      "app-permission-overrides-and-invitation-roles"
+    ],
+    [
+      "_org_migrations",
+      1028,
+      "app-permission-overrides-table"
+    ],
+    [
+      "_org_migrations",
+      1029,
+      "org-scim-membership-ownership"
+    ],
+    [
+      "_org_migrations",
+      1030,
+      "org-scim-membership-member-id"
+    ],
+    [
+      "_org_migrations",
+      1031,
+      "workspace-app-org-enabled"
+    ],
+    [
+      "_org_migrations",
+      1032,
+      "agent-audit-log-base-table"
+    ],
+    [
+      "_org_migrations",
+      1033,
+      "organization-visual-identity"
+    ],
+    [
+      "_org_migrations",
+      1034,
+      "private-icon-assets"
+    ]
+  ]
 };

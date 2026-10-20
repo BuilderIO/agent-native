@@ -14,7 +14,10 @@ const inboxHarness = vi.hoisted(() => ({
   admissions: [] as Array<Record<string, unknown>>,
   admit: null as ((body: Record<string, any>) => Promise<string>) | null,
   activeRun: null as Record<string, unknown> | null,
-  safeAbort: null as (() => Promise<boolean>) | null,
+  safeAbort: null as
+    | ((runId: string, reason: string) => Promise<boolean>)
+    | null,
+  turnAbort: null as ((runId: string, reason: string) => Promise<void>) | null,
 }));
 
 vi.mock("./framework-request-handler.js", async (importOriginal) => {
@@ -72,12 +75,16 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       return {};
     },
     getActiveRunForThreadAsync: vi.fn(async () => inboxHarness.activeRun),
-    abortRunAtSafeBoundaryDurably: vi.fn(async () => {
-      const aborted = await inboxHarness.safeAbort?.();
-      if (aborted) inboxHarness.activeRun = null;
-      return aborted ?? true;
+    abortRunAtSafeBoundaryDurably: vi.fn(
+      async (runId: string, reason: string) => {
+        const aborted = await inboxHarness.safeAbort?.(runId, reason);
+        if (aborted) inboxHarness.activeRun = null;
+        return aborted ?? true;
+      },
+    ),
+    abortTurnDurably: vi.fn(async (runId: string, reason: string) => {
+      await inboxHarness.turnAbort?.(runId, reason);
     }),
-    abortTurnDurably: vi.fn(async () => {}),
   };
 });
 
@@ -174,6 +181,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.admit = null;
     inboxHarness.activeRun = null;
     inboxHarness.safeAbort = null;
+    inboxHarness.turnAbort = null;
   });
 
   afterEach(async () => {
@@ -401,5 +409,267 @@ describe("queued submission inbox recurring sweep", () => {
       (storedThread.rows[0] as { thread_data: string }).thread_data,
     );
     expect(threadData.queuedMessages[0]).not.toHaveProperty("promotionClaim");
+  });
+
+  it("replays a turn abort after the active run was stopped but marker persistence failed", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const activeRunId = `active-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: {
+          id: messageId,
+          threadId,
+          text: "Steer after the current action",
+          interruptActiveRun: true,
+        },
+      },
+      { actor },
+    );
+    inboxHarness.activeRun = {
+      runId: activeRunId,
+      threadId,
+      turnId: "active-turn",
+      status: "running",
+      inFlight: true,
+      hasInFlightWork: true,
+    };
+    const safeAbort = vi.fn(async () => true);
+    inboxHarness.safeAbort = safeAbort;
+    const turnAbort = vi.fn(async (runId: string, reason: string) => {
+      expect(runId).toBe(activeRunId);
+      expect(reason).toBe("user");
+      if (turnAbort.mock.calls.length === 1) {
+        throw new Error("turn marker store unavailable");
+      }
+      if (turnAbort.mock.calls.length === 2) {
+        inboxHarness.activeRun = {
+          runId: activeRunId,
+          threadId,
+          turnId: "active-turn",
+          status: "aborted",
+          inFlight: true,
+          hasInFlightWork: true,
+        };
+      }
+    });
+    inboxHarness.turnAbort = turnAbort;
+    inboxHarness.admit = async () => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const runId = `run-${messageId}`;
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return runId;
+    };
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    const sweep = () =>
+      h3App.fetch(
+        new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+          method: "GET",
+          headers: { authorization: "Bearer sweep-test-secret" },
+        }),
+      );
+
+    const failedResponse = await sweep();
+    expect(failedResponse.status).toBe(500);
+    await expect(failedResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: {
+        scanned: 1,
+        claimed: 1,
+        submitted: 0,
+        failed: 1,
+      },
+    });
+    expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
+      { state: "queued", interruptRunId: activeRunId },
+    );
+    expect(inboxHarness.admissions).toHaveLength(0);
+
+    now.mockReturnValue(111_000);
+    const idleResponse = await sweep();
+    expect(idleResponse.status).toBe(200);
+    await expect(idleResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: {
+        scanned: 1,
+        claimed: 1,
+        submitted: 0,
+        failed: 0,
+        deferred: 1,
+      },
+    });
+    expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
+      { state: "queued", interruptRunId: activeRunId },
+    );
+    expect(inboxHarness.admissions).toHaveLength(0);
+
+    now.mockReturnValue(122_000);
+    const retryResponse = await sweep();
+    expect(retryResponse.status).toBe(200);
+    await expect(retryResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: {
+        scanned: 1,
+        claimed: 1,
+        submitted: 1,
+        failed: 0,
+      },
+    });
+    expect(safeAbort).toHaveBeenCalledTimes(3);
+    expect(turnAbort).toHaveBeenCalledTimes(3);
+    expect(inboxHarness.admissions).toHaveLength(1);
+    expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
+      { state: "submitted", submittedRunId: `run-${messageId}` },
+    );
+    expect(
+      await getQueuedSubmissionReceipt(threadId, messageId),
+    ).not.toHaveProperty("interruptRunId");
+    now.mockRestore();
+  });
+
+  it("retries the turn marker when the run is already durably aborted", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const activeRunId = `active-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const now = vi.spyOn(Date, "now").mockReturnValue(200_000);
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: {
+          id: messageId,
+          threadId,
+          text: "Steer after the current action",
+          interruptActiveRun: true,
+        },
+      },
+      { actor },
+    );
+    inboxHarness.activeRun = {
+      runId: activeRunId,
+      threadId,
+      turnId: "active-turn",
+      status: "running",
+      inFlight: true,
+      hasInFlightWork: true,
+    };
+    const safeAbort = vi.fn(async () => safeAbort.mock.calls.length === 1);
+    inboxHarness.safeAbort = safeAbort;
+    const turnAbort = vi.fn(async (runId: string, reason: string) => {
+      expect(runId).toBe(activeRunId);
+      expect(reason).toBe("user");
+      if (turnAbort.mock.calls.length === 1) {
+        inboxHarness.activeRun = {
+          runId: activeRunId,
+          threadId,
+          turnId: "active-turn",
+          status: "aborted",
+          inFlight: false,
+          hasInFlightWork: false,
+        };
+        throw new Error("turn marker store unavailable");
+      }
+    });
+    inboxHarness.turnAbort = turnAbort;
+    inboxHarness.admit = async () => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const runId = `run-${messageId}`;
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return runId;
+    };
+
+    const h3App = createApp();
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })({
+      h3App,
+      hooks: {
+        hook(name, callback) {
+          if (name === "close") sweepHarness.closeHooks.push(callback);
+        },
+      },
+    });
+    await sweepHarness.initPromises.at(-1);
+
+    const sweep = () =>
+      h3App.fetch(
+        new Request(`http://example.test${RECURRING_JOBS_SWEEP_PATH}`, {
+          method: "GET",
+          headers: { authorization: "Bearer sweep-test-secret" },
+        }),
+      );
+
+    const failedResponse = await sweep();
+    expect(failedResponse.status).toBe(500);
+    expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
+      { state: "queued", interruptRunId: activeRunId },
+    );
+    expect(inboxHarness.activeRun).toMatchObject({ status: "aborted" });
+
+    now.mockReturnValue(211_000);
+    const retryResponse = await sweep();
+    expect(retryResponse.status).toBe(200);
+    await expect(retryResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: {
+        scanned: 1,
+        claimed: 1,
+        submitted: 1,
+        failed: 0,
+      },
+    });
+    expect(safeAbort).toHaveBeenCalledTimes(2);
+    expect(turnAbort).toHaveBeenCalledTimes(2);
+    expect(inboxHarness.admissions).toHaveLength(1);
+    expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
+      { state: "submitted", submittedRunId: `run-${messageId}` },
+    );
+    now.mockRestore();
   });
 });

@@ -7,10 +7,7 @@ export const FRAMEWORK_STORES: ReadonlyArray<
 > = [
   [
     "a2a_continuations",
-    () =>
-      import("../integrations/a2a-continuations-store.js").then(
-        (m) => m.a2aContinuationsStore,
-      ),
+    () => import("../integrations/a2a-continuations-store.js").then((m) => m.a2aContinuationsStore),
   ],
   [
     "a2a_tasks",
@@ -18,10 +15,7 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "agent_harness_sessions",
-    () =>
-      import("../agent/harness/store.js").then(
-        (m) => m.agentHarnessSessionsStore,
-      ),
+    () => import("../agent/harness/store.js").then((m) => m.agentHarnessSessionsStore),
   ],
   [
     "agent_runs",
@@ -29,31 +23,19 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "agent_team_run_queue",
-    () =>
-      import("../server/agent-teams-run-queue.js").then(
-        (m) => m.agentTeamRunQueueStore,
-      ),
+    () => import("../server/agent-teams-run-queue.js").then((m) => m.agentTeamRunQueueStore),
   ],
   [
     "agent_tool_approval_policies",
-    () =>
-      import("../agent/tool-approval-store.js").then(
-        (m) => m.agentToolApprovalPoliciesStore,
-      ),
+    () => import("../agent/tool-approval-store.js").then((m) => m.agentToolApprovalPoliciesStore),
   ],
   [
     "agent_tool_approvals",
-    () =>
-      import("../agent/tool-approval-store.js").then(
-        (m) => m.agentToolApprovalsStore,
-      ),
+    () => import("../agent/tool-approval-store.js").then((m) => m.agentToolApprovalsStore),
   ],
   [
     "app_resource_changes",
-    () =>
-      import("../resource-changes/store.js").then(
-        (m) => m.resourceChangesStore,
-      ),
+    () => import("../resource-changes/store.js").then((m) => m.resourceChangesStore),
   ],
   [
     "app_secrets",
@@ -61,55 +43,39 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "application_state",
-    () =>
-      import("../application-state/store.js").then(
-        (m) => m.applicationStateStore,
-      ),
+    () => import("../application-state/store.js").then((m) => m.applicationStateStore),
   ],
-  ["audit", () => import("../audit/store.js").then((m) => m.auditStore)],
+  [
+    "audit",
+    () => import("../audit/store.js").then((m) => m.auditStore),
+  ],
   [
     "auth_sessions",
     () => import("../server/auth.js").then((m) => m.authSessionsStore),
   ],
   [
     "automation_run_history",
-    () =>
-      import("../jobs/run-history.js").then((m) => m.automationRunHistoryStore),
+    () => import("../jobs/run-history.js").then((m) => m.automationRunHistoryStore),
   ],
   [
     "automation_trigger_events",
-    () =>
-      import("../triggers/event-queue.js").then(
-        (m) => m.automationTriggerEventsStore,
-      ),
+    () => import("../triggers/event-queue.js").then((m) => m.automationTriggerEventsStore),
   ],
   [
     "automation_webhook_tokens",
-    () =>
-      import("../triggers/webhook-store.js").then(
-        (m) => m.automationWebhookTokensStore,
-      ),
+    () => import("../triggers/webhook-store.js").then((m) => m.automationWebhookTokensStore),
   ],
   [
     "awaiting_inputs",
-    () =>
-      import("../integrations/awaiting-input-store.js").then(
-        (m) => m.awaitingInputsStore,
-      ),
+    () => import("../integrations/awaiting-input-store.js").then((m) => m.awaitingInputsStore),
   ],
   [
     "better_auth",
-    () =>
-      import("../server/better-auth-migrations.js").then(
-        (m) => m.betterAuthStore,
-      ),
+    () => import("../server/better-auth-migrations.js").then((m) => m.betterAuthStore),
   ],
   [
     "browser_sessions",
-    () =>
-      import("../browser-sessions/store.js").then(
-        (m) => m.browserSessionsStore,
-      ),
+    () => import("../browser-sessions/store.js").then((m) => m.browserSessionsStore),
   ],
   [
     "chat_threads",
@@ -121,10 +87,7 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "collab_awareness",
-    () =>
-      import("../collab/awareness-store.js").then(
-        (m) => m.collabAwarenessStore,
-      ),
+    () => import("../collab/awareness-store.js").then((m) => m.collabAwarenessStore),
   ],
   [
     "collab_docs",
@@ -132,31 +95,19 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "computer_approvals",
-    () =>
-      import("../integrations/computer-supervision-store.js").then(
-        (m) => m.computerApprovalsStore,
-      ),
+    () => import("../integrations/computer-supervision-store.js").then((m) => m.computerApprovalsStore),
   ],
   [
     "context_xray",
-    () =>
-      import("../agent/context-xray/schema-store.js").then(
-        (m) => m.contextXrayStore,
-      ),
+    () => import("../agent/context-xray/schema-store.js").then((m) => m.contextXrayStore),
   ],
   [
     "conversation_scopes",
-    () =>
-      import("../integrations/scope-store.js").then(
-        (m) => m.conversationScopesStore,
-      ),
+    () => import("../integrations/scope-store.js").then((m) => m.conversationScopesStore),
   ],
   [
     "custom_api_providers",
-    () =>
-      import("../provider-api/custom-registry.js").then(
-        (m) => m.customApiProvidersStore,
-      ),
+    () => import("../provider-api/custom-registry.js").then((m) => m.customApiProvidersStore),
   ],
   [
     "data_programs",
@@ -168,13 +119,11 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "embed_sessions",
-    () =>
-      import("../server/embed-session.js").then((m) => m.embedSessionsStore),
+    () => import("../server/embed-session.js").then((m) => m.embedSessionsStore),
   ],
   [
     "extension_slots",
-    () =>
-      import("../extensions/slots/store.js").then((m) => m.extensionSlotsStore),
+    () => import("../extensions/slots/store.js").then((m) => m.extensionSlotsStore),
   ],
   [
     "extensions",
@@ -182,50 +131,31 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "identity_links",
-    () =>
-      import("../integrations/identity-links-store.js").then(
-        (m) => m.identityLinksStore,
-      ),
+    () => import("../integrations/identity-links-store.js").then((m) => m.identityLinksStore),
   ],
   [
     "identity_retired_emails",
-    () =>
-      import("../identity/retired-emails.js").then(
-        (m) => m.identityRetiredEmailsStore,
-      ),
+    () => import("../identity/retired-emails.js").then((m) => m.identityRetiredEmailsStore),
   ],
   [
     "identity_sso",
-    () =>
-      import("../server/identity-sso-store.js").then((m) => m.identitySsoStore),
+    () => import("../server/identity-sso-store.js").then((m) => m.identitySsoStore),
   ],
   [
     "integration_campaigns",
-    () =>
-      import("../integrations/integration-campaigns-store.js").then(
-        (m) => m.integrationCampaignsStore,
-      ),
+    () => import("../integrations/integration-campaigns-store.js").then((m) => m.integrationCampaignsStore),
   ],
   [
     "integration_configs",
-    () =>
-      import("../integrations/config-store.js").then(
-        (m) => m.integrationConfigsStore,
-      ),
+    () => import("../integrations/config-store.js").then((m) => m.integrationConfigsStore),
   ],
   [
     "integration_controls",
-    () =>
-      import("../integrations/controls-store.js").then(
-        (m) => m.integrationControlsStore,
-      ),
+    () => import("../integrations/controls-store.js").then((m) => m.integrationControlsStore),
   ],
   [
     "integration_installations",
-    () =>
-      import("../integrations/installations-store.js").then(
-        (m) => m.installationsStore,
-      ),
+    () => import("../integrations/installations-store.js").then((m) => m.installationsStore),
   ],
   [
     "mcp_approvals",
@@ -253,18 +183,15 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "observational_memory",
-    () =>
-      import("../agent/observational-memory/store.js").then(
-        (m) => m.observationalMemoryStore,
-      ),
+    () => import("../agent/observational-memory/store.js").then((m) => m.observationalMemoryStore),
   ],
-  ["org", () => import("../org/schema-store.js").then((m) => m.orgStore)],
+  [
+    "org",
+    () => import("../org/schema-store.js").then((m) => m.orgStore),
+  ],
   [
     "pending_tasks",
-    () =>
-      import("../integrations/pending-tasks-store.js").then(
-        (m) => m.pendingTasksStore,
-      ),
+    () => import("../integrations/pending-tasks-store.js").then((m) => m.pendingTasksStore),
   ],
   [
     "progress",
@@ -272,57 +199,35 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "provider_corpus_jobs",
-    () =>
-      import("../provider-api/corpus-jobs-store.js").then(
-        (m) => m.providerCorpusJobsStore,
-      ),
+    () => import("../provider-api/corpus-jobs-store.js").then((m) => m.providerCorpusJobsStore),
   ],
   [
     "provider_quota_cooldowns",
-    () =>
-      import("../provider-api/quota-governor.js").then(
-        (m) => m.providerQuotaCooldownsStore,
-      ),
+    () => import("../provider-api/quota-governor.js").then((m) => m.providerQuotaCooldownsStore),
   ],
   [
     "recap_images",
-    () =>
-      import("../server/recap-image-store.js").then((m) => m.recapImagesStore),
+    () => import("../server/recap-image-store.js").then((m) => m.recapImagesStore),
   ],
   [
     "remote_commands",
-    () =>
-      import("../integrations/remote-commands-store.js").then(
-        (m) => m.remoteCommandsStore,
-      ),
+    () => import("../integrations/remote-commands-store.js").then((m) => m.remoteCommandsStore),
   ],
   [
     "remote_devices",
-    () =>
-      import("../integrations/remote-devices-store.js").then(
-        (m) => m.remoteDevicesStore,
-      ),
+    () => import("../integrations/remote-devices-store.js").then((m) => m.remoteDevicesStore),
   ],
   [
     "remote_push",
-    () =>
-      import("../integrations/remote-push-store.js").then(
-        (m) => m.remotePushStore,
-      ),
+    () => import("../integrations/remote-push-store.js").then((m) => m.remotePushStore),
   ],
   [
     "remote_run_events",
-    () =>
-      import("../integrations/remote-run-events-store.js").then(
-        (m) => m.remoteRunEventsStore,
-      ),
+    () => import("../integrations/remote-run-events-store.js").then((m) => m.remoteRunEventsStore),
   ],
   [
     "resource_access_requests",
-    () =>
-      import("../sharing/access-request-store.js").then(
-        (m) => m.resourceAccessRequestsStore,
-      ),
+    () => import("../sharing/access-request-store.js").then((m) => m.resourceAccessRequestsStore),
   ],
   [
     "resource_versions",
@@ -332,25 +237,21 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     "resources",
     () => import("../resources/store.js").then((m) => m.resourcesStore),
   ],
-  ["review", () => import("../review/store.js").then((m) => m.reviewStore)],
+  [
+    "review",
+    () => import("../review/store.js").then((m) => m.reviewStore),
+  ],
   [
     "review_suggestions",
-    () =>
-      import("../review/suggestions/store.js").then(
-        (m) => m.reviewSuggestionsStore,
-      ),
+    () => import("../review/suggestions/store.js").then((m) => m.reviewSuggestionsStore),
   ],
   [
     "sandbox_executions",
-    () =>
-      import("../coding-tools/sandbox/executions-store.js").then(
-        (m) => m.sandboxExecutionsStore,
-      ),
+    () => import("../coding-tools/sandbox/executions-store.js").then((m) => m.sandboxExecutionsStore),
   ],
   [
     "scheduler_health",
-    () =>
-      import("../jobs/scheduler-health.js").then((m) => m.schedulerHealthStore),
+    () => import("../jobs/scheduler-health.js").then((m) => m.schedulerHealthStore),
   ],
   [
     "search_resources",
@@ -358,10 +259,7 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "service_principal_policies",
-    () =>
-      import("../org/service-principal-policy.js").then(
-        (m) => m.servicePrincipalPoliciesStore,
-      ),
+    () => import("../org/service-principal-policy.js").then((m) => m.servicePrincipalPoliciesStore),
   ],
   [
     "settings",
@@ -369,10 +267,7 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "staged_datasets",
-    () =>
-      import("../provider-api/staged-datasets-store.js").then(
-        (m) => m.stagedDatasetsStore,
-      ),
+    () => import("../provider-api/staged-datasets-store.js").then((m) => m.stagedDatasetsStore),
   ],
   [
     "sync_events",
@@ -384,35 +279,26 @@ export const FRAMEWORK_STORES: ReadonlyArray<
   ],
   [
     "thread_mappings",
-    () =>
-      import("../integrations/thread-mapping-store.js").then(
-        (m) => m.threadMappingsStore,
-      ),
+    () => import("../integrations/thread-mapping-store.js").then((m) => m.threadMappingsStore),
   ],
-  ["usage", () => import("../usage/store.js").then((m) => m.usageStore)],
+  [
+    "usage",
+    () => import("../usage/store.js").then((m) => m.usageStore),
+  ],
   [
     "usage_alerts",
     () => import("../usage/alerts-store.js").then((m) => m.usageAlertsStore),
   ],
   [
     "usage_budgets",
-    () =>
-      import("../integrations/usage-budget-store.js").then(
-        (m) => m.usageBudgetsStore,
-      ),
+    () => import("../integrations/usage-budget-store.js").then((m) => m.usageBudgetsStore),
   ],
   [
     "workspace_connections",
-    () =>
-      import("../workspace-connections/store.js").then(
-        (m) => m.workspaceConnectionsStore,
-      ),
+    () => import("../workspace-connections/store.js").then((m) => m.workspaceConnectionsStore),
   ],
   [
     "workspace_user_groups",
-    () =>
-      import("../workspace-connections/groups.js").then(
-        (m) => m.workspaceUserGroupsStore,
-      ),
+    () => import("../workspace-connections/groups.js").then((m) => m.workspaceUserGroupsStore),
   ],
 ];

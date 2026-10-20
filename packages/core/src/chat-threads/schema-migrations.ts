@@ -105,4 +105,12 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
         ON agent_chat_submission_inbox (state, retry_after, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)
     `,
   },
+  {
+    version: 6,
+    name: "chat-thread-inbox-interrupt-replay",
+    sql: `
+      ALTER TABLE agent_chat_submission_inbox
+        ADD COLUMN IF NOT EXISTS interrupt_run_id TEXT
+    `,
+  },
 ];

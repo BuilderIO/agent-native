@@ -157,6 +157,7 @@ import {
   QueuedSubmissionAdmissionError,
   adoptThreadScopeIfUnscoped,
   blockQueuedSubmissionReceipt,
+  clearQueuedSubmissionInterruptRun,
   createThread,
   forkThread,
   getThread,
@@ -164,6 +165,7 @@ import {
   listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   queuedSubmissionBehaviorMatches,
+  recordQueuedSubmissionInterruptRun,
   registerChatThreadsShareable,
   retryQueuedSubmissionReceipt,
   resolveRunThreadScope,
@@ -8576,6 +8578,84 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const claimedMessage = claim.claimedMessage;
             result.claimed += 1;
 
+            const claimedReceipt = await getQueuedSubmissionReceipt(
+              receipt.threadId,
+              receipt.messageId,
+            );
+            if (!claimedReceipt || claimedReceipt.state !== "queued") {
+              if (claimedReceipt?.state === "submitted") {
+                result.submitted += 1;
+              } else {
+                result.deferred += 1;
+              }
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              continue;
+            }
+
+            const finishInterrupt = async (runId: string) => {
+              const aborted = await abortRunAtSafeBoundaryDurably(
+                runId,
+                "user",
+              );
+              if (!aborted) {
+                const latest = await getActiveRunForThreadAsync(
+                  receipt.threadId,
+                );
+                if (
+                  latest?.runId !== runId ||
+                  latest.inFlight ||
+                  latest.status === "running"
+                ) {
+                  return false;
+                }
+                if (latest.status === "aborted") {
+                  await abortTurnDurably(runId, "user");
+                }
+              } else {
+                await abortTurnDurably(runId, "user");
+              }
+              if (!(await waitForStableIdle(receipt.threadId))) return false;
+              const cleared = await clearQueuedSubmissionInterruptRun({
+                threadId: receipt.threadId,
+                messageId: receipt.messageId,
+                runId,
+                claimId: claimId!,
+              });
+              if (!cleared) {
+                throw new Error(
+                  `Queued interruption target ${runId} could not be cleared by its current claim`,
+                );
+              }
+              return true;
+            };
+
+            if (claimedReceipt.interruptRunId) {
+              const stableIdle = await finishInterrupt(
+                claimedReceipt.interruptRunId,
+              );
+              if (!stableIdle) {
+                await retryQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                  Date.now() + 10_000,
+                  { claimId },
+                );
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+                claimId = undefined;
+                result.deferred += 1;
+                continue;
+              }
+            }
+
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
@@ -8594,11 +8674,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 result.deferred += 1;
                 continue;
               }
-              const aborted = await abortRunAtSafeBoundaryDurably(
-                active.runId,
-                "user",
-              );
-              if (!aborted) {
+              const recorded = await recordQueuedSubmissionInterruptRun({
+                threadId: receipt.threadId,
+                messageId: receipt.messageId,
+                runId: active.runId,
+                claimId,
+              });
+              if (!recorded) {
                 await retryQueuedSubmissionReceipt(
                   receipt.threadId,
                   receipt.messageId,
@@ -8614,8 +8696,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 result.deferred += 1;
                 continue;
               }
-              await abortTurnDurably(active.runId, "user");
-              if (!(await waitForStableIdle(receipt.threadId))) {
+              if (!(await finishInterrupt(active.runId))) {
                 await retryQueuedSubmissionReceipt(
                   receipt.threadId,
                   receipt.messageId,
