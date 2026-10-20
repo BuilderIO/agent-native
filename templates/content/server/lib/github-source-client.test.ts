@@ -114,6 +114,24 @@ describe("GitHub request deadlines", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("leaves no failure unheard when its time ran out before the request", async () => {
+    const unheard: unknown[] = [];
+    const listen = (reason: unknown) => unheard.push(reason);
+    process.on("unhandledRejection", listen);
+    try {
+      github.failure = new Error("socket hang up");
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        readGitHubBlob({ ...target, sha: "b10b", signal: controller.signal }),
+      ).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(unheard).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", listen);
+    }
+  });
+
   it("stops waiting at its own deadline while the provider client holds the request", async () => {
     github.stall = true;
     const budget = new AbortController();
