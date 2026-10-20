@@ -9259,7 +9259,6 @@ export async function runAgentLoop(opts: {
           actionIsReadOnly ? undefined : { input: toolCall.input },
           journalEntriesAlreadyRepresented,
           executionStepId,
-          internalContinuationTurn,
           journalEntriesAmbiguous,
         );
         if (journaled) {

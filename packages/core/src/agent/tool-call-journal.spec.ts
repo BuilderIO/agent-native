@@ -860,7 +860,7 @@ describe("recorded call effects", () => {
     ).toEqual(new Set());
   });
 
-  it("replays one represented legacy result during an internal continuation", () => {
+  it("does not reuse a represented legacy result for a new execution step", () => {
     const input = { message: "same" };
     const argumentsHash = actionArgumentsHash(input);
     const journal = classifyToolCallJournal([
@@ -905,9 +905,8 @@ describe("recorded call effects", () => {
         { input },
         represented,
         "continued-step",
-        true,
       ),
-    ).toMatchObject({ result: "sent" });
+    ).toBeUndefined();
     expect(
       findReplayableJournalEntry(
         journal,
@@ -917,7 +916,6 @@ describe("recorded call effects", () => {
         { input },
         represented,
         "continued-step",
-        true,
       ),
     ).toBeUndefined();
   });
@@ -1001,7 +999,6 @@ describe("recorded call effects", () => {
         { input },
         represented,
         "continued-step",
-        true,
         ambiguous,
       ),
     ).toBeUndefined();

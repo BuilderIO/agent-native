@@ -608,6 +608,200 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("executes a new write instead of replaying a represented legacy result", async () => {
+    const input = { id: "deck-after-legacy" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "legacy-completed-call",
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "legacy-completed-call",
+        tool: "create-deck",
+        input,
+        result: "First deck saved",
+        completedSideEffect: true,
+      },
+    ];
+    const actionRun = vi.fn(async () => "Second deck saved");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("new-provider-call", input)],
+            [text("The second deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Create another deck." }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "legacy-completed-call",
+                name: "create-deck",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "legacy-completed-call",
+                toolName: "create-deck",
+                toolInput: JSON.stringify(input),
+                content: "First deck saved",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledOnce();
+    expect(durableStep.completedSteps).toHaveLength(1);
+    expect(durableStep.completedSteps[0]?.stepId).not.toBe(
+      "legacy-completed-call",
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "new-provider-call",
+        result: "Second deck saved",
+      }),
+    );
+    expect(
+      events.some((event) => event.type === "tool_done" && event.replayed),
+    ).toBe(false);
+  });
+
+  it("runs a retry-safe write when divergent legacy results have no history attribution", async () => {
+    const input = { id: "deck-retry-safe" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "legacy-first-call",
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "legacy-first-call",
+        tool: "create-deck",
+        input,
+        result: "First result",
+        completedSideEffect: true,
+      },
+      {
+        type: "tool_start",
+        id: "legacy-second-call",
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "legacy-second-call",
+        tool: "create-deck",
+        input,
+        result: "Different second result",
+        completedSideEffect: true,
+      },
+    ];
+    const actionRun = vi.fn(async () => "Retry-safe result");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("current-provider-call", input)],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            retrySafe: true,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledOnce();
+    expect(durableStep.completedSteps).toHaveLength(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "current-provider-call",
+        result: "Retry-safe result",
+        completedSideEffect: true,
+      }),
+    );
+  });
+
   it("does not dispatch a write when legacy interrupted identity is ambiguous", async () => {
     const input = { id: "deck-ambiguous" };
     durableStep.priorEvents = [

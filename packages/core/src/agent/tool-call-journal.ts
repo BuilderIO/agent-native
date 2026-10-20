@@ -566,9 +566,10 @@ export function journalCallIdentities(
  * recorded no committed effect runs fresh. A call recorded before calls had
  * identities is matched as it was then, by its raw input, and only for a
  * call prepared as a write, given in `rawWrite`: running that fresh could
- * repeat its effect. The result and the identity it ran with come from one
- * `tool_done`, never joined by call id, so a repeated id cannot attach one
- * call's result to another's arguments here.
+ * repeat its effect. A legacy result already represented in history cannot
+ * identify a new step merely because its tool and arguments match. The result
+ * and the identity it ran with come from one `tool_done`, never joined by call
+ * id, so a repeated id cannot attach one call's result to another's arguments.
  */
 export function findReplayableJournalEntry(
   journal: ToolCallJournal,
@@ -578,7 +579,6 @@ export function findReplayableJournalEntry(
   rawWrite?: { input: unknown },
   representedKeys?: ReadonlySet<string>,
   executionStepId?: string,
-  allowRepresentedLegacyReplay = false,
   ambiguousKeys?: ReadonlySet<string>,
 ): ToolCallJournalEntry | undefined {
   const matches = (candidate: ToolCallJournalEntry) =>
@@ -597,13 +597,11 @@ export function findReplayableJournalEntry(
     const ambiguous = ambiguousKeys?.has(candidate.key) === true;
     const identityMatches =
       executionStepId === undefined
-        ? candidate.executionStepId === undefined &&
-          !ambiguous &&
-          (!represented || allowRepresentedLegacyReplay)
+        ? candidate.executionStepId === undefined && !ambiguous && !represented
         : candidate.executionStepId === executionStepId ||
           (candidate.executionStepId === undefined &&
             !ambiguous &&
-            (!represented || allowRepresentedLegacyReplay));
+            !represented);
     return identityMatches && matches(candidate);
   });
   const firstCandidate = candidates[0];
