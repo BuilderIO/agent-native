@@ -140,11 +140,19 @@ function persistThread(
   }
 }
 
-function forgetPersistedThread(key: string) {
-  persistClient?.removeQueries({
-    queryKey: persistedThreadQueryKey(key),
-    exact: true,
-  });
+function forgetPersistedThreadsForThread(threadId: string) {
+  if (!persistClient) return;
+  const queryCache = persistClient.getQueryCache();
+  const queryKeyIndex = PERSISTED_THREADS_KEY.length + 2;
+  for (const query of queryCache.findAll({
+    queryKey: [...PERSISTED_THREADS_KEY],
+  })) {
+    const key = query.queryKey[queryKeyIndex];
+    if (typeof key !== "string" || threadIdFromCacheKey(key) !== threadId) {
+      continue;
+    }
+    persistClient.removeQueries({ queryKey: query.queryKey, exact: true });
+  }
 }
 
 function cachedEntry(key: string): CacheEntry | undefined {
@@ -376,11 +384,11 @@ export function invalidateCachedThread(threadId: string) {
   if (keys.length === 0) keys.push(cacheKey(threadId));
   for (const key of keys) {
     cache.delete(key);
-    forgetPersistedThread(key);
     inflight.delete(key);
     versions.set(key, getVersion(key) + 1);
     notify(key);
   }
+  forgetPersistedThreadsForThread(threadId);
 }
 
 const STALE_AFTER = 60 * 1000;

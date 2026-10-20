@@ -6,8 +6,8 @@ type BackgroundThrottlingContents = Pick<
   "getType" | "setBackgroundThrottling"
 >;
 
-export function restoreMailWebviewBackgroundThrottling(
-  target: Pick<ActiveWebviewTarget, "appId" | "webContentsId">,
+export function setMailWebviewBackgroundThrottling(
+  target: Pick<ActiveWebviewTarget, "active" | "appId" | "webContentsId">,
   getWebContents: (id: number) => BackgroundThrottlingContents | undefined,
 ): void {
   if (target.appId !== "mail" || typeof target.webContentsId !== "number") {
@@ -16,5 +16,5 @@ export function restoreMailWebviewBackgroundThrottling(
 
   const contents = getWebContents(target.webContentsId);
   if (contents?.getType() !== "webview") return;
-  contents.setBackgroundThrottling(true);
+  contents.setBackgroundThrottling(target.active !== false);
 }

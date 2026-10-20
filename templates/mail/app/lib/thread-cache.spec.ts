@@ -198,4 +198,31 @@ describe("thread cache privacy", () => {
     ).toHaveLength(1);
     queryClient.clear();
   });
+
+  it("invalidates persisted account-scoped threads after restart", async () => {
+    const threadCache = await import("./thread-cache");
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      [
+        "action",
+        "mail-thread-messages",
+        "session-a",
+        "mailboxes-a",
+        JSON.stringify([null, "first@example.test", "shared-thread"]),
+      ],
+      [{ id: "message-a", body: "stale mailbox body" } as EmailMessage],
+    );
+    threadCache.bindThreadCacheQueryClient(queryClient);
+    threadCache.setThreadCacheSessionScope("session-a");
+    threadCache.setThreadCacheAccountScope("mailboxes-b");
+
+    threadCache.invalidateCachedThread("shared-thread");
+
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["action", "mail-thread-messages"] }),
+    ).toHaveLength(0);
+    queryClient.clear();
+  });
 });

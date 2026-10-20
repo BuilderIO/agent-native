@@ -1,22 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { restoreMailWebviewBackgroundThrottling } from "./webview-background-throttling.js";
+import { setMailWebviewBackgroundThrottling } from "./webview-background-throttling.js";
 
-describe("restoreMailWebviewBackgroundThrottling", () => {
-  it("restores throttling for the preloaded Mail guest when its visibility changes", () => {
+describe("setMailWebviewBackgroundThrottling", () => {
+  it("throttles an active Mail guest and preserves hidden polling when inactive", () => {
     const setBackgroundThrottling = vi.fn();
     const getWebContents = vi.fn(() => ({
       getType: () => "webview",
       setBackgroundThrottling,
     }));
 
-    restoreMailWebviewBackgroundThrottling(
-      { appId: "mail", webContentsId: 42 },
+    setMailWebviewBackgroundThrottling(
+      { appId: "mail", webContentsId: 42, active: true },
+      getWebContents,
+    );
+    setMailWebviewBackgroundThrottling(
+      { appId: "mail", webContentsId: 42, active: false },
       getWebContents,
     );
 
-    expect(getWebContents).toHaveBeenCalledWith(42);
-    expect(setBackgroundThrottling).toHaveBeenCalledWith(true);
+    expect(getWebContents).toHaveBeenNthCalledWith(1, 42);
+    expect(setBackgroundThrottling).toHaveBeenNthCalledWith(1, true);
+    expect(setBackgroundThrottling).toHaveBeenNthCalledWith(2, false);
   });
 
   it("ignores other apps and non-webview contents", () => {
@@ -26,13 +31,13 @@ describe("restoreMailWebviewBackgroundThrottling", () => {
       setBackgroundThrottling,
     }));
 
-    restoreMailWebviewBackgroundThrottling(
+    setMailWebviewBackgroundThrottling(
       { appId: "calendar", webContentsId: 42 },
       getWebContents,
     );
     expect(getWebContents).not.toHaveBeenCalled();
 
-    restoreMailWebviewBackgroundThrottling(
+    setMailWebviewBackgroundThrottling(
       { appId: "mail", webContentsId: 42 },
       getWebContents,
     );
