@@ -472,6 +472,20 @@ describe("MCP OAuth callback flow validation", () => {
       expect(callbackMocks.startMcpOAuthAuthorization).not.toHaveBeenCalled();
     });
 
+    it("uses a mount-aware integrations fallback when the return path is missing", async () => {
+      resolveSecretPairsMock.mockResolvedValue(null);
+
+      const { result } = await startWorkspaceOAuth(
+        "https://mcp.hubspot.com/",
+        "",
+        true,
+      );
+
+      const html = await (result as Response).text();
+      expect(html).toContain('href="/dispatch/settings/integrations"');
+      expect(callbackMocks.startMcpOAuthAuthorization).not.toHaveBeenCalled();
+    });
+
     it("uses the app mount when an optional managed client falls back to dynamic registration", async () => {
       resolveSecretPairsMock.mockResolvedValue(null);
 

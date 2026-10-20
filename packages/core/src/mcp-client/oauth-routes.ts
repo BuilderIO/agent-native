@@ -70,7 +70,8 @@ const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
   );
 
 function safeReturnPath(raw: string | null | undefined): string {
-  return normalizeAppPath(raw) ?? "/";
+  const basePath = getAppBasePath();
+  return normalizeAppPath(raw, basePath) ?? (basePath || "/");
 }
 
 async function getSessionForEvent(event: H3Event) {
@@ -399,7 +400,9 @@ async function handleMcpOAuthStart(
         body: { error: MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE },
       },
       {
-        backHref: safeReturnPath(returnUrl || "/settings/integrations"),
+        backHref: safeReturnPath(
+          returnUrl || `${getAppBasePath()}/settings/integrations`,
+        ),
         backLabel: mcpSettingsMessagesForLocale(
           resolveLocaleFromRequest({
             acceptLanguage: getRequestHeader(event, "accept-language"),
