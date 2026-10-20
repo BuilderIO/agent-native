@@ -16,6 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useState, useEffect, useRef } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -302,6 +303,12 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     },
     [canCreateOrgMcp, createMcpServer, t],
   );
+  const gongPermissionError = mcpServersQuery.isError ? (
+    <GongPermissionLookupError
+      isRetrying={mcpServersQuery.isFetching}
+      onRetry={() => void mcpServersQuery.refetch()}
+    />
+  ) : null;
 
   if (configuring) {
     const def = INTEGRATIONS.find((i) => i.id === configuring)!;
@@ -321,6 +328,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
       INTEGRATIONS.length - Number(!canManageGong);
     return (
       <div className="px-4 py-2">
+        {gongPermissionError}
         <button
           onClick={() => setExpanded(true)}
           className="text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
@@ -335,6 +343,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
 
   return (
     <div className="px-4 py-3">
+      {gongPermissionError}
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           Integrations
@@ -383,6 +392,34 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
         onCreateMcpServer={handleCreateMcpServer}
         onCreated={() => void mcpServersQuery.refetch()}
       />
+    </div>
+  );
+}
+
+function GongPermissionLookupError({
+  isRetrying,
+  onRetry,
+}: {
+  isRetrying: boolean;
+  onRetry: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="mb-2 flex items-center justify-between gap-2" role="alert">
+      <p className="text-[11px] text-muted-foreground">
+        {t("mail.integrations.gongAccessCheckFailed")}
+      </p>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-auto shrink-0 px-2 py-1 text-[11px]"
+        onClick={onRetry}
+        disabled={isRetrying}
+      >
+        {t(isRetrying ? "mail.error.retrying" : "mail.error.tryAgain")}
+      </Button>
     </div>
   );
 }

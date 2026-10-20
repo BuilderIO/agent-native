@@ -315,6 +315,8 @@ const messages = {
       apolloDescription: "Enriquecimento de contatos e dados da empresa",
       hubspotDescription: "Contatos, negócios e tickets de CRM",
       gongDescription: "Pergunte ao agente sobre chamadas e negócios do Gong",
+      gongAccessCheckFailed:
+        "Não foi possível verificar se você tem permissão para conectar o Gong.",
       gongKeyPlaceholder: "Chave de API do Gong",
       pylonDescription: "Problemas de suporte e dados da conta",
       gongCalls: "Chamadas do Gong",
