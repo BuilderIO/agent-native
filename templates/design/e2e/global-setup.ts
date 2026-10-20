@@ -422,37 +422,25 @@ export default async function globalSetup(config: FullConfig) {
 
     const warmupPage = await context.newPage();
     try {
-      try {
-        await warmupPage.goto(`${baseURL}/design/${designId}`, {
-          waitUntil: "domcontentloaded",
-          timeout: warmupTimeout(180_000),
-        });
-        await warmupPage
-          .getByRole("button", { name: "Move", exact: true })
-          .waitFor({ timeout: warmupTimeout(180_000) });
-        // eslint-disable-next-line no-console
-        console.log("[e2e] editor warm");
-      } catch (error) {
-        // Not fatal — the suite still runs, the first test just pays the
-        // compile again. Say so out loud rather than reporting a warm editor.
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
-            "the first test will pay the compile.",
-        );
-      }
-
       const homeURL = `${baseURL}/home`;
       const homeComposer = warmupPage.locator("[data-design-home-composer]");
+      const homeWarmupDeadline = Math.min(warmupDeadline, Date.now() + 60_000);
+      const homeWarmupTimeout = (requestedMs: number) => {
+        const remainingMs = homeWarmupDeadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new Error("the one-minute home warmup budget expired");
+        }
+        return Math.min(requestedMs, remainingMs);
+      };
       let homeComposerWarmed = false;
       try {
         await warmupPage.goto(homeURL, {
           waitUntil: "domcontentloaded",
-          timeout: warmupTimeout(180_000),
+          timeout: homeWarmupTimeout(180_000),
         });
         await homeComposer.waitFor({
           state: "visible",
-          timeout: warmupTimeout(30_000),
+          timeout: homeWarmupTimeout(30_000),
         });
         homeComposerWarmed = true;
       } catch (error) {
@@ -463,11 +451,11 @@ export default async function globalSetup(config: FullConfig) {
           try {
             await warmupPage.goto(homeURL, {
               waitUntil: "domcontentloaded",
-              timeout: warmupTimeout(180_000),
+              timeout: homeWarmupTimeout(180_000),
             });
             await homeComposer.waitFor({
               state: "visible",
-              timeout: warmupTimeout(30_000),
+              timeout: homeWarmupTimeout(30_000),
             });
             homeComposerWarmed = true;
           } catch (recoveryError) {
@@ -489,6 +477,26 @@ export default async function globalSetup(config: FullConfig) {
       if (homeComposerWarmed) {
         // eslint-disable-next-line no-console
         console.log("[e2e] home composer warm");
+      }
+
+      try {
+        await warmupPage.goto(`${baseURL}/design/${designId}`, {
+          waitUntil: "domcontentloaded",
+          timeout: warmupTimeout(180_000),
+        });
+        await warmupPage
+          .getByRole("button", { name: "Move", exact: true })
+          .waitFor({ timeout: warmupTimeout(180_000) });
+        // eslint-disable-next-line no-console
+        console.log("[e2e] editor warm");
+      } catch (error) {
+        // Not fatal — the suite still runs, the first test just pays the
+        // compile again. Say so out loud rather than reporting a warm editor.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
+            "the first test will pay the compile.",
+        );
       }
     } finally {
       await warmupPage.close();
