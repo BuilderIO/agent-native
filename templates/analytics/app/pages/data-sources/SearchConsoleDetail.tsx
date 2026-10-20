@@ -5,6 +5,7 @@ import {
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
+  normalizeSearchConsoleProperty,
   searchConsolePropertyProblem,
   searchConsolePathPrefixProblem,
   type SearchConsolePropertyProblem,
@@ -49,6 +50,19 @@ export type SearchConsoleState =
   | "failed"
   | "unavailable"
   | "off";
+
+export function searchConsoleUpdate(
+  status: ContentCollectionStatus,
+  enabled: boolean,
+  sites: SearchConsoleSite[],
+  toggle = false,
+) {
+  return {
+    enabled: status.enabled || (toggle && enabled),
+    searchConsole: enabled,
+    ...(toggle && !enabled ? {} : { searchConsoleSites: sites }),
+  };
+}
 
 export function searchConsoleState(
   status: ContentCollectionStatus | undefined,
@@ -253,7 +267,7 @@ export function SearchConsoleDetail() {
 
   const cleanSites = sites
     .map((site) => ({
-      siteUrl: site.siteUrl.trim(),
+      siteUrl: normalizeSearchConsoleProperty(site.siteUrl),
       ...(site.pathPrefix?.trim()
         ? { pathPrefix: site.pathPrefix.trim() }
         : {}),
@@ -277,14 +291,8 @@ export function SearchConsoleDetail() {
     (step) => step.step === "search_console",
   )?.lastRun;
 
-  const save = (enabled: boolean, includeDraft = true) => {
-    configure.mutate({
-      // Turning Search Console on turns the daily collection on with it;
-      // turning it off leaves the other steps as they were.
-      enabled: enabled || status.enabled,
-      searchConsole: enabled,
-      ...(includeDraft ? { searchConsoleSites: cleanSites } : {}),
-    });
+  const save = (enabled: boolean, toggle = false) => {
+    configure.mutate(searchConsoleUpdate(status, enabled, cleanSites, toggle));
   };
 
   const updateSite = (index: number, patch: Partial<SearchConsoleSite>) => {
@@ -412,7 +420,7 @@ export function SearchConsoleDetail() {
             configure.isPending ||
             (!checked && (cleanSites.length === 0 || hasProblem))
           }
-          onCheckedChange={(checked) => save(checked, checked)}
+          onCheckedChange={(checked) => save(checked, true)}
         />
       </div>
       {!canManageOrg && (

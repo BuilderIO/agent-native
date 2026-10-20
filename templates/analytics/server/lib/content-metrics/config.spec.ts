@@ -59,3 +59,14 @@ describe("signup billing caps", () => {
     },
   );
 });
+
+it("normalizes Domain properties when reading stored config", () => {
+  expect(
+    contentCollectionConfigSchema.parse({
+      searchConsole: {
+        enabled: true,
+        sites: [{ siteUrl: "SC-DOMAIN:Example.test" }],
+      },
+    }).searchConsole.sites,
+  ).toEqual([{ siteUrl: "sc-domain:example.test" }]);
+});
