@@ -15,6 +15,7 @@ import {
   createPage,
   expectEditorReady,
   postAction,
+  presentUiCapability,
   signInAccount,
 } from "../helpers";
 import { enterGateArm, leaveGateArm } from "../live-body-gate";
@@ -337,6 +338,7 @@ test.describe(
       });
       try {
         await signIn(viewer, baseURL!, viewerEmail, "SF-06 viewer");
+        await presentUiCapability(page);
         await postAction(page, "share-resource", {
           resourceType: "document",
           resourceId: id,
