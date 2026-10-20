@@ -351,6 +351,10 @@ const enUS = {
       dataLoadFailed: "Couldn't load data",
       dataLoadFailedDescription: "Dispatch couldn't load this data.",
       appAdoption: "App adoption",
+      appProfileWhenToUse: "When to use",
+      appProfileWhenToUsePlaceholder: "One example request per line",
+      appProfileWhenToUseHint:
+        "Add up to 6 examples, with no more than 140 characters each.",
       appAdoptionFor: "{{name}} adoption",
       yourAppActivity: "Your app activity",
       appAdoptionDefinition:
@@ -469,6 +473,23 @@ const enUS = {
       clearAppSearch: "Clear search",
       noAppsMatch: "No apps match your search",
       connectApps: "Connect apps",
+      communityApps: "Community apps",
+      communityAppsEmpty: "No reviewed community apps are available yet.",
+      communityAppsWorkspaceRequired:
+        "Connect this organization to a workspace to install this app.",
+      communityAppsIdConflict:
+        "This app ID is already in use, so this app cannot be installed.",
+      communityAppsLicense: "License",
+      communityAppsPinnedSource: "View pinned source",
+      communityAppsInstall: "Install",
+      communityAppsInstalling: "Starting…",
+      communityAppsInstalled: "Installed",
+      communityAppsPending: "Installation in progress",
+      communityAppsInstallStarted: "Community app installation started.",
+      communityAppsAlreadyInstalled: "This community app is already installed.",
+      communityAppsLocalRequestReady:
+        "The community app request is ready for the local agent.",
+      communityAppsInstallFailed: "Could not install this community app.",
       availableApps: "Available apps",
       connectApp: "Connect",
       openApp: "Open",
@@ -900,9 +921,257 @@ const integrationGroupOverrides: Record<
   },
 };
 
+const appProfilePageTranslations: Record<
+  LocaleCode,
+  Partial<Messages["dispatch"]["pages"]>
+> = {
+  "en-US": {},
+  "zh-CN": {
+    appProfileWhenToUse: "适用场景",
+    appProfileWhenToUsePlaceholder: "每行填写一个示例请求",
+    appProfileWhenToUseHint: "最多 6 个示例，每个不超过 140 个字符。",
+    communityApps: "社区应用",
+    communityAppsEmpty: "暂无经过审核的社区应用。",
+    communityAppsWorkspaceRequired: "请将此组织连接到工作区，以安装此应用。",
+    communityAppsIdConflict: "此应用 ID 已被占用，无法安装此应用。",
+    communityAppsLicense: "许可证",
+    communityAppsPinnedSource: "查看固定来源",
+    communityAppsInstall: "安装",
+    communityAppsInstalling: "正在启动…",
+    communityAppsInstalled: "已安装",
+    communityAppsPending: "正在安装",
+    communityAppsInstallStarted: "已开始安装社区应用。",
+    communityAppsAlreadyInstalled: "此社区应用已安装。",
+    communityAppsLocalRequestReady:
+      "社区应用安装请求已准备好，等待本地代理处理。",
+    communityAppsInstallFailed: "无法安装此社区应用。",
+  },
+  "zh-TW": {
+    appProfileWhenToUse: "何時使用",
+    appProfileWhenToUsePlaceholder: "每行填寫一個範例請求",
+    appProfileWhenToUseHint: "最多新增 6 個範例，每個不超過 140 個字元。",
+    communityApps: "社群應用程式",
+    communityAppsEmpty: "目前沒有可用的已審核社群應用程式。",
+    communityAppsWorkspaceRequired:
+      "請將此組織連結至工作區，以安裝此應用程式。",
+    communityAppsIdConflict: "此應用程式 ID 已被使用，因此無法安裝。",
+    communityAppsLicense: "授權條款",
+    communityAppsPinnedSource: "查看固定來源",
+    communityAppsInstall: "安裝",
+    communityAppsInstalling: "正在啟動…",
+    communityAppsInstalled: "已安裝",
+    communityAppsPending: "安裝進行中",
+    communityAppsInstallStarted: "已開始安裝社群應用程式。",
+    communityAppsAlreadyInstalled: "此社群應用程式已安裝。",
+    communityAppsLocalRequestReady:
+      "社群應用程式安裝請求已準備好，等待本機代理處理。",
+    communityAppsInstallFailed: "無法安裝此社群應用程式。",
+  },
+  "es-ES": {
+    appProfileWhenToUse: "Cuándo usarlo",
+    appProfileWhenToUsePlaceholder: "Un ejemplo de solicitud por línea",
+    appProfileWhenToUseHint:
+      "Añade hasta 6 ejemplos, con un máximo de 140 caracteres cada uno.",
+    communityApps: "Aplicaciones de la comunidad",
+    communityAppsEmpty:
+      "Todavía no hay aplicaciones de la comunidad revisadas disponibles.",
+    communityAppsWorkspaceRequired:
+      "Conecta esta organización a un espacio de trabajo para instalar esta aplicación.",
+    communityAppsIdConflict:
+      "Este ID de aplicación ya está en uso, por lo que no se puede instalar.",
+    communityAppsLicense: "Licencia",
+    communityAppsPinnedSource: "Ver el código fuente fijado",
+    communityAppsInstall: "Instalar",
+    communityAppsInstalling: "Iniciando…",
+    communityAppsInstalled: "Instalada",
+    communityAppsPending: "Instalación en curso",
+    communityAppsInstallStarted:
+      "Se ha iniciado la instalación de la aplicación de la comunidad.",
+    communityAppsAlreadyInstalled:
+      "Esta aplicación de la comunidad ya está instalada.",
+    communityAppsLocalRequestReady:
+      "La solicitud de la aplicación de la comunidad está lista para el agente local.",
+    communityAppsInstallFailed:
+      "No se ha podido instalar esta aplicación de la comunidad.",
+  },
+  "fr-FR": {
+    appProfileWhenToUse: "Quand l’utiliser",
+    appProfileWhenToUsePlaceholder: "Un exemple de demande par ligne",
+    appProfileWhenToUseHint:
+      "Ajoutez jusqu’à 6 exemples, de 140 caractères maximum chacun.",
+    communityApps: "Applications de la communauté",
+    communityAppsEmpty:
+      "Aucune application de la communauté vérifiée n’est encore disponible.",
+    communityAppsWorkspaceRequired:
+      "Connectez cette organisation à un espace de travail pour installer cette application.",
+    communityAppsIdConflict:
+      "Cet ID d’application est déjà utilisé. Cette application ne peut donc pas être installée.",
+    communityAppsLicense: "Licence",
+    communityAppsPinnedSource: "Voir la source épinglée",
+    communityAppsInstall: "Installer",
+    communityAppsInstalling: "Démarrage…",
+    communityAppsInstalled: "Installée",
+    communityAppsPending: "Installation en cours",
+    communityAppsInstallStarted:
+      "L’installation de l’application de la communauté a démarré.",
+    communityAppsAlreadyInstalled:
+      "Cette application de la communauté est déjà installée.",
+    communityAppsLocalRequestReady:
+      "La demande d’application de la communauté est prête pour l’agent local.",
+    communityAppsInstallFailed:
+      "Impossible d’installer cette application de la communauté.",
+  },
+  "de-DE": {
+    appProfileWhenToUse: "Wann verwenden",
+    appProfileWhenToUsePlaceholder: "Eine Beispielanfrage pro Zeile",
+    appProfileWhenToUseHint:
+      "Füge bis zu 6 Beispiele mit jeweils höchstens 140 Zeichen hinzu.",
+    communityApps: "Community-Apps",
+    communityAppsEmpty:
+      "Es sind noch keine geprüften Community-Apps verfügbar.",
+    communityAppsWorkspaceRequired:
+      "Verbinde diese Organisation mit einem Workspace, um diese App zu installieren.",
+    communityAppsIdConflict:
+      "Diese App-ID wird bereits verwendet. Die App kann daher nicht installiert werden.",
+    communityAppsLicense: "Lizenz",
+    communityAppsPinnedSource: "Angeheftete Quelle anzeigen",
+    communityAppsInstall: "Installieren",
+    communityAppsInstalling: "Wird gestartet…",
+    communityAppsInstalled: "Installiert",
+    communityAppsPending: "Installation läuft",
+    communityAppsInstallStarted:
+      "Die Installation der Community-App wurde gestartet.",
+    communityAppsAlreadyInstalled:
+      "Diese Community-App ist bereits installiert.",
+    communityAppsLocalRequestReady:
+      "Die Anfrage für die Community-App ist für den lokalen Agent bereit.",
+    communityAppsInstallFailed:
+      "Diese Community-App konnte nicht installiert werden.",
+  },
+  "ja-JP": {
+    appProfileWhenToUse: "利用する場面",
+    appProfileWhenToUsePlaceholder: "例となる依頼を1行に1つ入力",
+    appProfileWhenToUseHint: "例は最大6件、各140文字以内です。",
+    communityApps: "コミュニティアプリ",
+    communityAppsEmpty: "審査済みのコミュニティアプリはまだありません。",
+    communityAppsWorkspaceRequired:
+      "このアプリをインストールするには、この組織をワークスペースに接続してください。",
+    communityAppsIdConflict:
+      "このアプリIDはすでに使用されているため、インストールできません。",
+    communityAppsLicense: "ライセンス",
+    communityAppsPinnedSource: "固定されたソースを表示",
+    communityAppsInstall: "インストール",
+    communityAppsInstalling: "開始中…",
+    communityAppsInstalled: "インストール済み",
+    communityAppsPending: "インストール中",
+    communityAppsInstallStarted:
+      "コミュニティアプリのインストールを開始しました。",
+    communityAppsAlreadyInstalled:
+      "このコミュニティアプリはすでにインストールされています。",
+    communityAppsLocalRequestReady:
+      "コミュニティアプリのインストールリクエストをローカルエージェントが処理できる状態です。",
+    communityAppsInstallFailed:
+      "このコミュニティアプリをインストールできませんでした。",
+  },
+  "ko-KR": {
+    appProfileWhenToUse: "사용 시점",
+    appProfileWhenToUsePlaceholder: "요청 예시를 한 줄에 하나씩 입력",
+    appProfileWhenToUseHint:
+      "예시를 최대 6개까지 추가할 수 있으며, 각 예시는 140자 이하여야 합니다.",
+    communityApps: "커뮤니티 앱",
+    communityAppsEmpty: "아직 검토를 마친 커뮤니티 앱이 없습니다.",
+    communityAppsWorkspaceRequired:
+      "이 앱을 설치하려면 이 조직을 워크스페이스에 연결하세요.",
+    communityAppsIdConflict:
+      "이 앱 ID는 이미 사용 중이므로 설치할 수 없습니다.",
+    communityAppsLicense: "라이선스",
+    communityAppsPinnedSource: "고정된 소스 보기",
+    communityAppsInstall: "설치",
+    communityAppsInstalling: "시작 중…",
+    communityAppsInstalled: "설치됨",
+    communityAppsPending: "설치 진행 중",
+    communityAppsInstallStarted: "커뮤니티 앱 설치를 시작했습니다.",
+    communityAppsAlreadyInstalled: "이 커뮤니티 앱은 이미 설치되어 있습니다.",
+    communityAppsLocalRequestReady:
+      "커뮤니티 앱 설치 요청이 로컬 에이전트에서 처리할 수 있도록 준비되었습니다.",
+    communityAppsInstallFailed: "이 커뮤니티 앱을 설치할 수 없습니다.",
+  },
+  "pt-BR": {
+    appProfileWhenToUse: "Quando usar",
+    appProfileWhenToUsePlaceholder: "Um exemplo de solicitação por linha",
+    appProfileWhenToUseHint:
+      "Adicione até 6 exemplos, com no máximo 140 caracteres cada.",
+    communityApps: "Aplicativos da comunidade",
+    communityAppsEmpty:
+      "Ainda não há aplicativos da comunidade analisados disponíveis.",
+    communityAppsWorkspaceRequired:
+      "Conecte esta organização a um espaço de trabalho para instalar este aplicativo.",
+    communityAppsIdConflict:
+      "Este ID de aplicativo já está em uso, então ele não pode ser instalado.",
+    communityAppsLicense: "Licença",
+    communityAppsPinnedSource: "Ver código-fonte fixado",
+    communityAppsInstall: "Instalar",
+    communityAppsInstalling: "Iniciando…",
+    communityAppsInstalled: "Instalado",
+    communityAppsPending: "Instalação em andamento",
+    communityAppsInstallStarted:
+      "A instalação do aplicativo da comunidade foi iniciada.",
+    communityAppsAlreadyInstalled:
+      "Este aplicativo da comunidade já está instalado.",
+    communityAppsLocalRequestReady:
+      "A solicitação do aplicativo da comunidade está pronta para o agente local.",
+    communityAppsInstallFailed:
+      "Não foi possível instalar este aplicativo da comunidade.",
+  },
+  "hi-IN": {
+    appProfileWhenToUse: "कब उपयोग करें",
+    appProfileWhenToUsePlaceholder: "हर पंक्ति में एक उदाहरण अनुरोध",
+    appProfileWhenToUseHint: "अधिकतम 6 उदाहरण जोड़ें, हर एक 140 वर्णों से अधिक न हो।",
+    communityApps: "समुदाय ऐप्स",
+    communityAppsEmpty: "अभी तक कोई समीक्षित समुदाय ऐप उपलब्ध नहीं है।",
+    communityAppsWorkspaceRequired:
+      "इस ऐप को इंस्टॉल करने के लिए इस संगठन को किसी वर्कस्पेस से कनेक्ट करें।",
+    communityAppsIdConflict:
+      "यह ऐप ID पहले से उपयोग में है, इसलिए इस ऐप को इंस्टॉल नहीं किया जा सकता।",
+    communityAppsLicense: "लाइसेंस",
+    communityAppsPinnedSource: "पिन किया गया स्रोत देखें",
+    communityAppsInstall: "इंस्टॉल करें",
+    communityAppsInstalling: "शुरू हो रहा है…",
+    communityAppsInstalled: "इंस्टॉल हो गया",
+    communityAppsPending: "इंस्टॉलेशन जारी है",
+    communityAppsInstallStarted: "समुदाय ऐप का इंस्टॉलेशन शुरू हो गया है।",
+    communityAppsAlreadyInstalled: "यह समुदाय ऐप पहले से इंस्टॉल है।",
+    communityAppsLocalRequestReady:
+      "समुदाय ऐप का अनुरोध स्थानीय एजेंट के लिए तैयार है।",
+    communityAppsInstallFailed: "यह समुदाय ऐप इंस्टॉल नहीं किया जा सका।",
+  },
+  "ar-SA": {
+    appProfileWhenToUse: "متى يُستخدم",
+    appProfileWhenToUsePlaceholder: "مثال واحد على طلب في كل سطر",
+    appProfileWhenToUseHint: "أضف حتى 6 أمثلة، على ألا يتجاوز كل منها 140 حرفًا.",
+    communityApps: "تطبيقات المجتمع",
+    communityAppsEmpty: "لا تتوفر تطبيقات مجتمع مراجَعة بعد.",
+    communityAppsWorkspaceRequired:
+      "اربط هذه المؤسسة بمساحة عمل لتثبيت هذا التطبيق.",
+    communityAppsIdConflict:
+      "معرّف هذا التطبيق مستخدم بالفعل، لذلك لا يمكن تثبيت هذا التطبيق.",
+    communityAppsLicense: "الترخيص",
+    communityAppsPinnedSource: "عرض المصدر المثبّت",
+    communityAppsInstall: "تثبيت",
+    communityAppsInstalling: "جارٍ البدء…",
+    communityAppsInstalled: "تم التثبيت",
+    communityAppsPending: "التثبيت جارٍ",
+    communityAppsInstallStarted: "بدأ تثبيت تطبيق المجتمع.",
+    communityAppsAlreadyInstalled: "تطبيق المجتمع هذا مثبّت بالفعل.",
+    communityAppsLocalRequestReady: "طلب تطبيق المجتمع جاهز للوكيل المحلي.",
+    communityAppsInstallFailed: "تعذّر تثبيت تطبيق المجتمع.",
+  },
+};
+
 function mergeMessages(
   overrides: PartialMessages,
   localizedIntegrations: Partial<Messages["integrations"]> = {},
+  locale: LocaleCode = "en-US",
 ): Messages {
   return {
     root: { ...enUS.root, ...overrides.root },
@@ -970,6 +1239,7 @@ function mergeMessages(
         ...(
           overrides.dispatch as { pages?: Record<string, string> } | undefined
         )?.pages,
+        ...appProfilePageTranslations[locale],
       },
     },
   };
@@ -977,7 +1247,7 @@ function mergeMessages(
 
 export const messagesByLocale = {
   "en-US": enUS,
-  "zh-TW": mergeMessages(zhTW),
+  "zh-TW": mergeMessages(zhTW, {}, "zh-TW"),
   "zh-CN": mergeMessages(
     {
       routeTitles: {
@@ -1400,6 +1670,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["zh-CN"],
+    "zh-CN",
   ),
   "es-ES": mergeMessages(
     {
@@ -1866,6 +2137,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["es-ES"],
+    "es-ES",
   ),
   "fr-FR": mergeMessages(
     {
@@ -2333,6 +2605,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["fr-FR"],
+    "fr-FR",
   ),
   "de-DE": mergeMessages(
     {
@@ -2785,6 +3058,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["de-DE"],
+    "de-DE",
   ),
   "ja-JP": mergeMessages(
     {
@@ -3232,6 +3506,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["ja-JP"],
+    "ja-JP",
   ),
   "ko-KR": mergeMessages(
     {
@@ -3672,6 +3947,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["ko-KR"],
+    "ko-KR",
   ),
   "pt-BR": mergeMessages(
     {
@@ -4133,6 +4409,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["pt-BR"],
+    "pt-BR",
   ),
   "hi-IN": mergeMessages(
     {
@@ -4566,6 +4843,7 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["hi-IN"],
+    "hi-IN",
   ),
   "ar-SA": mergeMessages(
     {
@@ -5045,5 +5323,6 @@ export const messagesByLocale = {
       },
     },
     integrationGroupOverrides["ar-SA"],
+    "ar-SA",
   ),
 } satisfies Record<LocaleCode, Messages>;

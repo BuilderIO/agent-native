@@ -20,9 +20,8 @@ function isPrivateIpv4(a: number, b: number, c = 0, d = 0): boolean {
   if (a === 169 && b === 254) return true;
   if (a === 0) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 192 && b === 0) return true;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
   if (a === 198 && (b === 18 || b === 19)) return true;
-  if (a === 192 && b === 0 && c === 2) return true;
   if (a === 198 && b === 51 && c === 100) return true;
   if (a === 203 && b === 0 && c === 113) return true;
   if (a >= 224) return true;
@@ -54,8 +53,9 @@ function isPrivateHost(hostname: string): boolean {
   }
   if (METADATA_HOSTS.includes(host)) return true;
 
-  if (/^f[cd]/.test(host) || /^fe[89ab]/.test(host)) return true;
-  if (/^ff/i.test(host)) return true;
+  if (host.includes(":") && (/^f[cd]/.test(host) || /^fe[89ab]/.test(host)))
+    return true;
+  if (host.includes(":") && /^ff/i.test(host)) return true;
 
   const v4mappedDotted = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (v4mappedDotted) {

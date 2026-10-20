@@ -100,6 +100,7 @@ import {
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
   getActiveRunForThreadAsync,
+  getJevContextCredentials,
   abortRunDurably,
   abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
@@ -273,7 +274,7 @@ import {
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
 import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
-import { discoverAgents } from "./agent-discovery.js";
+import { discoverAgents, getWorkspaceAppProfile } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunOrgScope,
@@ -459,6 +460,7 @@ import {
   buildSystemManifestSections,
   setContextXraySystemSections,
 } from "../agent/context-xray/manifest.js";
+import { buildWorkspaceAppRequestContext } from "../agent/jev-tool-prefetch.js";
 // ---------------------------------------------------------------------------
 // The bulk of this file's former implementation now lives in focused sibling
 // modules under `./agent-chat/`. This file re-imports them (and re-exports
@@ -486,6 +488,7 @@ import {
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
   buildAuthenticatedAgentA2ASkills,
+  addAgentProfileExamples,
   resolveArtifactBaseUrl,
   unverifiedA2AUserError,
 } from "./agent-chat/action-filters-a2a.js";
@@ -521,6 +524,7 @@ import {
 import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
 import {
   loadResourcesForPrompt,
+  preloadJevContextWithStatus,
   promptResourceManifestSections,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
@@ -1352,6 +1356,15 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
+      const appProfileAppId =
+        options?.appId ??
+        getAppConfig().app.id ??
+        getAppConfig().app.template ??
+        getAppConfig().app.workspaceId ??
+        getAppConfig().app.packageName ??
+        "app";
+      const appAgentProfile = await getWorkspaceAppProfile(appProfileAppId);
+
       // Never make route readiness wait on an org-global stale-run sweep.
       // `/runs/active` reaps the requested run on demand, and the periodic
       // recovery sweep below handles abandoned runs with no connected client.
@@ -2155,6 +2168,32 @@ export function createAgentChatPlugin(
           ...mcpActions,
         };
       };
+      const getBackgroundWorkspaceAppContext = async (input: {
+        request: string;
+        ownerEmail: string;
+        orgId?: string;
+        appId?: string;
+        workspaceAppsEnabled: boolean;
+      }): Promise<string> => {
+        const appRequest = buildWorkspaceAppRequestContext({
+          request: input.request,
+        });
+        const credentials = await getJevContextCredentials(input.ownerEmail);
+        const preload = await preloadJevContextWithStatus({
+          request: appRequest,
+          appRequest,
+          owner: input.ownerEmail,
+          orgId: input.orgId ?? null,
+          appId: input.appId,
+          selfAppId: input.appId,
+          workspaceAppsEnabled: input.workspaceAppsEnabled,
+          apiKey: credentials.apiKey,
+          personalApiKey: credentials.personalApiKey,
+          builderAuth: credentials.builderAuth,
+          appDiscoveryOnly: true,
+        });
+        return preload.relevantAppsContext ?? "";
+      };
 
       // -----------------------------------------------------------------------
       // Production code-execution mode resolution.
@@ -2446,12 +2485,23 @@ export function createAgentChatPlugin(
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
-        description: `Agent-Native ${options?.appId ?? "app"} agent`,
-        skills: buildPublicAgentA2ASkills(externalActions),
-        authenticatedSkills: buildAuthenticatedAgentA2ASkills(
-          externalFullActions ?? externalActions,
-          mcpOptions,
+        description:
+          appAgentProfile?.description ??
+          getAppConfig().app.description ??
+          `Agent-Native ${options?.appId ?? "app"} agent`,
+        skills: addAgentProfileExamples(
+          buildPublicAgentA2ASkills(externalActions),
+          appAgentProfile,
         ),
+        authenticatedSkills: addAgentProfileExamples(
+          buildAuthenticatedAgentA2ASkills(
+            externalFullActions ?? externalActions,
+            mcpOptions,
+          ),
+          appAgentProfile,
+        ),
+        resolveAuthenticatedProfile: ({ userEmail, orgId }) =>
+          getWorkspaceAppProfile(appProfileAppId, { userEmail, orgId }),
         publicSkillsOnly: true,
         streaming: true,
         connect: options?.connectApps,
@@ -9430,6 +9480,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
         const schedulerDeps: SchedulerDeps = {
           getActions: getBackgroundActionEntries,
+          getWorkspaceAppContext: getBackgroundWorkspaceAppContext,
           getSystemPrompt: async (owner: string) => {
             const resources = await loadResourcesForPrompt(
               owner,
@@ -9962,6 +10013,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         await import("../triggers/dispatcher.js");
       await initTriggerDispatcher({
         getActions: getBackgroundActionEntries,
+        getWorkspaceAppContext: getBackgroundWorkspaceAppContext,
         getSystemPrompt: async (owner: string) => {
           const resources = await loadResourcesForPrompt(
             owner,

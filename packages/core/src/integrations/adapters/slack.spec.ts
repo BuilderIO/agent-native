@@ -2067,6 +2067,88 @@ describe("slackAdapter", () => {
     expect(deliveryBodies[0].blocks).toEqual(blocks);
   });
 
+  it("renders HTTPS Markdown images as Slack image blocks and leaves other URLs inline", async () => {
+    const adapter = slackAdapter();
+    const formatted = adapter.formatAgentResponse?.(
+      "Before ![chart](https://example.test/chart.png) after ![private](http://example.test/private.png)",
+    );
+
+    expect(formatted?.text).toContain(
+      "!<http://example.test/private.png|private>",
+    );
+    expect(formatted?.text).not.toContain("https://example.test/chart.png");
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+    await adapter.sendResponse?.(formatted!, {
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      text: "request",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "123.456" },
+    });
+    expect(delivered[0].blocks).toContainEqual({
+      type: "image",
+      image_url: "https://example.test/chart.png",
+      alt_text: "chart",
+    });
+    expect(delivered[0].blocks).not.toContainEqual(
+      expect.objectContaining({ image_url: "http://example.test/private.png" }),
+    );
+  });
+
+  it("sends image-only replies once, preserves alt text, and caps valid blocks at 50", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage"))
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+    const images = Array.from(
+      { length: 55 },
+      (_, index) => `![alt ${index}](https://example.test/${index}.png)`,
+    );
+    images.push(`![too long](https://example.test/${"x".repeat(3001)})`);
+    const adapter = slackAdapter();
+    const formatted = adapter.formatAgentResponse?.(images.join("\n"))!;
+    await adapter.sendResponse?.(formatted, {
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      text: "request",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "123.456" },
+    });
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].text).toBe("Image");
+    expect(delivered[0].blocks).toHaveLength(50);
+    expect(delivered[0].blocks[0]).toEqual({
+      type: "image",
+      image_url: "https://example.test/0.png",
+      alt_text: "alt 0",
+    });
+    expect(
+      delivered[0].blocks.some((block: any) =>
+        block.image_url?.includes("x".repeat(100)),
+      ),
+    ).toBe(false);
+  });
+
   it("splits Slack section blocks by UTF-8 bytes, not JS character length", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const deliveryBodies: any[] = [];

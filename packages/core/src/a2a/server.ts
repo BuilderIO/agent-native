@@ -39,6 +39,7 @@ import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isSameOriginRequest } from "../server/request-origin.js";
 import { generateAgentCard } from "./agent-card.js";
+import { addAgentProfileExamples } from "./app-profile.js";
 import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
@@ -644,7 +645,11 @@ export function mountA2A(
       const baseUrl = `${protocol}://${host}`;
 
       let skills = filterPublicAgentCardSkills(config);
-      if (config.authenticatedSkills?.length) {
+      let description = config.description;
+      if (
+        config.authenticatedSkills?.length ||
+        config.resolveAuthenticatedProfile
+      ) {
         const bearer = extractBearerToken(
           getRequestHeader(event, "authorization"),
         );
@@ -655,11 +660,21 @@ export function mountA2A(
               allowBaseAudience: true,
             });
             if (payload.email) {
-              skills = tokenHasAudienceClaim(bearer)
-                ? config.authenticatedSkills
-                : config.authenticatedSkills.filter(
-                    (skill) => !isDirectReadSkill(skill),
-                  );
+              if (config.authenticatedSkills?.length) {
+                skills = tokenHasAudienceClaim(bearer)
+                  ? config.authenticatedSkills
+                  : config.authenticatedSkills.filter(
+                      (skill) => !isDirectReadSkill(skill),
+                    );
+              }
+              const profile = await config.resolveAuthenticatedProfile?.({
+                userEmail: payload.email,
+                ...(payload.orgId ? { orgId: payload.orgId } : {}),
+              });
+              if (profile) {
+                description = profile.description ?? description;
+                skills = addAgentProfileExamples(skills, profile);
+              }
             }
           } catch (error) {
             if (!(error instanceof A2AIdentityVerificationUnavailableError)) {
@@ -674,7 +689,7 @@ export function mountA2A(
       }
 
       return generateAgentCard(
-        { ...config, skills },
+        { ...config, description, skills },
         baseUrl,
         publicFrameworkPath(`${routePrefix}/a2a`),
       );

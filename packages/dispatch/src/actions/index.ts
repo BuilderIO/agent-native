@@ -36,11 +36,13 @@ import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import importAgentPack from "./import-agent-pack.js";
 import importAgent from "./import-agent.js";
+import installCuratedCommunityApp from "./install-curated-community-app.js";
 import listAgentPack from "./list-agent-pack.js";
 import listAgentRunFailures from "./list-agent-run-failures.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
 import listConnectedAgents from "./list-connected-agents.js";
+import listCuratedCommunityApps from "./list-curated-community-apps.js";
 import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
@@ -140,6 +142,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-agent-thread-sources": listAgentThreadSources,
   "list-agent-run-failures": listAgentRunFailures,
   "list-available-workspace-templates": listAvailableWorkspaceTemplates,
+  "list-curated-community-apps": listCuratedCommunityApps,
   "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
@@ -167,6 +170,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resources": listWorkspaceResources,
   "import-agent": importAgent,
   "import-agent-pack": importAgentPack,
+  "install-curated-community-app": installCuratedCommunityApp,
   "list-agent-pack": listAgentPack,
   navigate: navigate,
   open_app: openApp,

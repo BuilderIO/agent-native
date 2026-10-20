@@ -6,6 +6,7 @@ import type { DiscoveredAgent } from "../server/agent-discovery.js";
 
 const getAgentCard = vi.fn();
 const discoverAgents = vi.fn();
+const discoverAgentsWithDirectoryStatus = vi.fn();
 const findAgent = vi.fn();
 
 vi.mock("../a2a/client.js", () => ({
@@ -23,6 +24,8 @@ vi.mock("../a2a/client.js", () => ({
 
 vi.mock("../server/agent-discovery.js", () => ({
   discoverAgents: (...args: unknown[]) => discoverAgents(...args),
+  discoverAgentsWithDirectoryStatus: (...args: unknown[]) =>
+    discoverAgentsWithDirectoryStatus(...args),
   findAgent: (...args: unknown[]) => findAgent(...args),
 }));
 
@@ -67,12 +70,21 @@ describe("describe-workspace-apps", () => {
     vi.resetAllMocks();
     _resetCapabilityCacheForTests();
     discoverAgents.mockResolvedValue([]);
+    discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [],
+      directory: { status: "setup-required", reason: "not-configured" },
+    });
+    discoverAgentsWithDirectoryStatus.mockImplementation(async () => ({
+      agents: await discoverAgents(),
+      directory: { status: "setup-required", reason: "not-configured" },
+    }));
     findAgent.mockResolvedValue(undefined);
     getAgentCard.mockResolvedValue(card());
   });
 
   it("tells the agent not to hand-maintain a workspace app list", () => {
     expect(tool.description).toContain("never hand-maintain");
+    expect(tool.parameters.properties.query).toBeDefined();
   });
 
   it("limits peer discovery to relevant cross-app needs", () => {
@@ -105,7 +117,7 @@ describe("describe-workspace-apps", () => {
     expect(output).toContain("Analytics (analytics)");
     expect(output).toContain("Product analytics, funnels, and session replay.");
     expect(output).toContain("query-events");
-    expect(discoverAgents).toHaveBeenCalledWith("coach");
+    expect(discoverAgentsWithDirectoryStatus).toHaveBeenCalledWith("coach");
   });
 
   it("separates direct reads from capabilities that require message delegation", async () => {
@@ -180,6 +192,42 @@ describe("describe-workspace-apps", () => {
     expect(output).not.toContain("action-19");
   });
 
+  it("selects matching peers across the full discovered set before limiting", async () => {
+    discoverAgents.mockResolvedValue([
+      ...Array.from({ length: 30 }, (_, index) =>
+        agent({
+          id: `app-${index}`,
+          name: `App ${index}`,
+          description: "Manage workspace records.",
+        }),
+      ),
+      agent({
+        id: "analytics",
+        name: "Analytics",
+        description: "Analyze events.",
+      }),
+    ]);
+
+    const output = await run({ query: "analyze events" }, undefined, "coach");
+
+    expect(output).toContain("Analytics (analytics)");
+    expect(output).not.toContain("App 0 (app-0)");
+  });
+
+  it("adds a searchable hint when matching peers exceed the limit", async () => {
+    discoverAgents.mockResolvedValue(
+      Array.from({ length: 31 }, (_, index) =>
+        agent({ id: `app-${index}`, name: `App ${index}` }),
+      ),
+    );
+
+    const output = await run({}, undefined, "coach");
+
+    expect(output).toContain(
+      "+1 more — search with describe-workspace-apps query=",
+    );
+  });
+
   it("returns one peer's full action list with descriptions when asked", async () => {
     findAgent.mockResolvedValue(agent());
     getAgentCard.mockResolvedValue(
@@ -234,7 +282,37 @@ describe("describe-workspace-apps", () => {
   it("says so plainly when the app runs standalone", async () => {
     const output = await run({}, undefined, "coach");
 
-    expect(output).toContain("No other apps are reachable");
+    expect(output).toContain("not configured (not-configured)");
+    expect(output).toContain("running standalone");
     expect(getAgentCard).not.toHaveBeenCalled();
+  });
+
+  it("reports unavailable directory status instead of claiming standalone", async () => {
+    discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [],
+      directory: { status: "unavailable", reason: "timeout" },
+    });
+
+    const output = await run({}, undefined, "coach");
+
+    expect(output).toContain("organization app directory is unavailable");
+    expect(output).toContain("timeout");
+    expect(output).not.toContain("running standalone");
+  });
+
+  it("marks non-empty peer results incomplete when the directory is unavailable", async () => {
+    discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [agent()],
+      directory: { status: "unavailable", reason: "timeout" },
+    });
+    getAgentCard.mockResolvedValue(card({ skills: [] }));
+
+    const output = await run({}, undefined, "coach");
+
+    expect(output).toContain(
+      "Organization app directory status: unavailable (timeout). This list may be incomplete.",
+    );
+    expect(output).toContain("Analytics (analytics)");
+    expect(output).not.toContain("running standalone");
   });
 });

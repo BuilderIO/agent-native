@@ -132,12 +132,16 @@ export function WorkspaceAppCard({
   const [draftDescription, setDraftDescription] = useState(
     app.description || "",
   );
+  const [draftWhenToUse, setDraftWhenToUse] = useState(
+    app.whenToUse?.join("\n") ?? "",
+  );
 
   useEffect(() => {
     if (editOpen) return;
     setDraftName(app.name);
     setDraftDescription(app.description || "");
-  }, [app.description, app.name, editOpen]);
+    setDraftWhenToUse(app.whenToUse?.join("\n") ?? "");
+  }, [app.description, app.name, app.whenToUse, editOpen]);
 
   const archive = useActionMutation("archive-workspace-app", {
     onError: (err) =>
@@ -183,6 +187,10 @@ export function WorkspaceAppCard({
       appId: app.id,
       name,
       description: draftDescription.trim(),
+      whenToUse: draftWhenToUse
+        .split("\n")
+        .map((value) => value.trim())
+        .filter(Boolean),
     });
   };
   const pinLabel = t(
@@ -284,10 +292,35 @@ export function WorkspaceAppCard({
               <Textarea
                 id={`app-description-${app.id}`}
                 value={draftDescription}
-                maxLength={500}
+                maxLength={1000}
                 rows={4}
                 onChange={(event) => setDraftDescription(event.target.value)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`app-when-to-use-${app.id}`}>
+                {t("dispatch.pages.appProfileWhenToUse", {
+                  defaultValue: "When to use",
+                })}
+              </Label>
+              <Textarea
+                id={`app-when-to-use-${app.id}`}
+                value={draftWhenToUse}
+                rows={3}
+                placeholder={t(
+                  "dispatch.pages.appProfileWhenToUsePlaceholder",
+                  {
+                    defaultValue: "One example request per line",
+                  },
+                )}
+                onChange={(event) => setDraftWhenToUse(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("dispatch.pages.appProfileWhenToUseHint", {
+                  defaultValue:
+                    "Add up to 6 examples, with no more than 140 characters each.",
+                })}
+              </p>
             </div>
             <DialogFooter>
               <Button

@@ -164,6 +164,52 @@ describe("background automation identity scope", () => {
   });
 });
 
+describe("background workspace app context", () => {
+  it("preloads matching app context for background runs that expose call-agent", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("workspace-app-context");
+    const appContext =
+      '<relevant-apps status="selected" selected-ids="calendar">calendar</relevant-apps>';
+    const getWorkspaceAppContext = vi.fn(async () => appContext);
+    let capturedSystemPrompt = "";
+
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        capturedSystemPrompt = opts.systemPrompt;
+        opts.send({
+          type: "tool_done",
+          tool: "send-notification",
+          result: "Sent",
+          completedSideEffect: true,
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+
+    await runBackgroundAutomation(runOptions(automation), {
+      ...standardDeps,
+      getActions: () => ({ "call-agent": {} as any }),
+      getWorkspaceAppContext,
+    });
+
+    expect(getWorkspaceAppContext).toHaveBeenCalledWith({
+      request: "Send the reminders.",
+      ownerEmail: "alice@agent-native.test",
+      orgId: undefined,
+      appId: undefined,
+      workspaceAppsEnabled: true,
+    });
+    expect(capturedSystemPrompt).toContain(appContext);
+  });
+});
+
 describe("automation history ownership", () => {
   it.each([
     { owner: "alice@agent-native.test", scope: "personal", orgId: null },

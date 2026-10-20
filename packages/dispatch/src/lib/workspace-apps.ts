@@ -18,6 +18,7 @@ export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  whenToUse?: string[];
   defaultDescriptionKey?: string;
   path: string;
   homePath?: string;

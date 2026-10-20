@@ -40,7 +40,10 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
-import { getAppProductionUrl } from "../server/app-url.js";
+import {
+  getAppProductionUrl,
+  resolveAppRuntimeUrl,
+} from "../server/app-url.js";
 import {
   isTrustedSelfHostedRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -94,6 +97,22 @@ import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 const pendingFederatedOrgSyncs = new Map<string, Promise<void>>();
+
+function isSameDeploymentWorkspaceAgent(agentUrl: string): boolean {
+  const runtimeUrl = resolveAppRuntimeUrl();
+  if (!runtimeUrl) return false;
+  try {
+    const agent = new URL(agentUrl);
+    const runtime = new URL(runtimeUrl);
+    return (
+      (agent.protocol === "https:" || agent.protocol === "http:") &&
+      agent.origin === runtime.origin
+    );
+  } catch {
+    // coercion-ok: Invalid URLs cannot be trusted as secret-sync recipients.
+    return false;
+  }
+}
 
 function parseRequiredAuthProvider(value: unknown): RequiredAuthProvider {
   if (value === null || value === undefined) return null;
@@ -2063,7 +2082,14 @@ export const syncA2ASecretHandler = defineEventHandler(
         import("../a2a/audience.js"),
       ]);
 
-    const agents = await discoverAgents();
+    // Only first-party built-ins and apps mounted on this deployment may receive
+    // the organization secret. A workspace manifest can contain external URLs.
+    const agents = (await discoverAgents()).filter(
+      (agent) =>
+        agent.source === "builtin" ||
+        (agent.source === "workspace" &&
+          isSameDeploymentWorkspaceAgent(agent.url)),
+    );
 
     const results: Array<{
       id: string;

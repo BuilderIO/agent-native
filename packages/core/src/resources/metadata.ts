@@ -1,5 +1,7 @@
 export type ResourceKind = "file" | "skill" | "job" | "agent" | "remote-agent";
 
+import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
+
 export interface ParsedFrontmatter {
   raw: string;
   body: string;
@@ -65,6 +67,8 @@ export interface RemoteAgentManifest {
   path: string;
   name: string;
   description?: string;
+  whenToUse?: string[];
+  aliases?: string[];
   url: string;
   color?: string;
   cardUrl?: string;
@@ -301,6 +305,25 @@ export function parseRemoteAgentManifest(
       return null;
     }
 
+    const agentNative = data["agent-native"];
+    const agentNativeRecord =
+      agentNative &&
+      typeof agentNative === "object" &&
+      !Array.isArray(agentNative)
+        ? (agentNative as Record<string, unknown>)
+        : undefined;
+    const profile = parseAgentProfileMetadataFields({
+      ...(data.description !== undefined
+        ? { description: data.description }
+        : {}),
+      ...(agentNativeRecord && "whenToUse" in agentNativeRecord
+        ? { whenToUse: agentNativeRecord.whenToUse }
+        : {}),
+      ...(agentNativeRecord && "aliases" in agentNativeRecord
+        ? { aliases: agentNativeRecord.aliases }
+        : {}),
+    });
+
     const auth = parseRemoteAgentAuth(data.auth);
     if (data.auth !== undefined && data.auth !== null && !auth) return null;
     if (
@@ -326,7 +349,15 @@ export function parseRemoteAgentManifest(
         typeof data.name === "string" && data.name.trim()
           ? data.name.trim()
           : id,
-      description: typeof data.description === "string" ? data.description : "",
+      ...(profile.metadata.description
+        ? { description: profile.metadata.description }
+        : {}),
+      ...(profile.metadata.whenToUse
+        ? { whenToUse: profile.metadata.whenToUse }
+        : {}),
+      ...(profile.metadata.aliases
+        ? { aliases: profile.metadata.aliases }
+        : {}),
       url: rawUrl,
       color:
         typeof data.color === "string" && data.color.trim()

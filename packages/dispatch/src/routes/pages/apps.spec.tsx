@@ -11,12 +11,18 @@ const queryState = vi.hoisted(() => ({
   connectedApps: [] as Array<Record<string, unknown>>,
   connectedAppsError: null as Error | null,
   connectedAppsLoading: false,
+  communityAppsEnabled: false,
+  communityApps: [] as Array<Record<string, unknown>>,
+  installCommunityApp: vi.fn(),
+  installCommunityAppResult: null as Record<string, unknown> | null,
+  sendToAgentChat: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (action: string) => {
     const workspaceApps = action === "list-workspace-apps";
     const connectedApps = action === "list-connected-agents";
+    const communityApps = action === "list-curated-community-apps";
     const error = workspaceApps
       ? queryState.workspaceAppsError
       : connectedApps
@@ -27,7 +33,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         ? queryState.workspaceApps
         : connectedApps
           ? queryState.connectedApps
-          : { name: null, displayName: null, appCount: 0 },
+          : communityApps
+            ? queryState.communityApps
+            : { name: null, displayName: null, appCount: 0 },
       error,
       isError: Boolean(error),
       isLoading: workspaceApps
@@ -38,6 +46,30 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       refetch: vi.fn(),
     };
   },
+  useActionMutation: (
+    _action: string,
+    options?: { onSuccess?: (result: Record<string, unknown>) => void },
+  ) => ({
+    mutate: (input: unknown) => {
+      queryState.installCommunityApp(input);
+      if (queryState.installCommunityAppResult) {
+        options?.onSuccess?.(queryState.installCommunityAppResult);
+      }
+    },
+    isPending: false,
+  }),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChat: queryState.sendToAgentChat,
+}));
+
+vi.mock("@agent-native/core/client/labs", () => ({
+  useLab: () => queryState.communityAppsEnabled,
+}));
+
+vi.mock("../../shared/labs.js", () => ({
+  COMMUNITY_APPS_LAB: { key: "dispatch.community-apps", defaultEnabled: false },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -92,6 +124,11 @@ describe("Dispatch apps route", () => {
     queryState.connectedApps = [];
     queryState.connectedAppsError = null;
     queryState.connectedAppsLoading = false;
+    queryState.communityAppsEnabled = false;
+    queryState.communityApps = [];
+    queryState.installCommunityApp.mockReset();
+    queryState.installCommunityAppResult = null;
+    queryState.sendToAgentChat.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -128,5 +165,133 @@ describe("Dispatch apps route", () => {
     await renderAppsRoute();
 
     expect(container.textContent).toContain("No workspace apps");
+  });
+
+  it("hides community apps while the Lab is off", async () => {
+    await renderAppsRoute();
+
+    expect(container.textContent).not.toContain("dispatch.pages.communityApps");
+  });
+
+  it("lists the reviewed catalog and starts the selected install", async () => {
+    queryState.communityAppsEnabled = true;
+    queryState.communityApps = [
+      {
+        id: "community-qr",
+        name: "QR",
+        description: "Generate QR images.",
+        appId: "community-qr",
+        repo: "BuilderIO/agent-native",
+        sha: "a".repeat(40),
+        license: "MIT",
+        provenance: "Reviewed source",
+        templatePath: "templates/community/qr",
+        installed: false,
+        pending: false,
+        installable: true,
+      },
+    ];
+
+    await renderAppsRoute();
+
+    expect(container.textContent).toContain("QR");
+    const installButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) =>
+      button.textContent?.includes("dispatch.pages.communityAppsInstall"),
+    );
+    expect(installButton).toBeDefined();
+    await act(async () => installButton?.click());
+    expect(queryState.installCommunityApp).toHaveBeenCalledWith({
+      sourceId: "community-qr",
+    });
+  });
+
+  it("sends verified source files to the local code agent", async () => {
+    queryState.communityAppsEnabled = true;
+    queryState.communityApps = [
+      {
+        id: "community-qr",
+        name: "QR",
+        description: "Generate QR images.",
+        appId: "community-qr",
+        repo: "BuilderIO/agent-native",
+        sha: "a".repeat(40),
+        license: "MIT",
+        provenance: "Reviewed source",
+        templatePath: "templates/community/qr",
+        installed: false,
+        pending: false,
+        installable: true,
+      },
+    ];
+    queryState.installCommunityAppResult = {
+      mode: "local-agent",
+      prompt: "Create this app from the pinned files.",
+      attachments: [
+        {
+          type: "file",
+          name: "community-qr/README.md",
+          contentType: "text/plain",
+          text: "Verified source",
+        },
+      ],
+    };
+
+    await renderAppsRoute();
+    const installButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) =>
+      button.textContent?.includes("dispatch.pages.communityAppsInstall"),
+    );
+    await act(async () => installButton?.click());
+
+    expect(queryState.sendToAgentChat).toHaveBeenCalledWith({
+      message: "Create this app from the pinned files.",
+      attachments: [
+        {
+          type: "file",
+          name: "community-qr/README.md",
+          contentType: "text/plain",
+          text: "Verified source",
+        },
+      ],
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+  });
+
+  it("explains when a community app ID is already in use", async () => {
+    queryState.communityAppsEnabled = true;
+    queryState.communityApps = [
+      {
+        id: "community-qr",
+        name: "QR",
+        description: "Generate QR images.",
+        appId: "qr",
+        repo: "BuilderIO/agent-native",
+        sha: "a".repeat(40),
+        license: "MIT",
+        provenance: "Reviewed source",
+        templatePath: "templates/community/qr",
+        installed: false,
+        pending: false,
+        installable: false,
+        installUnavailableReason: "app-id-conflict",
+      },
+    ];
+
+    await renderAppsRoute();
+
+    expect(container.textContent).toContain(
+      "dispatch.pages.communityAppsIdConflict",
+    );
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("dispatch.pages.communityAppsInstall"),
+      ),
+    ).toBe(false);
   });
 });

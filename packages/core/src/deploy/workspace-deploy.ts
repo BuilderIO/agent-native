@@ -31,6 +31,7 @@ import {
   BUILTIN_AGENTS_ENV_KEY,
   workspaceBuiltinAgentsJson,
 } from "../server/builtin-agents.js";
+import { parseAgentProfileMetadata } from "../shared/agent-profile.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -126,6 +127,7 @@ interface WorkspaceAppManifestEntry {
   id: string;
   name: string;
   description: string;
+  "agent-native"?: { whenToUse?: string[]; aliases?: string[] };
   path: string;
   homePath: string;
   url?: string;
@@ -1916,10 +1918,35 @@ async function readWorkspaceAppManifest(
       packageRouteAccess.publicPaths ?? explicit?.publicPaths ?? [];
     const protectedPaths =
       packageRouteAccess.protectedPaths ?? explicit?.protectedPaths ?? [];
+    const agentNative = pkg?.["agent-native"];
+    const profile = parseAgentProfileMetadata({
+      description: pkg?.description,
+      ...(agentNative &&
+      typeof agentNative === "object" &&
+      ("whenToUse" in agentNative || "aliases" in agentNative)
+        ? {
+            ...("whenToUse" in agentNative
+              ? { whenToUse: agentNative.whenToUse }
+              : {}),
+            ...("aliases" in agentNative
+              ? { aliases: agentNative.aliases }
+              : {}),
+          }
+        : {}),
+    });
+    if (!profile) throw new Error(`Invalid agent profile metadata in ${app}`);
     entries.push({
       id: app,
       name: pkg?.displayName || titleCase(app),
-      description: pkg?.description || "",
+      description: profile.description ?? "",
+      ...(profile.whenToUse || profile.aliases
+        ? {
+            "agent-native": {
+              ...(profile.whenToUse ? { whenToUse: profile.whenToUse } : {}),
+              ...(profile.aliases ? { aliases: profile.aliases } : {}),
+            },
+          }
+        : {}),
       path: appPath,
       homePath: normalizeWorkspaceAppHomePath(
         explicit?.homePath ??

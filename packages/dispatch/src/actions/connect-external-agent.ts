@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/resources/store";
 import { z } from "zod";
 
-import { parseAgentEndpointUrl } from "../lib/agent-endpoint-url.js";
+import { normalizeConnectUrl } from "../lib/connect-apps.js";
 import {
   currentOrgId,
   currentOwnerEmail,
@@ -24,7 +24,11 @@ function slugify(value: string): string {
 
 async function assertCanManageSharedAgent() {
   const orgId = currentOrgId();
-  if (!orgId) return;
+  if (!orgId) {
+    fail("An active organization is required to connect an agent.", {
+      statusCode: 403,
+    });
+  }
   const actor = currentOwnerEmail().trim().toLowerCase();
   const result = await getDbExec().execute({
     sql: `SELECT role FROM org_members
@@ -35,7 +39,7 @@ async function assertCanManageSharedAgent() {
   });
   const role = result.rows[0]?.role;
   if (role !== "owner" && role !== "admin") {
-    fail("Only organization owners and admins can connect shared agents.", {
+    fail("Only organization owners and admins can connect agents.", {
       statusCode: 403,
     });
   }
@@ -54,14 +58,13 @@ export default defineAction({
       .describe("Share with the workspace or keep the connection personal"),
   }),
   run: async ({ url, name, description, scope }) => {
-    let parsed: URL;
-    try {
-      parsed = parseAgentEndpointUrl(url);
-    } catch (err) {
-      fail(err instanceof Error ? err.message : "Enter a valid URL.");
-    }
+    const parsed = normalizeConnectUrl(url);
+    if (!parsed)
+      fail(
+        "Use HTTPS, except for localhost HTTP, and do not include credentials or private addresses.",
+      );
 
-    if (scope === "shared") await assertCanManageSharedAgent();
+    await assertCanManageSharedAgent();
     const agentName = name?.trim() || parsed.hostname.replace(/^www\./, "");
     const id = slugify(agentName);
     const path = `remote-agents/${id}.json`;

@@ -7,6 +7,14 @@ import {
 import { dispatchActions } from "../actions/index.js";
 import type { DispatchConfig } from "../config.js";
 import { dispatchAccessDescriptor } from "../shared/app-roles.js";
+export {
+  listOrganizationVisibleWorkspaceApps,
+  listWorkspaceApps,
+} from "./lib/app-creation-store.js";
+export {
+  invalidateOrgAppsDirectoryCache,
+  orgAppsDirectoryCache,
+} from "./lib/org-apps-directory-cache.js";
 
 defineAppRoles(dispatchAccessDescriptor, { allowOrgAdmins: true });
 

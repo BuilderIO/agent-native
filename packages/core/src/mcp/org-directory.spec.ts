@@ -111,6 +111,27 @@ describe("fetchOrgApps", () => {
     });
   });
 
+  it("distinguishes an invalid configured directory URL from no configuration", async () => {
+    await expect(
+      fetchOrgAppsResult({
+        env: { AGENT_NATIVE_ORG_DIRECTORY_URL: "not a URL" },
+      }),
+    ).resolves.toEqual({ status: "unavailable", reason: "invalid-origin" });
+  });
+
+  it.each(["http://127.0.0.1", "http://10.2.3.4", "http://169.254.1.2"])(
+    "blocks private directory origin %s before making a request",
+    async (origin) => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        fetchOrgAppsResult({ directoryBaseUrl: origin }),
+      ).resolves.toEqual({ status: "unavailable", reason: "ssrf-blocked" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it("fetches the directory and normalizes the app list", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const callerAuth = await import("../a2a/caller-auth.js");
@@ -152,6 +173,33 @@ describe("fetchOrgApps", () => {
         capabilities: ["events"],
       },
     ]);
+  });
+
+  it("uses an explicit directory base URL for the request and token audience", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://configured.example";
+    const callerAuth = await import("../a2a/caller-auth.js");
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.redirect).toBe("manual");
+      return new Response(JSON.stringify({ apps: [] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({
+        directoryBaseUrl: "https://dispatch.example/dispatch/",
+      }),
+    ).resolves.toEqual({ status: "available", apps: [] });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://dispatch.example/dispatch/_agent-native/org/apps",
+      expect.any(Object),
+    );
+    expect(callerAuth.resolveA2ACallerAuth).toHaveBeenCalledWith({
+      audience: "https://dispatch.example/dispatch",
+    });
+    expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://configured.example",
+    );
   });
 
   it("passes the Vercel protection bypass to the configured directory", async () => {
@@ -246,6 +294,40 @@ describe("fetchOrgApps", () => {
     expect(apps.map((a) => a.id)).toEqual(["other"]);
   });
 
+  it("strips only the matching app base path on a shared workspace origin", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.example";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              apps: [
+                {
+                  id: "current",
+                  name: "Current",
+                  url: "https://workspace.example/dispatch",
+                },
+                {
+                  id: "calendar",
+                  name: "Calendar",
+                  url: "https://workspace.example/calendar/",
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const apps = await fetchOrgApps({
+      selfId: "not-current-id",
+      selfOrigin: "https://workspace.example/dispatch/",
+    });
+
+    expect(apps.map((app) => app.id)).toEqual(["calendar"]);
+  });
+
   it("returns [] silently on a non-2xx response (no throw)", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     vi.stubGlobal(
@@ -256,7 +338,7 @@ describe("fetchOrgApps", () => {
   });
 
   it.each([
-    [404, "http-error"],
+    [404, "missing-route"],
     [429, "server-error"],
     [503, "server-error"],
   ] as const)(
@@ -273,6 +355,61 @@ describe("fetchOrgApps", () => {
       });
     },
   );
+
+  it("reports a missing route only for a 404 response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("not found", { status: 404 })),
+    );
+
+    await expect(
+      fetchOrgAppsResult({ directoryBaseUrl: "https://dispatch.example" }),
+    ).resolves.toEqual({ status: "unavailable", reason: "missing-route" });
+  });
+
+  it.each([
+    [401, "unauthorized"],
+    [403, "authorization"],
+    [200, "invalid-response"],
+  ] as const)(
+    "does not classify auth or malformed response %s as a missing route",
+    async (status, reason) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          status === 200
+            ? new Response(JSON.stringify({ nope: true }), { status })
+            : new Response("request rejected", { status }),
+        ),
+      );
+
+      await expect(
+        fetchOrgAppsResult({ directoryBaseUrl: "https://dispatch.example" }),
+      ).resolves.toEqual({ status: "unavailable", reason });
+    },
+  );
+
+  it("does not follow redirects or forward the bearer token", async () => {
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.redirect).toBe("manual");
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://other.example/collect" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({ directoryBaseUrl: "https://dispatch.example" }),
+    ).resolves.toEqual({ status: "unavailable", reason: "http-error" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://dispatch.example/_agent-native/org/apps",
+    );
+    expect(
+      new Headers(fetchSpy.mock.calls[0]?.[1]?.headers).get("authorization"),
+    ).toBe("Bearer signed-org-jwt");
+  });
 
   it("retries the org directory with fallback bearer tokens on auth rejection", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
@@ -386,7 +523,7 @@ describe("fetchOrgApps", () => {
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
 
-  it("reports a strict directory transport failure without caching it", async () => {
+  it("reports a strict directory transport failure and caches it briefly", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const fetchSpy = vi
       .fn()
@@ -403,10 +540,10 @@ describe("fetchOrgApps", () => {
       reason: "timeout",
     });
     await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
-      status: "available",
-      apps: [],
+      status: "unavailable",
+      reason: "timeout",
     });
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("returns [] silently on bad JSON (no throw)", async () => {
@@ -525,6 +662,9 @@ describe("fetchOrgApps", () => {
                 url: "https://cal.acme.com",
                 a2aUrl: "https://cal.acme.com/_agent-native/a2a",
                 capabilities: "Schedule and manage events",
+                description: "  Calendar tools for teams  ",
+                whenToUse: ["  Create events  ", "Find open times"],
+                aliases: ["  calendar  ", "CALENDAR", "events"],
               },
             ],
           }),
@@ -538,8 +678,44 @@ describe("fetchOrgApps", () => {
         expect.objectContaining({
           id: "calendar",
           capabilities: ["Schedule and manage events"],
+          description: "Calendar tools for teams",
+          whenToUse: ["Create events", "Find open times"],
+          aliases: ["calendar", "events"],
         }),
       ],
+    });
+  });
+
+  it.each([
+    { description: 1 },
+    { whenToUse: ["Create events", 2] },
+    { aliases: ["calendar", 2] },
+    { aliases: Array.from({ length: 11 }, (_, index) => `app-${index}`) },
+    { aliases: ["a".repeat(81)] },
+  ])("rejects malformed profile metadata %#", async (profileFields) => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              apps: [
+                {
+                  id: "calendar",
+                  name: "Calendar",
+                  url: "https://cal.acme.com",
+                  ...profileFields,
+                },
+              ],
+            }),
+          ),
+      ),
+    );
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
     });
   });
 
@@ -622,6 +798,63 @@ describe("fetchOrgApps", () => {
       expect.objectContaining({ id: "calendar" }),
     ]);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches transient failures for 30 seconds, scoped by principal", async () => {
+    vi.useFakeTimers();
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const mod = await import("../a2a/caller-auth.js");
+    vi.mocked(mod.resolveA2ACallerAuth)
+      .mockResolvedValueOnce({
+        apiKey: "a",
+        userEmail: "a@acme.com",
+        orgId: "org-a",
+        metadata: {},
+      })
+      .mockResolvedValueOnce({
+        apiKey: "a",
+        userEmail: "a@acme.com",
+        orgId: "org-a",
+        metadata: {},
+      })
+      .mockResolvedValueOnce({
+        apiKey: "b",
+        userEmail: "b@acme.com",
+        orgId: "org-b",
+        metadata: {},
+      })
+      .mockResolvedValueOnce({
+        apiKey: "a",
+        userEmail: "a@acme.com",
+        orgId: "org-a",
+        metadata: {},
+      });
+    const fetchSpy = vi.fn(
+      async () => new Response("failure", { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgAppsResult()).resolves.toEqual({
+      status: "unavailable",
+      reason: "server-error",
+    });
+    await expect(fetchOrgAppsResult()).resolves.toEqual({
+      status: "unavailable",
+      reason: "server-error",
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await expect(fetchOrgAppsResult()).resolves.toEqual({
+      status: "unavailable",
+      reason: "server-error",
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(30_001);
+    await expect(fetchOrgAppsResult()).resolves.toEqual({
+      status: "unavailable",
+      reason: "server-error",
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
   });
 
   it("degrades silently when no signed bearer is available", async () => {

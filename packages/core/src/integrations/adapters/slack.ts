@@ -410,9 +410,17 @@ export function slackAdapter(
         | undefined;
       const placeholderRef = opts?.placeholderRef;
 
-      const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
+      const imageUrls = (message.platformContext as any)?.imageUrls;
       const hasProvidedBlocks = Array.isArray(blocks) && blocks.length > 0;
-      const firstChunk = chunks[0] ?? (hasProvidedBlocks ? "Response" : "");
+      const imageOnly =
+        !message.text.trim() &&
+        Array.isArray(imageUrls) &&
+        imageUrls.length > 0 &&
+        !hasProvidedBlocks;
+      const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
+      const firstChunk =
+        chunks[0] ??
+        (hasProvidedBlocks ? "Response" : imageOnly ? "Image" : "");
       if (!firstChunk) {
         if (threadTs) {
           setSlackAssistantStatus(token, channelId, threadTs, "");
@@ -440,9 +448,10 @@ export function slackAdapter(
 
       const finalBlocks =
         blocks ??
-        buildResponseBlocks(firstChunk, {
+        buildResponseBlocks(imageOnly ? "" : firstChunk, {
           threadDeepLinkUrl: (message.platformContext as any)
             ?.threadDeepLinkUrl,
+          imageUrls,
         });
 
       const baseBody: Record<string, unknown> = {
@@ -670,11 +679,19 @@ export function slackAdapter(
       text: string,
       opts?: { threadDeepLinkUrl?: string },
     ): OutgoingMessage {
+      const imageUrls: { url: string; alt: string }[] = [];
+      const textWithoutImages = text.replace(
+        /!\[([^\]]*)\]\((https:\/\/[^\s)]+)\)/g,
+        (_match, alt: string, url: string) => {
+          imageUrls.push({ url, alt });
+          return "";
+        },
+      );
       return {
-        text: markdownToSlackMrkdwn(text),
+        text: markdownToSlackMrkdwn(textWithoutImages),
         platformContext: opts?.threadDeepLinkUrl
-          ? { threadDeepLinkUrl: opts.threadDeepLinkUrl }
-          : {},
+          ? { threadDeepLinkUrl: opts.threadDeepLinkUrl, imageUrls }
+          : { imageUrls },
       };
     },
 
@@ -1131,16 +1148,32 @@ function setSlackAssistantStatus(
 
 function buildResponseBlocks(
   text: string,
-  opts: { threadDeepLinkUrl?: string },
+  opts: { threadDeepLinkUrl?: string; imageUrls?: unknown },
 ): unknown[] {
-  const sectionChunks = splitMessage(
-    text || "_(no response)_",
-    SLACK_SECTION_TEXT_MAX_LENGTH,
-  );
+  const sectionChunks = text.trim()
+    ? splitMessage(text, SLACK_SECTION_TEXT_MAX_LENGTH)
+    : [];
   const blocks: any[] = sectionChunks.map((chunk) => ({
     type: "section",
     text: { type: "mrkdwn", text: chunk },
   }));
+  if (Array.isArray(opts.imageUrls)) {
+    for (const image of opts.imageUrls) {
+      if (
+        image &&
+        typeof image.url === "string" &&
+        image.url.startsWith("https://") &&
+        image.url.length <= 3000
+      ) {
+        blocks.push({
+          type: "image",
+          image_url: image.url,
+          alt_text:
+            typeof image.alt === "string" && image.alt ? image.alt : "Image",
+        });
+      }
+    }
+  }
   if (opts.threadDeepLinkUrl) {
     blocks.push({
       type: "actions",
@@ -1154,7 +1187,7 @@ function buildResponseBlocks(
       ],
     });
   }
-  return blocks;
+  return blocks.slice(0, 50);
 }
 
 async function postFresh(

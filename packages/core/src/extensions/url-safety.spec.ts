@@ -253,6 +253,7 @@ describe("isBlockedExtensionUrl", () => {
     "http://[fe80::1]/",
     "http://[ff00::1]/",
     "http://[::ffff:7f00:1]/",
+    "http://[0:0:0:0:0:ffff:7f00:1]/",
     "http://metadata.google.internal/",
   ])("blocks non-public target %s", (url) => {
     expect(isBlockedExtensionUrl(url)).toBe(true);
@@ -261,6 +262,8 @@ describe("isBlockedExtensionUrl", () => {
   it("allows ordinary public HTTP origins", () => {
     expect(isBlockedExtensionUrl("https://93.184.216.34/api")).toBe(false);
     expect(isBlockedExtensionUrl("https://example.com/api")).toBe(false);
+    expect(isBlockedExtensionUrl("http://192.0.1.1/")).toBe(false);
+    expect(isBlockedExtensionUrl("https://fc.example.com/")).toBe(false);
   });
 });
 

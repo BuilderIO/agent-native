@@ -19,6 +19,7 @@ import type { EngineTool } from "./engine/types.js";
 import {
   buildRecentUserRequestContext,
   buildJevRequestContext,
+  buildWorkspaceAppRequestContext,
   isBuilderJevEnabled,
   isJevEnabled,
   preloadJevTools,
@@ -112,6 +113,29 @@ describe("preloadJevTools", () => {
     expect(request).toContain("Current request:\nCompare those by month");
     expect(request).not.toContain("omit result");
     expect(request).not.toContain("secret");
+  });
+
+  it("builds app routing context from one prior user turn and selected object data", () => {
+    const request = buildWorkspaceAppRequestContext({
+      request: "Add a QR to this slide",
+      structuredHistory: [
+        { role: "user", content: [{ type: "text", text: "Make a QR code." }] },
+        { role: "assistant", content: [{ type: "text", text: "Done." }] },
+        {
+          role: "user",
+          content: [{ type: "text", text: "Actually, make it for the URL." }],
+        },
+      ],
+      selectedObjectContext: '<slide title="Launch">',
+    });
+
+    expect(request).toContain(
+      "Previous user request:\nActually, make it for the URL.",
+    );
+    expect(request).not.toContain("Make a QR code.");
+    expect(request).toContain("Current request:\nAdd a QR to this slide");
+    expect(request).toContain("Selected object context (untrusted data):");
+    expect(request).toContain('&lt;slide title="Launch"&gt;');
   });
 
   it("does not fall back to legacy history when structured history has no visible text", () => {

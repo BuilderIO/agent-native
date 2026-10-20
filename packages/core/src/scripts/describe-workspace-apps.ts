@@ -6,7 +6,12 @@ import {
   loadCapabilities,
   MAX_APPS,
 } from "../server/agent-capabilities.js";
-import { discoverAgents, findAgent } from "../server/agent-discovery.js";
+import {
+  discoverAgents,
+  discoverAgentsWithDirectoryStatus,
+  findAgent,
+} from "../server/agent-discovery.js";
+import { selectWorkspaceAppCandidates } from "../server/workspace-app-selection.js";
 
 export const tool: ActionTool = {
   description:
@@ -18,6 +23,11 @@ export const tool: ActionTool = {
         type: "string",
         description:
           "Optional app id or name. When set, returns that one peer's full capability list instead of a summary of every peer.",
+      },
+      query: {
+        type: "string",
+        description:
+          "Optional description of the capability you need. Searches and ranks all reachable peers before the result limit; refine a truncated list with a more specific query.",
       },
     },
   },
@@ -45,15 +55,40 @@ export async function run(
     );
   }
 
-  const agents = await discoverAgents(selfAppId);
+  const discovery = await discoverAgentsWithDirectoryStatus(selfAppId);
+  const agents = discovery.agents;
   if (agents.length === 0) {
+    if (discovery.directory.status === "unavailable") {
+      return `The organization app directory is unavailable (${discovery.directory.reason}). Workspace app availability could not be determined.`;
+    }
+    if (discovery.directory.status === "forbidden") {
+      return "The organization app directory is unavailable (forbidden). Workspace app availability could not be determined.";
+    }
+    if (discovery.directory.status === "setup-required") {
+      return `The organization app directory is not configured (${discovery.directory.reason}). This app is running standalone, so build the capability here rather than delegating.`;
+    }
     return "No other apps are reachable from this one. This app is running standalone, so build the capability here rather than delegating.";
   }
 
-  const shown = agents.slice(0, MAX_APPS);
-  return formatCapabilitySummary(
+  const query = String(args.query ?? "").trim();
+  const selection = selectWorkspaceAppCandidates(agents, query, MAX_APPS);
+  const shown = selection.agents;
+  const summary = formatCapabilitySummary(
     await loadAllCapabilities(shown),
-    agents.length - shown.length,
+    0,
     (appId) => `call describe-workspace-apps with app="${appId}"`,
   );
+  const list = selection.omittedCount
+    ? `${summary}\n+${selection.omittedCount} more — search with describe-workspace-apps query="..."`
+    : summary;
+  const directoryStatus =
+    discovery.directory.status === "unavailable"
+      ? `Organization app directory status: unavailable (${discovery.directory.reason}). This list may be incomplete.`
+      : discovery.directory.status === "forbidden"
+        ? "Organization app directory status: forbidden. This list may be incomplete."
+        : discovery.directory.status === "setup-required"
+          ? `Organization app directory status: setup-required (${discovery.directory.reason}). This list may be incomplete.`
+          : null;
+
+  return directoryStatus ? `${directoryStatus}\n${list}` : list;
 }

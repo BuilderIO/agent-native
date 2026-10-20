@@ -93,6 +93,19 @@ export interface RequestRunContext {
   };
   /** Whether the pre-model reference prefetch and screen grounding reached the model. */
   contextStatus?: { prefetch?: ContextStatus; screen?: ContextStatus };
+  /** Current user text used to rank reachable workspace apps for this turn. */
+  appDiscoveryQuery?: string;
+  /** Privacy-safe app discovery result diagnostics for the current run. */
+  appDiscoverySelection?: {
+    status: "selected" | "no-match" | "unavailable" | "failed" | "timed_out";
+    directoryStatus:
+      | "available"
+      | "unavailable"
+      | "forbidden"
+      | "setup-required";
+    selectedIds: string[];
+    latencyMs: number;
+  };
   toolCalls?: Array<{ name: string; input: unknown }>;
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   extensionContentReads?: Record<string, string>;

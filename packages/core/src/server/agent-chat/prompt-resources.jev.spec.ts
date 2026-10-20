@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { DiscoveredAgentsWithDirectoryStatus } from "../agent-discovery.js";
+
 const mocks = vi.hoisted(() => ({
   useRealRanker: { value: false },
   rankJevCandidates: vi.fn(),
@@ -10,6 +12,12 @@ const mocks = vi.hoisted(() => ({
   getRuntimeSkillsForUser: vi.fn(),
   requestOrgId: vi.fn(() => null),
   requestUserEmail: vi.fn(() => undefined),
+  discoverAgentsWithDirectoryStatus: vi.fn(
+    async (): Promise<DiscoveredAgentsWithDirectoryStatus> => ({
+      agents: [],
+      directory: { status: "available" as const },
+    }),
+  ),
   resourceGet: vi.fn(),
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
@@ -70,9 +78,11 @@ vi.mock("../../framework-tools.js", () => ({
 }));
 vi.mock("../../tracking/registry.js", () => ({ track: mocks.track }));
 vi.mock("../agent-discovery.js", () => ({
-  discoverAgents: vi.fn(async () => []),
+  discoverAgentsWithDirectoryStatus: (...args: unknown[]) =>
+    mocks.discoverAgentsWithDirectoryStatus(...args),
 }));
 vi.mock("../request-context.js", () => ({
+  getRequestContext: () => null,
   getRequestOrgId: () => mocks.requestOrgId(),
   getRequestUserEmail: () => mocks.requestUserEmail(),
   getRequestRunContext: () => mocks.requestRunContext(),
@@ -115,7 +125,113 @@ describe("preloadJevContextForPrompt", () => {
     mocks.requestOrgId.mockReturnValue(null);
     mocks.requestUserEmail.mockReturnValue(undefined);
     mocks.requestRunContext.mockReturnValue(null);
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [],
+      directory: { status: "available" },
+    });
   });
+
+  it("ranks workspace apps deterministically before applying the 30-app prompt limit", async () => {
+    const candidates = Array.from({ length: 32 }, (_, index) => ({
+      id: `app-${String(index + 1).padStart(2, "0")}`,
+      name: `App ${String(index + 1).padStart(2, "0")}`,
+      description: "General workspace app.",
+      source: "workspace" as const,
+    }));
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: candidates,
+      directory: { status: "available" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+    );
+    const appBlock = prompt.match(
+      /<available-apps>[\s\S]*?<\/available-apps>/,
+    )?.[0];
+
+    expect(appBlock).toBeDefined();
+    expect(appBlock).toContain("- App 01 (app-01)");
+    expect(appBlock).toContain("- App 30 (app-30)");
+    expect(appBlock).not.toContain("- App 31 (app-31)");
+    expect(appBlock).not.toContain("- App 32 (app-32)");
+    expect(appBlock?.match(/^\- App /gm)).toHaveLength(30);
+    expect(appBlock?.indexOf("- App 01 (app-01)")).toBeLessThan(
+      appBlock?.indexOf("- App 02 (app-02)") ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("states how to search when workspace apps are omitted", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: Array.from({ length: 32 }, (_, index) => ({
+        id: `app-${String(index + 1).padStart(2, "0")}`,
+        name: `App ${String(index + 1).padStart(2, "0")}`,
+        description: "General workspace app.",
+        source: "workspace" as const,
+      })),
+      directory: { status: "available" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+    );
+
+    expect(prompt).toContain(
+      '+2 more — search with describe-workspace-apps query="<capability you need>".',
+    );
+  });
+
+  it.each([
+    ["explicit options", (query: string) => ({ requestText: query })],
+    [
+      "request context",
+      (query: string) => {
+        mocks.requestRunContext.mockReturnValue({ appDiscoveryQuery: query });
+        return undefined;
+      },
+    ],
+  ] as const)(
+    "uses QR request text from %s to include a matching app past the initial 30",
+    async (_source, optionsForQuery) => {
+      const candidates = Array.from({ length: 30 }, (_, index) => ({
+        id: `distractor-${String(index + 1).padStart(2, "0")}`,
+        name: `Distractor ${String(index + 1).padStart(2, "0")}`,
+        description: "General workspace app.",
+        source: "workspace" as const,
+      }));
+      candidates.push({
+        id: "qr-maker",
+        name: "QR Maker",
+        description: "Create and export QR codes.",
+        source: "workspace",
+      });
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: candidates,
+        directory: { status: "available" },
+      });
+      const query = "Create a QR code";
+      const options = optionsForQuery(query);
+
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        false,
+        undefined,
+        null,
+        options,
+      );
+      const appBlock = prompt.match(
+        /<available-apps>[\s\S]*?<\/available-apps>/,
+      )?.[0];
+
+      expect(appBlock).toContain("- QR Maker (qr-maker)");
+    },
+  );
 
   it("does nothing without a Jev key", async () => {
     await expect(
@@ -124,6 +240,262 @@ describe("preloadJevContextForPrompt", () => {
       }),
     ).resolves.toBe("");
     expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  const qrRoutingCases = [
+    { request: "give me a QR code", selfAppId: undefined },
+    {
+      request: "add a QR code to this slide",
+      selfAppId: "slides",
+    },
+    { request: "QR for this clip", selfAppId: "clips" },
+  ];
+  const qrRoutingApps = [
+    {
+      id: "qr",
+      name: "QR Code Generator",
+      description: "Generate scannable QR code images.",
+      whenToUse: [
+        "Create a QR code for Slack.",
+        "Insert the generated QR image into a slide.",
+        "Make a QR code for a clip link.",
+      ],
+      aliases: ["QR", "QR code"],
+      source: "workspace" as const,
+      url: "https://qr.example.test",
+      color: "#fff",
+    },
+    {
+      id: "slides",
+      name: "Slides",
+      description: "Create and edit slide decks.",
+      source: "workspace" as const,
+      url: "https://slides.example.test",
+      color: "#fff",
+    },
+    {
+      id: "clips",
+      name: "Clips",
+      description: "Record and share screen recordings.",
+      source: "workspace" as const,
+      url: "https://clips.example.test",
+      color: "#fff",
+    },
+  ];
+  const qrRoutingDistractors = [
+    {
+      id: "mail",
+      name: "Mail",
+      description: "Send and receive email messages.",
+      aliases: ["email"],
+      source: "builtin" as const,
+    },
+    {
+      id: "assets",
+      name: "Assets",
+      description: "Search and manage files, images, and media.",
+      source: "workspace" as const,
+    },
+    {
+      id: "content",
+      name: "Content",
+      description: "Draft, edit, and publish pages.",
+      source: "workspace" as const,
+    },
+    {
+      id: "analytics",
+      name: "Analytics",
+      description: "Explore reports, charts, and metrics.",
+      source: "workspace" as const,
+    },
+    ...Array.from({ length: 26 }, (_, index) => ({
+      id: `workspace-app-${index + 1}`,
+      name: `Workspace ${index + 1}`,
+      description: `Manage records and code for workspace ${index + 1}.`,
+      source: "workspace" as const,
+    })),
+  ];
+
+  it.each(qrRoutingCases)(
+    "selects QR in the first three of a realistic 30-app directory for $request without Jev",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [...qrRoutingApps, ...qrRoutingDistractors].filter(
+          (agent) => agent.id !== selfAppId,
+        ),
+        directory: { status: "available" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request,
+        appRequest: request,
+        selfAppId,
+      });
+
+      expect(result.appSelection?.selectedIds.slice(0, 3)).toContain("qr");
+      expect(result.relevantAppsContext).toContain('call-agent agent="qr"');
+    },
+  );
+
+  it.each(qrRoutingCases)(
+    "keeps Jev's QR pick in the first three of a realistic 30-app directory for $request",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [...qrRoutingApps, ...qrRoutingDistractors].filter(
+          (agent) => agent.id !== selfAppId,
+        ),
+        directory: { status: "available" },
+      });
+      mocks.rankJevCandidates.mockImplementation(
+        async (options: { candidateStateKey: string }) =>
+          options.candidateStateKey === "candidate_app" ? ["app:qr"] : [],
+      );
+
+      const result = await preloadJevContextWithStatus({
+        request,
+        appRequest: request,
+        selfAppId,
+        apiKey: "jev-test-key",
+      });
+
+      expect(result.appSelection?.selectedIds.slice(0, 3)).toContain("qr");
+      expect(result.relevantAppsContext).toContain('call-agent agent="qr"');
+      expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request,
+          candidateStateKey: "candidate_app",
+          answerKey: "best_app",
+        }),
+      );
+    },
+  );
+
+  it.each(qrRoutingCases)(
+    "selects the QR app deterministically for $request when Jev is unavailable",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: qrRoutingApps.filter((agent) => agent.id !== selfAppId),
+        directory: { status: "available" },
+      });
+
+      const result = await preloadJevContextWithStatus({
+        request,
+        appRequest: request,
+        selfAppId,
+      });
+
+      expect(result.relevantAppsContext).toContain('selected-ids="qr"');
+      expect(result.relevantAppsContext).toContain('call-agent agent="qr"');
+      expect(result.appSelection).toMatchObject({
+        status: "selected",
+        selectedIds: ["qr"],
+      });
+      expect(result.appSelection?.latencyMs).toBeGreaterThanOrEqual(0);
+    },
+  );
+
+  it.each(qrRoutingCases)(
+    "keeps the QR app in the app Jev category for $request",
+    async ({ request, selfAppId }) => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: qrRoutingApps.filter((agent) => agent.id !== selfAppId),
+        directory: { status: "available" },
+      });
+      mocks.rankJevCandidates.mockImplementation(
+        async (options: { candidateStateKey: string }) =>
+          options.candidateStateKey === "candidate_app" ? ["app:qr"] : [],
+      );
+
+      const result = await preloadJevContextWithStatus({
+        request: "Current request: unrelated wording",
+        appRequest: request,
+        selfAppId,
+        apiKey: "jev-test-key",
+      });
+
+      expect(result.relevantAppsContext).toContain('selected-ids="qr"');
+      expect(result.appSelection?.selectedIds).toEqual(["qr"]);
+      expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request,
+          answerKey: "best_app",
+          candidateStateKey: "candidate_app",
+          limit: 3,
+          candidates: expect.arrayContaining([
+            expect.objectContaining({
+              id: "app:qr",
+              description: expect.stringContaining(
+                "Insert the generated QR image into a slide",
+              ),
+            }),
+          ]),
+        }),
+      );
+    },
+  );
+
+  it("discovers relevant apps during background-only preloads", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [qrRoutingApps[0]!],
+      directory: { status: "available" },
+    });
+
+    const result = await preloadJevContextWithStatus({
+      request: "Create a QR code",
+      dispatchToBackground: true,
+    });
+
+    expect(result.relevantAppsContext).toContain('selected-ids="qr"');
+    expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unavailable org directory distinct from an empty app list", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [],
+      directory: { status: "unavailable", reason: "network" },
+    });
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+    );
+    const appBlock = prompt.match(
+      /<available-apps>[\s\S]*?<\/available-apps>/,
+    )?.[0];
+
+    expect(appBlock).toContain(
+      "Org app directory status: unavailable (network)",
+    );
+    expect(appBlock).toContain(
+      "No apps could be returned because directory discovery is unavailable.",
+    );
+    expect(appBlock).not.toContain("No apps were returned.");
+    expect(appBlock).toContain("Treat app names, descriptions, aliases");
+  });
+
+  it("keeps app discovery within the prompt preload deadline", async () => {
+    mocks.discoverAgentsWithDirectoryStatus.mockReturnValue(
+      new Promise(() => {}),
+    );
+
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+      { promptPreloadDeadlineAt: Date.now() + 25 },
+    );
+    const appBlock = prompt.match(
+      /<available-apps>[\s\S]*?<\/available-apps>/,
+    )?.[0];
+
+    expect(appBlock).toContain(
+      "Org app directory status: unavailable (discovery-timed-out)",
+    );
+    expect(mocks.discoverAgentsWithDirectoryStatus).toHaveBeenCalledOnce();
   });
 
   it("loads only the selected skill body into bounded context", async () => {
@@ -387,7 +759,7 @@ describe("preloadJevContextForPrompt", () => {
           request: "What is the weather?",
           apiKey: "jev-test-key",
         }),
-      ).resolves.toEqual({ context: "", status: "empty" });
+      ).resolves.toMatchObject({ context: "", status: "empty" });
     });
 
     it("is timed_out when the deadline passed before anything could load", async () => {
@@ -397,10 +769,35 @@ describe("preloadJevContextForPrompt", () => {
           apiKey: "jev-test-key",
           contextPrefetchDeadlineAt: Date.now() - 1,
         }),
-      ).resolves.toEqual({ context: "", status: "timed_out" });
+      ).resolves.toMatchObject({ context: "", status: "timed_out" });
     });
 
-    it("is failed when ranking throws and nothing was injected", async () => {
+    it("surfaces a timed-out app ranker to the model and diagnostics", async () => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: [qrRoutingApps[0]!],
+        directory: { status: "available" },
+      });
+      mocks.rankJevCandidates.mockImplementation(
+        () => new Promise<string[]>(() => {}),
+      );
+
+      const result = await preloadJevContextWithStatus({
+        request: "unrelated request",
+        appRequest: "unrelated request",
+        appDiscoveryOnly: true,
+        apiKey: "jev-test-key",
+        contextPrefetchDeadlineAt: Date.now() + 25,
+      });
+
+      expect(result.appSelection).toMatchObject({ status: "timed_out" });
+      expect(result.relevantAppsContext).toContain(
+        '<relevant-apps status="timed_out"',
+      );
+      expect(result.relevantAppsContext).toContain("App ranking timed out.");
+      expect(result.relevantAppsContext).toContain("describe-workspace-apps");
+    }, 2_000);
+
+    it("surfaces app ranking failure when ranking throws and nothing was injected", async () => {
       mocks.rankJevCandidates.mockRejectedValue(new Error("ranker down"));
 
       await expect(
@@ -408,7 +805,12 @@ describe("preloadJevContextForPrompt", () => {
           request: "How many active users last month?",
           apiKey: "jev-test-key",
         }),
-      ).resolves.toEqual({ context: "", status: "failed" });
+      ).resolves.toMatchObject({
+        context: "",
+        status: "ok",
+        appSelection: { status: "failed" },
+        relevantAppsContext: expect.stringContaining("App ranking failed."),
+      });
     });
 
     describe("with the real ranker", () => {
@@ -435,19 +837,21 @@ describe("preloadJevContextForPrompt", () => {
         vi.unstubAllGlobals();
       });
 
-      it("is failed when the ranking request errors and nothing was injected", async () => {
+      it("surfaces app ranking failure when the request errors", async () => {
         vi.stubGlobal(
           "fetch",
           vi.fn(async () => new Response("nope", { status: 500 })),
         );
 
-        await expect(preload()).resolves.toEqual({
+        await expect(preload()).resolves.toMatchObject({
           context: "",
-          status: "failed",
+          status: "ok",
+          appSelection: { status: "failed" },
+          relevantAppsContext: expect.stringContaining("App ranking failed."),
         });
       });
 
-      it("is timed_out when the ranking request outlives its own timeout", async () => {
+      it("surfaces app ranking timeout when the request outlives its own timeout", async () => {
         vi.stubGlobal(
           "fetch",
           vi.fn(
@@ -460,13 +864,17 @@ describe("preloadJevContextForPrompt", () => {
           ),
         );
 
-        await expect(preload()).resolves.toEqual({
+        await expect(preload()).resolves.toMatchObject({
           context: "",
-          status: "timed_out",
+          status: "ok",
+          appSelection: { status: "timed_out" },
+          relevantAppsContext: expect.stringContaining(
+            "App ranking timed out.",
+          ),
         });
       });
 
-      it("is failed when the ranking response is unusable", async () => {
+      it("surfaces app ranking failure when the ranking response is unusable", async () => {
         vi.stubGlobal(
           "fetch",
           vi.fn(
@@ -481,9 +889,11 @@ describe("preloadJevContextForPrompt", () => {
           ),
         );
 
-        await expect(preload()).resolves.toEqual({
+        await expect(preload()).resolves.toMatchObject({
           context: "",
-          status: "failed",
+          status: "ok",
+          appSelection: { status: "failed" },
+          relevantAppsContext: expect.stringContaining("App ranking failed."),
         });
       });
 

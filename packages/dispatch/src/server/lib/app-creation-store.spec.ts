@@ -13,12 +13,14 @@ import {
   generateWorkspaceAppDescription,
   getAppCreationSettings,
   listAvailableWorkspaceTemplates,
+  listOrganizationVisibleWorkspaceApps,
   listWorkspaceApps,
   scaffoldWorkspaceAppFromTemplate,
   setAppCreationSettings,
   startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
+import { orgAppsDirectoryCache } from "./org-apps-directory-cache.js";
 
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
@@ -27,6 +29,7 @@ const mocks = vi.hoisted(() => {
   const settings = new Map<string, unknown>();
   const state = {
     orgRole: "admin" as string | null,
+    workspaceApps: [] as Record<string, unknown>[],
   };
   const executedSql: string[] = [];
   return {
@@ -62,6 +65,20 @@ const mocks = vi.hoisted(() => {
             ? statement
             : String((statement as { sql?: unknown })?.sql ?? "");
         executedSql.push(sql);
+        if (sql.includes("SELECT id, org_id, visibility, org_enabled")) {
+          const args = (statement as { args?: unknown[] }).args ?? [];
+          return {
+            rows: state.workspaceApps.filter((app) => args.includes(app.id)),
+            rowsAffected: 0,
+          };
+        }
+        if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+          const args = (statement as { args?: unknown[] }).args ?? [];
+          return {
+            rows: state.workspaceApps.filter((app) => args.includes(app.id)),
+            rowsAffected: 0,
+          };
+        }
         if (sql.includes("SELECT id FROM workspace_apps")) {
           return { rows: [], rowsAffected: 0 };
         }
@@ -70,6 +87,22 @@ const mocks = vi.hoisted(() => {
           rowsAffected: 0,
         };
       }),
+    })),
+    getDb: vi.fn(() => ({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () =>
+            state.workspaceApps
+              .filter(
+                (app) =>
+                  app.org_id === "org-123" &&
+                  app.visibility === "org" &&
+                  app.org_enabled === 1,
+              )
+              .map((app) => ({ id: String(app.id) })),
+          ),
+        })),
+      })),
     })),
     resolveBuilderCredentialsDetailed: vi.fn(async () => ({
       privateKey: null as string | null,
@@ -92,6 +125,11 @@ const mocks = vi.hoisted(() => {
     writeAppSecret: vi.fn(async () => "secret-id"),
     deleteAppSecret: vi.fn(async () => true),
   };
+});
+
+vi.mock("../../db/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../db/index.js")>();
+  return { ...actual, getDb: mocks.getDb };
 });
 
 vi.mock("@agent-native/core/secrets", async (importOriginal) => {
@@ -187,6 +225,8 @@ afterEach(() => {
     },
   );
   mocks.state.orgRole = "admin";
+  mocks.state.workspaceApps = [];
+  orgAppsDirectoryCache.clear();
   mocks.getDbExec.mockReset();
   mocks.getDbExec.mockImplementation(() => ({
     execute: vi.fn(async (statement: unknown) => {
@@ -195,6 +235,24 @@ afterEach(() => {
           ? statement
           : String((statement as { sql?: unknown })?.sql ?? "");
       mocks.executedSql.push(sql);
+      if (sql.includes("SELECT id, org_id, visibility, org_enabled")) {
+        const args = (statement as { args?: unknown[] }).args ?? [];
+        return {
+          rows: mocks.state.workspaceApps.filter((app) =>
+            args.includes(app.id),
+          ),
+          rowsAffected: 0,
+        };
+      }
+      if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+        const args = (statement as { args?: unknown[] }).args ?? [];
+        return {
+          rows: mocks.state.workspaceApps.filter((app) =>
+            args.includes(app.id),
+          ),
+          rowsAffected: 0,
+        };
+      }
       if (sql.includes("SELECT id FROM workspace_apps")) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -371,6 +429,71 @@ describe("listWorkspaceApps", () => {
     expect(apps.find((app) => app.id === "todo")?.protectedPaths).toEqual([
       "/admin",
     ]);
+  });
+
+  it("lists only ready org-visible apps for an organization principal", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "qr", name: "QR", path: "/qr" },
+      { id: "private-app", name: "Private", path: "/private-app" },
+      { id: "disabled-app", name: "Disabled", path: "/disabled-app" },
+      { id: "foreign-app", name: "Foreign", path: "/foreign-app" },
+    ]);
+    mocks.settings.set("dispatch-app-creation-settings:org:org-123", {
+      pendingApps: [pendingApp("pending-app")],
+    });
+    mocks.state.workspaceApps = [
+      {
+        id: "dispatch",
+        owner_email: "owner@example.test",
+        org_id: "org-123",
+        visibility: "org",
+        org_enabled: 1,
+      },
+      {
+        id: "qr",
+        owner_email: "owner@example.test",
+        org_id: "org-123",
+        visibility: "org",
+        org_enabled: 1,
+      },
+      {
+        id: "private-app",
+        owner_email: "dev@example.test",
+        org_id: "org-123",
+        visibility: "private",
+        org_enabled: 1,
+      },
+      {
+        id: "disabled-app",
+        owner_email: "owner@example.test",
+        org_id: "org-123",
+        visibility: "org",
+        org_enabled: 0,
+      },
+      {
+        id: "foreign-app",
+        owner_email: "owner@example.test",
+        org_id: "another-org",
+        visibility: "org",
+        org_enabled: 1,
+      },
+    ];
+
+    const apps = await runWithRequestContext({ orgId: "org-123" }, () =>
+      listOrganizationVisibleWorkspaceApps(),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "qr"]);
+    expect(mocks.executedSql.some((sql) => sql.includes("INSERT INTO"))).toBe(
+      false,
+    );
+    expect(
+      mocks.executedSql.some((sql) =>
+        sql.includes("INSERT INTO workspace_apps"),
+      ),
+    ).toBe(false);
   });
 
   it.each([401, 403])(
@@ -1508,6 +1631,51 @@ describe("listWorkspaceApps", () => {
     );
   });
 
+  it("keeps the curated source id on a pending app summary", async () => {
+    stubNoPendingContext();
+    stubManifest();
+    mocks.settings.set(settingsKey, {
+      pendingApps: [
+        pendingApp("community-qr", {
+          communitySourceId: "community-qr",
+        }),
+      ],
+    });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "community-qr")).toMatchObject({
+      status: "pending",
+      communitySourceId: "community-qr",
+    });
+  });
+
+  it("keeps the curated source id on ready app metadata", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "community-qr", name: "QR", path: "/community-qr" },
+    ]);
+    mocks.settings.set("workspace-app-metadata:user:dev@example.test", {
+      apps: {
+        "community-qr": { communitySourceId: "community-qr" },
+      },
+    });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "community-qr")).toMatchObject({
+      status: "ready",
+      communitySourceId: "community-qr",
+    });
+  });
+
   it("keeps unscoped legacy pending rows visible when there is no deploy context", async () => {
     stubNoPendingContext();
     stubManifest();
@@ -1643,7 +1811,7 @@ describe("listWorkspaceApps", () => {
     expect(apps.find((app) => app.id === "mail")?.status).toBe("ready");
   });
 
-  it("lets workspace admins update app display metadata", async () => {
+  it("lets workspace admins update app profile metadata", async () => {
     stubNoPendingContext();
     stubManifest([
       { id: "dispatch", name: "Dispatch", path: "/dispatch" },
@@ -1662,23 +1830,93 @@ describe("listWorkspaceApps", () => {
           appId: "todo",
           name: "Todo Board",
           description: "Tracks team work.",
+          whenToUse: ["Create a task from a meeting note"],
         }),
     );
 
     expect(updated.name).toBe("Todo Board");
     expect(updated.description).toBe("Tracks team work.");
+    expect(updated.whenToUse).toEqual(["Create a task from a meeting note"]);
     expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toEqual({
       apps: {
         todo: expect.objectContaining({
           name: "Todo Board",
           description: "Tracks team work.",
+          whenToUse: ["Create a task from a meeting note"],
           updatedBy: "dev@example.test",
         }),
       },
     });
   });
 
-  it("lets workspace members update app display metadata", async () => {
+  it("invalidates org directory discovery after a profile edit", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "todo", name: "Todo", description: "Tasks", path: "/todo" },
+    ]);
+    const load = vi.fn(async () => [
+      {
+        id: "todo",
+        name: "Old profile",
+        url: "https://todo.example.test",
+      },
+    ]);
+    await orgAppsDirectoryCache.get("org-123|organization", load);
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        updateWorkspaceAppMetadata({
+          appId: "todo",
+          description: "Updated profile",
+        }),
+    );
+
+    const refreshedLoad = vi.fn(async () => [
+      {
+        id: "todo",
+        name: "Updated profile",
+        url: "https://todo.example.test",
+      },
+    ]);
+    await expect(
+      orgAppsDirectoryCache.get("org-123|organization", refreshedLoad),
+    ).resolves.toEqual([
+      {
+        id: "todo",
+        name: "Updated profile",
+        url: "https://todo.example.test",
+      },
+    ]);
+    expect(refreshedLoad).toHaveBeenCalledOnce();
+  });
+
+  it("rejects malformed profile examples before writing", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "todo", name: "Todo", description: "Tasks", path: "/todo" },
+    ]);
+    const tooManyExamples = Array.from(
+      { length: 7 },
+      (_, index) => `Example ${index}`,
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          updateWorkspaceAppMetadata({
+            appId: "todo",
+            whenToUse: tooManyExamples,
+          }),
+      ),
+    ).rejects.toThrow(/up to 6 non-empty examples/);
+    expect(mocks.settings.has("workspace-app-metadata:org:org-123")).toBe(
+      false,
+    );
+  });
+
+  it("rejects workspace member updates to app profile metadata", async () => {
     mocks.state.orgRole = "member";
     stubNoPendingContext();
     stubManifest([
@@ -1690,29 +1928,21 @@ describe("listWorkspaceApps", () => {
       },
     ]);
 
-    const updated = await runWithRequestContext(
-      { userEmail: "dev@example.test", orgId: "org-123" },
-      () =>
-        updateWorkspaceAppMetadata({
-          appId: "todo",
-          name: "Todo Board",
-          description: "Tracks team work.",
-        }),
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          updateWorkspaceAppMetadata({
+            appId: "todo",
+            name: "Todo Board",
+            description: "Tracks team work.",
+            whenToUse: ["Create a task from a meeting note"],
+          }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.settings.has("workspace-app-metadata:org:org-123")).toBe(
+      false,
     );
-
-    expect(updated).toMatchObject({
-      name: "Todo Board",
-      description: "Tracks team work.",
-    });
-    expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toEqual({
-      apps: {
-        todo: expect.objectContaining({
-          name: "Todo Board",
-          description: "Tracks team work.",
-          updatedBy: "dev@example.test",
-        }),
-      },
-    });
   });
 
   it("generates a concise seed description from an app prompt", () => {
@@ -1809,6 +2039,82 @@ describe("startWorkspaceAppCreation", () => {
       apps: {
         onboarding: { visibility: "private" },
       },
+    });
+  });
+
+  it("persists the curated source id for local-agent app creation", async () => {
+    const result = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        startWorkspaceAppCreation({
+          prompt: "Install the curated QR template",
+          appId: "community-qr",
+          communitySourceId: "community-qr",
+          attachments: [
+            {
+              type: "upload",
+              contentType: "text/plain",
+              name: "community-qr/README.md",
+              text: "Pinned template source",
+              dataUrl: "",
+              id: "community-qr:README.md",
+            },
+          ],
+        }),
+    );
+
+    expect(result).toMatchObject({
+      mode: "local-agent",
+      attachments: [
+        {
+          type: "file",
+          contentType: "text/plain",
+          name: "community-qr/README.md",
+          text: "Pinned template source",
+        },
+      ],
+    });
+    expect(
+      mocks.settings.get("workspace-app-metadata:org:org-123"),
+    ).toMatchObject({
+      apps: {
+        "community-qr": { communitySourceId: "community-qr" },
+      },
+    });
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({
+      pendingApps: [
+        expect.objectContaining({
+          id: "community-qr",
+          communitySourceId: "community-qr",
+          createdBy: "dev@example.test",
+        }),
+      ],
+    });
+  });
+
+  it("atomically reserves local community installs against duplicate requests", async () => {
+    const input = {
+      prompt: "Install the curated QR template",
+      appId: "community-qr",
+      communitySourceId: "community-qr",
+    };
+    const context = { userEmail: "dev@example.test", orgId: "org-123" };
+
+    const first = await runWithRequestContext(context, () =>
+      startWorkspaceAppCreation(input),
+    );
+    const duplicate = await runWithRequestContext(context, () =>
+      startWorkspaceAppCreation(input),
+    );
+
+    expect(first.mode).toBe("local-agent");
+    expect(duplicate).toMatchObject({
+      mode: "app-id-taken",
+      appId: "community-qr",
+      conflict: "pending",
+      owner: "dev@example.test",
     });
   });
 
@@ -1959,6 +2265,51 @@ describe("startWorkspaceAppCreation", () => {
 
     expect(result.mode).toBe("builder");
     expect(mocks.mutateSetting).toHaveBeenCalled();
+  });
+
+  it("persists the curated source id with a hosted pending reservation", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "community-qr1",
+      url: "https://builder.io/app/projects/project-1/community-qr1",
+      status: "processing",
+    });
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        startWorkspaceAppCreation({
+          prompt: "Install the curated QR template",
+          appId: "community-qr",
+          communitySourceId: "community-qr",
+        }),
+    );
+
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({
+      pendingApps: [
+        expect.objectContaining({
+          id: "community-qr",
+          communitySourceId: "community-qr",
+        }),
+      ],
+    });
+    expect(
+      mocks.settings.get("workspace-app-metadata:org:org-123"),
+    ).toMatchObject({
+      apps: {
+        "community-qr": { communitySourceId: "community-qr" },
+      },
+    });
   });
 
   it("releases the reservation when Builder handoff fails", async () => {

@@ -8,6 +8,11 @@ import type {
   RemoteAgentKind,
 } from "../resources/metadata.js";
 import {
+  parseAgentProfileMetadataFields,
+  parseAgentProfileMetadata,
+  type AgentProfileMetadata,
+} from "../shared/agent-profile.js";
+import {
   HIDDEN_FIRST_PARTY_AGENT_IDS,
   isBuiltinAgentCatalogId,
   normalizeAgentId,
@@ -50,6 +55,9 @@ export interface DiscoveredAgent {
   description: string;
   url: string;
   color: string;
+  source?: "workspace" | "org-directory" | "remote-agent" | "builtin";
+  whenToUse?: string[];
+  aliases?: string[];
   cardUrl?: string;
   auth?: RemoteAgentAuth;
   kind?: RemoteAgentKind;
@@ -61,6 +69,12 @@ export interface DiscoverAgentsOptions {
   includePersonalAgents?: boolean;
 }
 
+export interface DiscoverOrgDirectoryAgentsOptions {
+  preferLocalUrls?: boolean;
+  /** Filter workspace rows before they can shadow another discoverable source. */
+  allowedWorkspaceAppIds?: ReadonlySet<string>;
+}
+
 export type OrgDirectoryDiscoveryResult =
   | { status: "available"; agents: DiscoveredAgent[] }
   | {
@@ -68,9 +82,21 @@ export type OrgDirectoryDiscoveryResult =
       reason: "remote-manifests" | "workspace-metadata";
     };
 
+export type OrgDirectoryStatus =
+  | { status: "available" }
+  | { status: "unavailable"; reason: string }
+  | { status: "forbidden" }
+  | { status: "setup-required"; reason: string };
+
+export interface DiscoveredAgentsWithDirectoryStatus {
+  agents: DiscoveredAgent[];
+  directory: OrgDirectoryStatus;
+}
+
 export interface WorkspaceAppMetadataOverride {
   name?: string;
   description?: string;
+  whenToUse?: string[];
   generated?: boolean;
   sourcePrompt?: string;
   updatedAt?: string;
@@ -111,6 +137,8 @@ export interface WorkspaceAppManifestEntry {
   id: string;
   name: string;
   description: string;
+  whenToUse?: string[];
+  aliases?: string[];
   path: string;
   homePath: string;
   url?: string | null;
@@ -125,10 +153,12 @@ export function workspaceAppMetadataSettingsKey(input?: {
   orgId?: string | null;
   userEmail?: string | null;
 }): string | null {
-  const orgId = input?.orgId ?? getRequestOrgId() ?? null;
+  const orgId = input ? (input.orgId ?? null) : (getRequestOrgId() ?? null);
   if (orgId) return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:org:${orgId}`;
 
-  const userEmail = input?.userEmail ?? getRequestUserEmail() ?? null;
+  const userEmail = input
+    ? (input.userEmail ?? null)
+    : (getRequestUserEmail() ?? null);
   if (userEmail)
     return `${WORKSPACE_APP_METADATA_SETTINGS_KEY}:user:${userEmail}`;
 
@@ -189,8 +219,6 @@ export function parseWorkspaceAppMetadataSettings(
     if (
       strict &&
       ((item.name !== undefined && typeof item.name !== "string") ||
-        (item.description !== undefined &&
-          typeof item.description !== "string") ||
         (item.generated !== undefined && typeof item.generated !== "boolean") ||
         (item.sourcePrompt !== undefined &&
           typeof item.sourcePrompt !== "string") ||
@@ -199,15 +227,25 @@ export function parseWorkspaceAppMetadataSettings(
     ) {
       throw new Error("Invalid workspace app metadata fields");
     }
+    const profile = parseAgentProfileMetadata({
+      ...(item.description !== undefined
+        ? { description: item.description }
+        : {}),
+      ...(item.whenToUse !== undefined ? { whenToUse: item.whenToUse } : {}),
+    });
+    if (!profile) {
+      if (strict) throw new Error("Invalid workspace app profile metadata");
+      continue;
+    }
     const override: WorkspaceAppMetadataOverride = {};
     const name = cleanOptionalText(item.name);
-    const description = cleanOptionalText(item.description);
     const sourcePrompt = cleanOptionalText(item.sourcePrompt);
     const updatedAt = cleanOptionalText(item.updatedAt);
     const updatedBy = cleanOptionalText(item.updatedBy);
 
     if (name) override.name = name;
-    if (description) override.description = description;
+    if (profile.description) override.description = profile.description;
+    if (profile.whenToUse) override.whenToUse = profile.whenToUse;
     if (item.generated === true) override.generated = true;
     if (sourcePrompt) override.sourcePrompt = sourcePrompt;
     if (updatedAt) override.updatedAt = updatedAt;
@@ -231,8 +269,9 @@ export async function readWorkspaceAppMetadataSettings(): Promise<WorkspaceAppMe
 
 async function readWorkspaceAppMetadataSettingsInternal(
   strict: boolean,
+  identity?: { userEmail?: string | null; orgId?: string | null },
 ): Promise<WorkspaceAppMetadataSettings> {
-  const key = workspaceAppMetadataSettingsKey();
+  const key = workspaceAppMetadataSettingsKey(identity);
   if (!key) return { apps: {} };
 
   try {
@@ -248,6 +287,7 @@ export async function writeWorkspaceAppMetadataOverride(input: {
   appId: string;
   name?: string | null;
   description?: string | null;
+  whenToUse?: string[] | null;
   generated?: boolean;
   sourcePrompt?: string | null;
   updatedBy?: string | null;
@@ -267,14 +307,20 @@ export async function writeWorkspaceAppMetadataOverride(input: {
   };
 
   const name = cleanOptionalText(input.name);
-  const description = cleanOptionalText(input.description);
+  const profile = parseAgentProfileMetadata({
+    ...(input.description != null ? { description: input.description } : {}),
+    ...(input.whenToUse != null ? { whenToUse: input.whenToUse } : {}),
+  });
+  if (!profile) throw new Error("Invalid workspace app profile metadata");
   const sourcePrompt = cleanOptionalText(input.sourcePrompt);
   const updatedBy = cleanOptionalText(input.updatedBy);
 
   if (name) next.name = name;
   else delete next.name;
-  if (description) next.description = description;
+  if (profile.description) next.description = profile.description;
   else delete next.description;
+  if (profile.whenToUse) next.whenToUse = profile.whenToUse;
+  else delete next.whenToUse;
   if (input.generated === true) next.generated = true;
   else if (input.generated === false) delete next.generated;
   if (sourcePrompt) next.sourcePrompt = sourcePrompt;
@@ -290,6 +336,7 @@ export function applyWorkspaceAppMetadataOverride<
     id: string;
     name: string;
     description?: string | null;
+    whenToUse?: string[] | null;
   },
 >(app: T, settings: WorkspaceAppMetadataSettings): T {
   const override =
@@ -297,17 +344,65 @@ export function applyWorkspaceAppMetadataOverride<
   if (!override) return app;
 
   const name = cleanOptionalText(override.name);
-  const description = cleanOptionalText(override.description);
+  const profile = parseAgentProfileMetadata({
+    ...(override.description !== undefined
+      ? { description: override.description }
+      : {}),
+    ...(override.whenToUse !== undefined
+      ? { whenToUse: override.whenToUse }
+      : {}),
+  });
+  if (!profile) return app;
   const generated = override.generated === true;
   const shouldApplyName = !!name && !generated;
   const shouldApplyDescription =
-    !!description && (!generated || !cleanOptionalText(app.description));
-  if (!shouldApplyName && !shouldApplyDescription) return app;
+    !!profile.description &&
+    (!generated || !cleanOptionalText(app.description));
+  const shouldApplyWhenToUse =
+    !!profile.whenToUse?.length && (!generated || !app.whenToUse?.length);
+  if (!shouldApplyName && !shouldApplyDescription && !shouldApplyWhenToUse) {
+    return app;
+  }
 
   return {
     ...app,
     ...(shouldApplyName ? { name } : {}),
-    ...(shouldApplyDescription ? { description } : {}),
+    ...(shouldApplyDescription ? { description: profile.description } : {}),
+    ...(shouldApplyWhenToUse ? { whenToUse: profile.whenToUse } : {}),
+  };
+}
+
+export async function getWorkspaceAppProfile(
+  appId: string,
+  identity?: { userEmail?: string | null; orgId?: string | null },
+): Promise<AgentProfileMetadata> {
+  const normalizedId = normalizeAgentId(appId);
+  if (!normalizedId) return {};
+
+  const manifest = await loadWorkspaceAppsManifest();
+  const app = manifest?.find(
+    (candidate) => normalizeAgentId(candidate.id) === normalizedId,
+  );
+  const baseProfile = parseAgentProfileMetadata({
+    ...(app?.description !== undefined ? { description: app.description } : {}),
+    ...(app?.whenToUse !== undefined ? { whenToUse: app.whenToUse } : {}),
+    ...(app?.aliases !== undefined ? { aliases: app.aliases } : {}),
+  });
+  const profile = baseProfile ?? {};
+  if (!identity || (!identity.userEmail && !identity.orgId)) return profile;
+
+  const settings = await readWorkspaceAppMetadataSettingsInternal(
+    false,
+    identity,
+  );
+  const applied = applyWorkspaceAppMetadataOverride(
+    { id: normalizedId, name: "", ...profile },
+    settings,
+  );
+  return {
+    ...(applied.description ? { description: applied.description } : {}),
+    ...(applied.whenToUse?.length ? { whenToUse: [...applied.whenToUse] } : {}),
+    ...(applied.aliases?.length ? { aliases: [...applied.aliases] } : {}),
   };
 }
 
@@ -357,6 +452,7 @@ function builtinAgentsFor(
         ? config.urls[app.id]
         : resolveAgentUrl(app, options?.preferLocalUrls),
     color: app.color,
+    source: "builtin" as const,
   }));
 }
 
@@ -428,12 +524,19 @@ export async function discoverAgents(
   selfAppId?: string,
   options?: DiscoverAgentsOptions,
 ): Promise<DiscoveredAgent[]> {
+  return (await discoverAgentsWithDirectoryStatus(selfAppId, options)).agents;
+}
+
+export async function discoverAgentsWithDirectoryStatus(
+  selfAppId?: string,
+  options?: DiscoverAgentsOptions,
+): Promise<DiscoveredAgentsWithDirectoryStatus> {
   const builtins = getBuiltinAgents(selfAppId, options);
   const offeredBuiltinIds = new Set(builtins.map((agent) => agent.id));
   const agentsById = new Map<string, DiscoveredAgent>();
 
   for (const agent of builtins) {
-    agentsById.set(agent.id, agent);
+    mergeDiscoveredAgent(agentsById, agent);
   }
 
   try {
@@ -485,9 +588,12 @@ export async function discoverAgents(
       try {
         const manifest = parseRemoteAgentManifest(full.content, r.path);
         if (!manifest) {
-          if (options?.requireReadableAgentSources) {
-            throw new Error(`Invalid remote agent manifest: ${r.path}`);
-          }
+          console.warn(
+            "[agent-discovery] skipped invalid remote agent manifest",
+            {
+              path: r.path.slice(0, 160),
+            },
+          );
           continue;
         }
         if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
@@ -505,7 +611,7 @@ export async function discoverAgents(
         if (!resolved) continue;
         const { url, isLegacyAliasManifest } = resolved;
 
-        agentsById.set(manifestId, {
+        mergeDiscoveredAgent(agentsById, {
           id: manifestId,
           name:
             isLegacyAliasManifest && builtin?.name
@@ -514,6 +620,13 @@ export async function discoverAgents(
           description: manifest.description || "",
           url,
           color: manifest.color || builtin?.color || "#6B7280",
+          source: "remote-agent",
+          ...(manifest.whenToUse?.length
+            ? { whenToUse: [...manifest.whenToUse] }
+            : {}),
+          ...(manifest.aliases?.length
+            ? { aliases: [...manifest.aliases] }
+            : {}),
           ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
           ...(manifest.auth ? { auth: manifest.auth } : {}),
           ...(manifest.kind ? { kind: manifest.kind } : {}),
@@ -532,20 +645,59 @@ export async function discoverAgents(
     // Resources not available — use built-ins only
   }
 
+  const orgDirectory = await discoverOrgDirectoryApps(selfAppId);
+  if (orgDirectory.status === "available") {
+    for (const app of orgDirectory.apps) {
+      const id = normalizeAgentId(app.id);
+      const appDescription =
+        (typeof app.description === "string" && app.description.trim()) ||
+        (typeof app.capabilities?.[0] === "string" &&
+          app.capabilities[0].trim()) ||
+        undefined;
+      const profile = parseAgentProfileMetadataFields({
+        ...(appDescription ? { description: appDescription } : {}),
+        ...(app.whenToUse !== undefined ? { whenToUse: app.whenToUse } : {}),
+        ...(app.aliases !== undefined ? { aliases: app.aliases } : {}),
+      });
+      reportInvalidWorkspaceProfileFields(id, profile.invalidFields);
+      mergeDiscoveredAgent(agentsById, {
+        id,
+        name: app.name,
+        description: profile.metadata.description ?? "",
+        url: app.url,
+        // guard:allow-raw-color — discovered agents require a portable color value, not a UI theme token.
+        color: agentsById.get(id)?.color ?? "#6B7280",
+        source: "org-directory",
+        ...(profile.metadata.whenToUse?.length
+          ? { whenToUse: [...profile.metadata.whenToUse] }
+          : {}),
+        ...(profile.metadata.aliases?.length
+          ? { aliases: [...profile.metadata.aliases] }
+          : {}),
+      });
+    }
+  }
+
   for (const agent of await discoverWorkspaceAgents(
     selfAppId,
     options,
     options?.requireReadableAgentSources === true,
   )) {
-    agentsById.set(agent.id, agent);
+    mergeDiscoveredAgent(agentsById, agent);
   }
 
-  return Array.from(agentsById.values());
+  return {
+    agents: Array.from(agentsById.values()),
+    directory:
+      orgDirectory.status === "available"
+        ? { status: "available" }
+        : orgDirectory,
+  };
 }
 
 export async function discoverOrgDirectoryAgents(
   selfAppId?: string,
-  options?: { preferLocalUrls?: boolean },
+  options?: DiscoverOrgDirectoryAgentsOptions,
 ): Promise<OrgDirectoryDiscoveryResult> {
   const agentsById = new Map<string, DiscoveredAgent>();
   for (const agent of getBuiltinAgents(selfAppId, options)) {
@@ -575,8 +727,195 @@ export async function discoverOrgDirectoryAgents(
     ),
   );
   if (remoteOverlay.status === "unavailable") return remoteOverlay;
-  for (const agent of workspaceAgents.value) agentsById.set(agent.id, agent);
+  const allowedWorkspaceAppIds = options?.allowedWorkspaceAppIds
+    ? new Set([...options.allowedWorkspaceAppIds].map(normalizeAgentId))
+    : undefined;
+  for (const agent of workspaceAgents.value) {
+    if (
+      allowedWorkspaceAppIds &&
+      !allowedWorkspaceAppIds.has(normalizeAgentId(agent.id))
+    ) {
+      continue;
+    }
+    mergeDiscoveredAgent(agentsById, agent);
+  }
   return { status: "available", agents: Array.from(agentsById.values()) };
+}
+
+const AGENT_SOURCE_PRIORITY: Record<
+  NonNullable<DiscoveredAgent["source"]>,
+  number
+> = {
+  workspace: 0,
+  "org-directory": 1,
+  "remote-agent": 2,
+  builtin: 3,
+};
+
+function agentSourcePriority(agent: DiscoveredAgent): number {
+  return AGENT_SOURCE_PRIORITY[agent.source ?? "builtin"];
+}
+
+function canonicalAgentTargetUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    url.search = "";
+    url.hash = "";
+    let pathname = url.pathname.replace(/\/+$/, "");
+    if (pathname.endsWith("/_agent-native/a2a")) {
+      pathname = pathname.slice(0, -"/_agent-native/a2a".length);
+    } else if (pathname.endsWith("/a2a")) {
+      pathname = pathname.slice(0, -"/a2a".length);
+    }
+    url.pathname = pathname || "/";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    // coercion-ok: Invalid targets cannot be treated as the same A2A identity.
+    return null;
+  }
+}
+
+function qualifiedCollisionAlias(
+  agent: DiscoveredAgent,
+): DiscoveredAgent | undefined {
+  try {
+    const authority = new URL(agent.url).host.toLowerCase();
+    if (!authority) return undefined;
+    return {
+      ...agent,
+      id: `${authority}/${normalizeAgentId(agent.id)}`,
+      name: `${agent.name} (${authority})`,
+    };
+  } catch {
+    // coercion-ok: Invalid target URLs cannot be used to qualify a collision alias.
+    return undefined;
+  }
+}
+
+function mergeDiscoveredAgent(
+  agentsById: Map<string, DiscoveredAgent>,
+  candidate: DiscoveredAgent,
+): void {
+  const id = normalizeAgentId(candidate.id);
+  const normalizedCandidate =
+    candidate.id === id ? candidate : { ...candidate, id };
+  const existing = agentsById.get(id);
+  if (!existing) {
+    agentsById.set(id, normalizedCandidate);
+    return;
+  }
+
+  const existingTarget = canonicalAgentTargetUrl(existing.url);
+  const candidateTarget = canonicalAgentTargetUrl(normalizedCandidate.url);
+  if (existingTarget && existingTarget === candidateTarget) {
+    if (
+      agentSourcePriority(normalizedCandidate) < agentSourcePriority(existing)
+    ) {
+      agentsById.set(id, normalizedCandidate);
+    }
+    return;
+  }
+
+  const candidateWins =
+    agentSourcePriority(normalizedCandidate) <= agentSourcePriority(existing);
+  const winner = candidateWins ? normalizedCandidate : existing;
+  const loser = candidateWins ? existing : normalizedCandidate;
+  agentsById.set(id, winner);
+
+  const alias = qualifiedCollisionAlias(loser);
+  if (alias && alias.id !== id && !agentsById.has(alias.id)) {
+    agentsById.set(alias.id, alias);
+  }
+}
+
+async function discoverOrgDirectoryApps(selfAppId?: string): Promise<
+  | {
+      status: "available";
+      apps: Array<{
+        id: string;
+        name: string;
+        url: string;
+        capabilities?: string[];
+        description?: string;
+        whenToUse?: string[];
+        aliases?: string[];
+      }>;
+    }
+  | { status: "unavailable"; reason: string }
+  | { status: "forbidden" }
+  | { status: "setup-required"; reason: string }
+> {
+  const selfId = selfAppId ? normalizeAgentId(selfAppId) : undefined;
+  try {
+    const { fetchOrgAppsResult, resolveOrgDirectoryOrigin } =
+      await import("../mcp/org-directory.js");
+    const configuredBaseUrl = resolveOrgDirectoryOrigin();
+    let result = await fetchOrgAppsResult({ selfId });
+    let baseUrl = configuredBaseUrl;
+
+    if (result.status === "unavailable" && result.reason === "not-configured") {
+      const orgId = getRequestOrgId();
+      if (!orgId) {
+        return {
+          status: "setup-required",
+          reason: "organization-not-selected",
+        };
+      }
+      const { getOrgWorkspaceUrl } = await import("../org/context.js");
+      const workspaceUrl = await getOrgWorkspaceUrl(orgId);
+      if (!workspaceUrl) {
+        return { status: "setup-required", reason: "workspace-url-not-set" };
+      }
+      let workspaceOrigin: string;
+      try {
+        const parsed = new URL(workspaceUrl);
+        if (
+          (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+          parsed.username ||
+          parsed.password ||
+          parsed.search ||
+          parsed.hash ||
+          (parsed.pathname !== "/" && parsed.pathname !== "")
+        ) {
+          return { status: "setup-required", reason: "invalid-workspace-url" };
+        }
+        workspaceOrigin = parsed.origin;
+      } catch {
+        return { status: "setup-required", reason: "invalid-workspace-url" };
+      }
+      baseUrl = `${workspaceOrigin}/dispatch`;
+      result = await fetchOrgAppsResult({ directoryBaseUrl: baseUrl, selfId });
+    }
+
+    if (
+      result.status === "unavailable" &&
+      result.reason === "missing-route" &&
+      baseUrl
+    ) {
+      const rootUrl = new URL(baseUrl).origin;
+      if (rootUrl !== baseUrl.replace(/\/+$/, "")) {
+        result = await fetchOrgAppsResult({
+          directoryBaseUrl: rootUrl,
+          selfId,
+        });
+      }
+    }
+
+    if (result.status === "available") return result;
+    if (result.reason === "authorization") return { status: "forbidden" };
+    if (
+      result.reason === "not-configured" ||
+      result.reason === "invalid-origin"
+    ) {
+      return { status: "setup-required", reason: result.reason };
+    }
+    return { status: "unavailable", reason: result.reason };
+  } catch (error) {
+    return {
+      status: "unavailable",
+      reason: error instanceof Error ? error.name : "discovery-error",
+    };
+  }
 }
 
 async function readDirectorySource<T>(
@@ -639,7 +978,10 @@ async function overlayRemoteAgentResources(
     if (!isRemoteAgentPath(resource.path)) continue;
     const manifest = parseRemoteAgentManifest(resource.content, resource.path);
     if (!manifest) {
-      throw new Error(`Invalid remote agent manifest: ${resource.path}`);
+      console.warn("[agent-discovery] skipped invalid remote agent manifest", {
+        path: resource.path.slice(0, 160),
+      });
+      continue;
     }
     if (
       typeof manifest.id !== "string" ||
@@ -649,7 +991,10 @@ async function overlayRemoteAgentResources(
       typeof manifest.url !== "string" ||
       !isAbsoluteHttpUrl(manifest.url)
     ) {
-      throw new Error(`Invalid remote agent manifest: ${resource.path}`);
+      console.warn("[agent-discovery] skipped invalid remote agent manifest", {
+        path: resource.path.slice(0, 160),
+      });
+      continue;
     }
     if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
     const manifestId = normalizeAgentId(manifest.id);
@@ -664,7 +1009,7 @@ async function overlayRemoteAgentResources(
     );
     if (!resolved) continue;
     const { url, isLegacyAliasManifest } = resolved;
-    agentsById.set(manifestId, {
+    mergeDiscoveredAgent(agentsById, {
       id: manifestId,
       name:
         isLegacyAliasManifest && builtin?.name ? builtin.name : manifest.name,
@@ -672,6 +1017,11 @@ async function overlayRemoteAgentResources(
       url,
       // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.
       color: manifest.color || builtin?.color || "#6B7280",
+      source: "remote-agent",
+      ...(manifest.whenToUse?.length
+        ? { whenToUse: [...manifest.whenToUse] }
+        : {}),
+      ...(manifest.aliases?.length ? { aliases: [...manifest.aliases] } : {}),
       ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
       ...(manifest.auth ? { auth: manifest.auth } : {}),
       ...(manifest.kind ? { kind: manifest.kind } : {}),
@@ -687,12 +1037,6 @@ function isAbsoluteHttpUrl(value: string): boolean {
     // coercion-ok: malformed URLs and non-HTTP URLs are the same invalid-manifest outcome.
     return false;
   }
-}
-
-export function agentHandleNumberVariant(handle: string): string | null {
-  const value = handle.trim().toLowerCase();
-  if (!value || value.endsWith("ss")) return null;
-  return value.endsWith("s") ? value.slice(0, -1) : `${value}s`;
 }
 
 export async function findAgent(
@@ -723,19 +1067,26 @@ function findAgentInList(
   idOrName: string,
   agents: DiscoveredAgent[],
 ): DiscoveredAgent | undefined {
-  const lower = normalizeAgentId(idOrName);
-  const exact = agents.find(
-    (a) => a.id === lower || a.name.toLowerCase() === lower,
-  );
-  if (exact) return exact;
+  const handle = normalizeAgentHandle(idOrName);
+  if (!handle) return undefined;
+  const matches = new Map<string, DiscoveredAgent>();
+  for (const agent of agents) {
+    const handles = [agent.id, agent.name, ...(agent.aliases ?? [])];
+    if (
+      handles.some((candidate) => normalizeAgentHandle(candidate) === handle)
+    ) {
+      matches.set(agent.id, agent);
+    }
+  }
+  return matches.size === 1 ? matches.values().next().value : undefined;
+}
 
-  const variant = agentHandleNumberVariant(lower);
-  if (!variant) return undefined;
-  const handles = new Set([variant, normalizeAgentId(variant)]);
-  const near = agents.filter(
-    (a) => handles.has(a.id) || handles.has(a.name.toLowerCase()),
-  );
-  return near.length === 1 ? near[0] : undefined;
+function normalizeAgentHandle(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 function hostnameFromUrlLike(value: string | undefined): string | null {
@@ -854,6 +1205,20 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
+function reportInvalidWorkspaceProfileFields(
+  appId: string,
+  fields: readonly string[],
+): void {
+  if (fields.length === 0) return;
+  console.warn(
+    "[agent-discovery] ignored invalid workspace app profile fields",
+    {
+      appId: appId.slice(0, 120),
+      fields,
+    },
+  );
+}
+
 function parseWorkspaceAppsManifest(
   parsed: any,
   strict = false,
@@ -876,13 +1241,47 @@ function parseWorkspaceAppsManifest(
       const id = rawId ? normalizeAgentId(rawId) : "";
       const pathValue = typeof e.path === "string" ? e.path.trim() : "";
       if (!id || !pathValue.startsWith("/")) return null;
+      const rawAgentNative = e["agent-native"];
+      const invalidProfileContainer =
+        rawAgentNative !== undefined &&
+        (!rawAgentNative ||
+          typeof rawAgentNative !== "object" ||
+          Array.isArray(rawAgentNative));
+      const agentNative =
+        rawAgentNative &&
+        typeof rawAgentNative === "object" &&
+        !Array.isArray(rawAgentNative)
+          ? (rawAgentNative as Record<string, unknown>)
+          : undefined;
+      const rawWhenToUse =
+        agentNative && "whenToUse" in agentNative
+          ? agentNative.whenToUse
+          : e.whenToUse;
+      const rawAliases =
+        agentNative && "aliases" in agentNative
+          ? agentNative.aliases
+          : e.aliases;
+      const parsedProfile = parseAgentProfileMetadataFields({
+        ...(e.description !== undefined ? { description: e.description } : {}),
+        ...(rawWhenToUse !== undefined ? { whenToUse: rawWhenToUse } : {}),
+        ...(rawAliases !== undefined ? { aliases: rawAliases } : {}),
+      });
+      reportInvalidWorkspaceProfileFields(id, [
+        ...(invalidProfileContainer ? ["agent-native"] : []),
+        ...parsedProfile.invalidFields,
+      ]);
+      const profile = parsedProfile.metadata;
       return {
         id,
         name:
           typeof e.name === "string" && e.name.trim()
             ? e.name.trim()
             : titleCase(id),
-        description: typeof e.description === "string" ? e.description : "",
+        description: profile.description ?? "",
+        ...(profile.whenToUse?.length
+          ? { whenToUse: [...profile.whenToUse] }
+          : {}),
+        ...(profile.aliases?.length ? { aliases: [...profile.aliases] } : {}),
         path: pathValue,
         homePath: normalizeWorkspaceAppHomePath(e.homePath),
         url: typeof e.url === "string" && e.url.trim() ? e.url.trim() : null,
@@ -988,6 +1387,34 @@ async function readWorkspaceAppsFromFilesystem(
       if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
       continue;
     }
+    const rawAgentNative = pkg["agent-native"];
+    const invalidProfileContainer =
+      rawAgentNative !== undefined &&
+      (!rawAgentNative ||
+        typeof rawAgentNative !== "object" ||
+        Array.isArray(rawAgentNative));
+    const agentNative =
+      rawAgentNative &&
+      typeof rawAgentNative === "object" &&
+      !Array.isArray(rawAgentNative)
+        ? (rawAgentNative as Record<string, unknown>)
+        : undefined;
+    const parsedProfile = parseAgentProfileMetadataFields({
+      ...(pkg.description !== undefined
+        ? { description: pkg.description }
+        : {}),
+      ...(agentNative && "whenToUse" in agentNative
+        ? { whenToUse: agentNative.whenToUse }
+        : {}),
+      ...(agentNative && "aliases" in agentNative
+        ? { aliases: agentNative.aliases }
+        : {}),
+    });
+    reportInvalidWorkspaceProfileFields(entry.name, [
+      ...(invalidProfileContainer ? ["agent-native"] : []),
+      ...parsedProfile.invalidFields,
+    ]);
+    const profile = parsedProfile.metadata;
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
     let configuredHomePath: string | undefined;
     let inferredHomePath: "/" | undefined;
@@ -1007,7 +1434,11 @@ async function readWorkspaceAppsFromFilesystem(
     apps.push({
       id: normalizeAgentId(entry.name),
       name: pkg.displayName || titleCase(entry.name),
-      description: pkg.description || "",
+      description: profile.description ?? "",
+      ...(profile.whenToUse?.length
+        ? { whenToUse: [...profile.whenToUse] }
+        : {}),
+      ...(profile.aliases?.length ? { aliases: [...profile.aliases] } : {}),
       path: `/${entry.name}`,
       homePath: normalizeWorkspaceAppHomePath(
         configuredHomePath ?? inferredHomePath,
@@ -1065,7 +1496,7 @@ async function discoverWorkspaceAgents(
 
   return workspaceApps
     .filter((app) => normalizeAgentId(app.id) !== normalizedSelfAppId)
-    .map((app) => {
+    .map((app): DiscoveredAgent | null => {
       const withOverride = applyWorkspaceAppMetadataOverride(
         app,
         metadataSettings,
@@ -1088,8 +1519,15 @@ async function discoverWorkspaceAgents(
           withOverride.description ||
           builtin?.description ||
           `Workspace app mounted at ${withOverride.path}`,
+        ...(withOverride.whenToUse?.length
+          ? { whenToUse: [...withOverride.whenToUse] }
+          : {}),
+        ...(withOverride.aliases?.length
+          ? { aliases: [...withOverride.aliases] }
+          : {}),
         url,
         color: builtin?.color || "#6B7280",
+        source: "workspace",
       } satisfies DiscoveredAgent;
     })
     .filter((agent): agent is DiscoveredAgent => !!agent);
@@ -1115,8 +1553,10 @@ export async function findWorkspaceDispatchAgent(): Promise<
       app.description ||
       builtin?.description ||
       `Workspace app mounted at ${app.path}`,
+    ...(app.whenToUse?.length ? { whenToUse: [...app.whenToUse] } : {}),
     url,
     color: builtin?.color || "#6B7280",
+    source: "workspace",
   };
 }
 
@@ -1130,5 +1570,6 @@ export function getBuiltinAgentsForSeeding(): DiscoveredAgent[] {
     description: app.description,
     url: app.url, // ALWAYS prod
     color: app.color,
+    source: "builtin" as const,
   }));
 }

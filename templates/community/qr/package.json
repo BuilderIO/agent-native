@@ -1,0 +1,38 @@
+{
+  "name": "qr",
+  "displayName": "QR Codes",
+  "private": true,
+  "description": "Create PNG and SVG QR code images for URLs or text.",
+  "type": "module",
+  "scripts": {
+    "action": "agent-native action",
+    "agent": "agent-native agent",
+    "agent-native:doctor": "agent-native doctor",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-native/core": "^0.210.1",
+    "postgres": "^3.4.9",
+    "qrcode": "^1.5.4",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/qrcode": "^1.5.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@10.29.1",
+  "agent-native": {
+    "aliases": [
+      "QR code",
+      "QR codes",
+      "QR image"
+    ],
+    "whenToUse": [
+      "Create a QR code image for a URL or text to share in a message.",
+      "Create a QR code image for insertion into a slide or document.",
+      "Create a QR code image for a clip or other share link."
+    ]
+  }
+}

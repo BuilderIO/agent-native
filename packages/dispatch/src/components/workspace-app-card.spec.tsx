@@ -90,6 +90,52 @@ describe("WorkspaceAppCard", () => {
     vi.unstubAllGlobals();
   });
 
+  it("edits the app's when-to-use examples with the existing details form", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                status: "ready",
+                whenToUse: [
+                  "Explain this week's activation trend",
+                  "Compare signup sources",
+                ],
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
+    );
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Edit details"));
+    expect(editItem).not.toBeUndefined();
+
+    await act(async () => editItem?.click());
+
+    const whenToUse = document.querySelector<HTMLTextAreaElement>(
+      "#app-when-to-use-analytics",
+    );
+    expect(whenToUse?.value).toBe(
+      "Explain this week's activation trend\nCompare signup sources",
+    );
+    expect(document.body.textContent).toContain("When to use");
+  });
+
   it("opens ready apps inline and keeps new-tab opening in the chevron menu", async () => {
     await act(async () => {
       root.render(

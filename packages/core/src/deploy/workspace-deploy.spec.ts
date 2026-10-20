@@ -1261,6 +1261,21 @@ describe("workspace deploy", () => {
   it("collects Vercel static assets, functions, and routing config for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
+    const starterPackagePath = path.join(
+      tmpDir,
+      "apps",
+      "starter",
+      "package.json",
+    );
+    const starterPackage = JSON.parse(
+      fs.readFileSync(starterPackagePath, "utf-8"),
+    );
+    starterPackage.description = "  A focused starter app  ";
+    starterPackage["agent-native"] = {
+      whenToUse: ["  Draft a starter brief  "],
+      aliases: ["  Starter  ", "starter", "Brief Writer"],
+    };
+    fs.writeFileSync(starterPackagePath, JSON.stringify(starterPackage));
 
     await runWorkspaceDeploy({
       workspaceRoot: tmpDir,
@@ -1364,6 +1379,15 @@ describe("workspace deploy", () => {
       "dispatch",
       "starter",
     ]);
+    expect(
+      manifest.apps.find((app: { id: string }) => app.id === "starter"),
+    ).toMatchObject({
+      description: "A focused starter app",
+      "agent-native": {
+        whenToUse: ["Draft a starter brief"],
+        aliases: ["Starter", "Brief Writer"],
+      },
+    });
 
     const starterModule = await import(
       `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`

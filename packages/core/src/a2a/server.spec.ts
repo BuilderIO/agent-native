@@ -203,6 +203,93 @@ describe("mountA2A auth", () => {
     expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
   });
 
+  it("keeps scoped profiles off anonymous cards and resolves them for verified users", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    const resolveAuthenticatedProfile = vi.fn(async () => ({
+      description: "Private workspace app description",
+      whenToUse: ["List records from my workspace"],
+    }));
+    const handler = await mountedAgentCardHandler({
+      ...config,
+      description: "Package app description",
+      skills: [],
+      authenticatedSkills: [
+        {
+          id: "list-records",
+          name: "List records",
+          description: "List records in the current app.",
+          readOnly: false,
+        },
+      ],
+      resolveAuthenticatedProfile,
+    });
+
+    const anonymousCard = await handler({
+      method: "GET",
+      headers: { host: "agent.example", "x-forwarded-proto": "https" },
+      path: "/",
+      context: {},
+    });
+    expect(anonymousCard.description).toBe("Package app description");
+    expect(anonymousCard.skills).toEqual([]);
+    expect(resolveAuthenticatedProfile).not.toHaveBeenCalled();
+
+    const token = await new jose.SignJWT({ sub: "alice@example.test" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const authenticatedCard = await handler({
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${token}`,
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+      },
+      path: "/",
+      context: {},
+    });
+
+    expect(resolveAuthenticatedProfile).toHaveBeenCalledWith({
+      userEmail: "alice@example.test",
+    });
+    expect(authenticatedCard.description).toBe(
+      "Private workspace app description",
+    );
+    expect(authenticatedCard.skills[0]?.examples).toEqual([
+      "List records from my workspace",
+    ]);
+  });
+
+  it("replaces and clears derived profile examples while keeping manifest examples", async () => {
+    const { addAgentProfileExamples } = await import("./app-profile.js");
+    const manifestSkills = [
+      {
+        id: "list-records",
+        name: "List records",
+        description: "List records in the current app.",
+        examples: ["Manifest example"],
+      },
+    ];
+    const first = addAgentProfileExamples(manifestSkills, {
+      whenToUse: ["List records in my workspace"],
+    });
+    expect(first[0]?.examples).toEqual([
+      "Manifest example",
+      "List records in my workspace",
+    ]);
+    const replaced = addAgentProfileExamples(first, {
+      whenToUse: ["List records from my workspace"],
+    });
+    expect(replaced[0]?.examples).toEqual([
+      "Manifest example",
+      "List records from my workspace",
+    ]);
+    const cleared = addAgentProfileExamples(replaced, null);
+    expect(cleared[0]?.examples).toEqual(["Manifest example"]);
+  });
+
   it("preserves retryable principal-policy failures from async task processing", async () => {
     process.env.NODE_ENV = "test";
     delete process.env.A2A_SECRET;

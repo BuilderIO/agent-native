@@ -12,6 +12,98 @@ import {
 } from "./metadata.js";
 
 describe("resource metadata", () => {
+  it("parses trimmed agent profile metadata and rejects malformed hints", () => {
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          id: "profiled",
+          name: "Profiled",
+          description: "  Useful peer  ",
+          "agent-native": {
+            whenToUse: ["  Draft a brief  "],
+            aliases: ["  Support  ", "support", "Customer Care"],
+          },
+          url: "https://profiled.example.com",
+        }),
+        "remote-agents/profiled.json",
+      ),
+    ).toMatchObject({
+      description: "Useful peer",
+      whenToUse: ["Draft a brief"],
+      aliases: ["Support", "Customer Care"],
+    });
+    for (const whenToUse of [
+      [],
+      ["  "],
+      Array(7).fill("hint"),
+      ["x".repeat(141)],
+    ]) {
+      const result = parseRemoteAgentManifest(
+        JSON.stringify({
+          id: "profiled",
+          url: "https://profiled.example.com",
+          "agent-native": { whenToUse },
+        }),
+        "remote-agents/profiled.json",
+      );
+      if (whenToUse.length === 0) expect(result).not.toBeNull();
+      else
+        expect(result).toMatchObject({
+          id: "profiled",
+          url: "https://profiled.example.com",
+        });
+    }
+    for (const aliases of ["support", [" "], ["x".repeat(81)], ["a\nb"]]) {
+      expect(
+        parseRemoteAgentManifest(
+          JSON.stringify({
+            id: "profiled",
+            url: "https://profiled.example.com",
+            "agent-native": { aliases },
+          }),
+          "remote-agents/profiled.json",
+        ),
+      ).toMatchObject({ id: "profiled", url: "https://profiled.example.com" });
+    }
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          id: "base",
+          name: "Base",
+          description: 42,
+          url: "https://base.example.com",
+          "agent-native": "bad",
+        }),
+        "remote-agents/base.json",
+      ),
+    ).toMatchObject({
+      id: "base",
+      name: "Base",
+      url: "https://base.example.com",
+    });
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          id: "partially-profiled",
+          name: "Partially Profiled",
+          description: "Useful description",
+          "agent-native": {
+            whenToUse: ["line\nbreak"],
+            aliases: ["QR code"],
+          },
+          url: "https://profiled.example.com",
+        }),
+        "remote-agents/partially-profiled.json",
+      ),
+    ).toMatchObject({
+      id: "partially-profiled",
+      name: "Partially Profiled",
+      description: "Useful description",
+      aliases: ["QR code"],
+      url: "https://profiled.example.com",
+    });
+  });
+
   it("treats remote-agents/*.json as the canonical remote-agent path", () => {
     expect(remoteAgentResourcePath("qa-agent")).toBe(
       "remote-agents/qa-agent.json",

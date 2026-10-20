@@ -21,10 +21,12 @@ import {
 } from "../agent/engine/index.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import { buildWorkspaceAppRequestContext } from "../agent/jev-tool-prefetch.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
   filterInitialEngineTools,
+  getJevContextCredentials,
   resolveOwnerEngineApiKey,
   type ActionEntry,
   type ResolvedOwnerApiKey,
@@ -48,6 +50,7 @@ import {
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
+import type { AgentMessage } from "../agent/types.js";
 import type { AgentChatEvent, ContinuationReason } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import {
@@ -58,6 +61,7 @@ import {
 } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { getOrgA2ASecret } from "../org/context.js";
+import { preloadJevContextWithStatus } from "../server/agent-chat/prompt-resources.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -700,6 +704,50 @@ async function processIncomingMessage(
   effectiveSystemPrompt += await loadIntegrationMemoryPrompt(
     incoming.integrationScopeId,
   ).catch(() => "");
+  const workspaceAppHistory: AgentMessage[] = (incoming.contextMessages ?? [])
+    .filter((message) => {
+      const isCurrent =
+        message.text.trim() === incoming.text.trim() &&
+        (!incoming.senderId || message.senderId === incoming.senderId);
+      return !isCurrent;
+    })
+    .map((message) => ({
+      role:
+        message.senderId && message.senderId === incoming.senderId
+          ? "user"
+          : "assistant",
+      content: message.text,
+    }));
+  const appRequest = buildWorkspaceAppRequestContext({
+    request: incoming.text,
+    history: workspaceAppHistory,
+    selectedObjectContext: buildProviderConversationContext(incoming),
+  });
+  const appPreload = await runWithRequestContext(
+    {
+      userEmail: ownerEmail,
+      ...requestContext,
+      isIntegrationCaller: true,
+    },
+    async () => {
+      const jevCredentials = await getJevContextCredentials(ownerEmail);
+      return preloadJevContextWithStatus({
+        request: appRequest,
+        appRequest,
+        owner: ownerEmail,
+        orgId,
+        apiKey: jevCredentials.apiKey,
+        personalApiKey: jevCredentials.personalApiKey,
+        builderAuth: jevCredentials.builderAuth,
+        selfAppId: options.appId,
+        workspaceAppsEnabled: Boolean(actions["call-agent"]),
+        appDiscoveryOnly: true,
+      });
+    },
+  );
+  if (appPreload.relevantAppsContext) {
+    effectiveSystemPrompt += `\n\n${appPreload.relevantAppsContext}`;
+  }
 
   const budgetReservations = await reserveApplicableIntegrationBudgets({
     incoming,
