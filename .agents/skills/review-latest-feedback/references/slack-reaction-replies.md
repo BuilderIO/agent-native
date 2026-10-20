@@ -19,7 +19,8 @@ materially changes, including after a linked PR merges. Write one short sentence
 in plain, non-technical language. Say what changed. Use `🎫` only for unresolved
 work; when you use it, briefly say what still needs investigation or what action
 is needed, and name its owner when known. Do not mention or explain absent
-reactions. Keep scope, evidence, and handoff details in the internal ledger.
+reactions or a closed, historical `🎫`. Keep scope, evidence, and handoff details
+in the internal ledger.
 
 For a beta-eligible app PR, wait until the matching run selects the affected
 site. Include the PR link and say: "[PR link] is merged and expected on beta

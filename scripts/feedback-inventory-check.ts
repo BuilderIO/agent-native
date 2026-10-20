@@ -1419,8 +1419,13 @@ function publicActionSummaryMatchesAction(
   }
   const normalizedAction = normalizeReplyPhrase(action);
   const normalizedSummary = normalizeReplyPhrase(publicActionSummary);
+  const summaryWords = normalizedSummary
+    .split(" ")
+    .filter(
+      (word) => !["this", "that", "it", "something", "anything"].includes(word),
+    );
   return (
-    normalizedSummary !== "" &&
+    summaryWords.length >= 2 &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
   );
@@ -1844,7 +1849,10 @@ function validateHistoricalReactionMarks(
         `${label}: prior status must match the captured full-thread read`,
       );
     }
-    if (!replyNamesHandoffAction(previous.text, mark.scope)) {
+    if (
+      mark.emoji === "white_check_mark" &&
+      !replyNamesHandoffAction(previous.text, mark.scope)
+    ) {
       throw new Error(
         `${label}: historical mark prior captured status must include its recorded scope`,
       );
@@ -1858,6 +1866,14 @@ function validateHistoricalReactionMarks(
     ) {
       throw new Error(
         `${label}: historical ✅ needs a prior verified disposition stated in its captured reply`,
+      );
+    }
+    if (
+      mark.emoji === "ticket" &&
+      !replyStartsWithDisposition(previous.text, previous.disposition)
+    ) {
+      throw new Error(
+        `${label}: historical 🎫 needs a prior disposition stated in its captured reply`,
       );
     }
     const reactionDecision =
@@ -1913,6 +1929,7 @@ function validateHistoricalReactionMarks(
       if (
         typeof closedReporterRequest.scope !== "string" ||
         !closedReporterRequest.scope.trim() ||
+        closedReporterRequest.scope !== mark.scope ||
         typeof closedReporterRequest.action !== "string" ||
         !closedReporterRequest.action.trim() ||
         !request ||
@@ -1923,7 +1940,7 @@ function validateHistoricalReactionMarks(
         ) !== rootTs
       ) {
         throw new Error(
-          `${label}: historical 🎫 needs the original reporter request scope, action, and in-thread request`,
+          `${label}: historical 🎫 needs a matching reporter request scope, action, and in-thread request`,
         );
       }
       const requestTs = slackTimestamp(
@@ -9582,15 +9599,10 @@ if (args[0] === "--self-test" && args.length === 1) {
             const publicActionSummary = "send the link";
             const previousStatus: StatusReply = {
               ...originalStatus,
-              text: originalStatus.text
-                .replace(
-                  "Please send the link to check the flow",
-                  "Please send the link",
-                )
-                .replace(
-                  " this was sent from a bot.",
-                  ` Reporter request scope: ${reportScope}. this was sent from a bot.`,
-                ),
+              text: originalStatus.text.replace(
+                "Please send the link to check the flow",
+                "Please send the link",
+              ),
             };
             const requestReply: ReporterRequestReply = {
               ts: previousStatus.ts,
@@ -9608,9 +9620,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             const reason = answered
               ? "the reporter answered the URL request; the ticket is retained as history"
               : "no human answer arrived four days after the request; the ticket is retained as history";
-            const statusDisposition = answered
-              ? "In progress"
-              : "Abandoned - no answer in 4 days";
+            const statusDisposition = "In progress";
             const statusEvidence = answered
               ? "the reporter provided the requested URL; investigation continues"
               : "no human answer arrived four days after the request";
@@ -9619,7 +9629,9 @@ if (args[0] === "--self-test" && args.length === 1) {
               ts: answered ? "13.000000" : "345612.000000",
               disposition: statusDisposition,
               evidence: statusEvidence,
-              text: `${statusDisposition}: ${statusEvidence}. Reporter request scope: ${reportScope}. Historical 🎫 action ${publicActionSummary}: ${reason}. No :white_check_mark: — no scope has passed direct verification. this was sent from a bot.`,
+              text: answered
+                ? "In progress: The link helped us check the issue. this was sent from a bot."
+                : "In progress: We'll keep checking with what we have. this was sent from a bot.",
             };
             const closedReporterRequest: ClosedReporterRequest = answered
               ? {
@@ -13137,6 +13149,35 @@ if (args[0] === "--self-test" && args.length === 1) {
         ),
       "active 🎫 summary must include every pending action and known owner",
     );
+    for (const [publicActionSummary, action] of [
+      ["fix", "fix the broken route in the setup flow"],
+      ["fix this", "fix this route in the setup flow"],
+    ]) {
+      expectStatusLanguageFailure(
+        `generic reporter summary ${publicActionSummary} is too vague`,
+        () =>
+          validateStatusReactionLanguage(
+            "self-test reporter request",
+            `Clarification needed: Please ${publicActionSummary}. this was sent from a bot.`,
+            [],
+            [
+              {
+                scope: "repair the route",
+                action,
+                publicActionSummary,
+                requestReply: {
+                  ts: "11.500000",
+                  threadParentTs: "10.000000",
+                  actorId: "USWEEPER",
+                  text: `Please ${publicActionSummary}.`,
+                },
+              },
+            ],
+            `Please ${publicActionSummary}`,
+          ),
+        "active 🎫 summary must include every pending action and known owner",
+      );
+    }
     expectStatusLanguageFailure(
       "malformed pending summary has a field diagnostic",
       () =>
@@ -14019,6 +14060,28 @@ if (args[0] === "--self-test" && args.length === 1) {
       historicalReporterWithInvalidPublicSummary,
       "historical reporter publicActionSummary must be a concise prefix of its action",
     );
+    const historicalReporterWithMismatchedScope =
+      withClosedReporterRequestHistory();
+    historicalReporterWithMismatchedScope.channels[0]!.pages[0]!.parents =
+      historicalReporterWithMismatchedScope.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.closedReporterRequest
+                      ? { ...mark, scope: "different report" }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical reporter request scope must match its ticket scope",
+      historicalReporterWithMismatchedScope,
+      "historical 🎫 needs a matching reporter request scope, action, and in-thread request",
+    );
     const historicalCheckWithoutStatedDisposition = structuredClone(
       historicalCheckInventory,
     );
@@ -14108,6 +14171,35 @@ if (args[0] === "--self-test" && args.length === 1) {
       "historical checkmark with a contradicted fixed disposition",
       historicalCheckWithContradictedFixedDisposition,
       "historical ✅ needs a prior verified disposition stated in its captured reply",
+    );
+    const historicalTicketWithoutStatedDisposition = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithoutStatedDisposition.channels[0]!.pages[0]!.parents =
+      historicalTicketWithoutStatedDisposition.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket"
+                      ? {
+                          ...mark,
+                          previousStatus: {
+                            ...mark.previousStatus,
+                            disposition: "Fixed",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket needs a prior stated disposition",
+      historicalTicketWithoutStatedDisposition,
+      "historical 🎫 needs a prior disposition stated in its captured reply",
     );
     expectHistoricalMarkFailure(
       "historical ticket withdrawal needs the assigned owner's reply",
@@ -15125,7 +15217,6 @@ if (args[0] === "--self-test" && args.length === 1) {
           parents: page.parents.map((parent) => {
             if (parent.ts !== "10.000000") return parent;
             const closedMark = parent.historicalReactionMarks![0]!;
-            const closedRequest = closedMark.closedReporterRequest!;
             const fixedVerification =
               "focused route test passed for the initial route screen";
             const openEvidence = "browser redirect behavior remains unverified";
@@ -15134,7 +15225,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               ...parent.statusReply!,
               disposition: "Partially fixed",
               evidence,
-              text: `Partially fixed: ${evidence}. Reporter request scope: ${closedRequest.scope}. Historical 🎫 action ${closedRequest.action}: ${closedMark.reason}. :white_check_mark: covers initial route screen. Open scope: redirect destination behavior — ${openEvidence}. this was sent from a bot.`,
+              text: "Partially fixed: The first screen works, but we're still checking where it leads. this was sent from a bot.",
             };
             return {
               ...parent,
