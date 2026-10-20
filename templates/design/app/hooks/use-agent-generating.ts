@@ -22,6 +22,31 @@ const TERMINAL_RUN_STATUSES = new Set([
   "truncated",
 ]);
 
+function isCorrelatedContinuationRun(args: {
+  runId?: string;
+  successorOfRunId?: string;
+  turnId?: string;
+  previousRunId: string | null;
+  currentRunId: string | null;
+  currentTurnId: string | null;
+  sourceRunId: string | null;
+  sourceTurnId: string | null;
+  deferredRunId: string | null;
+}): boolean {
+  if (!args.runId || args.runId === args.previousRunId) return false;
+  return (
+    args.runId === args.currentRunId ||
+    args.runId === args.sourceRunId ||
+    args.runId === args.deferredRunId ||
+    (args.successorOfRunId !== undefined &&
+      (args.successorOfRunId === args.previousRunId ||
+        args.successorOfRunId === args.currentRunId ||
+        args.successorOfRunId === args.sourceRunId)) ||
+    (args.turnId !== undefined &&
+      (args.turnId === args.currentTurnId || args.turnId === args.sourceTurnId))
+  );
+}
+
 interface UseAgentGeneratingOptions {
   onComplete?: (tabId: string | null) => void;
   onFailed?: (tabId: string | null) => void;
@@ -29,7 +54,11 @@ interface UseAgentGeneratingOptions {
   onStale?: (tabId: string | null) => void;
   shouldAdoptRunningTab?: () => boolean;
   onAdoptRunningTab?: (tabId: string) => void;
-  onRunConfirmed?: (tabId: string | null, runId: string | null) => void;
+  onRunConfirmed?: (
+    tabId: string | null,
+    runId: string | null,
+    turnId?: string | null,
+  ) => void;
   getPreviousRunBaseline?: (tabId: string) => PreviousRunBaseline | null;
 }
 
@@ -38,12 +67,14 @@ interface TrackGenerationOptions {
   previousRunId?: string;
   previousRunBaselineVerified?: boolean;
   currentRunId?: string;
+  currentTurnId?: string;
 }
 
 interface PreviousRunBaseline {
   runId: string | null;
   verified: boolean;
   currentRunId?: string | null;
+  currentTurnId?: string | null;
 }
 
 export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
@@ -60,7 +91,11 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   const requireActiveRunRef = useRef(false);
   const previousRunIdRef = useRef<string | null>(null);
   const currentRunIdRef = useRef<string | null>(null);
+  const currentTurnIdRef = useRef<string | null>(null);
   const continuationSourceRunIdRef = useRef<string | null>(null);
+  const continuationSourceTurnIdRef = useRef<string | null>(null);
+  const deferredRunIdRef = useRef<string | null>(null);
+  const turnIdRecoveryAttemptedForRunRef = useRef<string | null>(null);
   const lastObservedRunRef = useRef<{ tabId: string; runId: string } | null>(
     null,
   );
@@ -101,7 +136,11 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
     requireActiveRunRef.current = false;
     previousRunIdRef.current = null;
     currentRunIdRef.current = null;
+    currentTurnIdRef.current = null;
     continuationSourceRunIdRef.current = null;
+    continuationSourceTurnIdRef.current = null;
+    deferredRunIdRef.current = null;
+    turnIdRecoveryAttemptedForRunRef.current = null;
     setGenerating(false);
   }, [clearGenerationTimeout, clearHandoffTimeout, clearStatusPollTimeout]);
 
@@ -142,10 +181,20 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   );
 
   const beginContinuationWait = useCallback(
-    (tabId: string, sourceRunId?: string) => {
+    (tabId: string, sourceRunId?: string, sourceTurnId?: string) => {
       waitingForContinuationRef.current = true;
       generationIdlePollCountRef.current = 0;
       if (sourceRunId) continuationSourceRunIdRef.current = sourceRunId;
+      if (sourceTurnId) {
+        continuationSourceTurnIdRef.current = sourceTurnId;
+      } else if (
+        sourceRunId &&
+        (sourceRunId === currentRunIdRef.current ||
+          sourceRunId === previousRunIdRef.current ||
+          sourceRunId === continuationSourceRunIdRef.current)
+      ) {
+        continuationSourceTurnIdRef.current = currentTurnIdRef.current;
+      }
       clearGenerationTimeout();
       startHandoffTimeout(tabId);
     },
@@ -158,21 +207,43 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       runId?: string,
       active = false,
       successorOfRunId?: string,
+      turnId?: string,
     ) => {
       const hasRunId = typeof runId === "string";
-      const causallyConfirmedSuccessor =
-        typeof successorOfRunId === "string" &&
-        (successorOfRunId === previousRunIdRef.current ||
-          successorOfRunId === currentRunIdRef.current ||
-          successorOfRunId === continuationSourceRunIdRef.current);
       const isKnownCurrentRun = hasRunId && runId === currentRunIdRef.current;
+      const isDeferredRun = hasRunId && runId === deferredRunIdRef.current;
+      const isDifferentTrackedRun =
+        hasRunId &&
+        currentRunIdRef.current !== null &&
+        runId !== currentRunIdRef.current;
+      const correlatedContinuationRun = isCorrelatedContinuationRun({
+        runId,
+        successorOfRunId,
+        turnId,
+        previousRunId: previousRunIdRef.current,
+        currentRunId: currentRunIdRef.current,
+        currentTurnId: currentTurnIdRef.current,
+        sourceRunId: continuationSourceRunIdRef.current,
+        sourceTurnId: continuationSourceTurnIdRef.current,
+        deferredRunId: deferredRunIdRef.current,
+      });
+      const continuationCorrelationRequired =
+        waitingForContinuationRef.current ||
+        (currentRunIdRef.current !== null && currentTurnIdRef.current !== null);
       if (
         activeTabIdRef.current !== tabId ||
         (previousRunIdRef.current !== null &&
           (!runId || runId === previousRunIdRef.current)) ||
+        (continuationCorrelationRequired &&
+          isDifferentTrackedRun &&
+          !correlatedContinuationRun) ||
+        (waitingForContinuationRef.current &&
+          hasRunId &&
+          runId !== continuationSourceRunIdRef.current &&
+          !correlatedContinuationRun) ||
         (requireActiveRunRef.current &&
           (!hasRunId ||
-            (!active && !isKnownCurrentRun && !causallyConfirmedSuccessor)))
+            (!active && !isKnownCurrentRun && !correlatedContinuationRun)))
       ) {
         return false;
       }
@@ -183,6 +254,22 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       if (hasRunId) {
         currentRunIdRef.current = runId!;
         lastObservedRunRef.current = { tabId, runId: runId! };
+        if (isDeferredRun) deferredRunIdRef.current = null;
+      }
+      const discoveredTurnId =
+        typeof turnId === "string" && turnId.length > 0 ? turnId : null;
+      const isNewTurn =
+        discoveredTurnId !== null &&
+        discoveredTurnId !== currentTurnIdRef.current;
+      if (discoveredTurnId) {
+        currentTurnIdRef.current = discoveredTurnId;
+        if (
+          waitingForContinuationRef.current &&
+          (runId === continuationSourceRunIdRef.current ||
+            continuationSourceTurnIdRef.current === null)
+        ) {
+          continuationSourceTurnIdRef.current = discoveredTurnId;
+        }
       }
       const advancesContinuation =
         waitingForContinuationRef.current &&
@@ -191,10 +278,15 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
       if (advancesContinuation) {
         waitingForContinuationRef.current = false;
         continuationSourceRunIdRef.current = null;
+        continuationSourceTurnIdRef.current = null;
         clearHandoffTimeout();
       }
-      if (isFirstObservedRun || isNewRun) {
-        callbacksRef.current.onRunConfirmed?.(tabId, runId ?? null);
+      if (isFirstObservedRun || isNewRun || isNewTurn) {
+        callbacksRef.current.onRunConfirmed?.(
+          tabId,
+          runId ?? null,
+          discoveredTurnId ?? currentTurnIdRef.current ?? undefined,
+        );
         startGenerationTimeout(tabId);
       }
       return true;
@@ -227,6 +319,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             active?: unknown;
             status?: unknown;
             runId?: unknown;
+            turnId?: unknown;
             successorOfRunId?: unknown;
             terminalReason?: unknown;
             awaitingRedispatch?: unknown;
@@ -235,6 +328,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             typeof state.active !== "boolean" ||
             typeof state.status !== "string" ||
             (state.runId != null && typeof state.runId !== "string") ||
+            (state.turnId != null && typeof state.turnId !== "string") ||
             (state.successorOfRunId != null &&
               typeof state.successorOfRunId !== "string") ||
             (state.terminalReason != null &&
@@ -243,6 +337,61 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
               typeof state.awaitingRedispatch !== "boolean")
           ) {
             throw new Error("Agent run state was incomplete");
+          }
+          if (
+            statusPollGenerationRef.current !== generation ||
+            activeTabIdRef.current !== tabId
+          ) {
+            return;
+          }
+          const sourceRunId = currentRunIdRef.current;
+          if (
+            sourceRunId &&
+            currentTurnIdRef.current === null &&
+            state.runId !== sourceRunId &&
+            typeof state.turnId === "string" &&
+            state.successorOfRunId == null &&
+            turnIdRecoveryAttemptedForRunRef.current !== sourceRunId
+          ) {
+            // Older pending records have a run ID but no persisted turn ID.
+            turnIdRecoveryAttemptedForRunRef.current = sourceRunId;
+            const params = new URLSearchParams({
+              threadId: tabId,
+              runId: sourceRunId,
+            });
+            try {
+              const sourceResponse = await fetch(
+                `${agentNativePath("/_agent-native/agent-chat")}/runs/latest?${params}`,
+                {
+                  credentials: "same-origin",
+                  signal: AbortSignal.timeout(10_000),
+                },
+              );
+              if (sourceResponse.ok) {
+                const sourceState = (await sourceResponse.json()) as {
+                  threadId?: unknown;
+                  turnId?: unknown;
+                };
+                if (
+                  sourceState.threadId === tabId &&
+                  typeof sourceState.turnId === "string" &&
+                  sourceState.turnId.length > 0
+                ) {
+                  currentTurnIdRef.current = sourceState.turnId;
+                  callbacksRef.current.onRunConfirmed?.(
+                    tabId,
+                    sourceRunId,
+                    sourceState.turnId,
+                  );
+                }
+              } else if (sourceResponse.status !== 404) {
+                turnIdRecoveryAttemptedForRunRef.current = null;
+                throw new Error("Could not recover the tracked run turn");
+              }
+            } catch (error) {
+              turnIdRecoveryAttemptedForRunRef.current = null;
+              throw error;
+            }
           }
           if (
             statusPollGenerationRef.current !== generation ||
@@ -287,38 +436,111 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
               typeof state.successorOfRunId === "string"
                 ? state.successorOfRunId
                 : undefined;
+            const turnId =
+              typeof state.turnId === "string" ? state.turnId : undefined;
+            const correlatedDeferredRun = isCorrelatedContinuationRun({
+              runId,
+              successorOfRunId,
+              turnId,
+              previousRunId: previousRunIdRef.current,
+              currentRunId: currentRunIdRef.current,
+              currentTurnId: currentTurnIdRef.current,
+              sourceRunId: continuationSourceRunIdRef.current,
+              sourceTurnId: continuationSourceTurnIdRef.current,
+              deferredRunId: deferredRunIdRef.current,
+            });
             const hasDeferredTurn =
-              isAwaitingRedispatch &&
-              (generationRunObservedRef.current ||
-                (runId !== undefined && runId !== previousRunIdRef.current) ||
-                (successorOfRunId !== undefined &&
-                  (successorOfRunId === previousRunIdRef.current ||
-                    successorOfRunId === currentRunIdRef.current ||
-                    successorOfRunId === continuationSourceRunIdRef.current)));
+              isAwaitingRedispatch && correlatedDeferredRun;
             const existingRunConfirmed =
               !isAwaitingRedispatch &&
               (isRunning || isTerminal) &&
-              confirmRun(tabId, runId, isRunning, successorOfRunId);
+              confirmRun(tabId, runId, isRunning, successorOfRunId, turnId);
             if (!hasDeferredTurn && !existingRunConfirmed) {
               callbacksRef.current.onFailed?.(tabId);
               reset();
               return;
             }
+            if (hasDeferredTurn && runId) {
+              const isNewTurn =
+                turnId !== undefined && turnId !== currentTurnIdRef.current;
+              if (turnId) currentTurnIdRef.current = turnId;
+              const sourceRunId =
+                successorOfRunId ??
+                currentRunIdRef.current ??
+                previousRunIdRef.current ??
+                undefined;
+              if (!waitingForContinuationRef.current) {
+                beginContinuationWait(tabId, sourceRunId, turnId);
+              }
+              if (runId !== currentRunIdRef.current || isNewTurn) {
+                deferredRunIdRef.current = runId;
+                currentRunIdRef.current = runId;
+                generationRunObservedRef.current = true;
+                callbacksRef.current.onRunConfirmed?.(
+                  tabId,
+                  runId,
+                  turnId ?? currentTurnIdRef.current ?? undefined,
+                );
+              }
+            }
             startFailedPendingRef.current = false;
           }
           if (isAwaitingRedispatch) {
-            const sourceRunId =
+            const runId =
+              typeof state.runId === "string" ? state.runId : undefined;
+            const successorOfRunId =
               typeof state.successorOfRunId === "string"
                 ? state.successorOfRunId
-                : (currentRunIdRef.current ??
-                  previousRunIdRef.current ??
-                  undefined);
-            beginContinuationWait(tabId, sourceRunId);
+                : undefined;
+            const turnId =
+              typeof state.turnId === "string" ? state.turnId : undefined;
+            const correlatedDeferredRun = isCorrelatedContinuationRun({
+              runId,
+              successorOfRunId,
+              turnId,
+              previousRunId: previousRunIdRef.current,
+              currentRunId: currentRunIdRef.current,
+              currentTurnId: currentTurnIdRef.current,
+              sourceRunId: continuationSourceRunIdRef.current,
+              sourceTurnId: continuationSourceTurnIdRef.current,
+              deferredRunId: deferredRunIdRef.current,
+            });
+            if (correlatedDeferredRun && runId) {
+              const isNewTurn =
+                turnId !== undefined && turnId !== currentTurnIdRef.current;
+              const sourceRunId =
+                successorOfRunId ??
+                currentRunIdRef.current ??
+                previousRunIdRef.current ??
+                undefined;
+              if (!waitingForContinuationRef.current) {
+                beginContinuationWait(tabId, sourceRunId, turnId);
+              }
+              if (turnId) currentTurnIdRef.current = turnId;
+              if (runId !== currentRunIdRef.current || isNewTurn) {
+                deferredRunIdRef.current = runId;
+                currentRunIdRef.current = runId;
+                generationRunObservedRef.current = true;
+                callbacksRef.current.onRunConfirmed?.(
+                  tabId,
+                  runId,
+                  turnId ?? currentTurnIdRef.current ?? undefined,
+                );
+              }
+            }
             generationIdlePollCountRef.current = 0;
           } else if (isRunning) {
             const runId =
               typeof state.runId === "string" ? state.runId : undefined;
-            confirmRun(tabId, runId, true);
+            confirmRun(
+              tabId,
+              runId,
+              true,
+              typeof state.successorOfRunId === "string"
+                ? state.successorOfRunId
+                : undefined,
+              typeof state.turnId === "string" ? state.turnId : undefined,
+            );
             generationIdlePollCountRef.current = 0;
           } else if (isTerminal) {
             const runId =
@@ -330,9 +552,16 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
               typeof state.successorOfRunId === "string"
                 ? state.successorOfRunId
                 : undefined,
+              typeof state.turnId === "string" ? state.turnId : undefined,
             );
             if (isContinuation) {
-              beginContinuationWait(tabId, runId);
+              if (isCurrentRun) {
+                beginContinuationWait(
+                  tabId,
+                  runId,
+                  typeof state.turnId === "string" ? state.turnId : undefined,
+                );
+              }
               generationIdlePollCountRef.current = 0;
             } else if (!isCurrentRun) {
               generationIdlePollCountRef.current = 0;
@@ -355,6 +584,8 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             } else {
               waitingForContinuationRef.current = false;
               continuationSourceRunIdRef.current = null;
+              continuationSourceTurnIdRef.current = null;
+              deferredRunIdRef.current = null;
               clearHandoffTimeout();
               generationIdlePollCountRef.current += 1;
             }
@@ -415,6 +646,10 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             : null))
         : null;
       currentRunIdRef.current = trackOptions.currentRunId ?? null;
+      currentTurnIdRef.current = trackOptions.currentTurnId ?? null;
+      continuationSourceTurnIdRef.current = null;
+      deferredRunIdRef.current = null;
+      turnIdRecoveryAttemptedForRunRef.current = null;
       requireActiveRunRef.current =
         trackOptions.ignorePreviousRun === true &&
         trackOptions.previousRunBaselineVerified !== true &&
@@ -439,13 +674,22 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
               callbacksRef.current.getPreviousRunBaseline?.(eventTabId);
             previousRunIdRef.current = baseline?.runId ?? null;
             currentRunIdRef.current = baseline?.currentRunId ?? null;
+            currentTurnIdRef.current = baseline?.currentTurnId ?? null;
             requireActiveRunRef.current =
               baseline?.verified !== true && currentRunIdRef.current === null;
             callbacksRef.current.onAdoptRunningTab?.(eventTabId);
             setGenerating(true);
             startGenerationTimeout(eventTabId);
             if (typeof detail.runId === "string") {
-              confirmRun(eventTabId, detail.runId, true);
+              confirmRun(
+                eventTabId,
+                detail.runId,
+                true,
+                typeof detail.successorOfRunId === "string"
+                  ? detail.successorOfRunId
+                  : undefined,
+                typeof detail.turnId === "string" ? detail.turnId : undefined,
+              );
             }
             startStatusPolling(eventTabId);
             return;
@@ -496,7 +740,15 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         setGenerating(true);
         if (tabId) {
           if (typeof detail.runId === "string") {
-            confirmRun(tabId, detail.runId, true);
+            confirmRun(
+              tabId,
+              detail.runId,
+              true,
+              typeof detail.successorOfRunId === "string"
+                ? detail.successorOfRunId
+                : undefined,
+              typeof detail.turnId === "string" ? detail.turnId : undefined,
+            );
           } else if (!generationRunObservedRef.current) {
             startGenerationTimeout(tabId);
           }

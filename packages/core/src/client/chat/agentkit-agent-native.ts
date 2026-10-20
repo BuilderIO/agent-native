@@ -3045,7 +3045,16 @@ export function createAgentNativeAgentKitTransport(
             : "The server reported that this run failed.",
         ...(terminalReason ? { metadata: { terminalReason } } : {}),
       };
-    } else if (status === "cancelled" || status === "aborted") {
+    } else if (status === "aborted") {
+      runStatus = runLifecycleStatus("aborted", terminalReason ?? null, null);
+      error = runLifecycleError(
+        runStatus,
+        "aborted",
+        null,
+        terminalReason ?? null,
+        null,
+      );
+    } else if (status === "cancelled") {
       runStatus = "cancelled";
     } else if (status === "truncated") {
       runStatus = "failed";

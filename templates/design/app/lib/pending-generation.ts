@@ -28,6 +28,7 @@ export interface PendingGeneration {
   previousRunId?: string;
   previousRunBaselineVerified?: boolean;
   currentRunId?: string;
+  currentTurnId?: string;
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
 }
 

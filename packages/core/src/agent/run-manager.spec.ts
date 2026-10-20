@@ -5048,6 +5048,50 @@ describe("run manager soft timeout", () => {
     abortRun(run.runId, "test");
   });
 
+  it("normalizes a truncated same-turn successor to the legacy wire status", async () => {
+    const run = startRun(
+      "run-truncated-successor-source",
+      "thread-truncated-successor",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-truncated-successor" },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-truncated-successor-child",
+      threadId: "thread-truncated-successor",
+      turnId: "turn-truncated-successor",
+      status: "truncated",
+      startedAt: run.startedAt + 1_000,
+      heartbeatAt: Date.now(),
+      completedAt: Date.now(),
+      lastProgressAt: Date.now(),
+      dispatchMode: "background",
+      terminalReason: "run_timeout",
+    });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-truncated-successor",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-truncated-successor-child",
+      status: "completed",
+      inFlight: false,
+      successorOfRunId: "run-truncated-successor-source",
+      terminalReason: "run_timeout",
+      awaitingRedispatch: false,
+    });
+    abortRun(run.runId, "test");
+  });
+
   it("marks an unclaimed same-turn in-memory successor as awaiting redispatch", async () => {
     const run = startRun(
       "run-deferred-successor-source",

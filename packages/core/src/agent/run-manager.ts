@@ -2767,7 +2767,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
           runId: successor.id,
           threadId: successor.threadId,
           turnId: successor.turnId ?? successor.id,
-          status: successor.status,
+          status: legacyWireRunStatus(successor.status),
           inFlight: successor.status === "running",
           heartbeatAt: successor.heartbeatAt ?? successor.startedAt,
           lastProgressAt: successor.lastProgressAt,

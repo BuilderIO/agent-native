@@ -319,6 +319,16 @@ export function useEditorGenerationAndAccess({
   }, [id]);
   const markGenerationStale = useCallback(() => {
     clearGenerationCompleteTimer();
+    clearAutoRetryTimer();
+    clearStoredRunLivenessTimer();
+    if (generationOutputReadyRef.current) {
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(null);
+      setRetryablePrompt(null);
+      staleToastShownRef.current = false;
+      return;
+    }
     rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
@@ -327,7 +337,14 @@ export function useEditorGenerationAndAccess({
       staleToastShownRef.current = true;
       toast.error(t("designEditor.generationMayHaveStoppedToast"));
     }
-  }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
+  }, [
+    clearAutoRetryTimer,
+    clearGenerationCompleteTimer,
+    clearStoredRunLivenessTimer,
+    id,
+    rememberPendingGenerationForRetry,
+    t,
+  ]);
   const handleGenerationComplete = useCallback(() => {
     clearGenerationCompleteTimer();
     generationCompleteTimerRef.current = window.setTimeout(() => {
@@ -401,12 +418,18 @@ export function useEditorGenerationAndAccess({
     (runTabId: string) => {
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
       if (pending?.runTabId && pending.runTabId !== runTabId) {
-        return { runId: null, verified: false, currentRunId: null };
+        return {
+          runId: null,
+          verified: false,
+          currentRunId: null,
+          currentTurnId: null,
+        };
       }
       const runId = pending?.previousRunId ?? null;
       return {
         runId,
         currentRunId: pending?.currentRunId ?? null,
+        currentTurnId: pending?.currentTurnId ?? null,
         verified:
           Boolean(runId) || pending?.previousRunBaselineVerified === true,
       };
@@ -443,13 +466,16 @@ export function useEditorGenerationAndAccess({
       setHasPendingGeneration(true);
     },
     getPreviousRunBaseline: getKnownPreviousRunBaseline,
-    onRunConfirmed: (tabId, runId) => {
+    onRunConfirmed: (tabId, runId, turnId) => {
       generationRunConfirmedRef.current = true;
       clearStoredRunLivenessTimer();
       if (!tabId || !runId) return;
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
       if (pending && (!pending.runTabId || pending.runTabId === tabId)) {
-        patchPendingGeneration(id, { currentRunId: runId });
+        patchPendingGeneration(id, {
+          currentRunId: runId,
+          ...(turnId ? { currentTurnId: turnId } : {}),
+        });
       }
     },
   });
@@ -514,6 +540,7 @@ export function useEditorGenerationAndAccess({
         previousRunId,
         previousRunBaselineVerified,
         currentRunId: undefined,
+        currentTurnId: undefined,
         attempt: pending?.attempt ?? 1,
         startedAt: Date.now(),
       });
@@ -522,6 +549,7 @@ export function useEditorGenerationAndAccess({
         ignorePreviousRun: true,
         previousRunId,
         previousRunBaselineVerified,
+        currentTurnId: pending?.currentTurnId,
       });
     },
     [clearGenerationCompleteTimer, id, trackAgentGeneration],
@@ -640,6 +668,7 @@ export function useEditorGenerationAndAccess({
             }
           : {}),
         currentRunId: pending.currentRunId,
+        currentTurnId: pending.currentTurnId,
       });
       if (!ignorePreviousRun) {
         scheduleStoredRunLivenessCheck(pending.runTabId);

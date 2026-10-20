@@ -9060,11 +9060,35 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it.each([
     { serverStatus: "errored", expectedStatus: "failed" },
-    { serverStatus: "aborted", expectedStatus: "cancelled" },
+    {
+      serverStatus: "aborted",
+      terminalReason: "aborted:user",
+      expectedStatus: "cancelled",
+    },
+    {
+      serverStatus: "aborted",
+      terminalReason: "aborted:run_timeout",
+      expectedStatus: "failed",
+      expectedError: {
+        code: "run_timeout",
+        retryable: true,
+        metadata: { terminalReason: "aborted:run_timeout" },
+      },
+    },
+    {
+      serverStatus: "aborted",
+      terminalReason: "aborted:no_progress",
+      expectedStatus: "failed",
+      expectedError: {
+        code: "no_progress",
+        retryable: true,
+        metadata: { terminalReason: "aborted:no_progress" },
+      },
+    },
     { serverStatus: "truncated", expectedStatus: "failed" },
   ])(
     "maps the terminal server status $serverStatus into a visible run state",
-    async ({ serverStatus, expectedStatus }) => {
+    async ({ serverStatus, terminalReason, expectedStatus, expectedError }) => {
       const threadId = `thread-status-${serverStatus}`;
       const transport = createAgentNativeAgentKitTransport({
         fetch: vi.fn(async (input: string | URL | Request) => {
@@ -9073,6 +9097,7 @@ describe("createAgentNativeAgentKitTransport", () => {
               active: true,
               status: serverStatus,
               runId: "run-terminal",
+              ...(terminalReason ? { terminalReason } : {}),
             });
           }
           return json({
@@ -9096,6 +9121,15 @@ describe("createAgentNativeAgentKitTransport", () => {
           expect.objectContaining({
             id: "run-terminal",
             error: expect.objectContaining({ code: "run_truncated" }),
+          }),
+        );
+      }
+      if (expectedError) {
+        expect(snapshot?.runs).toContainEqual(
+          expect.objectContaining({
+            id: "run-terminal",
+            status: "failed",
+            error: expect.objectContaining(expectedError),
           }),
         );
       }
