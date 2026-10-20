@@ -86,7 +86,7 @@ assert.equal(
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
 const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
-assert.equal(jobTimeout, 55);
+assert.equal(jobTimeout, 70);
 assert.equal(
   workflow.jobs?.e2e?.name,
   "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}",
@@ -122,11 +122,17 @@ assert.equal(
 );
 const shardTimeout = shardStep?.["timeout-minutes"];
 assert.equal(shardTimeout, 37);
+const loopbackStep = steps.find(
+  (step) => step.name === "Run chat attachment and sizing loopback E2E",
+);
+const loopbackTimeout = loopbackStep?.["timeout-minutes"];
+assert.equal(loopbackTimeout, 21);
 assert.ok(
   typeof jobTimeout === "number" &&
     typeof shardTimeout === "number" &&
-    jobTimeout - shardTimeout >= 10,
-  "leave at least 10 minutes for setup and report upload after the shard timeout",
+    typeof loopbackTimeout === "number" &&
+    jobTimeout - shardTimeout - loopbackTimeout >= 10,
+  "leave at least 10 minutes for setup and report upload after the shard and loopback timeouts",
 );
 const retryArtifactIndex = steps.findIndex(
   (step) => step.name === "Detect retried test failures",

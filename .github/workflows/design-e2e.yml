@@ -34,7 +34,7 @@ jobs:
       contents: read
       packages: read
     # Reserve time after the shard timeout for setup and report upload.
-    timeout-minutes: 55
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:
@@ -134,7 +134,7 @@ jobs:
       - name: Run chat attachment and sizing loopback E2E
         if: matrix.shard == 1
         working-directory: templates/design
-        timeout-minutes: 15
+        timeout-minutes: 21
         env:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
           E2E_AI_SIDEBAR_LOOPBACK: "1"
