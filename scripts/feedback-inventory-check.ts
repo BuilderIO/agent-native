@@ -919,6 +919,17 @@ function validateThreadSnapshot(
           ": record the reporter request scope, exact action, and source reply",
       );
     }
+    if (
+      reporterRequest.publicActionSummary !== undefined &&
+      !publicActionSummaryMatchesAction(
+        reporterRequest.action,
+        reporterRequest.publicActionSummary,
+      )
+    ) {
+      throw new Error(
+        label + ": publicActionSummary must be a concise prefix of its action",
+      );
+    }
     const key =
       normalizeScope(reporterRequest.scope) +
       " / " +
@@ -1113,6 +1124,19 @@ function replyNamesHandoffAction(text: string, action: string): boolean {
   const reply = ` ${normalizeReplyPhrase(text)} `;
   const normalizedAction = normalizeReplyPhrase(action);
   return normalizedAction !== "" && reply.includes(` ${normalizedAction} `);
+}
+
+function publicActionSummaryMatchesAction(
+  action: string,
+  publicActionSummary: string,
+): boolean {
+  const normalizedAction = normalizeReplyPhrase(action);
+  const normalizedSummary = normalizeReplyPhrase(publicActionSummary);
+  return (
+    normalizedSummary !== "" &&
+    (normalizedAction === normalizedSummary ||
+      normalizedAction.startsWith(`${normalizedSummary} `))
+  );
 }
 
 function replyNamesHandoffOwner(text: string, handoff: Handoff): boolean {
@@ -1816,6 +1840,11 @@ function validateStatusReactionLanguage(
           summary,
           handoff.publicActionSummary ?? handoff.action,
         ) ||
+        (handoff.publicActionSummary !== undefined &&
+          !publicActionSummaryMatchesAction(
+            handoff.action,
+            handoff.publicActionSummary,
+          )) ||
         (handoff.owner.toLowerCase() !== "unassigned" &&
           !replyNamesHandoffOwner(summary, handoff)),
     ) ||
@@ -1824,7 +1853,12 @@ function validateStatusReactionLanguage(
         !replyNamesHandoffAction(
           summary,
           request.publicActionSummary ?? request.action,
-        ),
+        ) ||
+        (request.publicActionSummary !== undefined &&
+          !publicActionSummaryMatchesAction(
+            request.action,
+            request.publicActionSummary,
+          )),
     )
   ) {
     throw new Error(
@@ -2302,6 +2336,17 @@ function validateHandoffDefinitions(
     ) {
       throw new Error(
         `${parentName}: handoff status must be unassigned, accepted, or completed`,
+      );
+    }
+    if (
+      handoff.publicActionSummary !== undefined &&
+      !publicActionSummaryMatchesAction(
+        handoff.action,
+        handoff.publicActionSummary,
+      )
+    ) {
+      throw new Error(
+        `${parentName}: publicActionSummary must be a concise prefix of the recorded action`,
       );
     }
     if (
@@ -9835,6 +9880,40 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "public action summary cannot misrepresent its action",
+      inventory: withUnownedTicket({
+        latestRelevantHumanReply: {
+          ts: "11.500000",
+          actorId: "UOTHER",
+          text: "I will set up the preview service in the deployment pipeline.",
+        },
+        handoffs: [
+          {
+            scope: "remaining design choice",
+            owner: "Alex Rivera",
+            ownerSlackId: "UOTHER",
+            action: "set up the preview service in the deployment pipeline",
+            publicActionSummary: "review the launch notes",
+            acceptanceReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "UOTHER",
+              text: "I will set up the preview service in the deployment pipeline.",
+            },
+          },
+        ],
+        statusReply: {
+          ts: "12.000000",
+          threadParentTs: "10.000000",
+          actorId: "USWEEPER",
+          disposition: "In progress",
+          evidence: "Alex Rivera will review the launch notes",
+          text: "In progress: Alex Rivera will review the launch notes. this was sent from a bot.",
+          pendingActionSummary: "Alex Rivera will review the launch notes",
+        },
+      }),
+    },
+    {
       name: "active ticket summary must name the recorded owner",
       inventory: withUnownedTicket({
         statusReply: {
@@ -11107,6 +11186,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       "active 🎫 summary must include every pending action and known owner",
     "active ticket summary must name the public action":
       "active 🎫 summary must include every pending action and known owner",
+    "public action summary cannot misrepresent its action":
+      "publicActionSummary must be a concise prefix of the recorded action",
     "active ticket summary must name the recorded owner":
       "active 🎫 summary must include every pending action and known owner",
     "Verified locally scope without a checkmark":
@@ -11306,13 +11387,13 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     validateStatusReactionLanguage(
       "self-test reporter request",
-      "Clarification needed: Please provide the URL so we can review the flow. this was sent from a bot.",
+      "Clarification needed: Please send the link. this was sent from a bot.",
       [],
       [
         {
           scope: "reproduce the reported flow",
           action: "send the link to check the flow",
-          publicActionSummary: "provide the URL so we can review the flow",
+          publicActionSummary: "send the link",
           requestReply: {
             ts: "11.500000",
             threadParentTs: "10.000000",
@@ -11321,8 +11402,42 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
         },
       ],
-      "Please provide the URL so we can review the flow",
+      "Please send the link",
     );
+    let mismatchedReporterSummaryError: unknown;
+    try {
+      validateStatusReactionLanguage(
+        "self-test reporter request",
+        "Clarification needed: Please review the launch notes. this was sent from a bot.",
+        [],
+        [
+          {
+            scope: "reproduce the reported flow",
+            action: "send the link to check the flow",
+            publicActionSummary: "review the launch notes",
+            requestReply: {
+              ts: "11.500000",
+              threadParentTs: "10.000000",
+              actorId: "USWEEPER",
+              text: "Please send the link to check the flow.",
+            },
+          },
+        ],
+        "Please review the launch notes",
+      );
+    } catch (error) {
+      mismatchedReporterSummaryError = error;
+    }
+    if (
+      !(mismatchedReporterSummaryError instanceof Error) ||
+      !mismatchedReporterSummaryError.message.includes(
+        "active 🎫 summary must include every pending action and known owner",
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: reporter public summary did not have to match its recorded action.",
+      );
+    }
     validateTestInventory(
       withHandoffReply(
         "Partially fixed: The first route works. Alex Rivera will choose the remaining behavior. this was sent from a bot.",
