@@ -306,7 +306,7 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "multipart_start_failed",
       statusCode: 503,
-      details: { retryable: true },
+      details: { recordingId: "rec-1", retryable: true },
     });
 
     expect(calls.update).toHaveBeenCalledOnce();
@@ -352,7 +352,7 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "streaming_upload_unavailable",
       statusCode: 503,
-      details: { retryable: false },
+      details: { recordingId: "rec-1", retryable: false },
       message:
         "The current storage setup cannot start the resumable upload required by this recorder.",
     });

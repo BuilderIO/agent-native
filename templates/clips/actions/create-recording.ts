@@ -326,7 +326,7 @@ export default defineAction({
         updatedAt: failedAt,
       });
       if (failure.failureCode === "storage_setup_required") {
-        failStorageSetupRequired();
+        failStorageSetupRequired({ recordingId: id, retryable: false });
       }
       const retryable =
         failure.failureCode === "hosted_storage_unavailable" ||
@@ -340,7 +340,7 @@ export default defineAction({
         {
           errorCode: failure.failureCode,
           statusCode: 503,
-          details: { retryable },
+          details: { recordingId: id, retryable },
         },
       );
     };

@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -106,6 +110,23 @@ export default defineAction({
     }
 
     const { intakeId, intakeToken, bugReport, ...recordingArgs } = args;
+    const trashRecordingRow = async (recordingId: string) =>
+      await runWithRequestContext(
+        {
+          userEmail: claimed.ownerEmail,
+          orgId: claimed.organizationId,
+        },
+        () =>
+          trashRecording.run(
+            { id: recordingId, skipIfReady: true },
+            {
+              caller: "http",
+              userEmail: claimed.ownerEmail,
+              orgId: claimed.organizationId,
+            },
+          ),
+      );
+
     let created: Awaited<ReturnType<typeof createRecording.run>>;
     try {
       created = await runWithRequestContext(
@@ -128,6 +149,36 @@ export default defineAction({
           ),
       );
     } catch (error) {
+      if (isActionContractError(error)) {
+        const details = { ...error.details };
+        const recordingId = details.recordingId;
+        delete details.recordingId;
+        if (
+          error.details?.retryable === true &&
+          typeof recordingId !== "string"
+        ) {
+          // The intake row can't be safely retried if its failed recording
+          // could not be identified for cleanup.
+          details.retryable = false;
+        }
+        if (typeof recordingId === "string") {
+          try {
+            await trashRecordingRow(recordingId);
+          } catch (cleanupError) {
+            console.warn(
+              "[clip-intake] failed recording cleanup after create failure:",
+              cleanupError,
+            );
+            details.retryable = false;
+          }
+        }
+        await releaseClipIntakeCreation(intakeId);
+        fail(error.message, {
+          errorCode: error.errorCode,
+          statusCode: error.statusCode,
+          ...(Object.keys(details).length > 0 ? { details } : {}),
+        });
+      }
       await releaseClipIntakeCreation(intakeId);
       throw error;
     }
@@ -136,23 +187,7 @@ export default defineAction({
       await abandonClipIntake(intakeId).catch((cleanupError: unknown) => {
         console.warn("[clip-intake] session cleanup failed:", cleanupError);
       });
-      await Promise.resolve(
-        runWithRequestContext(
-          {
-            userEmail: claimed.ownerEmail,
-            orgId: claimed.organizationId,
-          },
-          () =>
-            trashRecording.run(
-              { id: created.id, skipIfReady: true },
-              {
-                caller: "http",
-                userEmail: claimed.ownerEmail,
-                orgId: claimed.organizationId,
-              },
-            ),
-        ),
-      ).catch((cleanupError: unknown) => {
+      await trashRecordingRow(created.id).catch((cleanupError: unknown) => {
         console.warn("[clip-intake] recording cleanup failed:", cleanupError);
       });
     };

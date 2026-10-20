@@ -4,37 +4,33 @@ import { shouldRetryIntakeCreateResponse } from "./clip-intake-create-retry";
 
 describe("shouldRetryIntakeCreateResponse", () => {
   it.each([
-    ["streaming_upload_unavailable", 503],
-    ["storage_setup_required", 503],
-    ["intake_unavailable", 409],
-    ["recording_owner_mismatch", 409],
-    ["intake_context_unavailable", 503],
-    ["hosted_storage_unavailable", 503],
-    ["multipart_start_failed", 503],
+    ["streaming_upload_unavailable", 503, false],
+    ["storage_setup_required", 503, false],
+    ["intake_unavailable", 409, undefined],
+    ["recording_owner_mismatch", 409, undefined],
+    ["intake_context_unavailable", 503, undefined],
+    ["hosted_storage_unavailable", 503, true],
+    ["multipart_start_failed", 503, true],
   ] as const)(
-    "does not retry structured intake error %s",
-    async (errorCode, status) => {
+    "uses structured retryability for intake error %s",
+    async (errorCode, status, retryable) => {
       const response = Response.json(
         {
           errorCode,
           error: "Storage is unavailable.",
-          details: {
-            retryable:
-              errorCode === "hosted_storage_unavailable" ||
-              errorCode === "multipart_start_failed",
-          },
+          ...(retryable !== undefined ? { details: { retryable } } : {}),
         },
         { status },
       );
 
       await expect(shouldRetryIntakeCreateResponse(response)).resolves.toBe(
-        false,
+        retryable === true,
       );
       await expect(response.json()).resolves.toMatchObject({ errorCode });
     },
   );
 
-  it("does not retry other responses explicitly marked permanent", async () => {
+  it("does not retry other structured responses explicitly marked permanent", async () => {
     await expect(
       shouldRetryIntakeCreateResponse(
         Response.json(
@@ -48,7 +44,7 @@ describe("shouldRetryIntakeCreateResponse", () => {
     ).resolves.toBe(false);
   });
 
-  it("does not auto-retry a transient typed failure after a row may exist", async () => {
+  it("retries a typed transient failure after the server marks cleanup safe", async () => {
     await expect(
       shouldRetryIntakeCreateResponse(
         Response.json(
@@ -59,7 +55,7 @@ describe("shouldRetryIntakeCreateResponse", () => {
           { status: 503 },
         ),
       ),
-    ).resolves.toBe(false);
+    ).resolves.toBe(true);
   });
 
   it("keeps the status fallback for untyped retryable responses", async () => {
@@ -76,12 +72,20 @@ describe("shouldRetryIntakeCreateResponse", () => {
     ).resolves.toBe(false);
   });
 
-  it("retries non-JSON 503 gateway responses by status", async () => {
+  it("retries non-JSON and malformed 503 gateway responses by status", async () => {
     await expect(
       shouldRetryIntakeCreateResponse(
         new Response("unavailable", {
           status: 503,
           headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      shouldRetryIntakeCreateResponse(
+        new Response("{invalid", {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
         }),
       ),
     ).resolves.toBe(true);
