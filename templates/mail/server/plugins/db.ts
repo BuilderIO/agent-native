@@ -471,6 +471,12 @@ ALTER TABLE mail_gmail_quota_budgets
 CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
       ON mail_gmail_token_accounts(expires_at);`,
     },
+    {
+      version: 39,
+      name: "mail-inbox-full-sync-listed-count",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_listed_count INTEGER NOT NULL DEFAULT 0;`,
+    },
   ],
   { table: "mail_migrations" },
 );

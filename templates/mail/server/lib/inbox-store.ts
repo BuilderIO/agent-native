@@ -66,6 +66,7 @@ export type SyncAccountRow = {
   fullSyncReconcilePageToken: string | null;
   fullSyncReconcilePendingIds: string[] | null;
   fullSyncReconcilePasses: number;
+  fullSyncListedCount: number;
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -148,6 +149,7 @@ function toSyncAccountRow(
       ? parseJsonArray<string>(row.fullSyncReconcilePendingIdsJson, [])
       : null,
     fullSyncReconcilePasses: row.fullSyncReconcilePasses,
+    fullSyncListedCount: row.fullSyncListedCount,
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
@@ -773,6 +775,90 @@ export async function markThreadsOutOfInboxBeforeSync(
     );
 }
 
+// Cap on in-inbox threads per owner+account, newest by latest_date. A full or
+// reconcile listing stops at this count, and the trim deletes in-inbox rows past
+// it. Archived rows never count against it.
+export const INBOX_THREAD_CAP = 2_000;
+
+// How long an archived (in_inbox = 0) row may stay after its last write or
+// local mutation. Local-mutation fences only hold until a sync confirms the
+// change, and Gmail is the source of truth after this window.
+export const ARCHIVED_THREAD_GRACE_MS = 10 * 60_000;
+
+// Deletes archived rows whose last write and local mutation are both older
+// than the grace window. Returns the number deleted.
+export async function purgeArchivedInboxThreadRows(
+  ownerEmail: string,
+  accountEmail: string,
+  now: number = Date.now(),
+  db: any = getDb(),
+): Promise<number> {
+  const cutoff = now - ARCHIVED_THREAD_GRACE_MS;
+  const deleted = await db
+    .delete(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 0),
+        lt(schema.mailInboxThreads.updatedAt, cutoff),
+        or(
+          isNull(schema.mailInboxThreads.localMutationAt),
+          lt(schema.mailInboxThreads.localMutationAt, cutoff),
+        ),
+      ),
+    )
+    .returning({ id: schema.mailInboxThreads.id });
+  return deleted.length;
+}
+
+// Keeps the INBOX_THREAD_CAP newest in-inbox rows for one owner+account and
+// returns how many were deleted. The boundary row is found with an
+// index-friendly OFFSET, then in-inbox rows strictly older than it under
+// (latest_date, id) are deleted.
+export async function trimInboxThreadRows(
+  ownerEmail: string,
+  accountEmail: string,
+  keep: number = INBOX_THREAD_CAP,
+  db: any = getDb(),
+): Promise<number> {
+  const scope = and(
+    eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+    eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+    eq(schema.mailInboxThreads.inInbox, 1),
+  );
+  const [boundary] = await db
+    .select({
+      latestDate: schema.mailInboxThreads.latestDate,
+      id: schema.mailInboxThreads.id,
+    })
+    .from(schema.mailInboxThreads)
+    .where(scope)
+    .orderBy(
+      desc(schema.mailInboxThreads.latestDate),
+      desc(schema.mailInboxThreads.id),
+    )
+    .limit(1)
+    .offset(keep - 1);
+  if (!boundary) return 0;
+  const deleted = await db
+    .delete(schema.mailInboxThreads)
+    .where(
+      and(
+        scope,
+        or(
+          lt(schema.mailInboxThreads.latestDate, boundary.latestDate),
+          and(
+            eq(schema.mailInboxThreads.latestDate, boundary.latestDate),
+            lt(schema.mailInboxThreads.id, boundary.id),
+          ),
+        ),
+      ),
+    )
+    .returning({ id: schema.mailInboxThreads.id });
+  return deleted.length;
+}
+
 export async function ensureSyncAccountRow(
   ownerEmail: string,
   accountEmail: string,
@@ -1167,6 +1253,7 @@ export type SyncAccountPatch = Partial<{
   fullSyncReconcilePageToken: string | null;
   fullSyncReconcilePendingIds: string[] | null;
   fullSyncReconcilePasses: number;
+  fullSyncListedCount: number;
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -1265,6 +1352,7 @@ export async function resetSyncAccountProgress(
       fullSyncReconcilePageToken: null,
       fullSyncReconcilePendingIds: null,
       fullSyncReconcilePasses: 0,
+      fullSyncListedCount: 0,
       status: "idle",
       lastError: null,
       syncClaimId: null,

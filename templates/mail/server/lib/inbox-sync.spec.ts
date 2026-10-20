@@ -44,6 +44,8 @@ const mocks = vi.hoisted(() => {
     markThreadsOutOfInboxBeforeSync: vi.fn(),
     countInboxThreads: vi.fn(),
     readInboxThreadIds: vi.fn(),
+    trimInboxThreadRows: vi.fn(),
+    purgeArchivedInboxThreadRows: vi.fn(),
     readSyncAccounts: vi.fn(),
     readInboxThreads: vi.fn(),
     readCachedLabels: vi.fn(),
@@ -111,6 +113,9 @@ vi.mock("./inbox-store.js", () => ({
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   countInboxThreads: mocks.countInboxThreads,
   readInboxThreadIds: mocks.readInboxThreadIds,
+  INBOX_THREAD_CAP: 2_000,
+  trimInboxThreadRows: mocks.trimInboxThreadRows,
+  purgeArchivedInboxThreadRows: mocks.purgeArchivedInboxThreadRows,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxThreads: mocks.readInboxThreads,
   readCachedLabels: mocks.readCachedLabels,
@@ -165,6 +170,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     fullSyncReconcilePageToken: null,
     fullSyncReconcilePendingIds: null,
     fullSyncReconcilePasses: 0,
+    fullSyncListedCount: 0,
     status: "syncing",
     lastError: null,
     lastSyncedAt: null,
@@ -211,6 +217,9 @@ function thread(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Once-queues from an earlier test must not leak into this one.
+  mocks.gmailListHistory.mockReset();
+  mocks.gmailBatchGetThreads.mockReset();
   fakeRows = [];
   currentRow = baseRow();
   mocks.listOAuthAccountsByOwner.mockResolvedValue([
@@ -288,6 +297,8 @@ beforeEach(() => {
     async (_owner, _account, _claimId, write) => write({}),
   );
   mocks.countInboxThreads.mockImplementation(async () => fakeRows.length);
+  mocks.trimInboxThreadRows.mockResolvedValue(0);
+  mocks.purgeArchivedInboxThreadRows.mockResolvedValue(0);
   mocks.readInboxThreadIds.mockImplementation(
     async (_owner, _account, threadIds: string[]) =>
       new Set(
@@ -300,6 +311,22 @@ beforeEach(() => {
 
 let currentRow: any;
 let fakeRows: any[] = [];
+
+// A sync step runs two history streams: the inbox stream (labelId INBOX) and
+// the archive stream (label removals only). Tests script the inbox stream
+// with these pages in order; the archive stream gets an empty page.
+function routeHistory(...inboxPages: unknown[]) {
+  let index = 0;
+  mocks.gmailListHistory.mockImplementation(
+    async (_token: string, params: { labelId?: string }) => {
+      if (params.labelId !== "INBOX") return { history: [] };
+      const page = inboxPages[Math.min(index, inboxPages.length - 1)];
+      index += 1;
+      if (page instanceof Error) throw page;
+      return page;
+    },
+  );
+}
 
 describe("syncInboxAccount — full sync", () => {
   it("returns quota cooldown as an initial status with its exact retry delay", async () => {
@@ -348,7 +375,7 @@ describe("syncInboxAccount — full sync", () => {
       ACCOUNT,
       { forceRefresh: true },
     );
-    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(4);
     expect(result.state).not.toBe("needs_reauth");
     expect(result.state).not.toBe("error");
     expect(currentRow.status).not.toBe("needs_reauth");
@@ -407,7 +434,7 @@ describe("syncInboxAccount — full sync", () => {
       ACCOUNT,
       { forceRefresh: true },
     );
-    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(4);
 
     // Polling again does not claim the account or reach Gmail.
     mocks.claimSyncAccount.mockClear();
@@ -420,13 +447,13 @@ describe("syncInboxAccount — full sync", () => {
     });
     expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
     expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
-    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(4);
 
     const viaSync = await syncInbox(OWNER);
     expect(viaSync.accounts).toEqual([
       expect.objectContaining({ accountEmail: ACCOUNT, state: "needs_reauth" }),
     ]);
-    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(4);
   });
 
   it("walks 2 pages, exhausting the budget after page 1, then resumes on the next call", async () => {
@@ -936,8 +963,8 @@ describe("syncInboxAccount — incremental sync", () => {
       fullSyncHistoryId: "9000",
       fullSyncStartedAt: 123,
     });
-    mocks.gmailListHistory
-      .mockResolvedValueOnce({
+    routeHistory(
+      {
         history: [
           {
             id: "1001",
@@ -946,8 +973,8 @@ describe("syncInboxAccount — incremental sync", () => {
         ],
         nextPageToken: "history-page-2",
         historyId: "1002",
-      })
-      .mockResolvedValueOnce({
+      },
+      {
         history: [
           {
             id: "1003",
@@ -956,7 +983,8 @@ describe("syncInboxAccount — incremental sync", () => {
         ],
         nextPageToken: "history-page-3",
         historyId: "1004",
-      });
+      },
+    );
     mocks.gmailListThreads
       .mockResolvedValueOnce({
         threads: [{ id: "old-1" }],
@@ -1133,8 +1161,8 @@ describe("syncInboxAccount — incremental sync", () => {
 
   it("advances one history page per bounded call and adopts the mailbox historyId once caught up", async () => {
     currentRow = baseRow({ historyId: "1000" });
-    mocks.gmailListHistory
-      .mockResolvedValueOnce({
+    routeHistory(
+      {
         history: [
           {
             id: "1001",
@@ -1143,8 +1171,8 @@ describe("syncInboxAccount — incremental sync", () => {
         ],
         nextPageToken: "p2",
         historyId: "1010",
-      })
-      .mockResolvedValueOnce({
+      },
+      {
         history: [
           {
             id: "1007",
@@ -1152,7 +1180,8 @@ describe("syncInboxAccount — incremental sync", () => {
           },
         ],
         historyId: "1010",
-      });
+      },
+    );
     mocks.gmailBatchGetThreads
       .mockResolvedValueOnce([
         {
@@ -1169,16 +1198,16 @@ describe("syncInboxAccount — incremental sync", () => {
 
     const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
     expect(first.state).toBe("initial");
-    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
     expect(currentRow.historyId).toBe("1001");
 
     const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
     expect(second.state).toBe("ready");
-    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(4);
     expect(mocks.gmailListHistory.mock.calls[0][1]).toEqual(
       expect.objectContaining({ startHistoryId: "1000", maxResults: 50 }),
     );
-    expect(mocks.gmailListHistory.mock.calls[1][1]).toEqual(
+    expect(mocks.gmailListHistory.mock.calls[2][1]).toEqual(
       expect.objectContaining({ startHistoryId: "1001", maxResults: 50 }),
     );
     const watermarks = mocks.patchSyncAccount.mock.calls
@@ -1260,8 +1289,8 @@ describe("syncInboxAccount — incremental sync", () => {
 
   it("keeps a committed page when the next bounded history step fails", async () => {
     currentRow = baseRow({ historyId: "1000" });
-    mocks.gmailListHistory
-      .mockResolvedValueOnce({
+    routeHistory(
+      {
         history: [
           {
             id: "1001",
@@ -1270,8 +1299,9 @@ describe("syncInboxAccount — incremental sync", () => {
         ],
         historyId: "1005",
         nextPageToken: "page-2",
-      })
-      .mockRejectedValueOnce(new Error("history timeout"));
+      },
+      new Error("history timeout"),
+    );
     mocks.gmailBatchGetThreads.mockResolvedValueOnce([
       {
         id: "t1",
@@ -1290,6 +1320,148 @@ describe("syncInboxAccount — incremental sync", () => {
       ACCOUNT,
     );
     expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(OWNER);
+  });
+});
+
+describe("syncInboxAccount — inbox cap and archived rows", () => {
+  it("stops the full walk at the cap, skips reconcile, and trims in-inbox overflow", async () => {
+    currentRow = baseRow({
+      historyId: null,
+      fullSyncHistoryId: "9000",
+      fullSyncStartedAt: Date.now() - 1_000,
+      fullSyncPageToken: "1990",
+      fullSyncListedCount: 1_990,
+      labels: null,
+      labelsUpdatedAt: null,
+    });
+    mocks.gmailListThreads.mockResolvedValue({
+      threads: Array.from({ length: 10 }, (_, index) => ({
+        id: `t${index}`,
+      })),
+      nextPageToken: "2000",
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValue([]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.gmailListThreads).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ maxResults: 10, pageToken: "1990" }),
+      "interactive",
+    );
+    expect(mocks.gmailListLabels).not.toHaveBeenCalled();
+    expect(result.state).toBe("ready");
+    expect(mocks.trimInboxThreadRows).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      2_000,
+      expect.anything(),
+    );
+    expect(mocks.patchSyncAccount).toHaveBeenLastCalledWith(
+      OWNER,
+      ACCOUNT,
+      expect.objectContaining({
+        fullSyncPageToken: null,
+        fullSyncPhase: null,
+        fullSyncListedCount: 0,
+      }),
+      { claimId: "claim-1" },
+    );
+    const patches = mocks.patchSyncAccount.mock.calls.map(
+      ([, , patch]) => patch,
+    );
+    expect(patches.some((patch) => patch.fullSyncPhase === "reconcile")).toBe(
+      false,
+    );
+  });
+
+  it("deletes an archived thread from its INBOX removal without fetching it", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockImplementation(
+      async (_token: string, params: { labelId?: string }) =>
+        params.labelId === "INBOX"
+          ? { history: [], historyId: "1001" }
+          : {
+              history: [
+                {
+                  id: "1001",
+                  labelsRemoved: [
+                    {
+                      labelIds: ["INBOX"],
+                      message: { id: "t9-m1", threadId: "t9" },
+                    },
+                  ],
+                },
+              ],
+              historyId: "1001",
+            },
+    );
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("ready");
+    expect(mocks.gmailBatchGetThreads).not.toHaveBeenCalled();
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "t9",
+      expect.any(Number),
+      {},
+    );
+    const [inboxCall, archiveCall] = mocks.gmailListHistory.mock.calls.map(
+      (call) => call[1],
+    );
+    expect(inboxCall).toMatchObject({ labelId: "INBOX" });
+    expect(inboxCall.historyTypes).toEqual(
+      expect.arrayContaining(["messageAdded", "labelAdded"]),
+    );
+    expect(archiveCall.labelId).toBeUndefined();
+    expect(archiveCall.historyTypes).toEqual(["labelRemoved"]);
+  });
+
+  it("purges expired archived rows and trims only when history changed", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1001",
+    });
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.purgeArchivedInboxThreadRows).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      expect.any(Number),
+      {},
+    );
+    expect(mocks.trimInboxThreadRows).not.toHaveBeenCalled();
+  });
+
+  it("trims in-inbox overflow after history adds threads", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [
+        {
+          messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+        },
+      ],
+      historyId: "1001",
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.trimInboxThreadRows).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      2_000,
+      {},
+    );
   });
 });
 

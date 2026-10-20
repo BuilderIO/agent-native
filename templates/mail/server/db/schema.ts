@@ -172,6 +172,7 @@ export const mailSyncAccounts = table(
     fullSyncReconcilePasses: integer("full_sync_reconcile_passes")
       .notNull()
       .default(0),
+    fullSyncListedCount: integer("full_sync_listed_count").notNull().default(0),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })
