@@ -158,3 +158,47 @@ describe("thread cache privacy", () => {
     expect(threadCache.getCachedThread("shared-thread")).toBeUndefined();
   });
 });
+
+describe("thread prefetch during a cooldown", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    for (const key of THREAD_CACHE_GLOBALS) {
+      delete (globalThis as unknown as Record<string, unknown>)[key];
+    }
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("holds back speculative warms during a rate-limit cooldown but still opens a thread", async () => {
+    const threadCache = await import("./thread-cache");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: async () => ({ error: "Rate limited" }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => [{ id: "opened-message", body: "body" }],
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      threadCache.ensureThread("rate-limited-thread", "a@example.test"),
+    ).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    threadCache.warmThreads([
+      { id: "hovered-thread", accountEmail: "a@example.test" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await threadCache.ensureThread("opened-thread", "a@example.test");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});

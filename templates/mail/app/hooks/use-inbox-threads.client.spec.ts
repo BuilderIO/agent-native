@@ -526,6 +526,48 @@ describe("useInboxThreads tab previews", () => {
   });
 });
 
+describe("pending-push wake-up for unhealthy accounts", () => {
+  it("does not wake the poller for an errored account with a pending push", async () => {
+    callActionWithRetry.mockResolvedValue({
+      ...response(),
+      accounts: [
+        {
+          ...steadyAccount,
+          state: "error",
+          error: "Gmail is unavailable",
+          pushPending: true,
+          pushWatch: "active",
+        },
+      ],
+    });
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mutateSyncAction).toHaveBeenCalledTimes(1);
+
+    syncHook.unmount();
+    listHook.unmount();
+    queryClient.clear();
+  });
+});
+
 describe("pending-push wake-up while a sync is in flight", () => {
   it("does not cancel a refresh sync that is in flight when a pending push arrives", async () => {
     // The first sync establishes query data. React Query cancels an in-flight

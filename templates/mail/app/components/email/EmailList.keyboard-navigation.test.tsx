@@ -236,7 +236,7 @@ vi.mock("@/lib/thread-cache", () => ({
   warmThreads: vi.fn(),
 }));
 
-import { warmThreads } from "@/lib/thread-cache";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
 
 import { EmailList, rememberPriorityScore } from "./EmailList";
 
@@ -1470,6 +1470,32 @@ describe("EmailList keyboard navigation interactions", () => {
           typeof target === "string" ? target : target.id,
         ),
     ).toEqual(["thread-row-4", "thread-row-5", "thread-row-6"]);
+  });
+
+  it("prefetches on hover through the cooldown-gated path and opens on click directly", () => {
+    vi.useFakeTimers();
+    render(<Harness />);
+    vi.mocked(warmThreads).mockClear();
+    vi.mocked(ensureThread).mockClear();
+
+    const row = rows()[1];
+    const hoveredKey = row.getAttribute("data-thread-key");
+    fireEvent.mouseEnter(row);
+    act(() => {
+      vi.advanceTimersByTime(80);
+    });
+    const warmedIds = vi
+      .mocked(warmThreads)
+      .mock.calls.flatMap(([targets]) =>
+        targets.map((target) =>
+          typeof target === "string" ? target : target.id,
+        ),
+      );
+    expect(warmedIds).toContain(hoveredKey);
+    expect(ensureThread).not.toHaveBeenCalled();
+
+    fireEvent.click(row);
+    expect(ensureThread).toHaveBeenCalledTimes(1);
   });
 
   it("offers All Mail at the offset cap and nothing while pages remain", () => {

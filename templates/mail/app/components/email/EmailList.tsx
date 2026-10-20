@@ -1158,12 +1158,14 @@ export function EmailList({
     selectThreads((thread) => !thread.hasStarred);
   }, [selectThreads]);
 
+  // Hover is speculative, so it goes through warmThreads: that path skips work
+  // during a rate-limit or auth cooldown. Opening a thread stays on ensureThread.
   const prefetchThread = useCallback((thread: ThreadSummary) => {
     const email = thread.latestMessage;
     if (email.isDraft) return;
-    void ensureThread(email.threadId || email.id, email.accountEmail).catch(
-      () => {},
-    );
+    warmThreads([
+      { id: email.threadId || email.id, accountEmail: email.accountEmail },
+    ]);
   }, []);
 
   const moveFocus = useCallback(

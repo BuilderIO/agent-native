@@ -318,12 +318,16 @@ function fetchInboxThreads(
   ).then((data) => {
     const incoming = { ...data, clientSnapshotId };
     // The list read reports a Gmail push that has not been synced yet. Sync
-    // now rather than waiting for the steady poll window.
+    // now rather than waiting for the steady poll window. An account in error
+    // or needing reauth is left to the poller's own retry schedule, so a
+    // pending push cannot bypass that backoff on every list refresh.
     if (
       incoming.accounts.some(
         (account) =>
           (account as InboxSyncAccountStatus & { pushPending?: boolean })
-            .pushPending,
+            .pushPending &&
+          account.state !== "error" &&
+          account.state !== "needs_reauth",
       )
     ) {
       // An in-flight sync is already working on the account and its result is
