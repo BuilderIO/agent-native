@@ -1,0 +1,88 @@
+---
+title: "Chat: Talk to the Agent"
+description: "What the agent knows about where you are in Chat, and prompts organized by task."
+---
+
+# Talk to the Agent
+
+In Chat, the conversation is the main way you use the app. The agent can run the app's actions, look things up, remember what you tell it, and take you to other pages. This page covers what the agent knows about your screen, useful prompts by task, and where it goes beyond the built-in actions. See [Chat](/docs/template-chat) for the overview.
+
+## How the agent sees your screen
+
+The agent always knows which page you're on and which conversation is open. That's why "take me back to Home" or "what page am I on?" works without any explanation. The app tells the agent about every page change as it happens, so the agent never has to guess.
+
+Chat has no business data to point at, such as a selected event or an open document. Everything else the agent knows comes from what you say in the conversation.
+
+## Useful prompts by task
+
+Every prompt below runs against the real app. Here's one worked example:
+
+<Comparison>
+
+### :blue: You ask
+
+"Call the hello action for Alex."
+
+### :green: What happens
+
+The agent runs the example **hello** action with the name Alex. The action
+returns "Hello, Alex!" and the agent shows it in the chat. Nothing else in the
+app changes.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Learn what the app can do
+
+- **"What can this app do?"** The agent lists the actions it has and what each
+  one does.
+- **"Show me the available actions."** Same idea, as a plain list of names.
+- **"Help me get started."** The agent suggests a first thing to try.
+
+### Get around
+
+- **"Take me to Settings."** The app opens the page for you.
+- **"Open the Database page."** The agent opens `/database`, which isn't linked
+  from the sidebar.
+- **"Go back to Home."** The Get started page opens.
+
+### Teach the agent
+
+- **"Remember that I prefer short answers."** The agent saves it to its
+  memory, and uses it in later chats.
+- **"From now on, always explain your reasoning before answering."** The agent
+  can save this as a standing instruction.
+- **"What do you remember about me?"** The agent reads its memory back to you.
+
+### Look at your data
+
+- **"What tables are in this app's database?"** The agent reads the database
+  structure and lists the tables.
+- **"How many chats do I have?"** The agent runs a read-only question against
+  the database and answers in the chat.
+
+### Learn the framework
+
+- **"How do I add a new action to this app?"** The agent searches the Agent-Native
+  docs and explains the steps.
+- **"What's the difference between an action and a skill?"** Same, answered
+  from the docs.
+
+</Cards>
+
+<Callout tone="info">
+
+The agent reads the database but doesn't change it directly. To save new
+information, it uses an action. That keeps every change on the same path the
+app's own screens use. A developer can change this in the app's setup.
+
+</Callout>
+
+## What's next
+
+- [**Chat**](/docs/template-chat) — the overview
+- [**Features**](/docs/template-chat-features) — conversations, the example action, teams, and admin pages
+- [**Chat in a Multi-App Workspace**](/docs/template-chat-integrations) — connecting Chat to Dispatch and other apps
+- [**Developer Guide**](/docs/template-chat-developers) — quick start, actions, the chat route, and adding your first feature
+- [**Context Awareness**](/docs/context-awareness) — how the agent knows what's on your screen

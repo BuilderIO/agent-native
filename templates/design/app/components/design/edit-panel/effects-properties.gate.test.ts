@@ -1,5 +1,9 @@
+import { NATIVE_EFFECT_LATEST_DEFINITIONS } from "@shared/native-effect-presets";
+import { writeEffectsToHtml } from "@shared/native-effects";
 import { listShaderMounts } from "@shared/shader-fills";
 import { describe, expect, it } from "vitest";
+
+import { hasSelectedNativeEffects } from "../inspector/NativeShaderPanel";
 
 function hasShaderEffect(html: string, nodeId: string | undefined): boolean {
   const mounts = listShaderMounts(html);
@@ -47,6 +51,35 @@ const SHADER_FILL_ONLY_HTML = `<!DOCTYPE html>
 </body></html>`;
 
 describe("Effects gate — shader presence (B5-13)", () => {
+  it("keeps a disabled native backdrop discoverable on its selected node", () => {
+    const definition = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+      (candidate) => candidate.id === "an-native-frosted-refraction",
+    );
+    expect(definition).toBeDefined();
+    const html = writeEffectsToHtml(PLAIN_SCREEN_HTML, {
+      schemaVersion: 2,
+      definitions: [definition!],
+      instances: [
+        {
+          id: "frost-on-card",
+          nodeId: "card-1",
+          definitionId: definition!.id,
+          definitionVersion: definition!.version,
+          placement: "backdrop",
+          params: {},
+          enabled: false,
+          opacity: 1,
+          seed: 0,
+          clip: "bounds",
+          blend: "normal",
+          timing: { speed: 1, paused: true, time: 0 },
+        },
+      ],
+    });
+    expect(hasSelectedNativeEffects(html, "card-1")).toBe(true);
+    expect(hasSelectedNativeEffects(html, "card-2")).toBe(false);
+  });
+
   it("a selected plain element (nodeId set, no shader anywhere) does NOT count as effects content", () => {
     expect(hasShaderEffect(PLAIN_SCREEN_HTML, "card-1")).toBe(false);
     expect(

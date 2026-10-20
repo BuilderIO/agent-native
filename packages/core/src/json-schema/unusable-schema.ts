@@ -1,3 +1,4 @@
+import { redactEmbedText } from "../mcp/embed-redaction.js";
 import {
   isJsonSchemaObject,
   setOwnProperty,
@@ -156,9 +157,7 @@ export function plainJsonSnapshot(value: unknown): unknown {
     } catch (error) {
       if (error instanceof UnusableSchemaError) throw error;
       // A proxy's trap can throw where a plain object's read cannot.
-      return refuse(
-        `could not be read: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      return refuse(`could not be read: ${thrownReason(error)}`);
     }
   };
   const copyOfObject = (value: object): unknown[] | JsonSchema => {
@@ -234,25 +233,59 @@ export function derivedTool<T extends object>(from: object, to: T): T {
 /**
  * `convert(entry.tool.parameters)`, with any `$schema` recorded against the
  * tool put back, or the `UnusableSchemaError` that leaves the action out of
- * the MCP and in-app tool lists: the one recorded, or one `convert` throws.
+ * the MCP and in-app tool lists: the one recorded, or `unusableVerdict` on
+ * what reading or converting the parameters throws. It never throws: that
+ * can be the action's, and would otherwise fail the whole request as its
+ * error.
  */
 export function usableInputSchema<T>(
   entry: { tool: { parameters?: unknown } },
   convert: (parameters: any) => T,
 ): T | UnusableSchemaError {
-  const recorded = unusableInputSchemas().get(entry.tool);
-  // Rebuilt, so `instanceof` holds across copies of this module.
-  if (recorded && "reason" in recorded) {
-    return new UnusableSchemaError(recorded.path, recorded.reason);
-  }
   try {
+    const recorded = unusableInputSchemas().get(entry.tool);
+    // Rebuilt, so `instanceof` holds across copies of this module.
+    if (recorded && "reason" in recorded) {
+      return new UnusableSchemaError(recorded.path, recorded.reason);
+    }
     return convert(
       recorded
         ? { ...(entry.tool.parameters as object), $schema: recorded.dialect }
         : entry.tool.parameters,
     );
   } catch (error) {
-    if (error instanceof UnusableSchemaError) return error;
-    throw error;
+    return unusableVerdict(error);
+  }
+}
+
+/**
+ * The verdict on a schema whose conversion threw `error`: an
+ * `UnusableSchemaError`'s path and reason, rebuilt, or the thrown value's
+ * message. The error can be a schema emitter's or a proxy trap's, so it is
+ * tested and read without letting either throw.
+ */
+export function unusableVerdict(error: unknown): UnusableSchemaError {
+  try {
+    if (error instanceof UnusableSchemaError) {
+      return new UnusableSchemaError(error.path, error.reason);
+    }
+  } catch {
+    // coercion-ok: an error that cannot be tested or read is described below.
+  }
+  return new UnusableSchemaError(
+    "",
+    `could not be converted: ${thrownReason(error)}`,
+  );
+}
+
+// The thrower's data, hidden whole as `redactEmbedText` hides text, or fixed
+// text when reading it throws too.
+function thrownReason(error: unknown): string {
+  try {
+    return redactEmbedText(
+      String(error instanceof Error ? error.message : error),
+    );
+  } catch {
+    return "its error could not be read";
   }
 }

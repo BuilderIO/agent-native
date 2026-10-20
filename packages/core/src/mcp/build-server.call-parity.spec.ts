@@ -1,11 +1,16 @@
+import { format } from "node:util";
+
 import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-import { ActionContractError, defineAction } from "../action.js";
+import { ActionContractError, defineAction, fail } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { mcpToolsToActionEntries } from "../mcp-client/index.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 // Pins the exact wire output of direct `tools/call` and the ordered side
@@ -187,9 +192,13 @@ function act(options: Record<string, any>) {
         }
       : {}),
   });
-  return options.toolMeta
-    ? { ...defined, tool: { ...defined.tool, _meta: options.toolMeta } }
+  // A contract set by hand, as an action without an `outputSchema` may.
+  const entry = options.mcpOutputContract
+    ? { ...defined, mcpOutputContract: options.mcpOutputContract }
     : defined;
+  return options.toolMeta
+    ? { ...entry, tool: { ...entry.tool, _meta: options.toolMeta } }
+    : entry;
 }
 
 const cyclic: Record<string, unknown> = { id: "loop-1" };
@@ -1040,5 +1049,1820 @@ describe("direct tools/call wire output", () => {
       wire.push({ status: response.status, body: await response.text() });
     }
     expect(snapshot(wire)).toMatchSnapshot();
+  });
+});
+
+// Each leak is an embed start URL whose own path is not the embed route, so a
+// test that reads only a URL's path lets it and its ticket through.
+describe("direct tools/call embed credential redaction", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    trace.length = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+  });
+
+  // An embed start URL inside another URL, where its own path is never the
+  // embed route.
+  const nestedEmbedStarts = [
+    `https://redirect.example/?next=${EMBED_START}`,
+    `https://redirect.example/?next=${encodeURIComponent(EMBED_START)}`,
+    `https://redirect.example/?next=${encodeURIComponent(encodeURIComponent(EMBED_START))}`,
+    `https://redirect.example/#next=${EMBED_START}`,
+    JSON.stringify({ next: EMBED_START }).replaceAll("/", "\\/"),
+  ];
+  let nested = "";
+  // A nested URL that is not https:// is dropped as an invalid image first.
+  const imageNote = (leak: string, name: string) =>
+    leak.startsWith("https://")
+      ? "[image #1 dropped: it carried an embed credential]"
+      : `[image ${name} dropped: url must be a public https:// URL]`;
+  const ordinary = {
+    source: "embed",
+    start: "2026-10-01",
+    next: `https://redirect.example/?next=${encodeURIComponent(`${ORIGIN}/inbox`)}`,
+    support: {
+      ticket: "SUP-12",
+      url: "https://support.example/_agent-native/embed?step=1#started-guide",
+      note: "Embedded charts &amp; start-up tips",
+    },
+  };
+  const leakActions = {
+    "leak-in-value": act({
+      description: "Nested start URL in a value",
+      readOnly: true,
+      run: async () => ({ next: nested, ticket: "leaked-ticket", keep: "me" }),
+    }),
+    "leak-in-key": act({
+      description: "Nested start URL as a key",
+      readOnly: true,
+      run: async () => ({
+        links: { [nested]: { label: "open" }, ticket: "leaked-ticket" },
+        keep: "me",
+      }),
+    }),
+    "leak-beside-ticket": act({
+      description: "Nested start URL beside a ticket",
+      readOnly: true,
+      run: async () => ({
+        items: [{ url: nested }, { ticket: "leaked-ticket", id: "kept" }],
+      }),
+    }),
+    "leak-in-widget": act({
+      description: "Widget whose result nests a start URL",
+      readOnly: true,
+      mcpApp: widget,
+      run: async () => ({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        deepLinkUrl: nested,
+        title: "Thread",
+      }),
+    }),
+    "leak-in-link": act({
+      description: "Links to a nested start URL",
+      readOnly: true,
+      run: async () => ({ id: "doc-1", title: "Doc" }),
+      link: () => ({ label: "Open doc", url: nested }),
+    }),
+    "leak-in-image": act({
+      description: "Attaches an image at a nested start URL",
+      readOnly: true,
+      run: async () => ({
+        summary: "Chart",
+        _agentImages: [{ url: nested, label: "chart" }],
+      }),
+    }),
+    "leak-beside-image": act({
+      description: "Ticket beside an image at a nested start URL",
+      readOnly: true,
+      run: async () => ({
+        keep: "me",
+        ticket: "leaked-ticket",
+        _agentImages: [{ url: nested }],
+      }),
+    }),
+    "leak-below-image": act({
+      description: "Ticket in an object beside an image at a nested start URL",
+      readOnly: true,
+      run: async () => ({
+        keep: "me",
+        account: { ticket: "leaked-ticket", id: "acct-1" },
+        _agentImages: [{ url: nested }],
+      }),
+    }),
+    "app-only-start": act({
+      description: "App-only session helper",
+      toolMeta: { ui: { visibility: ["app"] } },
+      run: async () => ({
+        startUrl: EMBED_START,
+        targetPath: "/inbox",
+        expiresAt: 1735689600,
+      }),
+    }),
+    "app-only-nested": act({
+      description: "App-only helper whose result nests a start URL",
+      toolMeta: { ui: { visibility: ["app"] } },
+      run: async () => ({ next: nested, ticket: "leaked-ticket", ok: true }),
+    }),
+    "leak-in-error": act({
+      description: "Fails with a nested start URL",
+      run: async () => {
+        throw new Error(`Could not open ${nested}`);
+      },
+    }),
+    ordinary: act({
+      description: "Ordinary nested URLs and tickets",
+      readOnly: true,
+      run: async () => ordinary,
+      link: () => ({ label: "Open guide", url: ordinary.support.url }),
+    }),
+  };
+  const proxied = (text: string, raw: unknown) => ({
+    [MCP_ACTION_RESULT_MARKER]: true,
+    text,
+    raw,
+    serverId: "upstream",
+    toolName: "upstream__session",
+    originalToolName: "session",
+    input: {},
+  });
+  // Each of these holds a ticket in a field that names no start route, while
+  // the start URL that carries it is elsewhere in the call.
+  const contextActions = {
+    "proxy-raw-start": act({
+      description: "Proxy text beside a raw start URL",
+      readOnly: true,
+      run: async () =>
+        proxied(JSON.stringify({ ticket: "leaked-ticket" }), {
+          startUrl: EMBED_START,
+          ticket: "leaked-ticket",
+        }),
+    }),
+    "proxy-structured-ticket": act({
+      description: "Proxy whose structured ticket sits beside its _meta start",
+      readOnly: true,
+      run: async () => {
+        const { flattenMcpToolResult } = await import("../mcp-client/index.js");
+        const raw = {
+          content: [{ type: "text", text: "Session created" }],
+          structuredContent: { ticket: "leaked-ticket" },
+          _meta: { "agent-native/embedStart": { startUrl: EMBED_START } },
+        };
+        return proxied(
+          flattenMcpToolResult(raw as any, { preferStructuredContent: true }),
+          raw,
+        );
+      },
+    }),
+    "proxy-meta-echo": act({
+      description: "Proxy text echoing the ticket of its _meta start URL",
+      readOnly: true,
+      run: async () =>
+        proxied("Sign in with code leaked-ticket.", {
+          content: [{ type: "text", text: "Sign in with code leaked-ticket." }],
+          _meta: { "agent-native/embedStart": { startUrl: EMBED_START } },
+        }),
+    }),
+    "serializes-to-start": act({
+      description: "Result whose JSON is a start URL",
+      readOnly: true,
+      run: async () => ({
+        toJSON: () => ({ startUrl: EMBED_START, ticket: "leaked-ticket" }),
+      }),
+    }),
+    "getter-start": act({
+      description: "Result whose getter returns a start URL",
+      readOnly: true,
+      run: async () => ({
+        get startUrl() {
+          return EMBED_START;
+        },
+        ticket: "leaked-ticket",
+        keep: "me",
+      }),
+    }),
+    "split-link": act({
+      description: "Link that joins a start URL from split fields",
+      readOnly: true,
+      run: async () => ({
+        prefix: "/_agent-native/embed",
+        suffix: "start",
+        ticket: "leaked-ticket",
+      }),
+      link: ({ result }: { result: Record<string, string> }) => ({
+        label: "Open",
+        url: `${ORIGIN}${result.prefix}/${result.suffix}?ticket=${result.ticket}`,
+      }),
+    }),
+    "prose-start-echo": act({
+      description: "Prose that ends with a start URL, and its ticket alone",
+      readOnly: true,
+      run: async () => ({
+        note: `Open ${EMBED_START}.`,
+        code: "Your code is leaked-ticket",
+      }),
+    }),
+    "deep-start-echo": act({
+      description: "A start URL escaped 8 times, and its ticket alone",
+      readOnly: true,
+      run: async () => {
+        let next = EMBED_START;
+        for (let layer = 0; layer < 8; layer += 1) {
+          next = encodeURIComponent(next);
+        }
+        return {
+          next: `https://redirect.example/?next=${next}`,
+          code: "Your code is leaked-ticket",
+        };
+      },
+    }),
+  };
+  // One layer past what the check reads, beside a plain echo of its ticket.
+  const overCapStart = () => {
+    let next = EMBED_START;
+    for (let layer = 0; layer < 9; layer += 1) {
+      next = encodeURIComponent(next);
+    }
+    return `https://redirect.example/?next=${next}`;
+  };
+  const unreadableActions = {
+    "over-cap-read": act({
+      description: "Reads a start URL escaped 9 times, and its ticket alone",
+      readOnly: true,
+      run: async () => ({ next: overCapStart(), code: "Code: leaked-ticket" }),
+    }),
+    "over-cap-write": act({
+      description: "Writes a start URL escaped 9 times, and its ticket alone",
+      run: async () => ({ next: overCapStart(), code: "Code: leaked-ticket" }),
+    }),
+    "over-cap-widget-write": act({
+      description:
+        "Widget write whose result holds a start URL escaped 9 times",
+      mcpApp: widget,
+      run: async () => ({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        title: "Thread",
+        next: overCapStart(),
+      }),
+    }),
+  };
+  const leakConfig = {
+    ...config,
+    actions: { ...leakActions, ...contextActions, ...unreadableActions },
+  };
+
+  async function call(name: string) {
+    const { client, wire } = await connect(
+      {
+        ...(await oauthHeaders()),
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      { serverConfig: leakConfig },
+    );
+    try {
+      await callCapturingError(client, { name, arguments: {} });
+    } finally {
+      await client.close();
+    }
+    const [leg] = wire as Array<{ body: { result: any } }>;
+    return leg.body.result;
+  }
+
+  it("hides a nested start URL and its ticket in values, keys and siblings", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const expected: Record<string, unknown> = {
+        "leak-in-value": { keep: "me" },
+        "leak-in-key": { links: {}, keep: "me" },
+        "leak-beside-ticket": { items: [{}, { id: "kept" }] },
+      };
+      for (const [name, value] of Object.entries(expected)) {
+        const result = await call(name);
+        expect(result.structuredContent, `${name}: ${leak}`).toEqual(value);
+        expect(JSON.parse(result.content[0].text), `${name}: ${leak}`).toEqual(
+          value,
+        );
+        expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+      }
+    }
+  });
+
+  it("still mints a widget session when the result nests a start URL", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const result = await call("leak-in-widget");
+      expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+        "ticket=minted-ticket",
+      );
+      expect(result.structuredContent).toEqual({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        title: "Thread",
+      });
+      // Its open link would be the nested start URL, so it is left out.
+      expect(result._meta["agent-native/openLink"]).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+    }
+  });
+
+  it("hides a nested start URL in a link or an image note", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const linked = await call("leak-in-link");
+      expect(linked.content, leak).toEqual([
+        { type: "text", text: JSON.stringify({ id: "doc-1", title: "Doc" }) },
+        { type: "text", text: "[hidden embed URL]" },
+      ]);
+      expect(linked.structuredContent, leak).toEqual({
+        id: "doc-1",
+        title: "Doc",
+      });
+      const pictured = await call("leak-in-image");
+      expect(pictured.content, leak).toEqual([
+        {
+          type: "text",
+          text: `${JSON.stringify({ summary: "Chart" })}
+
+${imageNote(leak, '"chart"')}`,
+        },
+      ]);
+    }
+  });
+
+  it("hides a ticket beside an image whose URL nests a start URL", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const expected: Record<string, unknown> = {
+        "leak-beside-image": { keep: "me" },
+        "leak-below-image": { keep: "me", account: { id: "acct-1" } },
+      };
+      for (const [name, value] of Object.entries(expected)) {
+        const result = await call(name);
+        expect(result.structuredContent, `${name}: ${leak}`).toEqual(value);
+        expect(result.content, `${name}: ${leak}`).toEqual([
+          {
+            type: "text",
+            text: `${JSON.stringify(value)}
+
+${imageNote(leak, "#1")}`,
+          },
+        ]);
+        expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+      }
+    }
+  });
+
+  it("hands an app-only tool's start URL to the view in _meta alone", async () => {
+    const started = await call("app-only-start");
+    expect(started._meta["agent-native/embedStart"]).toEqual({
+      startUrl: EMBED_START,
+      expiresAt: 1735689600,
+    });
+    expect(started.structuredContent).toEqual({
+      targetPath: "/inbox",
+      expiresAt: 1735689600,
+    });
+    expect(JSON.stringify(started.content)).not.toContain("leaked-ticket");
+
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const result = await call("app-only-nested");
+      expect(result._meta["agent-native/embedStart"], leak).toBeUndefined();
+      expect(result.structuredContent, leak).toEqual({ ok: true });
+      expect(JSON.stringify(result), leak).not.toContain("leaked-ticket");
+    }
+  });
+
+  it("hides a nested start URL in an error message", async () => {
+    nested = nestedEmbedStarts[0];
+    const result = await call("leak-in-error");
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "Error: [hidden embed URL]" },
+    ]);
+  });
+
+  it("keeps ordinary nested URLs and tickets with no embed route beside them", async () => {
+    const result = await call("ordinary");
+    expect(result.structuredContent).toEqual({
+      ...ordinary,
+      openLink: expect.objectContaining({ webUrl: ordinary.support.url }),
+      url: ordinary.support.url,
+    });
+    expect(result.content).toEqual([
+      { type: "text", text: JSON.stringify(ordinary) },
+      {
+        type: "text",
+        text: `
+
+[Open guide →](${ordinary.support.url})`,
+      },
+    ]);
+  });
+
+  it.each(Object.keys(contextActions))(
+    "hides a ticket wherever the call holds its start URL: %s",
+    async (name) => {
+      const result = await call(name);
+      const visible = JSON.stringify({
+        content: result.content,
+        structuredContent: result.structuredContent,
+      });
+      expect(visible).not.toContain("leaked-ticket");
+      expect(visible).not.toContain("embed/start");
+    },
+  );
+
+  it("keeps the rest of a result around a hidden ticket", async () => {
+    expect((await call("proxy-meta-echo")).content).toEqual([
+      { type: "text", text: "[hidden embed ticket]" },
+    ]);
+    expect((await call("getter-start")).structuredContent).toEqual({
+      keep: "me",
+    });
+    const linked = await call("split-link");
+    expect(linked.content.at(-1)).toEqual({
+      type: "text",
+      text: "[hidden embed URL]",
+    });
+    expect(linked._meta["agent-native/openLink"]).toBeUndefined();
+    expect(JSON.stringify(linked)).not.toContain("leaked-ticket");
+  });
+
+  it("hides a start URL escaped as deeply as the check reads, string by string", async () => {
+    const result = await call("deep-start-echo");
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({ code: "[hidden embed ticket]" }),
+      },
+    ]);
+  });
+
+  it("withholds a write's result escaped past the check, and still reports success", async () => {
+    const result = await call("over-cap-write");
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "over-cap-write completed. Its result could not be checked for embed credentials, so it is not shown.",
+      },
+    ]);
+    expect(trace).toContainEqual({
+      marker: expect.objectContaining({ actionName: "over-cap-write" }),
+    });
+    expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+  });
+
+  it("fails a read whose result is escaped past the check", async () => {
+    const result = await call("over-cap-read");
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: The result could not be checked for embed credentials.",
+        },
+      ],
+    });
+    expect(result.structuredContent).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+  });
+
+  it("still hands a withheld widget write the session it minted", async () => {
+    const result = await call("over-cap-widget-write");
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "over-cap-widget-write completed. Its result could not be checked for embed credentials, so it is not shown.",
+      },
+    ]);
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=minted-ticket",
+    );
+    expect(result._meta["agent-native/openLink"]).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+  });
+
+  it("leaves out an action link's _meta entry that carries a ticket", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const linked = await call("leak-in-link");
+      expect(linked._meta["agent-native/openLink"], leak).toBeUndefined();
+      expect(JSON.stringify(linked), leak).not.toContain("leaked-ticket");
+    }
+  });
+});
+
+describe("direct tools/call after the action has run", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    trace.length = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+  });
+
+  // Valid base64 as well as a ticket, so it can stand in for image data.
+  const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
+  const start = `${ORIGIN}/_agent-native/embed/start?ticket=${ticket}`;
+  const overCap = () => {
+    let next = start;
+    for (let layer = 0; layer < 9; layer += 1) {
+      next = encodeURIComponent(next);
+    }
+    return `https://redirect.example/?next=${next}`;
+  };
+  const unchecked =
+    "Its result could not be checked for embed credentials, so it is not shown.";
+  const directory = (projectResult: (name: string, value: any) => unknown) => ({
+    catalogMode: "directory",
+    widgetDomain: ORIGIN,
+    connectorCatalog: ["probe"],
+    directoryProfile: { connectorCatalog: ["probe"], projectResult },
+  });
+  const annotations = (readOnlyHint: boolean) => ({
+    readOnly: readOnlyHint,
+    mcpAnnotations: {
+      readOnlyHint,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  });
+
+  async function call(
+    action: Record<string, any>,
+    serverConfig: Record<string, unknown> = {},
+  ) {
+    const { client, wire } = await connect(
+      {
+        ...(await oauthHeaders()),
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      {
+        serverConfig: {
+          ...config,
+          ...serverConfig,
+          actions: { probe: act({ description: "Probe", ...action }) },
+        },
+      },
+    );
+    try {
+      await callCapturingError(client, { name: "probe", arguments: {} });
+    } finally {
+      await client.close();
+    }
+    const [leg] = wire as Array<{ body: { result: any } }>;
+    return leg.body.result;
+  }
+  const markers = () => trace.filter((entry: any) => "marker" in entry);
+  const analytics = () =>
+    trace.flatMap((entry: any) =>
+      "mcpToolCall" in entry ? [entry.mcpToolCall] : [],
+    );
+  async function capturing(run: () => Promise<unknown>) {
+    const seen: unknown[] = [];
+    const stop = registerErrorCaptureProvider("parity", (error, context) => {
+      seen.push({ message: (error as Error).message, tags: context.tags });
+    });
+    try {
+      await run();
+    } finally {
+      stop();
+    }
+    return seen;
+  }
+  // Every server warning and error, as the console would print it.
+  async function logged(run: () => Promise<unknown>) {
+    const lines: string[] = [];
+    const spies = (["warn", "error"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        lines.push(format(...args));
+      }),
+    );
+    try {
+      await run();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    return lines;
+  }
+
+  it("writes no marker for a write that opts out of change events", async () => {
+    const result = await call({
+      changeEvents: false,
+      run: async () => ({ id: "written" }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("written");
+    expect(markers()).toEqual([]);
+  });
+
+  it("tells a write by its effect, not by whether it notifies", async () => {
+    const result = await call({
+      changeEvents: false,
+      run: async () => ({ id: "written", value: 1n }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: `probe completed. ${unchecked}` },
+    ]);
+    expect(markers()).toEqual([]);
+  });
+
+  it("reads a proxied write's raw getter once, for its status and its resource hint", async () => {
+    let reads = 0;
+    const result = await call({
+      changeResource: (_args: unknown, written: any) => ({
+        resourceType: "document",
+        resourceId: written.id,
+      }),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        get raw() {
+          reads += 1;
+          if (reads > 1) throw new Error("raw read twice");
+          return { id: "doc-1", value: 1n };
+        },
+      }),
+    });
+    expect(reads).toBe(1);
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: `probe completed. ${unchecked}` },
+    ]);
+    expect(markers()).toEqual([
+      {
+        marker: {
+          actionName: "probe",
+          resourceType: "document",
+          resourceId: "doc-1",
+          owner: "oauth@example.com",
+        },
+      },
+    ]);
+  });
+
+  it.each([true, false])(
+    "withholds a result it cannot classify, reading it once (readOnly: %s)",
+    async (readOnly) => {
+      let reads = 0;
+      const result = await call({
+        readOnly,
+        run: async () => ({
+          [MCP_ACTION_RESULT_MARKER]: true,
+          get text() {
+            reads += 1;
+            throw new Error(`Cannot read ${start}`);
+          },
+        }),
+      });
+      expect(reads).toBe(1);
+      expect(result).toMatchObject({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: readOnly
+              ? "Error: The result could not be checked for embed credentials."
+              : `probe ran, but whether it succeeded could not be read; check before retrying. ${unchecked}`,
+          },
+        ],
+      });
+      expect(markers()).toHaveLength(readOnly ? 0 : 1);
+      expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+    },
+  );
+
+  it.each([
+    ["input", { input: { startUrl: start } }],
+    ["MCP App tool input", { mcpApp: { toolInput: { startUrl: start } } }],
+    ["_meta", { _meta: { startUrl: start } }],
+  ])("learns a credential from a proxied tool's %s", async (_, fields) => {
+    const result = await call({
+      ...annotations(true),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream result",
+        raw: { ticket },
+        serverId: "fake",
+        toolName: "probe",
+        originalToolName: "probe",
+        ...fields,
+      }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it("learns the input of a result the MCP client built", async () => {
+    const callTool = vi.fn(async () => ({
+      content: [{ type: "text", text: "Upstream result" }],
+      structuredContent: { ticket },
+    }));
+    const entries = mcpToolsToActionEntries({
+      getTools: () => [
+        {
+          name: "probe",
+          source: "fake",
+          originalName: "probe",
+          description: "Probe",
+          inputSchema: {
+            type: "object",
+            properties: { startUrl: { type: "string" } },
+          },
+          annotations: { readOnlyHint: true },
+          raw: {},
+        },
+      ],
+      callTool,
+    } as any);
+    const returned = await entries.probe!.run({ startUrl: start });
+    const result = await call({
+      ...annotations(true),
+      run: async () => returned,
+    });
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBeUndefined();
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it("keeps a proxied write's reported failure when another field's getter clears it", async () => {
+    const raw = { id: "doc-1", isError: true };
+    let reads = 0;
+    const result = await call({
+      changeResource: (_args: unknown, written: any) => ({
+        resourceType: "document",
+        resourceId: written.id,
+      }),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream failure",
+        raw,
+        get input() {
+          reads += 1;
+          raw.isError = false;
+          return {};
+        },
+      }),
+    });
+    expect(reads).toBe(1);
+    expect(result.isError).toBe(true);
+    expect(markers()).toEqual([]);
+  });
+
+  it("learns a proxied tool's fields when its status cannot be read", async () => {
+    const raw = Object.defineProperty({ ticket }, "isError", {
+      get() {
+        throw new Error("No status");
+      },
+    });
+    const result = await call({
+      ...annotations(true),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream result",
+        raw,
+        input: { startUrl: start },
+      }),
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it("does not let a wrapper's JSON hook erase the input the guard reads", async () => {
+    let calls = 0;
+    const result = await call({
+      ...annotations(true),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream result",
+        raw: { ticket },
+        input: { startUrl: start },
+        toJSON() {
+          calls += 1;
+          return {};
+        },
+      }),
+    });
+    expect(calls).toBe(0);
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: The action result is not JSON data, so it could not be shown.",
+        },
+      ],
+    });
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  const unreadableWrapper = (how: string, raw: object, read: () => void) =>
+    how === "reading a field"
+      ? {
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Written",
+          raw,
+          get input() {
+            read();
+            throw new Error(`Cannot read ${start}`);
+          },
+        }
+      : new Proxy(
+          { [MCP_ACTION_RESULT_MARKER]: true, text: "Written", raw },
+          {
+            ownKeys() {
+              read();
+              throw new Error(`Cannot list ${start}`);
+            },
+          },
+        );
+
+  it.each([
+    ["reading a field", "completed"],
+    ["reading a field", "failed"],
+    ["listing its keys", "completed"],
+    ["listing its keys", "failed"],
+  ])(
+    "withholds a proxied write when %s throws, trying it once (%s upstream)",
+    async (how, status) => {
+      const failed = status === "failed";
+      let reads = 0;
+      let result: any;
+      const captured = await capturing(async () => {
+        result = await call({
+          changeResource: (_args: unknown, written: any) => ({
+            resourceType: "document",
+            resourceId: written.id,
+          }),
+          run: async () =>
+            unreadableWrapper(
+              how,
+              failed ? { id: "doc-1", isError: true } : { id: "doc-1" },
+              () => (reads += 1),
+            ),
+        });
+      });
+      expect(reads).toBe(1);
+      expect(result.isError).toBe(failed ? true : undefined);
+      expect(result.content).toEqual([
+        { type: "text", text: `probe ${status}. ${unchecked}` },
+      ]);
+      expect(markers()).toEqual(
+        failed
+          ? []
+          : [
+              {
+                marker: {
+                  actionName: "probe",
+                  resourceType: "document",
+                  resourceId: "doc-1",
+                  owner: "oauth@example.com",
+                },
+              },
+            ],
+      );
+      expect(captured).toMatchObject([{ tags: { stage: "check" } }]);
+      expect(JSON.stringify([result, analytics(), captured])).not.toContain(
+        ticket,
+      );
+    },
+  );
+
+  it.each([
+    ["its result", () => ({ id: "doc-1", big: 1n })],
+    [
+      "a proxied tool's raw result",
+      () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        raw: { id: "doc-1", big: 1n },
+      }),
+    ],
+    [
+      "a Proxy whose marker descriptor throws",
+      () =>
+        new Proxy(
+          { id: "doc-1", big: 1n },
+          {
+            getOwnPropertyDescriptor(target, key) {
+              if (key === MCP_ACTION_RESULT_MARKER) throw new Error("No");
+              return Reflect.getOwnPropertyDescriptor(target, key);
+            },
+          },
+        ),
+    ],
+    [
+      "a result with an inherited false marker",
+      () =>
+        Object.assign(Object.create({ [MCP_ACTION_RESULT_MARKER]: false }), {
+          id: "doc-1",
+          big: 1n,
+        }),
+    ],
+    [
+      "a proxied tool's inherited raw result",
+      () =>
+        Object.assign(Object.create({ raw: { id: "doc-1", big: 1n } }), {
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Written",
+        }),
+    ],
+    [
+      "a result whose marker has no text",
+      () => ({
+        id: "doc-1",
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: 42,
+        raw: { isError: true },
+      }),
+    ],
+  ])(
+    "keeps the resource hint of a write, read from %s",
+    async (_, returned) => {
+      const result = await call({
+        changeResource: (_args: unknown, written: any) => ({
+          resourceType: "document",
+          resourceId: written.id,
+        }),
+        run: async () => returned(),
+      });
+      expect(result.isError).toBeUndefined();
+      expect(markers()).toEqual([
+        {
+          marker: {
+            actionName: "probe",
+            resourceType: "document",
+            resourceId: "doc-1",
+            owner: "oauth@example.com",
+          },
+        },
+      ]);
+    },
+  );
+
+  it("keeps an upstream failure when the result cannot be read as JSON or projected", async () => {
+    const raw = { isError: true, count: 1n };
+    const unread = await call({
+      run: async () => ({ [MCP_ACTION_RESULT_MARKER]: true, text: "No", raw }),
+    });
+    expect(unread).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `probe failed. ${unchecked}` }],
+    });
+
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        throw new Error(`Cannot project ${value.code}`);
+      }
+      return value;
+    };
+    const unprojected = await call(
+      {
+        ...annotations(false),
+        run: async () => ({
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Upstream failed",
+          raw: { isError: true, code: ticket, startUrl: start },
+        }),
+      },
+      directory(projectResult),
+    );
+    expect(unprojected).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "probe failed. Its result is not shown: [hidden embed ticket]",
+        },
+      ],
+    });
+    expect(markers()).toEqual([]);
+    expect(JSON.stringify([unprojected, analytics()])).not.toContain(ticket);
+  });
+
+  it("keeps an upstream failure a failure when its result is withheld", async () => {
+    const result = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream write failed",
+        raw: { isError: true, note: overCap() },
+      }),
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `probe failed. ${unchecked}` }],
+    });
+    expect(markers()).toEqual([]);
+  });
+
+  it.each([
+    [
+      "a hidden flag",
+      () =>
+        Object.defineProperty({ detail: "failed" }, "isError", {
+          value: true,
+        }),
+    ],
+    [
+      "an inherited flag",
+      () => Object.assign(Object.create({ isError: true }), { detail: "x" }),
+    ],
+    [
+      "an inherited flag on a result that is not JSON",
+      () => Object.assign(Object.create({ isError: true }), { count: 1n }),
+    ],
+    [
+      "a flag its JSON form drops",
+      () => ({ isError: true, toJSON: () => ({ detail: "failed" }) }),
+    ],
+    [
+      "an inherited getter",
+      () =>
+        Object.assign(
+          Object.create({
+            get isError() {
+              return true;
+            },
+          }),
+          { detail: "failed" },
+        ),
+    ],
+    [
+      "a hidden getter",
+      () =>
+        Object.defineProperty({ detail: "failed" }, "isError", {
+          get: () => true,
+        }),
+    ],
+    [
+      "a Proxy that hides its descriptors and drops the flag from its JSON",
+      () =>
+        new Proxy(
+          { isError: true, detail: "failed" },
+          {
+            getOwnPropertyDescriptor() {
+              throw new Error("no descriptors");
+            },
+            get: (target, key) =>
+              key === "toJSON"
+                ? () => ({ detail: target.detail })
+                : Reflect.get(target, key),
+          },
+        ),
+    ],
+  ])("keeps an upstream failure reported by %s", async (_label, raw) => {
+    const result = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream failed",
+        raw: raw(),
+      }),
+    });
+    expect(result.isError).toBe(true);
+    expect(analytics()).toMatchObject([{ isError: true }]);
+    expect(markers()).toEqual([]);
+  });
+
+  it("never takes a status it could not read for success", async () => {
+    let reads = 0;
+    const result = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        get raw() {
+          reads += 1;
+          return Object.create({
+            get isError() {
+              throw new Error("No flag");
+            },
+          });
+        },
+      }),
+    });
+    expect(reads).toBe(1);
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: expect.stringMatching(
+            /^probe ran, but whether it succeeded could not be read; check before retrying\. /,
+          ),
+        },
+      ],
+    });
+    expect(markers()).toHaveLength(1);
+
+    trace.length = 0;
+    const settled = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        get raw() {
+          return { isError: false, id: "w" };
+        },
+      }),
+    });
+    expect(settled.isError).toBeUndefined();
+    expect(markers()).toHaveLength(1);
+  });
+
+  it("keeps an upstream failure a projector marks as a success", async () => {
+    const result = await call(
+      {
+        ...annotations(false),
+        run: async () => ({
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Upstream failed",
+          raw: { isError: true, detail: "failed" },
+        }),
+      },
+      directory((_name, value) => {
+        if (value && typeof value === "object") value.isError = false;
+        return value;
+      }),
+    );
+    expect(result.isError).toBe(true);
+    expect(markers()).toEqual([]);
+  });
+
+  it("checks a failure after the action ran against what it produced", async () => {
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        throw new Error(`Cannot project code ${value.code}`);
+      }
+      return value;
+    };
+    const run = async () => ({ startUrl: start, code: ticket });
+    const read = await call(
+      { run, ...annotations(true) },
+      directory(projectResult),
+    );
+    expect(read).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "Error: [hidden embed ticket]" }],
+    });
+
+    trace.length = 0;
+    const write = await call(
+      { run, ...annotations(false) },
+      directory(projectResult),
+    );
+    expect(write.isError).toBeUndefined();
+    expect(write.content).toEqual([
+      {
+        type: "text",
+        text: "probe completed. Its result is not shown: [hidden embed ticket]",
+      },
+    ]);
+    expect(markers()).toHaveLength(1);
+    expect(JSON.stringify([read, write])).not.toContain(ticket);
+  });
+
+  it("gives a failure's details to an app catalog but not to a directory catalog", async () => {
+    const run = async () =>
+      fail("An import is already running", {
+        errorCode: "import_in_progress",
+        details: { importId: "imp_1" },
+      });
+    const app = await call({ run, ...annotations(false) });
+    expect(app.content).toEqual([
+      {
+        type: "text",
+        text:
+          "Error: An import is already running (errorCode: import_in_progress)\n" +
+          'Error details: {"importId":"imp_1"}',
+      },
+    ]);
+    expect(app.structuredContent).toEqual({
+      error: {
+        message: "An import is already running",
+        errorCode: "import_in_progress",
+        details: { importId: "imp_1" },
+      },
+    });
+
+    const listed = await call(
+      { run, ...annotations(false) },
+      directory((_name, value) => value),
+    );
+    expect(listed.content).toEqual([
+      {
+        type: "text",
+        text: "Error: An import is already running (errorCode: import_in_progress)",
+      },
+    ]);
+    expect(listed.structuredContent).toBeUndefined();
+  });
+
+  it("captures the checked failure of a write it reports as completed", async () => {
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call(
+        {
+          ...annotations(false),
+          run: async () => ({ startUrl: start, code: ticket }),
+        },
+        directory((_name, value: any) => {
+          if (value && typeof value === "object") {
+            throw new Error(`Cannot project code ${value.code}`);
+          }
+          return value;
+        }),
+      );
+    });
+    expect(result.isError).toBeUndefined();
+    expect(analytics()).toMatchObject([{ isError: false }]);
+    expect(captured).toEqual([
+      {
+        message: "[hidden embed ticket]",
+        tags: {
+          source: "mcp",
+          action: "probe",
+          failureClass: "tool-response-error",
+          stage: "respond",
+        },
+      },
+    ]);
+    expect(JSON.stringify(captured)).not.toContain(ticket);
+  });
+
+  it("sends a fixed diagnostic everywhere for a result that is not JSON data", async () => {
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call({
+        readOnly: true,
+        run: async () => ({
+          toJSON() {
+            throw new Error(`Cannot serialize ${start}`);
+          },
+        }),
+      });
+    });
+    const diagnostic =
+      "The action result is not JSON data, so it could not be shown.";
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `Error: ${diagnostic}` }],
+    });
+    expect(analytics()).toMatchObject([
+      { errorType: "result_not_json", errorMessage: diagnostic },
+    ]);
+    expect(captured).toMatchObject([
+      {
+        message: diagnostic,
+        tags: { action: "probe", stage: "normalize" },
+      },
+    ]);
+  });
+
+  it("checks the whole error, its code included, before it goes anywhere", async () => {
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        throw new ActionContractError("Projection failed", {
+          errorCode: value.code,
+        });
+      }
+      return value;
+    };
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call(
+        {
+          ...annotations(true),
+          run: async () => ({ startUrl: start, code: ticket }),
+        },
+        directory(projectResult),
+      );
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "Error: [hidden embed ticket]" }],
+    });
+    expect(analytics()).toMatchObject([
+      {
+        errorType: "[hidden embed ticket]",
+        errorMessage: "[hidden embed ticket]",
+      },
+    ]);
+    // Checked, it is on the wire and in analytics, so it is not captured.
+    expect(captured).toEqual([]);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it("hides a start URL in an error from before the action returned, in analytics too", async () => {
+    const { createMcpApprovalGrant } = await import("./approval-store.js");
+    const thrown = () =>
+      new ActionContractError(`Cannot open ${start}`, { errorCode: start });
+    const outcome = async (action: Record<string, any>) => {
+      const result = await call(action);
+      return { content: result.content, analytics: analytics() };
+    };
+    const ran = await outcome({
+      run: async () => {
+        throw thrown();
+      },
+    });
+    vi.mocked(createMcpApprovalGrant).mockRejectedValueOnce(thrown());
+    const approval = await outcome({
+      needsApproval: true,
+      run: async () => ({ ok: true }),
+    });
+    const hidden = "[hidden embed URL]";
+    for (const failed of [ran, approval]) {
+      expect(failed).toEqual({
+        content: [
+          { type: "text", text: `Error: ${hidden} (errorCode: ${hidden})` },
+        ],
+        analytics: [
+          expect.objectContaining({ errorType: hidden, errorMessage: hidden }),
+        ],
+      });
+    }
+    expect(JSON.stringify([ran, approval])).not.toContain(ticket);
+
+    const plain = await outcome({
+      run: async () => {
+        throw new Error("Plain failure");
+      },
+    });
+    expect(plain).toEqual({
+      content: [{ type: "text", text: "Error: Plain failure" }],
+      analytics: [
+        expect.objectContaining({
+          errorType: "Error",
+          errorMessage: "Plain failure",
+        }),
+      ],
+    });
+  });
+
+  it.each([
+    [
+      "a contract that fails to compile",
+      {
+        mcpOutputContract: {
+          semantic: {},
+          response: {
+            type: "object",
+            properties: { url: { type: "string", format: start } },
+          },
+        },
+      },
+    ],
+    ["invalid arguments", { schema: z.object({ url: z.literal(start) }) }],
+  ])("hides a start URL in %s, before the action runs", async (_, action) => {
+    const result = await call({ ...action, run: async () => ({ ok: true }) });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("[hidden embed URL]");
+    expect(analytics()).toHaveLength(1);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+    expect(trace.filter((entry: any) => "run" in entry)).toEqual([]);
+    expect(markers()).toEqual([]);
+  });
+
+  it.each([
+    ["names a start URL", Object.assign(new Error("No JSON"), { name: start })],
+    [
+      "cannot read its name",
+      Object.defineProperty(new Error("No JSON"), "name", {
+        get() {
+          throw new Error(start);
+        },
+      }),
+    ],
+  ])(
+    "types a contracted write whose result's error %s, reading none of it",
+    async (_, error) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let result: any;
+      let warnings: unknown[][] = [];
+      try {
+        result = await call({
+          mcpOutputContract: {
+            semantic: {},
+            response: { type: "object", additionalProperties: true },
+          },
+          run: async () => ({
+            toJSON() {
+              throw error;
+            },
+          }),
+        });
+      } finally {
+        warnings = [...warn.mock.calls];
+        warn.mockRestore();
+      }
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("(root): not_serializable");
+      expect(result.content[0].text).toContain("do not retry");
+      expect(analytics()).toMatchObject([
+        { errorType: "output_contract_violation" },
+      ]);
+      expect(markers()).toHaveLength(1);
+      expect(warnings).toContainEqual([
+        '[mcp] Building the contracted result of "probe" failed after it ran (not_serializable)',
+      ]);
+      expect(JSON.stringify([result, analytics(), warnings])).not.toContain(
+        ticket,
+      );
+    },
+  );
+
+  it("sends a fixed diagnostic for an error from before the action returned that cannot be read", async () => {
+    const result = await call({
+      run: async () => {
+        throw Object.defineProperty(new Error("Unread"), "message", {
+          get() {
+            throw new Error(start);
+          },
+        });
+      },
+    });
+    const diagnostic = "The call failed, and its error could not be read.";
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `Error: ${diagnostic}` }],
+    });
+    expect(analytics()).toMatchObject([
+      { errorType: "error_unreadable", errorMessage: diagnostic },
+    ]);
+    expect(markers()).toHaveLength(1);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  const unreadable: Array<[string, () => unknown]> = [
+    [
+      "a contract flag that throws",
+      () =>
+        Object.defineProperty(new Error("Invalid"), "actionContractError", {
+          get() {
+            throw new Error(start);
+          },
+        }),
+    ],
+    [
+      "a Proxy whose get trap throws",
+      () =>
+        new Proxy(new Error("Invalid"), {
+          get() {
+            throw new Error(start);
+          },
+        }),
+    ],
+    [
+      "a Proxy whose getPrototypeOf trap throws",
+      () =>
+        new Proxy(new Error("Invalid"), {
+          getPrototypeOf() {
+            throw new Error(start);
+          },
+        }),
+    ],
+    [
+      "a revoked Proxy",
+      () => {
+        const { proxy, revoke } = Proxy.revocable(new Error("Invalid"), {});
+        revoke();
+        return proxy;
+      },
+    ],
+  ];
+  it.each(
+    unreadable.flatMap(([kind, thrown]) =>
+      [true, false].map((readOnly) => ({ kind, thrown, readOnly })),
+    ),
+  )(
+    "refuses arguments whose validation throws $kind (readOnly: $readOnly), reading none of it",
+    async ({ thrown, readOnly }) => {
+      const result = await call({
+        readOnly,
+        schema: z.object({}).superRefine(() => {
+          throw thrown();
+        }),
+        run: async () => ({ ok: true }),
+      });
+      expect(result).toMatchObject({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Error: The call failed, and its error could not be read.",
+          },
+        ],
+      });
+      expect(analytics()).toMatchObject([{ errorType: "error_unreadable" }]);
+      expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+      expect(trace.filter((entry: any) => "run" in entry)).toEqual([]);
+      expect(markers()).toEqual([]);
+    },
+  );
+
+  it.each([
+    [
+      "a change hint that throws with the result",
+      (_args: unknown, result: any) => {
+        throw new Error(`Cannot hint ${result.startUrl}`);
+      },
+      "[action-change] changeResource threw",
+    ],
+    [
+      "a change hint error whose message cannot be read",
+      (_args: unknown, result: any) => {
+        throw Object.defineProperty(new Error("Unread"), "message", {
+          get() {
+            throw new Error(`Cannot read ${result.startUrl}`);
+          },
+        });
+      },
+      "[action-change] changeResource threw",
+    ],
+    [
+      "a change hint whose getter throws when read again",
+      (_args: unknown, result: any) => {
+        let reads = 0;
+        return {
+          get resourceType() {
+            reads += 1;
+            if (reads > 2) throw new Error(result.startUrl);
+            return "review";
+          },
+          resourceId: "r1",
+        };
+      },
+      undefined,
+    ],
+  ])("logs %s with no embed credential", async (_, changeResource, warning) => {
+    let result: any;
+    const lines = await logged(async () => {
+      result = await call({
+        changeResource,
+        run: async () => ({ startUrl: start }),
+      });
+    });
+    expect(result.isError).toBeUndefined();
+    expect(markers()).toHaveLength(1);
+    if (warning) expect(lines.join("\n")).toContain(warning);
+    expect(lines.join("\n")).not.toContain(ticket);
+  });
+
+  it("logs a change-marker store failure with no embed credential", async () => {
+    const { writeActionChangeMarker } =
+      await import("../server/action-change-marker-write.js");
+    vi.mocked(writeActionChangeMarker).mockRejectedValueOnce(
+      new Error(`Store rejected ${start}`),
+    );
+    let result: any;
+    const lines = await logged(async () => {
+      result = await call({ run: async () => ({ id: "written" }) });
+    });
+    expect(result.isError).toBeUndefined();
+    expect(lines.join("\n")).toContain(
+      "Could not write the action-change marker",
+    );
+    expect(lines.join("\n")).not.toContain(ticket);
+  });
+
+  it("logs an MCP App resource that fails to resolve with no embed credential", async () => {
+    // Resource metadata can read what the action keeps between calls.
+    let lastStart: string | undefined;
+    const lines = await logged(async () => {
+      await call({
+        readOnly: true,
+        mcpApp: {
+          resource: {
+            title: "Probe",
+            html: "<!doctype html><html><body>Probe</body></html>",
+            csp() {
+              throw new Error(lastStart ?? "No start URL yet");
+            },
+          },
+        },
+        run: async () => {
+          lastStart = start;
+          return { startUrl: start };
+        },
+      });
+    });
+    expect(lines.join("\n")).toContain("Skipping MCP App resource");
+    expect(lines.join("\n")).not.toContain(ticket);
+  });
+
+  it.each([
+    ["throws with it", { throws: true }],
+    ["reports an issue naming it", { message: true }],
+    ["reports an issue at a key that names it", { path: true }],
+  ])(
+    "logs an output schema that %s with no embed credential",
+    async (
+      _,
+      kind: { throws?: boolean; message?: boolean; path?: boolean },
+    ) => {
+      const lines = await logged(async () => {
+        await call({
+          readOnly: true,
+          outputSchema: z
+            .object({ startUrl: z.string() })
+            .superRefine((value, ctx) => {
+              if (kind.throws) {
+                throw new Error(`Cannot validate ${value.startUrl}`);
+              }
+              ctx.addIssue({
+                code: "custom",
+                message: kind.message
+                  ? `Cannot validate ${value.startUrl}`
+                  : "Unexpected key",
+                path: kind.path ? [value.startUrl] : [],
+              });
+            }),
+          run: async () => ({ startUrl: start }),
+        });
+      });
+      expect(lines.join("\n")).toContain("Action output");
+      expect(lines.join("\n")).not.toContain(ticket);
+    },
+  );
+
+  it("checks a failure against a projection the call already built", async () => {
+    // The first projection assembles a start URL; the second fails echoing
+    // its ticket.
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        return {
+          ...value,
+          startUrl: `${ORIGIN}${value.base}/${value.part}?ticket=${value.ticket}`,
+        };
+      }
+      if (value === "Read") throw new Error(`Cannot project ${ticket}`);
+      return value;
+    };
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call(
+        {
+          ...annotations(true),
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: "Read",
+            raw: { base: "/_agent-native/embed", part: "start", ticket },
+          }),
+        },
+        directory(projectResult),
+      );
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "Error: [hidden embed ticket]" }],
+    });
+    expect(captured).toEqual([]);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it("checks images against everything the call built, its link included", async () => {
+    const result = await call({
+      readOnly: true,
+      run: async () => ({
+        base: "/_agent-native/embed",
+        part: "start",
+        ticket,
+        _agentImages: [{ data: ticket, mediaType: "image/png" }],
+      }),
+      link: ({ result }: any) => ({
+        label: "Open",
+        url: `${ORIGIN}${result.base}/${result.part}?ticket=${result.ticket}`,
+      }),
+    });
+    expect(
+      result.content.filter((block: any) => block.type === "image"),
+    ).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("builds a link from the result as returned, then checks it", async () => {
+    const result = await call({
+      readOnly: true,
+      run: async () => ({ id: "record-1", startUrl: start }),
+      link: ({ result }: any) => ({
+        label: "Open record",
+        url: new URL(`/records/${result.id}`, new URL(result.startUrl).origin)
+          .href,
+      }),
+    });
+    const url = `${ORIGIN}/records/record-1`;
+    expect(result.content[1].text).toContain(`(${url})`);
+    expect(result._meta["agent-native/openLink"].webUrl).toBe(url);
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("still drops an image that echoes a ticket, and one too large to send", async () => {
+    const result = await call({
+      readOnly: true,
+      run: async () => ({
+        startUrl: start,
+        _agentImages: [
+          { data: ticket, mediaType: "image/png" },
+          { data: "QUJD".repeat(600_000), mediaType: "image/png" },
+        ],
+      }),
+    });
+    expect(
+      result.content.filter((block: any) => block.type === "image"),
+    ).toEqual([]);
+    expect(result.content[0].text).toContain(
+      "[image #1 dropped: it carried an embed credential]",
+    );
+    expect(result.content[0].text).toContain(
+      "exceeds the 2,000,000-char limit",
+    );
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("records a widget write that produced nothing, flagged so no empty widget mounts", async () => {
+    const write = await call({ mcpApp: widget, run: async () => null });
+    // `isError` is how a host is told not to mount the widget; the text says
+    // the write ran, so it is not retried.
+    expect(write).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "probe completed; its change was saved, but it produced no widget content.",
+        },
+      ],
+    });
+    expect(markers()).toHaveLength(1);
+
+    trace.length = 0;
+    const read = await call({
+      mcpApp: widget,
+      readOnly: true,
+      run: async () => null,
+    });
+    expect(read.isError).toBe(true);
+    expect(markers()).toEqual([]);
+  });
+
+  it("sends images from the checked copy, leaving out one that carried a credential", async () => {
+    const image = "iVBORw0KGgo=";
+    const result = await call({
+      readOnly: true,
+      run: async () => ({
+        startUrl: start,
+        _agentImages: [
+          { data: ticket, mediaType: "image/png" },
+          { data: image, mediaType: "image/png" },
+        ],
+      }),
+    });
+    expect(
+      result.content.filter((block: any) => block.type === "image"),
+    ).toEqual([{ type: "image", data: image, mimeType: "image/png" }]);
+    expect(result.content[0].text).toContain(
+      "[image #1 dropped: it carried an embed credential]",
+    );
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("mints no widget session for a write that is not JSON data", async () => {
+    // Minting reads the result's target, so there is nothing to mint from.
+    const result = await call({
+      mcpApp: widget,
+      run: async () => ({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        count: 1n,
+      }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: `probe completed. ${unchecked}` },
+    ]);
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(markers()).toHaveLength(1);
   });
 });

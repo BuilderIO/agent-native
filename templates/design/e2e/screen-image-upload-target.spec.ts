@@ -897,14 +897,12 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       "data-screen-interact-mode",
       "false",
     );
-    const focusScreen = screenAShell.locator("[data-frame-full-view]");
-    await expect(focusScreen).toHaveCount(1);
+    const screenTitle = screenAShell.locator("[data-frame-title]").first();
+    await expect(screenTitle).toBeVisible();
     await expect(
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
-    await focusScreen.evaluate((element) => {
-      (element as HTMLButtonElement).click();
-    });
+    await screenTitle.dblclick();
     await expect(
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
@@ -1303,9 +1301,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     const screenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
-    await screenAShell.locator("[data-frame-full-view]").evaluate((element) => {
-      (element as HTMLButtonElement).click();
-    });
+    await screenAShell.locator("[data-frame-title]").first().dblclick();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();
@@ -1403,11 +1399,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     const reloadedScreenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
-    await reloadedScreenAShell
-      .locator("[data-frame-full-view]")
-      .evaluate((element) => {
-        (element as HTMLButtonElement).click();
-      });
+    await reloadedScreenAShell.locator("[data-frame-title]").first().dblclick();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();

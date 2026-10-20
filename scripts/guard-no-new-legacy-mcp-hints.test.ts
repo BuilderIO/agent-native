@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   BASELINE_PATH,
@@ -109,21 +109,24 @@ describe("legacy MCP hint baseline comparison", () => {
 
 describe("legacy MCP hint baseline guard in a repository", () => {
   const roots: string[] = [];
-  // These repositories compare against their own main. In CI the guard would
-  // otherwise read the PR's base branch, which a stacked PR's scratch repo lacks.
-  const inheritedBase = {
-    GITHUB_BASE_REF: process.env.GITHUB_BASE_REF,
-    GUARD_DIFF_BASE: process.env.GUARD_DIFF_BASE,
-  };
-  before(() => {
-    delete process.env.GITHUB_BASE_REF;
-    delete process.env.GUARD_DIFF_BASE;
+  const diffBaseVariables = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"] as const;
+  let previousDiffBase: Array<[string, string | undefined]>;
+  beforeEach(() => {
+    // Fixture repos have their own main, not CI's stacked PR base branch.
+    previousDiffBase = diffBaseVariables.map((name) => [
+      name,
+      process.env[name],
+    ]);
+    for (const name of diffBaseVariables) delete process.env[name];
+  });
+  afterEach(() => {
+    for (const [name, value] of previousDiffBase) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   });
   after(() => {
     for (const root of roots) rmSync(root, { recursive: true, force: true });
-    for (const [key, value] of Object.entries(inheritedBase)) {
-      if (value !== undefined) process.env[key] = value;
-    }
   });
 
   function git(cwd: string, ...args: string[]) {

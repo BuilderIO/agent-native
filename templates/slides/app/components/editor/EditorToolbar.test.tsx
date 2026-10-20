@@ -10,7 +10,12 @@ import {
   waitFor,
   type RenderOptions,
 } from "@testing-library/react";
-import { createRef, type AnchorHTMLAttributes, type ReactNode } from "react";
+import {
+  createRef,
+  type AnchorHTMLAttributes,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   ),
   exportMenu: vi.fn(),
   exportSubmenu: vi.fn(),
+  exportDropdown: vi.fn(),
   registerEditorCommands: vi.fn(),
   widgetEmbed: { value: false },
   creativeContextLabEnabled: { value: true },
@@ -127,6 +133,10 @@ vi.mock("@/lib/prompt-file-uploads", () => ({
 }));
 
 vi.mock("./ExportMenu", () => ({
+  ExportDropdown: (props: { hasSlides?: boolean }) => {
+    mocks.exportDropdown(props);
+    return <button type="button">editorToolbar.export</button>;
+  },
   ExportMenu: (props: { hasSlides?: boolean }) => {
     mocks.exportMenu(props);
     return null;
@@ -193,6 +203,9 @@ type ShareButtonProps = {
   shareUrlDescription?: string;
   secondaryShareUrlLabel?: string;
   secondaryShareUrlDescription?: string;
+  agentTabContent?: unknown;
+  peopleAccessLabel?: string;
+  shareUrlPlacement?: string;
   roleCopy?: {
     commenter?: {
       label: string;
@@ -247,6 +260,14 @@ async function openAppMenu() {
     button: 0,
     ctrlKey: false,
   });
+  await screen.findByRole("menu");
+}
+
+async function openPresentMenu() {
+  fireEvent.pointerDown(
+    screen.getByRole("button", { name: "editorToolbar.present" }),
+    { button: 0, ctrlKey: false },
+  );
   await screen.findByRole("menu");
 }
 
@@ -362,7 +383,13 @@ describe("<EditorToolbar>", () => {
     // Share is the app's popover, not a widget-only bottom sheet.
     expect(shareProps.mobileSheet).toBeFalsy();
 
-    expect(screen.getByText("editorToolbar.present")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "editorToolbar.present" }),
+    ).toBeTruthy();
+    // Export needs a write grant the widget does not carry, and the agent
+    // connect guidance is the host's.
+    expect(screen.queryByText("editorToolbar.export")).toBeNull();
+    expect(shareProps.agentTabContent).toBeUndefined();
     // The host owns navigation and chat.
     expect(screen.queryByTestId("agent-toggle")).toBeNull();
     expect(screen.queryByTestId("runs-tray")).toBeNull();
@@ -1121,12 +1148,11 @@ describe("<EditorToolbar>", () => {
     const shareButtonProps = shareButtonCalls.at(-1)?.[0];
 
     expect(shareButtonProps?.shareUrl).toBeUndefined();
-    expect(shareButtonProps?.showShareLinks).toBe(false);
+    expect(shareButtonProps?.secondaryShareUrl).toContain("/deck/deck-1");
+    expect(shareButtonProps?.showShareLinks).toBe(true);
   });
 
-  it("delegates Present so the editor can flush pending changes first", () => {
-    const onPresent = vi.fn();
-
+  it("offers the editor and presentation links and an Agents tab", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
@@ -1141,119 +1167,219 @@ describe("<EditorToolbar>", () => {
           onOpenAssetLibrary={vi.fn()}
           onShowHistory={vi.fn()}
           panelAnchorRef={createRef<HTMLDivElement>()}
-          onPresent={onPresent}
         />
       </TooltipProvider>,
     );
 
-    const presentLink = screen.getByText("editorToolbar.present").closest("a");
-    expect(presentLink).not.toBeNull();
-    fireEvent.click(presentLink!);
+    const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
+    expect(shareProps.shareUrlLabel).toBe("editorToolbar.editorLink");
+    expect(shareProps.shareUrl).toContain("/deck/deck-1");
+    expect(shareProps.secondaryShareUrlLabel).toBe(
+      "editorToolbar.presentationLink",
+    );
+    expect(shareProps.secondaryShareUrl).toContain("/p/deck-1");
+    expect(shareProps.agentTabContent).toBeTruthy();
+    // The links close the People tab, after who has access.
+    expect(shareProps.shareUrlPlacement).toBe("bottom");
+    expect(shareProps.peopleAccessLabel).toBe("share.whoHasAccess");
+  });
+
+  it("puts the presentation link first for a public deck", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={{ ...deckWithSlides, visibility: "public" }}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          panelAnchorRef={createRef<HTMLDivElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
+    expect(shareProps.shareUrlLabel).toBe("editorToolbar.presentationLink");
+    expect(shareProps.secondaryShareUrlLabel).toBe("editorToolbar.editorLink");
+  });
+
+  const presentToolbar = (
+    props: Partial<ComponentProps<typeof EditorToolbar>> = {},
+  ) => (
+    <TooltipProvider>
+      <EditorToolbar
+        deck={deckWithSlides}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onTitleChange={vi.fn()}
+        currentSlideIndex={0}
+        sidebarOpen={true}
+        onToggleSidebar={vi.fn()}
+        onGenerateImage={vi.fn()}
+        onOpenAssetLibrary={vi.fn()}
+        onShowHistory={vi.fn()}
+        panelAnchorRef={createRef<HTMLDivElement>()}
+        {...props}
+      />
+    </TooltipProvider>
+  );
+
+  it("keeps native Present navigation when no owner is provided", async () => {
+    render(presentToolbar());
+    await openPresentMenu();
+
+    expect(
+      screen
+        .getByRole("menuitem", { name: "editorToolbar.presentFullScreen" })
+        .getAttribute("href"),
+    ).toBe("/deck/deck-1/present?slide=1");
+    expect(
+      screen
+        .getByRole("menuitem", { name: "editorToolbar.presentInTab" })
+        .getAttribute("href"),
+    ).toBe("/deck/deck-1/present?slide=1&fullscreen=0");
+    expect(
+      screen.getByRole("menuitem", {
+        name: /editorToolbar\.presentPresenterView/,
+      }),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    ["editorToolbar.presentInTab", "window"],
+    ["editorToolbar.presentFullScreen", "fullscreen"],
+  ])(
+    "delegates %s so the editor can flush pending changes first",
+    async (name, mode) => {
+      const onPresent = vi.fn();
+      render(presentToolbar({ onPresent }));
+      await openPresentMenu();
+
+      const event = createEvent.click(screen.getByRole("menuitem", { name }));
+      fireEvent(screen.getByRole("menuitem", { name }), event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(onPresent).toHaveBeenCalledTimes(1);
+      expect(onPresent).toHaveBeenCalledWith({ mode });
+    },
+  );
+
+  it("starts Presenter View through the Present owner", async () => {
+    const onPresent = vi.fn();
+    render(presentToolbar({ onPresent }));
+    await openPresentMenu();
+
+    fireEvent.click(
+      screen.getByRole("menuitem", {
+        name: /editorToolbar\.presentPresenterView/,
+      }),
+    );
 
     expect(onPresent).toHaveBeenCalledTimes(1);
+    expect(onPresent).toHaveBeenCalledWith({ mode: "presenter" });
   });
 
-  it("flushes before modified and auxiliary Present clicks without hijacking them", () => {
-    const onPresent = vi.fn();
+  it.each([
+    ["a modified click", { metaKey: true }],
+    ["a middle click", { button: 1 }],
+  ])(
+    "flushes before %s on a Present link without hijacking it",
+    async (_label, eventInit) => {
+      const onPresent = vi.fn();
+      render(presentToolbar({ onPresent }));
+      await openPresentMenu();
 
-    render(
-      <TooltipProvider>
-        <EditorToolbar
-          deck={deckWithSlides}
-          deckId="deck-1"
-          deckTitle="Test deck"
-          onTitleChange={vi.fn()}
-          currentSlideIndex={0}
-          sidebarOpen={true}
-          onToggleSidebar={vi.fn()}
-          onGenerateImage={vi.fn()}
-          onOpenAssetLibrary={vi.fn()}
-          onShowHistory={vi.fn()}
-          panelAnchorRef={createRef<HTMLDivElement>()}
-          onPresent={onPresent}
-        />
-      </TooltipProvider>,
-    );
+      const link = screen.getByRole("menuitem", {
+        name: "editorToolbar.presentInTab",
+      });
+      const event = createEvent.click(link, eventInit);
+      fireEvent(link, event);
 
-    const presentLink = screen.getByText("editorToolbar.present").closest("a");
-    expect(presentLink).not.toBeNull();
-
-    for (const eventInit of [{ metaKey: true }, { button: 1 }]) {
-      const event = createEvent.click(presentLink!, eventInit);
-      fireEvent(presentLink!, event);
       expect(event.defaultPrevented).toBe(false);
-    }
+      expect(onPresent).toHaveBeenCalledTimes(1);
+      expect(onPresent).toHaveBeenCalledWith({
+        preserveNativeNavigation: true,
+        mode: "window",
+      });
+    },
+  );
+
+  it("ignores auxiliary clicks other than the middle button on a Present link", async () => {
+    const onPresent = vi.fn();
+    render(presentToolbar({ onPresent }));
+    await openPresentMenu();
 
     fireEvent(
-      presentLink!,
+      screen.getByRole("menuitem", { name: "editorToolbar.presentFullScreen" }),
       new MouseEvent("auxclick", { bubbles: true, button: 2 }),
     );
 
-    expect(onPresent).toHaveBeenCalledTimes(2);
-    expect(onPresent).toHaveBeenNthCalledWith(1, {
-      preserveNativeNavigation: true,
-    });
-    expect(onPresent).toHaveBeenNthCalledWith(2, {
-      preserveNativeNavigation: true,
-    });
+    expect(onPresent).not.toHaveBeenCalled();
   });
 
-  it("lets the Present owner prevent native navigation when it opens a waiting tab", () => {
+  it("lets the Present owner prevent native navigation when it opens a waiting tab", async () => {
     const onPresent = vi.fn(() => true);
+    render(presentToolbar({ onPresent }));
+    await openPresentMenu();
 
-    render(
-      <TooltipProvider>
-        <EditorToolbar
-          deck={deckWithSlides}
-          deckId="deck-1"
-          deckTitle="Test deck"
-          onTitleChange={vi.fn()}
-          currentSlideIndex={0}
-          sidebarOpen={true}
-          onToggleSidebar={vi.fn()}
-          onGenerateImage={vi.fn()}
-          onOpenAssetLibrary={vi.fn()}
-          onShowHistory={vi.fn()}
-          panelAnchorRef={createRef<HTMLDivElement>()}
-          onPresent={onPresent}
-        />
-      </TooltipProvider>,
-    );
-
-    const presentLink = screen.getByText("editorToolbar.present").closest("a");
-    expect(presentLink).not.toBeNull();
-
-    const event = createEvent.click(presentLink!, { metaKey: true });
-    fireEvent(presentLink!, event);
+    const link = screen.getByRole("menuitem", {
+      name: "editorToolbar.presentFullScreen",
+    });
+    const event = createEvent.click(link, { metaKey: true });
+    fireEvent(link, event);
 
     expect(event.defaultPrevented).toBe(true);
     expect(onPresent).toHaveBeenCalledWith({
       preserveNativeNavigation: true,
+      mode: "fullscreen",
     });
   });
 
-  it("keeps native Present navigation when no owner is provided", () => {
+  it.each([
+    ["private", "editorToolbar.privacyPrivate"],
+    ["org", "editorToolbar.privacyOrg"],
+    ["public", "editorToolbar.privacyPublic"],
+  ] as const)(
+    "shows a %s deck's privacy next to its name",
+    (visibility, label) => {
+      render(presentToolbar({ deck: { ...deckWithSlides, visibility } }));
+
+      expect(screen.getByText(label)).toBeTruthy();
+    },
+  );
+
+  it("shows no privacy badge until the deck's visibility is known", () => {
     render(
-      <TooltipProvider>
-        <EditorToolbar
-          deck={deckWithSlides}
-          deckId="deck-1"
-          deckTitle="Test deck"
-          onTitleChange={vi.fn()}
-          currentSlideIndex={0}
-          sidebarOpen={true}
-          onToggleSidebar={vi.fn()}
-          onGenerateImage={vi.fn()}
-          onOpenAssetLibrary={vi.fn()}
-          onShowHistory={vi.fn()}
-          panelAnchorRef={createRef<HTMLDivElement>()}
-        />
-      </TooltipProvider>,
+      presentToolbar({ deck: { ...deckWithSlides, visibility: undefined } }),
     );
 
-    const presentLink = screen.getByText("editorToolbar.present").closest("a");
-    expect(presentLink?.getAttribute("href")).toBe(
-      "/deck/deck-1/present?slide=1",
+    expect(screen.queryByText(/editorToolbar\.privacy/)).toBeNull();
+  });
+
+  it("keeps the Layers toggle out of the top bar", () => {
+    render(
+      presentToolbar({
+        currentSlide: deckWithSlides.slides[0],
+        onToggleLayers: vi.fn(),
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "editorToolbar.layers" }),
+    ).toBeNull();
+  });
+
+  it("offers Export outside the widget, even to a viewer", () => {
+    render(presentToolbar({ canEdit: false }));
+
+    expect(screen.getByText("editorToolbar.export")).toBeTruthy();
+    expect(mocks.exportDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ hasSlides: true }),
     );
   });
 });

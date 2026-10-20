@@ -481,7 +481,7 @@ test("the frame + offers the next built-in breakpoint and skips one equal to the
   ).toHaveAttribute("title", "Add Desktop breakpoint (1280px) to all screens");
 });
 
-test("screen overview keeps compact frame actions contained when header space is tight", async ({
+test("screen overview keeps frame labels contained when header space is tight", async ({
   app,
 }) => {
   await openFixture(app);
@@ -500,10 +500,7 @@ test("screen overview keeps compact frame actions contained when header space is
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, 300);
   await page.keyboard.up("Control");
-  await expect(screenShell.locator("[data-frame-full-view]")).toHaveAttribute(
-    "data-compact",
-    "true",
-  );
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveCount(0);
   let previous = "";
   await expect
     .poll(async () => {
@@ -519,13 +516,9 @@ test("screen overview keeps compact frame actions contained when header space is
   const titleBox = (await screenShell
     .locator("[data-frame-title]")
     .boundingBox())!;
-  const fullViewBox = (await screenShell
-    .locator("[data-frame-full-view]")
-    .boundingBox())!;
   expect(titleBox.width).toBeGreaterThan(0);
-  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(fullViewBox.x + 1);
-  expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x);
-  expect(fullViewBox.x + fullViewBox.width).toBeLessThanOrEqual(
+  expect(titleBox.x).toBeGreaterThanOrEqual(cardBox.x - 1);
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(
     cardBox.x + cardBox.width + 1,
   );
 });

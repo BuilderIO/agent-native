@@ -1416,8 +1416,21 @@ const overrides = {
     searchLanguages: "言語を検索...",
     noBlocksFields:
       "Blocks フィールドがありません。プロパティメニューから追加してください。",
-    reorderField: "{{name}} を並べ替え",
-    toggleField: "{{name}} を切り替え",
+    addBlockField: "フィールドを追加",
+    blockFieldChanged: "前回の表示以降に変更されました",
+    blockFieldTabs: "フィールド",
+    blockFieldMenu: "{{name}} のオプション",
+    blockFieldMenuScope: "このコレクションのすべての行で共通",
+    blockFieldName: "フィールド名",
+    renameBlockField: "名前を変更",
+    renameBlockFieldFailed: "フィールドの名前を変更できませんでした",
+    deleteBlockField: "削除",
+    deleteBlockFieldFailed: "フィールドを削除できませんでした",
+    deleteBlockFieldQuestion: "「{{name}}」を削除しますか?",
+    deleteBlockFieldDescription:
+      "このコレクションのすべての行から「{{name}}」とそのテキストが削除されます。元に戻すことはできません。",
+    deleteBlockFieldBodyWarning:
+      "「{{name}}」はページ本文のため、すべての行の本文も削除されます。",
   },
   comments: {
     add: "コメントを追加...",

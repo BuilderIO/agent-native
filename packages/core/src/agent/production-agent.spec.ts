@@ -38,10 +38,12 @@ import {
   pngBase64OfAtLeast,
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
+import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
@@ -208,6 +210,9 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
+const mockRunManagerFlush = vi.hoisted(() => ({
+  onFlush: undefined as (() => Promise<void>) | undefined,
+}));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -258,11 +263,24 @@ vi.mock("./run-manager.js", async () => {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
       const [runId, threadId, runFn, onComplete, options] = args;
-      return actual.startRun(runId, threadId, runFn, onComplete, {
-        ...options,
-        executionLease: false,
-        persistEvent: async () => {},
-      });
+      return actual.startRun(
+        runId,
+        threadId,
+        (send, signal, control) =>
+          runFn(send, signal, {
+            ...control,
+            flushEvents: async () => {
+              await mockRunManagerFlush.onFlush?.();
+              await control.flushEvents();
+            },
+          }),
+        onComplete,
+        {
+          ...options,
+          executionLease: false,
+          persistEvent: async () => {},
+        },
+      );
     },
     tryClaimRunSlot: mockTryClaimRunSlot,
     getSlotHoldingRunId: mockGetSlotHoldingRunId,
@@ -432,7 +450,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
-  options?: { threadId: string; turnId: string },
+  options?: { threadId?: string; turnId?: string; messages?: EngineMessage[] },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -3255,12 +3273,12 @@ describe("buildUserContentWithAttachments", () => {
       }
     });
 
-    it("still throws an error that is not about the schema", () => {
+    it("leaves out an action whose parameters cannot be read", () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        expect(() =>
+        expect(
           actionsToEngineTools({
             "list-notes": listNotes,
             "pick-note": {
@@ -3282,8 +3300,61 @@ describe("buildUserContentWithAttachments", () => {
               },
               run: async () => ({}),
             },
-          }),
-        ).toThrow("parameters exploded");
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls).toContainEqual([
+          `[agent] Action "read-note" is left out of the agent's tools: its input schema could not be converted: parameters exploded at /.`,
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("reports a verdict whose reason or path is not text", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const withVerdict = (malform: (failure: any) => void) => {
+        const failure = new UnusableSchemaError("/safe", "not usable");
+        malform(failure);
+        return defineAction({
+          description: "Malformed verdict",
+          schema: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: (value: unknown) => ({ value }),
+              jsonSchema: {
+                input: () => {
+                  throw failure;
+                },
+              },
+            },
+          } as never,
+          run: async () => ({}),
+        });
+      };
+      try {
+        expect(
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "number-reason": withVerdict((failure) => (failure.reason = 123)),
+            "number-path": withVerdict((failure) => (failure.path = 123)),
+            "object-reason": withVerdict(
+              (failure) =>
+                (failure.reason = {
+                  replace() {
+                    throw new Error("/_agent-native/embed/start?ticket=x");
+                  },
+                }),
+            ),
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls.map(([line]) => line)).toEqual([
+          `[agent] Action "number-reason" is left out of the agent's tools: its input schema 123 at /safe.`,
+          `[agent] Action "number-path" is left out of the agent's tools: its input schema not usable at 123.`,
+          `[agent] Action "object-reason" is left out of the agent's tools: its input schema [not text] at /safe.`,
+        ]);
       } finally {
         consoleError.mockRestore();
       }
@@ -4087,7 +4158,22 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    const runAction = vi.fn(async () => "sent");
+    let releaseFlush = () => {};
+    let flushStarted = false;
+    let flushCompleted = false;
+    let actionStartedBeforeFlush = false;
+    const flushGate = new Promise<void>((resolve) => {
+      releaseFlush = resolve;
+    });
+    mockRunManagerFlush.onFlush = async () => {
+      flushStarted = true;
+      await flushGate;
+      flushCompleted = true;
+    };
+    const runAction = vi.fn(async () => {
+      actionStartedBeforeFlush = !flushCompleted;
+      return "sent";
+    });
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
     const engine: AgentEngine = {
@@ -4101,6 +4187,7 @@ describe("createProductionAgentHandler", () => {
         yield { type: "stop", reason: "end_turn" };
       },
     };
+    let responseText: Promise<string> | undefined;
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine,
@@ -4165,9 +4252,14 @@ describe("createProductionAgentHandler", () => {
         () => handler(event),
       );
       expect(response).toBeInstanceOf(ReadableStream);
-      if (response instanceof ReadableStream) {
-        await new Response(response).text();
-      }
+      responseText =
+        response instanceof ReadableStream
+          ? new Response(response).text()
+          : Promise.resolve("");
+      await vi.waitFor(() => expect(flushStarted).toBe(true));
+      expect(runAction).not.toHaveBeenCalled();
+      releaseFlush();
+      await responseText;
       await vi.waitFor(() => expect(completedRun).toBeDefined());
 
       expect(resolveApproval).toHaveBeenCalledWith(
@@ -4178,6 +4270,7 @@ describe("createProductionAgentHandler", () => {
       );
       expect(consumeApproval).toHaveBeenCalledOnce();
       expect(runAction).toHaveBeenCalledOnce();
+      expect(actionStartedBeforeFlush).toBe(false);
       const continuedMessages = modelMessages.find((messages) =>
         messages.some(
           (message) =>
@@ -4211,6 +4304,9 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
+      releaseFlush();
+      await responseText?.catch(() => {});
+      mockRunManagerFlush.onFlush = undefined;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -12476,6 +12572,136 @@ describe("runAgentLoop", () => {
     );
   });
 
+  describe("provider-api-request POST retries", () => {
+    const providerRequestAction = (
+      executeRequest: (args: unknown) => Promise<unknown>,
+    ): ActionEntry => ({
+      ...actionEntry({}),
+      ...createProviderApiRequestAction({
+        executeRequest: executeRequest as never,
+      }),
+    });
+    const rejected = {
+      response: { ok: false, status: 400, statusText: "Bad Request", json: {} },
+    };
+    const accepted = {
+      response: { ok: true, status: 200, json: { rows: [] } },
+    };
+
+    it("retries a failed GA4 report with corrected arguments", async () => {
+      const executeRequest = vi
+        .fn()
+        .mockResolvedValueOnce(rejected)
+        .mockResolvedValueOnce(accepted);
+      const report = (dimension: string) => ({
+        provider: "ga4",
+        method: "POST",
+        path: "/properties/{propertyId}:runReport",
+        body: { dimensions: [{ name: dimension }] },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: report("sessionSourc") },
+          { name: "provider-api-request", input: report("sessionSource") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(2);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ outcomeUnknown: true }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
+
+    it("still stops after a failed POST that may have written", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      const create = (email: string) => ({
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email } },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: create("a@example.com") },
+          { name: "provider-api-request", input: create("b@example.com") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    });
+
+    it("runs the write again when the user replies continue in a new turn", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(accepted);
+      const input = {
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email: "a@example.com" } },
+      };
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "add the contact" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "earlier-create",
+              name: "provider-api-request",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "earlier-create",
+              toolName: "provider-api-request",
+              content: "Error running provider-api-request: timed out",
+              isError: true,
+              outcome: "unknown",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: 'I stopped before running provider-api-request again. Reply "continue" and I will verify it.',
+            },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ];
+
+      const events = await runToolCallSequence(
+        [{ name: "provider-api-request", input }],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+        { messages },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
+  });
+
   it("resets other tools' repeat-error counts after a successful write", async () => {
     const keyedFailure = vi.fn(async () => fail("same failure"));
     const variedFailure = vi.fn(async () => fail("same failure"));
@@ -12976,6 +13202,160 @@ describe("runAgentLoop", () => {
         type: "tool_done",
         tool: "get-meeting",
         result: "Error running get-meeting: No such meeting",
+      }),
+    );
+  });
+
+  it("gives the model the details a fail() attached", async () => {
+    let streamCalls = 0;
+    let secondRequest = "";
+    const run = vi.fn(async () => {
+      fail("A transcript import is already running", {
+        errorCode: "import_in_progress",
+        statusCode: 409,
+        details: { importId: "imp_1", apiKey: "SENSITIVE_VALUE" },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          secondRequest = JSON.stringify(options.messages);
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "import-transcript",
+              input: { recordingId: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "import-transcript": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const expected =
+      "Error running import-transcript: A transcript import is already running (errorCode: import_in_progress)\n" +
+      'Error details: {"importId":"imp_1","apiKey":"[REDACTED]"}';
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "import-transcript",
+        result: expected,
+      }),
+    );
+    expect(secondRequest).toContain(JSON.stringify(expected).slice(1, -1));
+    expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
+  });
+
+  it("still stops a repeated failure whose details change on every attempt", async () => {
+    let streamCalls = 0;
+    let attempts = 0;
+    const run = vi.fn(async () => {
+      attempts += 1;
+      fail("Recording rec_1 is still processing", {
+        errorCode: "recording_processing",
+        details: { attempt: attempts, checkedAt: `t${attempts}` },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated action failures stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `tool-repeat-${streamCalls}`,
+              name: "get-recording",
+              input: { id: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-recording": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-recording",
+        result: expect.stringMatching(
+          /^Stopped after 3 identical errors[\s\S]*\nError details: \{"attempt":3,"checkedAt":"t3"\}$/,
+        ),
       }),
     );
   });

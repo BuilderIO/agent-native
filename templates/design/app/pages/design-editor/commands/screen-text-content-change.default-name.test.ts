@@ -202,43 +202,31 @@ describe("runScreenTextContentChange rejected live-snapshot write", () => {
   });
 });
 
-describe("runScreenTextContentChange acceptance after a source transition", () => {
-  it("reports an accepted live-snapshot write as accepted, with no source readback", () => {
+describe("runScreenTextContentChange on a running app screen", () => {
+  it("records a fusion screen's text edit as a pending live edit for the app's source", () => {
+    // A fusion screen is a dev server behind a cloud URL, like localhost: its
+    // text lives in the app's source, so the edit becomes a pending handoff
+    // instead of a write into a local snapshot that never reaches source.
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text">Before</div></body>`;
-    const capturedWhileLocalhost = { [SCREEN_ID]: { html: content } as never };
-    const liveFileIds = new Set([SCREEN_ID]);
-    const retainedAfterTransition = Object.fromEntries(
-      Object.entries(capturedWhileLocalhost).filter(([fileId]) =>
-        liveFileIds.has(fileId),
-      ),
-    );
-    expect(retainedAfterTransition[SCREEN_ID]).toBeDefined();
-
     const { args } = buildArgs(content, true);
-    const confirm = vi.fn();
+    const recordPendingLiveTextEdit = vi.fn();
     const getScreenContent = vi.fn(() => content);
-    const transitioned: ScreenTextContentChangeArgs = {
+    const fusionScreen: ScreenTextContentChangeArgs = {
       ...args,
       getScreenContent,
       overviewScreens: [{ id: SCREEN_ID, sourceType: "fusion" } as never],
-      liveScreenSnapshotsById: retainedAfterTransition,
-      updateLiveScreenSnapshotContent: () => true,
-      prepareTextCreationFinalization: () => ({
-        isCreationCommit: true,
-        historyHandled: true,
-        confirm,
-      }),
+      recordPendingLiveTextEdit,
     };
 
     const status = runScreenTextContentChange(
-      transitioned,
+      fusionScreen,
       SCREEN_ID,
       `[data-agent-native-node-id="t1"]`,
       "Standalone",
     );
 
     expect(status).toBe("accepted");
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(recordPendingLiveTextEdit).toHaveBeenCalledOnce();
     expect(getScreenContent).not.toHaveBeenCalled();
   });
 });
