@@ -1820,7 +1820,7 @@ const messages = {
     unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
     takeScreenshot: "스크린샷 찍기",
-    importLoom: "Import Loom (현지화됨)",
+    importLoom: "동영상 가져오기",
     importing: "Importing... (현지화됨)",
     import: "Import (현지화됨)",
     recordNew: "새로 녹화",
@@ -2066,8 +2066,8 @@ const messages = {
       "이 녹화는 아직 처리 중이므로 Clips가 사본을 여기에 보관했습니다. 기다리거나 다시 업로드하세요.",
   },
   importRoute: {
-    pageTitle: "Loom 가져오기 — Clips",
-    title: "Loom 가져오기",
+    pageTitle: "동영상 가져오기 — Clips",
+    title: "동영상 가져오기",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "가져오기",
     helperText:

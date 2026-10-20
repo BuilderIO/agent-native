@@ -3,10 +3,33 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-19
+## 2026-10-20
+
+### Improved
+
+- Suggested prompts and the quieter Skip prompt action now share one row.
 
 ### Fixed
 
+- Public Design viewers no longer see repeated PNG export errors
+- Design resizes more high-resolution reference images before adding them to a prompt.
+- Review menus no longer trigger canvas gestures, and rewrite previews and proposal controls follow the uniquely resolved target.
+- The Design home chat keeps its model picker visible while readiness checks run.
+
+## 2026-10-19
+
+### Added
+
+- Motion shows a layer's animation as read-only CSS or data in the Animations section, and it updates as you edit the timeline.
+- Right-click selected layers to add an animation, and the Animations add button now lists every animation style in one menu.
+
+### Improved
+
+- Text stagger has a settings panel with overlap, order, crop and pivot, and an effects list where each effect can be added, hidden, or removed.
+
+### Fixed
+
+- Comment mode no longer selects or hovers the design underneath, and pan and zoom work while commenting.
 - Text color adapts when layers move between screens with different backgrounds
 - Text keeps readable contrast when moved between screens with different backgrounds.
 
@@ -48,13 +71,26 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-16
 
+### Added
+
+- Create custom WebGPU shaders from the Shader picker with AI
+
 ### Improved
 
+- Animated shader fills render together more efficiently and pause work outside the visible canvas.
+- Shader property sliders preview changes while dragging
 - Canvas selection, layer controls, text insertion, grouping, and auto-layout behave more predictably.
 - The Gap field shows its whole value; the advanced gap button now sits beside the Gap label
 
 ### Fixed
 
+- Export selected shader frames and Liquid Glass as transparent PNGs at the chosen scale
+- Glass backdrops and animated shaders stay stable on large Design canvases
+- Hidden layers no longer interrupt effects on visible layers
+- New Glowing Waves, Lens Distortion, and Water shaders preserve their appearance as the canvas zoom changes
+- Pasted SVGs keep their position inside freeform frames
+- Shader fills stay visible when frames are wrapped or moved into auto layout
+- Shader previews remain active when the canvas viewport changes
 - A layer copied onto another screen keeps its original style text instead of rewriting its colors and spacing
 - A layer moved to another screen keeps the font it inherited when it sets only part of it, such as its weight
 - A new text box is named after everything you typed, even when you started typing before it opened for editing
@@ -80,11 +116,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Nebula and Glowing Waves join the editable WebGPU fill library.
+- The Design shader picker now includes a broader library of original WebGPU textures, patterns, and effects with editable controls.
+- Liquid Glass refracts the backdrop through rounded layers and SVG logos with shared effect controls
 - Drawing a frame around layers with the Frame tool now wraps the layers it fully encloses, without moving them.
 - External Design agents can delete screens when you ask them.
 
 ### Improved
 
+- Liquid Metal reflects moving studio light across a continuous silver surface
+- Liquid Metal gains smooth reflective cells, broad white reflections, and crisp chromatic ribbons.
+- Liquid Metal has independent Tint and Fill controls, with solid colors and spatial gradients edited through the shared color picker.
 - Animation controls align with the inspector edge
 - Animation recipes preserve their full duration at the timeline endpoint
 - Animation style browser now aligns beside the inspector.
@@ -95,6 +137,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Liquid Metal flows and deforms in place instead of sliding a fixed pattern across the layer.
+- Liquid Metal flows through curved chrome bands with tight multicolor rims
+- Liquid Metal reflections wrap around SVG shapes.
+- Native shader fills follow SVG artwork, including transparent gaps and layered paints.
+- Pasted SVG artwork no longer hides native shader fills and effects.
+- SVG artwork stays sharp when zooming in on the canvas
 - A layer dropped on the empty part of a box that already has content stays where you release it
 - A localhost screen hides "Preparing the live editor…" as soon as its editor is ready instead of waiting for its slowest image.
 - A screen that links one of the design's CSS files with a stylesheet link now shows those styles on the canvas.
@@ -131,8 +179,19 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-14
 
+### Added
+
+- Add Liquid Metal, Fluted Glass, Image Dithering, and Waves to the shader library
+- Apply curated WebGPU fills and effects to Design layers and export their rendered frames as PNGs
+- Native fills can stack multiple shader layers while keeping CSS fills in their own ordered group.
+
 ### Improved
 
+- Choose each native shader once and customize its parameters.
+- Liquid Metal adds flowing contours, sharper reflections, and adjustable color separation with percentage and angle controls.
+- Mesh Gradient now blends four deliberate color points into a smoother animated field.
+- Native shader choices now show visual previews and use the same color controls as other fills.
+- Shader controls use familiar units and reliable numeric editing, Liquid Metal has smoother reflections, and duplicating layers preserves their shader stacks
 - Text layers show one Text option for adding staggered motion.
 - Design Motion keeps supported React and HTML motion edits in sync with their source code.
 - Motion can import supported inline CSS keyframes and round-trip them through the timeline editor.
@@ -142,6 +201,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Static content extending beyond the viewport no longer prevents shader effects from rendering.
 - A failed live snapshot of a URL screen now names the page that failed instead of showing the bridge's raw JSON.
 - A layer dragged away and back to where it started no longer rewrites its style
 - A save rejected as out of date is no longer sent again after you reload the editor.
