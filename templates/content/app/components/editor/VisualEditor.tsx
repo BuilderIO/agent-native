@@ -3780,9 +3780,16 @@ export function VisualEditor({
     const merge = () => {
       const request = externalContentRef.current;
       if (editor.isDestroyed || request?.key !== externalContentKey) return;
-      // A slash command or an upload in progress isn't reported yet.
+      // A slash command or an upload in progress isn't reported yet, and
+      // changing the text mid-composition (an IME) breaks the word being
+      // composed.
       const live = editable ? serializeEditorDraftForPersistence(editor) : null;
-      if (editable && (live === null || isActiveSlashCommandDraft(editor))) {
+      if (
+        editable &&
+        (live === null ||
+          isActiveSlashCommandDraft(editor) ||
+          editor.view.composing)
+      ) {
         retry = setTimeout(merge, 300);
         return;
       }

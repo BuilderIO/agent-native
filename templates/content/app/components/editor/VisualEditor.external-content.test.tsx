@@ -135,6 +135,25 @@ describe("VisualEditor external content", () => {
     expect(merge).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for an input method to finish composing before merging", async () => {
+    await act(async () => render(null));
+    const editor = liveEditor();
+    let composing = true;
+    vi.spyOn(editor.view, "composing", "get").mockImplementation(
+      () => composing,
+    );
+    const merge = vi.fn(() => null);
+
+    await act(async () => render({ key: "11:1", merge }));
+    expect(merge).not.toHaveBeenCalled();
+
+    composing = false;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    expect(merge).toHaveBeenCalledTimes(1);
+  });
+
   it("reports no typed text from an editor that can't be edited", async () => {
     await act(async () => render(null, false));
     const merge = vi.fn(() => "Theirs");
