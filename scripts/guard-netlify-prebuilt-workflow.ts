@@ -987,7 +987,11 @@ const hasOfflineSecretFreePreviewBuild =
   ) &&
   clipsBuild.includes("netlify api getEnvVars") &&
   clipsBuild.includes('\\"scope\\":\\"builds\\"') &&
-  clipsBuild.includes("scripts/netlify-prebuilt-build.ts");
+  clipsBuild.includes("scripts/netlify-prebuilt-build.ts") &&
+  clipsBuild.includes(
+    "BUILD_BRANCH: ${{ inputs.target == 'beta' && inputs.build_context == 'branch-deploy' && 'main' || '' }}",
+  ) &&
+  clipsBuild.includes('build_options+=(--branch "$BUILD_BRANCH")');
 if (!hasOfflineSecretFreePreviewBuild) {
   issues.push(
     `${reusablePath} must use Netlify offline mode for the secret-free PR build`,

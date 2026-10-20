@@ -5,10 +5,12 @@ import { pathToFileURL } from "node:url";
 
 type NetlifyEnvironmentValue = {
   context?: unknown;
+  context_parameter?: unknown;
   value?: unknown;
 };
 
 type NetlifyEnvironmentVariable = {
+  is_secret?: unknown;
   key?: unknown;
   scopes?: unknown;
   values?: unknown;
@@ -21,8 +23,12 @@ export function resolveNetlifyBuildEnvironment(
   variables: unknown,
   context: string,
   inheritedEnvironment: NodeJS.ProcessEnv = process.env,
+  branch?: string,
 ): NodeJS.ProcessEnv {
   if (!context) throw new Error("Netlify build context is required.");
+  if (context === "branch-deploy" && !branch) {
+    throw new Error("Netlify branch-deploy builds require an explicit branch.");
+  }
   if (!Array.isArray(variables)) {
     throw new Error("Netlify environment response must be an array.");
   }
@@ -34,7 +40,9 @@ export function resolveNetlifyBuildEnvironment(
         typeof candidate.key !== "string" ||
         candidate.key.length === 0 ||
         !Array.isArray(candidate.values) ||
-        (candidate.scopes !== undefined && !Array.isArray(candidate.scopes))
+        (candidate.scopes !== undefined && !Array.isArray(candidate.scopes)) ||
+        (candidate.is_secret !== undefined &&
+          typeof candidate.is_secret !== "boolean")
       ) {
         throw new Error("Netlify returned a malformed environment variable.");
       }
@@ -52,6 +60,24 @@ export function resolveNetlifyBuildEnvironment(
             `Netlify returned malformed values for ${candidate.key}.`,
           );
         }
+        if (
+          value.context_parameter !== undefined &&
+          value.context_parameter !== null &&
+          typeof value.context_parameter !== "string"
+        ) {
+          throw new Error(
+            `Netlify returned malformed context parameters for ${candidate.key}.`,
+          );
+        }
+        if (
+          value.value !== undefined &&
+          value.value !== null &&
+          typeof value.value !== "string"
+        ) {
+          throw new Error(
+            `Netlify returned a non-string value for ${candidate.key}.`,
+          );
+        }
       }
       return candidate as NetlifyEnvironmentVariable;
     })
@@ -67,10 +93,70 @@ export function resolveNetlifyBuildEnvironment(
     const scopes = variable.scopes as string[] | undefined;
     if (scopes && !scopes.includes("builds")) continue;
     const values = variable.values as NetlifyEnvironmentValue[];
+    const uniqueMatch = (
+      matches: NetlifyEnvironmentValue[],
+      description: string,
+    ): NetlifyEnvironmentValue | undefined => {
+      if (matches.length > 1) {
+        throw new Error(
+          `Netlify returned ambiguous ${description} values for ${key}.`,
+        );
+      }
+      return matches[0];
+    };
+    const branchValues =
+      context === "branch-deploy"
+        ? values.filter(
+            (value) =>
+              (value.context === "branch" ||
+                value.context === "branch-deploy") &&
+              value.context_parameter === branch,
+          )
+        : [];
+    const branchValue = uniqueMatch(branchValues, `branch ${branch}`);
+    const contextValue = branchValue
+      ? undefined
+      : uniqueMatch(
+          values.filter(
+            (value) =>
+              value.context === context &&
+              (context !== "branch-deploy" ||
+                value.context_parameter === undefined ||
+                value.context_parameter === null),
+          ),
+          `context ${context}`,
+        );
     const selected =
-      values.find((value) => value.context === context) ??
-      values.find((value) => value.context === "all");
-    if (selected?.value === undefined || selected.value === "") continue;
+      branchValue ??
+      contextValue ??
+      uniqueMatch(
+        values.filter((value) => value.context === "all"),
+        "all-context",
+      );
+    if (!selected) continue;
+    if (variable.is_secret === true) {
+      const hasBuildOverride =
+        Boolean(inheritedEnvironment[key]) ||
+        (key === "DATABASE_URL" &&
+          inheritedEnvironment.agentNativePrebuiltBuild === "true" &&
+          Boolean(inheritedEnvironment.agentNativePrebuiltDatabaseUrl)) ||
+        (key === "BETTER_AUTH_SECRET" &&
+          inheritedEnvironment.agentNativePrebuiltBuild === "true" &&
+          Boolean(inheritedEnvironment.agentNativePrebuiltAuthSecret)) ||
+        (key === "ANALYTICS_DATABASE_URL" &&
+          Boolean(inheritedEnvironment.ANALYTICS_DATABASE_URL_SECRET));
+      if (!hasBuildOverride) {
+        throw new Error(
+          `Netlify secret build variable ${key} is masked and has no offline build input.`,
+        );
+      }
+      continue;
+    }
+    if (selected.value === undefined || selected.value === null) {
+      throw new Error(
+        `Netlify returned no payload for selected variable ${key}.`,
+      );
+    }
     if (typeof selected.value !== "string") {
       throw new Error(`Netlify returned a non-string value for ${key}.`);
     }
@@ -81,10 +167,15 @@ export function resolveNetlifyBuildEnvironment(
   for (const [key, value] of Object.entries(inheritedEnvironment)) {
     if (value !== undefined) buildEnvironment[key] = value;
   }
-  return { ...buildEnvironment, ...siteEnvironment };
+  const environment = { ...buildEnvironment, ...siteEnvironment };
+  if (context === "branch-deploy" && branch) {
+    environment.NETLIFY_BRANCH = branch;
+  }
+  return environment;
 }
 
 type BuildOptions = {
+  branch?: string;
   envFile: string;
   context: string;
   filter: string;
@@ -105,10 +196,16 @@ function parseOptions(args: string[]): BuildOptions {
   const envFile = options.get("--env-file");
   const context = options.get("--context");
   const filter = options.get("--filter");
-  if (!envFile || !context || !filter || options.size !== 3) {
+  const branch = options.get("--branch");
+  if (!envFile || !context || !filter || options.size !== (branch ? 4 : 3)) {
     throw new Error("Expected --env-file, --context, and --filter.");
   }
-  return { envFile, context, filter };
+  if (context === "branch-deploy" && !branch) {
+    throw new Error("Netlify branch-deploy builds require --branch.");
+  }
+  return branch
+    ? { envFile, context, filter, branch }
+    : { envFile, context, filter };
 }
 
 function main(): void {
@@ -116,7 +213,12 @@ function main(): void {
   let result: ReturnType<typeof spawnSync>;
   try {
     const variables = JSON.parse(readFileSync(options.envFile, "utf8"));
-    const env = resolveNetlifyBuildEnvironment(variables, options.context);
+    const env = resolveNetlifyBuildEnvironment(
+      variables,
+      options.context,
+      process.env,
+      options.branch,
+    );
     result = spawnSync(
       "netlify",
       [

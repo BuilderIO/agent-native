@@ -230,6 +230,145 @@ describe("Netlify offline prebuilt build environment", () => {
     assert.equal(environment.LEGACY_BUILD_VALUE, "value");
   });
 
+  it("selects the requested branch value before branch-deploy and all fallbacks", () => {
+    const environment = resolveNetlifyBuildEnvironment(
+      [
+        {
+          key: "BRANCH_VALUE",
+          scopes: ["builds"],
+          values: [
+            { context: "branch", context_parameter: "beta", value: "beta" },
+            { context: "branch", context_parameter: "main", value: "main" },
+            { context: "branch-deploy", value: "branch-deploy" },
+            { context: "all", value: "all" },
+          ],
+        },
+      ],
+      "branch-deploy",
+      {},
+      "main",
+    );
+
+    assert.equal(environment.BRANCH_VALUE, "main");
+    assert.equal(environment.NETLIFY_BRANCH, "main");
+  });
+
+  it("requires a branch and rejects duplicate values for that branch", () => {
+    assert.throws(
+      () => resolveNetlifyBuildEnvironment([], "branch-deploy", {}),
+      /branch-deploy builds require an explicit branch/,
+    );
+    assert.throws(
+      () =>
+        resolveNetlifyBuildEnvironment(
+          [
+            {
+              key: "BRANCH_VALUE",
+              values: [
+                {
+                  context: "branch",
+                  context_parameter: "main",
+                  value: "one",
+                },
+                {
+                  context: "branch",
+                  context_parameter: "main",
+                  value: "two",
+                },
+              ],
+            },
+          ],
+          "branch-deploy",
+          {},
+          "main",
+        ),
+      /ambiguous branch main values for BRANCH_VALUE/,
+    );
+  });
+
+  it("does not pass masked Netlify secrets without an explicit build input", () => {
+    const maskedSecret = {
+      key: "SENTRY_AUTH_TOKEN",
+      is_secret: true,
+      scopes: ["builds"],
+      values: [{ context: "production", value: "********" }],
+    };
+
+    assert.throws(
+      () => resolveNetlifyBuildEnvironment([maskedSecret], "production", {}),
+      /Netlify secret build variable SENTRY_AUTH_TOKEN is masked/,
+    );
+    const inheritedEnvironment = resolveNetlifyBuildEnvironment(
+      [maskedSecret],
+      "production",
+      { SENTRY_AUTH_TOKEN: "workflow-provided-test-value" },
+    );
+    assert.equal(
+      inheritedEnvironment.SENTRY_AUTH_TOKEN,
+      "workflow-provided-test-value",
+    );
+
+    const environment = resolveNetlifyBuildEnvironment(
+      [
+        {
+          key: "DATABASE_URL",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [{ context: "production", value: "********" }],
+        },
+        {
+          key: "BETTER_AUTH_SECRET",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [{ context: "production", value: "********" }],
+        },
+        {
+          key: "ANALYTICS_DATABASE_URL",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [{ context: "production", value: "********" }],
+        },
+      ],
+      "production",
+      {
+        agentNativePrebuiltBuild: "true",
+        agentNativePrebuiltDatabaseUrl:
+          "postgresql://build-only.invalid/agent_native",
+        agentNativePrebuiltAuthSecret: "test-build-auth-secret",
+        ANALYTICS_DATABASE_URL_SECRET:
+          "postgresql://build-only.invalid/analytics",
+      },
+    );
+
+    assert.equal(environment.DATABASE_URL, undefined);
+    assert.equal(environment.BETTER_AUTH_SECRET, undefined);
+    assert.equal(environment.ANALYTICS_DATABASE_URL, undefined);
+  });
+
+  it("fails when the selected Netlify value has no payload and keeps empty values", () => {
+    assert.throws(
+      () =>
+        resolveNetlifyBuildEnvironment(
+          [
+            {
+              key: "DATABASE_URL",
+              values: [{ context: "production" }],
+            },
+          ],
+          "production",
+          { DATABASE_URL: "inherited-value" },
+        ),
+      /Netlify returned no payload for selected variable DATABASE_URL/,
+    );
+
+    const environment = resolveNetlifyBuildEnvironment(
+      [{ key: "EMPTY_VALUE", values: [{ context: "production", value: "" }] }],
+      "production",
+      {},
+    );
+    assert.equal(environment.EMPTY_VALUE, "");
+  });
+
   it("fails loudly when the Netlify environment response is unreadable", () => {
     assert.throws(
       () =>
@@ -317,6 +456,82 @@ writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
     }
   });
 
+  it("passes the explicit branch to branch-deploy builds", () => {
+    const directory = mkdtempSync(join(tmpdir(), "netlify-branch-build-"));
+    const binaryDirectory = join(directory, "bin");
+    mkdirSync(binaryDirectory);
+    const netlifyPath = join(binaryDirectory, "netlify");
+    const resultPath = join(directory, "result.json");
+    const environmentPath = join(directory, "environment.json");
+    const resultScript = `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
+  args: process.argv.slice(2),
+  branch: process.env.NETLIFY_BRANCH,
+  branchValue: process.env.BRANCH_VALUE,
+}));
+`;
+
+    try {
+      writeFileSync(netlifyPath, resultScript, { mode: 0o755 });
+      writeFileSync(
+        environmentPath,
+        JSON.stringify([
+          {
+            key: "BRANCH_VALUE",
+            values: [
+              {
+                context: "branch",
+                context_parameter: "main",
+                value: "main-value",
+              },
+            ],
+          },
+        ]),
+      );
+
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          "scripts/netlify-prebuilt-build.ts",
+          "--env-file",
+          environmentPath,
+          "--context",
+          "branch-deploy",
+          "--filter",
+          "starter",
+          "--branch",
+          "main",
+        ],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            NETLIFY_TEST_RESULT: resultPath,
+            PATH: `${binaryDirectory}:${process.env.PATH ?? ""}`,
+          },
+          stdio: "pipe",
+        },
+      );
+
+      const result = JSON.parse(readFileSync(resultPath, "utf8"));
+      assert.deepEqual(result.args, [
+        "build",
+        "--context",
+        "branch-deploy",
+        "--filter",
+        "starter",
+        "--offline",
+      ]);
+      assert.equal(result.branch, "main");
+      assert.equal(result.branchValue, "main-value");
+      assert.equal(existsSync(environmentPath), false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("uses explicit environment retrieval for authenticated offline builds", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -329,8 +544,13 @@ writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
     const env = build?.env as Record<string, unknown>;
 
     assert.equal(env.NETLIFY_ACCOUNT_ID, "builder-io");
+    assert.equal(
+      env.BUILD_BRANCH,
+      "${{ inputs.target == 'beta' && inputs.build_context == 'branch-deploy' && 'main' || '' }}",
+    );
     assert.match(run, /netlify api getEnvVars/);
     assert.match(run, /scripts\/netlify-prebuilt-build\.ts/);
+    assert.match(run, /build_options\+=\(--branch "\$BUILD_BRANCH"\)/);
     assert.match(run, /--offline/);
     assert.match(run, /"\$TARGET" == "preview" && "\$DEPLOY" != "true"/);
   });

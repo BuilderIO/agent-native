@@ -688,6 +688,7 @@ jobs:
         if: inputs.migration_only != true && inputs.artifact_download != true
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
+          BUILD_BRANCH: ${{ inputs.target == 'beta' && inputs.build_context == 'branch-deploy' && 'main' || '' }}
           ARTIFACT_DOWNLOAD: ${{ inputs.artifact_download }}
           DEPLOY: ${{ inputs.deploy }}
           NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
@@ -705,6 +706,9 @@ jobs:
           set -euo pipefail
           if [[ "$TARGET" != "preview" || "$DEPLOY" == "true" ]]; then
             : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          fi
+          if [[ "$BUILD_CONTEXT" == "branch-deploy" ]]; then
+            : "${BUILD_BRANCH:?Branch-deploy builds require an explicit branch}"
           fi
           # The Netlify CLI uses DEPLOY_ID=0 during local prebuilt builds. Use
           # the checked-out source revision so fixed auth assets get a new URL
@@ -787,10 +791,15 @@ jobs:
             netlify api getEnvVars \
               --data "{\"account_id\":\"$NETLIFY_ACCOUNT_ID\",\"site_id\":\"$NETLIFY_SITE_ID\",\"scope\":\"builds\"}" \
               > "$build_environment_file"
-            node --experimental-strip-types scripts/netlify-prebuilt-build.ts \
-              --env-file "$build_environment_file" \
-              --context "$BUILD_CONTEXT" \
+            build_options=(
+              --env-file "$build_environment_file"
+              --context "$BUILD_CONTEXT"
               --filter "$SOURCE_TEMPLATE"
+            )
+            if [[ "$BUILD_CONTEXT" == "branch-deploy" ]]; then
+              build_options+=(--branch "$BUILD_BRANCH")
+            fi
+            node --experimental-strip-types scripts/netlify-prebuilt-build.ts "${build_options[@]}"
           fi
           unset ANALYTICS_DATABASE_URL_SECRET
 
