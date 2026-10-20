@@ -27,6 +27,11 @@ export type ConnectedAccountsResult = {
    * belongs to. An empty `accounts` is not evidence of a disconnect without it.
    */
   verified: boolean;
+  /**
+   * Re-checks, cheaply, that nothing about the owner's connections changed
+   * since the lookup. Called inside the clear transaction.
+   */
+  stillCurrent?: () => Promise<boolean>;
 };
 
 export type ResolveConnectedAccounts = (
@@ -176,9 +181,14 @@ export async function clearPair(
   pair: RetentionPair,
   now: number,
   requireInactive: boolean,
+  stillCurrent?: () => Promise<boolean>,
 ): Promise<number | null> {
   return getDb().transaction(async (tx: any) => {
     if (!(await takeOverStaleClaim(tx, pair.syncId, now))) return null;
+    // The sync row is locked now, so a reconnect cannot start syncing it before
+    // this commits. A connection change since the verified lookup aborts the
+    // clear; the next pass looks again.
+    if (stillCurrent && !(await stillCurrent())) return null;
     const claimed = await tx
       .update(schema.mailSyncAccounts)
       .set({
@@ -266,16 +276,25 @@ export async function runInboxRetention(opts: {
   };
 
   const cappedOwners = new Set<string>();
-  const connectedByOwner = new Map<string, Set<string> | null>();
+  const connectedByOwner = new Map<
+    string,
+    { accounts: Set<string>; stillCurrent?: () => Promise<boolean> } | null
+  >();
   const connectedFor = async (ownerEmail: string) => {
     if (!connectedByOwner.has(ownerEmail)) {
-      let verified: Set<string> | null = null;
+      let verified: {
+        accounts: Set<string>;
+        stillCurrent?: () => Promise<boolean>;
+      } | null = null;
       try {
         const result = await opts.resolveConnectedAccounts(ownerEmail);
         if (result.verified === true && result.errors.length === 0) {
-          verified = new Set(
-            result.accounts.map((email) => email.toLowerCase()),
-          );
+          verified = {
+            accounts: new Set(
+              result.accounts.map((email) => email.toLowerCase()),
+            ),
+            stillCurrent: result.stillCurrent,
+          };
         }
       } catch (error) {
         summary.resolverErrors++;
@@ -386,15 +405,17 @@ export async function runInboxRetention(opts: {
       summary.pairsSkippedClaimed++;
       return;
     }
+    let stillCurrent: (() => Promise<boolean>) | undefined;
     if (!pair.inactive) {
       const connected = await connectedFor(pair.ownerEmail);
       if (connected === null) {
         summary.pairsSkippedUnverified++;
         return;
       }
-      if (connected.has(pair.accountEmail)) return;
+      if (connected.accounts.has(pair.accountEmail)) return;
+      stillCurrent = connected.stillCurrent;
     }
-    const removed = await clearPair(pair, now, pair.inactive);
+    const removed = await clearPair(pair, now, pair.inactive, stillCurrent);
     if (removed === null) {
       summary.pairsSkippedActive++;
       return;

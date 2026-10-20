@@ -868,4 +868,38 @@ describe("runInboxRetention (PGlite)", () => {
       kind: "corrupt_state",
     });
   });
+  it("aborts a disconnected-account clear when the owner reconnected after the lookup", async () => {
+    await seedAccount("racer@example.com", "racer-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    let reconnected = false;
+    const resolveConnectedAccounts = vi.fn(async () => ({
+      accounts: [],
+      errors: [],
+      verified: true,
+      // Evaluated inside the clear transaction, after the lookup returned.
+      stillCurrent: async () => !reconnected,
+    }));
+    reconnected = true;
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+
+    expect(summary).toMatchObject({ pairsReset: 0, pairsSkippedActive: 1 });
+    expect(await countRows("racer@example.com", "racer-acct@example.com")).toBe(
+      3,
+    );
+
+    reconnected = false;
+    const again = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+    expect(again).toMatchObject({ pairsReset: 1 });
+    expect(await countRows("racer@example.com", "racer-acct@example.com")).toBe(
+      0,
+    );
+  });
 });

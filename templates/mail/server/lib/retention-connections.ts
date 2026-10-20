@@ -1,16 +1,57 @@
 import { getDbExec } from "@agent-native/core/db";
-import { isMissingOrganizationTableError } from "@agent-native/core/org";
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import { getConnectedAccountsWithErrors } from "./google-auth.js";
 import type { ConnectedAccountsResult } from "./inbox-retention.js";
 
+// Only Postgres' undefined-table error (SQLSTATE 42P01, or its exact relation
+// message when the driver drops the code) means "this deployment has no such
+// table". A missing column or any other schema error is not absence: it fails
+// closed as an unverified lookup.
 function isMissingTable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    isMissingOrganizationTableError(error) ||
-    /does not exist|no such table|undefined_table/i.test(message)
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  const code = e?.code ?? e?.cause?.code;
+  if (typeof code === "string") return code === "42P01";
+  const message = error instanceof Error ? error.message.trim() : "";
+  return /^relation "[^"]+" does not exist$/i.test(message);
+}
+
+// Changes whenever the owner reconnects, disconnects or edits a Gmail
+// connection: row counts and newest update stamps of their OAuth grants and of
+// the workspace Gmail connections in their scopes.
+async function readConnectionFingerprint(
+  owner: string,
+  orgIds: readonly string[],
+): Promise<string> {
+  const parts: string[] = [];
+  const read = async (sql: string, args: unknown[]) => {
+    try {
+      const { rows } = await getDbExec().execute({ sql, args });
+      const row = (rows as any[])[0] ?? {};
+      parts.push(`${row.n ?? 0}/${row.u ?? 0}/${row.r ?? 0}`);
+    } catch (error) {
+      if (!isMissingTable(error)) throw error;
+      parts.push("none");
+    }
+  };
+  await read(
+    `SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), 0) AS u, COALESCE(MAX(revision), 0) AS r
+      FROM public.oauth_tokens WHERE provider = 'google' AND LOWER(owner) = $1`,
+    [owner],
   );
+  const placeholders = orgIds.map((_, index) => `$${index + 2}`);
+  await read(
+    `SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), 0) AS u, 0 AS r
+      FROM public.workspace_connections
+      WHERE provider = 'gmail'
+        AND (LOWER(owner_email) = $1${
+          placeholders.length > 0
+            ? ` OR org_id IN (${placeholders.join(", ")})`
+            : ""
+        })`,
+    [owner, ...orgIds],
+  );
+  return parts.join("|");
 }
 
 // Orgs the owner belongs to. A missing org table means the deployment has no
@@ -74,12 +115,28 @@ export async function resolveConnectedAccountsForRetention(
 
   let orgIds: string[];
   let hasManaged: boolean;
+  let fingerprint: string;
   try {
     orgIds = await readOrgIds(owner);
     hasManaged = await hasGmailWorkspaceConnection(owner, orgIds);
+    // Taken before the lookup, so any change after it shows at the clear.
+    fingerprint = await readConnectionFingerprint(owner, orgIds);
   } catch {
     return unverified("Could not read the owner's organizations.");
   }
+  // Re-checked inside the destructive transaction: a reconnect since the
+  // lookup (or a failure to tell) aborts the clear.
+  const stillCurrent = async () => {
+    try {
+      return (await readConnectionFingerprint(owner, orgIds)) === fingerprint;
+    } catch (error) {
+      // Fail closed: not being able to tell counts as changed, so no clear.
+      console.warn("[inbox-retention] connection re-check failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  };
 
   const accounts = new Set<string>();
   const errors: ConnectedAccountsResult["errors"] = [];
@@ -95,12 +152,13 @@ export async function resolveConnectedAccountsForRetention(
       return unverified("The connected-account lookup failed.");
     }
   }
-  if (errors.length > 0)
+  if (errors.length > 0) {
     return { accounts: [...accounts], errors, verified: false };
+  }
   if (hasManaged && accounts.size === 0) {
     return unverified(
       "The owner has a Gmail workspace connection but the lookup found none.",
     );
   }
-  return { accounts: [...accounts], errors: [], verified: true };
+  return { accounts: [...accounts], errors: [], verified: true, stillCurrent };
 }

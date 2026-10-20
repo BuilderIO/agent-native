@@ -55,7 +55,7 @@ describe("resolveConnectedAccountsForRetention", () => {
 
     const result = await resolveConnectedAccountsForRetention(OWNER);
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       accounts: [MANAGED],
       errors: [],
       verified: true,
@@ -66,7 +66,9 @@ describe("resolveConnectedAccountsForRetention", () => {
   it("verifies an owner with no managed connection and no accounts as disconnected", async () => {
     tables({ orgIds: [], managed: false });
 
-    await expect(resolveConnectedAccountsForRetention(OWNER)).resolves.toEqual({
+    await expect(
+      resolveConnectedAccountsForRetention(OWNER),
+    ).resolves.toMatchObject({
       accounts: [],
       errors: [],
       verified: true,
@@ -110,5 +112,57 @@ describe("resolveConnectedAccountsForRetention", () => {
 
     expect(result.verified).toBe(true);
     expect(mocks.getConnectedAccountsWithErrors).toHaveBeenCalledTimes(1);
+  });
+  it("fails closed on a missing-column error instead of reading it as an absent table", async () => {
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (/FROM org_members/.test(sql)) return { rows: [] };
+      throw Object.assign(new Error('column "org_id" does not exist'), {
+        code: "42703",
+      });
+    });
+
+    const result = await resolveConnectedAccountsForRetention(OWNER);
+
+    expect(result.verified).toBe(false);
+    expect(mocks.getConnectedAccountsWithErrors).not.toHaveBeenCalled();
+  });
+
+  it("treats a message-only column error as unverified too", async () => {
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (/FROM org_members/.test(sql)) return { rows: [] };
+      throw new Error('column "provider" does not exist');
+    });
+
+    await expect(
+      resolveConnectedAccountsForRetention(OWNER),
+    ).resolves.toMatchObject({ verified: false });
+  });
+
+  it("reads SQLSTATE 42P01 as an absent table", async () => {
+    mocks.execute.mockImplementation(async () => {
+      throw Object.assign(new Error("missing"), { code: "42P01" });
+    });
+
+    await expect(
+      resolveConnectedAccountsForRetention(OWNER),
+    ).resolves.toMatchObject({ verified: true });
+  });
+
+  it("reports a reconnect between the lookup and the clear through stillCurrent", async () => {
+    let tokenStamp = 100;
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (/FROM org_members/.test(sql)) return { rows: [] };
+      if (/FROM public\.oauth_tokens/.test(sql)) {
+        return { rows: [{ n: 1, u: tokenStamp, r: tokenStamp }] };
+      }
+      return { rows: [] };
+    });
+
+    const result = await resolveConnectedAccountsForRetention(OWNER);
+    expect(result.verified).toBe(true);
+    await expect(result.stillCurrent?.()).resolves.toBe(true);
+
+    tokenStamp = 200;
+    await expect(result.stillCurrent?.()).resolves.toBe(false);
   });
 });
