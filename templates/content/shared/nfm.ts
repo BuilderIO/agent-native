@@ -3587,6 +3587,29 @@ function opensCellBefore(
   return false;
 }
 
+function findTableCellClose(
+  source: string,
+  closeTag: string,
+  from: number,
+  codeRuns: CodeRuns,
+): number {
+  for (let i = from; i <= source.length - closeTag.length; i++) {
+    // Markdown escapes still shield code/math delimiters, but a literal
+    // backslash cannot escape an HTML cell's closing tag.
+    if (source[i] === "\\" && source[i + 1] !== "<") {
+      i++;
+      continue;
+    }
+    const skipTo = atomicSpanEnd(source, i, codeRuns);
+    if (skipTo !== -1) {
+      i = skipTo - 1;
+      continue;
+    }
+    if (source.startsWith(closeTag, i)) return i;
+  }
+  return -1;
+}
+
 function splitTableCells(source: string): TableLinePart[] {
   const cells: TableLinePart[] = [];
   // An agent may start the next row between two cells or on a line of its
@@ -3598,7 +3621,7 @@ function splitTableCells(source: string): TableLinePart[] {
   };
   // Found by hand, not by one regex: searching from every open tag for a `>`
   // or a close tag the row lacks rescans the rest of it from each one. A
-  // close tag in code or math, or after a backslash, is the cell's text.
+  // close tag in code or math is the cell's text.
   const lastClose = {
     td: source.lastIndexOf("</td>"),
     th: source.lastIndexOf("</th>"),
@@ -3622,7 +3645,7 @@ function splitTableCells(source: string): TableLinePart[] {
     const close =
       lastClose[tag] < contentFrom
         ? -1
-        : findToken(source, closeTag, contentFrom, codeRuns);
+        : findTableCellClose(source, closeTag, contentFrom, codeRuns);
     if (close < 0) {
       // Later open tags of this kind count as unclosed too, so no search
       // runs to the end of the row twice.

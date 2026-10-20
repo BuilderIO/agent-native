@@ -500,6 +500,38 @@ describe("code fences stay mappable", () => {
   });
 });
 describe("text the writer spells in context stays suggestable", () => {
+  it("maps HTML cell text ending in backslashes through canonical spelling", () => {
+    for (const tag of ["td", "th"]) {
+      for (const count of [1, 2, 3, 4]) {
+        const source = `<table>\n<tr><${tag}>C:${"\\".repeat(count)}</${tag}><${tag}>**next**</${tag}></tr>\n</table>`;
+        const alignment = suggestionSourceAlignment(source);
+        expect(alignment).not.toBeNull();
+        const from = source.indexOf("C:");
+        const to = from + 2 + count;
+        const canonicalFrom = alignment!.canonical.indexOf("C:");
+        const canonicalTo = canonicalFrom + 2 + 2 * Math.ceil(count / 2);
+        expect(alignment!.map(from, "stored")).toBe(canonicalFrom);
+        expect(alignment!.map(to, "stored")).toBe(canonicalTo);
+        expect(alignment!.map(canonicalFrom, "canonical")).toBe(from);
+        expect(alignment!.map(canonicalTo, "canonical")).toBe(to);
+        expect(suggestionFormattingSourceSlice(source, from, to)).toEqual([
+          {
+            type: "text",
+            text: `C:${"\\".repeat(Math.ceil(count / 2))}`,
+            marks: [],
+          },
+        ]);
+        const next = source.indexOf("next");
+        expect(alignment!.map(next, "stored")).toBe(
+          alignment!.canonical.indexOf("next"),
+        );
+        expect(suggestionFormattingSourceSlice(source, next, next + 4)).toEqual(
+          [{ type: "text", text: "next", marks: [{ type: "bold" }] }],
+        );
+      }
+    }
+  });
+
   // The editor escapes underscores on a line that would read as emphasis,
   // and writes math before a digit in its other form.
   it.each([

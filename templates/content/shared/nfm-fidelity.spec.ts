@@ -161,6 +161,84 @@ describe("canonicalizeNfmWithFidelity", () => {
     }
   });
 
+  it("keeps trailing backslashes before HTML cell closing tags", () => {
+    for (const tag of ["td", "th"]) {
+      for (const count of [1, 2, 3, 4]) {
+        for (const separator of ["", "\n"]) {
+          const cell = `<${tag}>C:${"\\".repeat(count)}</${tag}>`;
+          const source = `<table>\n<tr>${separator}${cell}${separator}<${tag}>next</${tag}></tr>\n</table>`;
+          const parsed = nfmToDoc(source);
+          const cells = parsed.content[0].content?.[0].content;
+          expect(cells).toHaveLength(2);
+          expect(cells?.[0].content?.[0].content).toEqual([
+            { type: "text", text: `C:${"\\".repeat(Math.ceil(count / 2))}` },
+          ]);
+          expect(cells?.[1].content?.[0].content).toEqual([
+            { type: "text", text: "next" },
+          ]);
+          const canonical = requireLosslessNfm(source);
+          expect(canonical).toContain(
+            `<td>C:${"\\".repeat(2 * Math.ceil(count / 2))}</td>`,
+          );
+          expect(requireLosslessNfm(canonical)).toBe(canonical);
+          expect(nfmToDoc(canonical)).toEqual(parsed);
+        }
+      }
+    }
+  });
+
+  it("shields cell closes in code and math while retaining Markdown escapes", () => {
+    for (const tag of ["td", "th"]) {
+      for (const inline of [
+        `a \`</${tag}>\` C:\\`,
+        `a $</${tag}>$ C:\\`,
+        `a $\`</${tag}>\`$ C:\\`,
+        "\\`literal C:\\",
+        "\\$literal C:\\",
+        "\\*literal\\* C:\\",
+        "\\\\`code` C:\\",
+        "\\\\$x$ C:\\",
+      ]) {
+        const source = `<table>\n<tr><${tag}>${inline}</${tag}><${tag}>next</${tag}></tr>\n</table>`;
+        const parsed = nfmToDoc(source);
+        const cells = parsed.content[0].content?.[0].content;
+        expect(cells).toHaveLength(2);
+        expect(cells?.[0].content?.[0].content).toEqual(
+          nfmToDoc(inline).content[0].content,
+        );
+        const canonical = requireLosslessNfm(source);
+        expect(requireLosslessNfm(canonical)).toBe(canonical);
+        expect(nfmToDoc(canonical)).toEqual(parsed);
+      }
+    }
+    expect(nfmToDoc("*literal\\* tail*").content[0].content).toEqual([
+      { type: "text", text: "literal* tail", marks: [{ type: "italic" }] },
+    ]);
+    expect(nfmToDoc("\\<not-a-tag> C:\\").content[0].content).toEqual([
+      { type: "text", text: "<not-a-tag> C:\\" },
+    ]);
+  });
+
+  it("still reports malformed cell closes without consuming a following cell", () => {
+    for (const broken of [
+      "<td>C:\\</th>",
+      "<td>C:\\</td",
+      "<td>C:\\</td >",
+      "<td>C:\\",
+    ]) {
+      const source = `<table>\n<tr>\n${broken}\n<td>next</td>\n</tr>\n</table>`;
+      expect(lossKinds(source)).toContain("dropped-source");
+      const cells = nfmToDoc(source).content[0].content?.[0].content;
+      expect(cells).toHaveLength(1);
+      expect(cells?.[0].content?.[0].content).toEqual([
+        { type: "text", text: "next" },
+      ]);
+    }
+    expect(
+      lossKinds("<table>\n<tr><td>a<td>C:\\</td></tr>\n</table>"),
+    ).toContain("dropped-source");
+  });
+
   it("reports an unreadable body as unparseable, not as an empty page", () => {
     const unreadable = {
       replace() {
