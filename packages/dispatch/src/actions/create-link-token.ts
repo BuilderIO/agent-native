@@ -9,5 +9,9 @@ export default defineAction({
   schema: z.object({
     platform: z.enum(["slack", "telegram"]),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async ({ platform }) => createLinkToken(platform),
 });

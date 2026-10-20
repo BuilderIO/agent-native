@@ -57,6 +57,36 @@ export function suggestionsByThread(
   return grouped;
 }
 
+function anchorStart(suggestion: ResourceSuggestion): number {
+  const from = (suggestion.operations[0]?.anchor as { from?: unknown } | null)
+    ?.from;
+  return typeof from === "number" ? from : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * The edits reviewed together in a thread: every edit of one proposal in a
+ * group, in Page order, and any other suggestion alone. Groups keep the order
+ * of their first edit.
+ */
+export function proposalGroups(
+  suggestions: readonly ResourceSuggestion[],
+): ResourceSuggestion[][] {
+  const groups = new Map<string, ResourceSuggestion[]>();
+  for (const suggestion of suggestions) {
+    const key = suggestion.proposalId
+      ? `proposal:${suggestion.proposalId}`
+      : suggestion.id;
+    groups.set(key, [...(groups.get(key) ?? []), suggestion]);
+  }
+  return [...groups.values()].map((group) =>
+    group.length > 1
+      ? [...group].sort(
+          (left, right) => anchorStart(left) - anchorStart(right) || 0,
+        )
+      : group,
+  );
+}
+
 // Suggestion ids are URL-safe, so the encoded id in the link is the id itself.
 // The receipt's summary has its brackets stripped, so it is the whole comment.
 const RECEIPT_LINK = /^\[[^[\]]*\]\([^)\s]*[?&]suggestion=([\w.~-]+)[^)\s]*\)$/;

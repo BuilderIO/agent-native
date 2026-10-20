@@ -45,7 +45,6 @@ import {
   editedMarkerMs,
   editedToOriginal,
   effectiveDuration,
-  formatMs,
   cutRangesOf,
   isExcluded,
   parseEdits,
@@ -53,6 +52,8 @@ import {
   type EditsJson,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+
+import { msToClock } from "./scrubber";
 
 /**
  * Parse "m:ss" or "h:mm:ss" into milliseconds. A bare number is refused, so
@@ -300,11 +301,11 @@ function ChapterRows({
           <button
             type="button"
             onClick={() => onSeek(chapter.startMs)}
-            className="group text-start"
+            className="group rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="me-2 font-mono text-primary group-hover:underline">
-              {formatMs(editedMs)}
-            </span>
+            <span className="me-1 font-mono text-primary group-hover:underline">
+              {msToClock(editedMs)}
+            </span>{" "}
             <span className="break-words text-foreground">{chapter.title}</span>
           </button>
         </li>
@@ -432,7 +433,7 @@ function EditableChapterList({
     const fresh = visible
       .map(
         ({ chapter, editedMs }) =>
-          `${formatMs(editedMs)} ${oneLine(chapter.title)}`,
+          `${msToClock(editedMs)} ${oneLine(chapter.title)}`,
       )
       .join("\n");
     setDraft(failedSave?.draft ?? fresh);

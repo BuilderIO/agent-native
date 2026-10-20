@@ -1937,6 +1937,9 @@ async function setDesignVisibility(
 ): Promise<void> {
   const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
   try {
+    // Making a resource public needs approval, which over HTTP only the
+    // signed-in app UI gives: a frontend call holding the UI capability.
+    await context.request.get(`${BASE_URL}/_agent-native/ui-capability`);
     const response = await context.request.post(
       `${BASE_URL}/_agent-native/actions/set-resource-visibility`,
       {
@@ -1945,6 +1948,7 @@ async function setDesignVisibility(
           resourceId: id,
           visibility,
         },
+        headers: { "X-Agent-Native-Frontend": "1" },
       },
     );
     if (!response.ok()) {

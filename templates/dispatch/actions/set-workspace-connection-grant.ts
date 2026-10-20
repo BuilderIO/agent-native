@@ -73,6 +73,10 @@ export default defineAction({
         "Known workspace app IDs. Used when converting an all-app connection into selected-app grants.",
       ),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     const connection = await getWorkspaceConnection(args.connectionId);
     if (!connection) {

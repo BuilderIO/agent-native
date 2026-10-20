@@ -166,13 +166,13 @@ When `needsApproval` is omitted, behavior is byte-for-byte unchanged. There is n
 
 This works the same way for legacy `parameters`-style actions and for schema-based actions. It also works the same way for the in-app agent, sub-agents, A2A, and MCP callers, because every agent surface routes through the same loop.
 
-Calls made over the [HTTP API](/docs/http-api) with a bearer token or API key skip the approval card: the route runs the action directly, as it does for the app's own UI. To have an agent's calls approved, connect it over [MCP](/docs/external-agents) instead of calling the HTTP routes.
+Calls over the [HTTP API](/docs/http-api) cannot give approval. When a call needs it, the route refuses with a `409` and `errorCode: "approval_required"`, whether the caller holds a bearer token, an API key, an MCP OAuth token, an org service token, or an A2A identity. A service identity can never approve. Only the app's own signed-in UI runs such a call directly, because the person using it is the one approving. A browser call proves it comes from that UI with a short-lived UI capability. A call that claims to be the app without one gets a `403` with `errorCode: "ui_capability_required"`, and the app's client mints the capability and retries once. To have an agent's calls approved, connect it over [MCP](/docs/external-agents) or have it ask in the app's agent chat.
 
 ### How the loop pauses {#loop}
 
 When the agent calls a gated action and this specific call has **not** already been approved, the loop does **not** execute `run()`. Instead it:
 
-1. Resolves the gate. For a predicate, the loop calls `needsApproval(input, ctx)`. If that call throws an error, the loop treats it the same as a `true` result, so the action requires approval.
+1. Resolves the gate. The loop first prepares the call: it validates the arguments and applies the schema's defaults and coercions. An invalid call stops here with its validation error, and nobody is asked to approve it. For a predicate, the loop then calls `needsApproval(args, ctx)` with the prepared arguments, the ones `run()` would receive. If that call throws an error, the loop treats it the same as a `true` result, so the action requires approval.
 2. Emits a `tool_start` event (so the UI shows the call) followed immediately by an **`approval_required`** event, then stops the turn. The action's side effect never happens.
 
 The `approval_required` event carries everything the client needs to render an affordance:
@@ -407,7 +407,7 @@ The four mechanisms are not interchangeable:
 | --------------------------------- | ----------------------------------------------------- | -------------------------------- |
 | `access`                          | Does the caller hold the declared role or membership? | All six dispatch sites           |
 | `authorize`                       | May this caller perform the operation at all?         | All six dispatch sites           |
-| `needsApproval`                   | Should a human approve this specific permitted call?  | The agent loop only              |
+| `needsApproval`                   | Should a human approve this specific permitted call?  | Every surface                    |
 | `accessFilter()`/`assertAccess()` | Which rows may this permitted caller see or write?    | Inside `run()`, per query or row |
 
 A restricted write action typically needs both `authorize` and a row check. The first keeps non-coaches out of the operation. The second keeps a coach out of another org's plan. The row check is `assertAccess()`, or `access` when the row's id is an input field. `needsApproval` is a separate axis. It never restricts who may call, only whether the agent may proceed unattended.
