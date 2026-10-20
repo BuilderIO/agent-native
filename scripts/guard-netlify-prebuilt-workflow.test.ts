@@ -394,6 +394,39 @@ describe("Netlify offline prebuilt build environment", () => {
     assert.equal(environment.ANALYTICS_DATABASE_URL, undefined);
   });
 
+  it("preserves the database URL input for a non-Analytics production build", () => {
+    const productionDatabaseUrl =
+      "postgresql://build.example/production?sslmode=require";
+    const environment = resolveNetlifyBuildEnvironment(
+      [
+        {
+          key: "NETLIFY_DATABASE_URL",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [{ context: "production", value: "********" }],
+        },
+        {
+          key: "NETLIFY_DATABASE_URL_UNPOOLED",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [{ context: "production", value: "********" }],
+        },
+        {
+          key: "DATABASE_URL",
+          is_secret: true,
+          scopes: ["builds"],
+          values: [{ context: "production", value: "********" }],
+        },
+      ],
+      "production",
+      { DATABASE_URL: productionDatabaseUrl },
+    );
+
+    assert.equal(environment.DATABASE_URL, productionDatabaseUrl);
+    assert.equal(environment.NETLIFY_DATABASE_URL, undefined);
+    assert.equal(environment.NETLIFY_DATABASE_URL_UNPOOLED, undefined);
+  });
+
   it("fails when the selected Netlify value has no payload and keeps empty values", () => {
     assert.throws(
       () =>
@@ -602,6 +635,18 @@ writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
     assert.match(run, /build_options\+=\(--branch "\$BUILD_BRANCH"\)/);
     assert.match(run, /--offline/);
     assert.match(run, /"\$TARGET" == "preview" && "\$DEPLOY" != "true"/);
+    assert.match(
+      run,
+      /"\$TARGET" == "production" && "\$BUILD_CONTEXT" == "production"/,
+    );
+    assert.match(
+      run,
+      /analytics\|clips\|plan\|crm\|chat\|'@agent-native\/docs'/,
+    );
+    assert.match(run, /netlify api getSiteDatabase/);
+    assert.match(run, /scripts\/netlify-migration-url\.ts/);
+    assert.match(run, /export DATABASE_URL="\$build_database_url"/);
+    assert.match(run, /::add-mask::\$build_database_url/);
   });
 });
 

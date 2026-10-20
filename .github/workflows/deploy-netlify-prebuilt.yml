@@ -783,6 +783,26 @@ jobs:
             # Netlify CLI from querying site config with a deployment token.
             netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE" --offline
           else
+            if [[ "$TARGET" == "production" && "$BUILD_CONTEXT" == "production" ]]; then
+              case "$SOURCE_TEMPLATE" in
+                analytics|clips|plan|crm|chat|'@agent-native/docs') ;;
+                *)
+                  # Netlify masks site database variables in getEnvVars responses.
+                  # Resolve the URL through the site database API for production builds.
+                  build_database_url="$(
+                    netlify api getSiteDatabase \
+                      --data "{\"site_id\":\"$NETLIFY_SITE_ID\",\"role\":\"netlifydb_owner\"}" |
+                      BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts
+                  )"
+                  if [[ -z "$build_database_url" ]]; then
+                    echo "::error::Netlify did not provide a PostgreSQL build URL for $NETLIFY_SITE_ID."
+                    exit 1
+                  fi
+                  echo "::add-mask::$build_database_url"
+                  export DATABASE_URL="$build_database_url"
+                  ;;
+              esac
+            fi
             # Fetch the site context separately so a Netlify extensions API
             # outage cannot block the local prebuilt build.
             umask 077
