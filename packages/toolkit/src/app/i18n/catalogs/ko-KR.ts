@@ -1954,9 +1954,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "추가 정보",
   "settingsOrg.general.workspaceUrl": "워크스페이스 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "다른 배포에서 이 워크스페이스로 멤버를 보냅니다.",
+    "이 조직의 앱 디렉터리를 배포 간에 연결합니다.",
   "settingsOrg.general.workspaceUrlHelp":
-    "다른 배포에 도착한 멤버는 빈 앱 대신 이 워크스페이스로 이동합니다.",
+    "다른 배포에서 이 URL을 사용해 워크스페이스 앱을 찾습니다. 멤버를 자동으로 리디렉션하지 않습니다.",
   "settingsOrg.general.editWorkspaceUrl": "워크스페이스 URL 편집",
   "settingsOrg.general.removeWorkspaceUrl": "워크스페이스 URL 제거",
   "settingsOrg.general.setWorkspaceUrl": "URL 설정",

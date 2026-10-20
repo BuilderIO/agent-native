@@ -2101,9 +2101,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Mais informações",
   "settingsOrg.general.workspaceUrl": "URL do espaço de trabalho",
   "settingsOrg.general.workspaceUrlDescription":
-    "Envie os membros para este espaço de trabalho a partir de outra implantação.",
+    "Conecte o diretório de apps desta organização entre implantações.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Os membros que chegarem a outra implantação vão para este espaço de trabalho em vez de um app vazio.",
+    "Outras implantações usam esta URL para descobrir apps do espaço de trabalho. Os membros não são redirecionados automaticamente.",
   "settingsOrg.general.editWorkspaceUrl": "Editar URL do espaço de trabalho",
   "settingsOrg.general.removeWorkspaceUrl": "Remover URL do espaço de trabalho",
   "settingsOrg.general.setWorkspaceUrl": "Definir URL",

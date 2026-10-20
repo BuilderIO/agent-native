@@ -3597,9 +3597,6 @@
         "InvitationBannerProps": {
           "to": "@agent-native/toolkit/app/org/InvitationBanner"
         },
-        "WorkspaceNotice": {
-          "to": "@agent-native/toolkit/app/org/WorkspaceNotice"
-        },
         "TeamPageProps": {
           "to": "@agent-native/toolkit/app/org/TeamPage"
         },
@@ -5878,9 +5875,6 @@
         },
         "InvitationBannerProps": {
           "to": "@agent-native/toolkit/app/org/InvitationBanner"
-        },
-        "WorkspaceNotice": {
-          "to": "@agent-native/toolkit/app/org/WorkspaceNotice"
         },
         "TeamPage": {
           "to": "@agent-native/toolkit/app/org/TeamPage"

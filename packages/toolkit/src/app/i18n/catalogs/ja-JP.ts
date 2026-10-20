@@ -1987,9 +1987,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "詳しい情報",
   "settingsOrg.general.workspaceUrl": "ワークスペースの URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "別のデプロイからこのワークスペースにメンバーを案内します。",
+    "この組織のアプリディレクトリをデプロイ間で接続します。",
   "settingsOrg.general.workspaceUrlHelp":
-    "別のデプロイにアクセスしたメンバーは、空のアプリではなくこのワークスペースに移動します。",
+    "他のデプロイはこの URL を使ってワークスペースアプリを検出します。メンバーが自動的にリダイレクトされることはありません。",
   "settingsOrg.general.editWorkspaceUrl": "ワークスペースの URL を編集",
   "settingsOrg.general.removeWorkspaceUrl": "ワークスペースの URL を削除",
   "settingsOrg.general.setWorkspaceUrl": "URL を設定",

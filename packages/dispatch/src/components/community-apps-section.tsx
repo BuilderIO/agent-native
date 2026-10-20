@@ -28,18 +28,28 @@ interface CommunityAppSource {
   description?: string;
   appId: string;
   repo: string;
-  sha: string;
+  ref: string;
   license: string;
   provenance: string;
   templatePath: string;
   installed: boolean;
   pending: boolean;
   installable: boolean;
-  installUnavailableReason?: "workspace-required" | "app-id-conflict";
+  installUnavailableReason?:
+    | "workspace-required"
+    | "app-id-conflict"
+    | "builder-install-unverified";
 }
 
 function pinnedSourceUrl(source: CommunityAppSource): string {
-  return `https://github.com/${source.repo}/tree/${source.sha}/${source.templatePath}`;
+  return (
+    "https://github.com/" +
+    source.repo +
+    "/tree/" +
+    source.ref +
+    "/" +
+    source.templatePath
+  );
 }
 
 export function CommunityAppsSection() {
@@ -156,7 +166,7 @@ export function CommunityAppsSection() {
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {t("dispatch.pages.communityAppsPinnedSource")}
+                    {t("dispatch.pages.communityAppsTemplateSource")}
                     <IconArrowUpRight size={12} aria-hidden="true" />
                   </a>
                 </div>
@@ -192,6 +202,13 @@ export function CommunityAppsSection() {
                 source.installUnavailableReason === "app-id-conflict" ? (
                 <span className="max-w-48 text-right text-xs text-muted-foreground">
                   {t("dispatch.pages.communityAppsIdConflict")}
+                </span>
+              ) : !source.installed &&
+                !source.pending &&
+                source.installUnavailableReason ===
+                  "builder-install-unverified" ? (
+                <span className="max-w-48 text-right text-xs text-muted-foreground">
+                  {t("dispatch.pages.communityAppsBuilderInstallUnavailable")}
                 </span>
               ) : null}
             </AppListRow>

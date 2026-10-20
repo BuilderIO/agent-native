@@ -16,6 +16,7 @@ import {
   getBuiltinAgentsForSeeding,
   loadWorkspaceAppsManifest,
   normalizeAgentId,
+  parseWorkspaceAppMetadataSettings,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
@@ -1682,6 +1683,76 @@ describe("agent discovery", () => {
     expect(getSettingMock).toHaveBeenCalledWith(
       "workspace-app-metadata:org:org-123",
     );
+  });
+
+  it("keeps valid workspace metadata when one stored profile field is invalid", () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      expect(
+        parseWorkspaceAppMetadataSettings({
+          apps: {
+            briefs: {
+              name: "Organization Briefs",
+              description: "Invalid\ndescription",
+              whenToUse: ["Organization example request."],
+              generated: true,
+              sourcePrompt: "Created from a reviewed prompt.",
+            },
+          },
+        }),
+      ).toEqual({
+        apps: {
+          briefs: {
+            name: "Organization Briefs",
+            whenToUse: ["Organization example request."],
+            generated: true,
+            sourcePrompt: "Created from a reviewed prompt.",
+          },
+        },
+      });
+      expect(consoleWarn).toHaveBeenCalledWith(
+        "[agent-discovery] ignored invalid workspace app profile fields",
+        { appId: "briefs", fields: ["description"] },
+      );
+    } finally {
+      consoleWarn.mockRestore();
+    }
+  });
+
+  it("preserves an empty when-to-use override as an explicit clear", () => {
+    expect(
+      parseWorkspaceAppMetadataSettings({
+        apps: { briefs: { name: "Briefs", whenToUse: [] } },
+      }),
+    ).toEqual({ apps: { briefs: { name: "Briefs", whenToUse: [] } } });
+  });
+
+  it("does not fall back to manifest examples after an explicit profile clear", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "briefs",
+          name: "Briefs",
+          description: "Package description",
+          "agent-native": { whenToUse: ["Package example request."] },
+          path: "/briefs",
+        },
+      ],
+    });
+    getSettingMock.mockResolvedValue({
+      apps: { briefs: { whenToUse: [] } },
+    });
+
+    await expect(
+      getWorkspaceAppProfile("briefs", {
+        orgId: "org-123",
+        userEmail: "operator@example.test",
+      }),
+    ).resolves.toEqual({
+      description: "Package description",
+      whenToUse: [],
+    });
   });
 
   it("keeps strict workspace discovery available when a profile is oversized", async () => {

@@ -72,7 +72,6 @@ export {
   InvitationBanner,
   type InvitationBannerProps,
 } from "./InvitationBanner.js";
-export { WorkspaceNotice } from "./WorkspaceNotice.js";
 export { TeamPage, type TeamPageProps } from "./TeamPage.js";
 export { OrgGeneralSection } from "./OrgGeneralSection.js";
 export { MembersSection } from "./MembersSection.js";

@@ -14,25 +14,55 @@ export interface MarketplaceApp {
   source?: "first-party" | "community";
 }
 
+function isPrivateIpv4(hostname: string): boolean {
+  const octets = hostname.split(".").map(Number);
+  if (
+    octets.length !== 4 ||
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return false;
+  }
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function mappedIpv4(hostname: string): string | null {
+  const match = /^::ffff:(.*)$/i.exec(hostname);
+  if (!match) return null;
+  if (match[1].includes(".")) return match[1];
+  const words = match[1].split(":");
+  if (
+    words.length !== 2 ||
+    words.some((word) => !/^[\da-f]{1,4}$/i.test(word))
+  ) {
+    return null;
+  }
+  const high = Number.parseInt(words[0], 16);
+  const low = Number.parseInt(words[1], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+
 export function normalizeConnectUrl(value: string): URL | null {
   try {
     const url = new URL(value.trim());
     const hostname = url.hostname.toLowerCase();
     const ipv6 = hostname.replace(/^\[|\]$/g, "");
-    const privateIpv4 =
-      /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(
-        hostname,
-      ) ||
-      hostname === "0.0.0.0" ||
-      /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(hostname);
+    const privateIpv4 = isPrivateIpv4(hostname);
+    const mappedAddress = mappedIpv4(ipv6);
     const privateIpv6 =
       ipv6 === "::" ||
       ipv6 === "::1" ||
       /^(?:fc|fd)/.test(ipv6) ||
       /^fe[89ab]/.test(ipv6) ||
-      /^::ffff:(?:10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(
-        ipv6,
-      );
+      Boolean(mappedAddress && isPrivateIpv4(mappedAddress));
     if (
       (url.protocol !== "https:" &&
         !(url.protocol === "http:" && hostname === "localhost")) ||

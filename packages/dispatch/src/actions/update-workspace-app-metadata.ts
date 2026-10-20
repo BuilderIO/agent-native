@@ -41,7 +41,10 @@ export default defineAction({
     })
     .superRefine(({ description, whenToUse }, context) => {
       if (description == null && whenToUse == null) return;
-      const profile = parseAgentProfileMetadata({ description, whenToUse });
+      const profile = parseAgentProfileMetadata({
+        ...(description != null ? { description } : {}),
+        ...(whenToUse != null ? { whenToUse } : {}),
+      });
       if (!profile) {
         context.addIssue({
           code: "custom",

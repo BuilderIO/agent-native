@@ -6,19 +6,12 @@ import {
 import { IconLoader2 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { WorkspaceNotice } from "./WorkspaceNotice.js";
-
 export interface InvitationBannerProps {
   className?: string;
 }
 
 export function InvitationBanner({ className }: InvitationBannerProps) {
-  return (
-    <>
-      <WorkspaceNotice className={className} />
-      <InvitationRows className={className} />
-    </>
-  );
+  return <InvitationRows className={className} />;
 }
 
 function InvitationRows({ className }: InvitationBannerProps) {

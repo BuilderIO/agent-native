@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-native/core": "^0.210.1",
+    "@agent-native/core": "^0.210.2",
     "postgres": "^3.4.9",
     "qrcode": "^1.5.4",
     "zod": "^4.6.7"

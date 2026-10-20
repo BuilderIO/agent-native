@@ -182,7 +182,7 @@ describe("Dispatch apps route", () => {
         description: "Generate QR images.",
         appId: "community-qr",
         repo: "BuilderIO/agent-native",
-        sha: "a".repeat(40),
+        ref: "main",
         license: "MIT",
         provenance: "Reviewed source",
         templatePath: "templates/community/qr",
@@ -195,6 +195,9 @@ describe("Dispatch apps route", () => {
     await renderAppsRoute();
 
     expect(container.textContent).toContain("QR");
+    expect(
+      container.querySelector<HTMLAnchorElement>("a[href*='github.com']")?.href,
+    ).toContain("/tree/main/templates/community/qr");
     const installButton = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) =>
@@ -216,7 +219,7 @@ describe("Dispatch apps route", () => {
         description: "Generate QR images.",
         appId: "community-qr",
         repo: "BuilderIO/agent-native",
-        sha: "a".repeat(40),
+        ref: "main",
         license: "MIT",
         provenance: "Reviewed source",
         templatePath: "templates/community/qr",
@@ -272,7 +275,7 @@ describe("Dispatch apps route", () => {
         description: "Generate QR images.",
         appId: "qr",
         repo: "BuilderIO/agent-native",
-        sha: "a".repeat(40),
+        ref: "main",
         license: "MIT",
         provenance: "Reviewed source",
         templatePath: "templates/community/qr",
@@ -287,6 +290,38 @@ describe("Dispatch apps route", () => {
 
     expect(container.textContent).toContain(
       "dispatch.pages.communityAppsIdConflict",
+    );
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("dispatch.pages.communityAppsInstall"),
+      ),
+    ).toBe(false);
+  });
+
+  it("explains when Builder-mode community installs cannot be verified", async () => {
+    queryState.communityAppsEnabled = true;
+    queryState.communityApps = [
+      {
+        id: "community-qr",
+        name: "QR",
+        description: "Generate QR images.",
+        appId: "community-qr",
+        repo: "BuilderIO/agent-native",
+        ref: "main",
+        license: "MIT",
+        provenance: "Reviewed source",
+        templatePath: "templates/community/qr",
+        installed: false,
+        pending: false,
+        installable: false,
+        installUnavailableReason: "builder-install-unverified",
+      },
+    ];
+
+    await renderAppsRoute();
+
+    expect(container.textContent).toContain(
+      "dispatch.pages.communityAppsBuilderInstallUnavailable",
     );
     expect(
       Array.from(container.querySelectorAll("button")).some((button) =>

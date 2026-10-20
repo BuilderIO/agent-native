@@ -227,16 +227,15 @@ export function parseWorkspaceAppMetadataSettings(
     ) {
       throw new Error("Invalid workspace app metadata fields");
     }
-    const profile = parseAgentProfileMetadata({
+    const profile = parseAgentProfileMetadataFields({
       ...(item.description !== undefined
         ? { description: item.description }
         : {}),
       ...(item.whenToUse !== undefined ? { whenToUse: item.whenToUse } : {}),
     });
-    if (!profile) {
-      if (strict) throw new Error("Invalid workspace app profile metadata");
-      continue;
-    }
+    if (strict && profile.invalidFields.length > 0)
+      throw new Error("Invalid workspace app profile metadata");
+    reportInvalidWorkspaceProfileFields(normalizedId, profile.invalidFields);
     const override: WorkspaceAppMetadataOverride = {};
     const name = cleanOptionalText(item.name);
     const sourcePrompt = cleanOptionalText(item.sourcePrompt);
@@ -244,8 +243,17 @@ export function parseWorkspaceAppMetadataSettings(
     const updatedBy = cleanOptionalText(item.updatedBy);
 
     if (name) override.name = name;
-    if (profile.description) override.description = profile.description;
-    if (profile.whenToUse) override.whenToUse = profile.whenToUse;
+    if (profile.metadata.description)
+      override.description = profile.metadata.description;
+    if (profile.metadata.whenToUse)
+      override.whenToUse = profile.metadata.whenToUse;
+    else if (
+      Array.isArray(item.whenToUse) &&
+      item.whenToUse.length === 0 &&
+      !profile.invalidFields.includes("whenToUse")
+    ) {
+      override.whenToUse = [];
+    }
     if (item.generated === true) override.generated = true;
     if (sourcePrompt) override.sourcePrompt = sourcePrompt;
     if (updatedAt) override.updatedAt = updatedAt;
@@ -344,7 +352,7 @@ export function applyWorkspaceAppMetadataOverride<
   if (!override) return app;
 
   const name = cleanOptionalText(override.name);
-  const profile = parseAgentProfileMetadata({
+  const parsedProfile = parseAgentProfileMetadataFields({
     ...(override.description !== undefined
       ? { description: override.description }
       : {}),
@@ -352,14 +360,23 @@ export function applyWorkspaceAppMetadataOverride<
       ? { whenToUse: override.whenToUse }
       : {}),
   });
-  if (!profile) return app;
+  if (parsedProfile.invalidFields.length > 0) {
+    reportInvalidWorkspaceProfileFields(
+      normalizeAgentId(app.id),
+      parsedProfile.invalidFields,
+    );
+  }
+  const profile = parsedProfile.metadata;
   const generated = override.generated === true;
   const shouldApplyName = !!name && !generated;
   const shouldApplyDescription =
     !!profile.description &&
     (!generated || !cleanOptionalText(app.description));
+  const shouldClearWhenToUse =
+    Array.isArray(override.whenToUse) && override.whenToUse.length === 0;
   const shouldApplyWhenToUse =
-    !!profile.whenToUse?.length && (!generated || !app.whenToUse?.length);
+    shouldClearWhenToUse ||
+    (!!profile.whenToUse?.length && (!generated || !app.whenToUse?.length));
   if (!shouldApplyName && !shouldApplyDescription && !shouldApplyWhenToUse) {
     return app;
   }
@@ -368,7 +385,9 @@ export function applyWorkspaceAppMetadataOverride<
     ...app,
     ...(shouldApplyName ? { name } : {}),
     ...(shouldApplyDescription ? { description: profile.description } : {}),
-    ...(shouldApplyWhenToUse ? { whenToUse: profile.whenToUse } : {}),
+    ...(shouldApplyWhenToUse
+      ? { whenToUse: shouldClearWhenToUse ? [] : profile.whenToUse }
+      : {}),
   };
 }
 
@@ -401,7 +420,9 @@ export async function getWorkspaceAppProfile(
   );
   return {
     ...(applied.description ? { description: applied.description } : {}),
-    ...(applied.whenToUse?.length ? { whenToUse: [...applied.whenToUse] } : {}),
+    ...(applied.whenToUse !== undefined
+      ? { whenToUse: [...applied.whenToUse] }
+      : {}),
     ...(applied.aliases?.length ? { aliases: [...applied.aliases] } : {}),
   };
 }

@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - templates/*
+  - templates/community/*
   - templates/*/desktop
   - templates/*/chrome-extension
   - community-templates

@@ -444,6 +444,24 @@ describe("OrgSwitcher (account menu)", () => {
     },
   );
 
+  it("keeps the workspace URL as a direct link in the account menu", () => {
+    const workspaceUrl = "https://agent-workspace.builder.io";
+    mocks.useOrg.mockReturnValue({
+      data: { ...ownerOrg, workspaceUrl },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    const menu = openMenu();
+    const link = menu.querySelector<HTMLAnchorElement>(
+      'a[href="https://agent-workspace.builder.io"]',
+    );
+
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toContain("Your workspace");
+    expect(link?.getAttribute("target")).toBeNull();
+  });
+
   it.each([
     { period: "daily", label: "Default daily limit" },
     { period: "monthly", label: "Monthly limit" },

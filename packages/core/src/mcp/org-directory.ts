@@ -1,5 +1,5 @@
 import { canonicalA2AAudience } from "../a2a/audience.js";
-import { parseAgentProfileMetadata } from "../shared/agent-profile.js";
+import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
 
 /**
  * Org-directory discovery for the generic cross-app MCP verbs
@@ -124,27 +124,27 @@ function isAbsoluteHttpUrl(value: string): boolean {
 function normalizeApp(raw: unknown, strict = false): OrgApp | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  const profile = parseAgentProfileMetadata({
+  const profile = parseAgentProfileMetadataFields({
     ...(r.description !== undefined ? { description: r.description } : {}),
     ...(r.whenToUse !== undefined ? { whenToUse: r.whenToUse } : {}),
     ...(r.aliases !== undefined ? { aliases: r.aliases } : {}),
   });
-  if (!profile && strict) return null;
   const id = typeof r.id === "string" ? r.id.trim().toLowerCase() : "";
   const url = typeof r.url === "string" ? r.url.trim() : "";
   if (!id || !url || !isAbsoluteHttpUrl(url)) return null;
+  if (strict && profile.invalidFields.length > 0) {
+    console.warn("[org-directory] dropped invalid peer profile fields", {
+      fields: profile.invalidFields,
+    });
+  }
   if (
     strict &&
     ((r.name !== undefined && typeof r.name !== "string") ||
-      (r.description !== undefined && typeof r.description !== "string") ||
       (r.a2aUrl !== undefined && typeof r.a2aUrl !== "string") ||
       (r.capabilities !== undefined &&
         typeof r.capabilities !== "string" &&
         (!Array.isArray(r.capabilities) ||
-          r.capabilities.some((item) => typeof item !== "string"))) ||
-      (r.whenToUse !== undefined &&
-        (!Array.isArray(r.whenToUse) ||
-          r.whenToUse.some((item) => typeof item !== "string"))))
+          r.capabilities.some((item) => typeof item !== "string"))))
   ) {
     return null;
   }
@@ -162,9 +162,7 @@ function normalizeApp(raw: unknown, strict = false): OrgApp | null {
       : Array.isArray(r.capabilities)
         ? r.capabilities.filter((c): c is string => typeof c === "string")
         : undefined;
-  const description = profile?.description;
-  const whenToUse = profile?.whenToUse;
-  const aliases = profile?.aliases;
+  const { description, whenToUse, aliases } = profile.metadata;
   return {
     id,
     name,

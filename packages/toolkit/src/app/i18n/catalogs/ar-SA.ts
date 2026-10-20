@@ -2112,9 +2112,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "مزيد من المعلومات",
   "settingsOrg.general.workspaceUrl": "عنوان URL لمساحة العمل",
   "settingsOrg.general.workspaceUrlDescription":
-    "وجّه الأعضاء إلى مساحة العمل هذه من نشر آخر.",
+    "اربط دليل تطبيقات هذه المؤسسة بين عمليات النشر.",
   "settingsOrg.general.workspaceUrlHelp":
-    "ينتقل الأعضاء الذين يصلون إلى نشر آخر إلى مساحة العمل هذه بدلًا من تطبيق فارغ.",
+    "تستخدم عمليات النشر الأخرى عنوان URL هذا لاكتشاف تطبيقات مساحة العمل. لا يعيد توجيه الأعضاء تلقائيًا.",
   "settingsOrg.general.editWorkspaceUrl": "تعديل عنوان URL لمساحة العمل",
   "settingsOrg.general.removeWorkspaceUrl": "إزالة عنوان URL لمساحة العمل",
   "settingsOrg.general.setWorkspaceUrl": "تعيين عنوان URL",

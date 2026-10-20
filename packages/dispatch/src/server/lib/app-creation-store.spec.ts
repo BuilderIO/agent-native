@@ -1891,6 +1891,67 @@ describe("listWorkspaceApps", () => {
     expect(refreshedLoad).toHaveBeenCalledOnce();
   });
 
+  it("clears explicit null metadata and preserves an empty when-to-use list", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "todo",
+        name: "Manifest name",
+        description: "Manifest description",
+        path: "/todo",
+      },
+    ]);
+    mocks.settings.set("workspace-app-metadata:org:org-123", {
+      apps: {
+        todo: {
+          name: "Override name",
+          description: "Override description",
+          whenToUse: ["Old example"],
+        },
+      },
+    });
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () =>
+        updateWorkspaceAppMetadata({
+          appId: "todo",
+          name: null,
+          description: null,
+          whenToUse: [],
+        }),
+    );
+
+    expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toEqual({
+      apps: {
+        todo: expect.objectContaining({ whenToUse: [] }),
+      },
+    });
+  });
+
+  it("reports owner-role lookup failures as unavailable instead of unauthorized", async () => {
+    stubNoPendingContext();
+    stubManifest([{ id: "todo", name: "Todo", path: "/todo" }]);
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn(async () => {
+        throw new Error("database unavailable");
+      }),
+    } as any);
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => updateWorkspaceAppMetadata({ appId: "todo", name: "Updated" }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AppCreationOwnerRoleUnavailableError",
+      statusCode: 503,
+    });
+    expect(mocks.settings.has("workspace-app-metadata:org:org-123")).toBe(
+      false,
+    );
+  });
+
   it("rejects malformed profile examples before writing", async () => {
     stubNoPendingContext();
     stubManifest([

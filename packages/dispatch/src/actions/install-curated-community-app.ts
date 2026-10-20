@@ -8,6 +8,11 @@ import { z } from "zod";
 import { installCuratedCommunityApp } from "../server/lib/community-apps.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Install one reviewed, pinned community app template into the associated workspace. Select a sourceId from list-curated-community-apps; repository and revision are fixed by Dispatch and cannot be supplied by the caller.",
   schema: z.object({

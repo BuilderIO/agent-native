@@ -98,6 +98,11 @@ vi.mock("../resources/store.js", () => ({
 
 vi.mock("./agent-discovery.js", () => ({
   discoverAgents: (...args: any[]) => mocks.discoverAgents(...args),
+  discoverAgentsWithDirectoryStatus: async (...args: any[]) => ({
+    agents: await mocks.discoverAgents(...args),
+    directory: { status: "available" },
+  }),
+  getWorkspaceAppProfile: async () => null,
 }));
 
 vi.mock("./agents-bundle.js", () => ({

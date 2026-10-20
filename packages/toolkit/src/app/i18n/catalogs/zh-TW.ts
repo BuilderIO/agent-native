@@ -1850,9 +1850,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "更多資訊",
   "settingsOrg.general.workspaceUrl": "工作區 URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "將其他部署中的成員引導到此工作區。",
+    "跨部署連結此組織的應用程式目錄。",
   "settingsOrg.general.workspaceUrlHelp":
-    "進入其他部署的成員會前往此工作區，而不是空白的應用程式。",
+    "其他部署會使用此 URL 尋找工作區應用程式。此設定不會自動重新導向成員。",
   "settingsOrg.general.editWorkspaceUrl": "編輯工作區 URL",
   "settingsOrg.general.removeWorkspaceUrl": "移除工作區 URL",
   "settingsOrg.general.setWorkspaceUrl": "設定 URL",

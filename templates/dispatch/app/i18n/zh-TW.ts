@@ -324,9 +324,11 @@ const messages = {
       communityAppsEmpty: "目前沒有已審核的社群應用程式。",
       communityAppsWorkspaceRequired:
         "請先將此組織連接到工作區，才能安裝此應用程式。",
+      communityAppsBuilderInstallUnavailable:
+        "在生成檔案可供驗證之前，Builder 工作區中的社群應用程式安裝已停用。",
       communityAppsIdConflict: "此應用程式 ID 已被使用，因此無法安裝。",
       communityAppsLicense: "授權條款",
-      communityAppsPinnedSource: "查看固定版本",
+      communityAppsTemplateSource: "查看範本來源",
       communityAppsInstall: "安裝",
       communityAppsInstalling: "正在啟動…",
       communityAppsInstalled: "已安裝",

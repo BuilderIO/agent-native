@@ -124,6 +124,17 @@ class WorkspaceAppMetadataAuthorizationError extends Error {
   }
 }
 
+class AppCreationOwnerRoleUnavailableError extends Error {
+  statusCode = 503;
+
+  constructor(cause: unknown) {
+    super("Could not verify the organization role. Try again shortly.", {
+      cause,
+    });
+    this.name = "AppCreationOwnerRoleUnavailableError";
+  }
+}
+
 class WorkspaceAppOrgRequiredError extends Error {
   statusCode = 400;
 
@@ -2149,12 +2160,15 @@ export async function updateWorkspaceAppMetadata(input: {
   const app = apps.find((candidate) => candidate.id === appId);
   if (!app) throw new Error(`Workspace app "${appId}" was not found.`);
 
-  const name = input.name == null ? app.name : input.name.trim();
-  const description =
-    input.description == null
-      ? (app.description ?? undefined)
-      : input.description.trim();
-  const whenToUse = input.whenToUse == null ? app.whenToUse : input.whenToUse;
+  const name = Object.hasOwn(input, "name")
+    ? (input.name?.trim() ?? null)
+    : app.name;
+  const description = Object.hasOwn(input, "description")
+    ? (input.description?.trim() ?? null)
+    : (app.description ?? undefined);
+  const whenToUse = Object.hasOwn(input, "whenToUse")
+    ? (input.whenToUse ?? [])
+    : app.whenToUse;
   await writeWorkspaceAppMetadataOverride({
     appId,
     name,
@@ -2183,7 +2197,14 @@ export async function updateWorkspaceAppMetadata(input: {
       includeArchived: true,
     })
   ).find((candidate) => candidate.id === appId);
-  return updated ?? { ...app, name, description, whenToUse };
+  return (
+    updated ?? {
+      ...app,
+      name: name ?? app.name,
+      description: description ?? app.description,
+      whenToUse,
+    }
+  );
 }
 
 async function listWorkspaceAppsWithPrincipal(
@@ -2686,8 +2707,8 @@ async function requestOwnerRole(): Promise<string | null> {
     });
     const role = (rows[0] as any)?.role;
     return typeof role === "string" ? role : null;
-  } catch {
-    return null;
+  } catch (error) {
+    throw new AppCreationOwnerRoleUnavailableError(error);
   }
 }
 

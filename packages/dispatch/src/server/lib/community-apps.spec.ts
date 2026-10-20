@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -90,7 +94,7 @@ describe("curated community apps", () => {
     ]);
   });
 
-  it("uses namespaced ids and pins every source file by Git blob id", () => {
+  it("pins the exact tracked QR template files by Git blob id", () => {
     expect(CURATED_COMMUNITY_APP_SOURCES.length).toBeGreaterThan(0);
     expect(
       CURATED_COMMUNITY_APP_SOURCES.every((source) =>
@@ -109,6 +113,36 @@ describe("curated community apps", () => {
         ["mail", "calendar"].includes(source.id),
       ),
     ).toBe(false);
+
+    const source = CURATED_COMMUNITY_APP_SOURCES.find(
+      (entry) => entry.id === "community-qr",
+    )!;
+    const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: path.dirname(fileURLToPath(import.meta.url)),
+      encoding: "utf8",
+    }).trim();
+    const templatePath = "templates/community/qr";
+    const trackedFiles = execFileSync(
+      "git",
+      ["ls-files", "-z", "--", templatePath],
+      { cwd: repoRoot, encoding: "utf8" },
+    )
+      .split("\0")
+      .filter((file) => file.startsWith(templatePath + "/"))
+      .map((file) => file.slice(templatePath.length + 1))
+      .sort();
+
+    expect(source.ref).toBe("main");
+    expect(source.templatePath).toBe(templatePath);
+    expect(source.files.map((file) => file.path).sort()).toEqual(trackedFiles);
+    for (const file of source.files) {
+      const relativePath = templatePath + "/" + file.path;
+      const blobSha = execFileSync("git", ["hash-object", relativePath], {
+        cwd: repoRoot,
+        encoding: "utf8",
+      }).trim();
+      expect(blobSha, relativePath).toBe(file.blobSha);
+    }
   });
 
   it("refuses the catalog and installs while the Lab is off", async () => {
@@ -150,6 +184,20 @@ describe("curated community apps", () => {
     ]);
   });
 
+  it("does not offer unverified Builder-mode community installs", async () => {
+    mocks.isLocalAppCreationRuntime.mockReturnValue(false);
+
+    await expect(listCuratedCommunityApps()).resolves.toEqual([
+      expect.objectContaining({
+        id: "community-qr",
+        installed: false,
+        pending: false,
+        installable: false,
+        installUnavailableReason: "builder-install-unverified",
+      }),
+    ]);
+  });
+
   it("returns existing progress when the same install is requested twice", async () => {
     const pending = {
       id: "community-qr",
@@ -171,16 +219,13 @@ describe("curated community apps", () => {
   });
 
   it("passes only the catalog's pinned source into app creation", async () => {
+    mocks.isLocalAppCreationRuntime.mockReturnValue(true);
     mocks.startWorkspaceAppCreation.mockResolvedValue({
-      mode: "builder",
+      mode: "local-agent",
       appId: "qr-team",
-      path: "/qr-team",
-      projectId: "project-1",
-      branchName: "qr-team",
-      url: "https://builder.io/branch",
-      workspaceUrl: null,
-      status: "processing",
-      message: "App creation started.",
+      prompt: "Create this app from the pinned source.",
+      attachments: [],
+      message: "Use the local code agent to create this app.",
     });
 
     await installCuratedCommunityApp({
@@ -222,6 +267,7 @@ describe("curated community apps", () => {
   });
 
   it("requires an associated workspace and prevents first-party id shadowing", async () => {
+    mocks.isLocalAppCreationRuntime.mockReturnValue(false);
     mocks.getAppCreationSettings.mockResolvedValue({ builderProjectId: null });
     await expect(
       installCuratedCommunityApp({ sourceId: "community-qr" }),
@@ -254,6 +300,7 @@ describe("curated community apps", () => {
   );
 
   it("fails closed when the pinned community source cannot be verified", async () => {
+    mocks.isLocalAppCreationRuntime.mockReturnValue(true);
     mocks.loadPinnedCommunitySourceAttachments.mockRejectedValueOnce(
       new Error("Git blob mismatch"),
     );
@@ -264,6 +311,22 @@ describe("curated community apps", () => {
       errorCode: "community_source_unavailable",
       statusCode: 503,
     });
+    expect(mocks.startWorkspaceAppCreation).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before starting an unverified Builder-mode install", async () => {
+    mocks.isLocalAppCreationRuntime.mockReturnValue(false);
+
+    await expect(
+      installCuratedCommunityApp({ sourceId: "community-qr" }),
+    ).rejects.toMatchObject({
+      errorCode: "community_builder_install_unverified",
+      statusCode: 503,
+      message: expect.stringContaining(
+        "generated branch files can be read back and verified",
+      ),
+    });
+    expect(mocks.loadPinnedCommunitySourceAttachments).not.toHaveBeenCalled();
     expect(mocks.startWorkspaceAppCreation).not.toHaveBeenCalled();
   });
 

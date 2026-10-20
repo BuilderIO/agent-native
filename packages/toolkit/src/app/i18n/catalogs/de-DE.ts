@@ -2091,9 +2091,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Weitere Informationen",
   "settingsOrg.general.workspaceUrl": "Workspace-URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Leite Mitglieder von einer anderen Bereitstellung zu diesem Workspace.",
+    "Verbinde das App-Verzeichnis dieser Organisation über Bereitstellungen hinweg.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Mitglieder, die auf einer anderen Bereitstellung landen, kommen zu diesem Workspace statt zu einer leeren App.",
+    "Andere Bereitstellungen verwenden diese URL, um Workspace-Apps zu entdecken. Mitglieder werden nicht automatisch weitergeleitet.",
   "settingsOrg.general.editWorkspaceUrl": "Workspace-URL bearbeiten",
   "settingsOrg.general.removeWorkspaceUrl": "Workspace-URL entfernen",
   "settingsOrg.general.setWorkspaceUrl": "URL festlegen",

@@ -477,10 +477,12 @@ const enUS = {
       communityAppsEmpty: "No reviewed community apps are available yet.",
       communityAppsWorkspaceRequired:
         "Connect this organization to a workspace to install this app.",
+      communityAppsBuilderInstallUnavailable:
+        "Builder workspace installs are disabled until generated files can be verified.",
       communityAppsIdConflict:
         "This app ID is already in use, so this app cannot be installed.",
       communityAppsLicense: "License",
-      communityAppsPinnedSource: "View pinned source",
+      communityAppsTemplateSource: "View template source",
       communityAppsInstall: "Install",
       communityAppsInstalling: "Starting…",
       communityAppsInstalled: "Installed",
@@ -933,9 +935,11 @@ const appProfilePageTranslations: Record<
     communityApps: "社区应用",
     communityAppsEmpty: "暂无经过审核的社区应用。",
     communityAppsWorkspaceRequired: "请将此组织连接到工作区，以安装此应用。",
+    communityAppsBuilderInstallUnavailable:
+      "在生成的文件可供验证之前，Builder 工作区中的社区应用安装已停用。",
     communityAppsIdConflict: "此应用 ID 已被占用，无法安装此应用。",
     communityAppsLicense: "许可证",
-    communityAppsPinnedSource: "查看固定来源",
+    communityAppsTemplateSource: "查看範本來源",
     communityAppsInstall: "安装",
     communityAppsInstalling: "正在启动…",
     communityAppsInstalled: "已安装",
@@ -954,9 +958,11 @@ const appProfilePageTranslations: Record<
     communityAppsEmpty: "目前沒有可用的已審核社群應用程式。",
     communityAppsWorkspaceRequired:
       "請將此組織連結至工作區，以安裝此應用程式。",
+    communityAppsBuilderInstallUnavailable:
+      "在生成檔案可供驗證之前，Builder 工作區中的社群應用程式安裝已停用。",
     communityAppsIdConflict: "此應用程式 ID 已被使用，因此無法安裝。",
     communityAppsLicense: "授權條款",
-    communityAppsPinnedSource: "查看固定來源",
+    communityAppsTemplateSource: "查看範本來源",
     communityAppsInstall: "安裝",
     communityAppsInstalling: "正在啟動…",
     communityAppsInstalled: "已安裝",
@@ -977,10 +983,12 @@ const appProfilePageTranslations: Record<
       "Todavía no hay aplicaciones de la comunidad revisadas disponibles.",
     communityAppsWorkspaceRequired:
       "Conecta esta organización a un espacio de trabajo para instalar esta aplicación.",
+    communityAppsBuilderInstallUnavailable:
+      "La instalación de aplicaciones comunitarias en espacios de trabajo de Builder está desactivada hasta que se puedan verificar los archivos generados.",
     communityAppsIdConflict:
       "Este ID de aplicación ya está en uso, por lo que no se puede instalar.",
     communityAppsLicense: "Licencia",
-    communityAppsPinnedSource: "Ver el código fuente fijado",
+    communityAppsTemplateSource: "Ver el código fuente de la plantilla",
     communityAppsInstall: "Instalar",
     communityAppsInstalling: "Iniciando…",
     communityAppsInstalled: "Instalada",
@@ -1004,10 +1012,12 @@ const appProfilePageTranslations: Record<
       "Aucune application de la communauté vérifiée n’est encore disponible.",
     communityAppsWorkspaceRequired:
       "Connectez cette organisation à un espace de travail pour installer cette application.",
+    communityAppsBuilderInstallUnavailable:
+      "L’installation d’applications communautaires dans les espaces de travail Builder est désactivée tant que les fichiers générés ne peuvent pas être vérifiés.",
     communityAppsIdConflict:
       "Cet ID d’application est déjà utilisé. Cette application ne peut donc pas être installée.",
     communityAppsLicense: "Licence",
-    communityAppsPinnedSource: "Voir la source épinglée",
+    communityAppsTemplateSource: "Voir la source du modèle",
     communityAppsInstall: "Installer",
     communityAppsInstalling: "Démarrage…",
     communityAppsInstalled: "Installée",
@@ -1031,10 +1041,12 @@ const appProfilePageTranslations: Record<
       "Es sind noch keine geprüften Community-Apps verfügbar.",
     communityAppsWorkspaceRequired:
       "Verbinde diese Organisation mit einem Workspace, um diese App zu installieren.",
+    communityAppsBuilderInstallUnavailable:
+      "Installationen von Community-Apps in Builder-Workspaces sind deaktiviert, bis die generierten Dateien überprüft werden können.",
     communityAppsIdConflict:
       "Diese App-ID wird bereits verwendet. Die App kann daher nicht installiert werden.",
     communityAppsLicense: "Lizenz",
-    communityAppsPinnedSource: "Angeheftete Quelle anzeigen",
+    communityAppsTemplateSource: "Vorlagenquelle anzeigen",
     communityAppsInstall: "Installieren",
     communityAppsInstalling: "Wird gestartet…",
     communityAppsInstalled: "Installiert",
@@ -1056,10 +1068,12 @@ const appProfilePageTranslations: Record<
     communityAppsEmpty: "審査済みのコミュニティアプリはまだありません。",
     communityAppsWorkspaceRequired:
       "このアプリをインストールするには、この組織をワークスペースに接続してください。",
+    communityAppsBuilderInstallUnavailable:
+      "生成されたファイルを検証できるようになるまで、Builder ワークスペースでのコミュニティアプリのインストールは無効です。",
     communityAppsIdConflict:
       "このアプリIDはすでに使用されているため、インストールできません。",
     communityAppsLicense: "ライセンス",
-    communityAppsPinnedSource: "固定されたソースを表示",
+    communityAppsTemplateSource: "テンプレートのソースを表示",
     communityAppsInstall: "インストール",
     communityAppsInstalling: "開始中…",
     communityAppsInstalled: "インストール済み",
@@ -1082,10 +1096,12 @@ const appProfilePageTranslations: Record<
     communityAppsEmpty: "아직 검토를 마친 커뮤니티 앱이 없습니다.",
     communityAppsWorkspaceRequired:
       "이 앱을 설치하려면 이 조직을 워크스페이스에 연결하세요.",
+    communityAppsBuilderInstallUnavailable:
+      "생성된 파일을 검증할 수 있을 때까지 Builder 워크스페이스에서 커뮤니티 앱을 설치할 수 없습니다.",
     communityAppsIdConflict:
       "이 앱 ID는 이미 사용 중이므로 설치할 수 없습니다.",
     communityAppsLicense: "라이선스",
-    communityAppsPinnedSource: "고정된 소스 보기",
+    communityAppsTemplateSource: "템플릿 소스 보기",
     communityAppsInstall: "설치",
     communityAppsInstalling: "시작 중…",
     communityAppsInstalled: "설치됨",
@@ -1106,10 +1122,12 @@ const appProfilePageTranslations: Record<
       "Ainda não há aplicativos da comunidade analisados disponíveis.",
     communityAppsWorkspaceRequired:
       "Conecte esta organização a um espaço de trabalho para instalar este aplicativo.",
+    communityAppsBuilderInstallUnavailable:
+      "A instalação de aplicativos da comunidade em espaços de trabalho do Builder está desativada até que os arquivos gerados possam ser verificados.",
     communityAppsIdConflict:
       "Este ID de aplicativo já está em uso, então ele não pode ser instalado.",
     communityAppsLicense: "Licença",
-    communityAppsPinnedSource: "Ver código-fonte fixado",
+    communityAppsTemplateSource: "Ver código-fonte do modelo",
     communityAppsInstall: "Instalar",
     communityAppsInstalling: "Iniciando…",
     communityAppsInstalled: "Instalado",
@@ -1131,10 +1149,12 @@ const appProfilePageTranslations: Record<
     communityAppsEmpty: "अभी तक कोई समीक्षित समुदाय ऐप उपलब्ध नहीं है।",
     communityAppsWorkspaceRequired:
       "इस ऐप को इंस्टॉल करने के लिए इस संगठन को किसी वर्कस्पेस से कनेक्ट करें।",
+    communityAppsBuilderInstallUnavailable:
+      "जनरेट की गई फ़ाइलों का सत्यापन संभव होने तक Builder वर्कस्पेस में समुदाय ऐप इंस्टॉलेशन बंद है।",
     communityAppsIdConflict:
       "यह ऐप ID पहले से उपयोग में है, इसलिए इस ऐप को इंस्टॉल नहीं किया जा सकता।",
     communityAppsLicense: "लाइसेंस",
-    communityAppsPinnedSource: "पिन किया गया स्रोत देखें",
+    communityAppsTemplateSource: "टेम्पलेट स्रोत देखें",
     communityAppsInstall: "इंस्टॉल करें",
     communityAppsInstalling: "शुरू हो रहा है…",
     communityAppsInstalled: "इंस्टॉल हो गया",
@@ -1153,10 +1173,12 @@ const appProfilePageTranslations: Record<
     communityAppsEmpty: "لا تتوفر تطبيقات مجتمع مراجَعة بعد.",
     communityAppsWorkspaceRequired:
       "اربط هذه المؤسسة بمساحة عمل لتثبيت هذا التطبيق.",
+    communityAppsBuilderInstallUnavailable:
+      "تم تعطيل تثبيت تطبيقات المجتمع في مساحات عمل Builder إلى أن يصبح بالإمكان التحقق من الملفات المُنشأة.",
     communityAppsIdConflict:
       "معرّف هذا التطبيق مستخدم بالفعل، لذلك لا يمكن تثبيت هذا التطبيق.",
     communityAppsLicense: "الترخيص",
-    communityAppsPinnedSource: "عرض المصدر المثبّت",
+    communityAppsTemplateSource: "عرض مصدر القالب",
     communityAppsInstall: "تثبيت",
     communityAppsInstalling: "جارٍ البدء…",
     communityAppsInstalled: "تم التثبيت",

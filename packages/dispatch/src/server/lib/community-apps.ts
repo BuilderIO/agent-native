@@ -45,7 +45,10 @@ export interface CuratedCommunityApp extends CuratedCommunityAppSource {
   installed: boolean;
   pending: boolean;
   installable: boolean;
-  installUnavailableReason?: "workspace-required" | "app-id-conflict";
+  installUnavailableReason?:
+    | "workspace-required"
+    | "app-id-conflict"
+    | "builder-install-unverified";
 }
 
 export const CURATED_COMMUNITY_APP_SOURCES: readonly CuratedCommunityAppSource[] =
@@ -80,7 +83,7 @@ export const CURATED_COMMUNITY_APP_SOURCES: readonly CuratedCommunityAppSource[]
         },
         {
           path: "actions/generate-qr-code.ts",
-          blobSha: "da1098b03f54229be37c29c4a1689d1085133b73",
+          blobSha: "98d30e218bfed796d5e402d5ce19a8626d8da0cf",
         },
         {
           path: "actions/run.ts",
@@ -92,7 +95,7 @@ export const CURATED_COMMUNITY_APP_SOURCES: readonly CuratedCommunityAppSource[]
         },
         {
           path: "package.json",
-          blobSha: "98f5528c4e0e4b300be0f7a10f78def799f173e3",
+          blobSha: "c7803d346368f927621329b2acbf5f6cc744dc18",
         },
         {
           path: "server/db/index.ts",
@@ -100,11 +103,11 @@ export const CURATED_COMMUNITY_APP_SOURCES: readonly CuratedCommunityAppSource[]
         },
         {
           path: "server/db/schema.ts",
-          blobSha: "f0e2aa810d97c2d9052b296a6c3847fbc0db3841",
+          blobSha: "2e4cd01c5f46463e78bc7beb6e954f3e526c0b57",
         },
         {
           path: "server/plugins/db.ts",
-          blobSha: "b694ff4c3301cf7601528bc5f44a2fff746714ec",
+          blobSha: "78a5b431c1ad1ea14f593123c090f5376a36df10",
         },
         {
           path: "tsconfig.json",
@@ -166,8 +169,10 @@ async function requireCommunityAppsLab(): Promise<void> {
   }
 }
 
-async function hasAssociatedWorkspace(): Promise<boolean> {
-  if (isLocalAppCreationRuntime()) return Boolean(getWorkspaceInfo().rootPath);
+async function hasAssociatedWorkspace(
+  localRuntime = isLocalAppCreationRuntime(),
+): Promise<boolean> {
+  if (localRuntime) return Boolean(getWorkspaceInfo().rootPath);
   return Boolean((await getAppCreationSettings()).builderProjectId);
 }
 
@@ -175,9 +180,10 @@ export async function listCuratedCommunityApps(): Promise<
   CuratedCommunityApp[]
 > {
   await requireCommunityAppsLab();
-  const [apps, installable] = await Promise.all([
+  const localRuntime = isLocalAppCreationRuntime();
+  const [apps, workspaceAvailable] = await Promise.all([
     listWorkspaceApps({ includeAgentCards: false, includeArchived: true }),
-    hasAssociatedWorkspace(),
+    hasAssociatedWorkspace(localRuntime),
   ]);
   return CURATED_COMMUNITY_APP_SOURCES.map((source) => {
     const appWithId = apps.find((app) => app.id === source.appId);
@@ -185,16 +191,21 @@ export async function listCuratedCommunityApps(): Promise<
       appWithId?.communitySourceId === source.id ? appWithId : null;
     const idConflict = Boolean(appWithId && !installedApp);
     const pending = installedApp?.status === "pending";
+    const installUnavailableReason = appWithId
+      ? idConflict
+        ? "app-id-conflict"
+        : undefined
+      : !workspaceAvailable
+        ? "workspace-required"
+        : !localRuntime
+          ? "builder-install-unverified"
+          : undefined;
     return {
       ...source,
       installed: Boolean(installedApp && !pending),
       pending,
-      installable: installable && !appWithId,
-      ...(!installable
-        ? { installUnavailableReason: "workspace-required" as const }
-        : idConflict
-          ? { installUnavailableReason: "app-id-conflict" as const }
-          : {}),
+      installable: localRuntime && workspaceAvailable && !appWithId,
+      ...(installUnavailableReason ? { installUnavailableReason } : {}),
     };
   });
 }
@@ -261,7 +272,8 @@ export async function installCuratedCommunityApp(input: {
   const appId = normalizeWorkspaceAppId(input.appId?.trim() || source.appId);
   requireNonShadowingCommunityAppId(appId);
 
-  if (!(await hasAssociatedWorkspace())) {
+  const localRuntime = isLocalAppCreationRuntime();
+  if (!(await hasAssociatedWorkspace(localRuntime))) {
     fail("Connect this organization to a workspace before installing apps.", {
       errorCode: "community_workspace_required",
       statusCode: 409,
@@ -279,6 +291,16 @@ export async function installCuratedCommunityApp(input: {
       return existingInstallResult(source, existing);
     }
     rejectCommunityAppIdConflict(appId);
+  }
+
+  if (!localRuntime) {
+    fail(
+      "Community template installs in Builder workspaces are disabled until the generated branch files can be read back and verified.",
+      {
+        errorCode: "community_builder_install_unverified",
+        statusCode: 503,
+      },
+    );
   }
 
   let attachments: Awaited<

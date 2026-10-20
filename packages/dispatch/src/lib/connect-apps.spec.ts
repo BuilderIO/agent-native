@@ -15,6 +15,10 @@ describe("connect apps helpers", () => {
     expect(normalizeConnectUrl("https://127.0.0.1")).toBeNull();
     expect(normalizeConnectUrl("https://169.254.169.254")).toBeNull();
     expect(normalizeConnectUrl("https://[::1]")).toBeNull();
+    expect(normalizeConnectUrl("https://[::ffff:127.0.0.1]")).toBeNull();
+    expect(normalizeConnectUrl("https://[::ffff:7f00:1]")).toBeNull();
+    expect(normalizeConnectUrl("https://[::ffff:6440:1]")).toBeNull();
+    expect(normalizeConnectUrl("https://[::ffff:0:0]")).toBeNull();
     expect(normalizeConnectUrl("http://localhost:3000")).not.toBeNull();
   });
 

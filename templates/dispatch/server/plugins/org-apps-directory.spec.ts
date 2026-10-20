@@ -293,6 +293,13 @@ describe("org apps directory handler", () => {
     ).toEqual(["own-private"]);
   });
 
+  it("prevents HTTP caches from reusing principal-scoped directory responses", async () => {
+    const response = await request();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("keeps organization and user directory caches separate", async () => {
     const discovered = ["qr", "private-qr"].map((id) => ({
       id,

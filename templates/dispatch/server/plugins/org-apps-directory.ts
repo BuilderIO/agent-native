@@ -288,7 +288,7 @@ export const orgAppsHandler = defineEventHandler(
     };
 
     return jsonResponse(body, 200, {
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": "private, no-store",
     });
   },
 );
