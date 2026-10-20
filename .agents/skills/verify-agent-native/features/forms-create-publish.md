@@ -54,4 +54,6 @@ Preconditions:
   expected empty-publish rejection, not a regression.
 - There are two `New form` / `New Form` buttons (sidebar and header). Scope the
   locator to `navigation` or `banner`, or it matches both.
-- Title edits save on blur. Blur before asserting stored state.
+- Title edits autosave 500 ms after the last keystroke, not on blur. Publishing
+  flushes the save, so read stored state after a later step, not straight after
+  typing.

@@ -6,10 +6,11 @@ the app's home route.
 
 ## Sub-features
 
-- `lazy-boot` starts a stopped app on first request. A `Dev server is
-  restarting…` page shows until it is ready.
-- `landing` redirects `/<app>/` to the app's home route (for example
-  `/dispatch/overview`).
+- `lazy-boot` starts a stopped app on first request. A page headed
+  `Starting <App>` refreshes until it is ready, or `App failed to start: <App>`
+  shows the error and a retry countdown.
+- `landing` proxies `/<app>/` unchanged, and the app's own router lands on its
+  home route (for example `/dispatch/overview`).
 - `catalog` lists apps, ports, and `running` flags at `/_workspace/apps`.
 
 ## How to get to it (user POV)
@@ -37,6 +38,8 @@ Preconditions:
 
 - This is read-only by contract. Gateway apps may be on a shared remote DB.
 - A cold app can take over a minute on first compile. `ctx.open` waits up to
-  3 minutes.
+  4 minutes, and fails fast on the `App failed to start` page.
+- Starting another `pnpm dev`/`dev:lazy` force-kills whatever is on the gateway
+  and template ports (unless `--no-kill` is passed). Use the running gateway.
 - Dispatch logs `400 …/get-builder-credit-status` when Builder isn't
   connected. This is pre-existing.

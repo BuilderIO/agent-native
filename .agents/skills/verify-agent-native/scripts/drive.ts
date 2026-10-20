@@ -25,7 +25,11 @@ export interface DriveContext {
   evidenceDir: string;
   open(pathname: string): Promise<void>;
   shot(name: string): Promise<void>;
-  action<T = unknown>(name: string, query?: Record<string, string>): Promise<T>;
+  action<T = unknown>(
+    name: string,
+    args?: Record<string, unknown>,
+    method?: "GET" | "POST",
+  ): Promise<T>;
   note(message: string): void;
 }
 
@@ -102,10 +106,18 @@ const ctx: DriveContext = {
     // state can vanish and come back; require it to stay gone for a while.
     const loading = page
       .getByRole("status", { name: "Loading application" })
-      .or(page.getByRole("heading", { name: /Dev server is (restarting|starting)/ }));
+      .or(
+        page.getByRole("heading", {
+          name: /^Starting |Dev server is (re)?starting/,
+        }),
+      );
+    const failed = page.getByRole("heading", { name: /^App failed to start/ });
     const deadline = Date.now() + 240_000;
     let clearSince: number | null = null;
     while (Date.now() < deadline) {
+      if ((await failed.count()) > 0) {
+        throw new Error(`gateway: ${await page.locator("body").innerText()}`);
+      }
       if ((await loading.count()) > 0) {
         clearSince = null;
       } else {
@@ -125,9 +137,14 @@ const ctx: DriveContext = {
     write(`${label}.aria.txt`, await page.locator("body").ariaSnapshot());
     note(`shot ${label} at ${page.url()}`);
   },
-  async action(name, query = {}) {
-    const url = `${base}/_agent-native/actions/${name}?${new URLSearchParams(query)}`;
-    const res = await page.request.get(url);
+  async action(name, args = {}, method = "GET") {
+    const endpoint = `${base}/_agent-native/actions/${name}`;
+    const res =
+      method === "GET"
+        ? await page.request.get(
+            `${endpoint}?${new URLSearchParams(args as Record<string, string>)}`,
+          )
+        : await page.request.post(endpoint, { data: args });
     const text = await res.text();
     write(`action-${name}.json`, text);
     if (!res.ok())

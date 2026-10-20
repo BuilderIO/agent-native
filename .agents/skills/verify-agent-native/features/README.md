@@ -49,4 +49,52 @@ and observable proof.
 - [Submit a form response](./forms-submit-response.md): public `/f/<slug>`
   submission and the Results tab.
 - [Agent composer](./agent-composer.md): the agent sidebar opens, and the
-  composer state matches model connection.
+  composer state matches model connection. Works in any app (`--param
+  path=/inbox` for Mail).
+
+### Mail
+
+On a fresh instance, run `mail-connect-gate` first, because any recipe that
+creates mail lifts the gate. Run `mail-compose-draft` before
+`mail-navigation`. The others can run in any order.
+
+- [Mail Connect Google gate](./mail-connect-gate.md): the account-free hero,
+  settings and draft-queue exemptions, and the 404 page.
+- [Compose and reopen a draft](./mail-compose-draft.md): compose fields,
+  autosave, and reopening from Drafts.
+- [Send an email](./mail-send-local.md): empty-recipient rejection, undo
+  window, local synthetic send, and Sent.
+- [Schedule send](./mail-schedule-send.md): presets and Scheduled.
+  **Currently fails because of a product bug** (an int4 overflow in
+  `scheduled_jobs`).
+- [Drafting settings](./mail-settings-drafting.md): signature, autocomplete,
+  and save state.
+- [Tracking settings](./mail-settings-tracking.md): open and click tracking
+  switches.
+- [Aliases](./mail-aliases.md): create a recipient group.
+- [Snippets](./mail-snippets.md): create reusable text.
+- [Automation rules](./mail-rules.md): create a rule and the empty-label no-op.
+- [Draft queue](./mail-draft-queue.md): queue a draft request and review it.
+- [Mail navigation, tabs, and notifications](./mail-navigation.md): drawer
+  links, inbox tabs, Configure tabs, and the notifications panel.
+
+#### Mail surfaces that are verified-unreachable here
+
+Each of these needs an external prerequisite that isolated instances don't
+have. Report it as unreachable, not as verified.
+
+- **Gmail account:**
+  - receiving and syncing mail, real delivery, replies, and forwards
+  - thread view (`/:view/:threadId`) and archive, star, snooze, and trash on
+    real threads
+  - Settings → `Gmail filters` (`manage-gmail-filters` errors without an
+    account)
+  - `Import from Gmail` on Drafting
+  - draft-queue `Send`
+- **Jev configured:** Settings → `AI triage` (`/settings/app/ai-filter`)
+  changes.
+- **Connected AI model:**
+  - agent chat (`/chat`)
+  - compose `Generate`
+  - creating extensions (`/extensions/new`)
+  - asking the agent to create rules.

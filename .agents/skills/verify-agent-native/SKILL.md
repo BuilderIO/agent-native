@@ -87,12 +87,18 @@ It exits 1 if the recipe throws, and saves a `failure.png`.
 
 A recipe is `export default async (ctx: DriveContext) => {}`:
 
-- `ctx.open(path)` navigates and waits out the cold-compile `Loading
-  application` status and the gateway's `Dev server is restarting…` page.
+- `ctx.open(path)` navigates, then waits until the `Loading application`
+  status and the gateway's `Starting <App>` page have stayed gone for 3 s. A
+  cold Vite instance reloads itself several times while it discovers
+  dependencies (`504 Outdated Optimize Dep`, `?__an_vite_dev_recovery=`), so a
+  single disappearance isn't "loaded". It throws on `App failed to start`.
 - `ctx.shot(name)` writes a numbered `.png` plus a `.aria.txt` ARIA snapshot.
-- `ctx.action(name, query)` calls `GET /_agent-native/actions/<name>` with the
-  page's session. This is the same action surface the agent uses, and gives you
-  a second view of stored state. It throws on a non-2xx response.
+- `ctx.action(name, args, method = "GET")` calls
+  `/_agent-native/actions/<name>` with the page's session: GET with `args` as
+  query params, or POST with `args` as the JSON body for POST-only actions
+  (e.g. `manage-snippets` `{ operation: "list" }`). This is the same action
+  surface the agent uses, and gives you a second view of stored state. It
+  throws on a non-2xx response.
 - `ctx.page`, `ctx.params`, `ctx.note(msg)`.
 
 For a new flow, copy the closest recipe into `.tmp/verify/<run>/` and edit it.
@@ -149,5 +155,9 @@ except their evidence dir.
   Import `chromium` from `@playwright/test` in ad-hoc scripts.
 - Gateway Dispatch logs a 400 from `get-builder-credit-status` when Builder
   isn't connected. It's pre-existing, not caused by your change.
+- Playwright `name` matching is a case-insensitive substring: `{ name: "Send" }`
+  also matches `Schedule send`. Pass `exact: true` for short names.
+- The first drive of a fresh instance is slow (a minute or more of dependency
+  discovery). Later drives on the same instance take seconds.
 
 Keep the map honest as the app changes with `/maintain-verification-skill`.
