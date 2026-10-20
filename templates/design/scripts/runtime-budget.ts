@@ -11,14 +11,8 @@ import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
 import { OVERVIEW_FRAME_WIDTH } from "../app/components/design/multi-screen/overview-layout.ts";
 import { DEVICE_FRAME_VIEWPORTS } from "../app/components/design/types.ts";
-import {
-  readRuntimeZoomSnapshot,
-  type ZoomSnapshot,
-} from "./_runtime-budget-zoom-snapshot.ts";
-import {
-  measureRuntimeZoom,
-  readZoomUntilAvailable,
-} from "./runtime-budget-zoom.ts";
+import { runRuntimeZoomAttempt } from "./_runtime-budget-zoom-attempt.ts";
+import { readRuntimeZoomSnapshot } from "./_runtime-budget-zoom-snapshot.ts";
 
 type BudgetFile = {
   copies: number;
@@ -377,92 +371,47 @@ function worstFrameSince(since: number) {
   );
 }
 
-const zoomMeasurements: {
-  target: number;
-  before: ZoomSnapshot | null;
-  final: ZoomSnapshot | null;
-  expectedBefore: ReturnType<typeof measureRuntimeZoom>;
-  finalMeasurement: ReturnType<typeof measureRuntimeZoom>;
-  elapsedMs: number;
-  arrived: boolean;
-  error: string | null;
-}[] = [];
+const zoomMeasurements: Awaited<ReturnType<typeof runRuntimeZoomAttempt>>[] =
+  [];
 async function zoomTo(target: number): Promise<boolean> {
-  const startedAt = Date.now();
-  const deadline = startedAt + 10_000;
-  const remainingTimeout = () => Math.max(1, deadline - Date.now());
   // This benchmark measures camera-driven rendering and preview churn; wheel
   // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
   const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
-  const readZoomSnapshot = async () => {
-    const handle = await readout.elementHandle({ timeout: remainingTimeout() });
-    try {
-      return await page.evaluate(readRuntimeZoomSnapshot, {
-        readout: handle,
-        defaultFrameWidth: OVERVIEW_FRAME_WIDTH,
-        defaultSourceWidth: 1280,
-        deviceWidths: Object.fromEntries(
-          Object.entries(DEVICE_FRAME_VIEWPORTS).map(([name, size]) => [
-            name,
-            size.width,
-          ]),
-        ),
+  const measurement = await runRuntimeZoomAttempt(target, {
+    read: async (deadline) => {
+      const handle = await readout.elementHandle({
+        timeout: Math.max(1, deadline - Date.now()),
       });
-    } finally {
-      await handle?.dispose();
-    }
-  };
-  let before: ZoomSnapshot | null = null;
-  let final: ZoomSnapshot | null = null;
-  let arrived = false;
-  let error: string | null = null;
-  try {
-    const baseline = await readZoomUntilAvailable(
-      async () => {
-        before = await readZoomSnapshot();
-        return measureRuntimeZoom(before, target).expectedScale;
-      },
-      (ms) => page.waitForTimeout(ms),
-      deadline,
-      () => cdp.send("Runtime.terminateExecution"),
-    );
-    if (baseline === null) return false;
-    await readout.click({ timeout: remainingTimeout() });
-    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
-    await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
-    await zoomInput.press("Enter", { timeout: remainingTimeout() });
-    const actual = await readZoomUntilAvailable(
-      async () => {
-        final = await readZoomSnapshot();
-        const measurement = measureRuntimeZoom(final, target);
-        return measurement.failedChecks.length === 0
-          ? final!.camera.scale
-          : null;
-      },
-      (ms) => page.waitForTimeout(ms),
-      deadline,
-      () => cdp.send("Runtime.terminateExecution"),
-    );
-    arrived = actual !== null;
-    return arrived;
-  } catch (cause) {
-    error = String(cause);
-    throw cause;
-  } finally {
-    const measurement = {
-      target,
-      before,
-      final,
-      expectedBefore: measureRuntimeZoom(before, target),
-      finalMeasurement: measureRuntimeZoom(final, target),
-      elapsedMs: Date.now() - startedAt,
-      arrived,
-      error,
-    };
-    zoomMeasurements.push(measurement);
-    if (!arrived)
-      console.log(`  zoom measurement failed: ${JSON.stringify(measurement)}`);
-  }
+      try {
+        return await page.evaluate(readRuntimeZoomSnapshot, {
+          readout: handle,
+          defaultFrameWidth: OVERVIEW_FRAME_WIDTH,
+          defaultSourceWidth: 1280,
+          deviceWidths: Object.fromEntries(
+            Object.entries(DEVICE_FRAME_VIEWPORTS).map(([name, size]) => [
+              name,
+              size.width,
+            ]),
+          ),
+        });
+      } finally {
+        await handle?.dispose();
+      }
+    },
+    apply: async (deadline) => {
+      const remainingTimeout = () => Math.max(1, deadline - Date.now());
+      await readout.click({ timeout: remainingTimeout() });
+      const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+      await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
+      await zoomInput.press("Enter", { timeout: remainingTimeout() });
+    },
+    wait: (ms) => page.waitForTimeout(ms),
+    cleanup: () => cdp.send("Runtime.terminateExecution"),
+  });
+  zoomMeasurements.push(measurement);
+  if (!measurement.arrived)
+    console.log(`  zoom measurement failed: ${JSON.stringify(measurement)}`);
+  return measurement.arrived;
 }
 
 async function until(check: () => Promise<boolean>, timeoutMs = 30_000) {

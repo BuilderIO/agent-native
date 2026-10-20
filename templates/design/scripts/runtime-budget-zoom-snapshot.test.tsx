@@ -21,11 +21,17 @@ const config = {
     ]),
   ),
 };
-const readSnapshot = () =>
-  readRuntimeZoomSnapshot({
-    ...config,
-    readout: document.querySelector("button"),
-  });
+const readResult = (
+  readout: Element | null = document.querySelector("button"),
+) => readRuntimeZoomSnapshot({ ...config, readout });
+function readSnapshot(
+  readout: Element | null = document.querySelector("button"),
+) {
+  const result = readResult(readout);
+  expect(result.status).toBe("available");
+  if (result.status !== "available") throw new Error(JSON.stringify(result));
+  return result.snapshot;
+}
 const roots: ReturnType<typeof createRoot>[] = [];
 afterEach(() => {
   roots.forEach((root) => flushSync(() => root.unmount()));
@@ -98,6 +104,107 @@ function fixture() {
 }
 
 describe("atomic runtime zoom snapshot", () => {
+  it("distinguishes an absent world from a missing fiber contract", () => {
+    expect(readResult()).toEqual({
+      status: "unavailable",
+      reason: "world-absent",
+    });
+    document.body.innerHTML = "<div data-multi-screen-canvas-world></div>";
+    expect(readResult()).toEqual({
+      status: "error",
+      reason: "fiber-host-missing",
+    });
+  });
+
+  it("reports an unresolvable root instead of an absent canvas", () => {
+    fixture()();
+    const world = document.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    )!;
+    const key = Object.keys(world).find((key) =>
+      key.startsWith("__reactFiber$"),
+    )!;
+    const host = (world as unknown as Record<string, object>)[key]!;
+    Object.defineProperty(world, key, {
+      value: { ...host, return: null, alternate: null },
+      configurable: true,
+    });
+    expect(readResult()).toEqual({
+      status: "error",
+      reason: "fiber-path-unreadable",
+      paths: [{ branch: "host", reason: "root-unavailable" }],
+    });
+  });
+
+  it("reports ambiguous committed candidates without guessing a basis", () => {
+    fixture()();
+    const world = document.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    )!;
+    const key = Object.keys(world).find((key) =>
+      key.startsWith("__reactFiber$"),
+    )!;
+    const candidate = () => {
+      const root = {
+        stateNode: { current: null as unknown },
+        child: null as unknown,
+        return: null,
+      };
+      const canvas = {
+        return: root,
+        child: null as unknown,
+        memoizedProps: { screens: [], activeId: null, zoom: 60 },
+      };
+      const host = {
+        return: canvas,
+        child: null,
+        sibling: null,
+        alternate: null as unknown,
+        stateNode: world,
+        memoizedProps: {},
+      };
+      root.stateNode.current = root;
+      root.child = canvas;
+      canvas.child = host;
+      return host;
+    };
+    const host = candidate();
+    host.alternate = candidate();
+    Object.defineProperty(world, key, { value: host, configurable: true });
+    expect(readResult()).toEqual({
+      status: "error",
+      reason: "fiber-candidates-ambiguous",
+      candidateCount: 2,
+      paths: [],
+    });
+  });
+
+  it("keeps a missing transform retryable but reports an unreadable matrix", () => {
+    fixture()();
+    const world = document.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    )!;
+    world.style.transform = "";
+    expect(readResult()).toEqual({
+      status: "unavailable",
+      reason: "camera-transform-absent",
+    });
+    world.style.transform = "scale(1)";
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        constructor() {
+          throw new Error("matrix unavailable");
+        }
+      },
+    );
+    expect(readResult()).toEqual({
+      status: "error",
+      reason: "camera-transform-unreadable",
+      transform: "scale(1)",
+      message: "Error: matrix unavailable",
+    });
+  });
   it("reads committed camera/basis across alternating real React commits while the route lags", () => {
     const render = fixture();
     window.history.replaceState(null, "", "?zoom=2.33");
@@ -157,7 +264,11 @@ describe("atomic runtime zoom snapshot", () => {
       value: { ...host, alternate: null },
       configurable: true,
     });
-    expect(readSnapshot()).toBeNull();
+    expect(readResult()).toEqual({
+      status: "error",
+      reason: "fiber-path-unreadable",
+      paths: [{ branch: "host", reason: "path-disconnected" }],
+    });
   });
 
   it("measures board-only and device normalization without route-derived scale", () => {
@@ -184,13 +295,9 @@ describe("atomic runtime zoom snapshot", () => {
     hidden.hidden = true;
     hidden.textContent = "8%";
     document.body.prepend(hidden);
-    expect(
-      readRuntimeZoomSnapshot({ ...config, readout: selected })!.label,
-    ).toBe("60%");
+    expect(readSnapshot(selected).label).toBe("60%");
     selected.remove();
-    expect(
-      readRuntimeZoomSnapshot({ ...config, readout: selected })!.label,
-    ).toBeNull();
+    expect(readSnapshot(selected).label).toBeNull();
   });
 
   it.each([0, -1, Number.NaN])(
@@ -213,11 +320,23 @@ describe("atomic runtime zoom snapshot", () => {
   it("waits for an effective active screen instead of guessing the editor's default file", () => {
     const render = fixture();
     render({ activeId: null });
-    expect(readSnapshot()).toBeNull();
+    expect(readResult()).toEqual({
+      status: "unavailable",
+      reason: "active-screen-unresolved",
+      activeId: null,
+    });
     render({ activeId: "removed-screen" });
-    expect(readSnapshot()).toBeNull();
+    expect(readResult()).toEqual({
+      status: "unavailable",
+      reason: "active-screen-unresolved",
+      activeId: "removed-screen",
+    });
     render({ activeId: "styles.css" });
-    expect(readSnapshot()).toBeNull();
+    expect(readResult()).toEqual({
+      status: "unavailable",
+      reason: "active-screen-unresolved",
+      activeId: "styles.css",
+    });
     render({ activeId: "b", zoom: 100 });
     expect(readSnapshot()!.basis.screenId).toBe("b");
     expect(readSnapshot()!.basis.scale).toBeCloseTo(0.6);
@@ -228,6 +347,9 @@ describe("atomic runtime zoom snapshot", () => {
   it("fails loudly when the React measurement contract is unavailable", () => {
     document.body.innerHTML =
       '<div data-multi-screen-canvas-world style="transform:scale(1)"></div>';
-    expect(() => readSnapshot()).toThrow("requires React host fibers");
+    expect(readResult()).toEqual({
+      status: "error",
+      reason: "fiber-host-missing",
+    });
   });
 });

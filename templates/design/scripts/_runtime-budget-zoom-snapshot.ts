@@ -17,6 +17,41 @@ export type ZoomSnapshot = {
   label: string | null;
 };
 
+export type FiberPathFailure = {
+  branch: "host" | "alternate";
+  reason:
+    | "root-unavailable"
+    | "path-disconnected"
+    | "world-mismatch"
+    | "canvas-props-missing";
+};
+
+export type ZoomSnapshotRead =
+  | { status: "available"; snapshot: ZoomSnapshot }
+  | {
+      status: "unavailable";
+      reason:
+        | "world-absent"
+        | "active-screen-unresolved"
+        | "camera-transform-absent";
+      activeId?: string | null;
+    }
+  | {
+      status: "error";
+      reason:
+        | "fiber-host-missing"
+        | "fiber-path-unreadable"
+        | "fiber-candidates-ambiguous"
+        | "overview-mode-required"
+        | "camera-transform-unreadable"
+        | "snapshot-read-timed-out"
+        | "snapshot-read-failed";
+      message?: string;
+      paths?: FiberPathFailure[];
+      candidateCount?: number;
+      transform?: string;
+    };
+
 type Fiber = {
   return: Fiber | null;
   child: Fiber | null;
@@ -36,23 +71,29 @@ export type ZoomSnapshotConfig = {
 // Passed directly to page.evaluate: all browser reads happen in one JS task.
 export function readRuntimeZoomSnapshot(
   config: ZoomSnapshotConfig,
-): ZoomSnapshot | null {
+): ZoomSnapshotRead {
   const world = document.querySelector<HTMLElement>(
     "[data-multi-screen-canvas-world]",
   );
-  if (!world) return null;
+  if (!world) return { status: "unavailable", reason: "world-absent" };
   const fiberKey = Object.keys(world).find((key) =>
     key.startsWith("__reactFiber$"),
   );
-  if (!fiberKey)
-    throw new Error("runtime zoom measurement requires React host fibers");
+  if (!fiberKey) return { status: "error", reason: "fiber-host-missing" };
   const host = (world as unknown as Record<string, Fiber>)[fiberKey]!;
   const candidates = new Set<MultiScreenCanvasGroupedProps>();
-  for (const start of [host, host.alternate]) {
+  const paths: FiberPathFailure[] = [];
+  for (const [index, start] of [host, host.alternate].entries()) {
+    if (!start) continue;
+    const branch = index === 0 ? "host" : "alternate";
     const path: Fiber[] = [];
-    for (let node = start; node; node = node.return) path.push(node);
+    for (let node: Fiber | null = start; node; node = node.return)
+      path.push(node);
     const root = path.pop()?.stateNode?.current;
-    if (!root) continue;
+    if (!root) {
+      paths.push({ branch, reason: "root-unavailable" });
+      continue;
+    }
     let current = root;
     let canvasProps: MultiScreenCanvasGroupedProps | null = null;
     let connected = true;
@@ -79,13 +120,25 @@ export function readRuntimeZoomSnapshot(
         canvasProps = props as MultiScreenCanvasGroupedProps;
       }
     }
-    if (connected && current.stateNode === (world as unknown) && canvasProps)
-      candidates.add(canvasProps);
+    if (!connected) paths.push({ branch, reason: "path-disconnected" });
+    else if (current.stateNode !== (world as unknown))
+      paths.push({ branch, reason: "world-mismatch" });
+    else if (!canvasProps)
+      paths.push({ branch, reason: "canvas-props-missing" });
+    else candidates.add(canvasProps);
   }
-  if (candidates.size !== 1) return null;
+  if (candidates.size === 0)
+    return { status: "error", reason: "fiber-path-unreadable", paths };
+  if (candidates.size > 1)
+    return {
+      status: "error",
+      reason: "fiber-candidates-ambiguous",
+      candidateCount: candidates.size,
+      paths,
+    };
   const props = [...candidates][0]!;
   if (props.interactScreenId)
-    throw new Error("runtime zoom measurement requires overview mode");
+    return { status: "error", reason: "overview-mode-required" };
   // Before the active-file effect settles, the editor can use its default file
   // while activeId is still absent or stale. Those effective-file inputs are
   // not canvas props, so wait for a resolved ID rather than guessing its basis.
@@ -96,7 +149,11 @@ export function readRuntimeZoomSnapshot(
       (!props.screens.some((screen) => screen.id === props.activeId) &&
         props.activeId !== props.board?.boardFileId))
   )
-    return null;
+    return {
+      status: "unavailable",
+      reason: "active-screen-unresolved",
+      activeId: props.activeId,
+    };
   const screen =
     props.screens.find(
       (screen) =>
@@ -122,8 +179,19 @@ export function readRuntimeZoomSnapshot(
       : config.defaultSourceWidth
     : null;
   const transform = world.style.transform;
-  if (!transform) return null;
-  const cameraScale = new DOMMatrixReadOnly(transform).a * 100;
+  if (!transform)
+    return { status: "unavailable", reason: "camera-transform-absent" };
+  let cameraScale: number;
+  try {
+    cameraScale = new DOMMatrixReadOnly(transform).a * 100;
+  } catch (cause) {
+    return {
+      status: "error",
+      reason: "camera-transform-unreadable",
+      message: String(cause),
+      transform,
+    };
+  }
   const targetWindow = window as unknown as {
     __runtimeBudgetZoom?: {
       renderRevisions: WeakMap<object, number>;
@@ -144,7 +212,7 @@ export function readRuntimeZoomSnapshot(
   const sampleRevision = ++state.nextSampleRevision;
   const raw = new URLSearchParams(location.search).get("zoom");
   const routeZoom = raw === null ? Number.NaN : Number(raw);
-  return {
+  const snapshot: ZoomSnapshot = {
     sampledAt: performance.now(),
     sampleRevision,
     renderRevision,
@@ -162,4 +230,5 @@ export function readRuntimeZoomSnapshot(
       ? (config.readout.textContent?.trim() ?? null)
       : null,
   };
+  return { status: "available", snapshot };
 }

@@ -91,7 +91,7 @@ export async function readZoomUntilAvailable(
 ): Promise<number | null> {
   while (now() < deadline) {
     const result = await beforeDeadline(readZoom, deadline - now(), cleanup);
-    if (result.timedOut) return null;
+    if (result.timedOut || now() >= deadline) return null;
     const zoom = result.value;
     if (zoom !== null && Number.isFinite(zoom) && zoom > 0) return zoom;
     const remaining = deadline - now();
