@@ -1382,6 +1382,10 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ".github/workflows/design-e2e.yml",
     "utf8",
   );
+  const designPlaywrightConfig = readFileSync(
+    "templates/design/playwright.config.ts",
+    "utf8",
+  );
   // source-read-ok: the Design setup budget is a source-level contract.
   const designGlobalSetup = readFileSync(
     "templates/design/e2e/global-setup.ts",
@@ -1409,6 +1413,35 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     designE2eWorkflow,
     /^    timeout-minutes: 90$/m,
     "the standalone Design job must cover the shard, loopback setup, and artifacts",
+  );
+  const runShardStep =
+    designE2eWorkflow.match(
+      /^      - name: Run shard\n([\s\S]*?)(?=^      - name:)/m,
+    )?.[1] ?? "";
+  const prRunIds = [
+    ...runShardStep.matchAll(
+      /E2E_RUN_ID="\$\{base_run_id\}-(?:exports|marquee)"/g,
+    ),
+  ];
+  const globalSetupBudgetMs =
+    Number(
+      designGlobalSetup.match(
+        /^const GLOBAL_SETUP_BUDGET_MS = (\d+) \* 60_000;$/m,
+      )?.[1],
+    ) * 60_000;
+  const webServerTimeoutMs =
+    Number(
+      designPlaywrightConfig.match(/^        timeout: (\d+)_000,$/m)?.[1],
+    ) * 1_000;
+  const runShardTimeoutMinutes = Number(
+    runShardStep.match(/^        timeout-minutes: (\d+)$/m)?.[1],
+  );
+  assert.equal(prRunIds.length, 2);
+  assert.equal(
+    runShardTimeoutMinutes * 60_000 -
+      prRunIds.length * (globalSetupBudgetMs + webServerTimeoutMs),
+    20 * 60_000,
+    "the PR shard timeout must leave 20 minutes for tests after both setup and webServer budgets",
   );
   assert.match(
     designE2eWorkflow,
@@ -3603,6 +3636,7 @@ test(
         ".github/workflows/design-e2e.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
         "templates/design/e2e/global-setup.ts",
+        "templates/design/playwright.config.ts",
         "templates/design/e2e/css-style-helpers.ts",
         "templates/design/e2e/css-style-helpers.spec.ts",
         "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",
