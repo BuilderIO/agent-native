@@ -880,6 +880,16 @@ async function claimSync(
   return claimed ? claimId : null;
 }
 
+/** Waits, at most until `until`, for the sync holding the link's lease to end. */
+export async function waitForGitHubSync(sourceId: string, until: number) {
+  for (;;) {
+    const claim = (await readSource(sourceId))?.state.claim;
+    const left = until - Date.now();
+    if (!claim || Date.parse(claim.until) <= Date.now() || left <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(200, left)));
+  }
+}
+
 function problemFrom(
   error: unknown,
   now: string,

@@ -127,7 +127,7 @@ describe("GitHub request deadlines", () => {
     await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
   });
 
-  it("asks again, once, when another caller's deadline ended a read it shared", async () => {
+  it("asks again, once, when another caller's deadline ended a read it shared, then counts as out of time", async () => {
     github.endedElsewhere = 1;
     const head = await readGitHubBranchHead({
       ...target,
@@ -145,7 +145,7 @@ describe("GitHub request deadlines", () => {
         branch: "main",
         signal: new AbortController().signal,
       }),
-    ).rejects.toThrow("timed out");
+    ).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
     expect(requests).toHaveLength(2);
   });
 
