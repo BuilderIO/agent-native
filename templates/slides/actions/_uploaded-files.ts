@@ -52,6 +52,28 @@ function isDocumentAttachment(
   );
 }
 
+function hasExpectedExtension(
+  filename: string,
+  expectedExtensions?: readonly string[],
+): boolean {
+  return (
+    !expectedExtensions ||
+    expectedExtensions.includes(path.extname(filename).toLowerCase())
+  );
+}
+
+function assertExpectedExtension(
+  filename: string,
+  expectedExtensions?: readonly string[],
+): void {
+  if (!hasExpectedExtension(filename, expectedExtensions)) {
+    const formats = expectedExtensions?.join(", ") ?? "";
+    throw new Error(
+      `File "${filename}" does not match the expected format: ${formats}`,
+    );
+  }
+}
+
 /**
  * Resolve a name or URL through the current turn's stamped upload. If the model
  * cannot reproduce a name, only a generic phrase that identifies one eligible
@@ -68,6 +90,14 @@ function stampedReference(
     (attachment) => attachment.name === wanted || attachment.url === wanted,
   );
   if (exactMatches.length > 0) {
+    if (
+      exactMatches.some(
+        (attachment) =>
+          !hasExpectedExtension(attachment.name, expectedExtensions),
+      )
+    ) {
+      return null;
+    }
     const matchingReferences = exactMatches.map(
       (attachment) =>
         (attachment as { slidesUploadPath?: unknown }).slidesUploadPath,
@@ -103,16 +133,11 @@ function stampedReference(
         const extension = path.extname(attachment.name).toLowerCase();
         return (
           (!formatReference || extension === formatReference.extension) &&
-          (!expectedExtensions || expectedExtensions.includes(extension))
+          hasExpectedExtension(attachment.name, expectedExtensions)
         );
       });
   if (eligible.length !== 1) return null;
-  if (
-    expectedExtensions &&
-    !expectedExtensions.includes(path.extname(eligible[0]!.name).toLowerCase())
-  ) {
-    return null;
-  }
+  if (!hasExpectedExtension(eligible[0]!.name, expectedExtensions)) return null;
 
   const stamped = (eligible[0] as { slidesUploadPath?: unknown })
     .slidesUploadPath;
@@ -144,6 +169,7 @@ export async function readUserUploadedFile(
     const { data, filename } = unwrapAttachment(
       await resolveUploadedReference(reference, email),
     );
+    assertExpectedExtension(filename, options?.expectedExtensions);
     return { data, filename };
   }
   if (isHostedSlidesRuntime()) {
@@ -174,8 +200,10 @@ export async function readUserUploadedFile(
       filename: path.basename(resolved),
     });
   }
+  const filename = path.basename(resolved);
+  assertExpectedExtension(filename, options?.expectedExtensions);
   return {
     data: await fs.promises.readFile(resolved),
-    filename: path.basename(resolved),
+    filename,
   };
 }

@@ -107,6 +107,20 @@ describe("readUserUploadedFile", () => {
     expect(mockExistsSync).not.toHaveBeenCalled();
   });
 
+  it("checks the format of a stamped reference before returning its bytes", async () => {
+    const ref = await mint("brief.pdf", Buffer.from("%PDF"));
+
+    await expect(
+      inOrg("org-one", () =>
+        readUserUploadedFile(ref, undefined, {
+          expectedExtensions: [".docx"],
+        }),
+      ),
+    ).rejects.toThrow(
+      'File "brief.pdf" does not match the expected format: .docx',
+    );
+  });
+
   it("resolves the file name or URL the model used to the reference stamped on the attachment", async () => {
     const ref = await mint("report.pdf");
     const attachments = [
@@ -243,6 +257,37 @@ describe("readUserUploadedFile", () => {
       details: { attachmentStatus: "malformed", reason: "unrecognized_scheme" },
     });
   });
+
+  it.each(["brief.pdf", "https://cdn.example.test/brief.pdf"])(
+    "does not resolve an exact reference to an unsupported format: %s",
+    async (reference) => {
+      const ref = await mint("brief.pdf", Buffer.from("%PDF"));
+
+      await expect(
+        inOrg("org-one", () =>
+          readUserUploadedFile(
+            reference,
+            {
+              attachments: [
+                {
+                  type: "file",
+                  name: "brief.pdf",
+                  url: "https://cdn.example.test/brief.pdf",
+                  slidesUploadPath: ref,
+                },
+              ],
+            },
+            { expectedExtensions: [".docx"] },
+          ),
+        ),
+      ).rejects.toMatchObject({
+        details: {
+          attachmentStatus: "malformed",
+          reason: "unrecognized_scheme",
+        },
+      });
+    },
+  );
 
   it("does not choose a document for a generic attachment request when an image is also attached", async () => {
     const ref = await mint("brief.docx", Buffer.from("PK-docx"));
