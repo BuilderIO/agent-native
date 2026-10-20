@@ -2130,6 +2130,10 @@ export default {
       accept: "Accepter",
       reject: "Rejeter",
       resolveFailed: "Impossible de résoudre cette proposition",
+      previewTargetUnavailable:
+        "Élément sélectionné introuvable : cet aperçu n’a pas été affiché. Sélectionnez à nouveau l’élément pour réessayer.",
+      previewFailed:
+        "Impossible d’afficher cet aperçu. Sélectionnez à nouveau l’élément pour réessayer.",
     },
     capabilities: {
       "deterministic-style-edit": "Édition de style sûre",

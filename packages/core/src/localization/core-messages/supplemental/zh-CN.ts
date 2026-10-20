@@ -101,6 +101,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "打开完整连接页面",
   mcpIdentityError: "无法加载此应用的连接信息。",
   mcpRetry: "重试",
+  mcpOAuthBackToApp: "返回应用",
   mcpConnect: mcpConnectMessages,
 };
 

@@ -3189,6 +3189,35 @@ describe("Vite connection reset noise", () => {
       socketErrorHandler?.(Object.assign(new Error("real socket failure"), {})),
     ).toThrow("real socket failure");
   });
+
+  it("keeps the dev server up when Windows cancels a write to a closed request", () => {
+    const plugin = findPlugin("agent-native-silence-connection-resets");
+    let connectionHandler: ((socket: { on: Function }) => void) | undefined;
+    let socketErrorHandler: ((err: Error) => void) | undefined;
+    const server = {
+      httpServer: {
+        on: vi.fn((event: string, handler: typeof connectionHandler) => {
+          if (event === "connection") connectionHandler = handler;
+        }),
+      },
+      config: { logger: { error: vi.fn() } },
+    };
+
+    plugin.configureServer(server);
+    connectionHandler?.({
+      on: vi.fn((event: string, handler: typeof socketErrorHandler) => {
+        if (event === "error") socketErrorHandler = handler;
+      }),
+    });
+
+    const err = Object.assign(new Error("write ECANCELED"), {
+      errno: -4081,
+      code: "ECANCELED",
+      syscall: "write",
+    });
+
+    expect(() => socketErrorHandler?.(err)).not.toThrow();
+  });
 });
 
 describe("Nitro dev full-reload debounce", () => {

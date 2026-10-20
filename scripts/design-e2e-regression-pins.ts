@@ -43,6 +43,7 @@ export const DESIGN_E2E_REGRESSION_SHARDS = [
   "inspector-3a",
   "inspector-3b",
   "inspector-4a",
+  "inspector-4c",
   "inspector-4b",
   "drag-1a",
   "drag-1b",
@@ -201,12 +202,12 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4",
   },
   {
-    shard: "inspector-4b",
+    shard: "inspector-4c",
     file: "inspector-styles.spec.ts",
     title: "export rows add, remove, and reset when selection changes",
   },
   {
-    shard: "inspector-4b",
+    shard: "inspector-4c",
     file: "inspector-styles.spec.ts",
     title: "style layer row actions stay visible and toggle visibility state",
   },
@@ -680,7 +681,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "an Alt pressed after the last move does not copy at a release the move never reached",
   },
   {
-    shard: "inspector-4b",
+    shard: "inspector-4c",
     file: "design-component-behavior.spec.ts",
     title:
       "redoing a duplicated component while the undo's save is in flight reads no missing node",

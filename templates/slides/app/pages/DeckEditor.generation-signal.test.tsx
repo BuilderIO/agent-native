@@ -331,18 +331,8 @@ vi.mock("@/lib/pending-deck-changes", () => ({
 }));
 
 vi.mock("@/components/editor/EditorToolbar", () => ({
-  default: ({
-    canEdit,
-    canComment,
-  }: {
-    canEdit?: boolean;
-    canComment?: boolean;
-  }) => (
-    <div
-      data-testid="editor-toolbar"
-      data-can-edit={String(canEdit)}
-      data-can-comment={String(canComment)}
-    />
+  default: ({ canEdit }: { canEdit?: boolean }) => (
+    <div data-testid="editor-toolbar" data-can-edit={String(canEdit)} />
   ),
 }));
 vi.mock("@/components/editor/QuestionFlow", () => ({
@@ -588,9 +578,6 @@ describe("DeckEditor generation signal wiring", () => {
     );
     expect(
       screen.getByTestId("editor-toolbar").getAttribute("data-can-edit"),
-    ).toBe("false");
-    expect(
-      screen.getByTestId("editor-toolbar").getAttribute("data-can-comment"),
     ).toBe("false");
     expect(
       screen.getByTestId("slide-editor").getAttribute("data-read-only"),

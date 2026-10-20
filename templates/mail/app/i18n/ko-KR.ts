@@ -302,7 +302,11 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "연락처 보강 및 회사 데이터",
       hubspotDescription: "CRM 연락처, 거래 및 티켓",
-      gongDescription: "최근 통화 및 대화 인텔리전스",
+      gongDescription: "Gong 통화 기록",
+      gongAccessCheckFailed: "Gong 연결 권한을 확인할 수 없습니다.",
+      gongKeyPlaceholder: "Gong API 키",
+      gongKeyFormatHint:
+        "액세스 키와 시크릿을 access_key:secret 형식으로 입력하세요.",
       pylonDescription: "지원 이슈 및 계정 데이터",
       gongCalls: "Gong 통화",
       deals: "거래",
@@ -425,6 +429,7 @@ const messages = {
       tryDifferentKeywords: "다른 키워드 시도",
       nothingHere: "아직 아무것도 없습니다",
       loadingMore: "더 불러오는 중...",
+      openAllMailForOlder: "이전 메시지는 전체 메일에서 열기",
     },
     toasts: {
       noEmailSelected: "선택한 이메일이 없습니다.",
@@ -456,6 +461,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "메시지가 전송되었습니다.",
       failedToSaveDraft: "초안을 저장하지 못했습니다.",
+      failedToRefreshInbox:
+        "받은편지함을 새로 고치지 못했습니다. 잠시 후 다시 시도하세요.",
       failedToDeleteDraft: "초안을 삭제하지 못했습니다.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",

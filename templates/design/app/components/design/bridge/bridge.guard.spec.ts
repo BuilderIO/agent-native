@@ -600,8 +600,14 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/spacing-handle-rule",
     "../../../../shared/text-layer-rule",
     "../../../../shared/relative-position-containing-block",
+    "../../../../shared/source-equivalent-selector",
   ],
-  "hit-test.bridge.ts": ["../../../../shared/text-layer-rule"],
+  // The source-equivalent selector walker is shared with the parent canvas, which resolves
+  // the selectors the bridge builds, so both sides skip the same siblings.
+  "hit-test.bridge.ts": [
+    "../../../../shared/text-layer-rule",
+    "../../../../shared/source-equivalent-selector",
+  ],
   "native-shader-runtime.bridge.ts": [
     "../../../../.generated/bridge/native-builtin-metadata.generated",
     "../../../../.generated/bridge/native-worker-source.generated",
@@ -14436,9 +14442,13 @@ it(
       await page.setContent(`<!doctype html>
 <html>
   <body style="margin:0">
-    <h1 data-agent-native-node-id="hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
+    <h1 data-agent-native-node-id="hero-title" data-loc="src:hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
     <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
     <div data-agent-native-node-id="nested-parent" style="position:absolute;left:700px;top:100px;width:160px;height:100px"><span data-agent-native-node-id="nested-child" style="display:block;width:120px;height:60px">Nested identity</span></div>
+    <section data-loc="src:nested-source" style="position:absolute;left:500px;top:300px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested source location</span></section>
+    <div id="hero" style="position:absolute;left:100px;top:200px;width:50px;height:40px">Plain id</div>
+    <section data-loc="hero" style="position:absolute;left:300px;top:200px;width:80px;height:40px">Source location</section>
+    <section id="same-identity" data-loc="same-identity" style="position:absolute;left:400px;top:200px;width:80px;height:40px">One element, two identity kinds</section>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
@@ -14486,13 +14496,46 @@ it(
           },
           "agent-native:review-anchor-at-point-result",
         );
+        const sourceLocationAnchor = await request(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId: "review-source-location-point",
+            x: 520,
+            y: 320,
+          },
+          "agent-native:review-anchor-at-point-result",
+        );
         const rects = await request(
           {
             type: "agent-native:review-node-rects",
             correlationId: "review-rects",
-            nodeIds: ["hero-title"],
+            nodeIds: ["hero-title", "hero", "same-identity"],
           },
           "agent-native:review-node-rects-result",
+        );
+        const selectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-selector-rects",
+            selector: '[data-loc="src:hero-title"]',
+          },
+          "agent-native:review-selector-rects-result",
+        );
+        const malformedSelectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-malformed-selector-rects",
+            selector: "[",
+          },
+          "agent-native:review-selector-rects-result",
+        );
+        const missingSelectorRects = await request(
+          {
+            type: "agent-native:review-selector-rects",
+            correlationId: "review-missing-selector-rects",
+            selector: "[data-missing]",
+          },
+          "agent-native:review-selector-rects-result",
         );
         const focus = await request(
           {
@@ -14502,7 +14545,17 @@ it(
           },
           "agent-native:review-focus-result",
         );
-        return { anchor, selectorAnchor, nestedAnchor, rects, focus };
+        return {
+          anchor,
+          selectorAnchor,
+          nestedAnchor,
+          sourceLocationAnchor,
+          rects,
+          selectorRects,
+          malformedSelectorRects,
+          missingSelectorRects,
+          focus,
+        };
       });
 
       expect(result.anchor).toMatchObject({
@@ -14511,19 +14564,131 @@ it(
         tagName: "h1",
       });
       expect(result.selectorAnchor).toMatchObject({
-        targetSelector: "body > div:nth-of-type(1) > span:nth-of-type(1)",
+        targetSelector:
+          "source-equivalent:v1:body > div:nth-of-type(1) > span:nth-of-type(1)",
         tagName: "span",
       });
       expect(result.selectorAnchor.nodeId).toBeUndefined();
       expect(result.nestedAnchor).toMatchObject({ nodeId: "nested-child" });
+      expect(result.sourceLocationAnchor).toMatchObject({
+        nodeId: "src:nested-source",
+        hitSelector: "source-equivalent:v1:body > section:nth-of-type(1)",
+        tagName: "section",
+      });
       expect(result.rects).toMatchObject({
         rects: {
           "hero-title": { left: 40, top: 40, width: 320, height: 80 },
+          "same-identity": { left: 400, top: 200, width: 80, height: 40 },
         },
         viewportWidth: 900,
         viewportHeight: 700,
       });
+      expect(
+        (result.rects as { rects?: Record<string, unknown> }).rects?.hero,
+      ).toBeUndefined();
+      expect(result.selectorRects).toMatchObject({
+        selectorStatus: "matched",
+        rect: { left: 40, top: 40, width: 320, height: 80 },
+      });
+      expect(result.malformedSelectorRects.selectorStatus).toBe(
+        "invalid-selector",
+      );
+      expect(result.malformedSelectorRects.rect).toBeUndefined();
+      expect(result.missingSelectorRects).toMatchObject({
+        selectorStatus: "not-found",
+      });
+      expect(result.missingSelectorRects.rect).toBeUndefined();
       expect(result.focus).toMatchObject({ focused: true });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge prefers a unique node-id preview target over a shifted source-equivalent selector",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <body style="margin:0">
+    <button id="node-id-target" data-agent-native-node-id="hero" data-loc="src:shared">Node id target</button>
+    <button id="selector-target" data-loc="src:shared">Repeated source target</button>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      const originalNodeIdTarget = await page
+        .locator("#node-id-target")
+        .evaluate((element) => element.outerHTML);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                event.data?.type !== "agent-native:node-html-preview-applied" ||
+                event.data.proposalId !== "repeated-source-preview"
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "node-html-preview",
+                operation: "preview",
+                proposalId: "repeated-source-preview",
+                target: {
+                  nodeId: "hero",
+                  selector: "source-equivalent:v1:body > button:nth-of-type(2)",
+                },
+                html: '<button id="preview-target">Preview target</button>',
+              },
+              "*",
+            );
+          }),
+      );
+
+      expect(await page.locator("#node-id-target").count()).toBe(0);
+      expect(await page.locator("#selector-target").textContent()).toBe(
+        "Repeated source target",
+      );
+      expect(await page.locator("#preview-target").textContent()).toBe(
+        "Preview target",
+      );
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "node-html-preview",
+            operation: "restore",
+            proposalId: "repeated-source-preview",
+          },
+          "*",
+        );
+      });
+
+      expect(
+        await page
+          .locator("#node-id-target")
+          .evaluate((element) => element.outerHTML),
+      ).toBe(originalNodeIdTarget);
+      expect(await page.locator("#selector-target").textContent()).toBe(
+        "Repeated source target",
+      );
+      expect(await page.locator("#preview-target").count()).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
