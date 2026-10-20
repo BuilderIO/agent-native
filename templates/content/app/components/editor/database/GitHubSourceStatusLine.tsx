@@ -16,7 +16,13 @@ import {
   IconExternalLink,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -157,6 +163,20 @@ function DetailRow({
   );
 }
 
+/** A path that wraps after a slash rather than in the middle of a name. */
+function WrapsAtSlashes({ text }: { text: string }) {
+  return text.split("/").map((part, index) => (
+    <Fragment key={index}>
+      {index > 0 ? (
+        <>
+          /<wbr />
+        </>
+      ) : null}
+      {part}
+    </Fragment>
+  ));
+}
+
 /** Where the folder is and how current it is, as Details and the Sources panel show it. */
 export function GitHubFolderFacts({
   status,
@@ -174,7 +194,7 @@ export function GitHubFolderFacts({
           rel="noreferrer"
           className="underline-offset-2 hover:underline"
         >
-          {githubFolderLabel(status)}
+          <WrapsAtSlashes text={githubFolderLabel(status)} />
         </a>
       </DetailRow>
       <DetailRow label={dbText("githubDetailBranch")}>

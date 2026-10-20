@@ -179,6 +179,7 @@ describe("The GitHub row in Sources", () => {
       const { onOpenGitHubStep } = sourcesList(props);
       const githubRow = row("GitHub");
       expect(rowDescription(githubRow)).toBe(description);
+      expect(githubRow.getAttribute("aria-disabled")).toBe("true");
       expect(connection.enabled.every((enabled) => !enabled)).toBe(true);
 
       await click(githubRow);

@@ -11170,7 +11170,7 @@ function DatabaseSettingsRow({
         disabled || !onClick
           ? "cursor-default text-muted-foreground/60"
           : muted
-            ? "text-muted-foreground hover:bg-muted"
+            ? "text-muted-foreground/60 hover:bg-muted"
             : "text-foreground hover:bg-muted",
       )}
       onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -11181,6 +11181,7 @@ function DatabaseSettingsRow({
       <span
         className={cn(
           "flex size-5 shrink-0 items-center justify-center text-muted-foreground",
+          muted && "opacity-60",
           description && "self-start",
         )}
       >

@@ -74,11 +74,9 @@ export function useGitHubSourcesRow(
   return {
     availability,
     description: githubRowDescription(availability, now),
-    // Nothing to do here but ask the owner, so it reads as off but stays
-    // reachable for its reason.
-    muted:
-      availability.kind === "blocked" &&
-      !githubOffersNewCollection(availability, place),
+    // Grayed out when this collection can't take a folder, but still
+    // reachable for the reason and, where there is one, the fix.
+    muted: availability.kind === "blocked",
     open: (button: HTMLElement | null) => {
       if (
         availability.kind === "available" ||
