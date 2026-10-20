@@ -1429,6 +1429,15 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ["HOME_WARMUP_BUDGET_MS", "HOME_WARMUP_BUDGET_MS"],
     "both home warmup attempts must use the remaining home budget",
   );
+  assert.deepEqual(
+    [
+      ...designGlobalSetup.matchAll(
+        /warmupPage\.goto\(homeURL,\s*\{\s*waitUntil: "domcontentloaded",\s*timeout: timeoutBefore\(homeDeadline, ([^)]+)\)/g,
+      ),
+    ].map(([, budget]) => budget),
+    ["HOME_WARMUP_BUDGET_MS", "HOME_WARMUP_BUDGET_MS"],
+    "both home route loads must use the remaining home budget",
+  );
   assert.match(
     changedSpecRegressions,
     /--shard="\$\{changed_shard\}\/48"/,

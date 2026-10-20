@@ -475,7 +475,7 @@ export default async function globalSetup(config: FullConfig) {
       try {
         await warmupPage.goto(homeURL, {
           waitUntil: "domcontentloaded",
-          timeout: timeoutBefore(homeDeadline, 180_000),
+          timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
         });
         await homeComposer.waitFor({
           state: "visible",
@@ -490,7 +490,7 @@ export default async function globalSetup(config: FullConfig) {
           try {
             await warmupPage.goto(homeURL, {
               waitUntil: "domcontentloaded",
-              timeout: timeoutBefore(homeDeadline, 180_000),
+              timeout: timeoutBefore(homeDeadline, HOME_WARMUP_BUDGET_MS),
             });
             await homeComposer.waitFor({
               state: "visible",
