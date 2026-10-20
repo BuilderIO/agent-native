@@ -1013,6 +1013,22 @@ describe("DocumentBlockFields tabs", () => {
       );
     });
 
+    it("stays on a tab whose delete failed", async () => {
+      mocks.remove.mockRejectedValueOnce(new Error("Offline"));
+      entry = "/page/doc-1?field=notes";
+      await render();
+      await click(tab("notes"));
+      await choose("[data-block-field-delete]");
+      await confirmDelete();
+
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "editor.deleteBlockFieldFailed",
+        { description: "Offline" },
+      );
+      expect(location.href).toBe("/page/doc-1?field=notes");
+      expect(tab("notes").getAttribute("aria-selected")).toBe("true");
+    });
+
     it("moves focus into the editor that's left when the tabs go away (TABS-12)", async () => {
       const primaryEditor = (
         <div className="ProseMirror" tabIndex={-1} data-focus-probe="" />
