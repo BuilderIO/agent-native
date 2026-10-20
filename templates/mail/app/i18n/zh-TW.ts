@@ -418,6 +418,7 @@ const messages = {
       tryDifferentKeywords: "試試其他關鍵詞",
       nothingHere: "這裡還沒有內容",
       loadingMore: "正在載入更多...",
+      openAllMailForOlder: "開啟全部郵件查看較早的郵件",
     },
     toasts: {
       noEmailSelected: "未選取郵件。",
@@ -448,6 +449,7 @@ const messages = {
       failedToSendEmail: "傳送郵件失敗",
       messageSent: "郵件已傳送。",
       failedToSaveDraft: "無法儲存草稿。",
+      failedToRefreshInbox: "無法重新整理收件匣，請稍後再試。",
       failedToDeleteDraft: "無法刪除草稿。",
       failedToScheduleEmailDraftKeptOpen: "定時傳送失敗 - 草稿仍保持開啟",
       finishRecipientInput: "請先新增收件人或清除輸入內容，再傳送。",

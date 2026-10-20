@@ -7,6 +7,7 @@ import {
 
 import { postAwareness, getActiveUsers } from "../collab/awareness.js";
 import { getCollabEmitter } from "../collab/emitter.js";
+import { LiveCopyError, type LiveCopyBinding } from "../collab/live-copy.js";
 import {
   getCollabState,
   postCollabUpdate,
@@ -80,7 +81,14 @@ export interface CollabPluginOptions {
   idColumn?: string;
   autoSeed?: boolean;
   resolveSourceIdFromCollabDocumentId?: (docId: string) => string;
-  onContentSync?: (docId: string, text: string) => Promise<void>;
+  /**
+   * Documents this binding covers are live copies: each update commits with
+   * its derived text, and the text, JSON and search-replace routes refuse
+   * them. Requires `autoSeed: false`; seed with `seedLiveCopy`. Passing the
+   * binding here also imports it at server start, so the refusal holds from
+   * the first request rather than from whenever an action first loads it.
+   */
+  liveCopy?: LiveCopyBinding;
   contentType?: "text" | "json";
   jsonColumn?: string;
   access?: CollabAccess;
@@ -211,9 +219,82 @@ export function createCollabSourceSeeder(options: {
   };
 }
 
+// Worker and capacity failures are the server's, so a client may retry them;
+// a task that broke its contract is a server bug, not a bad edit.
+const RETRYABLE_TASK_FAILURES = new Set([
+  "unavailable",
+  "closed",
+  "queue_full",
+  "queue_timeout",
+  "deadline_exceeded",
+  "memory_exceeded",
+  "worker_crashed",
+  "startup_failed",
+]);
+
+export function liveCopyErrorStatus(error: LiveCopyError): number {
+  switch (error.code) {
+    case "write_refused":
+    case "read_refused":
+    case "not_live_copy":
+    case "not_seeded":
+    case "version_conflict":
+      return 409;
+    case "state_too_large":
+      return 413;
+    case "malformed_state":
+    case "unsupported_content":
+    case "derive_refused":
+    case "build_refused":
+      return 422;
+    case "derive_failed":
+    case "build_failed":
+      if (RETRYABLE_TASK_FAILURES.has(error.reason ?? "")) return 503;
+      if (
+        error.reason === "input_too_large" ||
+        error.reason === "output_too_large"
+      ) {
+        return 413;
+      }
+      return 500;
+  }
+}
+
+function collabErrorResponse(
+  event: H3Event,
+  error: unknown,
+): { error: string; code: string; reason?: string } | null {
+  if (error instanceof LiveCopyError) {
+    setResponseStatus(event, liveCopyErrorStatus(error));
+    return {
+      error: error.message,
+      code: `live_copy_${error.code}`,
+      ...(error.reason !== undefined ? { reason: error.reason } : {}),
+    };
+  }
+  return null;
+}
+
 export function createCollabPlugin(
   options: CollabPluginOptions = {},
 ): NitroPluginDef {
+  if ("onContentSync" in options) {
+    throw new Error(
+      "createCollabPlugin no longer accepts onContentSync; it was never called. Use liveCopy (defineLiveCopy) to derive a document's text when its live copy changes.",
+    );
+  }
+  if (options.liveCopy) {
+    if (options.autoSeed !== false) {
+      throw new Error(
+        "createCollabPlugin liveCopy requires autoSeed: false; seed live copies with seedLiveCopy.",
+      );
+    }
+    if (options.contentType === "json") {
+      throw new Error(
+        'createCollabPlugin liveCopy derives text from an XML fragment and cannot be combined with contentType: "json".',
+      );
+    }
+  }
   const normalizedAccess = normalizeCollabAccess(options);
   const {
     table = "documents",
@@ -528,26 +609,32 @@ export function createCollabPlugin(
             (action === "search-replace" && method === "POST") ||
             (action === "json" && (method === "GET" || method === "POST")) ||
             (action === "patch" && method === "POST");
-          if (needsSeed) await ensureDocumentSeeded(docId);
+          try {
+            if (needsSeed) await ensureDocumentSeeded(docId);
 
-          if (action === "state" && method === "GET")
-            return getCollabState(event);
-          if (action === "update" && method === "POST")
-            return postCollabUpdate(event);
-          if (action === "text" && method === "POST")
-            return postCollabText(event);
-          if (action === "search-replace" && method === "POST")
-            return postCollabSearchReplace(event);
-          if (action === "json" && method === "POST")
-            return postCollabJson(event);
-          if (action === "json" && method === "GET")
-            return getCollabJson(event);
-          if (action === "patch" && method === "POST")
-            return postCollabPatch(event);
-          if (action === "awareness" && method === "POST")
-            return postAwareness(event);
-          if (action === "users" && method === "GET")
-            return getActiveUsers(event);
+            if (action === "state" && method === "GET")
+              return await getCollabState(event);
+            if (action === "update" && method === "POST")
+              return await postCollabUpdate(event);
+            if (action === "text" && method === "POST")
+              return await postCollabText(event);
+            if (action === "search-replace" && method === "POST")
+              return await postCollabSearchReplace(event);
+            if (action === "json" && method === "POST")
+              return await postCollabJson(event);
+            if (action === "json" && method === "GET")
+              return await getCollabJson(event);
+            if (action === "patch" && method === "POST")
+              return await postCollabPatch(event);
+            if (action === "awareness" && method === "POST")
+              return await postAwareness(event);
+            if (action === "users" && method === "GET")
+              return await getActiveUsers(event);
+          } catch (error) {
+            const response = collabErrorResponse(event, error);
+            if (response) return response;
+            throw error;
+          }
           setResponseStatus(event, 404);
           return { error: "Not found" };
         });
