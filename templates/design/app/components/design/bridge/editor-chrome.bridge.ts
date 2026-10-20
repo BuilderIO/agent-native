@@ -15129,6 +15129,27 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return element;
   }
 
+  function sharesNodeHtmlPreviewSourceIdentity(
+    first: Element,
+    second: Element,
+  ): boolean {
+    var attributes = [
+      "data-code-layer-id",
+      "data-layer-id",
+      "data-builder-id",
+      "data-loc",
+      "id",
+    ];
+    return attributes.some(function (attribute) {
+      var value = first.getAttribute(attribute);
+      return (
+        value !== null &&
+        value !== "" &&
+        value === second.getAttribute(attribute)
+      );
+    });
+  }
+
   function resolveNodeHtmlPreviewTarget(target: unknown): Element | null {
     if (!target || typeof target !== "object") return null;
     var selector = (target as { selector?: unknown }).selector;
@@ -15156,8 +15177,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       );
       if (nodeMatches.length === 1) {
         var uniqueNodeMatch = nodeMatches[0];
-        return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch)
-          ? uniqueNodeMatch
+        var previewTarget =
+          selectorMatch &&
+          (selectorMatch === uniqueNodeMatch ||
+            sharesNodeHtmlPreviewSourceIdentity(selectorMatch, uniqueNodeMatch))
+            ? selectorMatch
+            : uniqueNodeMatch;
+        return previewTarget && !isLayerInteractionBlocked(previewTarget)
+          ? previewTarget
           : null;
       }
       if (nodeMatches.length > 1) {

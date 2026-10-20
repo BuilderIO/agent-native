@@ -74,32 +74,41 @@ function findProposalElement(
       `[data-agent-native-node-rewrite-proposal="${escapeSelectorValue(proposalId)}"]`,
     );
     if (marked) return marked;
-    if (target.selector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+    let nodeMatches: Element[] = [];
+    if (target.nodeId) {
+      const id = escapeSelectorValue(target.nodeId);
+      nodeMatches = Array.from(
+        document.querySelectorAll(
+          `[data-agent-native-node-id="${id}"],[data-code-layer-id="${id}"],[data-layer-id="${id}"],[data-builder-id="${id}"],[data-loc="${id}"],#${id}`,
+        ),
+      );
+      if (nodeMatches.length === 1) return nodeMatches[0] ?? null;
+    }
+    if (
+      nodeMatches.length > 1 &&
+      target.selector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+    ) {
       const bySourceSelector = resolveSourceEquivalentSelector(
         document,
         target.selector,
       );
-      if (bySourceSelector) return bySourceSelector;
+      return bySourceSelector && nodeMatches.includes(bySourceSelector)
+        ? bySourceSelector
+        : null;
     }
-    let ambiguousNodeId = false;
-    if (target.nodeId) {
-      const id = escapeSelectorValue(target.nodeId);
-      const byId = document.querySelectorAll(
-        `[data-agent-native-node-id="${id}"],[data-code-layer-id="${id}"],[data-layer-id="${id}"],[data-builder-id="${id}"],[data-loc="${id}"],#${id}`,
-      );
-      if (byId.length === 1) return byId[0] ?? null;
-      ambiguousNodeId = byId.length > 1;
+    if (nodeMatches.length > 1 && target.selector) {
+      const matchingTargets = Array.from(
+        document.querySelectorAll(target.selector),
+      ).filter((element) => nodeMatches.includes(element));
+      return matchingTargets.length === 1 ? (matchingTargets[0] ?? null) : null;
     }
-    if (ambiguousNodeId && target.selector) {
-      if (target.selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
-        return resolveSourceEquivalentSelector(document, target.selector);
-      }
-      const selectorMatches = document.querySelectorAll(target.selector);
-      return selectorMatches.length === 1 ? (selectorMatches[0] ?? null) : null;
+    if (target.selector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      return resolveSourceEquivalentSelector(document, target.selector);
     }
-    return target.selector
-      ? resolveSourceEquivalentSelector(document, target.selector)
-      : null;
+    if (target.selector) {
+      return resolveSourceEquivalentSelector(document, target.selector);
+    }
+    return null;
   } catch {
     return null;
   }

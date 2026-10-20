@@ -291,6 +291,50 @@ describe("NodeRewriteProposal overview positioning", () => {
     expect(proposal?.getAttribute("data-side")).toBe("below");
   });
 
+  it("uses a unique node ID when its saved source selector shifted to a sibling", async () => {
+    iframe
+      .contentDocument!.querySelector(
+        '[data-agent-native-node-rewrite-proposal="proposal-1"]',
+      )
+      ?.remove();
+    Object.defineProperty(iframe, "clientWidth", { value: 500 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    const main = iframe.contentDocument!.createElement("main");
+    const target = iframe.contentDocument!.createElement("section");
+    target.setAttribute("data-loc", "hero");
+    target.getBoundingClientRect = () => rect(20, 30, 100, 40);
+    const shiftedSibling = iframe.contentDocument!.createElement("section");
+    shiftedSibling.getBoundingClientRect = () => rect(300, 150, 100, 50);
+    main.append(target, shiftedSibling);
+    iframe.contentDocument!.body.appendChild(main);
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target: { nodeId: "hero" },
+      resolvedTarget: {
+        nodeId: "hero",
+        selector:
+          "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+      },
+    };
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    const proposal = document.querySelector<HTMLElement>(
+      '[data-node-rewrite-proposal="proposal-1"]',
+    );
+    expect(proposal?.style.left).toBe("12px");
+    expect(proposal?.style.top).toBe("168px");
+  });
+
   it("does not anchor to the first match when a data-loc target is ambiguous", async () => {
     iframe
       .contentDocument!.querySelector(
