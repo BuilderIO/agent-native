@@ -5107,12 +5107,14 @@ function seedUnknownOutcomes(
   const turnMessages = messages.slice(turnStart);
 
   const fromHistory = noUnknownOutcomes();
+  const matchedResults = new Set<EngineToolResultPart>();
   for (const { part, call } of historyToolResults(
     turnMessages,
     actions,
     readOnlyCalls,
     priorCallIdentities,
   )) {
+    matchedResults.add(part);
     // What the call's run recorded decides, however it prepares now. Only a
     // call that recorded none is judged by its result; writes alone hold back
     // the turn.
@@ -5135,6 +5137,52 @@ function seedUnknownOutcomes(
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
       );
     }
+  }
+
+  const callsByProviderId = new Map<
+    string,
+    Array<Extract<EngineContentPart, { type: "tool-call" }>>
+  >();
+  for (const message of turnMessages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-call") continue;
+      const calls = callsByProviderId.get(part.id) ?? [];
+      calls.push(part);
+      callsByProviderId.set(part.id, calls);
+    }
+  }
+
+  const ambiguousUnknownCalls = new Set<
+    Extract<EngineContentPart, { type: "tool-call" }>
+  >();
+  for (const message of turnMessages) {
+    if (message.role === "assistant") continue;
+    for (const part of message.content) {
+      if (
+        part.type !== "tool-result" ||
+        part.executionStepId !== undefined ||
+        matchedResults.has(part) ||
+        (part.outcome !== "unknown" &&
+          !isInterruptedToolResult(part.content) &&
+          !(part.isError === true && isToolCallTimeoutResult(part.content)))
+      ) {
+        continue;
+      }
+      const candidates = callsByProviderId.get(part.toolCallId) ?? [];
+      if (candidates.length < 2) continue;
+      const namedCandidates = candidates.filter(
+        (call) => call.name === part.toolName,
+      );
+      for (const call of namedCandidates.length > 0
+        ? namedCandidates
+        : candidates) {
+        if (!readOnlyCalls.has(call)) ambiguousUnknownCalls.add(call);
+      }
+    }
+  }
+  for (const call of ambiguousUnknownCalls) {
+    noteUnknownOutcome(fromHistory, call.name, undefined);
   }
 
   mergeUnknownOutcomes(outcomes, fromHistory);
@@ -9265,7 +9313,7 @@ export async function runAgentLoop(opts: {
       // for arguments prepared exactly as these are, or a write recorded
       // before calls had identities, by its raw input; anything else runs
       // fresh.
-      if (toolCallJournal) {
+      if (toolCallJournal && !ambiguousLegacyWrite) {
         const journaled = findReplayableJournalEntry(
           toolCallJournal,
           toolCall.name,

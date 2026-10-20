@@ -1453,6 +1453,67 @@ describe("recorded call effects", () => {
     });
   });
 
+  it("retains identity and committed effect across retries of one step", () => {
+    const input = { id: "doc-1" };
+    const argumentsHash = actionArgumentsHash(input);
+    const events: AgentChatEvent[] = [
+      {
+        type: "tool_start",
+        id: "before-reconnect",
+        executionStepId: "stable-step",
+        tool: "create-document",
+        input,
+      },
+      {
+        type: "tool_start",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "create-document",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "create-document",
+        input,
+        result: "Document saved",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ];
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "before-reconnect",
+            executionStepId: "stable-step",
+            name: "create-document",
+            input,
+          },
+          {
+            type: "tool-call",
+            id: "after-reconnect",
+            executionStepId: "stable-step",
+            name: "create-document",
+            input,
+          },
+        ],
+      },
+    ];
+    const identity = toolCallIdentityKey("after-reconnect", "stable-step")!;
+    const journal = classifyToolCallJournal(events);
+
+    expect(journalCallEffects(journal, events, history).get(identity)).toBe(
+      "committed",
+    );
+    expect(journalCallIdentities(events, history).get(identity)).toBe(
+      argumentsHash,
+    );
+  });
+
   it("replays the unrepresented write before a represented write with reused input", () => {
     const input = { message: "same" };
     const argumentsHash = actionArgumentsHash(input);

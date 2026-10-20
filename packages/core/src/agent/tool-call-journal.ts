@@ -587,8 +587,18 @@ export function journalCallEffects(
   history: readonly EngineMessage[] = [],
 ): Map<string, JournalCallEffect> {
   const effects = new Map<string, JournalCallEffect>();
-  const identityKey = (id?: string, executionStepId?: string) =>
-    journalCallIdentityKeyIfUnambiguous(id, executionStepId, events, history);
+  const identityKey = (
+    id: string | undefined,
+    executionStepId: string | undefined,
+    toolName: string,
+  ) =>
+    journalCallIdentityKeyIfUnambiguous(
+      id,
+      executionStepId,
+      toolName,
+      events,
+      history,
+    );
   // The journal drops a call that changed nothing, so its own record says so.
   for (const event of events) {
     if (
@@ -596,19 +606,19 @@ export function journalCallEffects(
       event.completedSideEffect === false &&
       event.outcomeUnknown !== true
     ) {
-      const key = identityKey(event.id, event.executionStepId);
+      const key = identityKey(event.id, event.executionStepId, event.tool);
       if (key) effects.set(key, "none");
     }
   }
   for (const entry of journal.completed) {
     if (entry.committed) {
-      const key = identityKey(entry.id, entry.executionStepId);
+      const key = identityKey(entry.id, entry.executionStepId, entry.tool);
       if (key) effects.set(key, "committed");
     }
   }
   for (const entry of journal.interrupted) {
     if (entry.outcomeUnknown) {
-      const key = identityKey(entry.id, entry.executionStepId);
+      const key = identityKey(entry.id, entry.executionStepId, entry.tool);
       if (key) effects.set(key, "unknown");
     }
   }
@@ -629,6 +639,7 @@ export function journalCallIdentities(
       const key = journalCallIdentityKeyIfUnambiguous(
         event.id,
         event.executionStepId,
+        event.tool,
         events,
         history,
       );
@@ -641,28 +652,28 @@ export function journalCallIdentities(
 function journalCallIdentityKeyIfUnambiguous(
   id: string | undefined,
   executionStepId: string | undefined,
+  toolName: string,
   events: readonly AgentChatEvent[],
   history: readonly EngineMessage[],
 ): string | undefined {
   if (executionStepId !== undefined) {
-    const journalMatches = events.filter(
+    const hasConflictingJournalCall = events.some(
       (event) =>
         event.type === "tool_start" &&
-        event.executionStepId === executionStepId,
-    ).length;
-    const historyMatches = history.reduce(
-      (count, message) =>
-        count +
-        (message.role === "assistant"
-          ? message.content.filter(
-              (part) =>
-                part.type === "tool-call" &&
-                part.executionStepId === executionStepId,
-            ).length
-          : 0),
-      0,
+        event.executionStepId === executionStepId &&
+        event.tool !== toolName,
     );
-    return journalMatches <= 1 && historyMatches <= 1
+    const hasConflictingHistoryCall = history.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) =>
+            part.type === "tool-call" &&
+            part.executionStepId === executionStepId &&
+            part.name !== toolName,
+        ),
+    );
+    return !hasConflictingJournalCall && !hasConflictingHistoryCall
       ? toolCallIdentityKey(id, executionStepId)
       : undefined;
   }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import type {
   AgentEngine,
@@ -1044,6 +1045,185 @@ describe("durable execution step replay", () => {
         id: "resumed-provider-id",
         isError: true,
         result: expect.stringContaining("stopped without running it again"),
+      }),
+    );
+  });
+
+  it("does not replay a legacy completion when interrupted writes are ambiguous", async () => {
+    const input = { id: "deck-ambiguous-completion" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "legacy-completed-call",
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "legacy-completed-call",
+        tool: "create-deck",
+        input,
+        result: "An older deck was saved",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash(input),
+      },
+      {
+        type: "tool_start",
+        id: "legacy-interrupted-one",
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_start",
+        id: "legacy-interrupted-two",
+        tool: "create-deck",
+        input,
+      },
+    ];
+    const actionRun = vi.fn(async () => "A new deck was saved");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("current-provider-call", input)],
+            [text("Stopped safely.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "current-provider-call",
+        isError: true,
+        result: expect.stringContaining("I stopped without running it again"),
+      }),
+    );
+    expect(
+      events.some((event) => event.type === "tool_done" && event.replayed),
+    ).toBe(false);
+  });
+
+  it("holds writes when an ambiguous legacy history result is unknown", async () => {
+    const firstInput = { id: "first-deck" };
+    const secondInput = { id: "second-deck" };
+    const newInput = { id: "new-deck" };
+    const reusedCallId = "reused-legacy-call";
+    const actionRun = vi.fn(async () => "A new deck was saved");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("current-provider-call", newInput)],
+            [text("Stopped safely.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: reusedCallId,
+                name: "create-deck",
+                input: firstInput,
+              },
+              {
+                type: "tool-call",
+                id: reusedCallId,
+                name: "create-deck",
+                input: secondInput,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: reusedCallId,
+                toolName: "create-deck",
+                toolInput: JSON.stringify(secondInput),
+                content: "Interrupted before this tool returned a result.",
+                outcome: "unknown",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "current-provider-call",
+        isError: true,
+        result: expect.stringContaining("I stopped without running it again"),
       }),
     );
   });
