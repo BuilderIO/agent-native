@@ -165,6 +165,7 @@ import {
   loadRecordFirstFiles,
   RecordFirstFileMissingError,
   recordFirstFilesKey,
+  shouldPollVideoStorageStatus,
   stagedIdAfterFailure,
   transferRecordFirstFiles,
   type RecordFirstFile,
@@ -1391,7 +1392,7 @@ export function App({
   }, [videoStorageIdentity, serverUrl, signedInAs]);
 
   const refreshVideoStorageStatus = useCallback(async () => {
-    if (authStatus !== "authed" || localRecordingMode !== "off") {
+    if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
       setVideoStorageStatus("configured");
       return true;
@@ -1410,13 +1411,7 @@ export function App({
     hostedClipLimitMsRef.current = maxClipDurationMs;
     setVideoStorageStatus(probe);
     return probe === "configured";
-  }, [
-    authStatus,
-    localRecordingMode,
-    serverUrl,
-    signedInAs,
-    videoStorageIdentity,
-  ]);
+  }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
 
   useEffect(() => {
     void refreshVideoStorageStatus();
@@ -1424,14 +1419,9 @@ export function App({
 
   useEffect(() => {
     if (
-      authStatus !== "authed" ||
-      localRecordingMode !== "off" ||
-      (videoStorageStatus !== "missing" &&
-        videoStorageStatus !== "checking" &&
-        videoStorageStatus !== "unavailable")
-    ) {
+      !shouldPollVideoStorageStatus(authStatus === "authed", videoStorageStatus)
+    )
       return;
-    }
 
     let inFlight = false;
     const tick = () => {
@@ -1450,12 +1440,7 @@ export function App({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [
-    authStatus,
-    localRecordingMode,
-    refreshVideoStorageStatus,
-    videoStorageStatus,
-  ]);
+  }, [authStatus, refreshVideoStorageStatus, videoStorageStatus]);
 
   // Mirrors the web recorder: a hosted take stops itself at the clip cap
   // instead of failing the upload past the server's size limit. The cap the

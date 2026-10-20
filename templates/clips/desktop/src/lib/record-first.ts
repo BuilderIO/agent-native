@@ -8,6 +8,13 @@ export type VideoStorageStatus =
   | "missing"
   | "unavailable";
 
+export function shouldPollVideoStorageStatus(
+  authenticated: boolean,
+  status: VideoStorageStatus,
+): boolean {
+  return authenticated && status !== "configured";
+}
+
 /** Storage status never enables local recording when the configured mode is off. */
 export function effectiveLocalRecordingMode(
   mode: LocalRecordingMode,

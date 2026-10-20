@@ -13,6 +13,7 @@ import {
   recordFirstFilesKey,
   RecordFirstHandoffResetError,
   saveRecordFirstFiles,
+  shouldPollVideoStorageStatus,
   stageRecordFirstFile,
   stagedIdAfterFailure,
   transferRecordFirstFiles,
@@ -56,6 +57,20 @@ describe("effectiveLocalRecordingMode", () => {
       expect(effectiveLocalRecordingMode(mode)).toBe(mode);
     },
   );
+});
+
+describe("shouldPollVideoStorageStatus", () => {
+  it.each(["checking", "missing", "unavailable"] as const)(
+    "keeps probing while storage is %s for a signed-in account",
+    (status) => {
+      expect(shouldPollVideoStorageStatus(true, status)).toBe(true);
+    },
+  );
+
+  it("stops probing when storage is configured or the user is signed out", () => {
+    expect(shouldPollVideoStorageStatus(true, "configured")).toBe(false);
+    expect(shouldPollVideoStorageStatus(false, "missing")).toBe(false);
+  });
 });
 
 describe("record-first file list", () => {
