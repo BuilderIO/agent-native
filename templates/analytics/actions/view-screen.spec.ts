@@ -244,7 +244,10 @@ describe("view-screen monitoring status-pages branch", () => {
   it("describes the code-backed builtin and caller annotations", async () => {
     setScreen(
       { view: "adhoc", dashboardId: "builtin-risk-meeting" },
-      { pathname: "/dashboards/builtin-risk-meeting" },
+      {
+        pathname: "/dashboards/builtin-risk-meeting",
+        searchParams: { f_timeRange: "90d" },
+      },
     );
     getBuiltinDashboard.mockResolvedValueOnce({
       id: "builtin-risk-meeting",
@@ -262,6 +265,7 @@ describe("view-screen monitoring status-pages branch", () => {
       { scope: { email: "user@example.test", orgId: "org-1" }, editable: true },
       "builtin-risk-meeting",
       { name: "Risk Meeting", panels: [] },
+      { f_timeRange: "90d" },
     );
   });
 
