@@ -2027,6 +2027,155 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
   });
 
+  it("clears the parent hit relative point when the bridge refines a clone to its ancestor", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    const iframeDocument = iframe.contentDocument!;
+    iframeDocument.body.innerHTML =
+      '<main><section data-loc="src:card"><button data-loc="src:button">First clone</button></section><section data-loc="src:card"><button data-loc="src:button">Second clone</button></section></main>';
+    const secondClone = iframeDocument.querySelectorAll("button")[1];
+    if (!secondClone) throw new Error("Expected the second source clone");
+    secondClone.getBoundingClientRect = () =>
+      ({
+        left: 320,
+        top: 200,
+        right: 400,
+        bottom: 240,
+        width: 80,
+        height: 40,
+      }) as DOMRect;
+    Object.defineProperty(iframeDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [secondClone],
+    });
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 360,
+            clientY: 220,
+          }),
+        );
+    });
+
+    const bridgeRequest = postMessage.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .find(
+        (message) => message.type === "agent-native:review-anchor-at-point",
+      );
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          data: {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: bridgeRequest?.correlationId,
+            nodeId: "src:card",
+            hitSelector: "body > main:nth-of-type(1) > section:nth-of-type(2)",
+            tagName: "section",
+          },
+        }),
+      );
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    const submitted = mocks.createMutate.mock.calls[0]?.[0];
+    expect(submitted).toMatchObject({
+      anchor: {
+        nodeId: "src:card",
+        selector: "body > main:nth-of-type(1) > section:nth-of-type(2)",
+        point: { xPct: 45, yPct: 36.666666666666664 },
+      },
+    });
+    expect(submitted?.anchor).not.toHaveProperty("relativePoint");
+  });
+
+  it("falls back to the stored point when a persisted legacy selector is malformed", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    const iframeDocument = document.implementation.createHTMLDocument();
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: iframeDocument,
+    });
+    iframeDocument.body.innerHTML = "<main>Preview</main>";
+    canvas.appendChild(iframe);
+    reviewComments = [
+      {
+        ...comment,
+        anchor: {
+          selector: "[",
+          point: { xPct: 37.5, yPct: 40 },
+          relativePoint: { xPct: 50, yPct: 50 },
+        },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+
+    const pin = document.querySelector<HTMLButtonElement>("[data-review-pin]");
+    expect(pin).not.toBeNull();
+    expect(pin?.parentElement?.style.left).toBe("300px");
+    expect(pin?.parentElement?.style.top).toBe("240px");
+  });
+
   it("saves a bridge selector when a source-location ID is ambiguous", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");

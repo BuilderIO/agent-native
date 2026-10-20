@@ -525,7 +525,19 @@ function selectorElement(
   );
   const doc = iframe?.contentDocument;
   if (!doc) return null;
-  return resolveSourceEquivalentSelector(doc, selector);
+  try {
+    return resolveSourceEquivalentSelector(doc, selector);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "SyntaxError"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function selectorPoint(
@@ -2001,16 +2013,24 @@ export function ReviewCanvasPins({
           ) {
             return current;
           }
-          const anchor = {
-            ...current.anchor,
-            ...(nodeId ? { nodeId } : {}),
-            point: current.anchor.point,
-          };
-          if (nodeFoundById) delete anchor.selector;
-          else if (anchorSelector) anchor.selector = anchorSelector;
+          const anchor = { ...current.anchor, point: current.anchor.point };
+          if (nodeFoundById && nodeId) {
+            anchor.nodeId = nodeId;
+            delete anchor.selector;
+          } else if (anchorSelector) {
+            if (nodeId) anchor.nodeId = nodeId;
+            else delete anchor.nodeId;
+            anchor.selector = anchorSelector;
+          }
+          if (
+            anchor.nodeId !== current.anchor.nodeId ||
+            anchor.selector !== current.anchor.selector
+          ) {
+            delete anchor.relativePoint;
+          }
           const metadata = { ...current.metadata };
           if (nodeFoundById) delete metadata.targetSelector;
-          else if (targetSelector) metadata.targetSelector = targetSelector;
+          else if (anchorSelector) metadata.targetSelector = anchorSelector;
           return {
             ...current,
             anchor,
