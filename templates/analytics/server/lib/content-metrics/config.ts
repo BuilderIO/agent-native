@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  normalizeSearchConsoleProperty,
   searchConsolePropertyMessage,
   searchConsolePropertyProblem,
 } from "../../../shared/search-console-property.js";
@@ -24,7 +25,7 @@ const stepToggleSchema = z.object({ enabled: z.boolean() });
  * site to the pages the Content view tracks.
  */
 const storedSearchConsoleSiteSchema = z.object({
-  siteUrl: z.string().trim().min(1),
+  siteUrl: z.string().trim().min(1).transform(normalizeSearchConsoleProperty),
   pathPrefix: z.string().trim().startsWith("/").optional(),
 });
 

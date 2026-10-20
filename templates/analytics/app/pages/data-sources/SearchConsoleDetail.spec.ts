@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   searchConsoleState,
+  searchConsoleUpdate,
   type ContentCollectionStatus,
 } from "./SearchConsoleDetail";
 
@@ -75,5 +76,33 @@ describe("searchConsoleState", () => {
       "collecting",
     );
     expect(searchConsoleState(status({ lastRun: null }))).toBe("collecting");
+  });
+});
+
+describe("searchConsoleUpdate", () => {
+  const sites = [{ siteUrl: "sc-domain:example.test" }];
+  it("preserves a disabled job when saving an enabled step's properties", () => {
+    expect(
+      searchConsoleUpdate(status({ enabled: false }), true, sites),
+    ).toEqual({
+      enabled: false,
+      searchConsole: true,
+      searchConsoleSites: sites,
+    });
+  });
+  it("enables the job only when switching the step on", () => {
+    expect(
+      searchConsoleUpdate(status({ enabled: false }), true, sites, true),
+    ).toEqual({
+      enabled: true,
+      searchConsole: true,
+      searchConsoleSites: sites,
+    });
+  });
+  it("preserves the job and saved properties when switching off", () => {
+    expect(searchConsoleUpdate(status(), false, sites, true)).toEqual({
+      enabled: true,
+      searchConsole: false,
+    });
   });
 });
