@@ -17,8 +17,9 @@ import {
 
 /**
  * A link checked longer ago than this checks GitHub before it's read. A sync
- * that stopped partway through a push isn't a check, so the next read carries
- * it on; a failed one is, so an outage slows a read at most once a minute.
+ * that stopped partway through a push isn't a check, so the background sync
+ * carries it on; a failed one is, so an outage slows a read at most once a
+ * minute.
  */
 export const GITHUB_SOURCE_STALE_MS = 60_000;
 /** How long a read waits on GitHub; the background sync finishes the rest. */
@@ -31,6 +32,12 @@ const SWEEP_CONCURRENCY = 4;
 const SWEEP_RECHECK_MS = 45_000;
 /** Links one background sync reads, least recently checked first; the rest wait a minute. */
 const SWEEP_MAX_LINKS = 200;
+/**
+ * A push too big for one run is the background sync's to carry on. A read
+ * carries it on only when no run has moved it for this long, so a big push
+ * slows a read at most once every two minutes.
+ */
+const PUSH_LEFT_TO_SWEEP_MS = 2 * 60_000;
 
 interface GitHubLink {
   sourceId: string;
@@ -58,7 +65,7 @@ function checkedWithin(lastRefreshedAt: string | null, ms: number) {
   return Number.isFinite(at) && Date.now() - at < ms;
 }
 
-function linkedBy(link: GitHubLink): string | null {
+function linkState(link: GitHubLink) {
   let metadata: unknown;
   try {
     metadata = JSON.parse(link.metadataJson);
@@ -66,7 +73,11 @@ function linkedBy(link: GitHubLink): string | null {
     // coercion-ok: a link whose metadata can't be read has no one to read GitHub as, so the sweep passes it by.
     return null;
   }
-  return readGitHubSourceState(metadata)?.linkedBy || null;
+  return readGitHubSourceState(metadata);
+}
+
+function linkedBy(link: GitHubLink): string | null {
+  return linkState(link)?.linkedBy || null;
 }
 
 export function githubSyncChangedRows(result: GitHubSyncResult) {
@@ -97,6 +108,13 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
   if (!link || checkedWithin(link.lastRefreshedAt, GITHUB_SOURCE_STALE_MS)) {
     return false;
   }
+  const state = linkState(link);
+  if (
+    state?.pendingCommitSha &&
+    checkedWithin(state.checkedAt, PUSH_LEFT_TO_SWEEP_MS)
+  ) {
+    return false;
+  }
   const until = Date.now() + READ_SYNC_BUDGET_MS;
   try {
     const result = await syncGitHubSource({
@@ -106,8 +124,9 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
     if (result.state === "busy") {
       // Another read or the background sync is checking GitHub. Wait for it
       // in this read's time, then read again: it may have changed rows even
-      // if it hasn't finished.
-      await waitForGitHubSync(link.sourceId, until);
+      // if it hasn't finished. One carrying on a push won't finish in that
+      // time, so the read goes on with what it has written.
+      if (!result.commitSha) await waitForGitHubSync(link.sourceId, until);
       return true;
     }
     announceSync(link, linkedBy(link), result);

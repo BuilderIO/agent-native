@@ -1347,6 +1347,23 @@ async function checkedAgo(databaseId: string, ms: number) {
     .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
 }
 
+/** Sets when a run last moved the link's push along. */
+async function pushMovedAgo(databaseId: string, ms: number) {
+  const [source] = await getDb()
+    .select({
+      id: schema.contentDatabaseSources.id,
+      metadataJson: schema.contentDatabaseSources.metadataJson,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  const metadata = JSON.parse(source!.metadataJson!);
+  metadata.github.checkedAt = new Date(Date.now() - ms).toISOString();
+  await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify(metadata) })
+    .where(eq(schema.contentDatabaseSources.id, source!.id));
+}
+
 const EDITED_FAQ = "# Frequently asked\n\nAnswers moved to the forum.\n";
 
 describe("GitHub folder freshness", () => {
@@ -1397,7 +1414,7 @@ describe("GitHub folder freshness", () => {
     expect(await liveRows(database.id)).toHaveLength(3);
   });
 
-  it("ends a GitHub read at the time budget, and the next read carries on", async () => {
+  it("ends a GitHub read at the time budget, and leaves the rest of the push to the background sync", async () => {
     github.commit({
       "docs/1.md": "# One\n",
       "docs/2.md": "# Two\n",
@@ -1429,8 +1446,95 @@ describe("GitHub folder freshness", () => {
       problem: null,
     });
 
-    // Partway isn't a finished check, so the next read finishes the push.
+    // The background sync carries the push on, so a read right after
+    // returns what's in without asking GitHub.
     github.state.hangAfterBlobReads = null;
+    github.state.blobReads = 0;
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(github.state.blobReads).toBe(0);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+    expect(await titles()).toEqual(["One, edited", "Two", "Three"]);
+
+    // Partway isn't a finished check, so the background sync finishes it.
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(await titles()).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("doesn't make a read wait on a sync that's carrying a push on", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    const id = await sourceId(database.id);
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 1_500 }));
+    github.state.hangAfterBlobReads = null;
+    await pushMovedAgo(database.id, 3 * 60_000);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+
+    // Another sync is carrying the push on: the read doesn't wait for it.
+    const reading = new Promise<void>((started) => {
+      github.state.duringBlobRead = async () => {
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+      };
+    });
+    const background = as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 20_000 }),
+    );
+    await reading;
+    const started = Date.now();
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(Date.now() - started).toBeLessThan(1_500);
+    await background;
+    expect(await titles()).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("lets a read carry on a push no run has moved for two minutes", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    const id = await sourceId(database.id);
+    github.state.hangAfterBlobReads = 1;
+    github.state.blobReads = 0;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 1_500 }));
+    github.state.hangAfterBlobReads = null;
+
+    await pushMovedAgo(database.id, 3 * 60_000);
     await as(() => getDatabase.run({ databaseId: database.id }));
     expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
       "One, edited",
