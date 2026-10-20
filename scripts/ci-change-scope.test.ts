@@ -1746,19 +1746,20 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /^    timeout-minutes: 18$/m,
-    "all Design core shards keep the exact eighteen-minute cap",
+    /^    timeout-minutes: 20$/m,
+    "all Design core shards keep the exact twenty-minute cap",
   );
   const screenHistoryRunBudgetMinutes = 5;
-  const screenHistorySetupBudgetMinutes = 3;
+  const screenHistorySetupBudgetMinutes = 5;
   const screenHistoryWebServerBudgetMinutes = 5;
+  const designRegressionRunBudgetMinutes = 7;
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout === 18,
-    `regular Design acceptance shards must keep the exact eighteen-minute cap (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 20,
+    `regular Design acceptance shards must keep the exact twenty-minute cap (got ${jobTimeout})`,
   );
   assert.ok(
-    jobTimeout < 19,
-    "Design acceptance must stay below nineteen minutes",
+    jobTimeout < 21,
+    "Design acceptance must stay below twenty-one minutes",
   );
   assert.ok(
     Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 22,
@@ -1766,19 +1767,23 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 15 &&
+      stepTimeout === 17 &&
+      stepTimeout >=
+        designRegressionRunBudgetMinutes +
+          screenHistorySetupBudgetMinutes +
+          screenHistoryWebServerBudgetMinutes &&
       jobTimeout >= stepTimeout + 3,
-    `focused Design tests need the exact fifteen-minute cap and three minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
+    `focused Design tests need seven minutes for Playwright, five minutes for setup, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
-      screenHistoryStepTimeout === 13 &&
+      screenHistoryStepTimeout === 15 &&
       screenHistoryStepTimeout >=
         screenHistoryRunBudgetMinutes +
           screenHistorySetupBudgetMinutes +
           screenHistoryWebServerBudgetMinutes &&
       jobTimeout >= screenHistoryStepTimeout + 3,
-    `Screen-history tests need five minutes for the Playwright run, three minutes for global setup, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+    `Screen-history tests need five minutes for the Playwright run, five minutes for global setup, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&

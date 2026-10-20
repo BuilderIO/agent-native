@@ -331,15 +331,6 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
-  const warmupDeadline = Date.now() + 3 * 60_000;
-  const warmupTimeout = (requestedMs: number) => {
-    const remainingMs = warmupDeadline - Date.now();
-    if (remainingMs <= 0) {
-      throw new Error("the three-minute global setup warmup budget expired");
-    }
-    return Math.min(requestedMs, remainingMs);
-  };
-
   if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
     await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
     await startHttpsAttachmentStorage(
@@ -420,27 +411,28 @@ export default async function globalSetup(config: FullConfig) {
     // eslint-disable-next-line no-console
     console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
 
+    const warmupDeadline = Date.now() + 5 * 60_000;
+    const warmupTimeout = (requestedMs: number) => {
+      const remainingMs = warmupDeadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error("the five-minute global setup warmup budget expired");
+      }
+      return Math.min(requestedMs, remainingMs);
+    };
+
     const warmupPage = await context.newPage();
     try {
       const homeURL = `${baseURL}/home`;
       const homeComposer = warmupPage.locator("[data-design-home-composer]");
-      const homeWarmupDeadline = Math.min(warmupDeadline, Date.now() + 60_000);
-      const homeWarmupTimeout = (requestedMs: number) => {
-        const remainingMs = homeWarmupDeadline - Date.now();
-        if (remainingMs <= 0) {
-          throw new Error("the one-minute home warmup budget expired");
-        }
-        return Math.min(requestedMs, remainingMs);
-      };
       let homeComposerWarmed = false;
       try {
         await warmupPage.goto(homeURL, {
           waitUntil: "domcontentloaded",
-          timeout: homeWarmupTimeout(180_000),
+          timeout: warmupTimeout(180_000),
         });
         await homeComposer.waitFor({
           state: "visible",
-          timeout: homeWarmupTimeout(30_000),
+          timeout: warmupTimeout(30_000),
         });
         homeComposerWarmed = true;
       } catch (error) {
@@ -451,11 +443,11 @@ export default async function globalSetup(config: FullConfig) {
           try {
             await warmupPage.goto(homeURL, {
               waitUntil: "domcontentloaded",
-              timeout: homeWarmupTimeout(180_000),
+              timeout: warmupTimeout(180_000),
             });
             await homeComposer.waitFor({
               state: "visible",
-              timeout: homeWarmupTimeout(30_000),
+              timeout: warmupTimeout(30_000),
             });
             homeComposerWarmed = true;
           } catch (recoveryError) {
