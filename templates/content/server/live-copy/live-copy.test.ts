@@ -899,29 +899,21 @@ describe("a page whose write path changes mid-write", () => {
           args: ["torn"],
         });
       });
-    const db = getDb();
+    const context = getDbExec();
     let reads = 0;
-    const racing = {
-      select: (fields: never) => ({
-        from: (table: never) => ({
-          where: (where: never) => ({
-            limit: async (count: number) => {
-              const rows = await db
-                .select(fields)
-                .from(table)
-                .where(where)
-                .limit(count);
-              if (++reads === 1) await peerCommit();
-              return rows;
-            },
-          }),
-        }),
-      }),
-    } as unknown as NonNullable<Parameters<typeof liveBodyWriterGate>[1]>["db"];
+    const racing: ReturnType<typeof getDbExec> = {
+      execute: async (statement) => {
+        const result = await context.execute(statement);
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        if (/from\s+"documents"/i.test(sql) && ++reads === 1)
+          await peerCommit();
+        return result;
+      },
+    };
 
-    await expect(liveBodyWriterGate("torn", { db: racing })).resolves.toEqual({
-      writePath: "live_copy",
-    });
+    await expect(
+      liveBodyWriterGate("torn", { context: racing }),
+    ).resolves.toEqual({ writePath: "live_copy" });
     await expect(gateFor("torn")).resolves.toEqual({ writePath: "live_copy" });
   });
 });

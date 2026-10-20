@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
+import { getFeatureFlagRulesStrict } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putOrgSetting, putSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
@@ -138,16 +139,37 @@ describe("live-body writer gate", () => {
           // @ts-expect-error JavaScript callers must receive the same contract refusal.
           read("switched", { transaction: getDbExec() }),
         ).rejects.toMatchObject({
-          name: "LiveBodyWriterTransactionError",
-          code: "LIVE_BODY_TRANSACTION_DB_REQUIRED",
+          name: "LiveBodyWriterContextError",
+          code: "LIVE_BODY_READ_CONTEXT_INVALID",
         });
       }
       await expect(
         gate.liveBodyWriterGate("switched", {
-          db: tx,
-          transaction: getDbExec(),
+          context: getDbExec(),
         }),
       ).resolves.toEqual({ writePath: "legacy", reason: "live_copy_behind" });
+      let foreignReads = 0;
+      const foreign = {
+        execute: async () => {
+          foreignReads += 1;
+          throw new Error("A mismatched executor must not be queried");
+        },
+      };
+      for (const options of [
+        { db: tx, transaction: foreign },
+        { context: foreign, db: tx },
+        { context: null },
+        { context: {} },
+        { context: { db: tx, transaction: getDbExec() } },
+      ]) {
+        await expect(
+          gate.liveBodyWriterGate("switched", options as never),
+        ).rejects.toMatchObject({
+          name: "LiveBodyWriterContextError",
+          code: "LIVE_BODY_READ_CONTEXT_INVALID",
+        });
+      }
+      expect(foreignReads).toBe(0);
     });
   });
 
@@ -352,6 +374,8 @@ describe("live-body writer gate", () => {
     await insertPage("switched");
 
     await runWithRequestContext({ userEmail: COLLABORATOR }, async () => {
+      await getFeatureFlagRulesStrict("content.live-body-shadow", {});
+      await getFeatureFlagRulesStrict("content.live-body-writer", {});
       await expect(gate.liveBodyWriterGate("switched")).resolves.toEqual({
         writePath: "live_copy",
       });
@@ -375,16 +399,26 @@ describe("live-body writer gate", () => {
         ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
         await expect(
           gate.liveBodyWriterGate("switched", {
-            db: tx,
-            transaction: getDbExec(),
+            context: getDbExec(),
           }),
         ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
         await expect(
           gate.isLiveBodyWriterPage("switched", {
-            db: tx,
-            transaction: getDbExec(),
+            context: getDbExec(),
           }),
         ).resolves.toBe(false);
+        for (const read of [
+          gate.liveBodyWriterGate,
+          gate.isLiveBodyWriterPage,
+        ]) {
+          await expect(
+            // @ts-expect-error A row handle cannot read flags from a separate snapshot.
+            read("switched", { db: tx }),
+          ).rejects.toMatchObject({
+            name: "LiveBodyWriterContextError",
+            code: "LIVE_BODY_READ_CONTEXT_INVALID",
+          });
+        }
       });
     });
   });

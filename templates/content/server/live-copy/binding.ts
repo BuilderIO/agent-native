@@ -6,7 +6,6 @@ import { getDbExec } from "@agent-native/core/db";
 
 import { LIVE_BODY_FIELD } from "../../shared/live-body.js";
 import { liveBodyWriterGate } from "../lib/live-body-writer.js";
-import { drizzleOverExec } from "./exec-db.js";
 import { persistContentLiveCopy } from "./persist.js";
 import source from "./tasks.ts?bounded-task";
 import { liveBodyConversionFor } from "./write-cause.js";
