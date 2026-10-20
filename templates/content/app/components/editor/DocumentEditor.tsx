@@ -2600,6 +2600,8 @@ function PageEditorSessionBody({
   );
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
+  // Pages that follow a GitHub file are written by sync; edit the file instead.
+  const isGitHubSourceDocument = document.source?.mode === "github";
   const canComment =
     !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
@@ -3373,6 +3375,7 @@ function PageEditorSessionBody({
 
   const collabEnabled = shouldUseLiveDocumentCollaboration({
     isLocalFileDocument,
+    isGitHubSourceDocument,
     mcpDirectoryWidgetReadOnly,
   });
   const holdCollaborationForCreationSave = isDocumentCreationConfirmed(
@@ -3419,6 +3422,7 @@ function PageEditorSessionBody({
     !collabSynced;
   const editorCanEdit =
     canEdit &&
+    !isGitHubSourceDocument &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
@@ -9104,6 +9108,29 @@ function PageEditorSessionBody({
                   document.source?.updatedAt ?? document.updatedAt,
                 ).toLocaleString(),
               })}
+            </div>
+          ) : null}
+
+          {isGitHubSourceDocument ? (
+            <div
+              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
+              role="status"
+              data-github-source-read-only
+            >
+              {t("editor.githubSourceReadOnly")}
+              {document.source?.url ? (
+                <>
+                  {" "}
+                  <a
+                    href={document.source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    {t("editor.githubSourceOpenFile")}
+                  </a>
+                </>
+              ) : null}
             </div>
           ) : null}
 

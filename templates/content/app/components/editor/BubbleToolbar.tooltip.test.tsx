@@ -99,4 +99,58 @@ describe("BubbleToolbar tooltips", () => {
     expect(onComment).toHaveBeenCalledTimes(2);
     expect(tooltips()).toHaveLength(0);
   });
+
+  it("keeps a tooltip that was still waiting to open shut after a press", () => {
+    vi.useFakeTimers();
+    try {
+      editorElement = document.createElement("div");
+      toolbarElement = document.createElement("div");
+      document.body.append(editorElement, toolbarElement);
+      editor = new Editor({
+        element: editorElement,
+        extensions: [StarterKit],
+        content: "<p>Comment on this text</p>",
+      });
+      editor.commands.setTextSelection({ from: 1, to: 8 });
+      const onComment = vi.fn();
+      root = createRoot(toolbarElement);
+      act(() =>
+        root!.render(
+          <TooltipProvider delayDuration={500}>
+            <BubbleToolbar editor={editor!} onComment={onComment} />
+          </TooltipProvider>,
+        ),
+      );
+      const commentButton = toolbarElement.querySelector<HTMLButtonElement>(
+        'button[aria-label="editor.comment"]',
+      )!;
+      const tooltips = () =>
+        document.querySelectorAll('[data-agent-native-tooltip="true"]');
+
+      // A quick click: the pointer arrives and presses before the delay ends.
+      act(() => {
+        commentButton.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            pointerType: "mouse",
+          }),
+        );
+        commentButton.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            pointerType: "mouse",
+          }),
+        );
+      });
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+
+      expect(onComment).toHaveBeenCalledOnce();
+      expect(tooltips()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

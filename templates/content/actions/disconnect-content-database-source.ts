@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -23,7 +23,10 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
       databaseId,
     );
     const [source] = await tx
-      .select({ id: schema.contentDatabaseSources.id })
+      .select({
+        id: schema.contentDatabaseSources.id,
+        sourceType: schema.contentDatabaseSources.sourceType,
+      })
       .from(schema.contentDatabaseSources)
       .where(
         and(
@@ -32,6 +35,30 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
         ),
       );
     if (!source) return;
+    if (source.sourceType === "github") {
+      // Without the link, the pages are ordinary pages again and editable.
+      await tx
+        .update(schema.documents)
+        .set({
+          sourceMode: null,
+          sourceKind: null,
+          sourcePath: null,
+          sourceRootPath: null,
+          sourceUpdatedAt: null,
+        })
+        .where(
+          and(
+            eq(schema.documents.sourceMode, "github"),
+            inArray(
+              schema.documents.id,
+              tx
+                .select({ id: schema.contentDatabaseItems.documentId })
+                .from(schema.contentDatabaseItems)
+                .where(eq(schema.contentDatabaseItems.databaseId, databaseId)),
+            ),
+          ),
+        );
+    }
     await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
