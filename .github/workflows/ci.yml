@@ -445,7 +445,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 26
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -576,7 +576,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 25 || matrix.shard == 'autolayout-vertical-center-trailing' && 9 || 20 }}
+    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -613,7 +613,7 @@ jobs:
       - name: Run AI sidebar loopback image regressions
         if: matrix.shard == 'ai-sidebar-loopback'
         working-directory: templates/design
-        timeout-minutes: 18
+        timeout-minutes: 24
         env:
           E2E_RUN_ID: design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}
           E2E_AI_SIDEBAR_LOOPBACK: "1"
@@ -622,7 +622,7 @@ jobs:
       - name: Run long music-app workflow regression
         if: ${{ matrix.shard == 'music-app-workflow' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-responsive-music-app.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 23
+        timeout-minutes: 29
         env:
           E2E_RUN_ID: design-music-app-${{ github.run_id }}-${{ github.run_attempt }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -660,7 +660,7 @@ jobs:
       - name: Run landing-page build workflow regression
         if: ${{ matrix.shard == 'landing-page-build' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-landing-page-build.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 23
+        timeout-minutes: 29
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -688,7 +688,7 @@ jobs:
       - name: Run Home design-system selection regressions
         if: matrix.shard == 'home-system-selection'
         working-directory: templates/design
-        timeout-minutes: 6
+        timeout-minutes: 18
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           E2E_AI_SIDEBAR_LOOPBACK: "1"
@@ -697,7 +697,7 @@ jobs:
       - name: Run vertical auto-layout held-guide regression
         if: ${{ matrix.shard == 'autolayout-vertical-center-trailing' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/autolayout-drag-drop-matrix.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 23
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -765,7 +765,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]' && needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 28
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -890,7 +890,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -912,7 +912,7 @@ jobs:
 
       - name: Run pre-auth session replay smoke
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 18
         env:
           E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
           E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}

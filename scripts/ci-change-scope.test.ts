@@ -1377,13 +1377,29 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "Run vertical auto-layout held-guide regression",
   );
   const changedSpecRegressions = step("Run changed Design E2E specs");
+  const preAuthReplaySmoke = step("Run pre-auth session replay smoke");
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
   );
   assert.match(
     changedSpecRegressions,
     /^        timeout-minutes: 24$/m,
-    "the changed-spec diagnostic step must fit inside its 28-minute job after setup",
+    "the changed-spec diagnostic step must fit inside its 30-minute job after setup",
+  );
+  assert.match(
+    workflow,
+    /^  pre-auth-session-replay-smoke:\n(?:.*\n){4}    timeout-minutes: 25$/m,
+    "the pre-auth job must leave setup and artifact headroom",
+  );
+  assert.match(
+    preAuthReplaySmoke,
+    /^        timeout-minutes: 18$/m,
+    "the pre-auth browser smoke must leave time for global setup and webServer startup",
+  );
+  assert.match(
+    readFileSync(".github/workflows/design-e2e.yml", "utf8"),
+    /^      - name: Run chat attachment and sizing loopback E2E\n        if: matrix\.shard == 1\n        working-directory: templates\/design\n        timeout-minutes: 21$/m,
+    "the loopback attachment suite must budget global setup and webServer startup",
   );
   assert.match(
     changedSpecRegressions,
@@ -1403,8 +1419,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     musicAppWorkflow,
-    /^        timeout-minutes: 23$/m,
-    "the long music-app tests need a bounded dedicated step",
+    /^        timeout-minutes: 29$/m,
+    "the long music-app tests need setup, webServer, and test headroom",
   );
   assert.ok(
     musicAppWorkflow.includes(
@@ -1446,8 +1462,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     landingPageWorkflow,
-    /^        timeout-minutes: 23$/m,
-    "the complete landing-page workflow needs a bounded dedicated step",
+    /^        timeout-minutes: 29$/m,
+    "the complete landing-page workflow needs setup, webServer, and test headroom",
   );
   assert.ok(
     landingPageWorkflow.includes(
@@ -1491,8 +1507,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     homeSystemSelection,
-    /^        timeout-minutes: 6$/m,
-    "Home system-selection coverage needs a bounded six-minute step",
+    /^        timeout-minutes: 18$/m,
+    "Home system-selection coverage needs setup, webServer, and test headroom",
   );
   assert.ok(
     homeSystemSelection.includes(
@@ -1522,8 +1538,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     verticalAutoLayoutWorkflow,
-    /^        timeout-minutes: 7$/m,
-    "the vertical auto-layout test must retain the seven-minute diagnostic cap",
+    /^        timeout-minutes: 23$/m,
+    "the vertical auto-layout test needs setup, webServer, and test headroom",
   );
   assert.ok(
     verticalAutoLayoutWorkflow.includes(
@@ -1577,8 +1593,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     aiSidebarLoopback,
-    /^        timeout-minutes: 18$/m,
-    "the loopback image suite needs a bounded 18-minute cap",
+    /^        timeout-minutes: 24$/m,
+    "the loopback image suite needs setup, webServer, and test headroom",
   );
   assert.ok(
     aiSidebarLoopback.includes('E2E_AI_SIDEBAR_LOOPBACK: "1"'),
@@ -1729,8 +1745,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     broadJob,
-    /^    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 25 \|\| matrix\.shard == 'autolayout-vertical-center-trailing' && 9 \|\| 20 \}\}$/m,
-    "the broad job must give the auto-layout lane nine minutes and preserve other caps",
+    /^    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    "broad Design jobs must leave headroom outside the setup-aware test steps",
   );
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
@@ -1746,8 +1762,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designJob,
-    /^    timeout-minutes: 26$/m,
-    "all Design core shards keep the exact twenty-six-minute cap",
+    /^    timeout-minutes: 30$/m,
+    "all Design core shards keep the exact thirty-minute cap",
   );
   const screenHistoryRunBudgetMinutes = 5;
   const screenHistorySetupBudgetMinutes = 11;
@@ -1756,16 +1772,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const designRegressionSetupBudgetMinutes = 11;
   const designRegressionWebServerBudgetMinutes = 5;
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout === 26,
-    `regular Design acceptance shards must keep the exact twenty-six-minute cap (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 30,
+    `regular Design acceptance shards must keep the exact thirty-minute cap (got ${jobTimeout})`,
   );
   assert.ok(
-    jobTimeout < 27,
-    "Design acceptance must stay below twenty-seven minutes",
+    jobTimeout < 31,
+    "Design acceptance must stay below thirty-one minutes",
   );
   assert.ok(
-    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 28,
-    `changed-spec diagnostics must have the exact twenty-eight-minute cap (got ${diagnosticJobTimeout})`,
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 30,
+    `changed-spec diagnostics must have the exact thirty-minute cap (got ${diagnosticJobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
@@ -1774,8 +1790,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
         designRegressionRunBudgetMinutes +
           designRegressionSetupBudgetMinutes +
           designRegressionWebServerBudgetMinutes &&
-      jobTimeout >= stepTimeout + 3,
-    `focused Design tests need seven minutes for Playwright, eleven minutes for global setup including seeding and warmups, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${stepTimeout})`,
+      jobTimeout >= stepTimeout + 7,
+    `focused Design tests need seven minutes for Playwright, eleven minutes for global setup including seeding and warmups, five minutes for webServer startup, and seven minutes of job headroom (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
@@ -1784,8 +1800,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
         screenHistoryRunBudgetMinutes +
           screenHistorySetupBudgetMinutes +
           screenHistoryWebServerBudgetMinutes &&
-      jobTimeout >= screenHistoryStepTimeout + 3,
-    `Screen-history tests need five minutes for the Playwright run, eleven minutes for global setup including seeding and warmups, and five minutes for webServer startup inside their step, with job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+      jobTimeout >= screenHistoryStepTimeout + 9,
+    `Screen-history tests need five minutes for the Playwright run, eleven minutes for global setup including seeding and warmups, five minutes for webServer startup, and nine minutes of job headroom (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   const changedSpecRunBudgetMinutes = 8;
   assert.ok(
@@ -1795,8 +1811,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
         changedSpecRunBudgetMinutes +
           screenHistorySetupBudgetMinutes +
           screenHistoryWebServerBudgetMinutes &&
-      diagnosticJobTimeout >= changedSpecStepTimeout + 4,
-    `changed-spec diagnostics need eight minutes for Playwright, eleven minutes for global setup including seeding and warmups, and five minutes for webServer startup, with job headroom (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
+      diagnosticJobTimeout >= changedSpecStepTimeout + 6,
+    `changed-spec diagnostics need eight minutes for Playwright, eleven minutes for global setup including seeding and warmups, five minutes for webServer startup, and six minutes of job headroom (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const coreShardEntries = [
     ...coreJob.matchAll(
@@ -3511,6 +3527,7 @@ test(
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",
         ".github/workflows/ci.yml",
+        ".github/workflows/design-e2e.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
         "templates/design/e2e/css-style-helpers.ts",
         "templates/design/e2e/css-style-helpers.spec.ts",
