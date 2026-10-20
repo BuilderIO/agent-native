@@ -51,11 +51,19 @@ describe("shouldRetryIntakeCreateResponse", () => {
   it("keeps the status fallback for untyped retryable responses", async () => {
     await expect(
       shouldRetryIntakeCreateResponse(
-        new Response("unavailable", { status: 503 }),
+        Response.json({ error: "unavailable" }, { status: 503 }),
       ),
     ).resolves.toBe(true);
     await expect(
       shouldRetryIntakeCreateResponse(new Response("invalid", { status: 400 })),
+    ).resolves.toBe(false);
+  });
+
+  it("does not retry when a 503 response body is unreadable", async () => {
+    await expect(
+      shouldRetryIntakeCreateResponse(
+        new Response("unavailable", { status: 503 }),
+      ),
     ).resolves.toBe(false);
   });
 });

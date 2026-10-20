@@ -11,14 +11,18 @@ export async function shouldRetryIntakeCreateResponse(
 
   // Typed permanent failures must be surfaced instead of repeating intake
   // creation, which can insert a failed recording on each attempt.
-  const body = (await response
-    .clone()
-    .json()
-    .catch(() => null)) as {
+  let body: {
     errorCode?: string;
     details?: { retryable?: boolean };
   } | null;
+  try {
+    body = (await response.clone().json()) as typeof body;
+  } catch {
+    // coercion-ok: unreadable failure metadata stops retry without consuming the original response.
+    return false;
+  }
   if (
+    !body ||
     body?.details?.retryable === false ||
     body?.errorCode === "streaming_upload_unavailable"
   ) {
