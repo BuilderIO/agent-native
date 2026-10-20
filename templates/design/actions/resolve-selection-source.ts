@@ -90,6 +90,8 @@ export default defineAction({
       column: location?.column ?? null,
       snippet,
       resolved: Boolean(node),
+      resolutionStatus: resolution.status,
+      resolutionMessage: resolution.message ?? null,
     };
   },
 });

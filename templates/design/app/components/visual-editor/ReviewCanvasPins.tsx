@@ -28,6 +28,7 @@ import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
   buildSourceEquivalentSelector,
   isSourceLocationMatch,
   resolveSourceEquivalentSelector,
@@ -1568,12 +1569,11 @@ export function ReviewCanvasPins({
       ? {
           nodeId: popoverNodeId,
           selector: snapshotSelector,
-          // A box is this anchor's only if the snapshot was taken on this node or on its selector.
+          // Node IDs can be shared by repeated instances, so only a selector identifies this box's instance.
           box:
             popoverSnapshot &&
-            (popoverSnapshot.nodeId === popoverNodeId ||
-              (popoverAnchorSelector !== null &&
-                popoverSnapshot.selector === popoverAnchorSelector))
+            popoverAnchorSelector !== null &&
+            popoverSnapshot.selector === popoverAnchorSelector
               ? popoverSnapshot.box
               : null,
         }
@@ -2013,14 +2013,19 @@ export function ReviewCanvasPins({
           typeof payload.hitSelector === "string"
             ? payload.hitSelector
             : undefined;
-        // A uniquely identified node is found by its id; a structural path saved next to it would
-        // attach the comment to an unrelated element if the node were later removed. The path is
-        // kept only for a node the id cannot find again, or when there is no node id at all.
-        const nodeFoundById = Boolean(
-          canvas && nodeId && findNodeElement(canvas, nodeId),
-        );
+        const bridgeSelector = hitSelector ?? targetSelector;
+        // Source-location IDs can become repeated after a render, so retain the hit path as their
+        // instance discriminator. Plain IDs remain anchored by their unique identity.
+        const nodeElement =
+          canvas && nodeId ? findNodeElement(canvas, nodeId) : null;
+        const nodeFoundById = Boolean(nodeElement);
         const anchorSelector = nodeFoundById
-          ? undefined
+          ? nodeElement &&
+            nodeId &&
+            isSourceLocationMatch(nodeElement, nodeId) &&
+            bridgeSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+            ? bridgeSelector
+            : undefined
           : (hitSelector ?? targetSelector);
         if (!nodeId && !anchorSelector && !layerName && !tagName) return;
         setDraftPin((current) => {
@@ -2032,23 +2037,36 @@ export function ReviewCanvasPins({
             return current;
           }
           const anchor = { ...current.anchor, point: current.anchor.point };
+          const cannotResolveNodeIdentity = Boolean(
+            nodeId && !nodeFoundById && !anchorSelector,
+          );
+          const sourceSelectorKeepsIdentity = Boolean(
+            nodeId === current.anchor.nodeId &&
+            anchorSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX),
+          );
           if (nodeFoundById && nodeId) {
             anchor.nodeId = nodeId;
-            delete anchor.selector;
+            if (anchorSelector) anchor.selector = anchorSelector;
+            else delete anchor.selector;
           } else if (anchorSelector) {
             if (nodeId) anchor.nodeId = nodeId;
             else delete anchor.nodeId;
             anchor.selector = anchorSelector;
+          } else if (cannotResolveNodeIdentity && nodeId) {
+            anchor.nodeId = nodeId;
+            delete anchor.selector;
+            delete anchor.relativePoint;
           }
           if (
             anchor.nodeId !== current.anchor.nodeId ||
             anchor.selector !== current.anchor.selector
           ) {
-            delete anchor.relativePoint;
+            if (!sourceSelectorKeepsIdentity) delete anchor.relativePoint;
           }
           const metadata = { ...current.metadata };
           if (nodeFoundById) delete metadata.targetSelector;
           else if (anchorSelector) metadata.targetSelector = anchorSelector;
+          else if (cannotResolveNodeIdentity) delete metadata.targetSelector;
           return {
             ...current,
             anchor,
@@ -3067,7 +3085,13 @@ export function ReviewCanvasPins({
           if (!open && !deleteComment.isPending) setDeleteCandidate(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          data-review-popover
+          overlayProps={{
+            "data-review-popover": "",
+            "data-review-confirmation-overlay": "",
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("review.deleteCommentTitle")}
@@ -3778,6 +3802,7 @@ function ReviewReactionControls({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
+            data-review-popover
             data-review-reaction-menu
             align="end"
             onClick={(event) => event.stopPropagation()}

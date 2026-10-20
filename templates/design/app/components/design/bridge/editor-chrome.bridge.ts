@@ -15135,17 +15135,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var isSourceEquivalentSelector =
       typeof selector === "string" &&
       selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0;
+    var selectorMatch: Element | null = null;
     if (isSourceEquivalentSelector) {
-      var sourceSelectorMatch = resolveSourceEquivalentSelector(
+      selectorMatch = resolveSourceEquivalentSelector(
         document,
         selector as string,
       );
-      if (
-        sourceSelectorMatch &&
-        !isLayerInteractionBlocked(sourceSelectorMatch)
-      ) {
-        return sourceSelectorMatch;
-      }
     }
     var nodeId = (target as { nodeId?: unknown }).nodeId;
     if (typeof nodeId === "string" && nodeId) {
@@ -15159,36 +15154,64 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           '[id="' + escapeAttribute(nodeId) + '"]',
         ].join(","),
       );
-      if (
-        nodeMatches.length === 1 &&
-        !isLayerInteractionBlocked(nodeMatches[0])
-      ) {
-        return nodeMatches[0];
+      if (nodeMatches.length === 1) {
+        var uniqueNodeMatch = nodeMatches[0];
+        return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch)
+          ? uniqueNodeMatch
+          : null;
+      }
+      if (nodeMatches.length > 1) {
+        if (
+          !selectorMatch &&
+          typeof selector === "string" &&
+          selector &&
+          !isSourceEquivalentSelector
+        ) {
+          try {
+            selectorMatch = document.querySelector(selector);
+          } catch (error) {
+            if (
+              typeof error === "object" &&
+              error !== null &&
+              "name" in error &&
+              error.name !== "SyntaxError"
+            ) {
+              throw error;
+            }
+          }
+        }
+        if (
+          selectorMatch &&
+          Array.prototype.indexOf.call(nodeMatches, selectorMatch) !== -1 &&
+          !isLayerInteractionBlocked(selectorMatch)
+        ) {
+          return selectorMatch;
+        }
+        return null;
       }
     }
     if (
-      typeof selector !== "string" ||
-      !selector ||
-      isSourceEquivalentSelector
+      !selectorMatch &&
+      typeof selector === "string" &&
+      selector &&
+      !isSourceEquivalentSelector
     ) {
-      return null;
-    }
-    try {
-      var selectorMatch = document.querySelector(selector);
-      return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
-        ? selectorMatch
-        : null;
-    } catch (error) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "name" in error &&
-        error.name === "SyntaxError"
-      ) {
-        return null;
+      try {
+        selectorMatch = document.querySelector(selector);
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          error.name !== "SyntaxError"
+        ) {
+          throw error;
+        }
       }
-      throw error;
     }
+    return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
+      ? selectorMatch
+      : null;
   }
 
   function postNodeHtmlPreviewApplied(proposalId: string): void {

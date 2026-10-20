@@ -21,9 +21,10 @@ async function postNodeHtmlPreview(
   page: Page,
   proposalId: string,
   target: Record<string, string>,
+  html = `<button id="preview-${proposalId}">Preview</button>`,
 ): Promise<void> {
   await page.evaluate(
-    ({ proposalId, target }) =>
+    ({ proposalId, target, html }) =>
       new Promise<void>((resolve) => {
         const onMessage = (event: MessageEvent) => {
           if (
@@ -42,12 +43,12 @@ async function postNodeHtmlPreview(
             operation: "preview",
             proposalId,
             target,
-            html: `<button id="preview-${proposalId}">Preview</button>`,
+            html,
           },
           "*",
         );
       }),
-    { proposalId, target },
+    { proposalId, target, html },
   );
 }
 
@@ -86,6 +87,97 @@ describe("node-html-preview iframe bridge", () => {
           await page.locator('[data-agent-native-node-id="hero"]').count(),
         ).toBe(0);
         expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "uses a unique node ID when its saved source selector shifted to a sibling",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body>
+          <main>
+            <section data-agent-native-node-id="hero">Original hero</section>
+            <section id="shifted-sibling">Unrelated sibling</section>
+          </main>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await postNodeHtmlPreview(
+          page,
+          "unique-id-wins",
+          {
+            nodeId: "hero",
+            selector:
+              "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+          },
+          '<article id="hero-variant">Hero preview</article>',
+        );
+
+        expect(
+          await page
+            .locator(
+              '[data-agent-native-node-rewrite-proposal="unique-id-wins"]',
+            )
+            .getAttribute("id"),
+        ).toBe("hero-variant");
+        expect(await page.locator("#shifted-sibling").textContent()).toBe(
+          "Unrelated sibling",
+        );
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "uses a source selector to disambiguate repeated node IDs",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body>
+          <main>
+            <section data-loc="src:repeat">First instance</section>
+            <section data-loc="src:repeat">Second instance</section>
+          </main>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await postNodeHtmlPreview(
+          page,
+          "repeated-id-selector",
+          {
+            nodeId: "src:repeat",
+            selector:
+              "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+          },
+          '<article id="second-variant">Second preview</article>',
+        );
+
+        expect(await page.locator("section").count()).toBe(1);
+        expect(await page.locator("section").textContent()).toBe(
+          "First instance",
+        );
+        expect(
+          await page
+            .locator(
+              '[data-agent-native-node-rewrite-proposal="repeated-id-selector"]',
+            )
+            .getAttribute("id"),
+        ).toBe("second-variant");
       } finally {
         await browser.close();
       }
