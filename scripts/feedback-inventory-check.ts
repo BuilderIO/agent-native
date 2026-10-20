@@ -229,7 +229,7 @@ type OwnedMarkSearchPage = {
 
 type OwnedMarkSearch = {
   emoji: WorkflowEmoji;
-  query: Omit<ChannelScanQuery, "after">;
+  query: ChannelScanQuery;
   pages: OwnedMarkSearchPage[];
   pageLimitRecoveries?: PageLimitRecovery[];
 };
@@ -255,6 +255,36 @@ type RawThreadPageEvidence = {
 };
 
 type RawThreadPages = Record<string, Record<string, RawThreadPageEvidence[]>>;
+
+function validateNoHeldThreadEvidence(
+  channelName: string,
+  heldRootTimestamps: Set<string>,
+  threadSnapshots: ThreadSnapshot[],
+  rawThreadRoots: string[],
+): void {
+  for (const snapshot of threadSnapshots) {
+    const rootTs = slackTimestamp(
+      snapshot.rootTs,
+      `${channelName}.threadSnapshot.rootTs`,
+    ).toString();
+    if (heldRootTimestamps.has(rootTs)) {
+      throw new Error(
+        `${channelName}: held root ${slackTimestampFromMicros(BigInt(rootTs))} must not include threadSnapshot evidence`,
+      );
+    }
+  }
+  for (const rawRootTs of rawThreadRoots) {
+    const rootTs = slackTimestamp(
+      rawRootTs,
+      `${channelName}.rawThreadRoot`,
+    ).toString();
+    if (heldRootTimestamps.has(rootTs)) {
+      throw new Error(
+        `${channelName}: held root ${slackTimestampFromMicros(BigInt(rootTs))} must not include raw thread evidence`,
+      );
+    }
+  }
+}
 
 type RawOwnedMarkSearchPages = Record<
   string,
@@ -1033,7 +1063,7 @@ function validateThreadSnapshotStructure(
         `${replyName}: a workflow-mark read-back must follow the full-thread read`,
       );
     }
-    if (requireFreshReads && hasWorkflowReaction) {
+    if (requireFreshReads) {
       validateReadAt(
         reply.workflowReactionReadAt,
         `${replyName}.workflowReactionReadAt`,
@@ -4212,6 +4242,7 @@ function parseCapturedSlackSearchPage(
           path,
           channelId,
           workflowEmoji,
+          scanQuery.after,
           scanQuery.before,
         )
       : validateCapturedSlackRequestArgs(
@@ -4323,6 +4354,7 @@ function validateCapturedOwnedMarkRequestArgs(
   path: string,
   channelId: string,
   emoji: WorkflowEmoji,
+  fixedAfter: string,
   fixedBefore: string,
 ): string {
   const expectedFilters = `in:<#${channelId}> hasmy::${emoji}:`;
@@ -4349,7 +4381,12 @@ function validateCapturedOwnedMarkRequestArgs(
       );
     }
   }
-  const allowed = new Set([...Object.keys(expectedQuery), "cursor", "before"]);
+  const allowed = new Set([
+    ...Object.keys(expectedQuery),
+    "cursor",
+    "after",
+    "before",
+  ]);
   const unexpected = Object.keys(requestArgs).filter(
     (key) => !allowed.has(key),
   );
@@ -4364,6 +4401,17 @@ function validateCapturedOwnedMarkRequestArgs(
     }
   } else if (requestArgs.cursor !== cursor) {
     throw new Error(`${path}: request cursor does not match the captured page`);
+  }
+  const after = requestArgs.after;
+  if (typeof after !== "string") {
+    throw new Error(`${path}: request args.after must be a Slack timestamp`);
+  }
+  slackTimestamp(after, `${path}.args.after`);
+  slackTimestamp(fixedAfter, `${path}.fixedAfter`);
+  if (after !== fixedAfter) {
+    throw new Error(
+      `${path}: request args.after must match the fixed source-window lower bound`,
+    );
   }
   const before = requestArgs.before;
   if (typeof before !== "string") {
@@ -4496,24 +4544,52 @@ function parseFormattedSlackThreadMessage(
   const lines = match[3]!.split(/\r?\n/);
   const files: SlackFileAttachment[] = [];
   const workflowReactionNames = new Set<string>();
+  const metadataLines = new Set<string>();
   while (lines.length > 0) {
     const tail = lines.at(-1)!;
     if (tail.startsWith("Files: ")) {
       const value = tail.slice("Files: ".length);
       const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
-      for (const file of value.matchAll(filePattern)) {
-        files.push({ id: file[2]!, name: file[1]!, mimeType: file[3]! });
+      const fileMatches = [...value.matchAll(filePattern)];
+      if (
+        fileMatches.length === 0 ||
+        fileMatches.map((file) => file[0]).join("") !== value
+      ) {
+        break;
       }
-      if (files.length === 0) {
-        throw new Error(`${label}: formatted Slack file metadata is invalid`);
+      if (metadataLines.has("Files")) {
+        throw new Error(
+          `${label}: ambiguous repeated Files line in formatted Slack message`,
+        );
+      }
+      metadataLines.add("Files");
+      for (const file of fileMatches) {
+        files.push({ id: file[2]!, name: file[1]!, mimeType: file[3]! });
       }
       lines.pop();
       continue;
     }
     if (tail.startsWith("Reactions: ")) {
-      for (const reaction of tail
-        .slice("Reactions: ".length)
-        .matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)/gi)) {
+      const reactionMatches = [
+        ...tail
+          .slice("Reactions: ".length)
+          .matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi),
+      ];
+      const reactionValue = tail.slice("Reactions: ".length);
+      if (
+        reactionMatches.length === 0 ||
+        reactionMatches.map((reaction) => reaction[0]).join("") !==
+          reactionValue
+      ) {
+        break;
+      }
+      if (metadataLines.has("Reactions")) {
+        throw new Error(
+          `${label}: ambiguous repeated Reactions line in formatted Slack message`,
+        );
+      }
+      metadataLines.add("Reactions");
+      for (const reaction of reactionMatches) {
         if (
           reaction[1] === "eyes" ||
           reaction[1] === "white_check_mark" ||
@@ -4583,7 +4659,10 @@ function parseFormattedSlackThreadResponse(
       return repliesText.slice(start, end).replace(/\n+$/, "");
     });
   } else {
-    const noReplies = /\n\nNo thread mess{2,3}ages?\s*$/i.exec(afterParent);
+    const noReplies =
+      /\n\nNo thread mes{2,3}ages?(?:\s+in this thread)?[.!]?\s*$/i.exec(
+        afterParent,
+      );
     parentSection = noReplies
       ? afterParent.slice(0, noReplies.index)
       : afterParent.replace(/\n+$/, "");
@@ -4937,7 +5016,7 @@ function readRawOwnedMarkSearchPages(
     const searches = channel.ownedMarkSearches;
     if (!Array.isArray(searches)) {
       throw new Error(
-        `${channelName}: record all three historical owned-mark searches`,
+        `${channelName}: record all three bounded owned-mark searches`,
       );
     }
     const byEmoji = new Map<WorkflowEmoji, OwnedMarkSearch>();
@@ -4974,10 +5053,11 @@ function readRawOwnedMarkSearchPages(
       if (
         search.query.tool !== "slack_search_public" ||
         search.query.filters !== expectedFilters ||
+        search.query.after !== channel.scanQuery.after ||
         search.query.before !== channel.scanQuery.before
       ) {
         throw new Error(
-          `${channelName}: ${emoji} ownership census must use the fixed upper bound and no lower bound`,
+          `${channelName}: ${emoji} owned-mark search must use the source window's exact lower and upper bounds`,
         );
       }
       const groupKey = `${channelName}\u0000${emoji}`;
@@ -5591,6 +5671,7 @@ function validateOwnedMarkSearches(
     const expectedFilters = `in:<#${channel.channelId}> hasmy::${emoji}:`;
     const queryKeys = Object.keys(search.query).sort();
     const expectedQueryKeys = [
+      "after",
       "before",
       "content_types",
       "filters",
@@ -5607,6 +5688,7 @@ function validateOwnedMarkSearches(
     if (
       search.query.tool !== "slack_search_public" ||
       search.query.filters !== expectedFilters ||
+      search.query.after !== channel.scanQuery.after ||
       search.query.before !== channel.scanQuery.before ||
       queryKeys.length !== expectedQueryKeys.length ||
       queryKeys.some((key, index) => key !== expectedQueryKeys[index]) ||
@@ -5621,7 +5703,7 @@ function validateOwnedMarkSearches(
       search.query.response_format !== "detailed"
     ) {
       throw new Error(
-        `${channelName}: ${emoji} ownership census must match the channel's fixed upper bound and have no other filters`,
+        `${channelName}: ${emoji} owned-mark search must match the channel's fixed source window and have no other filters`,
       );
     }
     if (
@@ -5656,6 +5738,7 @@ function validateOwnedMarkSearches(
           recoveryName,
           channel.channelId,
           emoji,
+          channel.scanQuery.after,
           channel.scanQuery.before,
         );
         if (typeof recovery.raw !== "string" || !recovery.raw) {
@@ -5706,6 +5789,10 @@ function validateOwnedMarkSearches(
 
     let expectedCursor: string | null = null;
     let activeBefore: string | null = search.query.before ?? null;
+    const fixedAfter = slackTimestamp(
+      search.query.after,
+      `${channelName} hasmy::${emoji}.query.after`,
+    );
     let previousReadAt = -Infinity;
     let previousTimestamp: bigint | null = null;
     const seenCursors = new Set<string>();
@@ -5864,6 +5951,11 @@ function validateOwnedMarkSearches(
         if (beforeTimestamp !== null && timestamp > beforeTimestamp) {
           throw new Error(
             `${label}: owned-mark result is newer than its fixed or recovery before bound`,
+          );
+        }
+        if (timestamp < fixedAfter) {
+          throw new Error(
+            `${label}: owned-mark result is older than the fixed source-window lower bound`,
           );
         }
         if (typeof row.text !== "string") {
@@ -6238,6 +6330,29 @@ function validateInventory(
         `${name}: threadSnapshots must be an array of full thread reads`,
       );
     }
+    const heldThreadRootTimestamps = new Set<string>();
+    for (const page of channel.pages) {
+      for (const parent of page.parents) {
+        if (parent.ts === parent.threadParentTs && parent.ownershipSkip) {
+          heldThreadRootTimestamps.add(
+            slackTimestamp(parent.ts, `${name}.heldRoot.ts`).toString(),
+          );
+        }
+      }
+    }
+    for (const rootAudit of channel.threadRootAudits ?? []) {
+      if (rootAudit.ownershipSkip) {
+        heldThreadRootTimestamps.add(
+          slackTimestamp(rootAudit.ts, `${name}.heldRootAudit.ts`).toString(),
+        );
+      }
+    }
+    validateNoHeldThreadEvidence(
+      name,
+      heldThreadRootTimestamps,
+      channel.threadSnapshots ?? [],
+      Object.keys(options.rawThreadPages?.[channel.channelName] ?? {}),
+    );
     const threadSnapshots = new Map<string, ThreadSnapshot>();
     const snapshotRootTimestamps = new Set<string>();
     for (const [snapshotIndex, snapshot] of (
@@ -7196,7 +7311,7 @@ function validateInventory(
       );
       if (missingSearchRoots.length > 0) {
         throw new Error(
-          `${name}: historical hasmy root candidate(s) ${missingSearchRoots.join(", ")} are missing from source pages or supplemental-root audits; include each root and reconcile it before completion`,
+          `${name}: bounded hasmy root candidate(s) ${missingSearchRoots.join(", ")} are missing from source pages or supplemental-root audits; include each root and reconcile it before completion`,
         );
       }
       const alreadyOwnedRootTimestamps = [...auditedRoots].flatMap(
@@ -7684,10 +7799,86 @@ if (args[0] === "--self-test" && args.length === 1) {
     parsedFormattedThread.replyCount !== 1 ||
     parsedFormattedThread.messages.length !== 2 ||
     parsedFormattedThread.messages[1]?.actorId !== "B_AGENT" ||
-    parsedFormattedThread.messages[1]?.files[0]?.id !== "FTEST1"
+    parsedFormattedThread.messages[1]?.files[0]?.id !== "FTEST1" ||
+    parsedFormattedThread.messages[1]?.text !== "Verified status"
   ) {
     throw new Error(
       "Feedback inventory checker self-test failed to parse a formatted Slack thread response",
+    );
+  }
+  const formattedNoReplies = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.600000\nRoot report\n\nNo thread messages",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test formatted zero-reply Slack thread",
+    "8.600000",
+  );
+  if (
+    !formattedNoReplies.exhausted ||
+    formattedNoReplies.replyCount !== 0 ||
+    formattedNoReplies.messages.length !== 1 ||
+    formattedNoReplies.messages[0]?.text !== "Root report"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to parse a formatted zero-reply thread",
+    );
+  }
+  const formattedNoRepliesTypo = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.610000\nRoot report\n\nNo thread messsages",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test formatted zero-reply Slack typo",
+    "8.610000",
+  );
+  if (
+    !formattedNoRepliesTypo.exhausted ||
+    formattedNoRepliesTypo.replyCount !== 0 ||
+    formattedNoRepliesTypo.messages[0]?.text !== "Root report"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to parse the connector's misspelled zero-reply marker",
+    );
+  }
+  const formattedMetadataShapedBody = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.700000\nRoot report\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.700000\nPlease preserve these literal lines:\nReactions: this text is not a reaction summary\nFiles: this text is not an attachment list",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test metadata-shaped Slack message body",
+    "8.700000",
+  );
+  if (
+    formattedMetadataShapedBody.messages[1]?.text !==
+    "Please preserve these literal lines:\nReactions: this text is not a reaction summary\nFiles: this text is not an attachment list"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test stripped message text that resembled connector metadata",
     );
   }
 
@@ -9635,6 +9826,9 @@ if (args[0] === "--self-test" && args.length === 1) {
         ...valid,
         channels: valid.channels.map((channel) => ({
           ...channel,
+          threadSnapshots: channel.threadSnapshots?.filter(
+            (snapshot) => snapshot.rootTs !== "11.000000",
+          ),
           pages: channel.pages.map((page) => ({
             ...page,
             parents: page.parents.map((parent) =>
@@ -14490,6 +14684,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "a newer thread reply invalidates the recorded snapshot",
       "thread snapshot count must match the complete reply read",
       "legacy reply marks must match the captured reaction read-back",
+      "forged held-thread skip is rejected",
       "supplemental root thread replies must follow the root",
       "current open owner eye cannot be auto-claimed",
       "later refusal stays visible after a later benign owner reply",
@@ -15404,6 +15599,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         emoji,
         query: {
           tool: "slack_search_public",
+          after: valid.channels[0]!.scanQuery.after,
           before: valid.channels[0]!.scanQuery.before,
           filters: `in:<#${valid.channels[0]!.channelId}> hasmy::${emoji}:`,
           keywords: [],
@@ -15492,6 +15688,7 @@ if (args[0] === "--self-test" && args.length === 1) {
                 errorCode: "page_limit_exceeded" as const,
                 readAt: ownedMarkRecoveryReadAt,
                 args: {
+                  after: ownershipChannel.scanQuery.after,
                   before: ownershipChannel.scanQuery.before,
                   filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes:`,
                   keywords: [],
@@ -15586,6 +15783,56 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    expectFocusedFailure(
+      "held source root with thread snapshot",
+      () =>
+        validateInventory(heldReport, {
+          scopeConfirmation: scopeConfirmationForTestInventory(heldReport),
+        }),
+      "held root 11.000000 must not include threadSnapshot evidence",
+    );
+    expectFocusedFailure(
+      "held source root with raw thread page",
+      () =>
+        validateInventory(heldReportWithoutThread, {
+          rawThreadPages: {
+            "test-channel": { "11.000000": [] },
+          },
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            heldReportWithoutThread,
+          ),
+        }),
+      "held root 11.000000 must not include raw thread evidence",
+    );
+    const noMarkSnapshot =
+      withTestThreadSnapshots(valid).channels[0]!.threadSnapshots![0]!;
+    const noMarkReply = noMarkSnapshot.replies[0]!;
+    expectFocusedFailure(
+      "unmarked reply reaction read outside the freshness window",
+      () =>
+        validateThreadSnapshotStructure(
+          "self-test unmarked reply freshness",
+          noMarkSnapshot.rootTs,
+          {
+            ...noMarkSnapshot,
+            readAt: new Date(now - 1_000).toISOString(),
+            replies: [
+              {
+                ...noMarkReply,
+                workflowReactionReadback: [],
+                workflowReactionSummary: "none",
+                workflowReactionOwners: {},
+                workflowReactionReadAt: new Date(
+                  now + 2 * 60_000,
+                ).toISOString(),
+              },
+            ],
+          },
+          valid.sweepActorId,
+          true,
+        ),
+      "more than one minute in the future",
+    );
     const sourceAttachmentFixture = {
       id: "FTEST1",
       name: "report.png",
@@ -16060,6 +16307,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "follow the owned-mark cursor until explicit exhaustion",
     );
     const exactOwnedSearchArgs = {
+      after: ownershipChannel.scanQuery.after,
       before: ownershipChannel.scanQuery.before,
       filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes:`,
       keywords: [],
@@ -16078,6 +16326,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "self-test owned-mark request",
       ownershipChannel.channelId,
       "eyes",
+      ownershipChannel.scanQuery.after,
       ownershipChannel.scanQuery.before,
     );
     expectFocusedFailure(
@@ -16089,6 +16338,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           "self-test owned-mark request",
           ownershipChannel.channelId,
           "eyes",
+          ownershipChannel.scanQuery.after,
           ownershipChannel.scanQuery.before,
         ),
       "request args.before must be a Slack timestamp",
@@ -16102,6 +16352,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           "self-test owned-mark request",
           ownershipChannel.channelId,
           "eyes",
+          ownershipChannel.scanQuery.after,
           ownershipChannel.scanQuery.before,
         ),
       "request args.before exceeds the fixed scan window",
@@ -16118,6 +16369,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           "self-test owned-mark request",
           ownershipChannel.channelId,
           "eyes",
+          ownershipChannel.scanQuery.after,
           ownershipChannel.scanQuery.before,
         ),
       "request args.filters does not match the exhaustive eyes ownership query",
@@ -16133,6 +16385,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         "self-test recovered owned-mark request",
         ownershipChannel.channelId,
         "eyes",
+        ownershipChannel.scanQuery.after,
         ownershipChannel.scanQuery.before,
       ) !== "10.999998"
     ) {
@@ -16141,7 +16394,21 @@ if (args[0] === "--self-test" && args.length === 1) {
       );
     }
     expectFocusedFailure(
-      "owned-mark query with a mismatched cutoff",
+      "owned-mark request missing the fixed lower bound",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          { ...exactOwnedSearchArgs, after: undefined },
+          null,
+          "self-test owned-mark request",
+          ownershipChannel.channelId,
+          "eyes",
+          ownershipChannel.scanQuery.after,
+          ownershipChannel.scanQuery.before,
+        ),
+      "request args.after must be a Slack timestamp",
+    );
+    expectFocusedFailure(
+      "owned-mark query with a mismatched source-window cutoff",
       () =>
         validateCapturedOwnedMarkRequestArgs(
           { ...exactOwnedSearchArgs, after: "9.000000" },
@@ -16149,9 +16416,10 @@ if (args[0] === "--self-test" && args.length === 1) {
           "self-test owned-mark request",
           ownershipChannel.channelId,
           "eyes",
+          ownershipChannel.scanQuery.after,
           ownershipChannel.scanQuery.before,
         ),
-      "owned-mark query has unexpected arguments: after",
+      "request args.after must match the fixed source-window lower bound",
     );
 
     const classificationFixture: Parent = {
@@ -16422,6 +16690,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       );
     }
     const ownedMarkContinuationArgs = {
+      after: ownershipChannel.scanQuery.after,
       before: ownershipChannel.scanQuery.before,
       filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes:`,
       keywords: [],
@@ -16441,6 +16710,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "self-test owned-mark continuation",
       ownershipChannel.channelId,
       "eyes",
+      ownershipChannel.scanQuery.after,
       ownershipChannel.scanQuery.before,
     );
     const ownedMarkContinuationWithoutCursor = Object.fromEntries(
@@ -16457,6 +16727,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           "self-test owned-mark continuation",
           ownershipChannel.channelId,
           "eyes",
+          ownershipChannel.scanQuery.after,
           ownershipChannel.scanQuery.before,
         ),
       "request cursor does not match the captured page",
@@ -16593,6 +16864,9 @@ if (args[0] === "--self-test" && args.length === 1) {
       ...integratedBase,
       channels: integratedBase.channels.map((channel) => ({
         ...channel,
+        threadSnapshots: channel.threadSnapshots?.filter(
+          (snapshot) => snapshot.rootTs !== "11.000000",
+        ),
         ownedMarkSearches: integratedSearches,
       })),
     };
@@ -16730,7 +17004,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           { ...integratedOptions, rawOwnedMarkPages: missingRootPages },
         );
       },
-      "historical hasmy root candidate(s) 10500000 are missing from source pages or supplemental-root audits",
+      "bounded hasmy root candidate(s) 10500000 are missing from source pages or supplemental-root audits",
     );
     expectFocusedFailure(
       "exact owned root absent from all hasmy candidates",
@@ -16744,7 +17018,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "exact root reaction read-back shows this actor owns",
     );
     expectFocusedFailure(
-      "old owned root is discovered and cannot be omitted from reconciliation",
+      "owned-mark result cannot escape the fixed source-window lower bound",
       () => {
         const oldRootSearches = integratedSearches.map((search) =>
           search.emoji === "eyes"
@@ -16797,7 +17071,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           { ...integratedOptions, rawOwnedMarkPages: oldRootPages },
         );
       },
-      "historical hasmy root candidate(s) 8500000 are missing from source pages or supplemental-root audits",
+      "owned-mark result is older than the fixed source-window lower bound",
     );
 
     console.log(

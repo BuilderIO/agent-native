@@ -122,10 +122,13 @@ slack_search: "this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
 
-Also scan channel messages from the saved reply cursor; on the first run, scan
-available history. Since `after:` is date-only, start one day before the cursor,
-exhaust pages, resolve hits to their root, and advance the cursor only through
-processed messages. Read inherited threads carrying any of this actor's root marks (`👀`, `✅`,
+Also scan channel messages from the saved reply cursor within the current
+invocation's fixed window; on the first run, use the default five-day window,
+not all available history. Since `after:` is date-only, start one day before
+the later of the saved cursor and window start, exhaust pages, resolve hits to
+their root, and advance the cursor only through processed messages. An older
+root is eligible only when an in-window reply links to it. Read inherited
+threads carrying any of this actor's root marks (`👀`, `✅`,
 or `🎫`): a checkmark closes only its verified scope, not a newer reporter
 answer or another open scope. Do not reply or react on another actor's root when work is handed off for investigation; that handoff permits local investigation only. A separate explicit authorization is required to post a status or reporter reply there.
 

@@ -5,12 +5,13 @@ place of Slack source messages.
 
 At the start of a sweep, capture one Slack timestamp as `windowEndTs`. Use it
 as the inclusive `before` argument on the source scan and all three `hasmy`
-ownership searches in every scoped channel. Record it in each channel's
-`scanQuery.before` and each owned search's `query.before`. Keep that exact upper
-bound for the whole sweep, including any reread; page-cap recovery slices may
-only narrow it using the existing one-microsecond boundary rule. Messages
-newer than `windowEndTs` belong to the next scheduled sweep. Never advance the
-upper bound to chase arrivals while this sweep is running.
+ownership searches in every scoped channel. Use the same inclusive `after` on
+the source scan and ownership searches. Record the bounds in `scanQuery` and
+each owned search's `query`. Keep `after` fixed through the sweep. Keep the
+exact upper bound for the whole sweep; page-cap recovery slices may narrow only
+`before` using the existing one-microsecond boundary rule. Messages newer than
+`windowEndTs` belong to the next scheduled sweep. Never advance either bound to
+chase arrivals or expand a finite catch-up request into an all-history audit.
 
 - For the exhaustive channel source scan, use `slack_search_public` with only
   `filters=in:<#CHANNEL>`, `after=<channel cutoff>`,
@@ -256,28 +257,30 @@ upper bound to chase arrivals while this sweep is running.
   root's `files` field absent to represent unknown; do not record `[]`. For an
   unheld root, use the full thread read to record files and require the source
   row and snapshot to agree.
-- After each bounded channel scan, run a separate historical ownership census
-  for this actor's `👀`, `✅`, and `🎫` with `slack_search_public`. Each query
-  uses only `in:<#CHANNEL> hasmy::EMOJI:` and the channel's fixed `before`
-  upper bound. Do not add an `after`: this search must discover every root the
-  actor still owns, including unreferenced roots older than the source window.
-  This does not widen the source-message scan or its report counts. Reconcile
-  every discovered root; unheld roots need exact reaction and full-thread
-  evidence in the source or a supplemental-root audit. A root missing either
-  audit is unresolved, not outside scope.
+- After each bounded channel scan, run three separate bounded ownership
+  searches for this actor's `👀`, `✅`, and `🎫` with `slack_search_public`. Each
+  query uses only `in:<#CHANNEL> hasmy::EMOJI:` plus the same inclusive `after`
+  and `before` as the source scan. These searches cover only this invocation's
+  finite window; do not search unrelated channel history. An older root is in
+  scope only when an in-window reply links to it. Resolve that reply's true
+  parent, read the older root's exact reactions, and apply the held-thread gate
+  before opening it. Reconcile every candidate in the window and each linked
+  older root; unheld roots need exact reaction and full-thread evidence in the
+  source or supplemental-root audit. A candidate missing either audit is
+  unresolved, not outside scope.
   If Slack caps a cursor before exhaustion, preserve that capped page and
   record the exact `page_limit_exceeded` response in that search's
   `pageLimitRecoveries[]`, including its failed cursor and request args, raw
   response, read time, and the capped page's oldest result as `boundaryTs`.
-  Restart the same `hasmy` query at `cursor: null` with no `after` and a
-  `before` exactly one microsecond below that boundary. Keep the upper bound on
-  every page in the restarted cursor slice and in each raw request wrapper.
+  Restart the same `hasmy` query at `cursor: null` with the same fixed `after`
+  and a `before` exactly one microsecond below that boundary. Keep both bounds
+  on every page in the restarted cursor slice and in each raw request wrapper.
   Follow the restarted slice to exhaustion and repeat this recovery for every
   later cap. The checker proves each failed cursor against exactly one
   restarted slice, checks the boundary and read order, and requires explicit
   exhaustion. If Slack does not let you recover a capped tail, report the
-  historical ownership census as incomplete; do not claim every owned mark was
-  reconciled.
+  bounded ownership search as incomplete; do not claim every in-window owned
+  mark was reconciled.
   Record each exact query and page in `ownedMarkSearches`; save raw wrappers
   named `owned-marks-{channelName}-{eyes|white_check_mark|ticket}-00.json` and
   continue numbering for each cursor page. Each wrapper preserves exact

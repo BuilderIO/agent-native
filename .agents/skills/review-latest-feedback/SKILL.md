@@ -73,23 +73,23 @@ reply. Otherwise read the report's full thread and attachments before
 classifying or claiming it. Follow
 [`channel-inventory.md`](references/channel-inventory.md) for exact query
 arguments, raw-page receipts, cap recovery, root classification, fixed-window
-source scans, historical ownership searches for this actor's `👀`, `✅`, and
-`🎫`, and checker requirements.
-The owned-mark search must use Slack's exact syntax `hasmy::eyes:`,
-`hasmy::white_check_mark:`, or `hasmy::ticket:` with the channel filter and the
-sweep's frozen inclusive `before` upper bound. Do not add `after` to these
-ownership searches: discover every root this actor still owns from all channel
-history through the fixed sweep end. A missing trailing colon is not a valid
-ownership query.
+source scans, bounded ownership searches for this actor's `👀`, `✅`, and `🎫`,
+and checker requirements. Owned-mark searches use Slack's exact syntax
+`hasmy::eyes:`, `hasmy::white_check_mark:`, or `hasmy::ticket:` with the channel
+filter and the same inclusive `after` and `before` as that channel's source
+scan. Do not widen a finite catch-up request into an all-history audit. A root
+older than `after` is in scope only when an in-window reply links to it. A
+missing trailing colon is not a valid ownership query.
 
 Only the invoking Slack actor's root marks are owned here. Another task's eye
 plus its current open status remains theirs; an explicit handoff naming this
 task and scope is required to transfer investigation. An eye is a permanent
 claim, not proof of open or completed work. A mark on a reply never claims or
-checks off its parent. Before exit, reconcile every in-scope root carrying this
-actor's `👀`, `✅`, or `🎫`. Also reconcile an older root when an in-window
-reply links to it. For every owned root, compare the latest human reply, current
-status, verified scopes, open scopes, human actions, and exact root reactions.
+checks off its parent. Before exit, reconcile every in-window root carrying
+this actor's `👀`, `✅`, or `🎫` found by the bounded searches. Also reconcile an
+older root when an in-window reply links to it. For every owned root, compare
+the latest human reply, current status, verified scopes, open scopes, human
+actions, and exact root reactions.
 Never let a high eye count hide a verified scope without `✅` or a missing
 current status reply.
 
@@ -116,13 +116,26 @@ task's claim.
 
 Resolve known duplicates before claiming. Check ownership, then add and read
 back this task's root `👀` before investigating an eligible unowned report.
-Reconcile every root this actor already owns through the fixed sweep end,
-including unreferenced roots older than the source window, before discovering
-new questions. Keep one
+Reconcile only owned roots inside this invocation's fixed window and older
+roots explicitly linked by an in-window reply. Never expand a finite sweep to
+all historical roots just because this actor owns an old mark; widen the range
+only when the invocation explicitly requests it or hands off exact roots. Finish
+this bounded reconciliation before discovering new questions. Keep one
 concise canonical status by the same actor after the latest human message; read
 back the visible reply and root reactions after each write. Use
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
 status and reaction rules.
+
+**Bounded exit gate:** enumerate the complete candidate set from the fixed
+source window, the three matching owned-mark searches, and older roots linked
+by in-window replies. For every unheld owned root, compare the latest human
+message, current status reply, verified scopes, open scopes, and root marks.
+Add and read back `✅` for each newly verified scope and `🎫` for each distinct
+pending human action; the status reply must follow the latest human message and
+name current evidence, remaining work, and owners. An `👀` with a verified
+scope missing `✅`, a pending human action missing `🎫`, or no current status is
+unfinished. Finish the complete bounded set once, then stop; do not chase
+unrelated historical marks.
 
 Split reports into distinct scopes. Add root `✅` as soon as any named scope
 passes direct post-change proof, even while its PR is open; say **Verified
@@ -149,11 +162,14 @@ action and owner. Use **Skipped** only for non-defects.
 
 Phase 0 handles new human replies on owned roots first; never hide a newer
 reporter reply behind a mark. Then find prior unanswered questions using the
-exact bot disclosure and the saved channel reply cursor. On a first run, scan
-available history. Exhaust pages, use a one-day overlap for date-only cursors,
-resolve every hit to its parent, and read the full thread after checking
-reactions. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md)
-for exact searches, legacy identity handling, and answer criteria.
+exact bot disclosure and the saved channel reply cursor, bounded by this
+invocation's fixed window. On a first run, use the same default five-day window;
+never scan all available history to initialize the cursor. Exhaust pages, use a
+one-day overlap for date-only cursors, resolve every hit to its parent, and read
+the full thread after checking reactions. An older root is eligible only when
+an in-window reply links to it. Follow
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
+searches, legacy identity handling, and answer criteria.
 
 A valid answer is a human post after the question, without this workflow's
 disclosure, that addresses the question. Rebuild the evidence and attempt the
