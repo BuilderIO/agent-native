@@ -434,8 +434,8 @@ const editor = {
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
   registryBlockUnreadable: "No se puede leer el origen guardado del bloque.",
-  blocksFieldRevisionConflict:
-    "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
+  blocksFieldEditMovedToEnd:
+    "Este campo de bloques también cambió en otro lugar. El texto que escribiste en el mismo sitio se movió al final del campo.",
   reconcileConflict:
     "Esta página cambió en otro lugar. Tus cambios aún no se han guardado.",
   reconcileFailed:

@@ -440,8 +440,8 @@ const editor = {
   registryBlockLoadError:
     "Impossible de charger le bloc {{type}} : {{message}}",
   registryBlockUnreadable: "La source enregistrée du bloc est illisible.",
-  blocksFieldRevisionConflict:
-    "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
+  blocksFieldEditMovedToEnd:
+    "Ce champ de blocs a aussi été modifié ailleurs. Le texte que vous avez saisi au même endroit a été déplacé à la fin du champ.",
   reconcileConflict:
     "Cette page a été modifiée ailleurs. Vos modifications ne sont pas encore enregistrées.",
   reconcileFailed:

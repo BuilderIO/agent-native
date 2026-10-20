@@ -420,8 +420,8 @@ const editor = {
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",
   registryBlockUnreadable: "저장된 블록 소스를 읽을 수 없습니다.",
-  blocksFieldRevisionConflict:
-    "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
+  blocksFieldEditMovedToEnd:
+    "이 블록 필드가 다른 곳에서도 변경되었습니다. 같은 위치에 입력한 텍스트는 필드 끝으로 옮겨졌습니다.",
   reconcileConflict:
     "이 페이지가 다른 곳에서 변경되었습니다. 편집 내용은 아직 저장되지 않았습니다.",
   reconcileFailed:

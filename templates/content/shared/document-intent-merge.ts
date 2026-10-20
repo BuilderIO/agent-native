@@ -234,6 +234,153 @@ function heldInsertion(left: TextHunk, right: TextHunk): TextHunk | null {
   return null;
 }
 
+function blockSpans(
+  content: string,
+): Array<{ block: PMNode; from: number; to: number }> | null {
+  const blocks = parseStableBlocks(content);
+  if (!blocks) return null;
+  const serialized = blocks.map((block) =>
+    docToNfm({ type: "doc", content: [block] }),
+  );
+  if (serialized.join("\n") !== content) return null;
+  let offset = 0;
+  return blocks.map((block, index) => {
+    const from = offset;
+    offset += serialized[index].length + 1;
+    return { block, from, to: from + serialized[index].length };
+  });
+}
+
+/**
+ * Merges a Blocks field's unsaved text with a newer version saved elsewhere,
+ * both edited from `base`. Their changes always land. Mine land too, except
+ * where both changed the same words: their words stay in place, and the
+ * paragraphs holding mine are added at the end of the field (`moved`).
+ */
+export function mergeBlocksFieldEdits(
+  base: string,
+  mine: string,
+  theirs: string,
+): { content: string; moved: boolean } {
+  if (mine === theirs || mine === base)
+    return { content: theirs, moved: false };
+  if (theirs === base) return { content: mine, moved: false };
+  // Mine comes from an editor; the others can be stored Markdown, so all
+  // three compare in the form an editor holds them.
+  const baseText = parsedForm(base);
+  const mineText = parsedForm(mine);
+  const theirText = parsedForm(theirs);
+  if (baseText === null || mineText === null || theirText === null) {
+    return { content: theirs, moved: true };
+  }
+  if (mineText === theirText || mineText === baseText) {
+    return { content: theirs, moved: false };
+  }
+  if (theirText === baseText) return { content: mine, moved: false };
+  // One side can already hold the other's changes, such as a save of mine
+  // that landed before its answer reached the editor.
+  if (bodyHoldsChanges(base, mineText, theirs)) {
+    return { content: mine, moved: false };
+  }
+  if (bodyHoldsChanges(base, theirText, mine)) {
+    return { content: theirs, moved: false };
+  }
+
+  const theirHunks = textHunks(baseText, theirText);
+  const applied = new Set(theirHunks);
+  const placed: TextHunk[] = [];
+  const unplaced: Array<{ from: number; to: number }> = [];
+  let shift = 0;
+  for (const hunk of textHunks(baseText, mineText)) {
+    const at = hunk.from + shift;
+    shift += hunk.insert.length - (hunk.to - hunk.from);
+    const overlaps = theirHunks.filter((other) =>
+      textHunksOverlap(hunk, other),
+    );
+    const held =
+      overlaps.length === 1 ? heldInsertion(hunk, overlaps[0]) : null;
+    if (held) {
+      if (held === hunk) {
+        applied.delete(overlaps[0]);
+        placed.push(hunk);
+      }
+    } else if (
+      overlaps.length > 0 &&
+      hunk.from === hunk.to &&
+      overlaps.every(
+        (other) => other.from === hunk.from && other.from === other.to,
+      )
+    ) {
+      // Both typed at the same spot: keep both, theirs first.
+      for (const other of overlaps) applied.delete(other);
+      placed.push({
+        from: hunk.from,
+        to: hunk.to,
+        insert: overlaps.map((other) => other.insert).join("") + hunk.insert,
+      });
+    } else if (
+      overlaps.length > 0 &&
+      overlaps.every(
+        (other) =>
+          other.from === hunk.from &&
+          other.to === hunk.to &&
+          other.insert === hunk.insert,
+      )
+    ) {
+      // The same change on both sides.
+    } else if (overlaps.length > 0) {
+      if (hunk.insert) unplaced.push({ from: at, to: at + hunk.insert.length });
+    } else {
+      placed.push(hunk);
+    }
+  }
+
+  let merged = baseText;
+  for (const hunk of [...applied, ...placed].sort(
+    (left, right) => right.from - left.from || right.to - left.to,
+  )) {
+    merged = `${merged.slice(0, hunk.from)}${hunk.insert}${merged.slice(hunk.to)}`;
+  }
+  // A merge that splits markup the editor can't hold keeps their text and
+  // moves every paragraph of mine that changed.
+  const mergedSpans = parsedForm(merged) === merged ? blockSpans(merged) : null;
+  const mineSpans = blockSpans(mineText);
+  if (!mergedSpans || !mineSpans) {
+    const theirBlocks = parseStableBlocks(theirText);
+    const baseBlocks = new Set(
+      (parseStableBlocks(baseText) ?? []).map(stableBlock),
+    );
+    const mineBlocks = parseStableBlocks(mineText);
+    if (!theirBlocks || !mineBlocks) return { content: theirs, moved: true };
+    const kept = new Set(theirBlocks.map(stableBlock));
+    const moved = mineBlocks.filter(
+      (block) =>
+        !baseBlocks.has(stableBlock(block)) && !kept.has(stableBlock(block)),
+    );
+    return {
+      content: moved.length
+        ? docToNfm({ type: "doc", content: [...theirBlocks, ...moved] })
+        : theirs,
+      moved: moved.length > 0,
+    };
+  }
+  const kept = new Set(mergedSpans.map((span) => stableBlock(span.block)));
+  const moved = mineSpans
+    .filter((span) =>
+      unplaced.some((range) => span.from < range.to && range.from < span.to),
+    )
+    .map((span) => span.block)
+    .filter((block) => !kept.has(stableBlock(block)));
+  if (!moved.length) return { content: merged, moved: false };
+  return {
+    content: docToNfm({
+      type: "doc",
+      content: [...mergedSpans.map((span) => span.block), ...moved],
+    }),
+    moved: true,
+  };
+}
+
 function plainParagraphText(block: PMNode): string | null {
   if (block.type !== "paragraph" || block.attrs) return null;
   if (!block.content?.length) return "";

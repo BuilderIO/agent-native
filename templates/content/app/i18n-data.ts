@@ -1245,8 +1245,8 @@ const enUS = {
     noDocumentSelected: "No document selected",
     registryBlockLoadError: "Could not load {{type}} block: {{message}}",
     registryBlockUnreadable: "Persisted block source is unreadable.",
-    blocksFieldRevisionConflict:
-      "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
+    blocksFieldEditMovedToEnd:
+      "This Blocks field also changed elsewhere. Text you typed in the same place was moved to the end of the field.",
     reconcileConflict:
       "This page changed elsewhere. Your edits aren’t saved yet.",
     reconcileFailed:

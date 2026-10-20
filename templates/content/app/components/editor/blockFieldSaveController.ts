@@ -3,7 +3,8 @@ export interface BlockFieldSaveController {
   flush(): Promise<void>;
   cancel(): void;
   mark(content: string): void;
-  discardPending(): void;
+  /** Calls `listener` each time a save settles; returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
   readonly lastSaved: string;
   readonly pending: string;
   readonly hasPendingTimer: boolean;
@@ -29,6 +30,11 @@ export function createBlockFieldSaveController(args: {
   let hasSavedLocally = false;
 
   let inFlight: Promise<void> | null = null;
+  const listeners = new Set<() => void>();
+
+  function settled() {
+    for (const listener of [...listeners]) listener();
+  }
 
   function clearTimer() {
     if (timer !== null) {
@@ -48,10 +54,12 @@ export function createBlockFieldSaveController(args: {
         hasSavedLocally = true;
         inFlight = null;
         kick();
+        settled();
       })
       .catch((error) => {
         inFlight = null;
         args.onError?.(error);
+        settled();
       });
 
     inFlight = promise;
@@ -87,9 +95,11 @@ export function createBlockFieldSaveController(args: {
       pending = content;
       hasSavedLocally = false;
     },
-    discardPending() {
-      clearTimer();
-      pending = lastSaved;
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
     get lastSaved() {
       return lastSaved;

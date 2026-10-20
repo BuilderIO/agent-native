@@ -342,6 +342,14 @@ describe("Blocks property type", () => {
   it("counts prose that only looks like a tag", () => {
     // "a <b and c> d", saved with its angle brackets escaped.
     expect(countWords("a \\<b and c\\> d")).toBe(5);
+    // "x\<b y", with both the backslash and the bracket escaped.
+    expect(countWords("x\\\\\\<b y")).toBe(2);
+  });
+
+  it("doesn't count markup that follows a backslash written in prose", () => {
+    // "C:\" then a red word, saved as an escaped backslash and a <span>.
+    expect(countWords('C:\\\\<span color="red">drive</span>')).toBe(2);
+    expect(countWords("foo\\\\<br>bar")).toBe(2);
   });
 
   it("formats a word count for table cells", () => {

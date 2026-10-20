@@ -1551,6 +1551,16 @@ function writeContentSelectionState(value: unknown) {
   }
 }
 
+/**
+ * Text saved elsewhere to merge into the live document, once per `key`.
+ * `merge` gets the text the user has in the editor (null when it isn't
+ * editable) and returns the text to show, or null to leave the editor as is.
+ */
+export interface VisualEditorExternalContent {
+  key: string;
+  merge: (live: string | null) => string | null;
+}
+
 interface VisualEditorProps {
   visitKey?: string;
   editorMountMode?: EditorMountMode;
@@ -1558,6 +1568,7 @@ interface VisualEditorProps {
   contentSpaceId?: string;
   content: string;
   contentResetKey?: string | null;
+  externalContent?: VisualEditorExternalContent | null;
   contentUpdatedAt?: string | null;
   contentRevision?: string | null;
   acknowledgedLocalSnapshot?: {
@@ -3038,6 +3049,7 @@ export function VisualEditor({
   contentSpaceId,
   content,
   contentResetKey = null,
+  externalContent = null,
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
@@ -3759,6 +3771,41 @@ export function VisualEditor({
       .setContent(nfmToDoc(content), { emitUpdate: false })
       .run();
   }, [content, contentResetKey, editor, ydoc]);
+  const externalContentRef = useRef(externalContent);
+  externalContentRef.current = externalContent;
+  const externalContentKey = externalContent?.key ?? null;
+  useLayoutEffect(() => {
+    if (!editor || externalContentKey === null) return;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const merge = () => {
+      const request = externalContentRef.current;
+      if (editor.isDestroyed || request?.key !== externalContentKey) return;
+      // A slash command or an upload in progress isn't reported yet.
+      const live = editable ? serializeEditorDraftForPersistence(editor) : null;
+      if (editable && (live === null || isActiveSlashCommandDraft(editor))) {
+        retry = setTimeout(merge, 300);
+        return;
+      }
+      const next = request.merge(live);
+      if (next === null || next === live) return;
+      // The merge holds everything typed so far, so typing that is still
+      // being reported would only undo it.
+      draftEmissionGenerationRef.current += 1;
+      const parsed = parseNfmForCollabReconcile(editor, next);
+      if (!parsed || applyDocSurgically(editor, parsed) === "failed") {
+        editor
+          .chain()
+          .command(({ tr }) => {
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .setContent(nfmToDoc(next), { emitUpdate: false })
+          .run();
+      }
+    };
+    merge();
+    return () => clearTimeout(retry);
+  }, [editable, editor, externalContentKey]);
   useEffect(() => {
     if (!editor) return;
     const capture = ({ transaction }: { transaction: Transaction }) => {

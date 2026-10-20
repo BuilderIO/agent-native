@@ -420,8 +420,8 @@ const editor = {
   noDocumentSelected: "لم يتم تحديد أي مستند",
   registryBlockLoadError: "تعذر تحميل كتلة {{type}}: {{message}}",
   registryBlockUnreadable: "تعذرت قراءة مصدر الكتلة المحفوظ.",
-  blocksFieldRevisionConflict:
-    "تم تغيير حقل الكتل هذا في مكان آخر. لم يتم حفظ تعديلك؛ ويظهر الآن أحدث إصدار.",
+  blocksFieldEditMovedToEnd:
+    "تم تغيير حقل الكتل هذا في مكان آخر أيضًا. نُقل النص الذي كتبته في الموضع نفسه إلى نهاية الحقل.",
   reconcileConflict: "تم تغيير هذه الصفحة في مكان آخر. لم يتم حفظ تعديلاتك بعد.",
   reconcileFailed: "تعذّر دمج أحدث التغييرات. لم يتم حفظ تعديلاتك بعد.",
   reconcileSaveFailed: "تعذّر حفظ تعديلاتك. راجعها وحاول مرة أخرى.",

@@ -426,8 +426,8 @@ const editor = {
   registryBlockLoadError:
     "{{type}} ブロックを読み込めませんでした: {{message}}",
   registryBlockUnreadable: "保存されたブロックソースを読み取れません。",
-  blocksFieldRevisionConflict:
-    "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
+  blocksFieldEditMovedToEnd:
+    "このブロックフィールドは別の場所でも変更されました。同じ箇所に入力したテキストはフィールドの末尾に移動しました。",
   reconcileConflict:
     "このページは別の場所で変更されました。編集内容はまだ保存されていません。",
   reconcileFailed:

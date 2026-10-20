@@ -437,8 +437,8 @@ const editor = {
   registryBlockLoadError:
     "Não foi possível carregar o bloco {{type}}: {{message}}",
   registryBlockUnreadable: "Não foi possível ler a origem salva do bloco.",
-  blocksFieldRevisionConflict:
-    "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
+  blocksFieldEditMovedToEnd:
+    "Este campo de blocos também foi alterado em outro lugar. O texto que você digitou no mesmo trecho foi movido para o final do campo.",
   reconcileConflict:
     "Esta página foi alterada em outro lugar. Suas edições ainda não foram salvas.",
   reconcileFailed:

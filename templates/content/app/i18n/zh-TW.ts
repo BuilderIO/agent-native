@@ -397,8 +397,8 @@ const overrides = {
     noDocumentSelected: "未選取檔案",
     registryBlockLoadError: "無法載入 {{type}} 區塊：{{message}}",
     registryBlockUnreadable: "無法讀取已儲存的區塊來源。",
-    blocksFieldRevisionConflict:
-      "此 Blocks 欄位已在其他位置變更。你的編輯未儲存；現在顯示的是最新版本。",
+    blocksFieldEditMovedToEnd:
+      "此 Blocks 欄位也在其他位置被變更。你在同一位置輸入的文字已移到欄位末尾。",
     reconcileConflict: "此頁面已在其他位置變更。你的編輯尚未儲存。",
     reconcileFailed: "無法合併最新變更。你的編輯尚未儲存。",
     reconcileSaveFailed: "無法儲存你的編輯。請檢查後再試一次。",

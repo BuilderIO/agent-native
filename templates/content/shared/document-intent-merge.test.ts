@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   bodyHoldsChanges,
+  mergeBlocksFieldEdits,
   mergeDocumentBodyIntents,
 } from "./document-intent-merge.js";
 
@@ -690,5 +691,100 @@ describe("document body intent merge", () => {
       true,
     );
     expect(bodyHoldsChanges(base, "Alpha.\nBravo.", accepted)).toBe(false);
+  });
+});
+
+describe("Blocks field edit merge", () => {
+  it.each([
+    [
+      "edits to different paragraphs",
+      "One\nTwo\nThree",
+      "One\nTwo\nThree and more",
+      "One edited\nTwo\nThree",
+      "One edited\nTwo\nThree and more",
+    ],
+    [
+      "edits to different words of one paragraph",
+      "The cat sat on the mat",
+      "The cat sat on the red mat",
+      "The black cat sat on the mat",
+      "The black cat sat on the red mat",
+    ],
+    [
+      "text both added at the same spot, theirs first",
+      "One\nTwo",
+      "One\nTwo\nMy line",
+      "One\nTwo\nAgent line",
+      "One\nTwo\nAgent line\nMy line",
+    ],
+    [
+      "typing that already holds the other save",
+      "Draft",
+      "Draft more and more",
+      "Draft more",
+      "Draft more and more",
+    ],
+    [
+      "a save that already holds the typing",
+      "Draft",
+      "Draft more",
+      "Draft more and more",
+      "Draft more and more",
+    ],
+    [
+      "a save stored as blank-line Markdown",
+      "One\n\nTwo",
+      "One edit\nTwo",
+      "One\n\nTwo\n\nThree",
+      "One edit\nTwo\nThree",
+    ],
+  ])("keeps both sides for %s", (_name, base, mine, theirs, expected) => {
+    expect(mergeBlocksFieldEdits(base, mine, theirs)).toEqual({
+      content: expected,
+      moved: false,
+    });
+  });
+
+  it("keeps their words in place and moves mine to the end when both change the same words", () => {
+    expect(
+      mergeBlocksFieldEdits(
+        "Intro\nHello world\nOutro",
+        "Intro\nHello friend\nOutro",
+        "Intro\nHello there\nOutro",
+      ),
+    ).toEqual({
+      content: "Intro\nHello there\nOutro\nHello friend",
+      moved: true,
+    });
+  });
+
+  it("still places my other changes when one of them overlaps", () => {
+    expect(
+      mergeBlocksFieldEdits(
+        "Hello world\nSecond line",
+        "Hello friend\nSecond line, longer",
+        "Hello there\nSecond line",
+      ),
+    ).toEqual({
+      content: "Hello there\nSecond line, longer\nHello friend",
+      moved: true,
+    });
+  });
+
+  it("drops a deletion of words the other side rewrote, moving nothing", () => {
+    expect(
+      mergeBlocksFieldEdits("Keep this part", "Keep part", "Keep that part"),
+    ).toEqual({ content: "Keep that part", moved: false });
+  });
+
+  it("takes either side unchanged when the other made no edit", () => {
+    expect(mergeBlocksFieldEdits("Same", "Same", "Theirs")).toEqual({
+      content: "Theirs",
+      moved: false,
+    });
+    expect(mergeBlocksFieldEdits("Same", "Mine", "Same")).toEqual({
+      content: "Mine",
+      moved: false,
+    });
   });
 });

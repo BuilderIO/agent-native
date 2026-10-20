@@ -93,6 +93,7 @@ export function releaseBlockFieldSaveController(key: string): Promise<boolean> {
       }
       registry.delete(key);
       saveImpls.delete(key);
+      revisions.delete(key);
       return true;
     }
     return false;
@@ -106,11 +107,53 @@ export function releaseBlockFieldSaveController(key: string): Promise<boolean> {
  * save would make every later flush for the page fail.
  */
 export function forgetBlockFieldSaveController(key: string): void {
+  deleting.delete(key);
   const entry = registry.get(key);
   if (!entry) return;
   entry.controller.cancel();
   registry.delete(key);
   saveImpls.delete(key);
+  revisions.delete(key);
+}
+
+const deleting = new Set<string>();
+
+/**
+ * Marks a field whose delete is in flight, so the save that fails because the
+ * field is gone doesn't report an error. Forgetting the field clears it.
+ */
+export function setBlockFieldDeleting(key: string, value: boolean): void {
+  if (value) deleting.add(key);
+  else deleting.delete(key);
+}
+
+export function isBlockFieldDeleting(key: string): boolean {
+  return deleting.has(key);
+}
+
+export interface BlockFieldRevision {
+  /** The field's server revision that the controller's saved text is from. */
+  base: number;
+  /** The server refused a save made on `base`; saves wait for newer text. */
+  stale: boolean;
+}
+
+const revisions = new Map<string, BlockFieldRevision>();
+
+/**
+ * The revision state shared by every editor of one field, created from the
+ * first `initialRevision` seen. It lives as long as the field's controller.
+ */
+export function blockFieldRevision(
+  key: string,
+  initialRevision: number,
+): BlockFieldRevision {
+  let revision = revisions.get(key);
+  if (!revision) {
+    revision = { base: initialRevision, stale: false };
+    revisions.set(key, revision);
+  }
+  return revision;
 }
 
 type SaveImpl = (value: string) => Promise<unknown>;
@@ -137,4 +180,6 @@ export function activeControllerCount(): number {
 export function __resetBlockFieldSaveRegistry(): void {
   registry.clear();
   saveImpls.clear();
+  revisions.clear();
+  deleting.clear();
 }
