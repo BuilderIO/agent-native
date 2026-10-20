@@ -24,6 +24,7 @@ vi.mock("../db/client.js", () => ({
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../server/capture-error.js", () => ({ captureError: vi.fn() }));
 
@@ -63,20 +64,20 @@ beforeEach(() => {
 
 function recordPersistedEvents() {
   mocks.execute.mockImplementation(async (statement) => {
-    const ledger = storeLedgerResult(
-      typeof statement === "string" ? statement : statement.sql,
-    );
+    const sql = typeof statement === "string" ? statement : statement.sql;
+    const ledger = storeLedgerResult(sql);
     if (ledger) return ledger;
-    if (statement.sql.includes("INSERT INTO agent_run_events"))
+    if (
+      typeof statement !== "string" &&
+      sql.includes("INSERT INTO agent_run_events")
+    )
       mocks.events.push({
         run_id: statement.args[0],
         seq: statement.args[1],
         event_data: statement.args[3],
       });
     return {
-      rows: statement.sql.includes("SELECT e.run_id AS run_id")
-        ? mocks.events
-        : [],
+      rows: sql.includes("SELECT e.run_id AS run_id") ? mocks.events : [],
       rowsAffected: 0,
     };
   });
@@ -458,11 +459,13 @@ it.each([
       },
     ];
     mocks.execute.mockImplementation(async (statement) => {
-      const ledger = storeLedgerResult(
-        typeof statement === "string" ? statement : statement.sql,
-      );
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      const ledger = storeLedgerResult(sql);
       if (ledger) return ledger;
-      if (statement.sql.includes("INSERT INTO agent_run_events")) {
+      if (
+        typeof statement !== "string" &&
+        sql.includes("INSERT INTO agent_run_events")
+      ) {
         mocks.events.push({
           run_id: statement.args[0],
           seq: statement.args[1],
@@ -470,9 +473,7 @@ it.each([
         });
       }
       return {
-        rows: statement.sql.includes("SELECT e.run_id AS run_id")
-          ? mocks.events
-          : [],
+        rows: sql.includes("SELECT e.run_id AS run_id") ? mocks.events : [],
         rowsAffected: 0,
       };
     });
