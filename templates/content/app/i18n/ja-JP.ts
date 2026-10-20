@@ -980,6 +980,7 @@ const comments = {
   commentOnProperty: "{{name}} にコメント",
   openPropertyComments_other: "{{name}} の未解決のコメント {{count}} 件",
   openRowComments_other: "{{title}} の未解決のコメント {{count}} 件",
+  openRow: "行を開く",
   suggestions: "提案",
   suggestionAdd: "追加",
   suggestionDelete: "削除",

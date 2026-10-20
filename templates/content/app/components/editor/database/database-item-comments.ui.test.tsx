@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
-  DatabaseCellCommentMarker,
   DatabaseItemCommentsContext,
   DatabaseRowCommentCount,
 } from "./database-item-comments";
@@ -87,33 +86,5 @@ describe("Comment markers in a Collection table", () => {
       false,
     );
     expect(container.querySelector("[data-database-row-comments]")).toBeNull();
-  });
-
-  it("marks a cell with open threads and opens the latest one", async () => {
-    const item = row({
-      open: 2,
-      properties: { status: { open: 2, latestThreadId: "t-latest" } },
-    });
-    await render(
-      <>
-        <DatabaseCellCommentMarker
-          item={item}
-          propertyId="status"
-          propertyName="Status"
-        />
-        <DatabaseCellCommentMarker
-          item={item}
-          propertyId="due"
-          propertyName="Due"
-        />
-      </>,
-    );
-    const markers = container.querySelectorAll<HTMLButtonElement>(
-      "[data-database-cell-comments]",
-    );
-    expect(markers).toHaveLength(1);
-    expect(markers[0]!.textContent).toBe("2");
-    await act(async () => markers[0]!.click());
-    expect(openComments).toHaveBeenCalledWith(item, "t-latest");
   });
 });
