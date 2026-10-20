@@ -273,10 +273,32 @@ export async function addCommentWithGuard(
         args.databaseId,
       )
     : null;
-  const fieldTarget =
+  const fieldTarget = await (
     args.threadId && args.parentId
-      ? await replyBlocksField(documentId, args.threadId, args.fieldId)
-      : await resolveCommentBlocksField(documentId, args.fieldId);
+      ? replyBlocksField(documentId, args.threadId, args.fieldId)
+      : resolveCommentBlocksField(documentId, args.fieldId)
+  ).catch(async (error: unknown) => {
+    // A retry of a submission that was saved replays it, even after its tab
+    // was deleted.
+    if (args.clientOperationId || args.idempotencyKey) {
+      const [saved] = await db
+        .select({
+          fieldId: schema.documentComments.fieldId,
+          fieldName: schema.documentComments.fieldName,
+        })
+        .from(schema.documentComments)
+        .where(
+          and(
+            eq(schema.documentComments.id, id),
+            eq(schema.documentComments.documentId, documentId),
+            eq(schema.documentComments.authorEmail, email),
+          ),
+        )
+        .limit(1);
+      if (saved && saved.fieldId === (args.fieldId ?? null)) return saved;
+    }
+    throw error;
+  });
 
   const values = {
     id,

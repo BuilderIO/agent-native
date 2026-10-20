@@ -514,6 +514,16 @@ describe("useBlockFieldComments", () => {
     expect(latest.tabSwitchPending).toBe(false);
   });
 
+  it("opens the tab again when its thread is closed and selected again", async () => {
+    await render({ threads, selectedThreadId: "notes-1" });
+    await clickTab("content");
+    await render({ threads, selectedThreadId: null });
+
+    await render({ threads, selectedThreadId: "notes-1" });
+    expect(selectedTab()).toBe("notes");
+    expect(latest.tabSwitchPending).toBe(false);
+  });
+
   it("opens nothing for a thread in a deleted tab or on a Property", async () => {
     await render({ threads, selectedThreadId: "gone-1" });
     expect(selectedTab()).toBe("content");
@@ -531,6 +541,17 @@ describe("useBlockFieldComments", () => {
     await render({ threads, selectedThreadId: "notes-1" });
     expect(latest.tabSwitchPending).toBe(true);
     expect(rail()).toBeNull();
+
+    setFields([content(), notes()]);
+    await render({ threads, selectedThreadId: "notes-1" });
+    expect(selectedTab()).toBe("notes");
+    expect(rail()).toEqual(["notes-1", "property-thread"]);
+  });
+
+  it("opens a thread's tab once fields that failed to load are read", async () => {
+    mocks.query = { data: undefined, isError: true, isRefetching: false };
+    await render({ threads, selectedThreadId: "notes-1" });
+    expect(latest.tabSwitchPending).toBe(true);
 
     setFields([content(), notes()]);
     await render({ threads, selectedThreadId: "notes-1" });

@@ -311,6 +311,8 @@ export function useBlockFieldComments({
   const targetRef = useRef(target);
   targetRef.current = target;
   useEffect(() => {
+    // A thread selected again later opens its tab again.
+    if (targetKey === null) switchRef.current = null;
     if (
       targetKey === null ||
       targetSettled ||
@@ -318,10 +320,12 @@ export function useBlockFieldComments({
       !tabs.ready
     )
       return;
-    const settle = () =>
+    const settle = () => {
+      switchRef.current = null;
       setSettled((current) =>
         current.key === targetKey ? { key: targetKey, done: true } : current,
       );
+    };
     // A deleted tab has no highlight to open; the panel still lists it.
     if (!tabs.hasField(targetFieldId)) {
       settle();

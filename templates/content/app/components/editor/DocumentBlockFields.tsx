@@ -420,14 +420,14 @@ export function DocumentBlockFields({
   const reportsTabs = hasQueryError || state.kind !== "multi";
   useLayoutEffect(() => {
     if (!onFieldTabChange || !reportsTabs) return;
+    // Fields that couldn't be read are still unknown, so a thread in another
+    // tab waits for them rather than being taken for a deleted tab's.
     onFieldTabChange(
-      hasQueryError
-        ? BODY_BLOCK_FIELD_TABS
-        : state.kind === "loading"
-          ? LOADING_BLOCK_FIELD_TABS
-          : soloFieldId
-            ? soloBlockFieldTabs(soloFieldId)
-            : BODY_BLOCK_FIELD_TABS,
+      hasQueryError || state.kind === "loading"
+        ? LOADING_BLOCK_FIELD_TABS
+        : soloFieldId
+          ? soloBlockFieldTabs(soloFieldId)
+          : BODY_BLOCK_FIELD_TABS,
     );
   }, [hasQueryError, onFieldTabChange, reportsTabs, soloFieldId, state.kind]);
   const onFieldTabChangeRef = useRef(onFieldTabChange);

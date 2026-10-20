@@ -7502,6 +7502,18 @@ function PageEditorSessionBody({
     commentsFetching,
     commentsError,
   ]);
+  const activateCommentThread = useCallback(
+    (threadId: string, preserveBrowseContext = false) => {
+      setSelectedSuggestionId(null);
+      setPendingComment(null);
+      setHoveredThreadId(null);
+      setSelectedThreadId(threadId);
+      setCommentsBrowseOpen(preserveBrowseContext);
+      setUtilityPanel("comments");
+    },
+    [],
+  );
+
   // Text in another Blocks field's tab is commented in that tab.
   const handleFieldComment = useCallback(
     (
@@ -7532,6 +7544,7 @@ function PageEditorSessionBody({
     pendingComment,
     showCommentIndicators,
     onComment: canComment ? handleFieldComment : undefined,
+    onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined,
     scrollContainerRef,
   });
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
@@ -7652,18 +7665,6 @@ function PageEditorSessionBody({
     dismissCommentFocus();
     editorEscapeTargetRef.current?.focus({ preventScroll: true });
   }, [dismissCommentFocus]);
-
-  const activateCommentThread = useCallback(
-    (threadId: string, preserveBrowseContext = false) => {
-      setSelectedSuggestionId(null);
-      setPendingComment(null);
-      setHoveredThreadId(null);
-      setSelectedThreadId(threadId);
-      setCommentsBrowseOpen(preserveBrowseContext);
-      setUtilityPanel("comments");
-    },
-    [],
-  );
 
   const activateSuggestion = useCallback((suggestionId: string) => {
     setPendingComment(null);

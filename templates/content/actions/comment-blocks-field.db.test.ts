@@ -306,6 +306,27 @@ describe("add-comment with fieldId", () => {
     const second = await add(args);
     expect(second).toMatchObject({ id: first.id, replayed: true });
   });
+
+  it("replays a retried submission after its tab was deleted", async () => {
+    const fixture = await seedCollection("retry-deleted");
+    const args = {
+      documentId: fixture.row,
+      content: "Lorem",
+      fieldId: fixture.notesId,
+      idempotencyKey: "retry-deleted-field-comment",
+    };
+    const first = await add(args);
+    await getDb()
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, fixture.notesId));
+    await expect(add(args)).resolves.toMatchObject({
+      id: first.id,
+      replayed: true,
+    });
+    await expect(
+      add({ ...args, idempotencyKey: "never-saved-deleted-field-comment" }),
+    ).rejects.toMatchObject({ errorCode: "comment_field_not_found" });
+  });
 });
 
 describe("listing comments by tab", () => {
