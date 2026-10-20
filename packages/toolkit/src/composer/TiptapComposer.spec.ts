@@ -2759,6 +2759,7 @@ describe("createTiptapComposerExtensions", () => {
             selectedModel: "gpt-5.6-luna",
             selectedEngine: "openai",
             onModelChange: vi.fn(),
+            agentOnly: false,
             includeDefaultSlashSkills: false,
             plusMenuMode: "hidden",
             providerConnectStatusEnabled: false,
@@ -2808,6 +2809,11 @@ describe("createTiptapComposerExtensions", () => {
       '[data-agent-native-composer-popover="true"]',
     );
     expect(picker?.textContent).toContain("GPT-5.6 Luna");
+    expect(
+      Array.from(picker?.querySelectorAll('[role="tab"]') ?? []).some((tab) =>
+        tab.textContent?.includes("Model"),
+      ),
+    ).toBe(true);
   });
 
   it("shows current Builder model versions in the picker", () => {

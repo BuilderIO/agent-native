@@ -21,6 +21,7 @@ const mockPanelOwnership = vi.hoisted(() => ({ hosted: false }));
 const mockHostedHarness = vi.hoisted(() => ({
   configured: false,
   enabled: false,
+  queryEnabled: undefined as boolean | undefined,
 }));
 const mockAgentNativeDesktop = vi.hoisted(() => ({ enabled: false }));
 
@@ -40,6 +41,7 @@ const mockPanel = vi.hoisted(() => {
     mcpSuggestionExcludedIntegrationIds: undefined as
       | readonly string[]
       | undefined,
+    hostedHarness: undefined as boolean | undefined,
     composer: undefined as React.ReactNode,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
@@ -57,14 +59,17 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       onReferenceTargetChange,
       onNavigationChange,
       mcpSuggestionExcludedIntegrationIds,
+      hostedHarness,
     }: {
       onReadyChange?: (ready: boolean) => void;
       onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
       onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
       mcpSuggestionExcludedIntegrationIds?: readonly string[];
+      hostedHarness?: boolean;
     }) => {
       mockPanel.mcpSuggestionExcludedIntegrationIds =
         mcpSuggestionExcludedIntegrationIds;
+      mockPanel.hostedHarness = hostedHarness;
       React.useEffect(() => {
         mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
@@ -183,12 +188,21 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
     }),
     isPerAppChatStorageKey: () => false,
     requestPerAppChatCommand: vi.fn(),
-    useActionQuery: (action: string) => ({
-      data:
-        action === "get-hosted-harness-config" && mockHostedHarness.enabled
-          ? { enabled: true, runtimes: [] }
-          : undefined,
-    }),
+    useActionQuery: (
+      action: string,
+      _input: unknown,
+      options?: { enabled?: boolean },
+    ) => {
+      if (action === "get-hosted-harness-config") {
+        mockHostedHarness.queryEnabled = options?.enabled;
+      }
+      return {
+        data:
+          action === "get-hosted-harness-config" && mockHostedHarness.enabled
+            ? { enabled: true, runtimes: [] }
+            : undefined,
+      };
+    },
     usePerAppChatState: () => ({
       hosted: mockPanelOwnership.hosted,
       open: false,
@@ -280,6 +294,8 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
+  mockHostedHarness.queryEnabled = undefined;
+  mockPanel.hostedHarness = undefined;
   mockAgentNativeDesktop.enabled = false;
   window.sessionStorage.clear();
   const values = new Map<string, string>();
@@ -2342,12 +2358,14 @@ describe("AgentSidebar panel", () => {
   it("does not render hosted-harness UI in a browser", async () => {
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
-    renderSidebar(false);
+    renderSidebar(true);
 
     await act(async () => {});
 
     const sidebar = container?.querySelector(".agent-sidebar-shell");
     expect(sidebar).toBeTruthy();
+    expect(mockHostedHarness.queryEnabled).toBe(false);
+    expect(mockPanel.hostedHarness).toBe(false);
     expect(
       sidebar?.getAttribute("data-agent-native-hosted-harness-ui"),
     ).toBeNull();
