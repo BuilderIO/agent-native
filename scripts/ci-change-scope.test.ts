@@ -1382,6 +1382,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ".github/workflows/design-e2e.yml",
     "utf8",
   );
+  // source-read-ok: Playwright timeout contract is checked from the config source.
   const designPlaywrightConfig = readFileSync(
     "templates/design/playwright.config.ts",
     "utf8",
