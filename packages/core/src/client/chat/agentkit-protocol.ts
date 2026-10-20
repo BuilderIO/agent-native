@@ -2174,11 +2174,18 @@ export function createAgentKitProtocolAdapter(
       // A duplicate queued submission is answered with the run that already
       // took it, replayed from its first event. This adapter reads that run
       // already, so the replay is drained rather than indexed a second time.
+      // The replayed stream stays open until the run ends; closing it early
+      // needs a transport abort, because turn.cancel would cancel the run.
       void (async () => {
         for await (const _event of turn.events) {
           // Discarded: the existing run delivers these events.
         }
-      })().catch(() => undefined);
+      })().catch((error: unknown) => {
+        console.warn(
+          `[agentkit] replayed stream for run ${runId} failed`,
+          error,
+        );
+      });
       touchRun(existingRun);
       ensurePump(existingRun);
       return runId;

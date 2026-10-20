@@ -16,6 +16,16 @@ async function* neverEnds(): AsyncGenerator<never> {
   await new Promise<void>(() => {});
 }
 
+async function* replayedEvents(
+  onDrained: () => void,
+): AsyncGenerator<{ type: string }> {
+  try {
+    yield { type: "message.delta" };
+  } finally {
+    onDrained();
+  }
+}
+
 function runtimeWith(startTurn: () => Promise<unknown>): AgentChatRuntime {
   return {
     id: "runtime-test",
@@ -34,12 +44,23 @@ function runtimeWith(startTurn: () => Promise<unknown>): AgentChatRuntime {
 // a start for a live run attaches to that run instead of indexing it twice.
 describe("createAgentKitProtocolAdapter replayed start", () => {
   it("attaches to the live run when a start returns its runtime run id", async () => {
-    const startTurn = vi.fn(async () => ({
-      id: "turn-1",
-      runId: "core-run-1",
-      sessionId: "thread-1",
-      events: neverEnds(),
-    }));
+    let replayDrained = false;
+    const startTurn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "turn-1",
+        runId: "core-run-1",
+        sessionId: "thread-1",
+        events: neverEnds(),
+      })
+      .mockResolvedValueOnce({
+        id: "turn-2",
+        runId: "core-run-1",
+        sessionId: "thread-1",
+        events: replayedEvents(() => {
+          replayDrained = true;
+        }),
+      });
     const transport = createAgentKitProtocolAdapter(runtimeWith(startTurn));
 
     try {
@@ -54,6 +75,7 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
 
       expect(startTurn).toHaveBeenCalledTimes(2);
       expect(replay.runId).toBe(first.runId);
+      await vi.waitFor(() => expect(replayDrained).toBe(true));
     } finally {
       await transport.dispose();
     }
