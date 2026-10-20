@@ -433,32 +433,28 @@ export default async function globalSetup(config: FullConfig) {
         );
       }
 
-      if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
-        const homeURL = `${baseURL}/home`;
-        const homeComposer = warmupPage.locator("[data-design-home-composer]");
+      const homeURL = `${baseURL}/home`;
+      const homeComposer = warmupPage.locator("[data-design-home-composer]");
+      await warmupPage.goto(homeURL, {
+        waitUntil: "domcontentloaded",
+        timeout: 180_000,
+      });
+      try {
+        await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+      } catch (error) {
+        if (
+          !new URL(warmupPage.url()).searchParams.has("__an_vite_dev_recovery")
+        ) {
+          throw error;
+        }
         await warmupPage.goto(homeURL, {
           waitUntil: "domcontentloaded",
           timeout: 180_000,
         });
-        try {
-          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
-        } catch (error) {
-          if (
-            !new URL(warmupPage.url()).searchParams.has(
-              "__an_vite_dev_recovery",
-            )
-          ) {
-            throw error;
-          }
-          await warmupPage.goto(homeURL, {
-            waitUntil: "domcontentloaded",
-            timeout: 180_000,
-          });
-          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
-        }
-        // eslint-disable-next-line no-console
-        console.log("[e2e] home composer warm");
+        await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
       }
+      // eslint-disable-next-line no-console
+      console.log("[e2e] home composer warm");
     } finally {
       await warmupPage.close();
     }
