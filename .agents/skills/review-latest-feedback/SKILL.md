@@ -337,11 +337,12 @@ beta-eligible when its changed paths map to a site selected by the matching
 main beta run. After the merge is confirmed in `origin/main` and that run
 selects the site, post one short sentence with the PR link: "[PR link] is merged
 and expected on beta within 24 hours." Say it is on beta only when
-`/ship-and-monitor` or an explicitly requested beta check verifies the site is
-current. This is an expectation, not a guarantee. A normal feedback sweep does
-not wait for publication, verify the beta site, or keep checking it. If an
-in-scope monitoring check later finds a publish failure or a site that is
-still not current after 24 hours, correct the update in the same thread. Use
+`/ship-and-monitor`, an explicitly requested beta check, or the sender's
+24-hour follow-up verifies the site is current. This is an expectation, not a guarantee. A normal feedback sweep does
+not wait for publication or keep checking it. The sweep that posts the ETA
+owns one follow-up check at 24 hours and a correction in the same thread if
+the site is not current or the matching publish failed. Stop after that
+check; do not start ongoing beta monitoring. Use
 `🎫` only when another person or team must act. Keep publisher details in the
 internal recap.
 
