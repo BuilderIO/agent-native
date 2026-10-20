@@ -1767,9 +1767,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
-      screenHistoryStepTimeout === 5 &&
-      screenHistoryJobTimeout >= screenHistoryStepTimeout + 4,
-    `Screen-history tests need the exact five-minute cap and four minutes for setup (job ${screenHistoryJobTimeout}, step ${screenHistoryStepTimeout})`,
+      screenHistoryStepTimeout === 6 &&
+      screenHistoryJobTimeout >= screenHistoryStepTimeout + 3,
+    `Screen-history tests need the exact six-minute cap and three minutes for setup (job ${screenHistoryJobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
