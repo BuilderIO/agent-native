@@ -1278,17 +1278,20 @@ export function shouldRedirectToStorageSetupHome({
 export function shouldShowFirstRunStorageSetup({
   storageConfigured,
   storageStatusUnavailable,
+  localSqlChunkScratchAvailable,
   hasPendingUpload,
   isClipIntake,
   connectStorageRequested,
 }: {
   storageConfigured: boolean | null;
   storageStatusUnavailable: boolean;
+  localSqlChunkScratchAvailable?: boolean;
   hasPendingUpload: boolean;
   isClipIntake: boolean;
   connectStorageRequested: boolean;
 }): boolean {
   return (
+    !localSqlChunkScratchAvailable &&
     (storageConfigured === false ||
       (storageConfigured === null && storageStatusUnavailable)) &&
     !hasPendingUpload &&
@@ -1442,6 +1445,8 @@ export default function RecordRoute() {
   const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
     storageConfigured,
     storageStatusUnavailable,
+    localSqlChunkScratchAvailable:
+      storageQuery.data?.localSqlChunkScratchAvailable === true,
     hasPendingUpload: pendingUploadFile,
     isClipIntake: !!clipIntake,
     connectStorageRequested,

@@ -7,6 +7,7 @@ const calls = vi.hoisted(() => ({
   snapshot: vi.fn(async () => false),
   uploadProvider: vi.fn(async () => null),
   captureError: vi.fn(),
+  releaseReservation: vi.fn(),
   writeState: vi.fn(async () => {}),
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
@@ -76,7 +77,8 @@ vi.mock("../server/lib/video-storage.js", () => ({
   allowsSqlRecordingChunkScratch: () => calls.bufferedFallbackAvailable,
   resolveClipsVideoStorage: (...args: unknown[]) =>
     calls.resolveStorage(...args),
-  releaseHostedClipRecording: vi.fn(),
+  releaseHostedClipRecording: (...args: unknown[]) =>
+    calls.releaseReservation(...args),
   STORAGE_SETUP_REQUIRED_REASON: "Storage setup required",
   HOSTED_STORAGE_UNAVAILABLE_REASON:
     "Clips hosted storage is temporarily unavailable. Try again later.",
@@ -306,7 +308,11 @@ describe("create-recording policy", () => {
       actionContractError: true,
       errorCode: "multipart_start_failed",
       statusCode: 503,
-      details: { recordingId: "rec-1", retryable: true },
+      details: {
+        recordingId: "rec-1",
+        retryable: true,
+        providerStatus: 401,
+      },
     });
 
     expect(calls.update).toHaveBeenCalledOnce();
@@ -320,6 +326,55 @@ describe("create-recording policy", () => {
         storageSetupRequired: false,
       }),
     );
+  });
+
+  it("does not retry an uncertain hosted session start or release its reservation", async () => {
+    calls.bufferedFallbackAvailable = false;
+    calls.streamingEnabled = true;
+    const provider = {
+      id: "clips-hosted",
+      resumable: {
+        startSession: vi
+          .fn()
+          .mockRejectedValue(
+            new Error("connection lost while opening session"),
+          ),
+      },
+    };
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "hosted",
+      provider,
+      hostedRemaining: 2,
+      hostedLimit: 3,
+      maxClipBytes: 250 * 1024 * 1024,
+      maxClipDurationMs: 10 * 60 * 1000,
+      reservationCreated: true,
+    });
+
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          recordingPlatform: "web",
+          requestStreaming: true,
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "multipart_start_failed",
+      statusCode: 503,
+      details: { recordingId: "rec-1", retryable: false },
+    });
+
+    expect(calls.releaseReservation).not.toHaveBeenCalled();
   });
 
   it("does not classify unavailable required streaming as missing storage", async () => {

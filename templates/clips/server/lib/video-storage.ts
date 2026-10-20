@@ -381,6 +381,7 @@ export async function getClipsVideoStorageStatus(
     builderConfigured: ownStorage.builderConfigured,
     builderUploadConfigured: ownStorage.builderUploadConfigured,
     builderReauthorizationRequired: ownStorage.builderReauthorizationRequired,
+    localSqlChunkScratchAvailable: allowsSqlRecordingChunkScratch(),
   };
 
   if (ownStorage.configured) {

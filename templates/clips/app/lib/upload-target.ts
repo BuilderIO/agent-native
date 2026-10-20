@@ -15,6 +15,7 @@ export interface CreatedUploadTarget {
 
 interface VideoStorageUploadStatus {
   configured: boolean;
+  localSqlChunkScratchAvailable?: boolean;
   mode: "own" | "hosted" | "none";
   hostedRemaining: number;
   maxClipBytes: number;
@@ -127,10 +128,14 @@ export async function openUploadTarget(options: {
     if (!uploadStatus) {
       throw new UploadTargetError("storage_status_unavailable");
     }
-    const hasUploadStorage =
-      uploadStatus?.mode === "own" ||
-      (uploadStatus?.mode === "hosted" && uploadStatus.hostedRemaining > 0);
-    if (uploadStatus.configured !== true || !hasUploadStorage) {
+    const hasConfiguredUploadStorage =
+      uploadStatus.configured === true &&
+      (uploadStatus.mode === "own" ||
+        (uploadStatus.mode === "hosted" && uploadStatus.hostedRemaining > 0));
+    if (
+      !hasConfiguredUploadStorage &&
+      uploadStatus.localSqlChunkScratchAvailable !== true
+    ) {
       throw new UploadTargetError("storage_setup_required");
     }
     serverId = options.newId();

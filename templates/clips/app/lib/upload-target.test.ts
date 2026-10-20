@@ -70,6 +70,27 @@ describe("openUploadTarget", () => {
     });
   });
 
+  it("allows local SQL scratch when no external storage is connected", async () => {
+    const result = openUploadTarget({
+      intake: false,
+      ownerEmail: "me@example.com",
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => ({
+        configured: false,
+        localSqlChunkScratchAvailable: true,
+        mode: "none",
+        hostedRemaining: 0,
+        maxClipBytes: 250 * 1024 * 1024,
+        maxClipDurationMs: 10 * 60 * 1000,
+      }),
+      create: async () => Response.json({ result: target }),
+      dropRow: vi.fn(),
+    });
+
+    await expect(result).resolves.toEqual(target);
+  });
+
   it("stops when another account signed in since capture began", async () => {
     const { result, dropRow } = open(async () =>
       Response.json(

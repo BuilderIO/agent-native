@@ -215,6 +215,19 @@ describe("record route lifecycle shell", () => {
     ).toBe(true);
   });
 
+  it("does not gate local recording when SQL chunk scratch is available", () => {
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured: false,
+        storageStatusUnavailable: false,
+        localSqlChunkScratchAvailable: true,
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(false);
+  });
+
   it("requires storage setup when storage status is unavailable", () => {
     const storageConfigured = null;
     const storageStatusUnavailable = isStorageStatusUnavailable({

@@ -329,8 +329,9 @@ export default defineAction({
         failStorageSetupRequired({ recordingId: id, retryable: false });
       }
       const retryable =
-        failure.failureCode === "hosted_storage_unavailable" ||
-        failure.failureCode === "multipart_start_failed";
+        reservationCleanupConfirmed &&
+        (failure.failureCode === "hosted_storage_unavailable" ||
+          failure.failureCode === "multipart_start_failed");
       fail(
         failure.failureCode === "hosted_storage_unavailable"
           ? HOSTED_STORAGE_UNAVAILABLE_REASON
@@ -340,7 +341,13 @@ export default defineAction({
         {
           errorCode: failure.failureCode,
           statusCode: 503,
-          details: { recordingId: id, retryable },
+          details: {
+            recordingId: id,
+            retryable,
+            ...(failure.httpStatus
+              ? { providerStatus: failure.httpStatus }
+              : {}),
+          },
         },
       );
     };
@@ -402,7 +409,8 @@ export default defineAction({
                 label: "create-recording",
               })
             : err instanceof S3MultipartStartError ||
-              /credentials are not configured/i.test(reason);
+              /credentials are not configured/i.test(reason) ||
+              /Builder\.io signed-URL request failed \(401\)/i.test(reason);
           if (startedSession && cleanupConfirmed) {
             await deleteResumableSession(id).catch((cleanupError: unknown) => {
               console.warn(
