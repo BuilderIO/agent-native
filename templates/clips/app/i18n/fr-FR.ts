@@ -2015,7 +2015,7 @@ const messages = {
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (Localisé)",
     couldNotStartRecording: "Could not start recording (Localisé)",
     streamingStorageUnavailable:
-      "Le stockage actuel ne prend pas en charge l’envoi reprenable dont Clips a besoin. Configurez un fournisseur compatible ou demandez au propriétaire ou à l’administrateur de l’espace de travail de le faire, puis démarrez un nouvel enregistrement.",
+      "Le stockage actuel ne prend pas en charge l’envoi reprenable requis par Clips. Configurez un fournisseur compatible ou demandez au propriétaire ou à l’admin de l’espace de travail. Puis démarrez un nouvel enregistrement.",
     couldNotStartRecorder: "Could not start recorder (Localisé)",
     openSettings: "Open settings (Localisé)",
     openedRecorderInNewTab: "Opened recorder in a new tab (Localisé)",
