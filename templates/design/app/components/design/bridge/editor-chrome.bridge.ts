@@ -15129,27 +15129,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return element;
   }
 
-  function sharesNodeHtmlPreviewSourceIdentity(
-    first: Element,
-    second: Element,
-  ): boolean {
-    var attributes = [
-      "data-code-layer-id",
-      "data-layer-id",
-      "data-builder-id",
-      "data-loc",
-      "id",
-    ];
-    return attributes.some(function (attribute) {
-      var value = first.getAttribute(attribute);
-      return (
-        value !== null &&
-        value !== "" &&
-        value === second.getAttribute(attribute)
-      );
-    });
-  }
-
   function resolveNodeHtmlPreviewTarget(target: unknown): Element | null {
     if (!target || typeof target !== "object") return null;
     var selector = (target as { selector?: unknown }).selector;
@@ -15177,14 +15156,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       );
       if (nodeMatches.length === 1) {
         var uniqueNodeMatch = nodeMatches[0];
-        var previewTarget =
-          selectorMatch &&
-          (selectorMatch === uniqueNodeMatch ||
-            sharesNodeHtmlPreviewSourceIdentity(selectorMatch, uniqueNodeMatch))
-            ? selectorMatch
-            : uniqueNodeMatch;
-        return previewTarget && !isLayerInteractionBlocked(previewTarget)
-          ? previewTarget
+        return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch)
+          ? uniqueNodeMatch
           : null;
       }
       if (nodeMatches.length > 1) {
@@ -15456,6 +15429,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
       var sourceMatch = resolveSourceEquivalentSelector(document, selector);
       return sourceMatch &&
+        (matches.size === 0 || matches.has(sourceMatch)) &&
         sourceMatch !== document.documentElement &&
         (allowDocumentBody || sourceMatch !== document.body) &&
         !isOverlayElement(sourceMatch) &&

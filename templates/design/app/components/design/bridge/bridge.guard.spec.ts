@@ -14590,7 +14590,7 @@ it(
 );
 
 it(
-  "editor chrome bridge resolves source-equivalent node preview targets before node ids and restores the selected repeated instance",
+  "editor chrome bridge prefers a unique node-id preview target over a shifted source-equivalent selector",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -14611,8 +14611,8 @@ it(
         content: hydratedEditorChromeBridgeScript(),
       });
 
-      const originalSelectorTarget = await page
-        .locator("#selector-target")
+      const originalNodeIdTarget = await page
+        .locator("#node-id-target")
         .evaluate((element) => element.outerHTML);
       await page.evaluate(
         () =>
@@ -14644,10 +14644,10 @@ it(
           }),
       );
 
-      expect(await page.locator("#node-id-target").textContent()).toBe(
-        "Node id target",
+      expect(await page.locator("#node-id-target").count()).toBe(0);
+      expect(await page.locator("#selector-target").textContent()).toBe(
+        "Repeated source target",
       );
-      expect(await page.locator("#selector-target").count()).toBe(0);
       expect(await page.locator("#preview-target").textContent()).toBe(
         "Preview target",
       );
@@ -14665,9 +14665,12 @@ it(
 
       expect(
         await page
-          .locator("#selector-target")
+          .locator("#node-id-target")
           .evaluate((element) => element.outerHTML),
-      ).toBe(originalSelectorTarget);
+      ).toBe(originalNodeIdTarget);
+      expect(await page.locator("#selector-target").textContent()).toBe(
+        "Repeated source target",
+      );
       expect(await page.locator("#preview-target").count()).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
