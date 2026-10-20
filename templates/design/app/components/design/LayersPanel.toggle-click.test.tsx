@@ -593,6 +593,34 @@ describe("LayersPanel rename field", () => {
 });
 
 describe("LayersPanel search affordance", () => {
+  it("opens and closes layer search when the search button is clicked", async () => {
+    const panel = renderPanel();
+    await panel.mount();
+
+    expect(
+      panel.host.querySelector(
+        'input[placeholder="layersPanel.searchPlaceholder"]',
+      ),
+    ).toBeNull();
+
+    await panel.click("layersPanel.searchPlaceholder");
+    expect(
+      panel.host.querySelector(
+        'input[placeholder="layersPanel.searchPlaceholder"]',
+      ),
+    ).not.toBeNull();
+
+    await panel.click("layersPanel.searchPlaceholder");
+    expect(
+      panel.host.querySelector(
+        'input[placeholder="layersPanel.searchPlaceholder"]',
+      ),
+    ).toBeNull();
+
+    panel.root.unmount();
+    panel.host.remove();
+  });
+
   it("places the layer search button beside the Layers heading", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

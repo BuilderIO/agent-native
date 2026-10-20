@@ -1358,6 +1358,13 @@ export default {
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",
     saveFailed: "ダッシュボードを保存できませんでした",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "「{{title}}」の BigQuery コスト",
+    panelCostOverTitle: "「{{title}}」は更新コストが高いです",
+    panelCostScheduled:
+      "約 {{size}} をスキャン · 更新 1 回あたり {{perRun}} · メールレポートで月約 {{perMonth}}",
+    panelCostUnscheduled:
+      "約 {{size}} をスキャン · 更新 1 回あたり {{perRun}} · メールレポートなし",
+    panelCostOverHint: "期間を短くするか列を減らすと、スキャン量が減ります。",
     archived: "「{{name}}」をアーカイブしました",
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "ダッシュボードをアーカイブできませんでした",

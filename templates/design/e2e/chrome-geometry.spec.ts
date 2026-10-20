@@ -63,6 +63,20 @@ const WIDE_SCREENSHOT = path.join(
   "design-chrome-geometry-320.png",
 );
 
+test("Layers search toggles open and closed from the heading", async ({
+  app,
+}) => {
+  await app.open(await app.seed(CHROME_FIXTURE));
+  const search = app.page.locator('[data-layers-panel-action="search"]');
+  const input = app.page.getByPlaceholder("Search layers...");
+
+  await expect(input).toHaveCount(0);
+  await search.click();
+  await expect(input).toBeVisible();
+  await search.click();
+  await expect(input).toBeHidden();
+});
+
 async function postAction(
   page: Page,
   name: string,
