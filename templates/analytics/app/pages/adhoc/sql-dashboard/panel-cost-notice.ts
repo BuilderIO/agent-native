@@ -43,7 +43,8 @@ async function estimatePanel(dashboardId: string, panelId: string) {
  * After a save that changed a panel's query, shows what one refresh of that
  * panel scans and costs in BigQuery, from the same free dry run as
  * estimate-query-cost. Panels outside BigQuery, and estimates that fail, show
- * nothing, and so does an estimate a newer save of the panel has replaced. Over
+ * nothing and close the panel's earlier notice. An estimate a newer save of the
+ * panel has replaced shows nothing either. Over
  * the per-run or per-month threshold the notice stays up until dismissed or
  * until you leave the dashboard.
  */
@@ -74,14 +75,20 @@ export function usePanelCostNotice(dashboardId: string | undefined) {
       latestRequestRef.current.set(key, request);
       const result = await estimatePanel(dashboardId, panelId);
       if (
-        !result ||
         openDashboardRef.current !== dashboardId ||
         latestRequestRef.current.get(key) !== request
       ) {
         return;
       }
-      const estimate = "panels" in result ? result.panels[0] : undefined;
-      if (estimate?.status !== "estimated") return;
+      const id = `panel-cost:${dashboardId}:${panelId}`;
+      const estimate =
+        result && "panels" in result ? result.panels[0] : undefined;
+      if (estimate?.status !== "estimated") {
+        // An earlier notice priced the query this save replaced.
+        toast.dismiss(id);
+        warningsRef.current.delete(id);
+        return;
+      }
       const over =
         estimate.overPerRunThreshold || estimate.overPerMonthThreshold;
       const values = {
@@ -99,7 +106,7 @@ export function usePanelCostNotice(dashboardId: string | undefined) {
         values,
       );
       const options = {
-        id: `panel-cost:${dashboardId}:${panelId}`,
+        id,
         // The hint goes on its own line under the cost.
         description: over
           ? `${cost}\n${t("sqlDashboard.panelCostOverHint")}`

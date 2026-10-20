@@ -289,9 +289,11 @@ export function touchedPanelIds(
 }
 
 /**
- * The touched panels whose query changed: new panels, and panels whose source
- * or resolved SQL differs. A chart-type or config edit reads the same bytes.
- * Compares the first copy of each id, the one the edit API addresses.
+ * The touched panels whose query changed: new panels, panels that start or
+ * stop running a query (a section turned into a chart), and panels whose
+ * source or resolved SQL differs. Any other chart-type or config edit reads
+ * the same bytes. Compares the first copy of each id, the one the edit API
+ * addresses.
  */
 function queryChangedPanelIds(
   rawBase: Record<string, unknown> | null,
@@ -319,6 +321,7 @@ function queryChangedPanelIds(
     if (!now) return false;
     return (
       !was ||
+      hasSqlToRun(was) !== hasSqlToRun(now) ||
       was.source !== now.source ||
       resolvedSqlOf(was, baseVars) !== resolvedSqlOf(now, nextVars)
     );

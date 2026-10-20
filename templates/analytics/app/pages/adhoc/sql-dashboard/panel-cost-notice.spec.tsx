@@ -185,6 +185,21 @@ describe("usePanelCostNotice", () => {
     expect(mocks.toast.warning).not.toHaveBeenCalled();
   });
 
+  it("closes an earlier warning when a newer save can't be priced", async () => {
+    mocks.callAction
+      .mockResolvedValueOnce(
+        estimated(200 * GIB, 1.2207, { overPerRunThreshold: true }),
+      )
+      .mockRejectedValueOnce(new Error("offline"));
+    render("d1");
+    await act(() => notify("p1", "Signups"));
+    expect(mocks.toast.dismiss).not.toHaveBeenCalled();
+
+    await act(() => notify("p1", "Signups"));
+
+    expect(mocks.toast.dismiss).toHaveBeenCalledWith("panel-cost:d1:p1");
+  });
+
   it("closes its warnings when you leave the dashboard", async () => {
     mocks.callAction.mockResolvedValueOnce(
       estimated(200 * GIB, 1.2207, { overPerRunThreshold: true }),

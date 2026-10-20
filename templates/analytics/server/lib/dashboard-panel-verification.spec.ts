@@ -1557,6 +1557,24 @@ describe("cost of a write", () => {
     expect(mocks.countReports).not.toHaveBeenCalled();
   });
 
+  it("prices a section that becomes a chart and keeps its query", async () => {
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+    mocks.dryRun.mockResolvedValue({
+      error: null,
+      totalBytesProcessed: 2 * GIB,
+    });
+    const sectionFirst = JSON.parse(JSON.stringify(base));
+    sectionFirst.panels[0].chartType = "section";
+
+    const verdict = await verifyPanelWrite({
+      base: sectionFirst,
+      next: base,
+      dashboardId: "d1",
+    });
+
+    expect(verdict.cost?.panels.map((p) => p.panelId)).toEqual(["p1"]);
+  });
+
   it("stops waiting for a slow estimate once the save is verified", async () => {
     vi.useFakeTimers();
     try {
