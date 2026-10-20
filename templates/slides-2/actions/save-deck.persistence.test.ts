@@ -82,9 +82,10 @@ vi.mock("../server/lib/deck-versions.js", async (importOriginal) => {
 });
 
 vi.mock("../server/lib/slide-asset-references.js", async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import("../server/lib/slide-asset-references.js")
-  >();
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/slide-asset-references.js")
+    >();
   return {
     ...actual,
     withSlideAssetReferencesLocked: (...args: unknown[]) =>

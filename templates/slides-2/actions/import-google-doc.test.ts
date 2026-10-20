@@ -77,7 +77,10 @@ describe("import-google-doc failures", () => {
         controller.close();
       },
     });
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(body)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(body)),
+    );
 
     await expect(
       action.run({ url: DOC_ID }, { caller: "http" } as never),
@@ -106,10 +109,7 @@ describe("import-google-doc failures", () => {
       }),
     );
 
-    const pending = action.run(
-      { url: DOC_ID },
-      { caller: "http" } as never,
-    );
+    const pending = action.run({ url: DOC_ID }, { caller: "http" } as never);
     await vi.advanceTimersByTimeAsync(20_001);
 
     await expect(pending).rejects.toMatchObject({

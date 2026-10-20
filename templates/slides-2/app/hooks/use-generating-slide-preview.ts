@@ -48,9 +48,7 @@ export function useGeneratingSlidePreview({
       if (generationRef.current !== generation) return;
       rafIdRef.current = null;
       const content = pendingContentRef.current;
-      setPreview(
-        content === null ? null : { deckId, slideCount, content },
-      );
+      setPreview(content === null ? null : { deckId, slideCount, content });
     };
 
     const scheduleFlush = (value: string | null) => {

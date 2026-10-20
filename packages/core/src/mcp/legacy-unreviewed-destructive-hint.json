@@ -322,10 +322,7 @@
     "update-settings",
     "view-screen"
   ],
-  "chat": [
-    "navigate",
-    "provider-api-request"
-  ],
+  "chat": ["navigate", "provider-api-request"],
   "clips": [
     "accept-invite",
     "add-comment",

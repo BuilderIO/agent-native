@@ -14,14 +14,11 @@ describe("useGeneratingSlidePreview", () => {
   it("clears the previous query preview and ignores its queued frame", () => {
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrameId = 0;
-    vi.stubGlobal(
-      "requestAnimationFrame",
-      (callback: FrameRequestCallback) => {
-        const id = ++nextFrameId;
-        frames.set(id, callback);
-        return id;
-      },
-    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++nextFrameId;
+      frames.set(id, callback);
+      return id;
+    });
     vi.stubGlobal("cancelAnimationFrame", (id: number) => {
       frames.delete(id);
     });
@@ -86,14 +83,11 @@ describe("useGeneratingSlidePreview", () => {
   it("clears the prior preview on an empty start and matches deltas by deck", () => {
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrameId = 0;
-    vi.stubGlobal(
-      "requestAnimationFrame",
-      (callback: FrameRequestCallback) => {
-        const id = ++nextFrameId;
-        frames.set(id, callback);
-        return id;
-      },
-    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++nextFrameId;
+      frames.set(id, callback);
+      return id;
+    });
     vi.stubGlobal("cancelAnimationFrame", (id: number) => {
       frames.delete(id);
     });
@@ -180,14 +174,11 @@ describe("useGeneratingSlidePreview", () => {
   it("clears preview state when the queried slide count changes", () => {
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrameId = 0;
-    vi.stubGlobal(
-      "requestAnimationFrame",
-      (callback: FrameRequestCallback) => {
-        const id = ++nextFrameId;
-        frames.set(id, callback);
-        return id;
-      },
-    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++nextFrameId;
+      frames.set(id, callback);
+      return id;
+    });
     vi.stubGlobal("cancelAnimationFrame", (id: number) => {
       frames.delete(id);
     });

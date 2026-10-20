@@ -15,7 +15,9 @@ function readAppFile(relativePath: string) {
 
 function expectsDesignSystemProp(source: string, componentName: string) {
   expect(source).toMatch(
-    new RegExp(`<${componentName}\\b[^>]*\\bdesignSystem=\\{designSystem\\}[^>]*>`),
+    new RegExp(
+      `<${componentName}\\b[^>]*\\bdesignSystem=\\{designSystem\\}[^>]*>`,
+    ),
   );
 }
 

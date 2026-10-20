@@ -212,7 +212,9 @@ function resolvePptxImageByteLimits(
     !Number.isSafeInteger(configured.maxTotalImageBytes) ||
     configured.maxTotalImageBytes < 0
   ) {
-    throw new RangeError("PPTX image byte limits must be non-negative integers.");
+    throw new RangeError(
+      "PPTX image byte limits must be non-negative integers.",
+    );
   }
   return {
     maxImageBytes: configured.maxImageBytes,

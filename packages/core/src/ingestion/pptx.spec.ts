@@ -881,13 +881,7 @@ describe("parsePptxPresentation", () => {
 
   it.each([
     ["per-image", 2, 100, [pictureSlideXml()], "per-image"],
-    [
-      "aggregate",
-      3,
-      5,
-      [pictureSlideXml(), pictureSlideXml()],
-      "aggregate",
-    ],
+    ["aggregate", 3, 5, [pictureSlideXml(), pictureSlideXml()], "aggregate"],
   ] as const)(
     "streams and enforces the %s expanded image byte limit",
     async (_label, maxImageBytes, maxTotalImageBytes, slides, limit) => {

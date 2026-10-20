@@ -59,12 +59,12 @@ vi.mock("../server/lib/slide-asset-references.js", () => ({
 }));
 
 vi.mock("../server/handlers/import/html-converter.js", () => ({
-  convertToSlideHtml: vi.fn(() => "<div class=\"fmd-slide\"></div>"),
+  convertToSlideHtml: vi.fn(() => '<div class="fmd-slide"></div>'),
 }));
 
 vi.mock("./_imported-slide-source.js", () => ({
   compileImportedSlideSource: vi.fn(async () => ({
-    content: "<div class=\"fmd-slide\"></div>",
+    content: '<div class="fmd-slide"></div>',
     sourceTsx: "export default function Slide() { return null; }",
     revision: 1,
     sourceHash: "source-hash",
@@ -207,7 +207,9 @@ describe("importPptxBufferToDeck post-commit effects", () => {
       imageSkippedCount: 0,
     });
     mocks.notifyClients.mockRejectedValue(new Error("socket unavailable"));
-    mocks.writeAppState.mockRejectedValue(new Error("refresh store unavailable"));
+    mocks.writeAppState.mockRejectedValue(
+      new Error("refresh store unavailable"),
+    );
 
     const result = await importPptxBufferToDeck({
       fileBuffer: Buffer.from("pptx"),
