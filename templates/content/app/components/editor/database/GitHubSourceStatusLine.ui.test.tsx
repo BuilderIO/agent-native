@@ -226,6 +226,7 @@ describe("GitHub source status line", () => {
 
   it.each([
     [{ state: "unchanged" as const, updated: 0 }, "Up to date."],
+    [{ state: "synced" as const, updated: 0 }, "Up to date."],
     [{ state: "synced" as const, updated: 1 }, "Updated. 1 page changed."],
     [
       { state: "synced" as const, created: 2, updated: 1 },

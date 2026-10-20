@@ -4,6 +4,7 @@ import {
   classifyGitHubSourceFile,
   fitsGitHubFieldType,
   githubBranchCandidates,
+  githubFieldExamples,
   githubFieldPropertyInput,
   githubFileWebUrl,
   githubFolderLabel,
@@ -198,6 +199,36 @@ describe("inferGitHubFieldType", () => {
     expect(inferGitHubFieldType("meta", [{ a: 1 }])).toBe("text");
     expect(inferGitHubFieldType("featured", [null, "", true])).toBe("checkbox");
     expect(inferGitHubFieldType("anything", [])).toBe("text");
+  });
+});
+
+describe("githubFieldExamples", () => {
+  it("skips blank values and empty lists instead of showing them as gaps", () => {
+    expect(
+      githubFieldExamples([
+        [],
+        ["plans"],
+        null,
+        "",
+        "  ",
+        ["design", "slides"],
+      ]),
+    ).toEqual(["plans", "design, slides"]);
+  });
+
+  it("keeps three examples and writes other values as text", () => {
+    expect(githubFieldExamples([1, true, { a: 1 }, "fourth"])).toEqual([
+      "1",
+      "true",
+      '{"a":1}',
+    ]);
+  });
+
+  it("ends a long value in an ellipsis so the cut reads as a cut", () => {
+    const [example] = githubFieldExamples(["word ".repeat(30)]);
+    expect(example).toHaveLength(80);
+    expect(example?.endsWith("word…")).toBe(true);
+    expect(githubFieldExamples(["short"])).toEqual(["short"]);
   });
 });
 

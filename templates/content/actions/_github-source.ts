@@ -31,6 +31,7 @@ import {
   GITHUB_SOURCE_MAX_IMAGE_BYTES,
   GITHUB_SOURCE_TYPE,
   githubBranchCandidates,
+  githubFieldExamples,
   githubFieldPropertyInput,
   githubFolderLabel,
   githubFolderWebUrl,
@@ -340,19 +341,6 @@ function frontmatterValues(
   return draft.frontmatter.unmapped ?? {};
 }
 
-function exampleText(value: unknown): string {
-  if (typeof value === "string") return value.slice(0, 80);
-  if (Array.isArray(value)) {
-    return value
-      .map((entry) =>
-        typeof entry === "string" ? entry : JSON.stringify(entry),
-      )
-      .join(", ")
-      .slice(0, 80);
-  }
-  return JSON.stringify(value).slice(0, 80);
-}
-
 /**
  * Reports what linking the folder would create without creating anything:
  * how many files become rows, which are skipped and why, and the columns the
@@ -424,10 +412,7 @@ export async function previewGitHubFolder(
     fields: [...valuesByKey].map(([key, values]) => ({
       key,
       type: inferGitHubFieldType(key, values),
-      examples: values
-        .filter((value) => value !== null && value !== "")
-        .slice(0, 3)
-        .map(exampleText),
+      examples: githubFieldExamples(values),
     })),
     sample,
     sampledFiles: sample.length,

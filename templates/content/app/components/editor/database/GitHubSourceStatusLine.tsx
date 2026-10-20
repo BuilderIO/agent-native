@@ -113,10 +113,13 @@ function announceSync(
     );
   } else {
     const changed = created + updated + renamed + trashed;
+    // A new commit that touched nothing in the folder leaves the pages as current as "unchanged" does.
     toast.success(
-      changed === 1
-        ? dbText("githubSyncedToastOne")
-        : dbText("githubSyncedToast", { count: changed }),
+      changed === 0
+        ? dbText("githubAlreadyUpToDate")
+        : changed === 1
+          ? dbText("githubSyncedToastOne")
+          : dbText("githubSyncedToast", { count: changed }),
     );
   }
 }

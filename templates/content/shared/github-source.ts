@@ -335,6 +335,38 @@ export function inferGitHubFieldType(
   return "text";
 }
 
+const GITHUB_EXAMPLE_LENGTH = 80;
+
+/**
+ * Up to three example values for a column, as the link preview shows them:
+ * blank values and empty lists are skipped, and a long value ends in "…".
+ */
+export function githubFieldExamples(values: readonly unknown[]): string[] {
+  const examples: string[] = [];
+  for (const value of values) {
+    if (examples.length === 3) break;
+    if (value === null || value === undefined) continue;
+    const text = (
+      typeof value === "string"
+        ? value
+        : Array.isArray(value)
+          ? value
+              .map((entry) =>
+                typeof entry === "string" ? entry : JSON.stringify(entry),
+              )
+              .join(", ")
+          : JSON.stringify(value)
+    ).trim();
+    if (!text) continue;
+    examples.push(
+      text.length > GITHUB_EXAMPLE_LENGTH
+        ? `${text.slice(0, GITHUB_EXAMPLE_LENGTH - 1).trimEnd()}…`
+        : text,
+    );
+  }
+  return examples;
+}
+
 /** Whether a frontmatter value can be stored in a column of this type unchanged. */
 export function fitsGitHubFieldType(
   type: GitHubFieldType,
