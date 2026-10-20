@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 // Resolved by the plugin through the shared vitest base config.
 import fixtureSource from "../collab/__fixtures__/live-copy-tasks.ts?bounded-task";
-import { createBoundedTaskRunner } from "../collab/bounded-tasks.js";
+import { createBoundedTaskRunner } from "../collab/index.js";
 import { LIVE_COPY_TASK } from "../collab/live-copy-tasks.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
 
