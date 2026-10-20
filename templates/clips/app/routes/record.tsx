@@ -3598,11 +3598,10 @@ export default function RecordRoute() {
           }),
         }).catch(() => {});
       } else {
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-        }).catch(() => {});
+        callAction(
+          "abandon-recording-start" as any,
+          { id: pendingId } as any,
+        ).catch(() => {});
       }
     }
     if (uploadRecordingId) {
