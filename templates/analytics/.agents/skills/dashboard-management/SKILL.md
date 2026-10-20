@@ -125,6 +125,25 @@ explaining it.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+Per-article content metrics also read through `first-party`:
+`analytics_content_items` (one row per article, with author and publish date),
+`analytics_content_metric_snapshots` (one value per item, day and metric), and
+`analytics_content_collection_runs` (one row per daily collection step). A
+daily job fills them, so a panel over them never calls BigQuery or a provider.
+A missing snapshot means "not collected", never zero: show a step's latest run
+status (`failed`, `cost_limited`, `not_configured`) instead of rendering a gap
+as 0. These tables cannot be joined with `analytics_events` in one query. Turn
+collection on with `configure-content-collection`, check it with
+`get-content-collection`, and rerun a step with `run-content-collection`.
+
+Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
+`search_console_impressions` (per article, plus non-article pages stored as
+`search_console` items). Search Console data is two to three days late, so the
+newest days have no row yet; read them as still arriving. Search Console
+collection stays off until a property owner adds the service account that
+`get-content-collection` returns as `serviceAccount.email`; then set its
+`searchConsoleSites` and turn it on.
+
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
 
 AI-generated first-party panels are dashboard-time-bound by default. Set

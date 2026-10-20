@@ -101,6 +101,7 @@ import {
   normalizeAgentActionSurfaceResolution,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortRunAndTurnDurably,
   abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
@@ -123,7 +124,7 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { readBackgroundRunClaim } from "../agent/run-store.js";
+import { getRunById, readBackgroundRunClaim } from "../agent/run-store.js";
 import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
@@ -157,6 +158,7 @@ import {
   QueuedSubmissionAdmissionError,
   adoptThreadScopeIfUnscoped,
   blockQueuedSubmissionReceipt,
+  clearQueuedSubmissionInterruptRun,
   createThread,
   forkThread,
   getThread,
@@ -164,6 +166,8 @@ import {
   listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   queuedSubmissionBehaviorMatches,
+  recordQueuedSubmissionInterruptRun,
+  renewQueuedSubmissionInterruptClaim,
   registerChatThreadsShareable,
   retryQueuedSubmissionReceipt,
   resolveRunThreadScope,
@@ -853,7 +857,10 @@ export async function runA2AAgentLoopWithRunManager(
     },
   );
 
-  let cancellation: Promise<boolean> = Promise.resolve(false);
+  let cancellation: Promise<
+    | { status: "fulfilled"; aborted: boolean }
+    | { status: "rejected"; error: unknown }
+  > = Promise.resolve({ status: "fulfilled", aborted: false });
   const abortFromTask = () => {
     const reason = taskSignal?.reason;
     const reasonCode =
@@ -867,7 +874,10 @@ export async function runA2AAgentLoopWithRunManager(
       run.abort.abort("execution_lease_lost");
       return;
     }
-    cancellation = abortRunDurably(runId, clientAbortReason(reason));
+    cancellation = abortRunDurably(runId, clientAbortReason(reason)).then(
+      (aborted) => ({ status: "fulfilled", aborted }),
+      (error) => ({ status: "rejected", error }),
+    );
   };
   if (taskSignal?.aborted) {
     abortFromTask();
@@ -876,8 +886,24 @@ export async function runA2AAgentLoopWithRunManager(
   }
 
   try {
-    await run.finalized;
-    await cancellation;
+    const finalization = await run.finalized.then(
+      () => ({ status: "fulfilled" as const }),
+      (error: unknown) => ({ status: "rejected" as const, error }),
+    );
+    const cancellationResult = await cancellation;
+    if (
+      finalization.status === "rejected" &&
+      cancellationResult.status === "rejected"
+    ) {
+      throw new AggregateError(
+        [finalization.error, cancellationResult.error],
+        "A2A run finalization and durable cancellation both failed",
+      );
+    }
+    if (finalization.status === "rejected") throw finalization.error;
+    if (cancellationResult.status === "rejected") {
+      throw cancellationResult.error;
+    }
   } finally {
     taskSignal?.removeEventListener("abort", abortFromTask);
   }
@@ -7014,21 +7040,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // Empty/invalid body — keep the default user abort reason.
             }
             if (safeBoundary) {
-              const aborted = await abortRunAtSafeBoundaryDurably(
-                runId,
-                reason,
-              );
-              if (aborted && USER_STOP_ABORT_REASONS.has(reason)) {
-                await abortTurnDurably(runId, reason);
+              const isUserStop = USER_STOP_ABORT_REASONS.has(reason);
+              const aborted = isUserStop
+                ? await abortRunAndTurnDurably(runId, reason, {
+                    safeBoundary: true,
+                  })
+                : await abortRunAtSafeBoundaryDurably(runId, reason);
+              if (isUserStop && !aborted) {
+                const latest = await getRunById(runId);
+                if (latest?.status === "aborted") {
+                  await abortTurnDurably(runId, reason);
+                }
               }
               return { ok: true, aborted };
             }
             // Recovery starts as soon as this response resolves, so wait for
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
-            await abortRunDurably(runId, reason);
             if (USER_STOP_ABORT_REASONS.has(reason)) {
-              await abortTurnDurably(runId, reason);
+              await abortRunAndTurnDurably(runId, reason);
+            } else {
+              await abortRunDurably(runId, reason);
             }
             return { ok: true };
           }
@@ -8576,6 +8608,89 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const claimedMessage = claim.claimedMessage;
             result.claimed += 1;
 
+            const claimedReceipt = await getQueuedSubmissionReceipt(
+              receipt.threadId,
+              receipt.messageId,
+            );
+            if (!claimedReceipt || claimedReceipt.state !== "queued") {
+              if (claimedReceipt?.state === "submitted") {
+                result.submitted += 1;
+              } else {
+                result.deferred += 1;
+              }
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              continue;
+            }
+
+            const finishInterrupt = async (runId: string) => {
+              if (
+                !(await renewQueuedSubmissionInterruptClaim({
+                  threadId: receipt.threadId,
+                  messageId: receipt.messageId,
+                  runId,
+                  claimId: claimId!,
+                }))
+              ) {
+                return false;
+              }
+              const aborted = await abortRunAtSafeBoundaryDurably(
+                runId,
+                "user",
+              );
+              if (!aborted) {
+                const latest = await getRunById(runId);
+                if (
+                  latest?.threadId !== receipt.threadId ||
+                  !["completed", "truncated", "errored", "aborted"].includes(
+                    latest.status,
+                  )
+                ) {
+                  return false;
+                }
+              }
+              await abortTurnDurably(runId, "user");
+              if (!(await waitForStableIdle(receipt.threadId))) return false;
+              const cleared = await clearQueuedSubmissionInterruptRun({
+                threadId: receipt.threadId,
+                messageId: receipt.messageId,
+                runId,
+                claimId: claimId!,
+              });
+              if (!cleared) {
+                throw new Error(
+                  `Queued interruption target ${runId} could not be cleared by its current claim`,
+                );
+              }
+              return true;
+            };
+
+            if (claimedReceipt.interruptRunId) {
+              const stableIdle = await finishInterrupt(
+                claimedReceipt.interruptRunId,
+              );
+              if (!stableIdle) {
+                await retryQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                  Date.now() + 10_000,
+                  { claimId },
+                );
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+                claimId = undefined;
+                result.deferred += 1;
+                continue;
+              }
+            }
+
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
@@ -8594,11 +8709,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 result.deferred += 1;
                 continue;
               }
-              const aborted = await abortRunAtSafeBoundaryDurably(
-                active.runId,
-                "user",
-              );
-              if (!aborted) {
+              const recorded = await recordQueuedSubmissionInterruptRun({
+                threadId: receipt.threadId,
+                messageId: receipt.messageId,
+                runId: active.runId,
+                claimId,
+              });
+              if (!recorded) {
                 await retryQueuedSubmissionReceipt(
                   receipt.threadId,
                   receipt.messageId,
@@ -8614,8 +8731,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 result.deferred += 1;
                 continue;
               }
-              await abortTurnDurably(active.runId, "user");
-              if (!(await waitForStableIdle(receipt.threadId))) {
+              if (!(await finishInterrupt(active.runId))) {
                 await retryQueuedSubmissionReceipt(
                   receipt.threadId,
                   receipt.messageId,

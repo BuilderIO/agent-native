@@ -3,10 +3,21 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-20
+
+### Fixed
+
+- Blog article credits include direct and wrapped author references.
+- Content collection recovers abandoned runs, avoids duplicate work, and preserves missing author names.
+- Daily content metrics recover collection gaps and keep omitted Search Console values uncollected.
+- Fixed Analytics dbt metric lookups that returned a bad-gateway error when the metric existed; the error now names the failing field.
+
 ## 2026-10-19
 
 ### Fixed
 
+- Composer focus remains safe when an editor changes during navigation.
+- Dashboard API guidance works without an open dashboard
 - Dashboard upgrades preserve saved history, custom data sources, and legacy edits.
 - The agent sees the row breakdown open in your current browser tab.
 
@@ -93,6 +104,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Analytics can collect daily GA4 pageviews and Search Console clicks and impressions for each blog article
+- Analytics can collect your blog article list once a day into its own tables, ready for the Content view
 - Click any bar, line point, funnel stage or slice on the first-party dashboard to open the underlying records in a pop-up, with filter, SQL and CSV export.
 - Add key dates and data notes from the dashboard's new Annotations menu or a chart's menu, show or hide key-date sets per dashboard, and mark a note fixed or hide it on one chart from its hover card.
 - Data notes shade the days a chart's numbers were affected by an incident or a tracking problem, on the dashboard and in scheduled email reports.
@@ -101,6 +114,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The blog article tool now returns each article's author and co-authors
 - Collapsed Analytics navigation icons stay centered when the list is short
 - Active-user answers distinguish Builder product activity from Agent-Native app opens, and dbt metric follow-ups keep their original filters.
 - Analytics keeps ambiguous active-user questions open across product activity and membership sources, and validates dbt metric date ranges before reporting results

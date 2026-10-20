@@ -234,6 +234,35 @@ export function registerFrameworkSecrets(): void {
     },
   ] as const;
 
+  const hubspotMcpAuthAppDocsUrl =
+    "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server";
+  for (const credential of [
+    { key: "HUBSPOT_MCP_CLIENT_ID", label: "HubSpot MCP OAuth client ID" },
+    {
+      key: "HUBSPOT_MCP_CLIENT_SECRET",
+      label: "HubSpot MCP OAuth client secret",
+    },
+  ]) {
+    registerSecretUsage(credential.key, [
+      {
+        feature: "HubSpot MCP connections",
+        effectWhenRemoved:
+          "Workspace members cannot start new HubSpot MCP connections.",
+      },
+    ]);
+    if (!getRequiredSecret(credential.key)) {
+      registerRequiredSecret({
+        ...credential,
+        description:
+          "Workspace-managed HubSpot MCP Auth App credential. Each member authorizes their own HubSpot account separately.",
+        docsUrl: hubspotMcpAuthAppDocsUrl,
+        scope: "workspace",
+        kind: "api-key",
+        required: false,
+      });
+    }
+  }
+
   for (const provider of workspaceOAuthProviders) {
     const prefix = provider.credentialPrefix;
     for (const credential of [

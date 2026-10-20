@@ -39,6 +39,7 @@ import {
 } from "./engine/credential-errors.js";
 import {
   currentExecutionFence,
+  currentExecutionFenceForScope,
   ExecutionFenceError,
   MissingExecutionFenceError,
   lockAndAssertCurrentExecutionFences,
@@ -2963,40 +2964,60 @@ export async function reapUnclaimedBackgroundRun(
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Atomic unclaimed-background reaping requires transaction support",
+    );
+  }
   const completedAt = Date.now();
   const cutoff = completedAt - UNCLAIMED_BACKGROUND_RUN_GRACE_MS;
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = ?,
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE id = ?
-            AND status = 'running'
-            AND dispatch_mode = 'background'
-            AND COALESCE(heartbeat_at, started_at) < ?`,
-    args: [
-      completedAt,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
-      runId,
-      cutoff,
-    ],
+  const reaped = await client.transaction(async (tx) => {
+    const { rowsAffected } = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored',
+                completed_at = ?,
+                error_code = ?,
+                error_detail = ?,
+                terminal_reason = ?
+            WHERE id = ?
+              AND status = 'running'
+              AND dispatch_mode = 'background'
+              AND COALESCE(heartbeat_at, started_at) < ?`,
+      args: [
+        completedAt,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.details,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        runId,
+        cutoff,
+      ],
+    });
+    const updated = (rowsAffected ?? 0) > 0;
+    if (updated) {
+      await appendTerminalRunEventInTransaction(
+        tx,
+        runId,
+        UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
+      );
+    }
+    return updated;
   });
-  const reaped = (rowsAffected ?? 0) > 0;
   if (reaped) {
-    await recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.workerThrew,
-      "unclaimed background dispatch reaped (worker never claimed the run)",
-    );
-    await safeAppendTerminalRunEvent(
-      runId,
-      UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
-      "reap-unclaimed-background",
-    );
+    try {
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.workerThrew,
+        "unclaimed background dispatch reaped (worker never claimed the run)",
+      );
+    } catch (error) {
+      captureError(error, {
+        tags: {
+          component: "agent-run-store",
+          operation: "record-unclaimed-background-reap-diagnostic",
+        },
+        extra: { runId },
+      });
+    }
   }
   return reaped;
 }
@@ -3317,8 +3338,8 @@ export function terminalEventForAbortReason(
 export async function markRunAborted(
   runId: string,
   reason?: string,
-): Promise<void> {
-  await updateRunAborted(runId, reason, false);
+): Promise<boolean> {
+  return updateRunAborted(runId, reason, false);
 }
 
 /** Abort only when no model or tool work has crossed its dispatch boundary. */
@@ -3335,25 +3356,41 @@ async function updateRunAborted(
   requireSafeBoundary: boolean,
 ): Promise<boolean> {
   await ensureRunTables();
+  const fence = currentExecutionFenceForScope({ runId });
   const client = getDbExec();
   if (!client.transaction) {
     throw new Error("Atomic run cancellation requires transaction support");
   }
-  const rowsAffected = await client.transaction(async (tx) => {
+  const abortResult = await client.transaction(async (tx) => {
     await lockExecutionLeasesForRuns(tx, [runId]);
+    await lockAndAssertCurrentExecutionFences(tx);
+    const runResult = await tx.execute({
+      sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id,
+                   worker_generation
+            FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const lockedRun = runResult.rows[0] as
+      | {
+          thread_id?: string;
+          turn_id?: string;
+          worker_generation?: number | string | null;
+        }
+      | undefined;
+    if (
+      fence &&
+      (lockedRun?.thread_id !== fence.threadId ||
+        lockedRun.turn_id !== fence.turnId ||
+        lockedRun.worker_generation == null ||
+        String(lockedRun.worker_generation) !== fence.generation)
+    ) {
+      throw new StaleExecutionFenceError(fence);
+    }
     if (requireSafeBoundary) {
-      const run = await tx.execute({
-        sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
-              FROM agent_runs WHERE id = ?`,
-        args: [runId],
-      });
-      const runRef = run.rows[0] as
-        | { thread_id?: string; turn_id?: string }
-        | undefined;
-      if (runRef) {
+      if (lockedRun) {
         if (
-          typeof runRef.thread_id !== "string" ||
-          typeof runRef.turn_id !== "string"
+          typeof lockedRun.thread_id !== "string" ||
+          typeof lockedRun.turn_id !== "string"
         ) {
           throw new Error(`Run ${runId} has an invalid thread or turn ID`);
         }
@@ -3362,9 +3399,11 @@ async function updateRunAborted(
                 WHERE thread_id = ? AND turn_id = ? AND status = 'dispatched'
                   AND run_id = ?
                 LIMIT 1`,
-          args: [runRef.thread_id, runRef.turn_id, runId],
+          args: [lockedRun.thread_id, lockedRun.turn_id, runId],
         });
-        if (dispatchedStep.rows.length > 0) return 0;
+        if (dispatchedStep.rows.length > 0) {
+          return { rowsAffected: 0, appendTerminalEvent: false };
+        }
       }
     }
     const result = await tx.execute({
@@ -3376,19 +3415,45 @@ async function updateRunAborted(
         runId,
       ],
     });
-    if ((result.rowsAffected ?? 0) > 0) {
+    const rowsAffected = result.rowsAffected ?? 0;
+    if (rowsAffected > 0) {
       await revokeExecutionLeasesForRuns(tx, [runId]);
+      return { rowsAffected, appendTerminalEvent: true };
     }
-    return result.rowsAffected ?? 0;
+    const terminalState = await tx.execute({
+      sql: `SELECT status, terminal_reason, in_flight_since FROM agent_runs WHERE id = ?`,
+      args: [runId],
+    });
+    const terminalRun = terminalState.rows[0] as
+      | {
+          status?: string;
+          terminal_reason?: string | null;
+          in_flight_since?: number | string | null;
+        }
+      | undefined;
+    return {
+      rowsAffected,
+      appendTerminalEvent:
+        terminalRun?.status === "aborted" &&
+        terminalRun.terminal_reason === `aborted:${reason ?? "user"}` &&
+        (!requireSafeBoundary || terminalRun.in_flight_since == null),
+    };
   });
-  if ((rowsAffected ?? 0) > 0) {
-    await safeAppendTerminalRunEvent(
-      runId,
-      terminalEventForAbortReason(reason) as unknown as Record<string, unknown>,
-      "mark-aborted",
-    );
+  if (abortResult.appendTerminalEvent) {
+    try {
+      await safeAppendTerminalRunEvent(
+        runId,
+        terminalEventForAbortReason(reason) as unknown as Record<
+          string,
+          unknown
+        >,
+        "mark-aborted",
+      );
+    } catch (error) {
+      throw new AgentRunEventNotPersistedError(runId, null, true, error);
+    }
   }
-  return (rowsAffected ?? 0) > 0;
+  return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
 }
 
 async function lockExecutionLeasesForRuns(
@@ -3485,6 +3550,10 @@ export async function markTurnAborted(
   turnId: string,
   reason: string = "user",
 ): Promise<"aborted" | "already_terminal"> {
+  const fence = currentExecutionFence();
+  if (fence && (fence.threadId !== threadId || fence.turnId !== turnId)) {
+    throw new StaleExecutionFenceError(fence);
+  }
   await ensureRunTables();
   const now = Date.now();
   const client = getDbExec();
@@ -3497,7 +3566,17 @@ export async function markTurnAborted(
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
     });
-    await lockTurnExecutionLease(tx, threadId, turnId);
+    await lockAndAssertCurrentExecutionFences(tx);
+    const lease = await lockTurnExecutionLease(tx, threadId, turnId);
+    if (
+      fence &&
+      (!lease ||
+        !lease.isLive ||
+        lease.ownerRunId !== fence.runId ||
+        lease.generation !== fence.generation)
+    ) {
+      throw new StaleExecutionFenceError(fence);
+    }
     const running = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
       args: [threadId, turnId],
@@ -3520,7 +3599,7 @@ export async function markTurnAborted(
     }
     if (runIds.length === 0) {
       const existing = await tx.execute({
-        sql: `SELECT id, terminal_reason,
+        sql: `SELECT id, status, terminal_reason,
                      EXISTS (
                        SELECT 1 FROM agent_run_events
                        WHERE agent_run_events.run_id = agent_runs.id
@@ -3541,8 +3620,25 @@ export async function markTurnAborted(
         ],
       });
       const latest = existing.rows[0] as
-        | { terminal_reason?: string | null; continuation_pending?: boolean }
+        | {
+            status?: string;
+            terminal_reason?: string | null;
+            continuation_pending?: boolean;
+          }
         | undefined;
+      const aborted = await tx.execute({
+        sql: `SELECT id FROM agent_runs
+              WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+                AND status = 'aborted'
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND terminal_reason = ?`,
+        args: [threadId, turnId, `aborted:${reason}`],
+      });
+      runIds.push(
+        ...aborted.rows
+          .map((row) => String((row as { id?: unknown }).id ?? ""))
+          .filter(Boolean),
+      );
       if (
         latest &&
         latest.continuation_pending !== true &&
@@ -3576,7 +3672,6 @@ export async function markTurnAborted(
     });
     return "aborted" as const;
   });
-  if (outcome === "already_terminal") return outcome;
   await Promise.all(
     runIds.map((runId) =>
       safeAppendTerminalRunEvent(
@@ -3675,9 +3770,28 @@ function persistedRunEventData(
 }
 
 export class AgentRunEventNotPersistedError extends Error {
-  constructor(runId: string, seq: number) {
-    super(`Run event was not persisted: ${runId} sequence ${seq}`);
+  readonly terminalRun: boolean;
+
+  constructor(
+    runId: string,
+    seq: number | null,
+    terminalRun = false,
+    cause?: unknown,
+  ) {
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    super(
+      seq === null
+        ? `Terminal run event was not persisted: ${runId}${detail}`
+        : `Run event was not persisted: ${runId} sequence ${seq}${detail}`,
+    );
     this.name = "AgentRunEventNotPersistedError";
+    this.terminalRun = terminalRun;
+    if (cause !== undefined) {
+      Object.defineProperty(this, "cause", {
+        value: cause,
+        configurable: true,
+      });
+    }
   }
 }
 
@@ -3696,36 +3810,96 @@ export async function insertRunEvent(
     eventData,
     options?.toolInputSource,
   );
+  const eventAt = options?.eventAt ?? Date.now();
   // The reaper must wait for the marker's commit before exposing a successor.
-  const { rowsAffected } = await withFencedExecutionWrite(
-    (tx) =>
-      tx.execute({
-        sql: options?.requireInserted
-          ? `WITH running_run AS MATERIALIZED (
+  let result: {
+    rowsAffected: number | undefined;
+    terminalRun: boolean;
+    persistedIdentically: boolean;
+  };
+  try {
+    result = await withFencedExecutionWrite(
+      async (tx) => {
+        const { rowsAffected } = await tx.execute({
+          sql: options?.requireInserted
+            ? `WITH running_run AS MATERIALIZED (
           SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
         )
         INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
         SELECT id, ?, ?, ? FROM running_run LIMIT 1
         ON CONFLICT (run_id, seq) DO NOTHING`
-          : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-        args: [
-          runId,
-          seq,
-          options?.eventAt ?? Date.now(),
-          storedEventData,
-          ...(options?.requireInserted ? [] : [runId]),
-        ],
-      }),
-    { runId },
-  );
-  if (options?.requireInserted && rowsAffected !== 1)
-    throw new AgentRunEventNotPersistedError(runId, seq);
+          args: [
+            runId,
+            seq,
+            eventAt,
+            storedEventData,
+            ...(options?.requireInserted ? [] : [runId]),
+          ],
+        });
+        if (!options?.requireInserted || rowsAffected === 1)
+          return {
+            rowsAffected,
+            terminalRun: false,
+            persistedIdentically: rowsAffected === 1,
+          };
+
+        const existing = await tx.execute({
+          sql: `SELECT event_at, event_data FROM agent_run_events
+              WHERE run_id = ? AND seq = ?`,
+          args: [runId, seq],
+        });
+        const existingRow = existing.rows[0] as
+          | { event_at?: number | string; event_data?: string }
+          | undefined;
+        const persistedIdentically =
+          existingRow !== undefined &&
+          Number(existingRow.event_at) === eventAt &&
+          String(existingRow.event_data) === storedEventData;
+
+        const run = await tx.execute({
+          sql: "SELECT status FROM agent_runs WHERE id = ?",
+          args: [runId],
+        });
+        const status = (run.rows[0] as { status?: string } | undefined)?.status;
+        return {
+          rowsAffected,
+          terminalRun: status !== "running",
+          persistedIdentically,
+        };
+      },
+      { runId },
+    );
+  } catch (error) {
+    if (error instanceof StaleExecutionFenceError) {
+      let status: string | null;
+      try {
+        status = await getRunStatus(runId);
+      } catch (statusError) {
+        throw new AggregateError(
+          [error, statusError],
+          `Could not confirm run status after a stale execution fence: ${runId}`,
+        );
+      }
+      if (status !== null && status !== "running") {
+        throw new AgentRunEventNotPersistedError(runId, seq, true, error);
+      }
+    }
+    throw error;
+  }
+  const { rowsAffected, terminalRun, persistedIdentically } = result;
+  if (
+    options?.requireInserted &&
+    rowsAffected !== 1 &&
+    (!persistedIdentically || terminalRun)
+  )
+    throw new AgentRunEventNotPersistedError(runId, seq, terminalRun);
 }
 
 // Stays well under PostgreSQL's 65,535 bind-parameter limit at 4 per row.
@@ -3741,16 +3915,15 @@ export async function insertRunEvents(
 ): Promise<void> {
   if (events.length === 0) return;
   await ensureRunTables();
-  await withFencedExecutionWrite(
-    async (tx) => {
-      for (
-        let start = 0;
-        start < events.length;
-        start += RUN_EVENT_BATCH_ROWS
-      ) {
-        const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
-        await tx.execute({
-          sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+  const writeBatch = async (tx: DbExec) => {
+    for (let start = 0; start < events.length; start += RUN_EVENT_BATCH_ROWS) {
+      const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
+      const storedChunk = chunk.map((event) => ({
+        ...event,
+        eventData: persistedRunEventData(event.eventData),
+      }));
+      await tx.execute({
+        sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
         SELECT v.run_id, v.seq, v.event_at, v.event_data
         FROM (VALUES ${chunk
           .map(
@@ -3763,18 +3936,52 @@ export async function insertRunEvents(
           WHERE id = ? AND status <> 'running'
         )
         ON CONFLICT (run_id, seq) DO NOTHING`,
-          args: [
-            ...chunk.flatMap(({ seq, eventAt, eventData }) => [
-              runId,
-              seq,
-              eventAt,
-              persistedRunEventData(eventData),
-            ]),
+        args: [
+          ...storedChunk.flatMap(({ seq, eventAt, eventData }) => [
             runId,
-          ],
-        });
+            seq,
+            eventAt,
+            eventData,
+          ]),
+          runId,
+        ],
+      });
+      const persisted = await tx.execute({
+        sql: `SELECT seq, event_at, event_data
+                FROM agent_run_events
+                WHERE run_id = ? AND seq IN (${chunk.map(() => "?").join(", ")})`,
+        args: [runId, ...chunk.map(({ seq }) => seq)],
+      });
+      const persistedBySeq = new Map(
+        persisted.rows.map((row) => [Number(row.seq), row]),
+      );
+      for (const event of storedChunk) {
+        const row = persistedBySeq.get(event.seq);
+        if (
+          !row ||
+          Number(row.event_at) !== event.eventAt ||
+          String(row.event_data) !== event.eventData
+        ) {
+          const run = await tx.execute({
+            sql: "SELECT status FROM agent_runs WHERE id = ?",
+            args: [runId],
+          });
+          const status = (run.rows[0] as { status?: string } | undefined)
+            ?.status;
+          throw new AgentRunEventNotPersistedError(
+            runId,
+            event.seq,
+            status !== "running",
+          );
+        }
       }
-    },
+    }
+  };
+  await withFencedExecutionWrite(
+    (tx) =>
+      currentExecutionFence()
+        ? writeBatch(tx)
+        : (tx.transaction?.(writeBatch) ?? writeBatch(tx)),
     { runId },
   );
 }
@@ -4943,6 +5150,7 @@ async function safeAppendTerminalRunEvent(
           firstError instanceof Error ? firstError.message : String(firstError),
       },
     });
+    throw retryErr;
   }
 }
 
@@ -4976,8 +5184,8 @@ async function appendTerminalRunEvent(
     }
   }
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
-  await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
+  const inserted = await client.execute({
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING RETURNING seq`,
     args: [
       runId,
       nextSeq,
@@ -4985,4 +5193,9 @@ async function appendTerminalRunEvent(
       stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
     ],
   });
+  if (inserted.rows.length === 0) {
+    throw new Error(
+      `Run ${runId} terminal event conflicted with sequence ${nextSeq}`,
+    );
+  }
 }

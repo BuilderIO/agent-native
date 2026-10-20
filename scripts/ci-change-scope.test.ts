@@ -1749,7 +1749,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^    timeout-minutes: 12$/m,
     "all Design core shards keep the exact twelve-minute cap",
   );
-  const screenHistoryJobTimeout = 12;
+  const screenHistoryJobTimeout = jobTimeout;
   assert.ok(
     Number.isInteger(jobTimeout) && jobTimeout === 12,
     `regular Design acceptance shards must keep the exact twelve-minute cap (got ${jobTimeout})`,
@@ -1764,9 +1764,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 8 &&
-      jobTimeout >= stepTimeout + 4,
-    `focused Design tests need the exact eight-minute cap and four minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 9 &&
+      jobTimeout >= stepTimeout + 3,
+    `focused Design tests need the exact nine-minute cap and three minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&

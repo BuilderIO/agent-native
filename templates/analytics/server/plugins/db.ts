@@ -15,6 +15,7 @@ import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
+import { CONTENT_METRICS_MIGRATION_SQL } from "../lib/content-metrics/migration.js";
 import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
@@ -1833,6 +1834,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "analytics-builtin-dashboard-checks",
       sql: BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL.join(";\n"),
     },
+    {
+      version: 180,
+      name: "analytics-content-metrics-tables",
+      sql: CONTENT_METRICS_MIGRATION_SQL.join(";\n"),
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1848,31 +1854,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
  * swallowed so it can never fail boot.
  */
 export default async (nitroApp: any): Promise<void> => {
-  const isScheduledRollupRuntime =
+  const isScheduledSchemaRuntime =
     (
       globalThis as typeof globalThis & {
         __AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__?: boolean;
+        __AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__?: boolean;
       }
-    ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true;
-  if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {
+    ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true ||
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true;
+  if (isInBackgroundFunctionRuntime() && !isScheduledSchemaRuntime) {
     // Most durable workers execute signed internal routes against a schema
     // owned by the regular server. A second migration runner only adds a Neon
-    // pool probe to every worker cold start. The scheduled rollup worker is
-    // the exception because it can be the first post-deploy invocation.
+    // pool probe to every worker cold start. The scheduled collection workers are
+    // the exceptions because either can be the first post-deploy invocation.
     console.info(
       "[db] Skipping Analytics migrations in durable background runtime",
     );
     return;
   }
   const isProductionServerless = isProductionServerlessRuntime();
-  if (isProductionServerless && !isScheduledRollupRuntime) {
+  if (isProductionServerless && !isScheduledSchemaRuntime) {
     console.info(
       "[db] Skipping Analytics migrations in production serverless runtime",
     );
     return;
   }
   const runSchemaWork = async () => {
-    // guard:allow-boot-data-work — local servers and the scheduled rollup worker own schema setup
+    // guard:allow-boot-data-work — local servers and the scheduled collection workers own schema setup
     await runAnalyticsMigrations(nitroApp);
     try {
       const summary = await ensureAdditiveColumns({
@@ -1893,7 +1905,7 @@ export default async (nitroApp: any): Promise<void> => {
     }
   };
   if (isProductionServerless) {
-    // guard:allow-boot-data-work — the scheduled rollup may be the first post-deploy schema caller
+    // guard:allow-boot-data-work — the scheduled collection worker may be the first post-deploy schema caller
     await withMigrationRuntime(() =>
       withMigrationExecutionRuntime(runSchemaWork),
     );

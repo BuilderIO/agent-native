@@ -1133,6 +1133,7 @@ function makeSyntheticEngine(): AgentEngine {
       parallelToolCalls: false,
     },
     async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+      options.onModelDispatchStarted?.();
       const toolResultSeen = options.messages.some((message) =>
         message.content.some((part) => part.type === "tool-result"),
       );
