@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+
+import { normalizeSearchConsoleProperty } from "../../../../shared/search-console-property.js";
 import { querySearchAnalytics } from "../../search-console.js";
 import type { SearchConsoleSite } from "../config.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
@@ -59,6 +62,16 @@ export const searchConsoleStep: ContentStep = {
   id: "search_console",
   async run({ collection, now, signal }) {
     const sites = collection.config.searchConsole.sites;
+    const configFingerprint = createHash("sha256")
+      .update(
+        JSON.stringify(
+          sites.map((site) => [
+            normalizeSearchConsoleProperty(site.siteUrl),
+            site.pathPrefix?.trim() ?? "",
+          ]),
+        ),
+      )
+      .digest("hex");
     if (sites.length === 0) {
       throw new ContentStepStop({
         status: "not_configured",
@@ -82,6 +95,7 @@ export const searchConsoleStep: ContentStep = {
       "search_console",
       now,
       LOOKBACK_DAYS,
+      configFingerprint,
     );
     const newPages = new Map<string, ContentItemInput>();
     const snapshots = new Map<string, ContentSnapshotInput>();
@@ -167,9 +181,8 @@ export const searchConsoleStep: ContentStep = {
       outcome: {
         rowCount: snapshots.size,
         windowStart: window.startDate,
-        // Query coverage advances even when no rows exist. Data dates remain
-        // on the snapshots, and omitted values still have no snapshot.
         windowEnd: window.endDate,
+        configFingerprint,
       },
     };
   },

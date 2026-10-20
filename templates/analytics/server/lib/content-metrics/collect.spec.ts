@@ -47,7 +47,10 @@ import {
   collectContentForAllTenants,
   collectContentForCollection,
 } from "./collect.js";
-import { CONTENT_METRICS_MIGRATION_SQL } from "./migration.js";
+import {
+  CONTENT_METRICS_MIGRATION_SQL,
+  CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+} from "./migration.js";
 import {
   readContentCollection,
   writeContentCollection,
@@ -119,6 +122,7 @@ describe("content collection", () => {
     for (const statement of CONTENT_METRICS_MIGRATION_SQL) {
       await client.exec(statement);
     }
+    await client.exec(CONTENT_COVERAGE_CONFIG_MIGRATION_SQL);
   });
 
   afterEach(async () => {
@@ -658,19 +662,17 @@ describe("content collection", () => {
     ]);
   });
 
-  it("advances query coverage after an empty successful Search Console run", async () => {
+  it("advances coverage after an empty success with unchanged normalized config", async () => {
     await onlySteps({ searchConsole: true }, [
-      { siteUrl: "sc-domain:example.test" },
+      { siteUrl: "sc-domain:example.test", pathPrefix: "/blog/" },
     ]);
     mocks.querySearchAnalytics.mockResolvedValue([]);
     await collectContentForAllTenants({
       now: new Date("2026-10-15T07:00:00Z"),
     });
-    expect(
-      await rows(
-        "SELECT window_end FROM analytics_content_collection_runs WHERE step = 'search_console'",
-      ),
-    ).toEqual([{ window_end: "2026-10-14" }]);
+    await onlySteps({ searchConsole: true }, [
+      { siteUrl: " SC-DOMAIN:Example.test ", pathPrefix: " /blog/ " },
+    ]);
     await collectContentForAllTenants({
       now: new Date("2026-10-16T07:00:00Z"),
     });
@@ -680,7 +682,106 @@ describe("content collection", () => {
         endDate: "2026-10-15",
       }),
     );
-    expect(await snapshots("search_console_clicks")).toEqual([]);
+  });
+
+  it.each(["correct", "add"])(
+    "backfills all properties after a config change: %s",
+    async (change) => {
+      const populated = { siteUrl: "sc-domain:populated.test" };
+      const empty = {
+        siteUrl: "sc-domain:example.test",
+        pathPrefix: "/wrong/",
+      };
+      await onlySteps({ searchConsole: true }, [populated, empty]);
+      mocks.querySearchAnalytics
+        .mockResolvedValueOnce([
+          {
+            keys: ["2026-10-14", "https://populated.test/post"],
+            clicks: 2,
+            impressions: 10,
+          },
+        ])
+        .mockResolvedValueOnce([]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      const corrected = {
+        siteUrl: "sc-domain:example.test",
+        pathPrefix: "/blog/",
+      };
+      await onlySteps(
+        { searchConsole: true },
+        change === "correct"
+          ? [populated, corrected]
+          : [populated, empty, corrected],
+      );
+      mocks.querySearchAnalytics.mockResolvedValue([]).mockResolvedValueOnce([
+        {
+          keys: ["2026-08-01", "https://populated.test/post"],
+          clicks: 3,
+          impressions: 40,
+        },
+      ]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      for (const [args] of mocks.querySearchAnalytics.mock.calls.slice(2)) {
+        expect(args).toMatchObject({
+          startDate: "2026-07-18",
+          endDate: "2026-10-15",
+        });
+      }
+      expect(await snapshots("search_console_clicks")).toContainEqual({
+        external_id: "populated.test/post",
+        metric_date: "2026-08-01",
+        value: 3,
+        source: "search_console",
+      });
+    },
+  );
+
+  it("backfills after an empty initial run and a corrected property", async () => {
+    await onlySteps({ searchConsole: true }, [
+      { siteUrl: "sc-domain:example.test", pathPrefix: "/wrong/" },
+    ]);
+    mocks.querySearchAnalytics.mockResolvedValueOnce([]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+    expect(
+      await rows(
+        "SELECT window_end FROM analytics_content_collection_runs WHERE step = 'search_console'",
+      ),
+    ).toEqual([{ window_end: "2026-10-14" }]);
+    await onlySteps({ searchConsole: true }, [
+      { siteUrl: "SC-DOMAIN:Example.test", pathPrefix: "/blog/" },
+    ]);
+    mocks.querySearchAnalytics.mockResolvedValueOnce([
+      {
+        keys: ["2026-08-01", "https://example.test/blog/post"],
+        clicks: 3,
+        impressions: 40,
+      },
+    ]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-16T07:00:00Z"),
+    });
+    expect(mocks.querySearchAnalytics).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        siteUrl: "sc-domain:example.test",
+        startDate: "2026-07-18",
+        endDate: "2026-10-15",
+        pageRegex: "^https?://[^/]+/blog/",
+      }),
+    );
+    expect(await snapshots("search_console_clicks")).toEqual([
+      {
+        external_id: "example.test/blog/post",
+        metric_date: "2026-08-01",
+        value: 3,
+        source: "search_console",
+      },
+    ]);
   });
 
   it("fails the entire step if any Search Console property denies access", async () => {

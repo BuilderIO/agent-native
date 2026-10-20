@@ -66,30 +66,70 @@ export async function readServiceAccountIdentity(): Promise<ServiceAccountIdenti
     throw error;
   }
   try {
-    const email = (JSON.parse(credsJson) as { client_email?: unknown })
-      .client_email;
-    return typeof email === "string" && email
-      ? { status: "ok", email }
-      : { status: "invalid" };
+    const creds = parseServiceAccountKey(credsJson);
+    return { status: "ok", email: creds.client_email };
   } catch {
     return { status: "invalid" };
   }
 }
 
+/**
+ * A saved key that can't be parsed or signed with. Only the signer's error is
+ * quoted: a JSON parse error can echo part of the key.
+ */
+function unreadableServiceAccountKey(cause?: string): Error {
+  return Object.assign(
+    new Error(
+      `Couldn't read the saved service account key${cause ? ` (${cause})` : ""}. Re-save the key under Google Cloud in Data sources.`,
+    ),
+    { errorCode: "google_credentials_unreadable", statusCode: 422 },
+  );
+}
+
+function parseServiceAccountKey(credsJson: string): {
+  client_email: string;
+  private_key: string;
+} {
+  let creds: { client_email?: unknown; private_key?: unknown };
+  try {
+    creds = JSON.parse(credsJson);
+  } catch {
+    throw unreadableServiceAccountKey();
+  }
+  if (
+    !creds ||
+    typeof creds !== "object" ||
+    typeof creds.private_key !== "string" ||
+    !creds.private_key.trim() ||
+    typeof creds.client_email !== "string" ||
+    !creds.client_email.trim()
+  ) {
+    throw unreadableServiceAccountKey();
+  }
+  return { client_email: creds.client_email, private_key: creds.private_key };
+}
+
 async function getAccessToken(scope: string): Promise<string> {
-  const creds = JSON.parse(await readServiceAccountJson());
+  const creds = parseServiceAccountKey(await readServiceAccountJson());
   const now = Math.floor(Date.now() / 1000);
 
-  const jwt = await signRs256Jwt(
-    {
-      iss: creds.client_email,
-      scope,
-      aud: "https://oauth2.googleapis.com/token",
-      iat: now,
-      exp: now + 3600,
-    },
-    creds.private_key,
-  );
+  let jwt: string;
+  try {
+    jwt = await signRs256Jwt(
+      {
+        iss: creds.client_email,
+        scope,
+        aud: "https://oauth2.googleapis.com/token",
+        iat: now,
+        exp: now + 3600,
+      },
+      creds.private_key,
+    );
+  } catch (error) {
+    throw unreadableServiceAccountKey(
+      error instanceof Error ? error.message : undefined,
+    );
+  }
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",

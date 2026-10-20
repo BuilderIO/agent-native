@@ -65,3 +65,5 @@ export const CONTENT_METRICS_MIGRATION_SQL = [
   )`,
   `CREATE INDEX IF NOT EXISTS analytics_content_collection_runs_step_idx ON analytics_content_collection_runs (tenant_key, step, started_at)`,
 ];
+
+export const CONTENT_COVERAGE_CONFIG_MIGRATION_SQL = `ALTER TABLE analytics_content_collection_runs ADD COLUMN IF NOT EXISTS config_fingerprint TEXT`;
