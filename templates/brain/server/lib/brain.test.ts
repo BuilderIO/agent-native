@@ -234,6 +234,7 @@ const mocks = vi.hoisted(() => {
     zoomAuditEvents: [] as Row[],
   };
   const orgRoles = new Map<string, string>();
+  const queryStats = { latestRunLateralJoins: 0 };
 
   const insertControls = {
     error: null as Error | null,
@@ -391,7 +392,8 @@ const mocks = vi.hoisted(() => {
     return row[condition.col.name] === condition.val;
   };
 
-  const select = vi.fn((selection?: Row) => {
+  const select = vi.fn((selection?: Row, distinctOnColumn?: Column) => {
+    let hasLatestRunLateralJoin = false;
     const isCountSelection = Object.values(selection ?? {}).some(
       (value) =>
         typeof value === "object" &&
@@ -400,8 +402,64 @@ const mocks = vi.hoisted(() => {
           String((value as { op?: unknown }).op),
         ),
     );
-    const selectedRows = (values: Row[]) =>
-      isCountSelection ? [{ value: values.length }] : values;
+    const selectedRows = (values: Row[]) => {
+      if (hasLatestRunLateralJoin) {
+        return values.map((source) => {
+          const latest = [...rows.syncRuns]
+            .filter((run) => run.sourceId === source.id)
+            .sort((a, b) =>
+              String(b.startedAt).localeCompare(String(a.startedAt)),
+            )[0];
+          return {
+            sourceId: source.id,
+            id: latest?.id ?? null,
+            status: latest?.status ?? null,
+            statsJson: latest?.statsJson ?? null,
+            error: latest?.error ?? null,
+            startedAt: latest?.startedAt ?? null,
+            completedAt: latest?.completedAt ?? null,
+          };
+        });
+      }
+      if (distinctOnColumn) {
+        const seen = new Set<unknown>();
+        values = [...values]
+          .sort((a, b) =>
+            String(b.startedAt).localeCompare(String(a.startedAt)),
+          )
+          .filter((row) => {
+            const value = row[distinctOnColumn.name];
+            if (seen.has(value)) return false;
+            seen.add(value);
+            return true;
+          });
+      }
+      const sourceIdColumn = selection?.sourceId as Column | undefined;
+      if (isCountSelection && sourceIdColumn?.table === "brainRawCaptures") {
+        const counts = new Map<string, Set<string>>();
+        for (const row of values) {
+          const sourceId = String(row.sourceId);
+          const captureIds = counts.get(sourceId) ?? new Set<string>();
+          captureIds.add(String(row.id));
+          counts.set(sourceId, captureIds);
+        }
+        return Array.from(counts, ([sourceId, captureIds]) => ({
+          sourceId,
+          value: captureIds.size,
+        }));
+      }
+      return isCountSelection ? [{ value: values.length }] : values;
+    };
+    const queryResult = (values: Row[]) => ({
+      then: (
+        onFulfilled: (rows: Row[]) => unknown,
+        onRejected?: (reason: unknown) => unknown,
+      ) => Promise.resolve(selectedRows(values)).then(onFulfilled, onRejected),
+      as: (alias: string) =>
+        Object.fromEntries(
+          Object.keys(selection ?? {}).map((name) => [name, col(alias, name)]),
+        ),
+    });
 
     return {
       from: vi.fn((tableRef: Row) => {
@@ -419,13 +477,19 @@ const mocks = vi.hoisted(() => {
               ),
             ),
             orderBy: vi.fn(() => ({
-              limit: vi.fn(async (limit: number) =>
-                selectedRows(
+              limit: vi.fn((limit: number) =>
+                queryResult(
                   tableRows(tableRef)
                     .filter((row) => matches(row, condition))
                     .slice(0, limit),
                 ),
               ),
+              then: (
+                onFulfilled: (rows: Row[]) => unknown,
+                onRejected?: (reason: unknown) => unknown,
+              ) => filteredRows().then(onFulfilled, onRejected),
+            })),
+            groupBy: vi.fn(() => ({
               then: (
                 onFulfilled: (rows: Row[]) => unknown,
                 onRejected?: (reason: unknown) => unknown,
@@ -453,11 +517,17 @@ const mocks = vi.hoisted(() => {
           selectedRows(tableRows(tableRef).slice(0, limit)),
         );
         const innerJoin = vi.fn();
+        const leftJoinLateral = vi.fn(() => {
+          hasLatestRunLateralJoin = true;
+          queryStats.latestRunLateralJoins += 1;
+          return joined;
+        });
         const joined = {
           where,
           orderBy,
           limit,
           innerJoin,
+          leftJoinLateral,
         };
         innerJoin.mockReturnValue(joined);
         return joined;
@@ -539,6 +609,8 @@ const mocks = vi.hoisted(() => {
   const dbBase = {
     select,
     selectDistinct: select,
+    selectDistinctOn: (columns: Column[], fields: Row) =>
+      select(fields, columns[0]),
     insert,
     update,
     delete: deleteRows,
@@ -553,6 +625,7 @@ const mocks = vi.hoisted(() => {
     schema,
     db,
     rows,
+    queryStats,
     insertControls,
     queueClaimRowsAffected,
     audienceHook,
@@ -624,6 +697,7 @@ vi.mock("@agent-native/core/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
+  groupBy: (col: Column) => ({ op: "groupBy", col }),
   asc: (column: Column) => ({ op: "asc", column }),
   count: () => ({ op: "count" }),
   countDistinct: () => ({ op: "countDistinct" }),
@@ -738,6 +812,15 @@ vi.mock("./audiences.js", () => ({
     kind: "org",
   })),
   listAccessibleAudienceIds: vi.fn(async () => ["aud_org"]),
+  listAccessibleAudienceIdsBySource: vi.fn(
+    async (sourceIds: string[]) =>
+      new Map(
+        sourceIds.map((sourceId) => [
+          sourceId,
+          [sourceId === "source-2" ? "aud_second" : "aud_org"],
+        ]),
+      ),
+  ),
 }));
 
 vi.mock("./ingest-queue.js", () => ({
@@ -820,7 +903,10 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import { ensureCaptureAudience } from "./audiences.js";
+import {
+  ensureCaptureAudience,
+  listAccessibleAudienceIdsBySource,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -861,6 +947,7 @@ function resetMocks() {
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.orgRoles.clear();
+  mocks.queryStats.latestRunLateralJoins = 0;
   mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
     id: "aud_org",
@@ -1118,6 +1205,69 @@ describe("Brain knowledge quality gates", () => {
     expect(result.sources).toEqual([
       expect.objectContaining({ id: "source-1", recordCount: 1 }),
     ]);
+  });
+
+  it("batches record counts and latest runs across listed sources", async () => {
+    seedSource();
+    seedSource({ id: "source-2", title: "Second source" });
+    seedCapture({ id: "capture-1", sourceId: "source-1" });
+    seedCapture({ id: "capture-2", sourceId: "source-2" });
+    mocks.rows.captureAudiences.find(
+      (row) => row.captureId === "capture-2",
+    )!.audienceId = "aud_second";
+    seedCapture({ id: "capture-3", sourceId: "source-2" });
+    mocks.rows.syncRuns.push(
+      {
+        id: "run-1-old",
+        sourceId: "source-1",
+        status: "error",
+        statsJson: "{}",
+        error: "older run",
+        startedAt: "2026-05-15T09:00:00.000Z",
+        completedAt: "2026-05-15T09:01:00.000Z",
+      },
+      {
+        id: "run-1",
+        sourceId: "source-1",
+        status: "success",
+        statsJson: '{"capturesCreated":1}',
+        error: null,
+        startedAt: "2026-05-15T10:00:00.000Z",
+        completedAt: "2026-05-15T10:01:00.000Z",
+      },
+      {
+        id: "run-2",
+        sourceId: "source-2",
+        status: "success",
+        statsJson: '{"capturesCreated":2}',
+        error: null,
+        startedAt: "2026-05-15T11:00:00.000Z",
+        completedAt: "2026-05-15T11:01:00.000Z",
+      },
+    );
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledTimes(1);
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledWith([
+      "source-1",
+      "source-2",
+    ]);
+    expect(mocks.queryStats.latestRunLateralJoins).toBe(1);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "source-1",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-1" }),
+        }),
+        expect.objectContaining({
+          id: "source-2",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-2" }),
+        }),
+      ]),
+    );
   });
 
   it("includes canonical health for sources in the source listing", async () => {
