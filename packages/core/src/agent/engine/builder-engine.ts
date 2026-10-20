@@ -70,6 +70,7 @@ import {
   finalizeStreamedToolInputs,
   observeStreamedToolInput,
 } from "./translate-anthropic.js";
+import { startModelDispatch } from "./types.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -379,20 +380,24 @@ class BuilderEngine implements AgentEngine {
     try {
       let response: Response;
       try {
-        response = await fetch(gatewayUrl.toString(), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader,
-            ...(spaceId && !oauthAccess
-              ? { "x-builder-api-key": spaceId }
-              : {}),
-            ...getBuilderGatewayRequestHeaders(),
-            ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
-          },
-          body: payload,
-          signal: gatewayAbort.signal,
-        });
+        const dispatch = await startModelDispatch(opts, () =>
+          fetch(gatewayUrl.toString(), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: authHeader,
+              ...(spaceId && !oauthAccess
+                ? { "x-builder-api-key": spaceId }
+                : {}),
+              ...getBuilderGatewayRequestHeaders(),
+              ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
+            },
+            body: payload,
+            signal: gatewayAbort.signal,
+          }),
+        );
+        if (!dispatch.started) return;
+        response = await dispatch.value;
       } catch (err) {
         const timedOut = gatewayAbort.didTimeout();
         if (gatewayAbort.didTimeout()) {

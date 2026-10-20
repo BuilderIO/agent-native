@@ -3736,45 +3736,68 @@ export async function insertRunEvent(
     eventData,
     options?.toolInputSource,
   );
+  const eventAt = options?.eventAt ?? Date.now();
   // The reaper must wait for the marker's commit before exposing a successor.
-  const { rowsAffected, terminalRun } = await withFencedExecutionWrite(
-    async (tx) => {
-      const { rowsAffected } = await tx.execute({
-        sql: options?.requireInserted
-          ? `WITH running_run AS MATERIALIZED (
+  const { rowsAffected, terminalRun, persistedIdentically } =
+    await withFencedExecutionWrite(
+      async (tx) => {
+        const { rowsAffected } = await tx.execute({
+          sql: options?.requireInserted
+            ? `WITH running_run AS MATERIALIZED (
           SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
         )
         INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
         SELECT id, ?, ?, ? FROM running_run LIMIT 1
         ON CONFLICT (run_id, seq) DO NOTHING`
-          : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-        args: [
-          runId,
-          seq,
-          options?.eventAt ?? Date.now(),
-          storedEventData,
-          ...(options?.requireInserted ? [] : [runId]),
-        ],
-      });
-      if (!options?.requireInserted || rowsAffected === 1)
-        return { rowsAffected, terminalRun: false };
+          args: [
+            runId,
+            seq,
+            eventAt,
+            storedEventData,
+            ...(options?.requireInserted ? [] : [runId]),
+          ],
+        });
+        if (!options?.requireInserted || rowsAffected === 1)
+          return {
+            rowsAffected,
+            terminalRun: false,
+            persistedIdentically: rowsAffected === 1,
+          };
 
-      const run = await tx.execute({
-        sql: "SELECT status FROM agent_runs WHERE id = ?",
-        args: [runId],
-      });
-      const status = (run.rows[0] as { status?: string } | undefined)?.status;
-      return { rowsAffected, terminalRun: status !== "running" };
-    },
-    { runId },
-  );
-  if (options?.requireInserted && rowsAffected !== 1)
+        const existing = await tx.execute({
+          sql: `SELECT event_at, event_data FROM agent_run_events
+              WHERE run_id = ? AND seq = ?`,
+          args: [runId, seq],
+        });
+        const existingRow = existing.rows[0] as
+          | { event_at?: number | string; event_data?: string }
+          | undefined;
+        const persistedIdentically =
+          existingRow !== undefined &&
+          Number(existingRow.event_at) === eventAt &&
+          String(existingRow.event_data) === storedEventData;
+
+        const run = await tx.execute({
+          sql: "SELECT status FROM agent_runs WHERE id = ?",
+          args: [runId],
+        });
+        const status = (run.rows[0] as { status?: string } | undefined)?.status;
+        return {
+          rowsAffected,
+          terminalRun: status !== "running",
+          persistedIdentically,
+        };
+      },
+      { runId },
+    );
+  if (options?.requireInserted && rowsAffected !== 1 && !persistedIdentically)
     throw new AgentRunEventNotPersistedError(runId, seq, terminalRun);
 }
 

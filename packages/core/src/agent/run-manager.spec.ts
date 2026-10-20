@@ -631,6 +631,36 @@ describe("run manager soft timeout", () => {
     expect(getRun(run.runId)).toBeNull();
   });
 
+  it("cleans up in-memory state when lease-failure abort persistence rejects", async () => {
+    const persistenceError = new Error("terminal abort event append failed");
+    vi.mocked(claimTurnExecutionLease).mockRejectedValueOnce(
+      new TurnExecutionLeaseBusyError(
+        "thread-lease-claim-abort-write-failure",
+        "run-lease-claim-abort-write-failure",
+      ),
+    );
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const run = startRun(
+      "run-lease-claim-abort-write-failure",
+      "thread-lease-claim-abort-write-failure",
+      async () => {
+        throw new Error("run body should not start");
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+      },
+    );
+
+    await expect(run.finalized).rejects.toBe(persistenceError);
+    expect(getRun(run.runId)).toBe(run);
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(getRun(run.runId)).toBeNull();
+  });
+
   it("replaces an in-memory retry without durably aborting the shared run row", async () => {
     let oldStarted!: () => void;
     let replacementStarted!: () => void;

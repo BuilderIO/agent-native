@@ -224,6 +224,27 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).toContain("z-ai-glm-5-3-flash");
   });
 
+  it("does not send the gateway request when the dispatch guard denies it", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchSpy);
+    const beforeModelDispatch = vi.fn(async <T>(_dispatch: () => T) => ({
+      started: false as const,
+    }));
+    const onModelDispatchStarted = vi.fn();
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        beforeModelDispatch,
+        onModelDispatchStarted,
+      }),
+    );
+
+    expect(beforeModelDispatch).toHaveBeenCalledOnce();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(onModelDispatchStarted).not.toHaveBeenCalled();
+  });
+
   it("preserves optional action schemas in GPT gateway requests", async () => {
     const inputSchema = {
       type: "object",

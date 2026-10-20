@@ -582,9 +582,21 @@ describe("run event batches", () => {
     const eventData = '{"type":"text","text":"event"}';
     await insertRun(runId, runId, runId);
 
-    await insertRunEvent(runId, 0, eventData, { requireInserted: true });
+    await insertRunEvent(runId, 0, eventData, {
+      requireInserted: true,
+      eventAt: 1_000,
+    });
     await expect(
-      insertRunEvent(runId, 0, eventData, { requireInserted: true }),
+      insertRunEvent(runId, 0, eventData, {
+        requireInserted: true,
+        eventAt: 1_000,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      insertRunEvent(runId, 0, '{"type":"text","text":"different"}', {
+        requireInserted: true,
+        eventAt: 1_000,
+      }),
     ).rejects.toMatchObject({
       name: "AgentRunEventNotPersistedError",
       terminalRun: false,

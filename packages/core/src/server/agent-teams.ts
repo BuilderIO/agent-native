@@ -3,7 +3,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import { AGENT_TEAM_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import type {
+  AgentEngine,
+  EngineMessage,
+  ModelDispatchDecision,
+} from "../agent/engine/types.js";
 import {
   currentExecutionFence,
   withExecutionFence,
@@ -2715,21 +2719,31 @@ export async function processAgentTeamRun(
                     actions: messageAwareActions,
                     send: wrappedSend,
                     beforeWrite: control.flushEvents,
-                    beforeModelDispatch: async () => {
+                    beforeModelDispatch: async <T>(
+                      dispatch: () => T,
+                    ): Promise<ModelDispatchDecision<T>> => {
                       const current = await withCurrentAgentTeamRunAttempt(
                         opts.taskId,
                         claimedAttempts,
                         async () => {
                           const currentTask = await loadTask(opts.taskId);
-                          return {
-                            allowed:
-                              currentTask?.status === "running" &&
-                              currentTask.stopRequestedAt === undefined,
-                            task: currentTask,
-                          };
+                          if (
+                            currentTask?.status === "running" &&
+                            currentTask.stopRequestedAt === undefined
+                          ) {
+                            return {
+                              allowed: true as const,
+                              result: {
+                                started: true as const,
+                                value: dispatch(),
+                              },
+                            };
+                          }
+                          return { allowed: false as const, task: currentTask };
                         },
                       );
-                      if (current.current && current.value.allowed) return;
+                      if (current.current && current.value.allowed)
+                        return current.value.result;
 
                       const currentTask = current.current
                         ? current.value.task
@@ -2741,6 +2755,7 @@ export async function processAgentTeamRun(
                           ? (currentTask.stopRequestedReason ?? "user")
                           : "superseded";
                       markLeaseLost(reason);
+                      return { started: false };
                     },
                     signal,
                     finalResponseGuard: createTaskMessageFinalGuard(

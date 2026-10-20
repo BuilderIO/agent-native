@@ -41,6 +41,7 @@ import {
   finalizeStreamedToolInputs,
   observeStreamedToolInput,
 } from "./translate-anthropic.js";
+import { startModelDispatch } from "./types.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -499,26 +500,30 @@ class AISDKEngine implements AgentEngine {
     const toolInputs = createStreamedToolInputState();
 
     try {
-      const result = streamText({
-        model: providerModel,
-        system: opts.systemPrompt,
-        messages,
-        tools: aiSdkTools,
-        ...(this.omitMaxOutputTokens
-          ? {}
-          : { maxOutputTokens: resolvedMaxOutputTokens }),
-        maxRetries: 1,
-        ...(samplingAllowed && opts.temperature !== undefined
-          ? { temperature: opts.temperature }
-          : {}),
-        abortSignal: firstEventAbort.signal,
-        onStepFinish: (step: any) => {
-          assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
-        },
-        ...(Object.keys(providerOpts).length > 0
-          ? { providerOptions: providerOpts }
-          : {}),
-      });
+      const dispatch = await startModelDispatch(opts, () =>
+        streamText({
+          model: providerModel,
+          system: opts.systemPrompt,
+          messages,
+          tools: aiSdkTools,
+          ...(this.omitMaxOutputTokens
+            ? {}
+            : { maxOutputTokens: resolvedMaxOutputTokens }),
+          maxRetries: 1,
+          ...(samplingAllowed && opts.temperature !== undefined
+            ? { temperature: opts.temperature }
+            : {}),
+          abortSignal: firstEventAbort.signal,
+          onStepFinish: (step: any) => {
+            assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
+          },
+          ...(Object.keys(providerOpts).length > 0
+            ? { providerOptions: providerOpts }
+            : {}),
+        }),
+      );
+      if (!dispatch.started) return;
+      const result = dispatch.value;
 
       let bufferedStop: EngineEvent | undefined;
       let sawFirstEvent = false;

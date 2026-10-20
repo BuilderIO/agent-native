@@ -3016,6 +3016,50 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
   });
 
+  it("orders model dispatch before a Stop committed at the dispatch boundary", async () => {
+    const taskId = "stop-versus-model-dispatch-boundary";
+    await seedTask(taskId);
+    const order: string[] = [];
+    const engine = {
+      ...resolveConfig().engine,
+      stream: vi.fn(() => {
+        order.push("model-dispatch");
+        expect(transactionContext.getStore()).toMatchObject({ aborted: false });
+        return {};
+      }),
+    } as any;
+
+    runAgentLoopMock.mockImplementation(async (loopOpts: any) => {
+      afterNextAttemptCommit = async () => {
+        order.push("stop-committed");
+        await expect(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+          ),
+        ).resolves.toEqual({ ok: true });
+      };
+      const result = await loopOpts.beforeModelDispatch?.(() =>
+        loopOpts.engine.stream({}),
+      );
+      expect(result?.started).toBe(true);
+    });
+
+    await expect(
+      processAgentTeamRun({
+        taskId,
+        mode: "start",
+        resolveConfig: async () => ({ ...resolveConfig(), engine }),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(order).toEqual(["model-dispatch", "stop-committed"]);
+    expect(engine.stream).toHaveBeenCalledOnce();
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+  });
+
   it("rechecks Stop after async setup immediately before a model request", async () => {
     const taskId = "stop-during-observability-setup";
     await seedTask(taskId);
@@ -3036,8 +3080,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
 
     const engine = { ...resolveConfig().engine, stream: vi.fn() } as any;
     runAgentLoopMock.mockImplementation(async (loopOpts: any) => {
-      await loopOpts.beforeModelDispatch?.();
-      if (!loopOpts.signal.aborted) loopOpts.engine.stream({});
+      await loopOpts.beforeModelDispatch?.(() => loopOpts.engine.stream({}));
     });
     // The stop is persisted by another worker and cannot abort this process's
     // in-memory signal; the model-boundary check must observe the SQL marker.
