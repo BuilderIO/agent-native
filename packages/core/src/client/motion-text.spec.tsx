@@ -329,8 +329,391 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([200, 160, 120, 120]);
+    ).toEqual([200, 200, 145, 185]);
   });
+
+  it("plays Text v2 exit animations from the final keyframe back to the first", async () => {
+    const exitAnimation = {
+      ...animation,
+      animationDirection: "out",
+    } as MotionTextAnimation;
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={exitAnimation}>
+          <h1 data-agent-native-node-id="headline">Hello world</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(mockedAnimations[0]?.keyframes).toEqual([
+      { offset: 0, easing: "ease-out", opacity: "1" },
+      { offset: 1, easing: "ease-out", opacity: "0" },
+    ]);
+  });
+
+  it.each([
+    { order: "left-to-right", delays: [0, 10, 20, 30] },
+    { order: "right-to-left", delays: [30, 20, 10, 0] },
+    { order: "center-out", delays: [20, 0, 10, 30] },
+    { order: "random", delays: [30, 0, 10, 20] },
+  ])("uses the $order Text v2 unit order", async ({ order, delays }) => {
+    const orderedAnimation = {
+      ...animation,
+      staggerMs: 10,
+      order,
+    } as MotionTextAnimation;
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={orderedAnimation}>
+          <h1 data-agent-native-node-id="headline">One two three four</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(mockedAnimations.map(({ options }) => options.delay)).toEqual(
+      delays,
+    );
+  });
+
+  it("keeps reverse direction as the default order for legacy animations", async () => {
+    const reversedAnimation: MotionTextAnimation = {
+      ...animation,
+      direction: "reverse",
+      staggerMs: 10,
+    };
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={reversedAnimation}>
+          <h1 data-agent-native-node-id="headline">One two three four</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(mockedAnimations.map(({ options }) => options.delay)).toEqual([
+      30, 20, 10, 0,
+    ]);
+  });
+
+  it("uses paragraph order and fits each unit duration to overlapPercent", async () => {
+    const orderedAnimation = {
+      ...animation,
+      unit: "paragraph",
+      direction: "reverse",
+      order: "bottom-to-top",
+      staggerMs: 0,
+      overlapPercent: 50,
+      durationMs: 240,
+    } as MotionTextAnimation;
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={orderedAnimation}>
+          <div data-agent-native-node-id="headline">
+            <p>First</p>
+            <p>Second</p>
+            <p>Third</p>
+          </div>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(
+      mockedAnimations.map(({ options }) => [options.duration, options.delay]),
+    ).toEqual([
+      [120, 120],
+      [120, 60],
+      [120, 0],
+    ]);
+    expect(
+      mockedAnimations.map(({ element, options }) => [
+        element.textContent,
+        options.delay,
+      ]),
+    ).toEqual([
+      ["First", 120],
+      ["Second", 60],
+      ["Third", 0],
+    ]);
+  });
+
+  it("orders line groups from measured DOM positions", async () => {
+    const getBoundingClientRect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const unitIndex = Number(
+          this.getAttribute("data-agent-native-motion-text-unit"),
+        );
+        return { top: unitIndex < 2 ? 24 : 48 } as DOMRect;
+      });
+    const lineAnimation = {
+      ...animation,
+      unit: "line",
+      order: "bottom-to-top",
+      staggerMs: 15,
+    } as MotionTextAnimation;
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={lineAnimation}>
+          <h1 data-agent-native-node-id="headline">One two three four</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(getBoundingClientRect).toHaveBeenCalledTimes(4);
+    expect(mockedAnimations.map(({ options }) => options.delay)).toEqual([
+      15, 15, 0, 0,
+    ]);
+  });
+
+  it("accepts duration-fitted native stagger values without overlapPercent", async () => {
+    const nativeAnimation = {
+      ...animation,
+      staggerMs: 9600,
+      durationMs: 12_000,
+    };
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={nativeAnimation}>
+          <h1 data-agent-native-node-id="headline">One two three four</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(
+      mockedAnimations.map(({ options }) => [options.duration, options.delay]),
+    ).toEqual([
+      [12_000, 0],
+      [12_000, 9600],
+      [12_000, 19_200],
+      [12_000, 28_800],
+    ]);
+  });
+
+  it("rejects fixed stagger schedules whose total span exceeds two minutes", async () => {
+    const overlongAnimation = {
+      ...animation,
+      staggerMs: 30_001,
+    };
+
+    await expect(
+      act(async () => {
+        root.render(
+          <AgentNativeMotionText animation={overlongAnimation}>
+            <h1 data-agent-native-node-id="headline">
+              One two three four five
+            </h1>
+          </AgentNativeMotionText>,
+        );
+      }),
+    ).rejects.toThrow(
+      "AgentNativeMotionText animation span exceeds the 120000ms runtime limit.",
+    );
+    expect(mockedAnimations).toHaveLength(0);
+  });
+
+  it("rejects text animation spans beyond two minutes, including delay and duration for one unit", async () => {
+    const overlongAnimation = {
+      ...animation,
+      delayMs: 119_801,
+      durationMs: 200,
+    };
+
+    await expect(
+      act(async () => {
+        root.render(
+          <AgentNativeMotionText animation={overlongAnimation}>
+            <h1 data-agent-native-node-id="headline">One</h1>
+          </AgentNativeMotionText>,
+        );
+      }),
+    ).rejects.toThrow(
+      "AgentNativeMotionText animation span exceeds the 120000ms runtime limit.",
+    );
+    expect(mockedAnimations).toHaveLength(0);
+  });
+
+  it("accepts a text animation span exactly at the two-minute limit", async () => {
+    const boundaryAnimation = {
+      ...animation,
+      delayMs: 119_800,
+      durationMs: 200,
+    };
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={boundaryAnimation}>
+          <h1 data-agent-native-node-id="headline">One</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(mockedAnimations).toHaveLength(1);
+    expect(mockedAnimations[0]?.options).toMatchObject({
+      delay: 119_800,
+      duration: 200,
+    });
+  });
+
+  it("keeps whitespace in flow while including it in character ordering", async () => {
+    const characterAnimation = {
+      ...animation,
+      unit: "character",
+      staggerMs: 10,
+      ignoreSpaces: false,
+    } as MotionTextAnimation;
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={characterAnimation}>
+          <h1 data-agent-native-node-id="headline">A B</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(container.querySelector("h1")?.textContent).toBe("A B");
+    expect(
+      container.querySelectorAll("[data-agent-native-motion-text-unit]"),
+    ).toHaveLength(3);
+    expect(mockedAnimations.map(({ options }) => options.delay)).toEqual([
+      0, 10, 20,
+    ]);
+  });
+
+  it("reports fixed-stagger spans and follows the shared parent timeline", async () => {
+    const characterAnimation = {
+      ...animation,
+      unit: "character",
+      staggerMs: 50,
+      ignoreSpaces: false,
+      delayMs: 25,
+      durationMs: 200,
+    } as MotionTextAnimation;
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={characterAnimation}>
+          <h1 data-agent-native-node-id="headline">A B</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(mockedAnimations.map(({ options }) => options.delay)).toEqual([
+      25, 75, 125,
+    ]);
+
+    const postMessage = vi.spyOn(window, "postMessage");
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "motion-preview", t: 1, durationMs: 200 },
+      }),
+    );
+
+    expect(
+      mockedAnimations.map(({ animation: handle }) => handle.currentTime),
+    ).toEqual([200, 200, 200]);
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "motion-preview-span",
+        key: "react:headline",
+        durationMs: 325,
+      },
+      "*",
+    );
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "motion-preview", t: 1, durationMs: 325 },
+      }),
+    );
+    expect(
+      mockedAnimations.map(({ animation: handle }) => handle.currentTime),
+    ).toEqual([225, 275, 325]);
+  });
+
+  it("reports its text span when the shared Motion timeline requests it", async () => {
+    const characterAnimation = {
+      ...animation,
+      unit: "character",
+      staggerMs: 50,
+      ignoreSpaces: false,
+      delayMs: 25,
+      durationMs: 200,
+    } as MotionTextAnimation;
+    const postMessage = vi.spyOn(window, "postMessage");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animation={characterAnimation}>
+          <h1 data-agent-native-node-id="headline">A B</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    postMessage.mockClear();
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "motion-preview-duration-request" },
+      }),
+    );
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "motion-preview-span",
+        key: "react:headline",
+        durationMs: 325,
+      },
+      "*",
+    );
+  });
+
+  it.each([
+    {
+      label: "unsupported order",
+      settings: { order: "diagonal" },
+      message: "AgentNativeMotionText order is unsupported.",
+    },
+    {
+      label: "unsupported animation direction",
+      settings: { animationDirection: "sideways" },
+      message: "AgentNativeMotionText animationDirection is unsupported.",
+    },
+    {
+      label: "vertical order for word units",
+      settings: { order: "top-to-bottom" },
+      message:
+        "AgentNativeMotionText vertical order requires line or paragraph units.",
+    },
+    {
+      label: "overlap outside its supported range",
+      settings: { overlapPercent: 101 },
+      message:
+        "AgentNativeMotionText overlapPercent must be between 0 and 100.",
+    },
+  ])(
+    "rejects $label instead of falling back to defaults",
+    ({ settings, message }) => {
+      const invalidAnimation = {
+        ...animation,
+        ...settings,
+      } as MotionTextAnimation;
+
+      expect(() =>
+        renderToString(
+          <AgentNativeMotionText animation={invalidAnimation}>
+            <h1 data-agent-native-node-id="headline">Hello world</h1>
+          </AgentNativeMotionText>,
+        ),
+      ).toThrow(message);
+    },
+  );
 
   it("rejects composite tracks with incompatible tokenization", () => {
     expect(() =>
@@ -344,7 +727,7 @@ describe("AgentNativeMotionText", () => {
           <h1 data-agent-native-node-id="headline">Hello world</h1>
         </AgentNativeMotionText>,
       ),
-    ).toThrow(/must share target, unit, direction, and stagger/);
+    ).toThrow(/must share target, unit, direction/);
   });
 
   it.each([
@@ -430,7 +813,7 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([100, 60]);
+    ).toEqual([100, 100]);
     expect(
       mockedAnimations.every(
         ({ animation: handle }) => handle.pause.mock.calls.length === 1,
@@ -445,7 +828,7 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([200, 160]);
+    ).toEqual([200, 200]);
     expect(
       mockedAnimations.every(
         ({ animation: handle }) => handle.pause.mock.calls.length === 1,
@@ -460,7 +843,7 @@ describe("AgentNativeMotionText", () => {
     );
     expect(
       mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-    ).toEqual([200, 200]);
+    ).toEqual([200, 240]);
 
     window.dispatchEvent(
       new MessageEvent("message", {
@@ -512,7 +895,7 @@ describe("AgentNativeMotionText", () => {
       );
       expect(
         mockedAnimations.map(({ animation: handle }) => handle.currentTime),
-      ).toEqual([500, 460]);
+      ).toEqual([500, 500]);
       expect(
         mockedAnimations.every(
           ({ animation: handle }) => handle.pause.mock.calls.length === 1,

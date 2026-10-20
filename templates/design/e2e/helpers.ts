@@ -162,6 +162,29 @@ export function appPath(path: string): string {
   return url.toString();
 }
 
+/** This tab's selection: parallel workers share one user, so the global key is anyone's. */
+export async function selectionState(page: Page) {
+  const tabId = await page.evaluate(() =>
+    sessionStorage.getItem("agent-native:browser-tab-id"),
+  );
+  expect(tabId).toBeTruthy();
+  const response = await page.request.get(
+    appPath(
+      `/_agent-native/application-state/${encodeURIComponent(`design-selection:${tabId}`)}`,
+    ),
+  );
+  expect(response.ok()).toBe(true);
+  // An empty body: the editor has not written a selection yet.
+  const body = await response.text();
+  return body
+    ? (JSON.parse(body) as {
+        activeFileId?: string | null;
+        selectedScreenIds?: string[];
+        selectedElement?: { sourceId?: string } | null;
+      })
+    : null;
+}
+
 export async function panTargetIntoUnobscuredCanvas(
   page: Page,
   target: Locator,
@@ -506,9 +529,11 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  const designMode = page.locator(
+    '[data-design-top-bar] [data-design-mode="edit"]',
+  );
+  await expect(designMode).toBeVisible({ timeout: 30_000 });
+  await expect(designMode).toHaveAttribute("aria-pressed", "true");
   await waitForDesignBridgeReady(page);
 }
 
@@ -645,15 +670,14 @@ export async function enterInteractView(
   page: Page,
   options?: { screenId?: string },
 ): Promise<void> {
-  const fullView = options?.screenId
-    ? page
-        .locator(
-          `[data-screen-shell][data-frame-id="${options.screenId.replace(/"/g, '\\"')}"]`,
-        )
-        .locator("[data-frame-full-view]")
-    : page.locator("[data-frame-full-view]").last();
-  await expect(fullView).toHaveCount(1);
-  const screenShell = fullView.locator("xpath=ancestor::*[@data-screen-shell]");
+  const screenShell = options?.screenId
+    ? page.locator(
+        `[data-screen-shell][data-frame-id="${options.screenId.replace(/"/g, '\\"')}"]`,
+      )
+    : page
+        .locator("[data-screen-shell]")
+        .filter({ has: page.locator("[data-screen-card]") })
+        .last();
   await expect(screenShell).toHaveAttribute(
     "data-screen-interact-mode",
     "false",
@@ -662,11 +686,8 @@ export async function enterInteractView(
     .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
     .first();
   await expect(previewIframe).toBeVisible();
-  // The frame's "Focus screen" button only selects the Screen and fits the
-  // camera to it; Interact is entered from the top bar for that focused Screen.
-  await fullView.evaluate((element) => {
-    (element as HTMLButtonElement).click();
-  });
+  // Double-click the screen label to open its focused view before entering Interact.
+  await screenShell.locator("[data-frame-title]").first().dblclick();
   await expect(previewIframe).toBeVisible();
   await page
     .locator('[data-design-top-bar] [data-design-mode="interact"]')

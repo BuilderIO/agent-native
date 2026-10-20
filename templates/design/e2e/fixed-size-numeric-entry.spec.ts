@@ -1,10 +1,12 @@
 import { type Page } from "@playwright/test";
 
 import { appPath, expandAllLayers } from "./helpers";
-import { expect, expectOnlyChanged, test, type App } from "./rails";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 const ROW_FRAME_ID = "fixed-size-row-frame";
+const ROW_COMPANION_ID = "fixed-size-row-companion";
 const COLUMN_LEAF_ID = "fixed-size-column-leaf";
+const COLUMN_COMPANION_ID = "fixed-size-column-companion";
 
 type DesignRecord = {
   files?: Array<{ id: string; filename?: string; content?: string }>;
@@ -14,11 +16,11 @@ const CONSTRAINED_FLEX_HTML = `<!doctype html><html><head><meta charset="utf-8">
 <body style="box-sizing:border-box;width:480px;height:360px;margin:0;padding:20px;display:flex;flex-direction:column;gap:20px">
   <section data-agent-native-node-id="fixed-size-row-parent" data-agent-native-layer-name="Row Parent" data-an-primitive="frame" style="box-sizing:border-box;width:180px;height:140px;padding:8px;display:flex;flex-direction:row;align-items:stretch;gap:8px;flex:0 0 auto;background:#e2e8f0">
     <div data-agent-native-node-id="${ROW_FRAME_ID}" data-agent-native-layer-name="Row Frame" data-an-primitive="frame" style="box-sizing:border-box;width:120px;height:100%;min-width:0;flex:0 1 auto;display:flex;align-items:center;background:#2563eb"><span>Frame</span></div>
-    <div data-agent-native-node-id="fixed-size-row-companion" data-agent-native-layer-name="Row Companion" data-an-primitive="rectangle" style="box-sizing:border-box;width:30px;height:40px;flex:0 1 auto;background:#f97316"></div>
+    <div data-agent-native-node-id="${ROW_COMPANION_ID}" data-agent-native-layer-name="Row Companion" data-an-primitive="rectangle" style="box-sizing:border-box;width:30px;height:40px;flex:0 1 auto;background:#f97316"></div>
   </section>
   <section data-agent-native-node-id="fixed-size-column-parent" data-agent-native-layer-name="Column Parent" data-an-primitive="frame" style="box-sizing:border-box;width:180px;height:140px;padding:8px;display:flex;flex-direction:column;align-items:stretch;gap:8px;flex:0 0 auto;background:#e2e8f0">
     <div data-agent-native-node-id="${COLUMN_LEAF_ID}" data-agent-native-layer-name="Column Leaf" data-an-primitive="rectangle" style="box-sizing:border-box;width:100%;height:80px;min-height:0;flex:0 1 auto;background:#16a34a"></div>
-    <div data-agent-native-node-id="fixed-size-column-companion" data-agent-native-layer-name="Column Companion" data-an-primitive="rectangle" style="box-sizing:border-box;width:40px;height:24px;flex:0 1 auto;background:#f97316"></div>
+    <div data-agent-native-node-id="${COLUMN_COMPANION_ID}" data-agent-native-layer-name="Column Companion" data-an-primitive="rectangle" style="box-sizing:border-box;width:40px;height:24px;flex:0 1 auto;background:#f97316"></div>
   </section>
 </body></html>`;
 
@@ -116,8 +118,7 @@ async function screenFileId(page: Page, designId: string) {
   return file.id;
 }
 
-// fixme: product bug: Fixing Row Frame at 260px inside a 164px-wide row collapses the sibling Row Companion (authored width:30px) to 0px wide: the row gives
-test.fixme("numeric Fixed size sticks on a Frame's row main axis while its cross axis stays Fill", async ({
+test("numeric Fixed size sticks on a Frame's row main axis while its cross axis stays Fill", async ({
   app,
   page,
 }) => {
@@ -142,10 +143,19 @@ test.fixme("numeric Fixed size sticks on a Frame's row main axis while its cross
     alignSelf: "stretch",
     flexShrink: "0",
   });
-  expectOnlyChanged(before, await app.savedNodes(designId), [ROW_FRAME_ID]);
+  const after = await app.savedNodes(designId);
+  expectOnlyChanged(before, after, [ROW_FRAME_ID, ROW_COMPANION_ID]);
+  expect(
+    styleOf(after.get(ROW_COMPANION_ID)),
+    "the fixed sibling is pinned in the overfull row",
+  ).toEqual({ ...styleOf(before.get(ROW_COMPANION_ID)), flex: "0 0 auto" });
   expect(await renderedSize(app, ROW_FRAME_ID)).toEqual({
     width: 260,
     height: 124,
+  });
+  expect(await renderedSize(app, ROW_COMPANION_ID)).toEqual({
+    width: 30,
+    height: 40,
   });
 
   await reopenAndSelect(app, designId, "Row Frame");
@@ -172,13 +182,12 @@ test.fixme("numeric Fixed size sticks on a Frame's row main axis while its cross
     height: 124,
   });
   expect(
-    await renderedSize(app, "fixed-size-row-companion"),
+    await renderedSize(app, ROW_COMPANION_ID),
     "the fixed 30x40 sibling keeps its size",
   ).toEqual({ width: 30, height: 40 });
 });
 
-// fixme: product bug: Column Companion (authored height:24px) collapses to 0px tall once Column Leaf is fixed at 220px in a 124px-tall column. Same root cause
-test.fixme("numeric Fixed size sticks on a leaf's column main axis while its cross axis stays Fill", async ({
+test("numeric Fixed size sticks on a leaf's column main axis while its cross axis stays Fill", async ({
   app,
   page,
 }) => {
@@ -205,10 +214,19 @@ test.fixme("numeric Fixed size sticks on a leaf's column main axis while its cro
     alignSelf: "stretch",
     flexShrink: "0",
   });
-  expectOnlyChanged(before, await app.savedNodes(designId), [COLUMN_LEAF_ID]);
+  const after = await app.savedNodes(designId);
+  expectOnlyChanged(before, after, [COLUMN_LEAF_ID, COLUMN_COMPANION_ID]);
+  expect(
+    styleOf(after.get(COLUMN_COMPANION_ID)),
+    "the fixed sibling is pinned in the overfull column",
+  ).toEqual({ ...styleOf(before.get(COLUMN_COMPANION_ID)), flex: "0 0 auto" });
   expect(await renderedSize(app, COLUMN_LEAF_ID)).toEqual({
     width: 164,
     height: 220,
+  });
+  expect(await renderedSize(app, COLUMN_COMPANION_ID)).toEqual({
+    width: 40,
+    height: 24,
   });
 
   await reopenAndSelect(app, designId, "Column Leaf");
@@ -235,7 +253,7 @@ test.fixme("numeric Fixed size sticks on a leaf's column main axis while its cro
     height: 220,
   });
   expect(
-    await renderedSize(app, "fixed-size-column-companion"),
+    await renderedSize(app, COLUMN_COMPANION_ID),
     "the fixed 40x24 sibling keeps its size",
   ).toEqual({ width: 40, height: 24 });
 });

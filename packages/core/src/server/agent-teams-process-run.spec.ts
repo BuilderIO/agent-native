@@ -4,14 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   completeProgressRunMock,
+  getCurrentTurnRunEventsMock,
   getProgressRunMock,
   hasNotificationWithMetadataMock,
   insertNotificationMock,
+  revokeTaskExecutionLeaseMock,
 } = vi.hoisted(() => ({
   completeProgressRunMock: vi.fn(),
+  getCurrentTurnRunEventsMock: vi.fn(),
   getProgressRunMock: vi.fn(),
   hasNotificationWithMetadataMock: vi.fn(),
   insertNotificationMock: vi.fn(),
+  revokeTaskExecutionLeaseMock: vi.fn(),
 }));
 
 let queueRows: Record<string, any>[] = [];
@@ -23,6 +27,7 @@ let reclaimAfterNextReconciliationClaim = false;
 let completeAfterNextDispatchStateRead = false;
 let failParentCompletionReadFor: string | null = null;
 let rejectNextThreadDataUpdate = false;
+let failTaskErrorCasCount = 0;
 let failTaskProjectionFor: {
   taskId: string;
   status?: string;
@@ -110,7 +115,10 @@ const queueDb = {
         r.status = "running";
         r.attempts += 1;
         r.updated_at = updatedAt;
-        return affected(1);
+        return {
+          rows: s.includes("RETURNING *") ? [{ ...r }] : [],
+          rowsAffected: 1,
+        };
       }
       return affected(0);
     }
@@ -230,11 +238,7 @@ const queueDb = {
         rowsAffected: 0,
       };
     }
-    if (
-      s.includes(
-        "SELECT status, attempts, updated_at FROM agent_team_run_queue",
-      )
-    ) {
+    if (s.includes("SELECT status, attempts, updated_at, thread_id, payload")) {
       const r = queueRows.find((x) => x.task_id === args[0]);
       return {
         rows: r
@@ -243,6 +247,10 @@ const queueDb = {
                 status: r.status,
                 attempts: r.attempts,
                 updated_at: r.updated_at,
+                thread_id: r.thread_id,
+                payload: r.payload,
+                owner_email: r.owner_email,
+                org_id: r.org_id,
               },
             ]
           : [],
@@ -410,6 +418,14 @@ vi.mock("../application-state/script-helpers.js", () => ({
   }),
   compareAndSetAppState: vi.fn(async (k: string, expected: any, next: any) => {
     requireMockRequestContext();
+    if (
+      k.startsWith("agent-task:") &&
+      next?.status === "errored" &&
+      failTaskErrorCasCount > 0
+    ) {
+      failTaskErrorCasCount -= 1;
+      return false;
+    }
     beforeNextAppStateCas?.();
     beforeNextAppStateCas = null;
     if (
@@ -499,41 +515,89 @@ const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
 const persistedRunEventIds: string[] = [];
 const persistedTerminalRunEventIds: string[] = [];
+const persistedRunEvents: Array<{
+  threadId: string;
+  turnId: string;
+  runId: string;
+  seq: number;
+  event: any;
+}> = [];
+let heldToolStartEventWrite: Promise<void> | null = null;
+let persistedToolStartEventWrites = 0;
+let failNextExecutionLeaseClaim = false;
 const startRunWork: Promise<void>[] = [];
 const activeRunMocks = new Map<string, any>();
 vi.mock("../agent/run-manager.js", () => ({
   startRun: (
     runId: string,
     threadId: string,
-    runFn: (send: any, signal: any) => Promise<void>,
+    runFn: (send: any, signal: any, control: any) => Promise<void>,
     onComplete?: (run: any) => Promise<void>,
     options?: any,
   ) => {
+    const turnId = options?.turnId ?? runId;
+    if (options?.executionLease && failNextExecutionLeaseClaim) {
+      failNextExecutionLeaseClaim = false;
+      return {
+        runId,
+        threadId,
+        turnId,
+        events: [],
+        status: "aborted",
+        abortReason: "execution-lease-busy",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+        finalized: Promise.resolve(),
+      };
+    }
     const work = (async () => {
       const events: any[] = [];
       const pendingEventWrites: Promise<unknown>[] = [];
-      const send = (e: any) => {
+      const send = (e: any): Promise<void> => {
         events.push({ seq: events.length, event: e });
-        if (options?.persistEvent) {
-          const terminal = [
-            "done",
-            "error",
-            "missing_api_key",
-            "loop_limit",
-            "auto_continue",
-          ].includes(e?.type);
-          if (terminal) return;
-          pendingEventWrites.push(
-            options
-              .persistEvent(async () => {}, {
-                terminal: false,
-                eventData: JSON.stringify(e),
-              })
-              .then(() => {
-                persistedRunEventIds.push(runId);
-              }),
-          );
+        const terminal = [
+          "done",
+          "error",
+          "missing_api_key",
+          "loop_limit",
+          "auto_continue",
+        ].includes(e?.type);
+        if (terminal) return Promise.resolve();
+        if (e?.type === "tool_start" && heldToolStartEventWrite) {
+          const heldWrite = heldToolStartEventWrite;
+          heldToolStartEventWrite = null;
+          const write = heldWrite.then(() => {
+            persistedToolStartEventWrites += 1;
+          });
+          pendingEventWrites.push(write);
+          return write;
         }
+        if (options?.persistEvent) {
+          const runEvent = events.at(-1)!;
+          const write = options
+            .persistEvent(async () => {}, {
+              terminal: false,
+              eventData: JSON.stringify(e),
+            })
+            .then(() => {
+              persistedRunEventIds.push(runId);
+              persistedRunEvents.push({
+                threadId,
+                turnId,
+                runId,
+                ...runEvent,
+              });
+            });
+          pendingEventWrites.push(write);
+          return write;
+        }
+        return Promise.resolve();
+      };
+      const control = {
+        flushEvents: async () => {
+          await Promise.all(pendingEventWrites);
+        },
       };
       const signal = {
         aborted: false,
@@ -542,7 +606,7 @@ vi.mock("../agent/run-manager.js", () => ({
       };
       let status: "completed" | "errored" = "completed";
       try {
-        await runFn(send, signal);
+        await runFn(send, signal, control);
       } catch {
         status = "errored";
       }
@@ -550,7 +614,7 @@ vi.mock("../agent/run-manager.js", () => ({
       const run = {
         runId,
         threadId,
-        turnId: options?.turnId ?? runId,
+        turnId,
         events,
         status,
         subscribers: new Set(),
@@ -561,12 +625,35 @@ vi.mock("../agent/run-manager.js", () => ({
       try {
         if (onComplete) await onComplete(run);
         if (options?.persistEvent) {
+          const terminalEvent = [...events]
+            .reverse()
+            .find(({ event }) =>
+              [
+                "done",
+                "error",
+                "missing_api_key",
+                "loop_limit",
+                "auto_continue",
+              ].includes(event?.type),
+            )?.event ?? { type: "done" };
           await options.persistEvent(async () => {}, {
             terminal: true,
-            eventData: '{"type":"done"}',
+            eventData: JSON.stringify(terminalEvent),
           });
           persistedRunEventIds.push(runId);
           persistedTerminalRunEventIds.push(runId);
+          if (
+            terminalEvent.type === "auto_continue" ||
+            terminalEvent.type === "loop_limit"
+          ) {
+            persistedRunEvents.push({
+              threadId,
+              turnId,
+              runId,
+              seq: 1_000_000_000,
+              event: terminalEvent,
+            });
+          }
         }
       } finally {
         activeRunMocks.delete(runId);
@@ -593,8 +680,12 @@ vi.mock("../agent/run-manager.js", () => ({
 
 const getRunEventsSinceMock = vi.fn(async () => []);
 vi.mock("../agent/run-store.js", () => ({
+  CHECKPOINT_TERMINAL_EVENT_SEQ: 1_000_000_000,
   ensureRunTables: vi.fn(async () => undefined),
   getRunEventsSince: getRunEventsSinceMock,
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsMock,
+  lockTaskExecutionLease: vi.fn(async () => undefined),
+  revokeTaskExecutionLease: revokeTaskExecutionLeaseMock,
 }));
 
 const actionsToEngineToolsMock = vi.fn(() => [] as Array<{ name: string }>);
@@ -724,6 +815,7 @@ const {
   listAgentTeamBackgroundTranscriptEvents,
   getTask,
   listTasks,
+  markTaskErrored,
   processAgentTeamRun,
   reconcileStaleAgentTeamRuns,
   reconcileAgentTeamRunsForOwner,
@@ -788,6 +880,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     completeAfterNextDispatchStateRead = false;
     failParentCompletionReadFor = null;
     rejectNextThreadDataUpdate = false;
+    failTaskErrorCasCount = 0;
     failTaskProjectionFor = null;
     beforeNextAppStateCas = null;
     afterContinuationRequeueCommit = null;
@@ -815,9 +908,24 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     getActiveRunForThreadAsyncMock.mockResolvedValue(null);
     persistedRunEventIds.length = 0;
     persistedTerminalRunEventIds.length = 0;
+    persistedRunEvents.length = 0;
+    heldToolStartEventWrite = null;
+    persistedToolStartEventWrites = 0;
+    failNextExecutionLeaseClaim = false;
     subscribeToRunMock.mockReset();
     getRunEventsSinceMock.mockReset();
     getRunEventsSinceMock.mockResolvedValue([]);
+    getCurrentTurnRunEventsMock.mockReset();
+    getCurrentTurnRunEventsMock.mockImplementation(
+      async (threadId: string, turnId: string) =>
+        persistedRunEvents
+          .filter(
+            (event) => event.threadId === threadId && event.turnId === turnId,
+          )
+          .map(({ runId, seq, event }) => ({ runId, seq, event })),
+    );
+    revokeTaskExecutionLeaseMock.mockReset();
+    revokeTaskExecutionLeaseMock.mockResolvedValue(undefined);
     completeProgressRunMock.mockReset();
     completeProgressRunMock.mockResolvedValue({ status: "succeeded" });
     getProgressRunMock.mockReset();
@@ -860,6 +968,159 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("fails a public task error atomically and fences the active worker", async () => {
+    await seedTask("public-error");
+
+    let releaseLoop!: () => void;
+    let resolveLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      resolveLoopStarted = resolve;
+    });
+    const loopGate = new Promise<void>((resolve) => {
+      releaseLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      resolveLoopStarted();
+      await loopGate;
+      opts.send({ type: "text", text: "late worker write" });
+    });
+
+    const processing = processAgentTeamRun({
+      taskId: "public-error",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        markTaskErrored("public-error", "Parent reported a failure."),
+      );
+
+      expect(appState.get("agent-task:public-error")).toMatchObject({
+        status: "errored",
+        summary: "Parent reported a failure.",
+        error: "Parent reported a failure.",
+        terminalProgressStatus: "failed",
+      });
+      expect(
+        (await queue.getAgentTeamRunDispatchState("public-error"))?.status,
+      ).toBe("failed");
+      expect(revokeTaskExecutionLeaseMock).toHaveBeenCalledWith(
+        queueDb,
+        "thread-1",
+        "run-task-public-error",
+      );
+      expect(abortRunMock).toHaveBeenCalledWith(
+        expect.stringContaining("run-task-public-error"),
+        "superseded",
+      );
+      await expect(queue.claimAgentTeamRun("public-error")).resolves.toBeNull();
+
+      releaseLoop();
+      await processing;
+      expect(appState.get("agent-task:public-error")).toMatchObject({
+        status: "errored",
+        summary: "Parent reported a failure.",
+      });
+    } finally {
+      releaseLoop();
+    }
+  }, 20_000);
+
+  it("keeps markTaskErrored inside the requesting owner's scope", async () => {
+    await seedTask("public-error-owner");
+
+    await runWithRequestContext({ userEmail: "other@example.com" }, () =>
+      markTaskErrored("public-error-owner", "outside owner scope"),
+    );
+
+    expect(appState.get("agent-task:public-error-owner")).toMatchObject({
+      status: "running",
+    });
+    expect(
+      (await queue.getAgentTeamRunDispatchState("public-error-owner"))?.status,
+    ).toBe("queued");
+    expect(revokeTaskExecutionLeaseMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces repeated compare-and-set conflicts from markTaskErrored", async () => {
+    await seedTask("public-error-races");
+    failTaskErrorCasCount = 3;
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        markTaskErrored("public-error-races", "Parent reported a failure."),
+      ),
+    ).rejects.toThrow("changed repeatedly during concurrent updates");
+
+    expect(appState.get("agent-task:public-error-races")).toMatchObject({
+      status: "running",
+    });
+    expect(
+      (await queue.getAgentTeamRunDispatchState("public-error-races"))?.status,
+    ).toBe("queued");
+  });
+
+  it("requeues a team attempt when its execution lease claim is busy", async () => {
+    failNextExecutionLeaseClaim = true;
+    await seedTask("lease-claim-busy");
+
+    await expect(
+      processAgentTeamRun({
+        taskId: "lease-claim-busy",
+        mode: "start",
+        resolveConfig: async () => resolveConfig(),
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      queue.getAgentTeamRunDispatchState("lease-claim-busy"),
+    ).resolves.toMatchObject({ status: "queued", attempts: 1 });
+    expect(appState.get("agent-task:lease-claim-busy")).toMatchObject({
+      status: "running",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("flushes tool_start persistence before dispatching a write", async () => {
+    let releaseToolStartWrite!: () => void;
+    heldToolStartEventWrite = new Promise<void>((resolve) => {
+      releaseToolStartWrite = resolve;
+    });
+    let toolStartSent = false;
+    let actionDispatched = false;
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      const persistence = opts.send({
+        type: "tool_start",
+        id: "send-email-1",
+        tool: "send-email",
+        input: {},
+      });
+      expect(persistence).toBeInstanceOf(Promise);
+      toolStartSent = true;
+      await opts.beforeWrite();
+      expect(persistedToolStartEventWrites).toBe(1);
+      actionDispatched = true;
+    });
+    await seedTask("tool-start-event-order");
+
+    const processing = processAgentTeamRun({
+      taskId: "tool-start-event-order",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+    try {
+      await vi.waitFor(() => expect(toolStartSent).toBe(true));
+      expect(actionDispatched).toBe(false);
+    } finally {
+      releaseToolStartWrite();
+    }
+    await processing;
+
+    expect(actionDispatched).toBe(true);
+  });
 
   it("keeps a committed Stop after a continuation is requeued", async () => {
     const taskId = "continuation-stop-race";
@@ -1463,6 +1724,95 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     ).toEqual(["run-task-reclaimed-a1-c0", "run-task-reclaimed-a2-c0"]);
     expect(persistedRunEventIds).toContain("run-task-reclaimed-a2-c0");
     expect(persistedRunEventIds).not.toContain("run-task-reclaimed-a1-c0");
+  });
+
+  it("replays a committed side effect when a reclaimed task restarts from its description", async () => {
+    let announceCommittedEffect!: () => void;
+    let releaseCrashedWorker!: () => void;
+    const committedEffect = new Promise<void>((resolve) => {
+      announceCommittedEffect = resolve;
+    });
+    const crashedWorkerGate = new Promise<void>((resolve) => {
+      releaseCrashedWorker = resolve;
+    });
+    let sideEffectCommits = 0;
+    const durableReceipt = { result: "message sent" };
+
+    runAgentLoopMock
+      .mockImplementationOnce(async () => {
+        sideEffectCommits += 1;
+        announceCommittedEffect();
+        // Model a worker crash after the provider committed but before tool_done.
+        await crashedWorkerGate;
+      })
+      .mockImplementationOnce(async (opts: any) => {
+        expect(opts).toMatchObject({
+          threadId: "thread-1",
+          turnId: "run-task-reclaimed-after-commit",
+          recoverCompletedExecutionSteps: true,
+        });
+        expect(opts.messages).toEqual([
+          {
+            role: "user",
+            content: [{ type: "text", text: "do the thing" }],
+          },
+        ]);
+
+        // The durable journal gives the successor the committed receipt; it
+        // projects that result instead of invoking the provider again.
+        await opts.send({
+          type: "tool_start",
+          id: "send-message-1",
+          tool: "send-message",
+          input: { text: "hello" },
+        });
+        await opts.send({
+          type: "tool_done",
+          id: "send-message-1",
+          tool: "send-message",
+          input: { text: "hello" },
+          result: `Recovered: ${durableReceipt.result}`,
+          completedSideEffect: true,
+          replayed: true,
+        });
+        await opts.send({ type: "text", text: "Message sent." });
+      });
+
+    await seedTask("reclaimed-after-commit");
+    const crashedAttempt = processAgentTeamRun({
+      taskId: "reclaimed-after-commit",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+    await committedEffect;
+
+    const row = queueRows.find(
+      (candidate) => candidate.task_id === "reclaimed-after-commit",
+    );
+    if (!row) throw new Error("missing claimed task row");
+    row.updated_at = Date.now() - queue.RUN_DISPATCH_STUCK_AFTER_MS - 1;
+
+    await processAgentTeamRun({
+      taskId: "reclaimed-after-commit",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(sideEffectCommits).toBe(1);
+    expect(runAgentLoopMock.mock.calls).toHaveLength(2);
+    expect(
+      instrumentAgentLoopMock.mock.calls.map(([options]) => options.runId),
+    ).toEqual([
+      "run-task-reclaimed-after-commit-a1-c0",
+      "run-task-reclaimed-after-commit-a2-c0",
+    ]);
+    expect(appState.get("agent-task:reclaimed-after-commit")).toMatchObject({
+      status: "completed",
+      summary: "Message sent.",
+    });
+
+    releaseCrashedWorker();
+    await crashedAttempt;
   });
 
   it("reapplies the persisted action surface in the durable processor", async () => {

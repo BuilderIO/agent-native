@@ -80,7 +80,11 @@ import {
 } from "../shared/node-rewrite.js";
 import action from "./propose-node-rewrite.js";
 
-const target = { nodeId: "hero" };
+const target = {
+  nodeId: "hero",
+  selector:
+    "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(1)",
+};
 
 describe("propose-node-rewrite", () => {
   beforeEach(() => {
@@ -172,6 +176,7 @@ describe("propose-node-rewrite", () => {
       expect.objectContaining({
         type: "node-html-preview",
         proposalId: "node-rewrite-proposal_1",
+        target,
         operation: "preview",
         html: '<section class="bg-slate-950"><h1>New</h1></section>',
       }),

@@ -61,6 +61,11 @@ export function classifyDesignSaveFailure(
   if (!navigatorOnline) return "offline";
   // The action client times a stalled request out locally, as status 408.
   if (errorField(error, "timedOut") === true) return "offline";
+  // A 2xx that throws lost its body after the server accepted the write, so
+  // only the outbox replay can settle it; calling it failed rolls back a move.
+  if (typeof status === "number" && status >= 200 && status < 300) {
+    return "offline";
+  }
   // The action client rethrows a fetch rejection as a plain Error with no status.
   const reachedServer = typeof status === "number" && status !== 0;
   if (

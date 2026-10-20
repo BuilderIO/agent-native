@@ -167,6 +167,8 @@ export default defineAction({
 
 यह legacy `parameters`-स्टाइल actions और schema-आधारित actions दोनों के लिए उसी तरह काम करता है। यह in-app एजेंट, sub-agents, A2A, और MCP कॉलर्स के लिए भी उसी तरह काम करता है, क्योंकि हर एजेंट सतह उसी लूप से होकर गुज़रती है।
 
+bearer token या API key के साथ [HTTP API](/docs/http-api) से किए गए calls approval card को छोड़ देते हैं: route action को सीधे चलाता है, ठीक वैसे ही जैसे ऐप के अपने UI के लिए। अगर आप चाहते हैं कि किसी एजेंट के calls approve किए जाएँ, तो HTTP routes को कॉल करने के बजाय उसे [MCP](/docs/external-agents) से कनेक्ट करें।
+
 ### लूप कैसे रुकता है {#loop}
 
 जब एजेंट किसी गेटेड action को कॉल करता है और यह विशिष्ट कॉल पहले से अनुमोदित **नहीं** है, तो लूप `run()` को execute **नहीं** करता। इसके बजाय यह:

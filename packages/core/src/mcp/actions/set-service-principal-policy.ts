@@ -41,6 +41,11 @@ const FIELDS = [
 ] as const;
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Set the governance record of an org service principal: accountable owner (an org member), team, risk tier, purpose, and the action allow-list (null = unrestricted, [] = nothing, a trailing * matches a prefix). Omitted fields are unchanged; null clears a field. Org owner/admin only.",
   schema: z.object({
@@ -55,6 +60,7 @@ export default defineAction({
     purpose: purposeSchema.nullable().optional(),
     allowedActions: allowedActionsSchema.nullable().optional(),
   }),
+  agentTool: false,
   toolCallable: false,
   audit: orgAdminAudit({
     targetType: "service-principal",

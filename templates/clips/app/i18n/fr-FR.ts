@@ -2,11 +2,31 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },
+  meetingBrowserConfirmation:
+    "Clips détecte une activité du micro dans ce navigateur, mais ne peut pas identifier l’onglet de la réunion.",
+  meetingReplacement: {
+    title: "Les notes de réunion nécessitent votre attention",
+    description:
+      "Les notes de la réunion précédente n’ont pas pu être enregistrées. Copiez-les avant de démarrer cette réunion.",
+    copyAndStart: "Copier les notes et démarrer",
+    actionFailed:
+      "Impossible de poursuivre la récupération de la réunion. Réessayez.",
+  },
+  quitRecovery: {
+    title: "Clips termine encore la réunion",
+    body: "Clips n’a pas encore terminé d’arrêter et d’enregistrer cette réunion. La transcription la plus récente risque d’être perdue si vous quittez maintenant.",
+    keepOpen: "Garder Clips ouvert",
+    quitAnyway: "Quitter quand même",
+    actionFailed:
+      "Clips n’a pas pu mettre à jour l’état de récupération. Réessayez.",
+  },
   lookbackContext: {
     includeLast: "Inclure les derniers",
     whatIsThis: "Qu'est-ce que c'est ?",
     off: "Désactivé",
     none: "Aucun",
+    noneExplanation:
+      "« Aucun » signifie que les nouveaux Clips n’incluront pas le temps d’écran précédent. Rewind continue d’enregistrer votre écran tant qu’il est activé. Choisissez Désactiver ci-dessous pour l’arrêter.",
     custom: "Personnalisé…",
     customLabel: "Durée personnalisée",
     customAmount: "Durée",
@@ -33,13 +53,13 @@ const messages = {
       "Impossible d’accéder au stockage de Rewind. Vérifiez l’espace disque et les autorisations du dossier, puis réessayez.",
     rewindConsentTitle: "Activer Rewind ?",
     rewindConsentBody:
-      "Clips enregistre continuellement votre écran et le conserve sur cet appareil. Les agents reçoivent des extraits de texte, et la vidéo n’est partagée qu’après votre accord.",
+      "Lorsque Rewind est activé, Clips enregistre continuellement votre écran et conserve l’historique récent sur cet appareil jusqu’à atteindre votre limite de durée ou de stockage. Choisissez « Écran + audio » pour enregistrer aussi le micro et le son du système. Les agents connectés peuvent accéder directement aux images de l’écran, sans validation par Clips ; leur utilisation ultérieure dépend de l’agent. Clips ajoute automatiquement la durée d’écran précédent choisie à chaque nouveau Clip, selon ses paramètres de partage. Par défaut, les demandes de partage d’une période choisie sous forme de Clip sont vérifiées avant envoi. Désactivez la vérification avant envoi dans les réglages Rewind pour envoyer automatiquement ces demandes. Un Clip peut inclure l’audio capturé du micro et du système. Désactiver Rewind arrête les nouveaux enregistrements, mais conserve l’historique enregistré. Tant que Rewind est désactivé, l’historique peut dépasser vos limites de durée ou de stockage jusqu’à la reprise de l’enregistrement. Choisissez « Tout supprimer » pour l’effacer maintenant.",
     rewindConsentCancel: "Pas maintenant",
     rewindConsentConfirm: "Activer Rewind",
     rewindConsentBusy: "Activation de Rewind…",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
+      "Pour inclure l’écran précédent, activez d’abord Rewind. Lorsque Rewind est activé, il conserve l’historique récent de l’écran sur cet appareil dans les limites de durée et de stockage choisies. Lorsqu’il est désactivé, l’historique peut dépasser ces limites jusqu’à la reprise de l’enregistrement. Pour l’effacer maintenant, ouvrez Settings > Rewind > Storage > On this device, puis choisissez Delete all. Les demandes de Clip sont vérifiées avant envoi par défaut, sauf si vous désactivez la vérification avant envoi dans les réglages Rewind.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:
@@ -682,6 +702,14 @@ const messages = {
       "Ligne {{line}} : cette heure est antérieure à la précédente.",
     errorPastEnd: "Ligne {{line}} : cette heure dépasse la fin de la vidéo.",
   },
+  transcriptHistory: {
+    title: "Transcriptions précédentes",
+    automatic: "Automatique",
+    restore: "Restaurer",
+    restored: "Transcription restaurée",
+    restoreFailed: "Impossible de restaurer la transcription",
+    undo: "Annuler",
+  },
   thumbnailPicker: {
     failedCapture: "Échec de la capture de l'image",
     failedGif: "Échec de la génération de GIF : essayez une portée plus courte",
@@ -954,8 +982,8 @@ const messages = {
     labMeetings: "Réunions et transcription",
     labMeetingsDescription:
       "Essayez la capture et la transcription automatiques des réunions.",
-    labWisprFlow: "Dictée vocale",
-    labWisprFlowDescription:
+    labVoiceDictation: "Dictée vocale",
+    labVoiceDictationDescription:
       "Afficher ou masquer la dictée vocale dans Clips Desktop.",
     labLookbackContext: "Inclure le temps d'écran antérieur",
     labLookbackContextDescription:
@@ -1395,6 +1423,15 @@ const messages = {
     playClip: "Lire le clip",
     unsupportedFormat:
       "Ce navigateur ne peut pas lire cette vidéo. Essayez d’ouvrir le lien dans Chrome, Edge ou Firefox.",
+    youtubeLoading: "Chargement du lecteur YouTube",
+    youtubeUnavailable: "Cette vidéo YouTube est privée ou a été supprimée.",
+    youtubeEmbedBlocked:
+      "Le propriétaire de cette vidéo n’autorise pas sa lecture en dehors de YouTube.",
+    youtubeInvalid: "Ce lien YouTube ne mène à aucune vidéo lisible.",
+    youtubePlaybackFailed: "YouTube n’a pas pu lire cette vidéo ici.",
+    youtubeApiUnavailable:
+      "Le lecteur YouTube ne s’est pas chargé. Vérifiez votre connexion ou votre bloqueur de contenu, puis rechargez la page.",
+    watchOnYouTube: "Regarder sur YouTube",
   },
   searchBar: {
     placeholder: "Rechercher des enregistrements…",
@@ -1625,6 +1662,9 @@ const messages = {
     disconnected: "Microphone déconnecté.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "L’offre gratuite de Builder.io inclut le stockage vidéo, avec une configuration en un clic.",
+    customKeys: "Clés personnalisées",
     builderConnectPopupError:
       "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, réessayez.",
     builderConnectError:
@@ -1645,8 +1685,7 @@ const messages = {
       "Impossible de confirmer que le stockage Builder.io est prêt. Réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    description:
-      "Stockez les vidéos enregistrées avec Builder.io ou un stockage compatible S3. Builder.io inclut un hébergement gratuit et des crédits d'IA.",
+    description: "Choisissez où stocker vos vidéos enregistrées.",
     createBuilderAccount: "Utiliser Builder.io",
     signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
     free: "Gratuit",
@@ -1676,15 +1715,32 @@ const messages = {
     placeholder: "Clip title (Localisé)",
     editLabel: "Edit clip title (Localisé)",
   },
+  chapterList: {
+    add: "Ajouter des chapitres",
+    editLabel: "Modifier les chapitres",
+    placeholder: "0:00 Introduction\n1:30 Section suivante",
+    errorLineShape:
+      "Ligne {{line}} : indiquez un temps puis un titre, par ex. « 0:48 Dates des notes enregistrées ».",
+    errorBadTime:
+      "Ligne {{line}} : « {{value}} » n'est pas un temps comme 0:48.",
+    errorDuplicate: "Ligne {{line}} : il y a déjà un chapitre à {{value}}.",
+    errorPastEnd: "Ligne {{line}} : {{value}} se situe après la fin du clip.",
+    changedWhileEditing:
+      "Les chapitres ont changé pendant votre modification. Vérifiez vos lignes, puis enregistrez à nouveau pour les remplacer.",
+  },
   chapters: {
-    title: "Chapters (Localisé)",
-    addHere: "Add here (Localisé)",
-    empty: "No chapters yet. (Localisé)",
-    remove: "Remove chapter (Localisé)",
-    saveFailed: "Failed to save chapters (Localisé)",
-    duplicateAtPoint: "A chapter already exists at this point (Localisé)",
-    defaultTitle: "Chapter {{count}} (Localisé)",
-    seekTo: "Seek to {{time}} (Localisé)",
+    title: "Chapitres",
+    addHere: "Ajouter ici",
+    empty: "Aucun chapitre pour l'instant.",
+    remove: "Supprimer le chapitre",
+    saveFailed: "Impossible d'enregistrer les chapitres",
+    changedElsewhere:
+      "Les chapitres ont été modifiés ailleurs : votre dernière modification n'a pas été enregistrée.",
+    unreadable:
+      "Certains chapitres enregistrés sont illisibles : les modifications ne peuvent pas être enregistrées ici. Demandez à l'agent de remplacer les chapitres.",
+    duplicateAtPoint: "Un chapitre existe déjà à cet endroit",
+    defaultTitle: "Chapitre {{count}}",
+    seekTo: "Aller à {{time}}",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (Localisé)",
@@ -1968,6 +2024,8 @@ const messages = {
       "Storage needed to finish Loom import (Localisé)",
     loomImported: "Loom imported (Localisé)",
     couldNotImportLoom: "Impossible d’importer ce Loom.",
+    youtubeImported: "Vidéo YouTube ajoutée",
+    couldNotImportVideo: "Impossible d’importer cette vidéo.",
     recordingReadyToUpload: "Recording is ready to upload (Localisé)",
     recordingSaved: "Recording saved (Localisé)",
     linkCopied: "Lien copié",
@@ -2079,7 +2137,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importer",
     helperText:
-      "Fonctionne très bien avec Loom. Vous pouvez aussi coller le lien de tout autre enregistrement d'écran ou fichier vidéo.",
+      "Fonctionne très bien avec Loom et YouTube. Vous pouvez aussi coller le lien de tout autre enregistrement d'écran ou fichier vidéo.",
     stageFetching: "Récupération de votre vidéo…",
     stageUploading: "Envoi des rushes…",
     stageTranscript:
@@ -2126,6 +2184,33 @@ const messages = {
     copy: "Copier",
     copied: "Copié",
     copyFailed: "Impossible de copier",
+    flowStarting: "Démarrage de la dictée…",
+    flowFinalizing: "Finalisation de la dictée…",
+    flowBusy: "Finalisation de la dictée précédente…",
+    flowTranscribing: "Transcription en cours…",
+    flowCleaning: "Nettoyage du texte…",
+    flowPasting: "Collage du texte…",
+    flowSavingHistory: "Enregistrement dans l’historique…",
+    flowPasted: "Collé",
+    flowCopied: "Copié dans le presse-papiers",
+    flowPastedHistoryFailed: "Collé, mais non enregistré dans l’historique",
+    flowCopiedHistoryFailed: "Copié, mais non enregistré dans l’historique",
+    flowHistoryNotSaved: "La dictée n’a pas été enregistrée dans l’historique",
+    flowPermissionFailed: "L’accès au microphone est désactivé",
+    flowMicrophoneUnavailable: "Microphone indisponible",
+    flowProviderFailed: "Impossible de transcrire la parole",
+    flowMeetingCaptureActive:
+      "Arrêtez l’enregistrement de la réunion avant de dicter",
+    flowPasteFailed: "Impossible de coller la transcription",
+    flowCancelled: "Dictée annulée",
+    flowRetryHistory: "Réessayer l’enregistrement dans l’historique",
+    flowDismiss: "Fermer",
+    flowTranscriptRecovery: "Récupération de la transcription",
+    flowOriginalTranscript: "Afficher la transcription d’origine",
+    flowCleanupSkipped: "Nettoyage ignoré, texte d’origine conservé",
+    flowBacktrackSkipped: "Modification ignorée, texte reconnu conservé",
+    flowCancelDictation: "Annuler la dictée",
+    flowCopying: "Copie de la transcription…",
     aiProcessed: "Traité par l’IA",
     aiCleaned: "Nettoyé par l’IA",
     original: "Original",

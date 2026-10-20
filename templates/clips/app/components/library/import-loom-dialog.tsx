@@ -1,5 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isYouTubeUrl } from "@shared/youtube";
 import { IconLink, IconLoader2, IconUpload } from "@tabler/icons-react";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
@@ -56,6 +57,9 @@ export function ImportLoomDialog({
     event.preventDefault();
     const url = loomUrl.trim();
     if (!url || busy) return;
+    const failureTitle = isYouTubeUrl(url)
+      ? t("recordRoute.couldNotImportVideo")
+      : t("recordRoute.couldNotImportLoom");
 
     setError(null);
     setBusy(true);
@@ -72,9 +76,10 @@ export function ImportLoomDialog({
         recordingId?: string;
         status?: string;
         storageSetupRequired?: boolean;
+        provider?: string;
       };
       if (!result.recordingId) {
-        throw new Error(t("recordRoute.couldNotImportLoom"));
+        throw new Error(failureTitle);
       }
 
       if (result.storageSetupRequired || result.status === "waiting_storage") {
@@ -83,19 +88,20 @@ export function ImportLoomDialog({
           duration: 12_000,
         });
       } else {
-        completeImportToast(t("recordRoute.loomImported"));
+        completeImportToast(
+          result.provider === "youtube"
+            ? t("recordRoute.youtubeImported")
+            : t("recordRoute.loomImported"),
+        );
       }
 
       setLoomUrl("");
       onOpenChange(false);
       void navigate(`/r/${encodeURIComponent(result.recordingId)}`);
     } catch (cause) {
-      const message = actionErrorMessage(
-        cause,
-        t("recordRoute.couldNotImportLoom"),
-      );
+      const message = actionErrorMessage(cause, failureTitle);
       setError(message);
-      failImportToast(t("recordRoute.couldNotImportLoom"), {
+      failImportToast(failureTitle, {
         description: message,
         duration: 12_000,
       });

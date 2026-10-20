@@ -26,6 +26,7 @@ export function createDesignVitestConfig({
         },
       },
       test: {
+        setupFiles: [path.resolve(__dirname, "./vitest.setup.ts")],
         include: [performanceTests ? PERFORMANCE_TEST_INCLUDE : TEST_INCLUDE],
         exclude: [
           ...DEFAULT_TEST_EXCLUDES,

@@ -1296,18 +1296,53 @@ export function embedApp(
 
     // Best-effort telemetry sink so inline-embed failures are visible in
     // Sentry (handshake timeout, transplant fetch status/CORS, auth, CSP).
-    // The shell is a sandboxed opaque-origin iframe, so it POSTs to the app
-    // origin's CORS-open /_agent-native/mcp/embed-error route, derived from the
-    // known app URLs. Deduped per stage+message so a retry loop can't spam.
+    // The shell is a sandboxed opaque-origin iframe, so it POSTs to the app's
+    // CORS-open /_agent-native/mcp/embed-error route. Deduped per stage+message
+    // so a retry loop can't spam.
     const reportedEmbedErrorKeys = new Set();
     let embedErrorReportCount = 0;
-    function embedReportOrigin() {
-      for (const value of [openStartUrl, openUrl, lastFrameSrc]) {
+    function embedReportUrls() {
+      const embedStartPath = "/_agent-native/embed/start";
+      const reportPath = "/_agent-native/mcp/embed-error";
+      const values = [openStartUrl, openUrl, lastFrameSrc];
+      for (const value of values) {
         if (typeof value === "string" && value) {
-          try { return new URL(value, window.location.href).origin; } catch {}
+          if (!URL.canParse(value, window.location.href)) continue;
+          const url = new URL(value, window.location.href);
+          url.username = "";
+          url.password = "";
+          if (!url.pathname.endsWith(embedStartPath)) continue;
+          const appBasePath = url.pathname.slice(0, -embedStartPath.length);
+          url.pathname = appBasePath + "/_agent-native/mcp/embed-error";
+          url.search = "";
+          url.hash = "";
+          return [url.href];
         }
       }
-      return "";
+
+      const value = [openUrl, lastFrameSrc, openStartUrl].find(
+        (candidate) =>
+          typeof candidate === "string" &&
+          candidate &&
+          URL.canParse(candidate, window.location.href),
+      );
+      if (!value) return [];
+
+      const url = new URL(value, window.location.href);
+      url.username = "";
+      url.password = "";
+      const routeMarker = url.pathname.indexOf("/_agent-native/");
+      if (routeMarker >= 0) {
+        url.pathname = url.pathname.slice(0, routeMarker) + reportPath;
+        url.search = "";
+        url.hash = "";
+        return [url.href];
+      }
+
+      url.pathname = reportPath;
+      url.search = "";
+      url.hash = "";
+      return [url.href];
     }
     function reportEmbedError(stage, message, detail, status) {
       try {
@@ -1315,28 +1350,60 @@ export function embedApp(
         if (reportedEmbedErrorKeys.has(key) || embedErrorReportCount >= 8) return;
         reportedEmbedErrorKeys.add(key);
         embedErrorReportCount += 1;
-        const origin = embedReportOrigin();
-        if (!origin) return;
+        const reportUrls = embedReportUrls();
+        if (!reportUrls.length) return;
+        const contextUrl = [openStartUrl, openUrl, lastFrameSrc].find(
+          (value) =>
+            typeof value === "string" &&
+            value &&
+            URL.canParse(value, window.location.href),
+        );
+        let embedUrl = "";
+        if (contextUrl) {
+          const url = new URL(contextUrl, window.location.href);
+          // Embed paths can contain private resource identifiers.
+          if (url.protocol === "http:" || url.protocol === "https:") {
+            embedUrl = url.origin;
+          }
+        }
         let renderMode = "";
         try { renderMode = renderModeSource().mode || ""; } catch {}
         const body = JSON.stringify({
           stage: String(stage || ""),
           message: String(message || "").slice(0, 500),
           detail: detail ? String(detail).slice(0, 1200) : undefined,
-          url: openStartUrl || openUrl || lastFrameSrc || "",
+          url: embedUrl,
           status: typeof status === "number" ? status : undefined,
           host: window.location.hostname || "",
           renderMode: renderMode,
           bridge: openAiBridge ? "openai" : app ? "native" : "none",
           userAgent: navigator.userAgent || ""
         });
-        fetch(origin + "/_agent-native/mcp/embed-error", {
-          method: "POST",
-          credentials: "omit",
-          keepalive: true,
-          headers: { "Content-Type": "application/json" },
-          body: body
-        }).catch(() => {});
+        void (async () => {
+          let lastFetchError;
+          let lastResponseStatus;
+          for (const reportUrl of reportUrls) {
+            try {
+              const response = await fetch(reportUrl, {
+                method: "POST",
+                credentials: "omit",
+                keepalive: true,
+                headers: { "Content-Type": "application/json" },
+                body: body
+              });
+              if (response.status === 204) return;
+              lastResponseStatus = response.status;
+            } catch (error) {
+              lastFetchError = error;
+            }
+          }
+          if (lastFetchError || lastResponseStatus !== undefined) {
+            console.warn("[agent-native] MCP embed error report was not accepted", {
+              status: lastResponseStatus,
+              error: lastFetchError
+            });
+          }
+        })();
       } catch {}
     }
 
@@ -1479,10 +1546,8 @@ export function embedApp(
       try {
         if (url) {
           const result = await callEmbedSessionTool(embedSessionArgsFor(url));
-          const data = parseToolResult(result);
-          if (typeof data.startUrl === "string" && data.startUrl) {
-            url = withChatBridgeParam(data.startUrl);
-          }
+          const startUrl = embedStartUrlFrom(result, parseToolResult(result));
+          if (startUrl) url = startUrl;
         }
       } catch (err) {
         console.warn("[agent-native] MCP fallback could not mint a fresh app session", err);
@@ -1597,7 +1662,8 @@ export function embedApp(
           });
           return;
         }
-        if (typeof data.startUrl !== "string" || !data.startUrl) {
+        const startUrl = embedStartUrlFrom(result, data);
+        if (!startUrl) {
           sendRenewalResult({
             type: "agentNative.embedSessionRenewed",
             data: { requestId, ok: false },
@@ -1606,11 +1672,7 @@ export function embedApp(
         }
         sendRenewalResult({
           type: "agentNative.embedSessionRenewed",
-          data: {
-            requestId,
-            ok: true,
-            startUrl: withChatBridgeParam(data.startUrl),
-          },
+          data: { requestId, ok: true, startUrl },
         });
       } catch {
         sendRenewalResult({
@@ -2134,12 +2196,14 @@ export function embedApp(
         }
         const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl));
         const data = parseToolResult(result);
-        if (typeof data.startUrl !== "string" || !data.startUrl) {
+        // Read _meta too: a host may show structured content to the model,
+        // so the server sends the start URL there instead.
+        const startUrl = embedStartUrlFrom(result, data);
+        if (!startUrl) {
           startedFor = "";
           renderAppLaunchError(data.error || "This app can be opened, but not embedded from this MCP server.");
           return;
         }
-        const startUrl = withChatBridgeParam(data.startUrl);
         if (selfNavigate) {
           if (shouldTransplantAppDocument()) {
             await transplantAppDocument(startUrl);

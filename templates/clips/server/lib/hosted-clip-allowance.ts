@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 
-import { table, text } from "@agent-native/core/db/schema";
+import { bigint, table, text } from "@agent-native/core/db/schema";
 import { registerIdentityColumns } from "@agent-native/core/org";
 import { and, eq, gte, ilike, inArray, lt, ne, or, sql } from "drizzle-orm";
 
@@ -9,8 +9,10 @@ import { getDb, schema } from "../db/index.js";
 
 const allowanceTable = schema.hostedClipAllowances;
 const applicationState = table("application_state", {
-  key: text("key").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  key: text("key").notNull(),
   value: text("value").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 const ALLOWANCE_LOCK_KEY = "clips-hosted-clip-allowances";
 
@@ -103,8 +105,11 @@ export function hostedCleanupConfirmedKey(recordingId: string): string {
 
 export async function writeHostedCleanupConfirmedMarker(input: {
   recordingId: string;
+  ownerEmail: string;
   videoUrl?: string | null;
 }): Promise<string> {
+  const sessionId = input.ownerEmail.trim().toLowerCase();
+  if (!sessionId) throw new Error("Hosted cleanup marker requires an owner.");
   const value = JSON.stringify({
     videoUrl: input.videoUrl ?? null,
     cleanupId: randomUUID(),
@@ -112,10 +117,15 @@ export async function writeHostedCleanupConfirmedMarker(input: {
   await withAllowanceLock(async (tx) => {
     await tx
       .insert(applicationState)
-      .values({ key: hostedCleanupConfirmedKey(input.recordingId), value })
+      .values({
+        sessionId,
+        key: hostedCleanupConfirmedKey(input.recordingId),
+        value,
+        updatedAt: Date.now(),
+      })
       .onConflictDoUpdate({
-        target: applicationState.key,
-        set: { value },
+        target: [applicationState.sessionId, applicationState.key],
+        set: { value, updatedAt: Date.now() },
       });
   });
   return value;
@@ -634,9 +644,15 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
       await tx
         .delete(applicationState)
         .where(
-          eq(
-            applicationState.key,
-            hostedCleanupConfirmedKey(input.recordingId),
+          and(
+            eq(
+              applicationState.sessionId,
+              input.ownerEmail.trim().toLowerCase(),
+            ),
+            eq(
+              applicationState.key,
+              hostedCleanupConfirmedKey(input.recordingId),
+            ),
           ),
         );
       return { ok: true, allowance: current, alreadyReserved: true };
@@ -690,7 +706,13 @@ export async function reacquireHostedClipAllowanceForRetry(input: {
     await tx
       .delete(applicationState)
       .where(
-        eq(applicationState.key, hostedCleanupConfirmedKey(input.recordingId)),
+        and(
+          eq(applicationState.sessionId, input.ownerEmail.trim().toLowerCase()),
+          eq(
+            applicationState.key,
+            hostedCleanupConfirmedKey(input.recordingId),
+          ),
+        ),
       );
     return { ok: true, allowance, alreadyReserved: false };
   });
@@ -1042,7 +1064,13 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
       .select({ value: applicationState.value })
       .from(applicationState)
       .where(
-        eq(applicationState.key, hostedCleanupConfirmedKey(input.recordingId)),
+        and(
+          eq(applicationState.sessionId, ownerEmail.toLowerCase()),
+          eq(
+            applicationState.key,
+            hostedCleanupConfirmedKey(input.recordingId),
+          ),
+        ),
       )
       .for("update")
       .limit(1);
@@ -1070,6 +1098,7 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
       .delete(applicationState)
       .where(
         and(
+          eq(applicationState.sessionId, ownerEmail.toLowerCase()),
           eq(
             applicationState.key,
             hostedCleanupConfirmedKey(input.recordingId),
@@ -1080,7 +1109,12 @@ export async function releaseHostedClipAllowanceAfterCleanup(input: {
     if (input.sessionKey) {
       await tx
         .delete(applicationState)
-        .where(eq(applicationState.key, input.sessionKey));
+        .where(
+          and(
+            sql`LOWER(${applicationState.sessionId}) = ${ownerEmail.toLowerCase()}`,
+            eq(applicationState.key, input.sessionKey),
+          ),
+        );
     }
     return true;
   });

@@ -89,6 +89,62 @@ describe("inferAutoLayoutSuggestion", () => {
     });
   });
 
+  it("keeps differently sized column children aligned to their shared start edge", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 117, height: 50 },
+      children: [
+        { id: "title", x: 0, y: 0, width: 117, height: 24 },
+        { id: "creator", x: 0, y: 32, width: 30, height: 18 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "flex-start",
+    });
+  });
+
+  it("does not infer center alignment from differently sized children sharing a start edge", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 100, height: 30 },
+      children: [
+        { id: "wide", x: 0, y: 0, width: 100, height: 10 },
+        { id: "narrow", x: 0, y: 20, width: 80, height: 10 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "flex-start",
+    });
+  });
+
+  it("recognizes differently sized children with shared centers", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 100, height: 80 },
+      children: [
+        { id: "wide", x: 20, y: 0, width: 60, height: 20 },
+        { id: "narrow", x: 30, y: 40, width: 40, height: 20 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "center",
+    });
+  });
+
+  it("recognizes differently sized children with shared end edges", () => {
+    const suggestion = inferAutoLayoutSuggestion({
+      container: { id: "container", x: 0, y: 0, width: 100, height: 80 },
+      children: [
+        { id: "wide", x: 40, y: 0, width: 60, height: 20 },
+        { id: "narrow", x: 60, y: 40, width: 40, height: 20 },
+      ],
+    });
+    expect(suggestion).toMatchObject({
+      direction: "column",
+      alignItems: "flex-end",
+    });
+  });
+
   it("suggests column flow for a stack of rows wider than the stack is tall", () => {
     const suggestion = inferAutoLayoutSuggestion({
       container: { id: "container", x: 0, y: 0, width: 424, height: 176 },

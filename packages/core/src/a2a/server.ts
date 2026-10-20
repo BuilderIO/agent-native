@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   defineEventHandler,
   setResponseHeader,
@@ -8,6 +10,17 @@ import {
 import * as jose from "jose";
 
 import "../authorization/check-action.js";
+import {
+  withExecutionFence,
+  type ExecutionFence,
+} from "../agent/execution-fence.js";
+import {
+  TURN_EXECUTION_LEASE_MS,
+  TurnExecutionLeaseBusyError,
+  claimTaskExecutionLease,
+  releaseTurnExecutionLease,
+  renewTaskExecutionLease,
+} from "../agent/run-store.js";
 import { redactArgsToJson } from "../audit/redact.js";
 import {
   extractBearerToken,
@@ -38,6 +51,7 @@ import {
 } from "./organization-identity.js";
 import {
   claimA2AApproval,
+  a2aTaskLeaseThreadId,
   getA2AApprovalForOwner,
   settleA2AApproval,
 } from "./task-store.js";
@@ -722,9 +736,11 @@ export function mountA2A(
         );
         setResponseHeader(event, "referrer-policy", "no-referrer");
         const expired = approval.expiresAt <= Date.now();
-        const active = approval.status === "pending" && !expired;
+        const pending = approval.status === "pending" && !expired;
+        const active = pending || approval.status === "processing";
         const displayStatus = expired ? "expired" : approval.status;
-        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1><p>This action is paused until you approve it. Approval can be used once.</p><h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${active ? "Approve and run" : esc(displayStatus)}</button><span id="status">${active ? "" : esc(approval.result ?? displayStatus)}</span><script>document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';}catch(e){document.getElementById('status').textContent='Could not run the action.'}}</script></main></body></html>`;
+        // guard:allow-raw-color — this standalone approval page has no app theme stylesheet to consume.
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1>${pending ? "<p>This action is paused until you approve it. Approval can be used once.</p>" : ""}<h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${pending ? "Approve and run" : esc(displayStatus)}</button><span id="status">${pending || approval.status === "processing" ? "" : esc(approval.result ?? displayStatus)}</span><script>const approvalPending=${pending};document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';if(r.status===409)this.disabled=false;}catch(e){document.getElementById('status').textContent='Could not run the action.';if(!approvalPending)this.disabled=false;}}</script></main></body></html>`;
       }
 
       if (getMethod(event) !== "POST") {
@@ -740,45 +756,95 @@ export function mountA2A(
         return { error: "Approval execution is not configured" };
       }
 
-      const approval = await claimA2AApproval(
+      const existing = await getA2AApprovalForOwner(
         approvalId,
         session.email,
         session.orgId ?? null,
       );
-      if (!approval) {
-        const current = await getA2AApprovalForOwner(
-          approvalId,
-          session.email,
-          session.orgId ?? null,
-        );
-        setResponseStatus(event, current ? 409 : 404);
-        return {
-          error: current
-            ? `Approval is ${current.status} and cannot be run again`
-            : "Approval not found",
-        };
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Approval not found" };
       }
 
-      const { runWithRequestContext } =
-        await import("../server/request-context.js");
-      let execution: { status: "completed" | "failed"; output: string };
+      let fence: ExecutionFence;
       try {
-        execution = await runWithRequestContext(
-          { userEmail: session.email, orgId: session.orgId ?? undefined },
-          () => config.executeApproval!(approval),
+        fence = await claimTaskExecutionLease(
+          a2aTaskLeaseThreadId(existing.taskId),
+          existing.taskId,
+          `a2a-approval:${randomUUID()}`,
         );
       } catch (error) {
-        execution = {
-          status: "failed",
-          output:
-            error instanceof Error
-              ? error.message
-              : "Approval execution failed",
-        };
+        if (!(error instanceof TurnExecutionLeaseBusyError)) throw error;
+        setResponseStatus(event, 409);
+        return { error: "Approval is already processing" };
       }
-      await settleA2AApproval(approval.id, execution.status, execution.output);
-      if (execution.status === "failed") setResponseStatus(event, 500);
-      return execution;
+
+      const controller = new AbortController();
+      let renewing = false;
+      const renewTimer = setInterval(
+        () => {
+          if (renewing) return;
+          renewing = true;
+          void renewTaskExecutionLease(fence)
+            .catch(() => controller.abort())
+            .finally(() => {
+              renewing = false;
+            });
+        },
+        Math.max(1_000, Math.floor(TURN_EXECUTION_LEASE_MS / 3)),
+      );
+
+      try {
+        const approval = await withExecutionFence(fence, () =>
+          claimA2AApproval(approvalId, session.email, session.orgId ?? null),
+        );
+        if (!approval) {
+          const current = await getA2AApprovalForOwner(
+            approvalId,
+            session.email,
+            session.orgId ?? null,
+          );
+          setResponseStatus(event, current ? 409 : 404);
+          return {
+            error: current
+              ? `Approval is ${current.status} and cannot be run again`
+              : "Approval not found",
+          };
+        }
+
+        const { runWithRequestContext } =
+          await import("../server/request-context.js");
+        let execution: import("./types.js").A2AActionExecutionResult;
+        try {
+          execution = await runWithRequestContext(
+            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            () =>
+              withExecutionFence(fence, () =>
+                config.executeApproval!(approval, {
+                  signal: controller.signal,
+                  threadId: fence.threadId,
+                  turnId: fence.turnId,
+                }),
+              ),
+          );
+        } catch (error) {
+          execution = {
+            status: "failed",
+            output:
+              error instanceof Error
+                ? error.message
+                : "Approval execution failed",
+          };
+        }
+        await withExecutionFence(fence, () =>
+          settleA2AApproval(approval.id, execution.status, execution.output),
+        );
+        if (execution.status === "failed") setResponseStatus(event, 500);
+        return execution;
+      } finally {
+        clearInterval(renewTimer);
+        await releaseTurnExecutionLease(fence).catch(() => {});
+      }
     }),
   );
 

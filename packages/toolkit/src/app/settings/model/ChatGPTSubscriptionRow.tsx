@@ -51,7 +51,12 @@ const POPUP_POLL_MS = 500;
 
 export interface ChatGPTSubscriptionStatus {
   supported: boolean;
-  supportReason: "requires_local_loopback" | "requires_lab" | null;
+  supportReason:
+    | "requires_local_loopback"
+    | "requires_personal_scope"
+    | "scope_unresolved"
+    | "requires_lab"
+    | null;
   connected: boolean;
   reconnectRequired: boolean;
   activeAccountId: string | null;
@@ -326,7 +331,19 @@ export function ChatGPTSubscriptionRow() {
             <Badge variant="outline">{t(`${K}chatgptConnected`)}</Badge>
           ) : null
         }
-        description={data && !supported ? t(`${K}chatgptLocalOnly`) : undefined}
+        description={
+          data && !supported
+            ? t(
+                `${K}${
+                  data.supportReason === "requires_personal_scope"
+                    ? "chatgptPersonalScopeOnly"
+                    : data.supportReason === "scope_unresolved"
+                      ? "chatgptScopeUnresolved"
+                      : "chatgptLocalOnly"
+                }`,
+              )
+            : undefined
+        }
         control={control}
       >
         {noDirectUse || legacySignIn || failed || notice ? (

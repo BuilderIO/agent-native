@@ -389,18 +389,30 @@ export function getOverviewEnterTarget(args: {
 }
 
 export function getSidebarCodeLayerSelectionState(args: {
+  activeFileId?: string | null;
   currentViewMode: "single" | "overview";
   ownerFileId?: string | null;
   overviewSelectedScreenIds: string[];
   screenFileIds?: string[];
 }) {
-  const { ownerFileId, overviewSelectedScreenIds, screenFileIds } = args;
+  const {
+    activeFileId,
+    currentViewMode,
+    ownerFileId,
+    overviewSelectedScreenIds,
+    screenFileIds,
+  } = args;
   const ownerScreenId =
     ownerFileId && (!screenFileIds || screenFileIds.includes(ownerFileId))
       ? ownerFileId
       : null;
   return {
-    viewMode: "overview" as const,
+    viewMode:
+      currentViewMode === "single" &&
+      ownerScreenId !== null &&
+      ownerScreenId === activeFileId
+        ? ("single" as const)
+        : ("overview" as const),
     overviewSelectedScreenIds: ownerScreenId
       ? [ownerScreenId]
       : ownerFileId
@@ -444,13 +456,22 @@ export function shouldEscapeToOverview(args: {
   mode: EditorMode;
   pinMode: boolean;
   selectedElement: ElementInfo | null;
+  selectedLayerIds: readonly string[];
   viewMode: "single" | "overview";
 }) {
-  const { activeTool, drawMode, mode, pinMode, selectedElement, viewMode } =
-    args;
+  const {
+    activeTool,
+    drawMode,
+    mode,
+    pinMode,
+    selectedElement,
+    selectedLayerIds,
+    viewMode,
+  } = args;
   return (
     viewMode === "single" &&
     !selectedElement &&
+    selectedLayerIds.length === 0 &&
     !drawMode &&
     !pinMode &&
     mode === "edit" &&
