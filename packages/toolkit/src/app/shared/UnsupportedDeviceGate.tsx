@@ -5,26 +5,30 @@ import { Button } from "@agent-native/toolkit/ui/button";
 import { IconDeviceDesktop } from "@tabler/icons-react";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 
-/**
- * A touch screen one CSS pixel under the iPad mini's portrait width (744). The
- * touch condition keeps a narrowed desktop window or split view in the app.
- */
-const SMALLER_THAN_TABLET_QUERY = "(max-width: 743.98px) and (pointer: coarse)";
+const TOUCH_QUERY = "(pointer: coarse)";
+
+/** The iPad mini's portrait width: the smallest screen the apps are built for. */
+const TABLET_SCREEN_MIN_SIDE = 744;
 
 function subscribe(onChange: () => void) {
-  const query = window.matchMedia(SMALLER_THAN_TABLET_QUERY);
+  const query = window.matchMedia(TOUCH_QUERY);
   query.addEventListener("change", onChange);
   return () => query.removeEventListener("change", onChange);
+}
+
+// The device's screen, not the window: an iPad in Split View or Slide Over has
+// a phone-width window, and a phone turned sideways has a tablet-width one.
+function isSmallTouchScreen(): boolean {
+  return (
+    window.matchMedia(TOUCH_QUERY).matches &&
+    Math.min(window.screen.width, window.screen.height) < TABLET_SCREEN_MIN_SIDE
+  );
 }
 
 function useSmallerThanTablet(): boolean {
   // The server snapshot is false: SSR HTML is one shared shell for every
   // visitor, so a phone swaps to the notice right after hydration.
-  return useSyncExternalStore(
-    subscribe,
-    () => window.matchMedia(SMALLER_THAN_TABLET_QUERY).matches,
-    () => false,
-  );
+  return useSyncExternalStore(subscribe, isSmallTouchScreen, () => false);
 }
 
 export interface UnsupportedDeviceGateProps {
@@ -81,7 +85,9 @@ function UnsupportedDeviceNotice({
     canShare
       ? {
           id: "share",
-          label: t("agentChat.unsupportedDevice.share"),
+          label: copied
+            ? t("agentChat.unsupportedDevice.copied")
+            : t("agentChat.unsupportedDevice.share"),
           run: shareLink,
         }
       : null,

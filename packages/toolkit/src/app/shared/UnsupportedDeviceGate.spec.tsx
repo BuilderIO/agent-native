@@ -17,6 +17,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UnsupportedDeviceGate } from "./UnsupportedDeviceGate.js";
 
+function mockScreen(width: number, height: number) {
+  Object.defineProperty(window.screen, "width", {
+    value: width,
+    configurable: true,
+  });
+  Object.defineProperty(window.screen, "height", {
+    value: height,
+    configurable: true,
+  });
+}
+
 function mockMatchMedia(matches: boolean) {
   window.matchMedia = ((query: string) => ({
     matches,
@@ -38,6 +49,7 @@ describe("UnsupportedDeviceGate", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     session.current = { email: "pat@example.com" };
+    mockScreen(390, 844);
     Object.defineProperty(navigator, "share", {
       value: undefined,
       configurable: true,
@@ -67,6 +79,20 @@ describe("UnsupportedDeviceGate", () => {
     render();
     expect(container.querySelector('[data-testid="app"]')).not.toBeNull();
     expect(container.querySelector("main")).toBeNull();
+  });
+
+  it("keeps the app in a narrow iPad window", () => {
+    mockMatchMedia(true);
+    mockScreen(820, 1180);
+    render();
+    expect(container.querySelector('[data-testid="app"]')).not.toBeNull();
+  });
+
+  it("gates a phone turned sideways", () => {
+    mockMatchMedia(true);
+    mockScreen(844, 390);
+    render();
+    expect(container.querySelector("main")).not.toBeNull();
   });
 
   it("offers email first, then copy, to a signed-in visitor without share", () => {
