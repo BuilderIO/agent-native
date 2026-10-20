@@ -28,8 +28,7 @@ export const contentLiveCopy = defineLiveCopy({
     return (
       (
         await liveBodyWriterGate(documentId, {
-          db: drizzleOverExec(transaction),
-          transaction,
+          context: transaction,
         })
       ).writePath === "live_copy"
     );
