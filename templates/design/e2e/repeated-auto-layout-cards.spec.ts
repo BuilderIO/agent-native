@@ -163,8 +163,7 @@ async function setSelectedFill(page: Page, hex: string) {
   await expect(input).toBeHidden();
 }
 
-// fixme: fails on current main after the merge: Error: expect(locator).toHaveCount(expected) failed
-test.fixme("one repeated card Fill edits the authored template for every row through history and reload", async ({
+test("one repeated card Fill edits the authored template for every row through history and reload", async ({
   app,
   page,
   request,
@@ -226,8 +225,7 @@ test.fixme("one repeated card Fill edits the authored template for every row thr
   expect(saved.match(/data-agent-native-node-id="card"/g)).toHaveLength(1);
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-test.fixme("one repeated bound title edits only its data item through history and reload", async ({
+test("one repeated bound title edits only its data item through history and reload", async ({
   app,
   page,
   request,
@@ -321,8 +319,7 @@ test.fixme("one repeated bound title edits only its data item through history an
   });
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-test.fixme("an id-keyed repeated row duplicates through history and reload", async ({
+test("an id-keyed repeated row duplicates through history and reload", async ({
   app,
   page,
   request,

@@ -144,8 +144,20 @@ function plural(count: number): string {
   return count === 1 ? "" : "s";
 }
 
-function unverifiable(labels: string[]): Error {
-  return new Error(
+// Shared with the browser, so it mirrors ActionContractError instead of importing it.
+export class LockedLayerEditError extends Error {
+  readonly actionContractError = true;
+  readonly errorCode = "locked_layer_edit_rejected";
+  readonly statusCode = 409;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "LockedLayerEditError";
+  }
+}
+
+function unverifiable(labels: string[]): LockedLayerEditError {
+  return new LockedLayerEditError(
     `Cannot verify locked layer${plural(labels.length)}: ${namesFor(labels)}. ` +
       "The layer, its parent, or a sibling has no unique " +
       "data-agent-native-node-id, so this edit cannot be checked. Re-read the " +
@@ -184,7 +196,7 @@ export function assertLockedLayersPreserved(
     (entry) => !lockedBeforeTokens.has(entry.token!),
   );
   if (added.length > 0) {
-    throw new Error(
+    throw new LockedLayerEditError(
       `This edit locks layer${plural(added.length)} the editor had unlocked: ` +
         `${namesFor(added.map((entry) => entry.node.layerName))}. ` +
         "Only the human editor sets data-agent-native-locked. Re-read the " +
@@ -235,7 +247,7 @@ export function assertLockedLayersPreserved(
   }
 
   if (changed.length > 0) {
-    throw new Error(
+    throw new LockedLayerEditError(
       `This edit changes locked layer${plural(changed.length)}: ${namesFor(changed)}. ` +
         "Preserve locked layers exactly, or ask the user to unlock them first.",
     );

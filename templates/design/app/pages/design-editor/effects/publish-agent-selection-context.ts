@@ -1,4 +1,7 @@
-import { setClientAppState } from "@agent-native/core/client/hooks";
+import {
+  getBrowserTabId,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
 import { stripInlineBytes } from "@agent-native/core/shared";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
@@ -310,13 +313,17 @@ export function runPublishAgentSelectionContext({
     persistedSelectionStateRef.current = pending.key;
     persistedSelectionContextRef.current = pending.contextKey;
     const keys = designSelectionStateKeys();
+    const requestSource = getBrowserTabId();
     // Every key's write shares the browser's in-flight keepalive budget.
     const keepalive =
       new TextEncoder().encode(pending.key).length * keys.length <=
       KEEPALIVE_ACTION_MAX_BYTES;
     void Promise.all(
       keys.map((key) =>
-        setClientAppState(key, pending.value, { keepalive }).then(
+        setClientAppState(key, pending.value, {
+          keepalive,
+          requestSource,
+        }).then(
           () => true,
           (cause: unknown) => {
             console.error(new DesignSelectionPublishError(key, cause));

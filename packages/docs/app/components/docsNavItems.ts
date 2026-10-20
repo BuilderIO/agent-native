@@ -224,9 +224,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "template-chat",
           },
           {
-            id: "template-chat-first-edits",
-            labelKey: "chatFirstEdits",
-            slug: "template-chat-first-edits",
+            id: "template-chat-features",
+            labelKey: "chatFeatures",
+            slug: "template-chat-features",
+          },
+          {
+            id: "template-chat-agent",
+            labelKey: "chatAgent",
+            slug: "template-chat-agent",
+          },
+          {
+            id: "template-chat-integrations",
+            labelKey: "chatIntegrations",
+            slug: "template-chat-integrations",
           },
           {
             id: "template-chat-developers",

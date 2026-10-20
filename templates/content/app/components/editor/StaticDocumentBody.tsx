@@ -294,16 +294,16 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
     const empty = node.childCount === 0;
     const indent = normalizeIndentAttr(node.attrs.indent);
     const content = nodeViewContent(document, {
-      class: "notion-toggle__content",
+      class: "content-toggle__content",
     });
     const toggle = nodeViewWrapper(
       document,
       "div",
       {
         class: [
-          "notion-toggle",
-          open && "notion-toggle--open",
-          empty && "notion-toggle--body-empty",
+          "content-toggle",
+          open && "content-toggle--open",
+          empty && "content-toggle--body-empty",
         ]
           .filter(Boolean)
           .join(" "),
@@ -316,17 +316,17 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
       h(
         document,
         "div",
-        { class: "notion-toggle__summary-row" },
+        { class: "content-toggle__summary-row" },
         h(
           document,
           "span",
-          { class: "notion-toggle__chevron", contenteditable: "false" },
+          { class: "content-toggle__chevron", contenteditable: "false" },
           icon(document, 18, open ? "M6 9l6 6l6 -6" : "M9 6l6 6l-6 6"),
         ),
         h(
           document,
           "span",
-          { class: "notion-toggle__summary", contenteditable: "false" },
+          { class: "content-toggle__summary", contenteditable: "false" },
           node.attrs.summary || "",
         ),
       ),
@@ -335,8 +335,8 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
         "div",
         {
           class: open
-            ? "notion-toggle__body"
-            : "notion-toggle__body notion-toggle__body--collapsed",
+            ? "content-toggle__body"
+            : "content-toggle__body content-toggle__body--collapsed",
         },
         open && empty
           ? h(
@@ -344,7 +344,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
               "div",
               {
                 class:
-                  "notion-toggle__body-placeholder notion-toggle__body-placeholder--empty-node",
+                  "content-toggle__body-placeholder content-toggle__body-placeholder--empty-node",
                 contenteditable: "false",
               },
               EMPTY_TOGGLE_BODY_PLACEHOLDER,
@@ -430,15 +430,15 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
             "div",
             {
               class: externalUrl
-                ? "notion-page-reference notion-page-reference--clickable"
-                : "notion-page-reference",
+                ? "content-page-reference content-page-reference--clickable"
+                : "content-page-reference",
             },
             h(
               document,
               "button",
               {
                 type: "button",
-                class: "notion-page-reference__button",
+                class: "content-page-reference__button",
                 contenteditable: "false",
                 disabled: "",
                 tabindex: "-1",
@@ -446,13 +446,16 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
               h(
                 document,
                 "span",
-                { class: "notion-page-reference__icon", "aria-hidden": "true" },
+                {
+                  class: "content-page-reference__icon",
+                  "aria-hidden": "true",
+                },
                 icon(document, 20),
               ),
               h(
                 document,
                 "span",
-                { class: "notion-page-reference__label" },
+                { class: "content-page-reference__label" },
                 primary,
               ),
               externalUrl
@@ -460,7 +463,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
                     document,
                     16,
                     undefined,
-                    "notion-page-reference__external",
+                    "content-page-reference__external",
                   )
                 : null,
             ),
@@ -468,15 +471,15 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
         : nodeViewWrapper(
             document,
             "div",
-            { class: "notion-atom notion-atom--block" },
+            { class: "content-atom content-atom--block" },
             h(
               document,
               "div",
-              { class: "notion-atom__kind" },
+              { class: "content-atom__kind" },
               icon(document, 14),
               humanizeTag(tagName),
             ),
-            h(document, "div", { class: "notion-atom__label" }, primary),
+            h(document, "div", { class: "content-atom__label" }, primary),
           );
     return { dom: reactNodeView(document, node, view) };
   },
@@ -500,7 +503,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
         : nodeViewWrapper(
             document,
             "span",
-            { class: "notion-inline-atom", contenteditable: "false" },
+            { class: "content-inline-atom", contenteditable: "false" },
             label || humanizeTag(tagName),
           );
     return { dom: reactNodeView(document, node, view) };
@@ -759,7 +762,7 @@ export function StaticDocumentBody({
     <div>
       <div
         ref={bodyRef}
-        className="tiptap notion-editor"
+        className="tiptap content-editor"
         data-static-document-body=""
         translate="no"
       />

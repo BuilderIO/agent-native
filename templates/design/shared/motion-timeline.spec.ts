@@ -26,6 +26,8 @@ import {
   staggerLayerTracks,
   timelineTimeToTrackTime,
   upsertMotionKeyframeAtTime,
+  withMotionTrackIds,
+  withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
   type MotionKeyframe,
   type MotionTimeline,
@@ -33,6 +35,15 @@ import {
 } from "./motion-timeline";
 
 describe("createMotionTrack", () => {
+  it("assigns each newly created track a stable unique id", () => {
+    const first = createMotionTrack("node-1", "opacity");
+    const second = createMotionTrack("node-1", "opacity");
+
+    expect(first.id).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
+    expect(second.id).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
+    expect(first.id).not.toBe(second.id);
+  });
+
   it("seeds exactly two keyframes at t=0 and t=1", () => {
     const track = createMotionTrack("node-1", "opacity", {
       from: "0",
@@ -68,6 +79,99 @@ describe("createMotionTrack", () => {
     const track = createMotionTrack("node-1", "opacity");
     expect(track.keyframes[0].ease).toBeUndefined();
     expect(track.keyframes[1].ease).toBeUndefined();
+  });
+});
+
+describe("withMotionTrackIds", () => {
+  it("assigns deterministic legacy ids without colliding with explicit ids", () => {
+    const tracks: MotionTrack[] = [
+      {
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 1, value: "1" }],
+      },
+    ];
+
+    const first = withMotionTrackIds(tracks);
+    const second = withMotionTrackIds(tracks);
+
+    expect(first.map((track) => track.id)).toEqual(
+      second.map((track) => track.id),
+    );
+    expect(first[0]?.id).not.toBe("legacy-track-0");
+    expect(first[1]?.id).toBe("legacy-track-0");
+  });
+
+  it("keeps merged legacy tracks uniquely addressable when their ids collide", () => {
+    const tracks: MotionTrack[] = [
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+      {
+        id: "legacy-track-0",
+        targetNodeId: "node-1",
+        property: "text:opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+    ];
+
+    const first = withMotionTrackIds(tracks);
+    const second = withMotionTrackIds(tracks);
+
+    expect(first.map((track) => track.id)).toEqual([
+      "legacy-track-0",
+      "legacy-track-0-1",
+    ]);
+    expect(second.map((track) => track.id)).toEqual(
+      first.map((track) => track.id),
+    );
+  });
+});
+
+describe("withMotionTrackIdsFromExisting", () => {
+  it("preserves matching source ids for callers that omit them", () => {
+    const existingTracks: MotionTrack[] = [
+      {
+        id: "stable-opacity-a",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0, value: "0" }],
+      },
+      {
+        id: "stable-opacity-b",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 1, value: "1" }],
+      },
+    ];
+    const requestedTracks: MotionTrack[] = [
+      {
+        id: "stable-opacity-b",
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0.5, value: "0.5" }],
+      },
+      {
+        targetNodeId: "node-1",
+        property: "opacity",
+        keyframes: [{ t: 0.75, value: "0.75" }],
+      },
+    ];
+
+    expect(
+      withMotionTrackIdsFromExisting(requestedTracks, existingTracks).map(
+        (track) => track.id,
+      ),
+    ).toEqual(["stable-opacity-b", "stable-opacity-a"]);
   });
 });
 
@@ -317,6 +421,14 @@ describe("evaluateMotionEase", () => {
 });
 
 describe("sampleMotionKeyframesAt", () => {
+  it("holds the value of a single keyframe across the track", () => {
+    const keyframes: MotionKeyframe[] = [{ t: 0, value: "0.5" }];
+
+    expect(sampleMotionKeyframesAt(keyframes, 0)).toBe("0.5");
+    expect(sampleMotionKeyframesAt(keyframes, 0.5)).toBe("0.5");
+    expect(sampleMotionKeyframesAt(keyframes, 1)).toBe("0.5");
+  });
+
   it("lerps plain numeric values linearly", () => {
     const keyframes: MotionKeyframe[] = [
       { t: 0, value: "0", ease: "linear" },
@@ -684,6 +796,50 @@ describe("applyMotionAutoKeyframe", () => {
       }),
     ).toBeNull();
   });
+
+  it("requires an id to keyframe one of several tracks with the same property", () => {
+    const tracks: MotionTrack[] = [
+      {
+        id: "opacity-first",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "0.5" },
+        ],
+      },
+      {
+        id: "opacity-second",
+        targetNodeId: "hero",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0.5" },
+          { t: 1, value: "1" },
+        ],
+      },
+    ];
+
+    expect(
+      applyMotionAutoKeyframe(tracks, {
+        targetNodeId: "hero",
+        property: "opacity",
+        value: "0.75",
+        playheadT: 0.5,
+        timelineDurationMs: 2000,
+      }),
+    ).toBeNull();
+    const next = applyMotionAutoKeyframe(tracks, {
+      targetNodeId: "hero",
+      property: "opacity",
+      trackId: "opacity-second",
+      value: "0.75",
+      playheadT: 0.5,
+      timelineDurationMs: 2000,
+    });
+
+    expect(next?.[0]?.keyframes).toEqual(tracks[0]?.keyframes);
+    expect(next?.[1]?.keyframes).toContainEqual({ t: 0.5, value: "0.75" });
+  });
 });
 
 describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => {
@@ -739,6 +895,8 @@ describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => 
       bTracks.find((t) => t.property === "opacity")!.keyframes[0].value,
     ).toBe("0");
     expect(bTracks.find((t) => t.property === "translate")!.delayMs).toBe(200);
+    expect(bTracks.every((track) => track.id)).toBe(true);
+    expect(new Set(bTracks.map((track) => track.id)).size).toBe(2);
     expect(readTimelinePlaybackMode(pasted)).toBe("loop");
   });
 

@@ -58,7 +58,6 @@ async function selectBorderRectangle(page: Page) {
   await expect(row).toHaveAttribute("aria-selected", "true");
 }
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("HTML rectangle border gradient paints, persists, reloads, and returns to solid", async ({
   app,
   page,

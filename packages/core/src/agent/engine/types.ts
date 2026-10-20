@@ -188,6 +188,15 @@ export interface EngineCapabilities {
   parallelToolCalls: boolean;
 }
 
+export type ModelDispatchDecision<T> =
+  | { started: true; value: T }
+  | { started: false };
+
+/** Runs the synchronous request start while the caller's coordination lock is held. */
+export type BeforeModelDispatch = <T>(
+  dispatch: () => T,
+) => Promise<ModelDispatchDecision<T>>;
+
 export interface EngineStreamOptions {
   model: string;
   systemPrompt: string;
@@ -197,6 +206,8 @@ export interface EngineStreamOptions {
   maxOutputTokens?: number;
   temperature?: number;
   reasoningEffort?: ReasoningEffort;
+  beforeModelDispatch?: BeforeModelDispatch;
+  onModelDispatchStarted?: () => void;
   providerOptions?: {
     anthropic?: {
       thinking?: { type: "enabled"; budgetTokens: number };
@@ -207,6 +218,20 @@ export interface EngineStreamOptions {
     google?: Record<string, unknown>;
     [provider: string]: Record<string, unknown> | undefined;
   };
+}
+
+export async function startModelDispatch<T>(
+  options: Pick<
+    EngineStreamOptions,
+    "beforeModelDispatch" | "onModelDispatchStarted"
+  >,
+  dispatch: () => T,
+): Promise<ModelDispatchDecision<T>> {
+  const result = options.beforeModelDispatch
+    ? await options.beforeModelDispatch(dispatch)
+    : { started: true as const, value: dispatch() };
+  if (result.started) options.onModelDispatchStarted?.();
+  return result;
 }
 
 export interface AgentEngine {

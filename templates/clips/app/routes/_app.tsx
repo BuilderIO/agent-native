@@ -1,5 +1,5 @@
 import { useLab } from "@agent-native/core/client/labs";
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
+import { CLIPS_MEETINGS, CLIPS_VOICE_DICTATION } from "@shared/labs";
 import { useEffect, useRef } from "react";
 import { Outlet, useNavigate } from "react-router";
 
@@ -11,7 +11,7 @@ import { useTransactionalEmailBridge } from "@/hooks/use-transactional-email-bri
 function useGlobalSequenceShortcuts() {
   const navigate = useNavigate();
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
-  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW);
+  const voiceDictationLabEnabled = useLab(CLIPS_VOICE_DICTATION);
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -20,7 +20,9 @@ function useGlobalSequenceShortcuts() {
       { keys: ["g", "l"], path: "/library" },
       { keys: ["g", "s"], path: "/spaces" },
       ...(meetingsLabEnabled ? [{ keys: ["g", "m"], path: "/meetings" }] : []),
-      ...(wisprFlowLabEnabled ? [{ keys: ["g", "d"], path: "/dictate" }] : []),
+      ...(voiceDictationLabEnabled
+        ? [{ keys: ["g", "d"], path: "/dictate" }]
+        : []),
       { keys: ["g", "a"], path: "/archive" },
       { keys: ["g", "t"], path: "/trash" },
     ];
@@ -62,7 +64,7 @@ function useGlobalSequenceShortcuts() {
       window.removeEventListener("keydown", handleKey);
       clearTimeout(timerRef.current);
     };
-  }, [meetingsLabEnabled, navigate, wisprFlowLabEnabled]);
+  }, [meetingsLabEnabled, navigate, voiceDictationLabEnabled]);
 }
 
 export default function AppLayoutRoute() {

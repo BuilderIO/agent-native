@@ -161,7 +161,7 @@ Comments, Discussion, messages, notifications, and history stay anchored to the 
 
 **Example workflow:** A teammate comments on an unclear paragraph, discusses the larger issue in the Page's Discussion, links the conversation to Slack, and returns later to see the Comment, replies, and resulting changes together.
 
-**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. October's two-tab convergence stack keeps more concurrent edits durable, reduces false conflict warnings, improves recovery and agent-edit visibility, and measures save outcomes (#6656, #6721, #6737, #6984, #7028, #7033, #7111). A reported beta two-tab check converged 18 edits with every save returning 200.
+**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. October's two-tab convergence stack keeps more concurrent edits durable, reduces false conflict warnings, improves recovery and agent-edit visibility, and measures save outcomes (#6656, #6721, #6737, #6984, #7028, #7033, #7111). A reported beta two-tab check converged 18 edits with every save returning 200. Collection tables show each row's open Comment count and mark cells with open threads, and a Comment can target one Property value while keeping the value it was written about.
 
 **What remains:** Every Page and Collection still needs universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions. Collaboration durability still needs the R01–R08 gate and authenticated beta acceptance.
 

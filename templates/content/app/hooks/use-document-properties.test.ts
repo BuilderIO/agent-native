@@ -273,6 +273,36 @@ describe("useConfigureDocumentProperty", () => {
     },
   );
 
+  it("leaves a Blocks field's options out of a rename", async () => {
+    const transport = vi.fn(async (_input: unknown) => undefined);
+    useQueryClient.mockReturnValue(new QueryClient());
+    useActionMutation.mockReturnValue({ mutateAsync: transport });
+    const configure = useConfigureDocumentProperty("row-page", "database-1");
+
+    await configure.mutateAsync({
+      id: "notes",
+      documentId: "row-page",
+      name: "Workshop notes",
+      type: "blocks",
+      description: "",
+      visibility: "always_show",
+      options: { blocks: { primary: false } },
+      icon: null,
+    });
+
+    expect(transport.mock.calls[0][0]).toEqual({
+      id: "notes",
+      documentId: "row-page",
+      databaseId: "database-1",
+      name: "Workshop notes",
+      type: "blocks",
+      description: "",
+      visibility: "always_show",
+      options: undefined,
+      icon: null,
+    });
+  });
+
   it("adapts a rendered ordinary option edit to the guarded setup contract", async () => {
     const transportMutateAsync = vi.fn(async () => undefined);
     const queryClient = {

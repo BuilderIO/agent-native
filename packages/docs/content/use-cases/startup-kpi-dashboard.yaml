@@ -1,0 +1,96 @@
+slug: startup-kpi-dashboard
+job_id: job-kpi-dashboard
+app: analytics
+audience: technical
+title: "A startup KPI dashboard you can ask questions of"
+subhead: "Connect your data, ask for the charts you need in plain English, and keep them in reusable dashboards. The agent writes the SQL."
+meta_description: "Connect your data, ask questions in plain English, and build reusable KPI dashboards while the agent writes the SQL. Free, open-source Analytics from Agent-Native."
+cta_label: "Try Analytics"
+secondary_cta_label: "See how it works"
+app_cta_url: "https://analytics.agent-native.com"
+screenshot_alt: "An Analytics product overview dashboard with metric cards, a weekly active users chart, an activation funnel, and the agent chat open"
+old_way:
+  heading: "How most people do it today"
+  body: "The metrics live in a spreadsheet someone rebuilds every month, or in an analytics tool only a few people know how to query. Everyone else asks a question and waits."
+replaces:
+  - "Amplitude"
+  - "Mixpanel"
+  - "Looker"
+new_way:
+  heading: "How it works in Analytics"
+  steps:
+    - "Connect a data source. Analytics has connectors for services like Stripe, HubSpot, and BigQuery."
+    - "Ask a question in plain English, like how many signups you got last week. The agent turns your question into SQL."
+    - "Save it as a dashboard with filters and saved views, and share it with specific people or your whole organization."
+todays_stack:
+  heading: "What changes for your numbers"
+  items:
+    - text: "**Exporting from your billing system by hand** every month, then pasting the numbers into a spreadsheet."
+    - text: "**Rebuilding the spreadsheet** for MRR, churn, and growth, which goes stale between updates."
+    - text: "**A product analytics tool, like Amplitude or Mixpanel,** covers usage and retention, but only a few people know how to query it."
+    - text: "**ChatGPT with a CSV** can answer questions about the numbers, but every answer starts with uploading the data again."
+  in_app: "Stripe stays your billing system. Analytics connects to it and your other sources, answers plain-English questions, and keeps the answers in dashboards."
+story: null
+faqs:
+  - q: "What is Agent-Native Analytics?"
+    a: "Agent-Native Analytics is an open-source app for asking analytics questions in plain English and getting charts, dashboards, and re-runnable investigations back. You own the code, the queries, and the data."
+  - q: "Which data sources can I connect?"
+    a: "Analytics lists 23 data sources, including first-party events, BigQuery, Google Analytics (GA4), Amplitude, Mixpanel, PostHog, PostgreSQL, Stripe, HubSpot, GitHub, and Jira."
+  - q: "Do I need to write SQL?"
+    a: "No. You ask in plain English, and the agent turns your question into SQL."
+  - q: "Can I trust the numbers?"
+    a: "Check a few answers against a source you already trust before you rely on them. The agent works from your data and a data dictionary, so clear column names and definitions help."
+  - q: "Who can see my dashboards?"
+    a: "Dashboards are private by default. You can share one with a teammate or your whole organization as a viewer, editor, or admin."
+cta_band_heading: "Build your first dashboard"
+cta_band_subhead: "Connect your data and ask a question."
+updated: 2026-10-14
+internal:
+  job: "A KPI dashboard for a SaaS or startup that you can ask questions of"
+  recurs_when: "Weekly"
+  first_session: "Connect one source, ask one question, save a dashboard"
+  return_signal: "Second dashboard or saved question within 7 days (proposal, confirm with Alice and Michael)"
+  target_terms: "saas metrics dashboard (US 250/mo, KD 3); most important saas metrics (200); startup kpi dashboard (150); saas kpi dashboard (150); churn dashboard (140). About 1,900/mo."
+  basis: "hypothesis (fits the startup-raising persona Shawn described)"
+  replaces_source: "Analytics page: open-source alternative to Amplitude, Mixpanel and Looker. Analytics README: alternative to Amplitude and FullStory."
+  verify: "Which connectors work reliably today. Steve noted people still hit 'chat stopped' errors in the apps. 'Free' is stated on the apps index, not on the Analytics page itself."
+frequency: weekly
+how_often_label: "Weekly"
+roles: [founders, product, finance]
+connects_to:
+  ["Stripe", "HubSpot", "BigQuery", "PostHog", "Mixpanel", "Amplitude"]
+next_jobs: [find-where-users-drop-off, startup-pitch-deck]
+recipes:
+  - id: revenue-question
+    title: "Ask about revenue"
+    when: "Use this when someone asks how revenue is trending."
+    steps:
+      - "Connect Stripe in Analytics."
+      - "Ask your question in plain English."
+    prompt: "What's our MRR this month, and how did it change from last month?"
+    result: "You get an answer built from SQL the agent writes against your data."
+    tip: "Add your metric definitions to the data dictionary, so the agent uses them every time."
+    how_often: "Weekly"
+  - id: why-it-moved
+    title: "Ask why a metric moved"
+    when: "Use this when a number jumps or drops."
+    steps:
+      - "Ask the agent why it changed."
+    prompt: "Why did activation climb this week?"
+    result: "You get an answer you can check against your other sources before you share it."
+    how_often: "When numbers move"
+  - id: weekly-dashboard
+    title: "Save a weekly dashboard"
+    when: "Use this when you keep asking the same questions."
+    steps:
+      - "Save the answers as a dashboard."
+      - "Share it with your team."
+    result: "You have one dashboard, with filters and saved views, that the team checks every week."
+    tip: "Subscribe it to a daily email snapshot if you'd rather get it in your inbox."
+    how_often: "Weekly"
+angles:
+  - id: finance
+    audience: "Finance and founders"
+    title: "Revenue questions answered from Stripe, in plain English"
+    subhead: "Connect Stripe, ask about MRR, churn, and subscriptions, and keep the answers as dashboards."
+    old_way_body: "Every month someone exports from billing into a spreadsheet and rebuilds the same report."

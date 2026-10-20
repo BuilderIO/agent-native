@@ -109,6 +109,18 @@ describe("buildInteractPreviewDocument", () => {
     expect(doc.match(/data-agent-native-shader-runtime/g)).toHaveLength(1);
   });
 
+  it("loads the native renderer for an authored native effect in Interact", () => {
+    const document = build(
+      PAGE.replace(
+        "</body>",
+        '<script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body>',
+      ),
+    );
+    expect(document).toContain(
+      'data-agent-native-native-shader-runtime data-runtime-version="2"',
+    );
+  });
+
   it("styles the frame the way the editor does, so the page sits where it did", () => {
     expect(build(PAGE)).toContain("data-agent-native-frame-fit");
     expect(

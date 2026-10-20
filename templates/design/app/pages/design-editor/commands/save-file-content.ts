@@ -523,8 +523,8 @@ export function runSaveFileContent(
       ) {
         markPendingLocalFileContent(pending.id, pending.content);
       }
-      if (persistedContentMatches && outboxEntry)
-        void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
+      // A save the server answered is settled even when it was rejected; a replay gets the same answer.
+      if (outboxEntry) void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
       if (persistedContentMatches && designId) {
         const designQueryKey = ["action", "get-design", { id: designId }];
         const persistedUpdatedAt =
@@ -637,6 +637,9 @@ export function runSaveFileContent(
         if (latestFileSaveForUnloadRef.current[pending.id] === pending) {
           delete latestFileSaveForUnloadRef.current[pending.id];
         }
+        const rejectedOutboxEntry = createFileSaveOutboxEntry(pending);
+        if (rejectedOutboxEntry)
+          void acknowledgeOutboxEntry(rejectedOutboxEntry).catch(() => {});
       }
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-design"],

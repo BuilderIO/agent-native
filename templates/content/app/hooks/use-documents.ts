@@ -312,6 +312,7 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   authoredBaseContent?: string;
   authoredCandidateContent?: string;
   editorSnapshotTitle?: string;
+  editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
 };
 

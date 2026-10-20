@@ -5,9 +5,26 @@ import {
   nextTranscriptBoundaryMs,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  readSegmentEntries,
 } from "./transcript-segments.js";
 
+describe("readSegmentEntries", () => {
+  it("reports a stored timing whose numeric conversion throws as unreadable", () => {
+    const raw = JSON.stringify([
+      { startMs: { toString: null }, endMs: 1000, text: "saved" },
+    ]);
+    expect(readSegmentEntries(raw)).toBeNull();
+  });
+});
+
 describe("parseTranscriptSegments", () => {
+  it("tolerates a stored timing whose numeric conversion throws", () => {
+    const raw = JSON.stringify([
+      { startMs: { toString: null }, endMs: 1000, text: "saved" },
+    ]);
+    expect(parseTranscriptSegments(raw)).toEqual([]);
+  });
+
   it("preserves speaker alongside source", () => {
     const raw = JSON.stringify([
       { startMs: 0, endMs: 1000, text: "Hello.", source: "mic", speaker: "Me" },

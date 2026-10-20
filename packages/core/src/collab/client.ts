@@ -33,6 +33,8 @@ export interface UseCollaborativeDocOptions {
   requestSource?: string;
   user?: CollabUser;
   activityResource?: { resourceType: string; resourceId: string };
+  /** Application events received alongside document updates on the existing transport. */
+  onEvent?: (event: SyncEvent) => void;
   /**
    * Keeps this tab's unacknowledged updates in localStorage until the server
    * acknowledges them, and sends the ones a closed or reloaded tab left
@@ -189,6 +191,9 @@ const STATE_VECTOR_FETCH_INTERVAL = 15;
 
 const STATE_VECTOR_FETCH_TIMEOUT_MS = 15_000;
 
+// A poll that never settles would hold the in-flight guard and stop polling.
+const POLL_FETCH_TIMEOUT_MS = 15_000;
+
 const POLL_RING_BUFFER_SIZE = 200;
 
 const BACKOFF_BASE_MS = 500;
@@ -271,6 +276,7 @@ interface CollabDocSubscription {
   durableUpdates?: boolean;
   onUpdateAcknowledged?: (ack: CollabUpdateAck) => void;
   onSnapshot: (snapshot: CollabDocSnapshot) => void;
+  onEvent: (event: SyncEvent) => void;
 }
 
 const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
@@ -358,6 +364,10 @@ class CollabDocConnection {
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private pollGeneration = 0;
+  // An older generation can stay on the network after sync restarts.
+  private readonly pollInFlight = new Set<number>();
+  private readonly pollRequested = new Set<number>();
   private consecutiveErrors = 0;
   private pollCycleCount = 0;
   private pollVersion = 0;
@@ -428,8 +438,14 @@ class CollabDocConnection {
     if (!this.started) {
       this.started = true;
       this.start();
+    } else if (
+      !this.syncActive &&
+      this.snapshot.initialization.status === "ready"
+    ) {
+      this.startTransport();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
+      if (this.snapshot.initialization.status === "ready") this.startSync();
       this.reschedulePoll();
     }
   }
@@ -438,6 +454,8 @@ class CollabDocConnection {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+      // A lingering connection may outlive its document (a deleted Screen).
+      this.stopSync();
       this.scheduleDispose();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
@@ -716,6 +734,7 @@ class CollabDocConnection {
       this.lastSetUser &&
       this.snapshot.isSynced &&
       origin === "local" &&
+      this.syncActive &&
       !this.disposed
     ) {
       scheduleAwarenessPush(
@@ -745,9 +764,11 @@ class CollabDocConnection {
   }
 
   private startTransport(): void {
+    if (this.disposed || this.subscribers.size === 0) return;
     this.attachUpdateHandler();
     this.startSync();
 
+    if (this.unsubscribeAwarenessEvents) return;
     this.unsubscribeAwarenessEvents = subscribeSyncEvents({
       onEvents: (events) => {
         if (this.disposed) return;
@@ -1055,13 +1076,21 @@ class CollabDocConnection {
   }
 
   private startSync(): void {
-    if (this.syncActive || this.docMissing || this.disposed) return;
+    if (
+      this.syncActive ||
+      this.docMissing ||
+      this.disposed ||
+      this.subscribers.size === 0
+    ) {
+      return;
+    }
     this.syncActive = true;
+    const pollGeneration = ++this.pollGeneration;
 
     this.subscribeCollabEvents();
 
     if (!this.effectivePauseWhenHidden || !isDocumentHidden()) {
-      void this.poll();
+      void this.poll(pollGeneration);
     }
     window.addEventListener("focus", this.handleFocus);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -1070,13 +1099,20 @@ class CollabDocConnection {
   private stopSync(): void {
     if (!this.syncActive) return;
     this.syncActive = false;
+    this.pollGeneration++;
+    this.pollRequested.clear();
     this.setCollabPollBoost(false);
+    this.sseActive = false;
+    this.sseAwarenessCovered = false;
+    this.ssePollLive = false;
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
     this.unsubscribeCollabEvents?.();
     this.unsubscribeCollabEvents = null;
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
     this.sseSubscribedWithPause = null;
     window.removeEventListener("focus", this.handleFocus);
     document.removeEventListener(
@@ -1121,6 +1157,9 @@ class CollabDocConnection {
   }
 
   private handleSharedEvent(change: SyncEvent): void {
+    if (change.source !== "collab") {
+      for (const sub of this.subscribers.values()) sub.onEvent(change);
+    }
     if (
       change.source === "collab" &&
       change.docId === this.docId &&
@@ -1151,20 +1190,35 @@ class CollabDocConnection {
       : this.effectivePollInterval;
   }
 
-  private schedulePoll(): void {
-    if (!this.syncActive || this.disposed) return;
+  private isPollCurrent(generation: number): boolean {
+    return (
+      generation === this.pollGeneration &&
+      this.syncActive &&
+      !this.disposed &&
+      this.subscribers.size > 0
+    );
+  }
+
+  private schedulePoll(
+    generation: number,
+    delay = this.getActivePollInterval(),
+  ): void {
+    if (!this.isPollCurrent(generation)) return;
     if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
-    this.pollTimer = setTimeout(() => {
-      this.pollTimer = null;
-      void this.poll();
-    }, this.getActivePollInterval());
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+    const timer = setTimeout(() => {
+      if (this.pollTimer === timer) this.pollTimer = null;
+      if (!this.isPollCurrent(generation)) return;
+      void this.poll(generation);
+    }, delay);
+    this.pollTimer = timer;
   }
 
   private reschedulePoll(): void {
     if (this.pollTimer === null) return;
     clearTimeout(this.pollTimer);
     this.pollTimer = null;
-    this.schedulePoll();
+    this.schedulePoll(this.pollGeneration);
   }
 
   private fetchStateVector(): Promise<CollaborativeDocSyncResult> {
@@ -1249,20 +1303,45 @@ class CollabDocConnection {
     }
   }
 
-  private async poll(): Promise<void> {
-    if (!this.syncActive || this.disposed) return;
+  private async poll(generation: number): Promise<void> {
+    if (!this.isPollCurrent(generation)) return;
+    if (this.pollInFlight.has(generation)) {
+      this.pollRequested.add(generation);
+      return;
+    }
+    this.pollInFlight.add(generation);
+    try {
+      await this.pollOnce(generation);
+    } finally {
+      this.pollInFlight.delete(generation);
+    }
+    if (this.pollRequested.delete(generation)) {
+      if (this.isPollCurrent(generation)) this.pollNow();
+    }
+  }
+
+  private async pollOnce(generation: number): Promise<void> {
+    if (!this.isPollCurrent(generation)) return;
 
     this.flushPendingUpdates();
 
+    const pollAbort = new AbortController();
+    const pollTimeout = setTimeout(
+      () => pollAbort.abort(),
+      POLL_FETCH_TIMEOUT_MS,
+    );
     try {
       const pollUrl = this.pollCursor
         ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
         : `/_agent-native/poll?since=${this.pollVersion}`;
-      const res = await fetch(agentNativePath(pollUrl));
+      const res = await fetch(agentNativePath(pollUrl), {
+        signal: pollAbort.signal,
+      });
+      if (!this.isPollCurrent(generation)) return;
       if (!res.ok) throw new Error("HTTP " + res.status);
 
       const data = await res.json();
-      if (!this.syncActive || this.disposed) return;
+      if (!this.isPollCurrent(generation)) return;
       const hadActivityBaseline = this.pollActivityBaselineReady;
       const { version, events } = data as {
         version: number;
@@ -1282,6 +1361,9 @@ class CollabDocConnection {
       const hadGap = versionGap > POLL_RING_BUFFER_SIZE;
 
       for (const evt of events) {
+        if (evt.source !== "collab") {
+          for (const sub of this.subscribers.values()) sub.onEvent(evt);
+        }
         if (evt.source === "collab" && evt.docId === this.docId && evt.update) {
           if (this.requestSource && evt.requestSource === this.requestSource) {
             continue;
@@ -1290,6 +1372,7 @@ class CollabDocConnection {
             Y.applyUpdate(this.ydoc, base64ToUint8Array(evt.update), "remote");
           } catch {
             await this.fetchStateVector();
+            if (!this.isPollCurrent(generation)) return;
           }
 
           if (evt.requestSource === "agent") {
@@ -1302,6 +1385,7 @@ class CollabDocConnection {
         noteCollabPollActivity(events);
       } else {
         const reconciliation = await this.fetchStateVector();
+        if (!this.isPollCurrent(generation)) return;
         if (reconciliation.status !== "synced") {
           throw reconciliation.status === "failed"
             ? reconciliation.error
@@ -1322,15 +1406,18 @@ class CollabDocConnection {
 
       if (shouldFetchStateVector) {
         await this.fetchStateVector();
+        if (!this.isPollCurrent(generation)) return;
       }
 
+      if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
-      if (localState && !this.disposed) {
+      if (localState && this.isPollCurrent(generation)) {
         try {
           const awarenessRes = await fetch(
             `${this.baseUrl}/${this.docId}/awareness`,
             {
               method: "POST",
+              signal: pollAbort.signal,
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 clientId: this.ydoc.clientID,
@@ -1338,8 +1425,10 @@ class CollabDocConnection {
               }),
             },
           );
-          if (awarenessRes.ok && !this.disposed) {
+          if (!this.isPollCurrent(generation)) return;
+          if (awarenessRes.ok) {
             const awarenessData = await awarenessRes.json();
+            if (!this.isPollCurrent(generation)) return;
             const remoteStates: RemoteAwarenessSnapshot[] = [];
             for (const remote of awarenessData.states || []) {
               try {
@@ -1352,7 +1441,7 @@ class CollabDocConnection {
                 // Invalid state — skip
               }
             }
-            if (this.disposed) return;
+            if (!this.isPollCurrent(generation)) return;
             const changes = reconcileRemoteAwarenessStates(
               this.awareness.getStates() as Map<number, unknown>,
               this.ydoc.clientID,
@@ -1371,18 +1460,16 @@ class CollabDocConnection {
         }
       }
     } catch {
+      if (!this.isPollCurrent(generation)) return;
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
-      if (this.syncActive && !this.disposed) {
-        this.pollTimer = setTimeout(() => {
-          this.pollTimer = null;
-          void this.poll();
-        }, backoff);
-      }
+      this.schedulePoll(generation, backoff);
       return;
+    } finally {
+      clearTimeout(pollTimeout);
     }
 
-    this.schedulePoll();
+    this.schedulePoll(generation);
   }
 
   private pollNow(): void {
@@ -1392,7 +1479,7 @@ class CollabDocConnection {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
-    void this.poll();
+    void this.poll(this.pollGeneration);
   }
 
   private publishVisibility(visible: boolean): void {
@@ -1516,10 +1603,13 @@ export function useCollaborativeDoc(
     activityResource,
     durableUpdates = false,
     onUpdateAcknowledged,
+    onEvent,
   } = options;
   const onUpdateAcknowledgedRef = useRef(onUpdateAcknowledged);
   onUpdateAcknowledgedRef.current = onUpdateAcknowledged;
   const wantsAcks = onUpdateAcknowledged !== undefined;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
   useEffect(() => {
     if (!docId || !activityResource) return;
     return registerCollabActivityResource(activityResource);
@@ -1573,6 +1663,7 @@ export function useCollaborativeDoc(
           }
         : {}),
       onSnapshot: setSnapshot,
+      onEvent: (event) => onEventRef.current?.(event),
     });
     setSnapshot(conn.snapshot);
     return () => {

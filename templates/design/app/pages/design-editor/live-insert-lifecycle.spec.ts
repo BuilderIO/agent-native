@@ -279,7 +279,9 @@ function recordReorderAgainstRunningSnapshot(
 describe("live insert lifecycle", () => {
   it("skips persisted static no-ops but queues running-app post-gesture snapshots", () => {
     expect(recordReorderAgainstRunningSnapshot("inline")).toEqual([]);
-    expect(recordReorderAgainstRunningSnapshot("fusion")).toEqual([]);
+    // A Builder (fusion) app is a running dev server behind a cloud URL, so
+    // it is edited like localhost (isRunningAppSourceType).
+    expect(recordReorderAgainstRunningSnapshot("fusion")).toHaveLength(1);
     expect(recordReorderAgainstRunningSnapshot("localhost")).toHaveLength(1);
   });
 

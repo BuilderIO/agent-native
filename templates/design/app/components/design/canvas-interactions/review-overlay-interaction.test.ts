@@ -18,6 +18,16 @@ describe("review overlay canvas interaction guard", () => {
     expect(isCanvasOverlayInteractionTarget(clickPlane)).toBe(true);
   });
 
+  it("recognizes standalone pin clusters inside the review overlay root", () => {
+    const overlayRoot = document.createElement("div");
+    overlayRoot.dataset.reviewOverlayRoot = "";
+    const cluster = document.createElement("button");
+    cluster.dataset.reviewPinCluster = "";
+    overlayRoot.append(cluster);
+
+    expect(isCanvasOverlayInteractionTarget(cluster)).toBe(true);
+  });
+
   it("leaves ordinary canvas targets available to gestures", () => {
     expect(
       isCanvasOverlayInteractionTarget(document.createElement("div")),

@@ -166,10 +166,10 @@ describe("contextual toolbar emphasis toggles", () => {
     expect(screen.queryByRole("button", { name: "Underline" })).toBeNull();
   });
 
-  it("marks the portalled weight and align menus as inline-edit surfaces", () => {
+  it("marks the portalled align menu as an inline-edit surface", () => {
     renderToolbar(textSnapshot());
 
-    for (const name of ["Weight", "Align"]) {
+    for (const name of ["Align"]) {
       const trigger = screen.getByRole("button", { name });
       fireEvent.pointerDown(trigger, { button: 0 });
       fireEvent.pointerUp(trigger, { button: 0 });

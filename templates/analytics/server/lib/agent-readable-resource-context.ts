@@ -302,6 +302,7 @@ export function buildDashboardAgentContext(
     variables: config.variables,
     columns: config.columns,
     annotations: config.annotations,
+    introducedPanels: config.introducedPanels,
     ...options.annotationSummary,
     panels: panelSummaries(config),
     layout: dashboardLayoutSummary(config),

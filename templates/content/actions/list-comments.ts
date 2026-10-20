@@ -11,7 +11,7 @@ import { readStoredCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
-    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps.",
+    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps. A thread on a Property value has property_id, with the Property's name and value as they were when the thread started.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -81,6 +81,9 @@ export default defineAction({
       anchor_suffix: row.anchorSuffix,
       anchor_start_offset:
         row.anchorStartOffset == null ? null : Number(row.anchorStartOffset),
+      property_id: row.propertyId,
+      property_name: row.propertyName,
+      property_value: row.propertyValue,
       mentions: readStoredCommentMentions(row.mentionsJson),
       author_email: row.authorEmail,
       submission_source: row.submissionSource,

@@ -9,7 +9,7 @@ import {
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
-import { isLoomEmbedBackedRecording } from "../../shared/loom.js";
+import { recordingEmbedProvider } from "../../shared/embed-provider.js";
 import { getDb, schema } from "../db/index.js";
 import {
   loadRecordingMediaBytes,
@@ -34,6 +34,7 @@ export type EnsureRecordingThumbnailStatus =
   | "skipped-not-ready"
   | "skipped-no-media"
   | "skipped-loom-embed"
+  | "skipped-youtube-embed"
   | "skipped-media-fetch"
   | "skipped-frame-extraction"
   | "skipped-upload-failed"
@@ -443,9 +444,11 @@ async function ensureRecordingThumbnailOnce(
         return { recordingId, status: "skipped-no-media", changed: false };
       }
       try {
-        if (isLoomEmbedBackedRecording(recording)) {
-          await setThumbnailStatus(recordingId, "none", "skipped-loom-embed");
-          return { recordingId, status: "skipped-loom-embed", changed: false };
+        const embedProvider = recordingEmbedProvider(recording);
+        if (embedProvider) {
+          const status = `skipped-${embedProvider}-embed` as const;
+          await setThumbnailStatus(recordingId, "none", status);
+          return { recordingId, status, changed: false };
         }
         const media = await loadRecordingMediaBytes(recording);
         bytes = media.bytes;

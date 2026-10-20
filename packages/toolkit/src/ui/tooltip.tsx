@@ -7,7 +7,28 @@ const TooltipProvider = TooltipPrimitive.Provider;
 
 const Tooltip = TooltipPrimitive.Root;
 
-const TooltipTrigger = TooltipPrimitive.Trigger;
+/**
+ * Opens on keyboard focus, but not when a closing menu, popover or dialog
+ * hands focus back to the trigger after a click: Radix opens on any focus,
+ * so the tooltip would pop up after every such close.
+ */
+const TooltipTrigger = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
+>(({ onFocus, ...props }, ref) => (
+  <TooltipPrimitive.Trigger
+    ref={ref}
+    onFocus={(event) => {
+      onFocus?.(event);
+      // Radix skips its own open-on-focus for a default-prevented event.
+      if (!event.currentTarget.matches(":focus-visible")) {
+        event.preventDefault();
+      }
+    }}
+    {...props}
+  />
+));
+TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName;
 
 function normalizeTooltipText(text: string): string {
   const decoded = text.replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex) =>

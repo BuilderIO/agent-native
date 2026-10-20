@@ -496,6 +496,92 @@ describe("Desktop identity activation", () => {
     expect(ensureAppSession).toHaveBeenNthCalledWith(3, "mail");
   });
 
+  it("stops identity probes after a preloaded guest has loaded and becomes inactive", async () => {
+    const getSettings = vi.fn(async () => ({ ssoEnabled: true }));
+    const getStatus = vi.fn(async () => "signed-in" as const);
+    const ensureAppSession = vi.fn(async () => true);
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings,
+          getStatus,
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          preload: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(1));
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+
+    const callsBeforeHiding = {
+      getSettings: getSettings.mock.calls.length,
+      getStatus: getStatus.mock.calls.length,
+      ensureAppSession: ensureAppSession.mock.calls.length,
+    };
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          preload: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getSettings).toHaveBeenCalledTimes(callsBeforeHiding.getSettings);
+    expect(getStatus).toHaveBeenCalledTimes(callsBeforeHiding.getStatus);
+    expect(ensureAppSession).toHaveBeenCalledTimes(
+      callsBeforeHiding.ensureAppSession,
+    );
+  });
+
   it("keeps a remembered session gated until child synchronization completes", async () => {
     let resolveSynchronization!: (synchronized: boolean) => void;
     const ensureAppSession = vi.fn(

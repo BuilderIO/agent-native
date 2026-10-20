@@ -21,8 +21,10 @@ import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
   type ContentHistoryEntry,
+  type ContentHistoryChange,
   type ContentHistorySelectionAfterMap,
   stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
   type YjsUndoSelectionSnapshot,
@@ -69,6 +71,7 @@ export interface GroupSelectionArgs {
   >;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   boardFileId: string | undefined;
   files: DesignFile[];
   getFreshActiveContent: () => string;
@@ -98,6 +101,7 @@ export function runGroupSelection({
   codeLayerOwnerByNodeIdRef,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
+  localContentUndoStackRef,
   boardFileId,
   files,
   getFreshActiveContent,
@@ -183,6 +187,10 @@ export function runGroupSelection({
   const contentUndoStackTopBeforeGroup = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
+  const localContentUndoStackTopBeforeGroup =
+    localContentUndoStackRef.current[
+      localContentUndoStackRef.current.length - 1
+    ];
   const submittedProjection = buildCodeLayerProjection(nextContent, { source });
   const submittedWrapper = patch.result.wrapperNodeId
     ? submittedProjection.nodes.find(
@@ -212,7 +220,7 @@ export function runGroupSelection({
     setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
     stampYjsUndoSelectionAfter(
       undoManagerRef.current,
-      undoStackTopBeforeGroup,
+      publication.yjsHistoryRecorded === true,
       {
         selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
         selectedLayerIds: [wrapperNode.id],
@@ -226,6 +234,14 @@ export function runGroupSelection({
         overviewSelectedScreenIds,
         selectedLayerIds: [wrapperNode.id],
         activeFileId: activeFile.id,
+      },
+    );
+    stampLocalContentHistorySelectionAfter(
+      localContentUndoStackRef.current,
+      localContentUndoStackTopBeforeGroup,
+      {
+        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+        selectedLayerIds: [wrapperNode.id],
       },
     );
   }

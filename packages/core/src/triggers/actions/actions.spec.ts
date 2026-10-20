@@ -8,10 +8,18 @@ const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const executeMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../db/client.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../db/client.js")>()),
-  getDbExec: () => ({ execute: executeMock }),
-}));
+vi.mock("../../db/client.js", async (importOriginal) => {
+  const { storeLedgerResult } =
+    await import("../../db/store-ledger.test-helpers.js");
+  const db = {
+    execute: async (q: string | { sql: string }) =>
+      storeLedgerResult(typeof q === "string" ? q : q.sql) ?? executeMock(q),
+  };
+  return {
+    ...(await importOriginal<typeof import("../../db/client.js")>()),
+    getDbExec: () => db,
+  };
+});
 
 vi.mock("../../resources/store.js", () => ({
   organizationIdFromResourceOwner: (owner: string) =>

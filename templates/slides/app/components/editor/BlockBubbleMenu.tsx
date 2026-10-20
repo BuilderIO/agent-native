@@ -27,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { shortcutLabel } from "@/lib/utils";
+import { normalizeLinkHref, shortcutLabel } from "@/lib/utils";
 
 import type { InPlaceTextSession } from "./in-place-text-session";
 
@@ -225,10 +225,8 @@ export function BlockBubbleMenu({
   };
 
   const applyLink = () => {
-    if (!linkValue.trim()) return;
-    const href = linkValue.startsWith("http")
-      ? linkValue
-      : `https://${linkValue}`;
+    const href = normalizeLinkHref(linkValue);
+    if (!href) return;
     runCommand((commands) => commands.link(href));
     setShowLinkInput(false);
     setLinkValue("");
