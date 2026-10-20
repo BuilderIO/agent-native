@@ -3598,10 +3598,12 @@ export default function RecordRoute() {
           }),
         }).catch(() => {});
       } else {
-        callAction(
-          "abandon-recording-start" as any,
-          { id: pendingId } as any,
-        ).catch(() => {});
+        // The abort handler owns hosted allowance release after confirming cleanup.
+        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+        }).catch(() => {});
       }
     }
     if (uploadRecordingId) {
