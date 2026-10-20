@@ -17282,11 +17282,18 @@ export function databasePropertyValuesForNewItem(
     );
     if (!property?.editable) continue;
     if (isComputedPropertyType(property.definition.type)) continue;
-    if (propertyValues[property.definition.id] !== undefined) continue;
 
     const value = databaseFilterDefaultValueForNewItem(filter, property);
-    if (value !== undefined) {
+    if (value === undefined) continue;
+    const current = propertyValues[property.definition.id];
+    if (current === undefined) {
       propertyValues[property.definition.id] = value;
+    } else if (Array.isArray(current) && Array.isArray(value)) {
+      // "Tags contains A" and "Tags contains B" both have to match, so a
+      // new row gets every value; one value would drop it from the view.
+      propertyValues[property.definition.id] = [
+        ...new Set([...current, ...value]),
+      ];
     }
   }
 

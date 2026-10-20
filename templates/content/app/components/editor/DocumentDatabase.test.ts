@@ -1459,6 +1459,60 @@ describe("new database item defaults", () => {
     });
   });
 
+  it("gives a new row every value from repeated multi-select and person filters", () => {
+    const pillarsProperty = property("pillars", "Pillars", "multi_select");
+    const ownerProperty = property("owner", "Owner", "person");
+    const statusProperty = property("status", "Status", "select");
+
+    expect(
+      databasePropertyValuesForNewItem(
+        [
+          {
+            key: "pillars",
+            label: "Pillars",
+            operator: "contains",
+            value: "design",
+          },
+          {
+            key: "pillars",
+            label: "Pillars",
+            operator: "contains",
+            value: JSON.stringify(["research", "design"]),
+          },
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: "alice@example.com",
+          },
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: "eric@example.com",
+          },
+          {
+            key: "status",
+            label: "Status",
+            operator: "equals",
+            value: "published",
+          },
+          {
+            key: "status",
+            label: "Status",
+            operator: "equals",
+            value: "draft",
+          },
+        ],
+        [pillarsProperty, ownerProperty, statusProperty],
+      ),
+    ).toEqual({
+      pillars: ["design", "research"],
+      owner: ["alice@example.com", "eric@example.com"],
+      status: "published",
+    });
+  });
+
   it("normalizes option-label equality filters into stable option ids for new rows", () => {
     const options = {
       options: [
