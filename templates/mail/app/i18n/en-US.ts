@@ -426,7 +426,7 @@ const messages = {
       tryDifferentKeywords: "Try different keywords",
       nothingHere: "Nothing here yet",
       loadingMore: "Loading more...",
-      searchOlderMail: "Search to find older mail",
+      openAllMailForOlder: "Open All Mail for older messages",
     },
     toasts: {
       noEmailSelected: "No email selected.",

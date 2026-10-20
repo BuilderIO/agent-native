@@ -428,7 +428,7 @@ const messages = {
       tryDifferentKeywords: "جرّب كلمات مفتاحية مختلفة",
       nothingHere: "لا يوجد شيء هنا بعد",
       loadingMore: "جار تحميل المزيد...",
-      searchOlderMail: "ابحث للعثور على الرسائل الأقدم",
+      openAllMailForOlder: "افتح كل البريد للرسائل الأقدم",
     },
     toasts: {
       noEmailSelected: "لم يتم تحديد بريد.",

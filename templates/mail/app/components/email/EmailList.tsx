@@ -2898,7 +2898,7 @@ export function EmailList({
               onClick={() => void navigate("/all")}
               className="underline underline-offset-2 hover:text-foreground"
             >
-              {t("mail.empty.searchOlderMail")}
+              {t("mail.empty.openAllMailForOlder")}
             </button>
           </div>
         )}

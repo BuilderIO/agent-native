@@ -1681,6 +1681,32 @@ describe("syncInbox — steady-account short-circuit", () => {
     expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(3);
   });
 
+  it("refreshes labels on a manual refresh even inside the label TTL", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+      labelsUpdatedAt: Date.now() - 1_000,
+    });
+
+    await syncInbox(OWNER, { force: true });
+
+    expect(mocks.gmailListLabels).toHaveBeenCalled();
+  });
+
+  it("keeps the label TTL for an unforced sync that must still run", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+      labelsUpdatedAt: Date.now() - 1_000,
+    });
+    mocks.readInboxPushGeneration.mockResolvedValue(1);
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailListLabels).not.toHaveBeenCalled();
+  });
+
   it("lets a manual refresh force a sync inside the window", async () => {
     steadyRow({
       lastSyncedAt: Date.now() - 1_000,

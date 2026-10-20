@@ -1475,7 +1475,7 @@ describe("EmailList keyboard navigation interactions", () => {
   it("offers All Mail at the offset cap and nothing while pages remain", () => {
     const atCap = render(<Harness reachedCap hasNextPage={false} />);
     const affordance = screen.getByRole("button", {
-      name: "mail.empty.searchOlderMail",
+      name: "mail.empty.openAllMailForOlder",
     });
     fireEvent.click(affordance);
     expect(mocks.navigate).toHaveBeenCalledWith("/all");
@@ -1483,7 +1483,7 @@ describe("EmailList keyboard navigation interactions", () => {
 
     render(<Harness hasNextPage reachedCap={false} />);
     expect(
-      screen.queryByRole("button", { name: "mail.empty.searchOlderMail" }),
+      screen.queryByRole("button", { name: "mail.empty.openAllMailForOlder" }),
     ).toBeNull();
   });
 

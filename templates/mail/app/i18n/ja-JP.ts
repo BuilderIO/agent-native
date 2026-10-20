@@ -429,7 +429,7 @@ const messages = {
       tryDifferentKeywords: "別のキーワードを試してください",
       nothingHere: "まだ何もありません",
       loadingMore: "さらに読み込み中...",
-      searchOlderMail: "古いメールを検索",
+      openAllMailForOlder: "古いメッセージはすべてのメールで開く",
     },
     toasts: {
       noEmailSelected: "メールが選択されていません。",

@@ -417,7 +417,7 @@ const messages = {
       tryDifferentKeywords: "试试其他关键词",
       nothingHere: "这里还没有内容",
       loadingMore: "正在加载更多...",
-      searchOlderMail: "搜索以查找更早的邮件",
+      openAllMailForOlder: "打开全部邮件查看更早的邮件",
     },
     toasts: {
       noEmailSelected: "未选择邮件。",

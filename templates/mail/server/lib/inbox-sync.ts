@@ -1244,6 +1244,7 @@ export async function syncInbox(
       const synced = await syncInboxAccount(ownerEmail, accountEmail, {
         budgetMs: opts?.budgetMs ?? 1_800,
         connectedAccountEmails: accounts,
+        force: opts?.force,
       });
       return { ...synced, pushWatch: pushWatchState(row, now) };
     }),
