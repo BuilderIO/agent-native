@@ -51,6 +51,16 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.210.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 043f03f: Start AgentKit readiness checks during hidden session preloading to remove a serial page-load wait.
+- Updated dependencies
+  - @agent-native/agentkit@0.210.2
+  - @agent-native/recap-cli@0.5.77
+
 ## 0.210.1
 
 ### Patch Changes
@@ -4243,12 +4253,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 8617890: Generate the canonical public stale-while-revalidate headers for Netlify static build artifacts and guard prerendered apps against the platform default cache policy.
-
-## 0.168.1
-
-### Patch Changes
-
-- 07e0de3: Show the personal or workspace scope choice before connecting an integration in an organization, including a clear owner/admin requirement for members.
-- 68265a5: Forward hosted provider setup callbacks through `AgentSidebar` so Electron chat can show its native AI connection action after sign-in, and allow the native integrations surface to route OAuth through the authenticated app webview.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
