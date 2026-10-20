@@ -1392,8 +1392,8 @@ export default function Index() {
               onOpenChange={() => {}}
               composerComponent={PromptComposer}
               composerRef={composerRef}
-              showModelSelector={agentEngineConfigured}
-              modelStatusChecksEnabled={agentEngineConfigured}
+              showModelSelector
+              modelStatusChecksEnabled
               requireAgentEngine
               showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}

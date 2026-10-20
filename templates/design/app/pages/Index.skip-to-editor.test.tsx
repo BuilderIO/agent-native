@@ -794,8 +794,8 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       requireAgentEngine: true,
       showMissingApiKeySetup: false,
-      showModelSelector: false,
-      modelStatusChecksEnabled: false,
+      showModelSelector: true,
+      modelStatusChecksEnabled: true,
     });
     expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
     expect(mocks.promptProps?.composerComponent).toBeDefined();
@@ -855,8 +855,8 @@ describe("Index skip to editor", () => {
     expect(mocks.promptProps).toMatchObject({
       requireAgentEngine: true,
       showMissingApiKeySetup: false,
-      showModelSelector: false,
-      modelStatusChecksEnabled: false,
+      showModelSelector: true,
+      modelStatusChecksEnabled: true,
     });
     expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
     expect(
@@ -1187,8 +1187,8 @@ describe("Index skip to editor", () => {
       expect(mocks.promptProps).toMatchObject({
         requireAgentEngine: true,
         showMissingApiKeySetup: false,
-        showModelSelector: ready,
-        modelStatusChecksEnabled: ready,
+        showModelSelector: true,
+        modelStatusChecksEnabled: true,
       });
       expect(mocks.promptProps?.onBeforeSubmit).toBeUndefined();
       expect(
