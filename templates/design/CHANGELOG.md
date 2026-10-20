@@ -11,6 +11,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Public Design viewers no longer see repeated PNG export errors
 - Design resizes more high-resolution reference images before adding them to a prompt.
 - Review menus no longer trigger canvas gestures, and rewrite previews and proposal controls follow the uniquely resolved target.
 - The Design home chat keeps its model picker visible while readiness checks run.
