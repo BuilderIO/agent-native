@@ -252,7 +252,7 @@ describe("template refinement output", () => {
     ).toBe(true);
   });
 
-  it("uses file revisions to recover older pending template runs", () => {
+  it("does not infer output from file revisions without a persisted baseline", () => {
     expect(
       hasPendingGenerationOutput({ templateId: "template-1" }, [copied]),
     ).toBe(false);
@@ -260,7 +260,7 @@ describe("template refinement output", () => {
       hasPendingGenerationOutput({ templateId: "template-1" }, [
         { ...copied, updatedAt: "2026-07-10T12:01:00.000Z" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("treats a changed tracked support file as completed template refinement", () => {
@@ -297,7 +297,7 @@ describe("template refinement output", () => {
         copied,
         { ...stylesheet, updatedAt: "2026-07-10T12:01:00.000Z" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -326,7 +326,13 @@ describe("board file is not generation output", () => {
       updatedAt: "2026-07-10T12:01:00.000Z",
     };
     expect(
-      hasPendingGenerationOutput({ prompt: "login screen" }, [board, screen]),
+      hasPendingGenerationOutput(
+        {
+          prompt: "login screen",
+          outputBaselineFiles: snapshotGenerationOutputBaseline([board]),
+        },
+        [board, screen],
+      ),
     ).toBe(true);
   });
 
@@ -392,6 +398,40 @@ describe("generation output baseline", () => {
 
     expect(hasPendingGenerationOutput(pending, [existing])).toBe(false);
     expect(shouldSkipPendingGenerationResume(pending, [existing])).toBe(false);
+  });
+
+  it("keeps legacy HTML from suppressing a stale generation retry", () => {
+    const stalePending = {
+      prompt: "Add a settings page",
+      createdAt: Date.now() - PENDING_GENERATION_STALE_MS - 1,
+    };
+
+    expect(hasPendingGenerationOutput(stalePending, [existing])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(stalePending, [existing])).toBe(
+      false,
+    );
+  });
+
+  it("avoids resuming a fresh legacy generation over existing HTML", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      createdAt: Date.now(),
+    };
+
+    expect(hasPendingGenerationOutput(pending, [existing])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(pending, [existing])).toBe(true);
+  });
+
+  it("does not trust existing template output when a legacy baseline is absent", () => {
+    expect(
+      hasPendingGenerationOutput(
+        {
+          templateId: "template-1",
+          createdAt: Date.now() - PENDING_GENERATION_STALE_MS - 1,
+        },
+        [existing],
+      ),
+    ).toBe(false);
   });
 
   it("recognizes changed and newly created HTML against the prompt baseline", () => {

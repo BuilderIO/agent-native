@@ -114,7 +114,16 @@ export function shouldSkipPendingGenerationResume<
     updatedAt?: string | null;
   },
 >(pending: PendingGeneration, files: readonly T[]): boolean {
-  return !pending.templateId && hasPendingGenerationOutput(pending, files);
+  if (pending.templateId) return false;
+
+  if (
+    pending.outputBaselineFiles === undefined &&
+    generationOutputFiles(files).length > 0
+  ) {
+    return !isPendingGenerationStale(pending);
+  }
+
+  return hasPendingGenerationOutput(pending, files);
 }
 
 function isTrackedTemplateOutputFile(file: { filename?: string }): boolean {
@@ -134,25 +143,16 @@ export function hasPendingGenerationOutput(
 ): boolean {
   if (!pending) return false;
   if (pending.templateId) {
-    const trackedFiles = files.filter(isTrackedTemplateOutputFile);
-    if (pending.templateBaselineFiles !== undefined) {
-      const baseline = new Map(
-        pending.templateBaselineFiles.map((file) => [
-          file.id,
-          file.contentHash,
-        ]),
-      );
-      return trackedFiles.some(
-        (file) =>
-          !baseline.has(file.id) ||
-          baseline.get(file.id) !== sourceContentHash(file.content),
-      );
-    }
+    if (pending.templateBaselineFiles === undefined) return false;
 
+    const trackedFiles = files.filter(isTrackedTemplateOutputFile);
+    const baseline = new Map(
+      pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
+    );
     return trackedFiles.some(
       (file) =>
-        Boolean(file.createdAt && file.updatedAt) &&
-        file.createdAt !== file.updatedAt,
+        !baseline.has(file.id) ||
+        baseline.get(file.id) !== sourceContentHash(file.content),
     );
   }
 
@@ -167,7 +167,7 @@ export function hasPendingGenerationOutput(
     );
   }
 
-  return generationOutputFiles(files).length > 0;
+  return false;
 }
 
 export function pendingGenerationKey(id: string): string {

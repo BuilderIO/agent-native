@@ -135,6 +135,7 @@ vi.mock("./run-store.js", () => ({
     reason === "network_interrupted" ||
     reason === "no_progress",
   getRunByThread: vi.fn(() => Promise.resolve(null)),
+  listRunsForThread: vi.fn(() => Promise.resolve([])),
   cleanupOldRuns: vi.fn(() => Promise.resolve()),
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
   bumpRunProgress: vi.fn(() => Promise.resolve()),
@@ -285,6 +286,7 @@ import {
   insertRunEvents,
   getRunById,
   getRunByThread,
+  listRunsForThread,
   getRunEventsSince,
   getCurrentTurnRunEventsForThread,
   markRunAborted,
@@ -378,6 +380,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
     vi.mocked(getRunStatus).mockResolvedValue("running");
     vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(listRunsForThread).mockReset();
+    vi.mocked(listRunsForThread).mockResolvedValue([]);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
     vi.mocked(claimTurnExecutionLease).mockClear();
     vi.mocked(insertRun).mockResolvedValue(undefined);
@@ -5238,21 +5242,176 @@ describe("run manager soft timeout", () => {
   });
 
   it("skips a duplicate-submission marker when no accepted run is live", async () => {
+    const now = Date.now();
+    const duplicateMarker = {
+      id: "run-duplicate-request-terminal",
+      threadId: "thread-duplicate-terminal",
+      turnId: "turn-duplicate-terminal",
+      status: "aborted",
+      startedAt: now,
+      heartbeatAt: now,
+      completedAt: now,
+      lastProgressAt: null,
+      errorCode: null,
+      abortReason: "duplicate_submission",
+      dispatchMode: "foreground",
+      terminalReason: "aborted:duplicate_submission",
+      diagStage: null,
+    };
     vi.mocked(getRunByThread)
       .mockResolvedValueOnce({
-        id: "run-duplicate-request-terminal",
-        threadId: "thread-duplicate-terminal",
-        status: "aborted",
-        startedAt: Date.now(),
-        heartbeatAt: Date.now(),
-        completedAt: Date.now(),
-        lastProgressAt: null,
-        terminalReason: "aborted:duplicate_submission",
+        id: duplicateMarker.id,
+        threadId: duplicateMarker.threadId,
+        turnId: duplicateMarker.turnId,
+        status: duplicateMarker.status,
+        startedAt: duplicateMarker.startedAt,
+        heartbeatAt: duplicateMarker.heartbeatAt,
+        completedAt: duplicateMarker.completedAt,
+        lastProgressAt: duplicateMarker.lastProgressAt,
+        terminalReason: duplicateMarker.terminalReason,
       })
       .mockResolvedValueOnce(null);
+    vi.mocked(listRunsForThread).mockResolvedValue([duplicateMarker]);
 
     await expect(
       getActiveRunForThreadAsync("thread-duplicate-terminal"),
+    ).resolves.toBeNull();
+  });
+
+  it.each([
+    { acceptedStatus: "completed", wireStatus: "completed" },
+    { acceptedStatus: "errored", wireStatus: "errored" },
+    { acceptedStatus: "aborted", wireStatus: "aborted" },
+    { acceptedStatus: "truncated", wireStatus: "completed" },
+  ] as const)(
+    "resolves a duplicate-submission marker to its recent accepted $acceptedStatus run",
+    async ({ acceptedStatus, wireStatus }) => {
+      const now = Date.now();
+      const duplicateMarker = {
+        id: "run-duplicate-request-terminal",
+        threadId: "thread-duplicate-terminal",
+        turnId: "turn-duplicate-terminal",
+        status: "aborted",
+        startedAt: now,
+        heartbeatAt: now,
+        completedAt: now,
+        lastProgressAt: null,
+        errorCode: null,
+        abortReason: "duplicate_submission",
+        dispatchMode: "foreground",
+        terminalReason: "aborted:duplicate_submission",
+        diagStage: null,
+      };
+      const acceptedRun = {
+        id: "run-accepted-terminal",
+        threadId: "thread-duplicate-terminal",
+        turnId: "turn-accepted",
+        status: acceptedStatus,
+        startedAt: now - 1_000,
+        heartbeatAt: now - 1_000,
+        completedAt: now - 500,
+        lastProgressAt: now - 800,
+        errorCode: null,
+        abortReason: null,
+        dispatchMode: "foreground",
+        terminalReason:
+          acceptedStatus === "aborted"
+            ? "aborted:user"
+            : acceptedStatus === "truncated"
+              ? "run_timeout"
+              : null,
+        diagStage: null,
+      };
+      vi.mocked(getRunByThread)
+        .mockResolvedValueOnce({
+          id: duplicateMarker.id,
+          threadId: duplicateMarker.threadId,
+          turnId: duplicateMarker.turnId,
+          status: duplicateMarker.status,
+          startedAt: duplicateMarker.startedAt,
+          heartbeatAt: duplicateMarker.heartbeatAt,
+          completedAt: duplicateMarker.completedAt,
+          lastProgressAt: duplicateMarker.lastProgressAt,
+          terminalReason: duplicateMarker.terminalReason,
+        })
+        .mockResolvedValueOnce(null);
+      vi.mocked(listRunsForThread).mockResolvedValue([
+        duplicateMarker,
+        acceptedRun,
+      ]);
+
+      const result = await getActiveRunForThreadAsync(
+        "thread-duplicate-terminal",
+      );
+
+      expect(result).toMatchObject({
+        runId: "run-accepted-terminal",
+        threadId: "thread-duplicate-terminal",
+        turnId: "turn-accepted",
+        status: wireStatus,
+        inFlight: false,
+        terminalReason: acceptedRun.terminalReason,
+      });
+      expect(result?.runId).not.toBe("run-duplicate-request-terminal");
+      expect(listRunsForThread).toHaveBeenCalledWith(
+        "thread-duplicate-terminal",
+        { limit: 50 },
+      );
+    },
+  );
+
+  it("does not reconnect an accepted run beyond the terminal window after a duplicate marker", async () => {
+    const now = Date.now();
+    const duplicateMarker = {
+      id: "run-duplicate-request-stale",
+      threadId: "thread-duplicate-stale",
+      turnId: "turn-duplicate-stale",
+      status: "aborted",
+      startedAt: now,
+      heartbeatAt: now,
+      completedAt: now,
+      lastProgressAt: null,
+      errorCode: null,
+      abortReason: "duplicate_submission",
+      dispatchMode: "foreground",
+      terminalReason: "aborted:duplicate_submission",
+      diagStage: null,
+    };
+    const acceptedRun = {
+      id: "run-accepted-stale",
+      threadId: "thread-duplicate-stale",
+      turnId: "turn-accepted-stale",
+      status: "completed",
+      startedAt: now - TERMINAL_RUN_RECONNECT_WINDOW_MS - 60_000,
+      heartbeatAt: now - TERMINAL_RUN_RECONNECT_WINDOW_MS - 60_000,
+      completedAt: now - TERMINAL_RUN_RECONNECT_WINDOW_MS - 60_000,
+      lastProgressAt: null,
+      errorCode: null,
+      abortReason: null,
+      dispatchMode: "foreground",
+      terminalReason: null,
+      diagStage: null,
+    };
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: duplicateMarker.id,
+        threadId: duplicateMarker.threadId,
+        turnId: duplicateMarker.turnId,
+        status: duplicateMarker.status,
+        startedAt: duplicateMarker.startedAt,
+        heartbeatAt: duplicateMarker.heartbeatAt,
+        completedAt: duplicateMarker.completedAt,
+        lastProgressAt: duplicateMarker.lastProgressAt,
+        terminalReason: duplicateMarker.terminalReason,
+      })
+      .mockResolvedValueOnce(null);
+    vi.mocked(listRunsForThread).mockResolvedValue([
+      duplicateMarker,
+      acceptedRun,
+    ]);
+
+    await expect(
+      getActiveRunForThreadAsync("thread-duplicate-stale"),
     ).resolves.toBeNull();
   });
 
