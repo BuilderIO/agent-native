@@ -402,7 +402,7 @@ export interface TabRecord {
    * `stranded` for a save still in flight when its page went away.
    */
   saveCodes: Record<string, number>;
-  /** Answers to stranded saves, which count in `saveOutcomes` as aborted. */
+  /** Answers to aborted saves, which already count once in `saveOutcomes`. */
   lateSaveOutcomes: Partial<Record<SaveOutcome, number>>;
   saveLineage: SaveLineageEvent[];
   saveLineageDropped: number;
@@ -777,8 +777,8 @@ export class TabSet {
   }
 
   /**
-   * Fetch the answer to a save a SaveGate holds, and keep it. The gate won't
-   * pass on a stranded save's answer, so the set records it as late instead.
+   * Fetch the answer to a save a SaveGate holds, and keep it. If the save
+   * already settled, the set records the answer as late instead.
    * The fetch outlives the save's page, so `quiet()` waits for it either way.
    */
   async fetchAnswer<T extends SaveAnswer>(
@@ -789,7 +789,7 @@ export class TabSet {
     this.fetching.add(request);
     try {
       const answer = await fetch();
-      if (this.stranded.has(request)) this.recordAnswer(request, answer);
+      if (!this.inFlight.has(request)) this.recordAnswer(request, answer);
       else this.heldAnswers.set(request, answer);
       return answer;
     } finally {
@@ -806,8 +806,6 @@ export class TabSet {
       if (sender?.tab !== tab || sender.document !== document) continue;
       this.stranded.add(request);
       this.settleAborted(request, "stranded");
-      const answer = this.heldAnswers.get(request);
-      if (answer) this.recordAnswer(request, answer);
     }
   }
 
@@ -825,6 +823,8 @@ export class TabSet {
       this.activeSaveLineage.delete(lineage.entry);
       this.saveLineage.failRequest(lineage.entry);
     }
+    const answer = this.heldAnswers.get(request);
+    if (answer) this.recordAnswer(request, answer);
   }
 
   /**
@@ -939,7 +939,7 @@ export class TabSet {
     const record = this.recordOf(request);
     this.answered.add(request);
     this.heldAnswers.delete(request);
-    // A save settled as stranded already counted once, as aborted. Its answer
+    // A save settled as aborted already counted once. Its answer
     // is still the server's word on it, so a History diversion stays noise.
     const late = !this.inFlight.delete(request);
     const sentAt = this.sentAt.get(request);
