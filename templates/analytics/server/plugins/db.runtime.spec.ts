@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   migrationPlugin: vi.fn(),
+  background: vi.fn(() => false),
   ensureAdditiveColumns: vi.fn(async () => ({ errors: [] })),
   getDbExec: vi.fn(),
   isProductionServerlessRuntime: vi.fn(() => true),
@@ -26,7 +27,7 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  isInBackgroundFunctionRuntime: vi.fn(() => false),
+  isInBackgroundFunctionRuntime: state.background,
 }));
 
 vi.mock("../db/index.js", () => ({}));
@@ -42,6 +43,8 @@ describe("Analytics database plugin boot contract", () => {
     process.env = { ...originalEnv, NODE_ENV: "production", NETLIFY: "true" };
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ =
       undefined;
+    state.background.mockReturnValue(false);
+    globalThis.__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ = undefined;
     state.migrationPlugin.mockReset();
     state.ensureAdditiveColumns.mockClear();
     state.getDbExec.mockReset();
@@ -53,6 +56,7 @@ describe("Analytics database plugin boot contract", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    globalThis.__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ = undefined;
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ =
       undefined;
   });
@@ -77,6 +81,15 @@ describe("Analytics database plugin boot contract", () => {
     expect(state.ensureAdditiveColumns).toHaveBeenCalledTimes(1);
     expect(state.getDbExec).toHaveBeenCalledTimes(1);
     expect(state.withMigrationRuntime).toHaveBeenCalledTimes(1);
+    expect(state.withMigrationExecutionRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs schema setup for the scheduled content worker before collection", async () => {
+    state.background.mockReturnValue(true);
+    globalThis.__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ = true;
+    const register = (await import("./db")).default;
+    await register({});
+    expect(state.migrationPlugin).toHaveBeenCalledTimes(1);
     expect(state.withMigrationExecutionRuntime).toHaveBeenCalledTimes(1);
   });
 

@@ -13,7 +13,7 @@ const MAX_FEED_CALLS = 10;
 
 function authorName(author: BuilderBlogArticle["author"]): string | null {
   if (!author) return null;
-  return author.name ?? author.handle ?? author.id;
+  return author.name ?? author.handle;
 }
 
 export function builderBlogItem(article: BuilderBlogArticle): ContentItemInput {
@@ -23,7 +23,9 @@ export function builderBlogItem(article: BuilderBlogArticle): ContentItemInput {
     url: `${BUILDER_BLOG_ORIGIN}${encodeURIComponent(article.handle)}`,
     title: article.title,
     author: authorName(article.author),
-    authors: article.authors.map((author) => authorName(author)!),
+    authors: article.authors
+      .map(authorName)
+      .filter((name): name is string => name !== null),
     publishedAt: article.publishDate,
     metadata: {
       handle: article.handle,

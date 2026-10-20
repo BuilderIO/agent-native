@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -149,14 +149,21 @@ export async function writeContentCollection(
   return saved;
 }
 
-export async function listEnabledContentCollections(): Promise<
-  ContentCollection[]
-> {
+export async function listEnabledContentCollections(
+  afterTenantKey?: string,
+): Promise<ContentCollection[]> {
   const db = getDb();
   const rows = await db
     .select()
     .from(schema.analyticsContentCollections)
-    .where(eq(schema.analyticsContentCollections.enabled, true))
+    .where(
+      and(
+        eq(schema.analyticsContentCollections.enabled, true),
+        afterTenantKey === undefined
+          ? undefined
+          : gt(schema.analyticsContentCollections.tenantKey, afterTenantKey),
+      ),
+    )
     .orderBy(schema.analyticsContentCollections.tenantKey)
     .limit(1000);
   return rows.map(toCollection);
@@ -212,20 +219,78 @@ export async function startContentRun(
   collection: ContentCollection,
   step: ContentCollectionStepId,
   trigger: ContentRunTrigger,
-): Promise<string> {
-  const db = getDb();
-  const id = `ccr_${randomUUID()}`;
-  await db.insert(schema.analyticsContentCollectionRuns).values({
-    id,
-    tenantKey: collection.tenantKey,
-    ownerEmail: collection.ownerEmail,
-    orgId: collection.orgId,
-    step,
-    trigger,
-    status: "running",
-    startedAt: nowIso(),
+  now = new Date(),
+): Promise<
+  { runId: string; reason?: never } | { runId?: never; reason: string }
+> {
+  return getDb().transaction(async (tx) => {
+    // Lock the stable tenant row, including when this step has no runs yet.
+    const [owner] = await tx
+      .select({ tenantKey: schema.analyticsContentCollections.tenantKey })
+      .from(schema.analyticsContentCollections)
+      .where(
+        eq(schema.analyticsContentCollections.tenantKey, collection.tenantKey),
+      )
+      .limit(1)
+      .for("update");
+    if (!owner) throw new Error("Content collection no longer exists.");
+    const scope = and(
+      eq(schema.analyticsContentCollectionRuns.tenantKey, collection.tenantKey),
+      eq(schema.analyticsContentCollectionRuns.step, step),
+    );
+    await tx
+      .update(schema.analyticsContentCollectionRuns)
+      .set({
+        status: "failed",
+        finishedAt: now.toISOString(),
+        errorCode: "abandoned",
+        errorMessage:
+          "The run stopped before it finished (the server restarted or timed out).",
+      })
+      .where(
+        and(
+          scope,
+          eq(schema.analyticsContentCollectionRuns.status, "running"),
+          lt(
+            schema.analyticsContentCollectionRuns.startedAt,
+            new Date(now.getTime() - CONTENT_RUN_STALE_AFTER_MS).toISOString(),
+          ),
+        ),
+      );
+    const [active] = await tx
+      .select({ id: schema.analyticsContentCollectionRuns.id })
+      .from(schema.analyticsContentCollectionRuns)
+      .where(
+        and(scope, eq(schema.analyticsContentCollectionRuns.status, "running")),
+      )
+      .limit(1);
+    if (active) return { reason: "already_running" };
+    const [latest] = await tx
+      .select()
+      .from(schema.analyticsContentCollectionRuns)
+      .where(scope)
+      .orderBy(desc(schema.analyticsContentCollectionRuns.startedAt))
+      .limit(1);
+    if (
+      trigger === "scheduled" &&
+      latest?.startedAt.slice(0, 10) === now.toISOString().slice(0, 10) &&
+      (latest.status === "succeeded" || latest.status === "cost_limited")
+    ) {
+      return { reason: "already_ran_today" };
+    }
+    const id = `ccr_${randomUUID()}`;
+    await tx.insert(schema.analyticsContentCollectionRuns).values({
+      id,
+      tenantKey: collection.tenantKey,
+      ownerEmail: collection.ownerEmail,
+      orgId: collection.orgId,
+      step,
+      trigger,
+      status: "running",
+      startedAt: now.toISOString(),
+    });
+    return { runId: id };
   });
-  return id;
 }
 
 export async function failContentRun(
