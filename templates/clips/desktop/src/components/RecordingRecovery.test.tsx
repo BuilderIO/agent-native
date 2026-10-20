@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { desktopRecoveryCopy as copy } from "../i18n/en-US";
+import { mapRecordFirstFilesForRecovery } from "../lib/recording-recovery";
 import type { PendingDesktopUpload } from "../lib/recording-recovery";
 import { useRecordingRecoveryNavigation } from "../lib/recording-recovery-navigation";
 import {
@@ -59,6 +60,10 @@ describe("RecordingRecovery", () => {
     root = createRoot(host);
     props = {
       uploads: [native, browser],
+      localFiles: [],
+      localFilesError: null,
+      localFilesUploading: false,
+      localFilesStorageStatus: "configured",
       lookupErrors: [],
       actionErrors: {},
       refreshing: false,
@@ -74,6 +79,10 @@ describe("RecordingRecovery", () => {
       onExport: vi.fn(),
       onOpenFolder: vi.fn(),
       onConnectStorage: vi.fn(),
+      onRetryLocalFiles: vi.fn(),
+      onRefreshStorage: vi.fn(),
+      onConnectLocalStorage: vi.fn(),
+      onForgetLocalFile: vi.fn(),
       onReviewFiles: vi.fn(),
       onOpenLogs: vi.fn(),
     };
@@ -145,6 +154,84 @@ describe("RecordingRecovery", () => {
     act(() => root.render(<RecordingRecovery {...props} onOpen={vi.fn()} />));
     expect(host.textContent).toBe(copy.recordingsNeedAttention);
     expect(host.textContent).not.toContain(copy.attentionOne);
+  });
+
+  it("shows queued local clips in the recovery UI and opens storage setup", () => {
+    props.uploads = [];
+    props.localFiles = [
+      {
+        path: "/Movies/Clips/clip.webm",
+        fileName: "clip.webm",
+        savedAt: "2026-10-20T12:00:00Z",
+      },
+    ];
+    props.localFilesStorageStatus = "missing";
+
+    act(() => root.render(<RecordingRecovery {...props} onOpen={vi.fn()} />));
+    expect(host.textContent).toBe(copy.attentionOne);
+    expect(
+      host.querySelector(".row-icon")?.getAttribute("data-recovery-tone"),
+    ).toBe("warning");
+
+    renderPage();
+    expect(host.textContent).toContain("clip.webm");
+    expect(host.textContent).toContain(copy.storageRequired);
+    act(() => buttons(copy.connectStorage)[0]!.click());
+    expect(props.onConnectLocalStorage).toHaveBeenCalledOnce();
+  });
+
+  it("offers upload retry for queued local clips when storage is configured", () => {
+    props.uploads = [];
+    props.localFiles = [
+      {
+        path: "/Movies/Clips/clip.webm",
+        fileName: "clip.webm",
+        savedAt: "2026-10-20T12:00:00Z",
+      },
+    ];
+
+    renderPage();
+    act(() => buttons(copy.retry)[0]!.click());
+    expect(props.onRetryLocalFiles).toHaveBeenCalledOnce();
+  });
+
+  it("maps local upload failures to diagnostics and preserves missing-file state", async () => {
+    const files = [
+      {
+        path: "/Movies/Clips/upload.webm",
+        fileName: "upload.webm",
+        savedAt: "2026-10-20T12:00:00Z",
+      },
+      {
+        path: "/Movies/Clips/missing.webm",
+        fileName: "missing.webm",
+        savedAt: "2026-10-20T12:01:00Z",
+      },
+    ];
+    props.uploads = [];
+    props.localFiles = mapRecordFirstFilesForRecovery(files, {
+      [files[0].path]: { message: "Upload disconnected", missing: false },
+      [files[1].path]: {
+        message: "It is no longer in Movies/Clips.",
+        missing: true,
+      },
+    });
+
+    renderPage();
+    expect(
+      Array.from(host.querySelectorAll('[role="status"]')).map(
+        (status) => status.textContent,
+      ),
+    ).toEqual([copy.uploadInterrupted, copy.recordingIncomplete]);
+    expect(
+      Array.from(host.querySelectorAll('[data-slot="item-media"]')).map(
+        (item) => item.getAttribute("data-recovery-tone"),
+      ),
+    ).toEqual(["warning", "error"]);
+    await openDiagnostic();
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(
+      "Upload disconnected",
+    );
   });
 
   it.each([

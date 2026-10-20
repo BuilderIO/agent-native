@@ -951,6 +951,41 @@ export function markdownSuggestionOperationsForFindReplace(input: {
   return operations;
 }
 
+/**
+ * Splits several non-overlapping find/replace edits against one source the
+ * way one edit is split. Each operation's anchor context stops at its
+ * neighbors, so accepting one never rewrites the text another is found by.
+ */
+export function markdownSuggestionOperationsForFindReplaceEdits(input: {
+  before: string;
+  edits: ReadonlyArray<{ find: string; replace: string; start: number }>;
+}): MarkdownSuggestionOperation[] {
+  return isolateSiblingAnchorContexts(
+    input.edits
+      .flatMap((edit) =>
+        markdownSuggestionOperationsForFindReplace({
+          before: input.before,
+          ...edit,
+        }),
+      )
+      .sort((left, right) => left.anchor.from - right.anchor.from)
+      .map((operation, ordinal) => ({ ...operation, ordinal })),
+  );
+}
+
+/** A one-line review label for a single operation's change. */
+export function markdownSuggestionOperationSummary(
+  operation: MarkdownSuggestionOperation,
+): string {
+  const removed = operation.before.changedText.slice(0, 80);
+  const inserted = operation.after.changedText.slice(0, 80);
+  return removed && inserted
+    ? `Replace "${removed}" with "${inserted}"`
+    : removed
+      ? `Delete "${removed}"`
+      : `Insert "${inserted}"`;
+}
+
 export function markdownSuggestionOperationsForReplacements(input: {
   before: string;
   after: string;

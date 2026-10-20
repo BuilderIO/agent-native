@@ -24,8 +24,25 @@ vi.mock("../server/lib/event-guest-notifications.js", () => ({
   sendEventGuestNotificationNote: vi.fn(),
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
+
 import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./delete-event";
+
+// Every caller's gate judges the call as prepared: validated, defaults
+// applied.
+async function gate(args: Record<string, unknown>) {
+  const needsApproval = action.needsApproval;
+  if (typeof needsApproval !== "function") {
+    throw new Error("expected a predicate");
+  }
+  const intent = await actionCallIntent(action, args);
+  if (!intent.valid) throw intent.error;
+  return needsApproval(preparedCallArguments(intent) as never);
+}
 
 describe("delete-event", () => {
   beforeEach(() => {
@@ -123,9 +140,6 @@ describe("delete-event", () => {
   });
 
   it("gates only a delete that reaches the guests", async () => {
-    const gate = action.needsApproval;
-    if (typeof gate !== "function") throw new Error("expected a predicate");
-
     expect(await gate({ id: "google-a" } as never)).toBe(false);
     expect(await gate({ id: "google-a", sendUpdates: "none" } as never)).toBe(
       false,

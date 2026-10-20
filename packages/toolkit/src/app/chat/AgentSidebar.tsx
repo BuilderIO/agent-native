@@ -35,6 +35,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import { writeClientAppState } from "@agent-native/core/client/application-state";
+import { isAgentNativeDesktop } from "@agent-native/core/client/auth/auth-page-helpers";
 import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
@@ -268,6 +269,7 @@ export interface AgentSidebarProps {
   /** @deprecated Use screenRefreshEnabled when disabling this boundary. */
   screenRefreshOnlyWhenPanelActive?: boolean;
   emptyStateText?: string;
+  mcpSuggestionExcludedIntegrationIds?: AssistantChatProps["mcpSuggestionExcludedIntegrationIds"];
   suggestions?: AssistantChatProps["suggestions"];
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
@@ -350,6 +352,7 @@ export function AgentSidebar({
   screenRefreshEnabled = true,
   screenRefreshOnlyWhenPanelActive,
   emptyStateText = "How can I help you?",
+  mcpSuggestionExcludedIntegrationIds,
   defaultMode = "chat",
   suggestions,
   dynamicSuggestions,
@@ -419,16 +422,17 @@ export function AgentSidebar({
     browserTabId ??
     (typeof window === "undefined" ? undefined : getBrowserTabId());
   useRegisterAgentChatSurface(enabled);
-  const staticHostedHarnessEnabled = isHostedHarnessConfigured(
-    injectedAgentNativeConfig().harness,
-  );
+  const desktopHostedHarnessConfigured =
+    isAgentNativeDesktop() &&
+    isHostedHarnessConfigured(injectedAgentNativeConfig().harness);
   const hostedHarnessQuery = useActionQuery<HostedHarnessStatus>(
     "get-hosted-harness-config" as never,
     undefined,
-    { enabled: staticHostedHarnessEnabled },
+    { enabled: desktopHostedHarnessConfigured },
   );
   const hostedHarnessStatus = hostedHarnessQuery.data;
-  const hostedHarnessEnabled = hostedHarnessStatus?.enabled === true;
+  const hostedHarnessEnabled =
+    desktopHostedHarnessConfigured && hostedHarnessStatus?.enabled === true;
   const hostedHarnessRuntimes = useMemo(
     () =>
       hostedHarnessEnabled
@@ -1747,6 +1751,9 @@ export function AgentSidebar({
                 onNavigationChange={onNavigationChange}
                 onTabsClosing={onTabsClosing}
                 emptyStateText={emptyStateText}
+                mcpSuggestionExcludedIntegrationIds={
+                  mcpSuggestionExcludedIntegrationIds
+                }
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
                 suggestionPlacement="context-chips"

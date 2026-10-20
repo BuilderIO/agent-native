@@ -220,6 +220,36 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
+// These specs build every app's MCP catalog by running each template's real
+// agent-chat plugin, which reaches template code, framework tools, and tools
+// that workspace packages register through dynamic imports `vitest --changed`
+// cannot follow. They run for any workspace source change and skip only files
+// that cannot change a catalog. Do not narrow this to the directories known to
+// register tools: a missed directory skips the contract without any failure.
+const CATALOG_CONTRACT_CORE_SPECS = [
+  "src/mcp/advertised-tool-annotations.spec.ts",
+  "src/mcp/instructions-name-advertised-tools.spec.ts",
+] as const;
+const NON_CODE_ASSET_RE =
+  /\.(?:css|scss|sass|less|png|jpe?g|gif|webp|avif|ico|svg|woff2?|ttf|otf|eot|mp3|mp4|wav|webm|mov)$/iu;
+
+export function catalogContractCoreSpecs(
+  paths: readonly string[],
+): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      /^(?:templates|packages)\//u.test(normalized) &&
+      !isDocsPath(normalized) &&
+      !TEST_FILE_RE.test(normalized) &&
+      !/\.d\.[cm]?ts$/u.test(normalized) &&
+      !NON_CODE_ASSET_RE.test(normalized)
+    );
+  })
+    ? CATALOG_CONTRACT_CORE_SPECS
+    : [];
+}
+
 function readCoreFastTestFiles(since?: string): string[] {
   const args = ["--filter", CORE, "exec", "vitest", "list", "--dir", "src"];
   if (since) args.push("--changed", since);
@@ -598,9 +628,15 @@ function main(): void {
         "CI_BASE_SHA is required when targeted tests are planned",
       );
     }
-    const fullCore = requiresFullCoreFastTests(readChangedPaths(baseSha));
+    const changedPaths = readChangedPaths(baseSha);
+    const fullCore = requiresFullCoreFastTests(changedPaths);
     coreMode = fullCore ? "full" : "changed";
-    coreTestFiles = readCoreFastTestFiles(fullCore ? undefined : baseSha);
+    coreTestFiles = [
+      ...new Set([
+        ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
+        ...(fullCore ? [] : catalogContractCoreSpecs(changedPaths)),
+      ]),
+    ];
     coreFiles = coreTestFiles.length;
     lanes = partitionTargetedWeighted(
       weighPackages(rest),

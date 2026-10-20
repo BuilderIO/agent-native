@@ -1578,6 +1578,8 @@ export function useDbSync(
           bumpChangeVersion(src, ver);
           if (typeof evt.key === "string" && evt.key) {
             bumpChangeVersion(`${src}:${evt.key}`, ver);
+          } else if (src === "app-state") {
+            bumpChangeVersion("app-state:*", ver);
           }
         }
       }

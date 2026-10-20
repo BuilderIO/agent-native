@@ -743,7 +743,9 @@ describe("runSaveFileContent source version", () => {
       expect(invalidateQueries).toHaveBeenCalledWith({
         queryKey: ["action", "get-design"],
       });
-      expect(acknowledgeOutboxEntry).not.toHaveBeenCalled();
+      expect(acknowledgeOutboxEntry).toHaveBeenCalledWith({
+        key: "stale-mirror",
+      });
       expect(latestFileSaveForUnloadRef.current[pending.id]).toBeUndefined();
       expect(conflictToast).toHaveBeenCalledWith(
         "designEditor.toasts.saveConflict",

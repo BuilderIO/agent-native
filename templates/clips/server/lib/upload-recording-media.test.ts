@@ -85,7 +85,7 @@ describe("uploadRecordingMedia", () => {
     mocks.deleteHosted.mockResolvedValue(true);
   });
 
-  it("keeps nullable legacy recordings on the active user provider", async () => {
+  it("keeps nullable legacy recordings on the active user provider, under the recording's name", async () => {
     const input = {
       recordingId: "recording-1",
       ownerEmail: "owner@example.com",
@@ -99,7 +99,7 @@ describe("uploadRecordingMedia", () => {
 
     expect(mocks.uploadFile).toHaveBeenCalledWith({
       data: input.data,
-      filename: input.filename,
+      filename: "recording-1.jpg",
       mimeType: input.mimeType,
       ownerEmail: input.ownerEmail,
       recordAsset: false,

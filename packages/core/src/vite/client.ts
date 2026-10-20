@@ -3501,9 +3501,10 @@ function silenceConnectionResets(): Plugin {
     return (
       code === "ECONNRESET" ||
       code === "ECONNABORTED" ||
+      code === "ECANCELED" ||
       code === "EPIPE" ||
       isClosedWebStreamController(err) ||
-      /^(read ECONNRESET|write ECONNRESET|socket hang up|aborted|write EPIPE)$/i.test(
+      /^(read ECONNRESET|write ECONNRESET|write ECANCELED|socket hang up|aborted|write EPIPE)$/i.test(
         message,
       )
     );

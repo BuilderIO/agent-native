@@ -43,7 +43,7 @@ it("renders an editable aligned table and saves its cell changes", async () => {
   await act(async () => root.render(<EditorContent editor={editor} />));
 
   const table =
-    container.querySelector(".notion-editor table") ??
+    container.querySelector(".content-editor table") ??
     container.querySelector("table");
   expect(table).not.toBeNull();
   expect(table?.querySelectorAll("tr")).toHaveLength(2);

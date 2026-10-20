@@ -72,9 +72,7 @@ describe("noteJobFrontmatterWrite", () => {
       targetId: "jobs/factories/f1/factory-slack-feedback.md",
       orgId: "org-1",
       userEmail: "alice@example.com",
-      caller: "tool",
-      threadId: "thread-9",
-      runId: "run-9",
+      attribution: { caller: "tool", threadId: "thread-9", runId: "run-9" },
     });
     expect(event.summary).toContain("source, slackChannelId, displayName");
     expect(event.args).toMatchObject({
@@ -88,7 +86,7 @@ describe("noteJobFrontmatterWrite", () => {
     await write({ writer: "resourcePutIfCurrent" });
 
     expect(recordMock.mock.calls[0][0]).toMatchObject({
-      caller: "automation",
+      attribution: { caller: "automation" },
       userEmail: undefined,
     });
   });

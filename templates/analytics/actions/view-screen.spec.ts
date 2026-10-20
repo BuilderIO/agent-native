@@ -7,12 +7,14 @@ import { CONNECT_UNDERCOUNT } from "../shared/annotation-fixtures";
 const navigationState: { current: unknown } = { current: null };
 const urlState: { current: unknown } = { current: null };
 const selectedObjectState: { current: unknown } = { current: null };
+const rowBreakdownState: { current: unknown } = { current: null };
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppStateForCurrentTab: vi.fn(async (key: string) => {
     if (key === "navigation") return navigationState.current;
     if (key === "__url__") return urlState.current;
     if (key === "selected-object") return selectedObjectState.current;
+    if (key === "row-breakdown") return rowBreakdownState.current;
     return null;
   }),
 }));
@@ -44,7 +46,7 @@ vi.mock("../server/lib/error-capture.js", () => ({
   listErrorIssues,
 }));
 
-const getDashboard = vi.fn(async () => null);
+const getDashboard = vi.fn(async (_id: string, _scope: unknown) => null);
 const listSessionRecordingsPage = vi.fn(async () => ({
   recordings: [] as { id: string }[],
   total: 0,
@@ -72,7 +74,15 @@ vi.mock("../server/lib/dashboard-catalog", () => ({
 }));
 vi.mock("../server/lib/dashboards-store", () => ({
   getAnalysis: vi.fn(async () => null),
-  getDashboard,
+}));
+const getBuiltinDashboard = vi.fn();
+vi.mock("../server/lib/open-dashboard", () => ({
+  openDashboard: async (id: string, scope: unknown) => {
+    const builtin = await getBuiltinDashboard(id, scope);
+    if (builtin) return { builtin };
+    const saved = await getDashboard(id, scope);
+    return saved ? { saved } : null;
+  },
 }));
 vi.mock("../server/lib/first-party-analytics.js", () => ({
   listAnalyticsPublicKeys: vi.fn(async () => []),
@@ -134,6 +144,30 @@ describe("view-screen monitoring status-pages branch", () => {
     getDashboard.mockResolvedValue(null);
     userEmail = "user@example.test";
     selectedObjectState.current = null;
+    rowBreakdownState.current = null;
+  });
+
+  it("shows the row breakdown open on a dashboard, and not on Ask", async () => {
+    rowBreakdownState.current = {
+      dashboardId: "dash-1",
+      panelId: "use-by-role",
+      row: { role: "Engineer" },
+      breakdownColumn: "app",
+    };
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+    expect((await runScreen()).rowBreakdown).toEqual(rowBreakdownState.current);
+
+    setScreen({ view: "adhoc", dashboardId: "dash-1" }, { pathname: "/ask" });
+    expect((await runScreen()).rowBreakdown).toBeUndefined();
+
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-2" },
+      { pathname: "/dashboards/dash-2" },
+    );
+    expect((await runScreen()).rowBreakdown).toBeUndefined();
   });
 
   it("does not surface a stale dashboard selection on Ask", async () => {
@@ -205,6 +239,30 @@ describe("view-screen monitoring status-pages branch", () => {
       email: "user@example.test",
       orgId: "org-1",
     });
+  });
+
+  it("describes the code-backed builtin and caller annotations", async () => {
+    setScreen(
+      { view: "adhoc", dashboardId: "builtin-risk-meeting" },
+      { pathname: "/dashboards/builtin-risk-meeting" },
+    );
+    getBuiltinDashboard.mockResolvedValueOnce({
+      id: "builtin-risk-meeting",
+      title: "Risk Meeting",
+      version: "v2",
+      config: { name: "Risk Meeting", panels: [] },
+    });
+    const out = await runScreen();
+    expect(out.dashboard).toMatchObject({
+      id: "builtin-risk-meeting",
+      kind: "sql",
+      title: "Risk Meeting",
+    });
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      { scope: { email: "user@example.test", orgId: "org-1" }, editable: true },
+      "builtin-risk-meeting",
+      { name: "Risk Meeting", panels: [] },
+    );
   });
 
   it("describes only a SQL dashboard's key dates and data notes", async () => {

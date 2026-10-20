@@ -50,11 +50,36 @@ function BufferSyncOne({
 }) {
   const { state, api } = useWorkbench();
   const uri = workbenchUri(`inline:${designId}`, path);
-  const { data } = useActionQuery(
+  const { data, isFetching, refetch } = useActionQuery(
     "read-source-file",
     { designId, path },
     { enabled: active },
   );
+  const wasActiveRef = useRef(false);
+  const wasActiveBeforeRef = useRef(false);
+  const refetchAfterPendingReadRef = useRef(false);
+  useEffect(() => {
+    if (!active) {
+      if (wasActiveBeforeRef.current && data === undefined) {
+        refetchAfterPendingReadRef.current = true;
+      }
+      wasActiveRef.current = false;
+      return;
+    }
+
+    const becameActive = !wasActiveRef.current;
+    wasActiveRef.current = true;
+    wasActiveBeforeRef.current = true;
+    if (becameActive && data !== undefined) {
+      refetchAfterPendingReadRef.current = false;
+      void refetch();
+      return;
+    }
+    if (refetchAfterPendingReadRef.current && !isFetching) {
+      refetchAfterPendingReadRef.current = false;
+      void refetch();
+    }
+  }, [active, data, isFetching, refetch]);
   const read = data as
     | {
         content: string;

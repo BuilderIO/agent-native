@@ -8,7 +8,7 @@ use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{
@@ -427,6 +427,179 @@ static BUBBLE_DRAGGING: AtomicBool = AtomicBool::new(false);
 
 pub fn is_bubble_dragging() -> bool {
     BUBBLE_DRAGGING.load(Ordering::SeqCst)
+}
+
+// Click-through for the transparent parts of the bubble while the person
+// cut-out is on. The bubble sends a coarse alpha grid over its window; this
+// loop follows the cursor and only accepts mouse events over set cells.
+const BUBBLE_HOVER_EVENT: &str = "clips:bubble-hover";
+const BUBBLE_HIT_TRACK_INTERVAL: Duration = Duration::from_millis(16);
+const BUBBLE_HIT_MASK_MAX_CELLS: u32 = 1 << 16;
+static BUBBLE_HIT_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Whether a tracking loop runs; changed only under the hit-mask lock.
+static BUBBLE_HIT_TRACKING: AtomicBool = AtomicBool::new(false);
+/// Wakes the tracking loop before its next poll.
+static BUBBLE_HIT_RECHECK: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct BubbleHitMask {
+    cols: u32,
+    rows: u32,
+    /// Row-major cells, least significant bit first.
+    bits: Vec<u8>,
+}
+
+impl BubbleHitMask {
+    fn validate(&self) -> Result<(), String> {
+        let cells = self.cols.saturating_mul(self.rows);
+        if self.cols == 0 || self.rows == 0 || cells > BUBBLE_HIT_MASK_MAX_CELLS {
+            return Err(format!(
+                "invalid bubble hit mask {}x{}",
+                self.cols, self.rows
+            ));
+        }
+        if self.bits.len() < cells.div_ceil(8) as usize {
+            return Err("bubble hit mask is shorter than its grid".to_string());
+        }
+        Ok(())
+    }
+
+    fn contains_fraction(&self, fx: f64, fy: f64) -> bool {
+        if !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
+            return false;
+        }
+        let col = ((fx * self.cols as f64) as u32).min(self.cols - 1);
+        let row = ((fy * self.rows as f64) as u32).min(self.rows - 1);
+        let index = (row * self.cols + col) as usize;
+        self.bits
+            .get(index / 8)
+            .is_some_and(|byte| byte & (1 << (index % 8)) != 0)
+    }
+}
+
+fn bubble_hit_mask() -> &'static Mutex<Option<Arc<BubbleHitMask>>> {
+    static MASK: OnceLock<Mutex<Option<Arc<BubbleHitMask>>>> = OnceLock::new();
+    MASK.get_or_init(|| Mutex::new(None))
+}
+
+/// Cursor position as a fraction of the window, or `None` outside it.
+fn cursor_fraction_in_window(
+    cursor: (f64, f64),
+    position: (i32, i32),
+    size: (u32, u32),
+) -> Option<(f64, f64)> {
+    if size.0 == 0 || size.1 == 0 {
+        return None;
+    }
+    let fx = (cursor.0 - position.0 as f64) / size.0 as f64;
+    let fy = (cursor.1 - position.1 as f64) / size.1 as f64;
+    ((0.0..1.0).contains(&fx) && (0.0..1.0).contains(&fy)).then_some((fx, fy))
+}
+
+fn cursor_over_bubble_hit_mask(window: &WebviewWindow, mask: &BubbleHitMask) -> bool {
+    let (Ok(c), Ok(p), Ok(s)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        // Fail open: an unreadable cursor must not make the bubble unclickable.
+        return true;
+    };
+    cursor_fraction_in_window((c.x, c.y), (p.x, p.y), (s.width, s.height))
+        .is_some_and(|(fx, fy)| mask.contains_fraction(fx, fy))
+}
+
+fn same_mask(a: Option<&Arc<BubbleHitMask>>, b: Option<&Arc<BubbleHitMask>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut prev_interactive: Option<bool> = None;
+        loop {
+            // Copy the mask out so the cursor and window queries run unlocked.
+            let (win, mask) = {
+                let mut slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+                if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
+                    break;
+                }
+                let Some(win) = app.get_webview_window(BUBBLE_LABEL) else {
+                    // The bubble closed; a new one sends its own mask.
+                    *slot = None;
+                    BUBBLE_HIT_TRACKING.store(false, Ordering::SeqCst);
+                    break;
+                };
+                // Cleared and the window takes clicks again: nothing to track.
+                if slot.is_none() && prev_interactive == Some(true) {
+                    BUBBLE_HIT_TRACKING.store(false, Ordering::SeqCst);
+                    break;
+                }
+                (win, slot.clone())
+            };
+            let interactive = is_bubble_dragging()
+                || mask
+                    .as_deref()
+                    .is_none_or(|mask| cursor_over_bubble_hit_mask(&win, mask));
+            if prev_interactive != Some(interactive) {
+                let applied = {
+                    // Rechecked under the lock so a concurrent change always wins.
+                    let slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+                    if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
+                        break;
+                    }
+                    // A newer mask replaced the snapshot; recompute against it.
+                    if !same_mask(slot.as_ref(), mask.as_ref()) {
+                        continue;
+                    }
+                    // A failed toggle stays unapplied, so the next poll retries it.
+                    win.set_ignore_cursor_events(!interactive).is_ok()
+                };
+                if applied {
+                    prev_interactive = Some(interactive);
+                    let _ = app.emit_to(BUBBLE_LABEL, BUBBLE_HOVER_EVENT, interactive);
+                }
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(BUBBLE_HIT_TRACK_INTERVAL) => {}
+                _ = BUBBLE_HIT_RECHECK.notified() => {}
+            }
+        }
+    });
+}
+
+/// Updates click-through now instead of at the next poll. The bubble calls
+/// this when the pointer moves onto a transparent cell, so a click there
+/// passes through instead of landing on the still-interactive window.
+#[tauri::command]
+pub fn recheck_bubble_hit() {
+    BUBBLE_HIT_RECHECK.notify_one();
+}
+
+/// Sets the cut-out hit mask, or clears it (`None`) to make the whole
+/// bubble window interactive again. The tracking loop applies both, and
+/// after a clear it keeps running until the window takes clicks again.
+#[tauri::command]
+pub async fn set_bubble_hit_mask(
+    app: AppHandle,
+    mask: Option<BubbleHitMask>,
+) -> Result<(), String> {
+    if let Some(mask) = &mask {
+        mask.validate()?;
+    }
+    let mut slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
+    *slot = mask.map(Arc::new);
+    if slot.is_some() && !BUBBLE_HIT_TRACKING.load(Ordering::SeqCst) {
+        BUBBLE_HIT_TRACKING.store(true, Ordering::SeqCst);
+        let generation = BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        start_bubble_hit_tracking(&app, generation);
+    }
+    BUBBLE_HIT_RECHECK.notify_one();
+    Ok(())
 }
 
 struct BubbleDragAnchor {
@@ -2274,6 +2447,27 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn set_flow_bar_expanded(app: AppHandle, expanded: bool) -> Result<(), String> {
+    let Some(win) = app.get_webview_window(FLOW_BAR_LABEL) else {
+        return Ok(());
+    };
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
+    let logical_width = if expanded { 380.0 } else { 300.0 };
+    let logical_height = if expanded { 260.0 } else { 80.0 };
+    let w = (logical_width * scale).round() as u32;
+    let h = (logical_height * scale).round() as u32;
+    let bottom_margin = (32.0 * scale).round() as i32;
+    let x = (mx + (mw as i32 - w as i32) / 2).max(mx);
+    let y = (my + mh as i32 - h as i32 - bottom_margin).max(my);
+    win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)))
+        .map_err(|e| e.to_string())?;
+    win.set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn install_voice_flow_state_listener(app: &tauri::App) {
     app.listen("voice:state-change", |event| {
         let idle = serde_json::from_str::<serde_json::Value>(event.payload())
@@ -2328,8 +2522,7 @@ fn strip_trailing_period_for_messaging(text: &str, bundle_id: Option<&str>) -> S
 pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<String, String> {
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
-        eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
-        return Ok("inserted".into());
+        return Err("Dictation text is required.".into());
     }
     if let Some(last) = app.try_state::<LastTranscript>() {
         if let Ok(mut g) = last.0.lock() {
@@ -2352,8 +2545,33 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<St
         }
     }
 
-    insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation")?;
-    Ok("inserted".into())
+    match insert_text_for_frontmost(&app, &trimmed, "complete_voice_dictation") {
+        Ok(()) => Ok("inserted".into()),
+        Err(insert_error) => match write_clipboard(&trimmed) {
+            Ok(()) => {
+                eprintln!("[clips-tray] complete_voice_dictation: paste failed — copied transcript instead");
+                Ok("copied".into())
+            }
+            Err(copy_error) => Err(format!(
+                "Text insertion failed ({insert_error}); clipboard recovery failed ({copy_error})."
+            )),
+        },
+    }
+}
+
+#[tauri::command]
+pub async fn copy_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("Dictation text is required.".into());
+    }
+    if let Some(last) = app.try_state::<LastTranscript>() {
+        if let Ok(mut guard) = last.0.lock() {
+            *guard = Some(trimmed.clone());
+        }
+    }
+    crate::tray::rebuild_tray_menu(&app);
+    write_clipboard(&trimmed)
 }
 
 #[tauri::command]
@@ -2475,14 +2693,86 @@ mod tests {
         bubble_position_for_target_scale, bubble_position_preserving_visible_center,
         bubble_saved_window_size, bubble_scale_factor_for_monitors, bubble_size_for_name,
         bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
-        clamp_popover_logical_size, commit_bubble_size_transaction,
+        clamp_popover_logical_size, commit_bubble_size_transaction, cursor_fraction_in_window,
         legacy_bubble_window_size_for_scale, migrate_legacy_bubble_position,
-        overlay_labels_to_hide, restore_bubble_position_preference_at,
+        overlay_labels_to_hide, restore_bubble_position_preference_at, same_mask,
         snapshot_bubble_position_preference_at, strip_trailing_period_for_messaging,
-        text_insertion_strategy, BubblePositionPreference, TextInsertionStrategy, BUBBLE_LABEL,
-        BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
+        text_insertion_strategy, BubbleHitMask, BubblePositionPreference, TextInsertionStrategy,
+        BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
+
+    #[test]
+    fn same_mask_compares_snapshot_identity() {
+        let mask = || BubbleHitMask {
+            cols: 1,
+            rows: 1,
+            bits: vec![1],
+        };
+        let current = std::sync::Arc::new(mask());
+        let snapshot = current.clone();
+        let replacement = std::sync::Arc::new(mask());
+        assert!(same_mask(Some(&current), Some(&snapshot)));
+        assert!(!same_mask(Some(&replacement), Some(&snapshot)));
+        assert!(!same_mask(None, Some(&snapshot)));
+        assert!(same_mask(None, None));
+    }
+
+    #[test]
+    fn bubble_hit_mask_maps_fractions_to_packed_cells() {
+        // 3x2 grid with cells (2,0) and (0,1) set: bits 2 and 3.
+        let mask = BubbleHitMask {
+            cols: 3,
+            rows: 2,
+            bits: vec![0b0000_1100],
+        };
+        assert!(mask.validate().is_ok());
+        assert!(mask.contains_fraction(0.9, 0.1));
+        assert!(mask.contains_fraction(0.1, 0.9));
+        assert!(!mask.contains_fraction(0.1, 0.1));
+        assert!(!mask.contains_fraction(0.5, 0.9));
+        assert!(!mask.contains_fraction(1.0, 0.1));
+        assert!(!mask.contains_fraction(-0.01, 0.1));
+    }
+
+    #[test]
+    fn bubble_hit_mask_rejects_malformed_grids() {
+        let short = BubbleHitMask {
+            cols: 4,
+            rows: 4,
+            bits: vec![0xff],
+        };
+        assert!(short.validate().is_err());
+        let empty = BubbleHitMask {
+            cols: 0,
+            rows: 4,
+            bits: vec![],
+        };
+        assert!(empty.validate().is_err());
+        let huge = BubbleHitMask {
+            cols: 1 << 12,
+            rows: 1 << 12,
+            bits: vec![0; 1 << 21],
+        };
+        assert!(huge.validate().is_err());
+    }
+
+    #[test]
+    fn cursor_fraction_is_relative_to_the_window() {
+        assert_eq!(
+            cursor_fraction_in_window((150.0, 260.0), (100, 200), (200, 120)),
+            Some((0.25, 0.5))
+        );
+        assert_eq!(
+            cursor_fraction_in_window((99.0, 260.0), (100, 200), (200, 120)),
+            None
+        );
+        assert_eq!(
+            cursor_fraction_in_window((300.0, 260.0), (100, 200), (200, 120)),
+            None
+        );
+        assert_eq!(cursor_fraction_in_window((0.0, 0.0), (0, 0), (0, 0)), None);
+    }
 
     #[test]
     fn bubble_position_preference_snapshot_restores_exact_file_state() {
@@ -2919,6 +3209,14 @@ fn read_clipboard() -> Option<String> {
     String::from_utf8(out.stdout).ok()
 }
 
+/// True when the camera bubble holds focus, for example after a click on one
+/// of its controls.
+pub fn bubble_is_focused(app: &AppHandle) -> bool {
+    app.get_webview_window(BUBBLE_LABEL)
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false)
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn frontmost_bundle_identifier() -> Option<String> {
     use objc2::msg_send;
@@ -3129,28 +3427,244 @@ pub async fn get_active_meeting_id(app: AppHandle) -> Result<Option<String>, Str
         .and_then(|s| s.0.lock().ok().and_then(|g| g.clone())))
 }
 
+pub const QUIT_TEARDOWN_PENDING: u8 = 1;
+pub const QUIT_TEARDOWN_RECOVERY: u8 = 3;
+pub const QUIT_TEARDOWN_EXIT_ALLOWED: u8 = 2;
+// 0 is idle, 2 allows exit, and 1/3 guard an active meeting quit attempt.
 pub static QUIT_TEARDOWN_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static QUIT_TEARDOWN_RECOVERY_ATTEMPT: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
 
-/// Called by the popover webview once it has finished (or given up on)
-/// stopping an in-progress meeting during app quit. Marks teardown done and
-/// asks Tauri to exit again — this second `app.exit(0)` is the one that
-/// actually terminates the process, since the `ExitRequested` handler only
-/// calls `prevent_exit()` on the FIRST pass (gated on this same atomic).
-///
-/// compare_exchange (not load-then-store) so this and lib.rs's 3s watchdog
-/// can't both observe state==1 and both call `app.exit()` — only whichever
-/// wins the CAS proceeds. If this loses the race (watchdog already fired),
-/// there's nothing left to do: the process is already exiting.
+pub const fn quit_teardown_blocks_exit(state: u8) -> bool {
+    state != 0 && state != QUIT_TEARDOWN_EXIT_ALLOWED
+}
+
+fn transition_quit_teardown_state(
+    state: &std::sync::atomic::AtomicU8,
+    allowed_from: &[u8],
+    next: u8,
+) -> bool {
+    let mut current = state.load(Ordering::SeqCst);
+    loop {
+        if !allowed_from.contains(&current) {
+            return false;
+        }
+        match state.compare_exchange_weak(current, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return true,
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+fn begin_quit_teardown_for(
+    state: &std::sync::atomic::AtomicU8,
+    recovery_attempt: &std::sync::Mutex<u64>,
+) -> Option<u64> {
+    let mut recovery_attempt = recovery_attempt
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !transition_quit_teardown_state(state, &[0], QUIT_TEARDOWN_PENDING) {
+        return None;
+    }
+    *recovery_attempt = recovery_attempt.wrapping_add(1);
+    Some(*recovery_attempt)
+}
+
+pub fn begin_quit_teardown() -> Option<u64> {
+    begin_quit_teardown_for(&QUIT_TEARDOWN_STATE, &QUIT_TEARDOWN_RECOVERY_ATTEMPT)
+}
+
+fn show_quit_teardown_recovery_for(
+    state: &std::sync::atomic::AtomicU8,
+    recovery_attempt: &std::sync::Mutex<u64>,
+    expected_attempt: u64,
+) -> bool {
+    let recovery_attempt = recovery_attempt
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *recovery_attempt != expected_attempt {
+        return false;
+    }
+    transition_quit_teardown_state(state, &[QUIT_TEARDOWN_PENDING], QUIT_TEARDOWN_RECOVERY)
+}
+
+pub fn show_quit_teardown_recovery(expected_attempt: u64) -> bool {
+    show_quit_teardown_recovery_for(
+        &QUIT_TEARDOWN_STATE,
+        &QUIT_TEARDOWN_RECOVERY_ATTEMPT,
+        expected_attempt,
+    )
+}
+
+pub fn cancel_quit_teardown() -> bool {
+    transition_quit_teardown_state(
+        &QUIT_TEARDOWN_STATE,
+        &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+        0,
+    )
+}
+
+fn finish_quit_teardown() -> bool {
+    transition_quit_teardown_state(
+        &QUIT_TEARDOWN_STATE,
+        &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+        QUIT_TEARDOWN_EXIT_ALLOWED,
+    )
+}
+
+fn force_quit_teardown_for(state: &std::sync::atomic::AtomicU8) -> bool {
+    transition_quit_teardown_state(state, &[QUIT_TEARDOWN_RECOVERY], QUIT_TEARDOWN_EXIT_ALLOWED)
+}
+
+pub fn force_quit_teardown() -> bool {
+    let forced = force_quit_teardown_for(&QUIT_TEARDOWN_STATE);
+    if forced {
+        eprintln!("[clips-tray] second native quit request during recovery");
+    }
+    forced
+}
+
+/// Called after the popover has confirmed that the meeting stopped and its
+/// transcript was flushed. The second `app.exit(0)` is allowed through by the
+/// `ExitRequested` handler once this state moves past the pending value.
 #[tauri::command]
 pub async fn quit_teardown_done(app: AppHandle) -> Result<(), String> {
-    if QUIT_TEARDOWN_STATE
-        .compare_exchange(1, 2, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
+    if finish_quit_teardown() {
         eprintln!("[clips-tray] quit_teardown_done — meeting teardown finished, exiting");
         app.exit(0);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn quit_teardown_cancel(app: AppHandle) -> Result<(), String> {
+    let canceled = cancel_quit_teardown();
+    let state = QUIT_TEARDOWN_STATE.load(Ordering::SeqCst);
+    if !canceled && state != 0 {
+        return Err("Quit recovery is no longer pending.".to_string());
+    }
+    app.emit("meetings:quit-cancelled", ())
+        .map_err(|error| format!("Could not resume Clips after quit recovery: {error}"))
+}
+
+#[tauri::command]
+pub async fn quit_teardown_force(app: AppHandle) -> Result<(), String> {
+    if !force_quit_teardown_for(&QUIT_TEARDOWN_STATE) {
+        return Err("Quit recovery is no longer pending.".to_string());
+    }
+    eprintln!("[clips-tray] quit_teardown_force — explicit quit during recovery");
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(test)]
+mod quit_teardown_tests {
+    use super::{
+        begin_quit_teardown_for, force_quit_teardown_for, quit_teardown_blocks_exit,
+        show_quit_teardown_recovery_for, transition_quit_teardown_state,
+        QUIT_TEARDOWN_EXIT_ALLOWED, QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY,
+    };
+    use std::sync::{atomic::AtomicU8, Mutex};
+
+    #[test]
+    fn pending_and_recovery_states_block_unapproved_exit() {
+        assert!(quit_teardown_blocks_exit(QUIT_TEARDOWN_PENDING));
+        assert!(quit_teardown_blocks_exit(QUIT_TEARDOWN_RECOVERY));
+        assert!(quit_teardown_blocks_exit(4));
+        assert!(!quit_teardown_blocks_exit(0));
+        assert!(!quit_teardown_blocks_exit(QUIT_TEARDOWN_EXIT_ALLOWED));
+    }
+
+    #[test]
+    fn pending_quit_can_show_recovery_then_resume_recording() {
+        let state = AtomicU8::new(0);
+
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[0],
+            QUIT_TEARDOWN_PENDING
+        ));
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING],
+            QUIT_TEARDOWN_RECOVERY,
+        ));
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            0,
+        ));
+        assert!(!transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            QUIT_TEARDOWN_EXIT_ALLOWED,
+        ));
+    }
+
+    #[test]
+    fn completed_stop_wins_the_recovery_timeout_race() {
+        let state = AtomicU8::new(QUIT_TEARDOWN_PENDING);
+
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            2,
+        ));
+        assert!(!transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING],
+            QUIT_TEARDOWN_RECOVERY,
+        ));
+    }
+
+    #[test]
+    fn recovery_quit_requires_an_explicit_force_transition() {
+        let state = AtomicU8::new(QUIT_TEARDOWN_RECOVERY);
+
+        assert!(force_quit_teardown_for(&state));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_EXIT_ALLOWED
+        );
+        assert!(!force_quit_teardown_for(&state));
+        assert!(!transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            0,
+        ));
+    }
+
+    #[test]
+    fn canceled_quit_timer_cannot_open_recovery_for_a_later_attempt() {
+        let state = AtomicU8::new(0);
+        let recovery_attempt = Mutex::new(0);
+
+        let stale_attempt = begin_quit_teardown_for(&state, &recovery_attempt).unwrap();
+        assert!(transition_quit_teardown_state(
+            &state,
+            &[QUIT_TEARDOWN_PENDING, QUIT_TEARDOWN_RECOVERY],
+            0,
+        ));
+        let current_attempt = begin_quit_teardown_for(&state, &recovery_attempt).unwrap();
+
+        assert!(!show_quit_teardown_recovery_for(
+            &state,
+            &recovery_attempt,
+            stale_attempt,
+        ));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_PENDING
+        );
+        assert!(show_quit_teardown_recovery_for(
+            &state,
+            &recovery_attempt,
+            current_attempt,
+        ));
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            QUIT_TEARDOWN_RECOVERY
+        );
+    }
 }
 
 #[tauri::command]

@@ -99,6 +99,7 @@ const messages = {
       pr_observed: "PR observed",
       auto_approved: "Auto-approved",
       merged: "Merged",
+      resolved: "Resolved",
     },
     inboxColumnAutomation: "Automation",
     inboxRouting: {
@@ -274,6 +275,11 @@ const messages = {
     inboxTab: "Inbox",
     inboxBackToList: "Back to inbox",
     inboxDescription: "Evidence entering the factory, before autonomous work.",
+    inboxRowActions: "Actions for {{title}}",
+    inboxMarkResolved: "Mark resolved",
+    inboxSendBackToAutomation: "Send back to automation",
+    inboxOutcomeUpdated: "Status updated",
+    inboxOutcomeFailed: "Could not update status",
     selectObservation:
       "Select an observation to inspect its path and feedback.",
     rulesDescription: "Every rule is shadow-only until deliberately promoted.",

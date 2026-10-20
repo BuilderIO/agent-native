@@ -10,6 +10,7 @@ import type {
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
+import { useContext } from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -20,6 +21,7 @@ import {
   ACTION_CHANGE_MARKER_FAILED,
   ACTION_CHANGE_MARKER_HEADER,
 } from "../shared/action-change-marker-header.js";
+import { UI_CAPABILITY_REQUIRED_ERROR_CODE } from "../shared/action-error-codes.js";
 import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
@@ -37,6 +39,7 @@ import {
   resetActionFailureCircuits,
 } from "./action-failure-circuit.js";
 import { fetchActionGet } from "./action-get-batch.js";
+import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
 import {
   ACTION_RESOURCES_META_KEY,
   actionQueryAffectedByResources,
@@ -62,6 +65,7 @@ import {
 } from "./embed-auth.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
+import { currentSessionIdentity } from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 function actionPrefix(): string {
@@ -187,6 +191,8 @@ export interface ClientActionCallOptions {
   headers?: Record<string, string>;
   /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
   uiOnly?: boolean;
+  /** Sees each HTTP response, e.g. to pass to `recordActionQueryBrowserPersist`. */
+  onResponse?: (response: Response) => void;
 }
 
 function resolveUserTimezone(): string | undefined {
@@ -244,25 +250,61 @@ type InternalActionFetchOptions = ActionFetchOptions & {
   batch?: boolean;
 };
 
+// The server's capability lives 10 minutes; re-mint a minute early so a call
+// never leaves with a capability that expires in flight.
+const UI_CAPABILITY_REUSE_MS = 9 * 60_000;
+// Every signed-in write waits on the shared mint, so a mint that never answers
+// must settle on its own instead of holding writes until their own timeouts.
+const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
+
 let uiCapabilityRequest: Promise<void> | undefined;
+let uiCapability: { identity: string | null | undefined; at: number } | null =
+  null;
+
+function hasFreshUiCapability(): boolean {
+  return (
+    uiCapability !== null &&
+    uiCapability.identity === currentSessionIdentity() &&
+    Date.now() - uiCapability.at < UI_CAPABILITY_REUSE_MS
+  );
+}
+
+/** Drop the remembered capability so the next call that needs one mints it. */
+export function forgetUiActionCapability(): void {
+  uiCapability = null;
+}
 
 // The mint is shared by concurrent callers, so one caller's abort rejects only
 // its own wait and never cancels the request the others are waiting on.
 function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
-  const request =
-    uiCapabilityRequest ??
-    (uiCapabilityRequest = fetch(
-      agentNativePath("/_agent-native/ui-capability"),
-      { credentials: "same-origin", cache: "no-store" },
-    )
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Could not establish the browser UI capability.");
-        }
-      })
-      .finally(() => {
-        uiCapabilityRequest = undefined;
-      }));
+  if (hasFreshUiCapability()) return Promise.resolve();
+  const identity = currentSessionIdentity();
+  const request = uiCapabilityRequest ?? (uiCapabilityRequest = mint());
+  function mint(): Promise<void> {
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller?.abort();
+        reject(new Error("Timed out establishing the browser UI capability."));
+      }, UI_CAPABILITY_MINT_TIMEOUT_MS);
+    });
+    const response = fetch(agentNativePath("/_agent-native/ui-capability"), {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller?.signal,
+    }).then((res) => {
+      if (!res.ok) {
+        throw new Error("Could not establish the browser UI capability.");
+      }
+      uiCapability = { identity, at: Date.now() };
+    });
+    return Promise.race([response, timedOut]).finally(() => {
+      clearTimeout(timer);
+      uiCapabilityRequest = undefined;
+    });
+  }
   if (!signal) return request;
   return new Promise<void>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
@@ -271,6 +313,48 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
     request
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/**
+ * Every write from the signed-in app carries the UI capability, so an action
+ * that needs approval runs on its first request instead of failing once and
+ * retrying. The mint waits for a known signed-in session: a public page or an
+ * embed has none to mint from, and its writes go out as they are. A failed
+ * mint never holds a write back; the server decides what the write may do.
+ * A keepalive write never waits on a mint: it is sent as the page goes away,
+ * and a deferred send can be lost with it.
+ */
+function presentUiCapability(
+  method: string,
+  options: InternalActionFetchOptions | undefined,
+  signal: AbortSignal | undefined,
+): Promise<void> | undefined {
+  const identity = currentSessionIdentity();
+  let pending: Promise<void>;
+  if (options?.uiOnly) {
+    pending = ensureUiActionCapability(signal);
+  } else if (
+    method === "GET" ||
+    options?.keepalive ||
+    typeof window === "undefined" ||
+    isEmbedAuthActive() ||
+    typeof identity !== "string"
+  ) {
+    return undefined;
+  } else {
+    pending = ensureUiActionCapability(signal).catch((error) => {
+      if (signal?.aborted) throw error;
+    });
+  }
+  if (typeof identity !== "string") return pending;
+  // The write leaves only after the mint, and the browser sends whichever
+  // session's cookies it holds by then: a user who changed in between must not
+  // receive the first user's write.
+  return pending.then(() => {
+    if (currentSessionIdentity() !== identity) {
+      throw new Error("The signed-in user changed before this write was sent.");
+    }
   });
 }
 
@@ -413,9 +497,12 @@ async function performActionFetch<T>(
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
             })
           : fetch(url, init);
-      const request = options?.uiOnly
-        ? ensureUiActionCapability(controller?.signal).then(send)
-        : send();
+      const capability = presentUiCapability(
+        method,
+        options,
+        controller?.signal,
+      );
+      const request = capability ? capability.then(send) : send();
       res = await Promise.race([request, timedOutSignal]);
       throwIfAborted(outerSignal);
       options?.onResponse?.(res);
@@ -488,10 +575,11 @@ async function performActionFetch<T>(
   if (!res.ok) {
     if (
       res.status === 403 &&
-      data?.errorCode === "ui_capability_required" &&
+      data?.errorCode === UI_CAPABILITY_REQUIRED_ERROR_CODE &&
       !options?.uiCapabilityRetry &&
       typeof window !== "undefined"
     ) {
+      forgetUiActionCapability();
       return performActionFetch<T>(name, method, params, {
         ...options,
         uiOnly: true,
@@ -838,6 +926,7 @@ export function callAction<
     includeRequestSource: false,
     headers: options.headers,
     uiOnly: options.uiOnly,
+    onResponse: options.onResponse,
   });
 }
 
@@ -853,6 +942,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
     headers: options.headers,
     responseType: "blob",
     uiOnly: options.uiOnly,
+    onResponse: options.onResponse,
   });
 }
 
@@ -1194,6 +1284,41 @@ export function revokeBrowserPersistableActionQuery(query: Query): void {
   browserPersistableActionQueryBindings.delete(query);
 }
 
+/** The persisted-cache binding to capture when a fetch starts, for `recordActionQueryBrowserPersist`. */
+export function currentActionQueryCacheBinding(): object | undefined {
+  return actionQueryCacheBindingToken;
+}
+
+/**
+ * Lets an `["action", ...]` query filled by a hand-written `queryFn` or
+ * `setQueryData` join the browser's persisted query cache the way a
+ * `useActionQuery` result does: only when its response carried the persist
+ * header, and only into the binding that was active when the fetch began, so a
+ * result fetched for one user is never written into another user's record.
+ */
+export function recordActionQueryBrowserPersist(
+  query: Query,
+  response: Response | undefined,
+  bindingTokenAtFetch: object | undefined,
+): void {
+  if (
+    response?.headers.get(ACTION_BROWSER_PERSIST_HEADER) !==
+    ACTION_BROWSER_PERSIST_ALLOW
+  ) {
+    revokeBrowserPersistableActionQuery(query);
+    return;
+  }
+  browserPersistableActionQueries.add(query);
+  if (
+    bindingTokenAtFetch !== undefined &&
+    actionQueryCacheBindingToken === bindingTokenAtFetch
+  ) {
+    browserPersistableActionQueryBindings.set(query, bindingTokenAtFetch);
+  } else {
+    browserPersistableActionQueryBindings.delete(query);
+  }
+}
+
 const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
 
 /**
@@ -1245,12 +1370,24 @@ export function useActionQuery<
   const {
     refetchInterval,
     retry: callerRetry,
+    enabled: callerEnabled,
     queryKeyScope,
     resources,
     batchRefetches,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
+  const trustedBindingPending = useContext(
+    trustedActionQueryCacheBindingPendingContext,
+  );
+  const queryClient = useQueryClient();
+  const existingQuery = trustedBindingPending
+    ? queryClient.getQueryCache().find({ queryKey, exact: true })
+    : undefined;
+  const deferFetchUntilBound =
+    trustedBindingPending &&
+    existingQuery?.state.fetchStatus !== "fetching" &&
+    existingQuery?.state.data === undefined;
   const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
     queryKey,
@@ -1259,16 +1396,14 @@ export function useActionQuery<
       const query = client.getQueryCache().find({ queryKey, exact: true });
       const bindingTokenAtFetch = actionQueryCacheBindingToken;
       assertActionCircuitClosed(key);
-      let browserPersist = false;
+      let lastResponse: Response | undefined;
       let result: R;
       try {
         result = await actionFetch<R>(actionName, "GET", params, {
           signal,
           batch: canBatchActionQueryFetch(query),
           onResponse: (response) => {
-            browserPersist =
-              response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
-              ACTION_BROWSER_PERSIST_ALLOW;
+            lastResponse = response;
           },
         });
       } catch (error) {
@@ -1289,22 +1424,11 @@ export function useActionQuery<
       resetActionFailureCircuit(key);
       if (query && !signal.aborted) {
         clearAccessDeniedActionQueryBinding(query);
-        if (browserPersist) {
-          browserPersistableActionQueries.add(query);
-          if (
-            bindingTokenAtFetch !== undefined &&
-            actionQueryCacheBindingToken === bindingTokenAtFetch
-          ) {
-            browserPersistableActionQueryBindings.set(
-              query,
-              bindingTokenAtFetch,
-            );
-          } else {
-            browserPersistableActionQueryBindings.delete(query);
-          }
-        } else {
-          revokeBrowserPersistableActionQuery(query);
-        }
+        recordActionQueryBrowserPersist(
+          query,
+          lastResponse,
+          bindingTokenAtFetch,
+        );
       }
       return result;
     },
@@ -1324,6 +1448,12 @@ export function useActionQuery<
     },
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
+    enabled: (query) => {
+      if (deferFetchUntilBound) return false;
+      return typeof callerEnabled === "function"
+        ? callerEnabled(query)
+        : callerEnabled !== false;
+    },
     ...(resources || batchRefetches === false
       ? {
           meta: {

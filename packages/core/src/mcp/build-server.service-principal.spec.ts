@@ -21,6 +21,13 @@ vi.mock("../audit/record.js", () => ({
   recordActionAudit: (input: any) => recordActionAuditMock(input),
 }));
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 const SVC = "svc-ci@service.org_1";
 const runs: string[] = [];
 let observedVerifiedServiceIdentity:
@@ -157,10 +164,10 @@ describe("MCP tools/list for a service principal", () => {
     expect(recordActionAuditMock.mock.calls[0][0]).toMatchObject({
       ctx: {
         actionName: "mcp:tools/list",
-        caller: "mcp",
         userEmail: SVC,
         orgId: "org_1",
       },
+      attribution: { caller: "mcp" },
       error: { statusCode: 403 },
     });
   });
@@ -205,9 +212,9 @@ describe("MCP tools/call for a service principal", () => {
     const audit = recordActionAuditMock.mock.calls[0][0];
     expect(audit.ctx).toMatchObject({
       actionName: "delete-doc",
-      caller: "mcp",
       userEmail: SVC,
     });
+    expect(audit.attribution).toMatchObject({ caller: "mcp" });
     expect(audit.error.statusCode).toBe(403);
   });
 
@@ -357,10 +364,10 @@ describe("MCP App resources for a service principal", () => {
     expect(recordActionAuditMock.mock.calls[0][0]).toMatchObject({
       ctx: {
         actionName: `mcp:${method}`,
-        caller: "mcp",
         userEmail: SVC,
         orgId: "org_1",
       },
+      attribution: { caller: "mcp" },
       error: { statusCode: 403 },
     });
   });

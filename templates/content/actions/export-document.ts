@@ -3,6 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { CONTENT_DATABASE_FILTER_OPERATORS } from "../shared/api.js";
 import { blocksContentHash } from "../shared/blocks-field-identity.js";
 import {
   renderCollectionCsv,
@@ -31,20 +32,7 @@ const collectionSchema = z.object({
             z.object({
               key: z.string(),
               label: z.string(),
-              operator: z.enum([
-                "contains",
-                "equals",
-                "does_not_equal",
-                "greater_than",
-                "less_than",
-                "before",
-                "after",
-                "between",
-                "is_checked",
-                "is_unchecked",
-                "is_empty",
-                "is_not_empty",
-              ]),
+              operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
               value: z.string(),
               filterGroupId: z.string().optional(),
               parentFilterGroupId: z.string().optional(),

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const insertConflictUpdate = vi.hoisted(() => vi.fn());
 const insertValues = vi.hoisted(() => vi.fn());
@@ -41,6 +41,8 @@ import {
   recordFirstPartyAnalyticsQueryPressure,
   unavailableFirstPartyAnalyticsHealth,
 } from "./first-party-analytics-health";
+
+afterEach(() => vi.useRealTimers());
 
 beforeEach(() => {
   insertConflictUpdate.mockReset();
@@ -87,6 +89,94 @@ beforeEach(() => {
 });
 
 describe("first-party analytics pressure", () => {
+  it("reports only a recent UTC window and leaves all-time history unknown", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-16T00:15:00.000Z"));
+    getBigQueryMetrics.mockResolvedValueOnce({
+      eventCount: 12,
+      dailyRollupRows: 3,
+      firstEventDate: "2026-09-20",
+      lastEventDate: "2026-10-15",
+    });
+    const scope = { userEmail: "owner@example.com", orgId: "org_example" };
+    const health = await getFirstPartyAnalyticsHealth(scope);
+
+    expect(getBigQueryMetrics).toHaveBeenCalledWith(scope, expect.any(String), {
+      startDate: "2026-09-17",
+      endDate: "2026-10-16",
+      maxBytesBilled: 100_000_000,
+    });
+    expect(health.metrics).toMatchObject({
+      coverage: {
+        kind: "recent_window",
+        startDate: "2026-09-17",
+        endDate: "2026-10-16",
+      },
+      eventCount: 12,
+      dailyRollupRows: 3,
+      firstEventDate: null,
+      firstEventDateUnavailableReason: "bounded_bigquery_read",
+      lastEventDate: "2026-10-15",
+      spanDays: null,
+    });
+  });
+
+  it("distinguishes measured zeroes from unavailable health metrics", async () => {
+    const health = await getFirstPartyAnalyticsHealth({
+      userEmail: "owner@example.com",
+      orgId: null,
+    });
+    expect(health.metrics).toMatchObject({
+      coverage: { kind: "recent_window" },
+      eventCount: 0,
+      dailyRollupRows: 0,
+      firstEventDate: null,
+      firstEventDateUnavailableReason: "bounded_bigquery_read",
+      lastEventDate: null,
+      slowQueryCount24h: 0,
+      timeoutCount24h: 0,
+      errorCount24h: 0,
+      maxQueryDurationMs24h: 0,
+    });
+    expect(health.delivery).toEqual({
+      pendingCount: 0,
+      oldestPendingAt: null,
+      lastDeliveredAt: null,
+      lastError: null,
+    });
+    const unavailable = unavailableFirstPartyAnalyticsHealth(
+      "maximum_bytes_billed",
+    );
+    expect(unavailable.status).toBe("unavailable");
+    expect(unavailable.metrics).toMatchObject({
+      coverage: { kind: "unavailable", reason: "maximum_bytes_billed" },
+      eventCount: null,
+      dailyRollupRows: null,
+      firstEventDate: null,
+      firstEventDateUnavailableReason: "health_unavailable",
+      lastEventDate: null,
+      spanDays: null,
+      slowQueryCount24h: null,
+      timeoutCount24h: null,
+      errorCount24h: null,
+      maxQueryDurationMs24h: null,
+    });
+    expect(unavailable.delivery).toBeNull();
+  });
+
+  it("does not replace a rejected BigQuery read with zero events", async () => {
+    const failure = new Error(
+      "BigQuery query exceeded its configured billed-byte limit",
+    );
+    getBigQueryMetrics.mockRejectedValueOnce(failure);
+    await expect(
+      getFirstPartyAnalyticsHealth({
+        userEmail: "owner@example.com",
+        orgId: null,
+      }),
+    ).rejects.toBe(failure);
+  });
+
   it("classifies raw, rollup, replay, and mixed queries without retaining SQL", () => {
     expect(
       classifyFirstPartyAnalyticsQuery(
@@ -246,7 +336,7 @@ describe("first-party analytics pressure", () => {
 
     expect(health.status).toBe("monitor");
     expect(health.reasons).toContain("delivery_backlog");
-    expect(health.delivery.lastError).toBe(
+    expect(health.delivery?.lastError).toBe(
       "BigQuery delivery queue migration is pending",
     );
   });
@@ -329,6 +419,14 @@ describe("first-party analytics pressure", () => {
     });
 
     expect(health.status).toBe("recommend_bigquery");
+    expect(health.metrics).toMatchObject({
+      coverage: { kind: "all_time" },
+      eventCount: 1_000_001,
+      firstEventDate: "2026-10-10",
+      firstEventDateUnavailableReason: null,
+      spanDays: 1,
+    });
+    expect(getBigQueryMetrics).not.toHaveBeenCalled();
     expect(health.reasons).toContain("event_volume");
     expect(health.recommendation).toBe("use_bigquery");
     expect(health.externalBackendRecommendation).toBe("use");

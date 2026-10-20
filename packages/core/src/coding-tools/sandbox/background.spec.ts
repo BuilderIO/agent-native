@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../../a2a/test-pglite.js";
+import { __resetStoreLedgerSnapshotForTests } from "../../db/store-registry.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let serverless = false;
@@ -97,6 +98,7 @@ function okRunner(
 
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   serverless = false;
   resetSandboxExecutionsStoreForTests();
   resetSandboxBackgroundForTests();

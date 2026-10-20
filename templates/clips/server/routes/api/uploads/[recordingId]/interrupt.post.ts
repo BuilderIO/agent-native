@@ -28,6 +28,7 @@ import {
   retryableUploadInterruptionReason,
 } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
@@ -242,6 +243,10 @@ export default defineEventHandler(async (event: H3Event) => {
       );
     }
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     console.info("[upload-interrupt] resumable state preserved", {
       recordingId,

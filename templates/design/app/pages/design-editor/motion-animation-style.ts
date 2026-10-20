@@ -1,9 +1,5 @@
 import { createMotionPresetTracksForTargets } from "@shared/motion-presets";
-import type {
-  MotionEase,
-  MotionPropertyPreset,
-  MotionTrack,
-} from "@shared/motion-timeline";
+import type { MotionEase, MotionPropertyPreset } from "@shared/motion-timeline";
 
 export interface MotionAnimationStyle {
   label: string;
@@ -17,7 +13,6 @@ export function createMotionAnimationStyleTracks(args: {
   defaultEase: MotionEase;
   currentTimeMs: number;
   timelineDurationMs: number;
-  existingTracks: readonly MotionTrack[];
 }) {
   return createMotionPresetTracksForTargets({
     targets: args.targets,
@@ -25,6 +20,5 @@ export function createMotionAnimationStyleTracks(args: {
     defaultEase: args.defaultEase,
     currentTimeMs: args.currentTimeMs,
     timelineDurationMs: args.timelineDurationMs,
-    existingTracks: args.existingTracks,
   });
 }
