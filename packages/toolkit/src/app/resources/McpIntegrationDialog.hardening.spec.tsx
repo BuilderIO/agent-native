@@ -15,7 +15,17 @@ const mocks = vi.hoisted(() => ({
   settings: vi.fn(),
   create: vi.fn(),
   close: vi.fn(),
+  hubspotOAuthReadinessQuery: {
+    data: { hubspot: "configured" as "configured" | "missing" },
+    isSuccess: true,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn().mockResolvedValue(undefined),
+  },
   resolvePath: vi.fn((path: string) => path),
+}));
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => mocks.hubspotOAuthReadinessQuery,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: mocks.resolvePath,
@@ -56,6 +66,10 @@ describe("legacy integration setup routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.resolvePath.mockImplementation((path) => path);
+    mocks.hubspotOAuthReadinessQuery.data = { hubspot: "configured" };
+    mocks.hubspotOAuthReadinessQuery.isSuccess = true;
+    mocks.hubspotOAuthReadinessQuery.isError = false;
+    mocks.hubspotOAuthReadinessQuery.isFetching = false;
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     container = document.createElement("div");

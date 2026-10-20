@@ -374,7 +374,11 @@ describe("MCP OAuth callback flow validation", () => {
   });
 
   describe("workspace callback URIs", () => {
-    async function startWorkspaceOAuth(serverUrl: string, extraQuery = "") {
+    async function startWorkspaceOAuth(
+      serverUrl: string,
+      extraQuery = "",
+      acceptHtml = false,
+    ) {
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
@@ -395,7 +399,11 @@ describe("MCP OAuth callback flow validation", () => {
         new Request(
           `https://app.example.com/start?name=remote&url=${encodeURIComponent(serverUrl)}&scope=user${extraQuery}`,
           {
-            headers: { host: "app.example.com", "x-forwarded-proto": "https" },
+            headers: {
+              host: "app.example.com",
+              "x-forwarded-proto": "https",
+              ...(acceptHtml ? { accept: "text/html" } : {}),
+            },
           },
         ),
       );
@@ -443,6 +451,22 @@ describe("MCP OAuth callback flow validation", () => {
       expect(redirectUrl).toBe(
         "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
       );
+    });
+
+    it("returns to the integration that started OAuth when HubSpot setup is missing", async () => {
+      resolveSecretPairsMock.mockResolvedValue(null);
+
+      const { result } = await startWorkspaceOAuth(
+        "https://mcp.hubspot.com/",
+        `&return=${encodeURIComponent("/dispatch/settings/integrations?tab=mcp")}`,
+        true,
+      );
+
+      expect((result as Response).status).toBe(400);
+      const html = await (result as Response).text();
+      expect(html).toContain('href="/dispatch/settings/integrations?tab=mcp"');
+      expect(html).toContain("Back to app");
+      expect(callbackMocks.startMcpOAuthAuthorization).not.toHaveBeenCalled();
     });
 
     it("uses the app mount when an optional managed client falls back to dynamic registration", async () => {
