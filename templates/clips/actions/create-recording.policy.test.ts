@@ -12,6 +12,7 @@ const calls = vi.hoisted(() => ({
   captureError: vi.fn(),
   releaseReservation: vi.fn(),
   getAllowance: vi.fn(),
+  withReservation: vi.fn(),
   writeState: vi.fn(async () => {}),
   bufferedFallbackAvailable: true,
   streamingEnabled: false,
@@ -78,6 +79,10 @@ vi.mock("h3", async (importOriginal) => ({
 vi.mock("../server/lib/recording-policy.js", () => ({
   snapshotUploadRecoveryPolicy: (...args: unknown[]) => calls.snapshot(...args),
 }));
+vi.mock("../server/lib/hosted-clip-allowance.js", () => ({
+  withReservedHostedClipAllowance: (...args: unknown[]) =>
+    calls.withReservation(...args),
+}));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
   getDefaultRecordingVisibility: async () => "private",
@@ -116,6 +121,20 @@ describe("create-recording policy", () => {
     calls.insert.mockResolvedValue(undefined);
     calls.findById.mockResolvedValue([]);
     calls.getAllowance.mockResolvedValue(null);
+    calls.withReservation.mockImplementation((...args: unknown[]) => {
+      const input = args[0] as {
+        createRecording: (tx: {
+          insert: (...tables: unknown[]) => {
+            values: (...values: unknown[]) => Promise<unknown>;
+          };
+        }) => Promise<unknown>;
+      };
+      return input.createRecording({
+        insert: () => ({
+          values: (...values: unknown[]) => calls.insert(...values),
+        }),
+      });
+    });
     calls.update.mockResolvedValue(undefined);
     calls.snapshot.mockResolvedValue(false);
     calls.requireOrgAccess.mockResolvedValue({ organizationId: "org-1" });
@@ -159,9 +178,13 @@ describe("create-recording policy", () => {
       maxClipDurationMs: 10 * 60 * 1000,
       reservationCreated: false,
     });
+    calls.authUserId = "user-1";
     await expect(
       action.run({ id: "rec-hosted", recordingPlatform: "web" }, context),
     ).resolves.toMatchObject({ maxClipDurationMs: 10 * 60 * 1000 });
+    expect(calls.withReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-hosted", userId: "user-1" }),
+    );
   });
 
   it("hands a known file size to storage resolution and creates nothing when it is refused", async () => {
@@ -738,6 +761,7 @@ describe("create-recording policy", () => {
   it("does not retry an uncertain hosted session start or release its reservation", async () => {
     calls.bufferedFallbackAvailable = false;
     calls.streamingEnabled = true;
+    calls.authUserId = "user-1";
     const provider = {
       id: "clips-hosted",
       resumable: {
@@ -791,6 +815,7 @@ describe("create-recording policy", () => {
   it("marks upload cleanup unconfirmed when the hosted reservation cannot be released", async () => {
     calls.bufferedFallbackAvailable = false;
     calls.streamingEnabled = true;
+    calls.authUserId = "user-1";
     calls.resolveStorage.mockResolvedValueOnce({
       mode: "hosted",
       provider: {
@@ -895,6 +920,7 @@ describe("create-recording policy", () => {
   it("persists and reports hosted provider auth failures without exposing the provider error", async () => {
     calls.bufferedFallbackAvailable = false;
     calls.streamingEnabled = true;
+    calls.authUserId = "user-1";
     const provider = {
       id: "clips-hosted",
       resumable: {

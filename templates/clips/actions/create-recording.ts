@@ -12,6 +12,7 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withReservedHostedClipAllowance } from "../server/lib/hosted-clip-allowance.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   hostedStorageAuthFailure,
@@ -309,7 +310,7 @@ export default defineAction({
       storage.mode === "hosted" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
 
     try {
-      await db.insert(schema.recordings).values({
+      const recordingValues: typeof schema.recordings.$inferInsert = {
         id,
         organizationId,
         orgId: organizationId,
@@ -332,7 +333,23 @@ export default defineAction({
         storageMode,
         createdAt: now,
         updatedAt: now,
-      });
+      };
+      if (storageMode === "hosted") {
+        if (!hostedUserId) {
+          // guard:allow-bare-error — invariant: hosted storage requires a stable authenticated user id.
+          throw new Error(
+            "Hosted Clips reservation is missing its authenticated user id.",
+          );
+        }
+        await withReservedHostedClipAllowance({
+          recordingId: id,
+          userId: hostedUserId,
+          createRecording: (tx) =>
+            tx.insert(schema.recordings).values(recordingValues),
+        });
+      } else {
+        await db.insert(schema.recordings).values(recordingValues);
+      }
     } catch (error) {
       let recordingAbsentConfirmed = false;
       try {
