@@ -13,7 +13,14 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Collection pages with more than one Blocks field show each field as a tab you can rename or delete
 - Block text and background colors use Content's own palette, and colored backgrounds are now readable in dark mode
+
+### Fixed
+
+- Blocks fields preserve literal whitespace and support hosted agent reads and edits
+- Renaming a Blocks field from a collection's column menu saves the new name again
+- Word counts can save open Blocks fields before counting on hosted deployments
 
 ## 2026-10-17
 

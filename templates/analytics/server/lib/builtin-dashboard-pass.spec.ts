@@ -62,6 +62,7 @@ import {
   listBuiltinDashboards,
   loadBuiltinDashboard,
 } from "./builtin-dashboards.js";
+import legacyContentView from "./content-metrics/legacy-content-view.json";
 import { DATA_NOTES_MIGRATION_SQL } from "./data-notes-migration.js";
 import {
   DEMO_DASHBOARD_STATE_KEY,
@@ -147,6 +148,28 @@ describe("built-in dashboard deploy pass", () => {
 
   afterEach(async () => {
     await client.close();
+  });
+
+  it("recognizes legacy hashed Content copies and preserves edits", async () => {
+    const config = {
+      ...legacyContentView,
+      catalog: {
+        templateId: "content-view",
+        templateVersion: "2026-06-08",
+        installedAt: "2026-09-01",
+      },
+    };
+    await insertCopy("content-view-0123456789", config);
+    await insertCopy("content-view-abcdef0123", {
+      ...config,
+      name: "My Content",
+    });
+    const result = await runBuiltinDashboardPass();
+    expect(result).toMatchObject({ checked: 2, hidden: 1, kept: 1 });
+    expect((await row("content-view-0123456789")).hidden_by).toBe(
+      BUILTIN_DASHBOARD_HIDDEN_BY,
+    );
+    expect((await row("content-view-abcdef0123")).hidden_by).toBeNull();
   });
 
   it("hides an untouched copy without touching its version, and records it", async () => {

@@ -125,7 +125,50 @@ explaining it.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+Per-article content metrics also read through `first-party`:
+`analytics_content_items` (one row per article, with author and publish date),
+`analytics_content_metric_snapshots` (one value per item, day and metric), and
+`analytics_content_collection_runs` (one row per daily collection step). A
+daily job fills them, so a panel over them never calls BigQuery or a provider.
+A missing snapshot means "not collected", never zero: show a step's latest run
+status (`failed`, `cost_limited`, `not_configured`) instead of rendering a gap
+as 0. These tables cannot be joined with `analytics_events` in one query. Turn
+collection on with `configure-content-collection`, check it with
+`get-content-collection`, and rerun a step with `run-content-collection`.
+
+Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
+`search_console_impressions` (per article, plus non-article pages stored as
+`search_console` items). Search Console data is two to three days late, so the
+newest days have no row yet; read them as still arriving. Search Console
+collection stays off until a property owner adds the service account that
+`get-content-collection` returns as `serviceAccount.email`; then set its
+`searchConsoleSites` and turn it on.
+
+The `signups` step writes `signups_first_touch` per article: people who
+first landed on the article and later signed up, on the day of that first
+visit, so a window's days add up to its total. It is the only step that reads
+the warehouse. It stays `not_configured` until `configure-content-collection`
+sets its `signups` tables, `signupSource`, `signupsSince` and
+`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
+run, free) and get the spend approved before turning the step on. Each run
+dry-runs first, stops as `cost_limited` without querying when the estimate is
+over the cap, and runs the join with that cap as BigQuery's billing limit.
+
+The catalog's "Content" dashboard (`content-view`) is the reference for these
+tables: start from its panels before writing new content SQL. Its Articles
+panel shows why a metric is missing (`failed`, `not set up`, `still
+arriving`) in a column next to the blank number; keep that pattern. The
+first-party SQL policy rejects functions outside its allow-list (for example
+`concat_ws`) and reads `CASE (` as a function call, so join a status column
+instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
+(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
+source didn't report would draw as a zero instead of a gap. Content is a
+built-in: turning collection on with `configure-content-collection` lists it
+in the organization's Dashboards at `content-view` (`contentDashboardId` in the
+result). It is read-only; build on it with `duplicate-dashboard`.
+
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
+
 
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
@@ -749,6 +792,10 @@ When the user asks to change an existing panel on the open dashboard:
    `verified: false`, an error, or the user saying the change is not visible,
    call `inspect-dashboard-panel` for that panel, fix what it reports, and
    verify again. Never describe a visible change you have not verified.
+   An edit that changes a panel's query also returns `cost`: what one refresh
+   of the changed panels scans and costs at the default filters, and per month
+   for the dashboard's email reports. The summary repeats it; when it says the
+   cost is over a threshold, tell the user the number.
    `update-dashboard`, `compose-dashboard`, and `restore-dashboard-revision`
    return the same fields. Editing a dashboard you can only view fails with
    `dashboard_forbidden` before any SQL runs.

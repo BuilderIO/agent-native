@@ -882,20 +882,23 @@ describe("dashboard catalog", () => {
     expect(seedPanel?.sql).toBe(sql);
   });
 
-  it("keeps every shipped first-party panel time-scoped or explicitly exceptional", () => {
-    const seed = loadDashboardSeed("agent-native-templates-first-party");
-    expect(seed).not.toBeNull();
+  it.each(["agent-native-templates-first-party", "content-view"])(
+    "keeps %s first-party panels time-scoped or explicitly exceptional",
+    (id) => {
+      const seed = loadDashboardSeed(id);
+      expect(seed).not.toBeNull();
 
-    const panels = Array.isArray(seed?.panels)
-      ? (seed.panels as Array<{ source?: string }>)
-      : [];
-    for (const [index, panel] of panels.entries()) {
-      if (panel.source !== "first-party") continue;
-      expect(
-        validateFirstPartyDashboardTimeScope(panel, seed!, index),
-      ).toBeNull();
-    }
-  });
+      const panels = Array.isArray(seed?.panels)
+        ? (seed.panels as Array<{ source?: string }>)
+        : [];
+      for (const [index, panel] of panels.entries()) {
+        if (panel.source !== "first-party") continue;
+        expect(
+          validateFirstPartyDashboardTimeScope(panel, seed!, index),
+        ).toBeNull();
+      }
+    },
+  );
 
   it("keeps demo app overview light and splits app details across tabs", () => {
     const entry = getDashboardCatalogEntry("node-exporter-full");

@@ -1108,6 +1108,8 @@ export function ReviewCanvasPins({
   const setUnread = useSetReviewThreadUnread();
   const updateComment = useUpdateReviewComment();
   const [canvas, setCanvas] = useState<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [layoutTick, setLayoutTick] = useState(0);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<
@@ -1964,8 +1966,8 @@ export function ReviewCanvasPins({
     setReplyAttachments([]);
     setReplyMentions([]);
     setExpandedClusterKey(null);
-    if (active) onClose();
-  }, [active, cancelDraft, hidden, onClose]);
+    if (active) onCloseRef.current();
+  }, [active, cancelDraft, hidden]);
 
   const dropCanvasPin = useCallback(
     (canvasPoint: ReviewCanvasPoint) => {

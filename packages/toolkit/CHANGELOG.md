@@ -1,5 +1,23 @@
 # @agent-native/toolkit
 
+## 0.210.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.210.2
+
+## 0.210.1
+
+### Patch Changes
+
+- de17c2f: Fix path-mounted Chat commands and embed telemetry, bound raw SQL operations and protect private chat transcripts, show long-running tools earlier, and compress workspace Vercel immutable asset header routes to one pattern per app.
+- 3a73a99: Check managed HubSpot OAuth readiness before connecting and guide workspace owners through setup.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.210.1
+
 ## 0.210.0
 
 ### Patch Changes
@@ -1234,18 +1252,5 @@
 - 89e5910: Memoize the composer runtime adapters context value so consumer effects stop
   re-running on every provider render. The voice input preference was re-read from
   app state, and the sidebar-state listener re-subscribed, once per render.
-
-## 0.12.0
-
-### Minor Changes
-
-- c0e7d64: Add reusable canvas drawing, text annotation, and pinned agent-comment controls.
-- c0e7d64: Add a reusable canvas interaction controller for text activation, shortcuts, moving, resizing, duplication, and gesture lifecycle.
-
-## 0.11.2
-
-### Patch Changes
-
-- cc35067: Fix `VisualInspectorPanel` clipping its own scroll area instead of scrolling. The panel body was capped by a viewport-derived `max-height`, so when a host laid the panel out shorter than the viewport — for example a style dock sharing vertical space with an expanded notes panel — overflowing content was hidden by the panel's `overflow-hidden` with no way to reach it. The body now flexes within the panel's actual height and keeps the cap as an upper bound.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

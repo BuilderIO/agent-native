@@ -22,6 +22,10 @@ export default defineAction({
       .optional()
       .describe("Human label for this key, e.g. 'Hosted templates'."),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     return createAnalyticsPublicKey(resolveScope(), args.name ?? "Default key");
   },

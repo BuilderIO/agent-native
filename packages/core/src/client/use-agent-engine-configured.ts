@@ -7,7 +7,6 @@ import {
   type AgentEngineConfiguredState,
   type AgentEngineReadinessSource,
 } from "./agent-engine-readiness.js";
-import { useSessionPreloading } from "./use-session.js";
 
 export {
   fetchAgentEngineConfiguredState,
@@ -34,20 +33,16 @@ const RETRY_MAX_MS = 30000;
 
 /**
  * Readiness is shared by every composer and dispatch path in this client
- * bundle. The initial probe starts on mount, and cached answers make sends
- * instant until the short readiness window expires.
+ * bundle. The status route resolves identity from the request, so its probe
+ * can overlap the hidden session preload instead of waiting for it to finish.
  */
 export function useAgentEngineConfigured(
   enabled = true,
   options?: UseAgentEngineConfiguredOptions,
 ): UseAgentEngineConfiguredResult {
   const [, forceRender] = useReducer((revision: number) => revision + 1, 0);
-  // A hinted load mounts the app before the session is known, and the status
-  // probe answers for one account. It waits for the session as onboarding does.
-  const preloading = useSessionPreloading();
 
   useEffect(() => {
-    if (preloading) return;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let retryAttempt = 0;
@@ -102,7 +97,7 @@ export function useAgentEngineConfigured(
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [enabled, preloading, options?.source, options?.tabId, options?.threadId]);
+  }, [enabled, options?.source, options?.tabId, options?.threadId]);
 
   const effectiveState = enabled
     ? getAgentEngineReadiness(options?.source)

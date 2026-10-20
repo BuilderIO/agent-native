@@ -277,7 +277,6 @@ const messages = {
     commentMenu: "コメントのオプション",
     comments: "コメント",
     annotate: "注釈",
-    pinComment: "コメントをピン留め",
     agent: "エージェント",
     agentMenu: "エージェントのオプション",
     agentUnavailable:
@@ -379,7 +378,6 @@ const messages = {
     shapeLine: "線",
     shapeStar: "星",
     shapePolygon: "多角形",
-    pinComments: "コメントをピン留め",
     undo: "元に戻す",
     undoWithShortcut: "元に戻す ({{shortcut}})",
     redo: "やり直す",

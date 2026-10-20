@@ -53,6 +53,27 @@ export function currentExecutionFence(): ExecutionFence | undefined {
   return fence;
 }
 
+export function currentExecutionFenceForScope(scope: {
+  runId?: string;
+  threadId?: string;
+  turnId?: string;
+}): ExecutionFence | undefined {
+  const context = executionFenceStorage.getStore();
+  const fence = context?.fences.find(
+    (candidate) =>
+      (!scope.runId || scope.runId === candidate.runId) &&
+      (!scope.threadId || scope.threadId === candidate.threadId) &&
+      (!scope.turnId || scope.turnId === candidate.turnId),
+  );
+  if (fence) return fence;
+  if (context?.executionLeaseRequested) {
+    const activeFence = context.fences.at(-1);
+    if (!activeFence) throw new MissingExecutionFenceError();
+    throw new StaleExecutionFenceError(activeFence);
+  }
+  return undefined;
+}
+
 export function withExecutionLeaseRequested<T>(work: () => T): T {
   const current = executionFenceStorage.getStore();
   return executionFenceStorage.run(
