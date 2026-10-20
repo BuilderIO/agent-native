@@ -277,6 +277,21 @@ describe("thread popover reply", () => {
     expect(container.textContent).toContain("plansPage.comments.sendFailed");
   });
 
+  it("shows each thread's own send failure", async () => {
+    const onReply = () => Promise.reject(new Error("offline"));
+    for (const id of ["a", "b"]) {
+      renderPopover(annotation(id), onReply);
+      await settle();
+      typeReply(`Reply for ${id}`);
+      await sendReply();
+    }
+
+    renderPopover(annotation("a"), onReply);
+    await settle();
+    expect(editor().textContent).toBe("Reply for a");
+    expect(container.textContent).toContain("plansPage.comments.sendFailed");
+  });
+
   it("puts a failed reply ahead of a newer draft", async () => {
     let failSending = () => {};
     const onReply = () =>

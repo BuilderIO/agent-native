@@ -9483,7 +9483,7 @@ function ReplyComposer({
     loadReplyBox({ threadId, message: "", version: 0, takeFocus: true }),
   );
   const [sendingThreadIds, setSendingThreadIds] = useState<string[]>([]);
-  const [failedThreadId, setFailedThreadId] = useState<string | null>(null);
+  const [failedThreadIds, setFailedThreadIds] = useState<string[]>([]);
 
   if (box.threadId !== threadId) {
     // Opening another thread brings back that thread's own reply.
@@ -9506,7 +9506,7 @@ function ReplyComposer({
     if (!canSubmit) return;
     const sentThreadId = box.threadId;
     const message = box.draft.message;
-    setFailedThreadId((id) => (id === sentThreadId ? null : id));
+    setFailedThreadIds((ids) => ids.filter((id) => id !== sentThreadId));
     setSendingThreadIds((ids) => [...ids, sentThreadId]);
     // Empty the box right away. The reply shows in the thread while it
     // sends, and anything typed meanwhile is a new draft.
@@ -9527,7 +9527,10 @@ function ReplyComposer({
       const typedSince = drafts.get(sentThreadId)?.trim();
       const restored = typedSince ? `${message} ${typedSince}` : message;
       drafts.set(sentThreadId, restored);
-      setFailedThreadId(sentThreadId);
+      setFailedThreadIds((ids) => [
+        ...ids.filter((id) => id !== sentThreadId),
+        sentThreadId,
+      ]);
       setBox((current) =>
         current.threadId === sentThreadId
           ? loadReplyBox({
@@ -9580,7 +9583,7 @@ function ReplyComposer({
           </Button>
         </div>
       </div>
-      {failedThreadId === box.threadId && (
+      {failedThreadIds.includes(box.threadId) && (
         <p className="ml-11 text-xs text-destructive">
           {t("plansPage.comments.sendFailed")}
         </p>
