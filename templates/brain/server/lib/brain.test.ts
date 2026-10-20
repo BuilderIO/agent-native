@@ -4401,6 +4401,43 @@ describe("Brain connector smoke coverage", () => {
     expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
   });
 
+  it.each(["token request", "recording list"])(
+    "persists the Zoom %s timeout in source health and run history",
+    async (step) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(requestString(input));
+          if (step === "recording list" && url.pathname === "/oauth/token") {
+            return Response.json({ access_token: "private-token" });
+          }
+          throw new DOMException("private request details", "TimeoutError");
+        }),
+      );
+      const source = seedSource({
+        id: "zoom-timeout-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+      });
+
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({ status: "error", capturesCreated: 0 });
+      expect(result.message).toMatch(
+        new RegExp(
+          `^Zoom ${step} timed out after \\d+ ms \\(limit 30000 ms\\)\\.$`,
+        ),
+      );
+      expect(
+        mocks.rows.sources.find((row) => row.id === source.id)?.lastError,
+      ).toBe(result.message);
+      expect(mocks.rows.syncRuns[0]).toMatchObject({
+        status: "error",
+        error: result.message,
+      });
+    },
+  );
+
   it("imports Zoom transcripts from the account-wide recording list", async () => {
     const requestedPaths: string[] = [];
     vi.stubGlobal(
