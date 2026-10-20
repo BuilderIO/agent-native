@@ -358,11 +358,6 @@
   min-height: max(320px, 50vh);
 }
 
-.block-field-content .visual-editor-wrapper,
-.block-field-content .visual-editor-wrapper .content-editor {
-  min-height: 6rem;
-}
-
 .content-reference-preview .visual-editor-wrapper,
 .content-reference-preview .visual-editor-wrapper .content-editor {
   min-height: 0;

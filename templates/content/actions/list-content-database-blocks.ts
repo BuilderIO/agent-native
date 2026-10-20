@@ -9,7 +9,7 @@ import {
 
 export default defineAction({
   description:
-    "List stable blocks in one exact Content collection row and Blocks property. Returns schema, row, and field revisions plus each block's supported individual operations.",
+    "List stable blocks in one exact Content collection row and Blocks property (a tab on the row's page). Returns schema, row, and field revisions plus each block's supported individual operations.",
   schema: listDatabaseBlocksSchema,
   http: { method: "GET" },
   readOnly: true,
