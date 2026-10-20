@@ -105,7 +105,7 @@ async function enterInteractAndSampleImmediately(
       )
       .toBe(true);
   }
-  await expect(screenShell.locator("[data-frame-full-view]")).toBeHidden();
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveCount(0);
   // Interact loads the page afresh, with only its own bridges, so the preview
   // is a new iframe. The screen still has exactly one.
   await expect(previewIframe).toHaveCount(1);
@@ -213,8 +213,7 @@ test("Interact controls sit in the top bar and clear the right edge at Tiana's 1
   expect(snapshot.controls.back.disabled).toBe(true);
   expect(snapshot.controls.forward.disabled).toBe(true);
 
-  // Figma frame 2382-4622: mode switch · device · theme, then back/forward ·
-  // screen · reload, then zoom, all on one 24px control row.
+  // The controls share a 24px row in this order.
   const x = (name: ControlName) => snapshot.controls[name].rect!.x;
   expect(x("modeSwitch")).toBeLessThan(x("device"));
   expect(x("device")).toBeLessThan(x("theme"));
@@ -246,7 +245,6 @@ test("Interact controls sit in the top bar and clear the right edge at Tiana's 1
   await cdpScreenshot(page, testInfo.outputPath("tiana-interact.png"));
 });
 
-// oracle: none — verifies hit-testing and layout bounds, not parity with a design reference.
 test("Interact controls stay inside the 48px bar at Damian's 1456×410 viewport", async ({
   app,
   page,
@@ -280,7 +278,6 @@ test("Interact controls stay inside the 48px bar at Damian's 1456×410 viewport"
   await cdpScreenshot(page, testInfo.outputPath("damian-interact.png"));
 });
 
-// oracle: none — verifies layout bounds on a phone-width viewport.
 test("Interact keeps the mode switch, device, theme and screen on a 390px viewport", async ({
   app,
   page,
@@ -364,7 +361,6 @@ function seedRoutedDesign(app: App): Promise<string> {
   });
 }
 
-// oracle: none — drives the Interact screen, device and theme controls end to end.
 test("screen picker, history, reload, device and theme drive the preview", async ({
   app,
   page,
@@ -437,7 +433,6 @@ test("screen picker, history, reload, device and theme drive the preview", async
     .toBe(402);
 });
 
-// oracle: none — checks the emulated color scheme against the design's own CSS.
 test("System shows the design as authored, Light and Dark force a scheme, and only Dark without dark styles asks the agent", async ({
   app,
   page,
@@ -548,7 +543,6 @@ test("System shows the design as authored, Light and Dark force a scheme, and on
   await page.keyboard.press("Escape");
 });
 
-// oracle: none — a URL screen is another page's document, which the editor does not script.
 test("a URL screen has no theme picker at all, while screens and reload still work", async ({
   app,
   page,
@@ -617,7 +611,6 @@ test("a URL screen has no theme picker at all, while screens and reload still wo
   await expect(theme).toBeEnabled();
 });
 
-// oracle: none — Escape and the mode switch both leave Interact.
 test("Escape and the mode switch leave Interact", async ({ app, page }) => {
   await page.setViewportSize({ width: 1751, height: 897 });
   await app.open(await app.seed(FIXTURE_HTML));

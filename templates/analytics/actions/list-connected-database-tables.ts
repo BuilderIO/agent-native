@@ -37,6 +37,8 @@ export default defineAction({
       }),
     ),
   }),
+  outputErrorStrategy: "strict",
+  mcpOutputSchema: true,
   readOnly: true,
   grounding: true,
   run: async ({ connectionIds }, ctx) => {

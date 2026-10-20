@@ -1,9 +1,14 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
+import {
+  SIGMA_API_BASE_URLS,
+  SIGMA_DEFAULT_API_BASE_URL,
+} from "@agent-native/core/connections/sigma-api";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { useOrgSwitcherAppLinks } from "@agent-native/toolkit/app/org/workspace-app-links";
 import { saveApiKeyValue } from "@agent-native/toolkit/app/settings/api-keys/api-keys-client";
@@ -151,16 +156,22 @@ export function SigmaMigrationDialog({
   open,
   onOpenChange,
   onImported,
+  preferredConnectionId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImported?: () => void;
+  preferredConnectionId?: string | null;
 }) {
   const t = useT();
   const { canManageOrg } = useOrgRole();
   const { dispatchHref, dispatchVaultHref } = useOrgSwitcherAppLinks(open);
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
   const [connectionId, setConnectionId] = useState<string | null>(null);
+  const [sigmaApiBaseUrl, setSigmaApiBaseUrl] = useState(
+    SIGMA_DEFAULT_API_BASE_URL,
+  );
+  const [showSigmaOAuthSetup, setShowSigmaOAuthSetup] = useState(false);
   const [workbookId, setWorkbookId] = useState<string | null>(null);
   const [pageCursor, setPageCursor] = useState<string | undefined>();
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -245,6 +256,10 @@ export function SigmaMigrationDialog({
     () => connections.filter((connection) => connection.status === "connected"),
     [connections],
   );
+
+  useEffect(() => {
+    if (preferredConnectionId) setConnectionId(preferredConnectionId);
+  }, [preferredConnectionId]);
 
   useEffect(() => {
     if (
@@ -435,6 +450,19 @@ export function SigmaMigrationDialog({
     setMigrationError(null);
     setMigrationInProgress(false);
     setAwaitingListConfirmation(false);
+  };
+
+  const startPersonalSigmaOAuth = () => {
+    const params = new URLSearchParams({
+      scope: "user",
+      return: "/dashboards?openSigma=1",
+      baseUrl: sigmaApiBaseUrl,
+    });
+    window.location.assign(
+      agentNativePath(
+        `/_agent-native/connections/oauth/sigma/start?${params.toString()}`,
+      ),
+    );
   };
 
   const handleWorkbookChange = (value: string) => {
@@ -721,6 +749,37 @@ export function SigmaMigrationDialog({
         : t("dashboardOverview.sigmaLoadMore")}
     </Button>
   ) : null;
+  const sigmaOAuthForm = (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <p className="text-sm text-muted-foreground">
+        {t("dashboardOverview.sigmaOAuthDescription")}
+      </p>
+      <div className="space-y-2">
+        <Label htmlFor="sigma-api-region">
+          {t("dashboardOverview.sigmaApiRegion")}
+        </Label>
+        <Select value={sigmaApiBaseUrl} onValueChange={setSigmaApiBaseUrl}>
+          <SelectTrigger id="sigma-api-region">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SIGMA_API_BASE_URLS.map((baseUrl) => (
+              <SelectItem key={baseUrl} value={baseUrl}>
+                {baseUrl}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <Button
+        className="w-full"
+        type="button"
+        onClick={startPersonalSigmaOAuth}
+      >
+        {t("dashboardOverview.sigmaOAuthConnect")}
+      </Button>
+    </div>
+  );
   const sigmaCredentialForm = canManageOrg ? (
     <form className="space-y-3" onSubmit={handleSigmaConnect}>
       <div className="space-y-2">
@@ -847,6 +906,7 @@ export function SigmaMigrationDialog({
                 }
                 action={
                   <div className="w-full space-y-4">
+                    {connectedConnections.length === 0 ? sigmaOAuthForm : null}
                     {directCredentialsUnavailable ? sigmaCredentialForm : null}
                     {directCredentialsUnavailable || connectionPolicyInvalid
                       ? sigmaConnectionManagementLinks
@@ -872,6 +932,7 @@ export function SigmaMigrationDialog({
                 detail={t("dashboardOverview.sigmaNoConnectionDescription")}
                 action={
                   <div className="w-full space-y-4">
+                    {sigmaOAuthForm}
                     {sigmaCredentialForm}
                     {sigmaConnectionManagementLinks}
                   </div>
@@ -919,6 +980,22 @@ export function SigmaMigrationDialog({
                     listStateForCurrentConnection?.connectionLabel ??
                     t("dashboardOverview.sigmaConnection"),
                 })}
+              </div>
+            ) : null}
+
+            {connectedConnections.length > 0 ? (
+              <div className="space-y-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowSigmaOAuthSetup((current) => !current)}
+                >
+                  {showSigmaOAuthSetup
+                    ? t("dashboardOverview.sigmaOAuthCancel")
+                    : t("dashboardOverview.sigmaOAuthAddAnother")}
+                </Button>
+                {showSigmaOAuthSetup ? sigmaOAuthForm : null}
               </div>
             ) : null}
 

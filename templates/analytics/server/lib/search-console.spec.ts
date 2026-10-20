@@ -107,13 +107,33 @@ describe("querySearchAnalytics", () => {
     });
   });
 
+  it("accepts an exact row limit after confirming the next page is empty", async () => {
+    const full = Array.from({ length: 25_000 }, () => ({
+      keys: ["2026-10-10", "https://example.test/"],
+      clicks: 1,
+      impressions: 2,
+    }));
+    fetchMock
+      .mockResolvedValueOnce(json({ rows: full }))
+      .mockResolvedValueOnce(json({ rows: [] }));
+    const rows = await querySearchAnalytics({
+      siteUrl: "sc-domain:example.test",
+      startDate: "2026-10-01",
+      endDate: "2026-10-10",
+      dimensions: ["date", "page"],
+      maxRows: 25_000,
+    });
+    expect(rows).toHaveLength(25_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("fails instead of returning a partial result past the row limit", async () => {
     const full = Array.from({ length: 25_000 }, () => ({
       keys: ["2026-10-10", "https://example.test/"],
       clicks: 0,
       impressions: 1,
     }));
-    fetchMock.mockResolvedValue(json({ rows: full }));
+    fetchMock.mockImplementation(async () => json({ rows: full }));
 
     await expect(
       querySearchAnalytics({

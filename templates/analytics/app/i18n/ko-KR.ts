@@ -68,6 +68,12 @@ export default {
     sigmaChooseConnectionDescription:
       "워크북을 찾아볼 Sigma 작업공간을 선택하세요.",
     sigmaNoConnection: "Sigma가 연결되지 않았습니다",
+    sigmaApiRegion: "Sigma API 리전",
+    sigmaOAuthConnect: "개인 Sigma 계정 연결",
+    sigmaOAuthAddAnother: "다른 Sigma 계정 연결",
+    sigmaOAuthCancel: "취소",
+    sigmaOAuthDescription:
+      "계정으로 Sigma에 로그인해 액세스할 수 있는 워크북을 확인하세요.",
     sigmaClientId: "클라이언트 ID",
     sigmaClientSecret: "클라이언트 시크릿",
     sigmaBaseUrl: "API 기본 URL(선택 사항)",
@@ -80,8 +86,7 @@ export default {
       "임시 Sigma 자격 증명을 저장하지 못했습니다. Vault 액세스 권한을 확인한 후 다시 시도하세요.",
     sigmaCredentialsRequired:
       "먼저 Sigma 클라이언트 ID와 클라이언트 시크릿을 저장하세요.",
-    sigmaBaseUrlInvalid:
-      "sigmacomputing.com 도메인의 HTTPS Sigma API URL을 사용하세요.",
+    sigmaBaseUrlInvalid: "Sigma에서 공식 지원하는 API 리전 URL을 선택하세요.",
     sigmaPersistenceUnavailable:
       "현재 Analytics에서 Sigma 연결을 안전하게 저장할 수 없습니다. 다시 시도하세요.",
     sigmaPolicyInvalid:
@@ -96,7 +101,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics에 저장된 Sigma 자격 증명을 읽을 수 없습니다. 조직 관리자가 Dispatch에서 다시 연결하거나 Analytics에서 자격 증명을 다시 입력할 수 있습니다.",
     sigmaNoConnectionDescription:
-      "여기에 자격 증명을 입력하면 Analytics 전용 연결을 만들 수 있습니다. Dispatch에서 Analytics에 허용된 Sigma 연결은 여기에 자동으로 표시되며, 자격 증명을 직접 저장할 수 있는 사용자는 조직 관리자뿐입니다.",
+      "개인 Sigma 계정을 연결하거나 조직 관리자가 저장한 자격 증명을 사용하세요. Analytics에 허용된 Dispatch 연결도 여기에 표시됩니다.",
     sigmaOpenDispatch: "Dispatch에서 연결",
     sigmaOpenVault: "Vault 열기",
     sigmaWorkbooksLoadFailed: "Sigma 워크북을 불러오지 못했습니다",
@@ -627,6 +632,7 @@ export default {
     notConnected: "연결 안 됨",
     needsReauth: "재인증 필요",
     error: "오류",
+    unknown: "알 수 없음",
     indexNotImported: "생성된 인덱스를 가져오지 않았습니다.",
     indexUnreadable:
       "저장된 인덱스를 읽을 수 없습니다. 올바른 인덱스를 업로드하세요.",
@@ -845,6 +851,7 @@ export default {
     bigQueryHealthUnavailable:
       "퍼스트파티 Analytics 부담을 확인하지 못했습니다. 백엔드를 바꾸기 전에 다시 로드하세요.",
     analyticsEventCount: "관측된 이벤트",
+    analyticsRecentEventCount: "관측된 이벤트 (최근 30일)",
     slowQueries24h: "느린 쿼리 (24시간)",
     maxQueryDuration: "최대 쿼리 시간",
     defaultKeyName: "호스팅된 템플릿",
@@ -1241,6 +1248,8 @@ export default {
     addEventToSeeResults: "이벤트를 추가하고 선택하여 결과를 확인하세요.",
     queryError: "Query error: {{message}}",
     noDataReturned: "데이터가 반환되지 않았습니다.",
+    incompleteResultsWarning:
+      "이 결과는 불완전할 수 있습니다. 누락된 행이나 원본 데이터가 합계에 영향을 줄 수 있습니다.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "필터링 기준",
     pickPropertyToFilter: "필터링할 속성을 선택하세요.",
@@ -1330,10 +1339,15 @@ export default {
     dashboardActions: "대시보드 세부정보 및 작업",
     certifyForAi: "AI 쿼리용 인증",
     certifiedForAi: "AI 쿼리용 인증됨",
+    duplicateToCustomize: "복제하여 사용자 지정",
+    duplicateToCustomizeHint:
+      "기본 제공 대시보드는 Analytics가 릴리스될 때마다 업데이트됩니다. 변경하려면 내 사본을 만드세요.",
+    duplicateFailed: "이 대시보드를 복제하지 못했습니다.",
     certificationSaved: "대시보드가 AI 쿼리용으로 인증됨",
     certificationFailed: "대시보드를 인증할 수 없음: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "{{age}} 업데이트",
     public: "Public",
     sharedWithOrg: "조직과 공유됨",
     private: "Private",
@@ -1362,6 +1376,23 @@ export default {
     resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
+    drilldownChartPoints: "차트 데이터 포인트",
+    drilldownPreviousPage: "차트 데이터 포인트 이전 페이지",
+    drilldownNextPage: "차트 데이터 포인트 다음 페이지",
+    drilldownPageRange: "총 {{total}}개 중 {{start}}–{{end}}개 표시",
+    drilldownFilterRows: "행 필터링",
+    drilldownShowSql: "SQL 보기",
+    drilldownHideSql: "SQL 숨기기",
+    drilldownDownloadCsv: "CSV 다운로드",
+    drilldownShowing: "{{total}}개 레코드 중 {{shown}}개 표시",
+    drilldownCsvTruncated:
+      "불완전한 내보내기: 쿼리 결과 {{total}}개 중 처음 {{loaded}}개만 불러왔으며, 이 파일에는 필터 적용 후 {{exported}}개가 포함되어 있습니다.",
+    drilldownCountMismatch:
+      "차트에는 {{chart}}이(가) 표시되지만 {{total}}개 레코드가 일치했습니다",
+    drilldownAggregateOnly:
+      "이 패널에는 집계된 행만 있습니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
+    drilldownNoRecords: "일치하는 레코드가 없습니다",
+    drilldownLoadFailed: "레코드를 불러오지 못했습니다",
     filterSeries: "Filter",
     chartTimeRangeOverride: "이 차트의 기간 재정의",
     chartTimeRangeInherit: "대시보드 기간",
@@ -1389,8 +1420,15 @@ export default {
     refresh: "새로고침",
     refreshing: "새로고침 중...",
     updating: "업데이트 중",
+    refreshed: "새로고침됨",
     updatingPreviousFilters: "이전 필터 · 업데이트 중",
     previousFilters: "이전 필터",
+    fetchedAt: "{{time}}에 가져옴",
+    fetchTimeUnknown: "가져온 시간 알 수 없음",
+    cacheApp: "캐시됨",
+    cacheProvider: "BigQuery 캐시",
+    cacheRestored: "저장된 사본",
+    cacheUnknown: "캐시 상태 알 수 없음",
     downloadCsv: "CSV 다운로드",
     copyTable: "표 복사",
     multiColumnSortHelp:
@@ -1414,6 +1452,9 @@ export default {
       "Google Sheets로 내보내지 못했습니다: {{message}}",
     viewSql: "SQL 보기",
     dragToReorder: "드래그하여 재정렬하세요.",
+    resizePanelWidth: "패널 너비 조정",
+    resizePanelHeight: "패널 높이 조정",
+    resetPanelHeight: "패널 높이 초기화",
     columnFormat: "형식",
     columnFormatText: "일반 텍스트",
     columnFormatNumber: "숫자",
@@ -1426,6 +1467,24 @@ export default {
     columnShowHidden: "숨긴 열 표시",
     columnName: "열 이름",
     columnResize: "열 크기 조절",
+    rowBreakdownBy: "세부 기준",
+    rowBreakdownAll: "전체",
+    rowBreakdownOther: "기타",
+    rowBreakdownOtherHint: "작은 그룹과 이 패널의 SQL에서 제외된 사람",
+    rowBreakdownSmallGroup: "{{count}}명 미만: 비율을 신중하게 해석하세요",
+    rowBreakdownNoValue: "(없음)",
+    rowBreakdownEmpty: "이 세부 항목에 행이 없습니다.",
+    rowBreakdownUnavailable:
+      "이 패널의 SQL에는 {{column}} 기준 세부 항목이 없습니다.",
+    rowBreakdownFromPanel:
+      "이 패널의 행에서 가져왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownFromCache: "캐시에서 가져왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownAlreadyLoaded: "이미 불러왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownBytesRead: "{{bytes}} 읽음",
+    rowBreakdownOverByteCap:
+      "이 분석은 {{gib}}GiB를 넘게 읽게 되어 실행하지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
+    rowBreakdownTruncated:
+      "결과가 잘려서 일부 그룹이 빠졌거나 기타에 포함되었습니다.",
     deleteSectionTitle: "섹션을 삭제하시겠습니까?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "패널을 삭제하시겠습니까?",
@@ -2092,10 +2151,6 @@ export default {
     noMatches: "검색과 일치하는 정의가 없습니다.",
     searchPlaceholder: "정의 검색",
     sourceIndex: "소스 인덱스",
-    statusApproved: "승인됨",
-    statusSuggested: "제안됨",
-    statusUnreviewed: "검토 전",
-    unsourced: "소스 없음",
   },
   indexPanel: {
     presetDaily: "매일 06:00",
@@ -2152,6 +2207,8 @@ export default {
     dbtDisabled: "사용 안 함",
     dbtAdminOnly: "조직 관리자만 이 연결을 변경할 수 있습니다.",
     dbtReadFailed: "dbt 연결을 불러올 수 없습니다.",
+    dbtSeveralConnections:
+      "Analytics에 여러 dbt 연결이 허용되어 있어 이 패널에서 하나를 편집할 수 없습니다. 설정 → 통합에서 추가 연결을 제거하고 하나만 남기세요.",
     dbtSave: "연결 저장",
     dbtChecking: "확인 중",
     dbtSaveFailed: "dbt 연결을 저장할 수 없습니다.",

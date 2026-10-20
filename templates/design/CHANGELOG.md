@@ -3,23 +3,189 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-19
+
+### Fixed
+
+- Text color adapts when layers move between screens with different backgrounds
+- Text keeps readable contrast when moved between screens with different backgrounds.
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+### Removed
+
+- Screen overviews no longer show Focus screen buttons on screens or breakpoints.
+
+## 2026-10-18
+
+### Fixed
+
+- Grid children stretch by default after switching a flex container to grid
+- Place items edits no longer leave stale alignment that prevents grid children from stretching.
+- Editing a resized pasted SVG keeps its original frame and sibling artwork in place.
+
+## 2026-10-17
+
+### Fixed
+
+- Adding a Position animation to a layer whose Position path is curved now shows a message instead of leaving an animation that cannot save.
+- Auto-layout preserves responsive and authored alignment, and modifier-click cycles through overlapping layers
+- Canvas clicks keep selected layers in context, and new text stays readable on painted surfaces.
+- Clicking inside a drilled container selects the layer under the pointer, and modifier-click cycles through overlapping layers.
+- Component properties stay read-only while an earlier change is still saving, so an edit can no longer overwrite it.
+- Curving a Position path on a layer that already has another Position animation now shows a message and leaves the path unchanged, instead of failing silently.
+- Keep selected design layers stable during repeated clicks and match inserted text to the visible canvas surface
+- Layer toggle drags pass through open tooltips
+- Modifier-click selects the nested layer beneath the pointer.
+- Motion timelines remain available for inline screens in localhost-connected designs.
+- Motion timelines keep using saved localhost source mappings from older designs without per-screen source types.
+- After Alt is pressed during a drag, the pointer must move past the drag threshold before the layer duplicates.
+- Reopening the Motion dock right after collapsing it keeps it open, instead of the dock disappearing.
+- Text color follows the surface beneath inserted and moved text.
+- Text stays legible on styled surfaces, and authored alignment is preserved during auto-layout.
+
+## 2026-10-16
+
+### Improved
+
+- Canvas selection, layer controls, text insertion, grouping, and auto-layout behave more predictably.
+- The Gap field shows its whole value; the advanced gap button now sits beside the Gap label
+
+### Fixed
+
+- A layer copied onto another screen keeps its original style text instead of rewriting its colors and spacing
+- A layer moved to another screen keeps the font it inherited when it sets only part of it, such as its weight
+- A new text box is named after everything you typed, even when you started typing before it opened for editing
+- Selected text keeps its natural width in auto layout, and closing an edited path keeps the pasted SVG in place.
+- Design shows guidance when external stylesheets prevent Motion editing.
+- Dragging a layer out of its frame no longer snaps it to the old frame's guides
+- Escape clears newly drawn layers, redo restores the right selection, and pasted SVG shapes keep their names.
+- Fixed SVG export timeouts so a delayed preview reports an export error instead of appearing missing
+- Handle unresolved external stylesheets as unsupported motion sources without surfacing a failed action.
+- Moving a layer to another screen no longer deletes it when a reload or dropped connection interrupts the save.
+- Undo and redo restore the correct selection after creating or duplicating a layer.
+- Option-dragging a layer to empty board space near other layers now drops the copy where you release it, instead of thousands of pixels away.
+- Picking a Screen right after zooming to fit no longer zooms the canvas back in
+- Pressing Escape right after switching a fill to Gradient keeps the color picker closed instead of reopening it
+- Resizing a screen from its left or right edge keeps its saved height
+- Size and min/max fields in the inspector show their whole value instead of cutting off the last character
+- SVG exports wait for external previews to load.
+- The component panel no longer shows an error when you redo a duplicated component before its save lands.
+- Undo and redo restore the layer selection associated with each recorded edit.
+- Shift-drag keeps selected screens, screen nudges stay with the canvas selection, and Code refreshes when reopened.
+
 ## 2026-10-15
 
 ### Added
 
+- Drawing a frame around layers with the Frame tool now wraps the layers it fully encloses, without moving them.
 - External Design agents can delete screens when you ask them.
+
+### Improved
+
+- Animation controls align with the inspector edge
+- Animation recipes preserve their full duration at the timeline endpoint
+- Animation style browser now aligns beside the inspector.
+- Adding an animation style or recipe now appends tracks even when those properties already have motion
+- Motion can import and edit authored CSS animations that change multiple properties together.
+- Motion lets you edit repeated animation tracks independently while keeping changes in source.
+- Motion style popovers align with the inspector and the gallery opens ready for keyboard search
+
+### Fixed
+
+- A layer dropped on the empty part of a box that already has content stays where you release it
+- A localhost screen hides "Preparing the live editor…" as soon as its editor is ready instead of waiting for its slowest image.
+- A screen that links one of the design's CSS files with a stylesheet link now shows those styles on the canvas.
+- Align the Motion style gallery with its inspector
+- An animation you add to a property that already has a Motion style no longer gets replaced by that style when the design is saved and reopened
+- Board objects placed over a screen now paint on top of it instead of hiding behind it.
+- Text you type right after creating a text box is now saved in the order you typed it, even if you press Escape or click away straight away.
+- Cancelling a drag with Escape keeps the dragged layer selected instead of selecting the layer under the pointer.
+- Clicking another Screen's name just below a selected Screen now picks that Screen instead of grabbing the selected Screen's resize edge.
+- Dragged layers use the final pointer release position even when it differs from the last move event, and keep that position after saving and reloading.
+- Dropping a layer into another layer on the same screen keeps its authored styles, such as hex colors, instead of rewriting every declaration.
+- Edits made at a breakpoint now show in that breakpoint's frame only, and This breakpoint only edits stay inside that breakpoint's width range.
+- In a design with localhost screens, its static screens are inspected as Static instead of URL.
+- Motion duration edits stay stable when the timeline updates
+- Motion now refuses HTML edits with unresolved external stylesheets and checks text line spans against the runtime limit
+- Motion saves no longer conflict when the editor already holds the latest source.
+- Nudging a screen quickly with the arrow keys no longer snaps it back a step or drops a nudge while the previous move is still saving.
+- Opening a Visual Edit link from the Design page reuses the project's registered local bridge instead of failing.
+- Option-dragging a layer out of an auto-layout row no longer squeezes the row while you hold the copy
+- Pressing Escape just before releasing an Option-drag from an auto-layout row discards the copy
+- Redo after undoing a drawn shape selects that shape again, and an interaction state with nothing authored shows the element's own values instead of the last edited state's
+- Repeated pastes preserve relative layer offsets in right-to-left layouts and across Screens.
+- Route search waits until you start typing before showing an empty state.
+- SVG exports report when another export is already running
+- Text animation edits keep long stagger timings aligned with the timeline
+- Text stagger previews finish in sync with the motion timeline.
+- Text layers retain their individual widths when wrapped in auto layout.
+- Text you type into a new text box and then click away from right away is no longer deleted
+- The animation gallery lists only available actions.
+- The inspector shows the rendered width and height of a layer selected in a live URL screen instead of 0.
+- Undo and Redo now work while a Group Fill, Selection colors or background color picker is open, and changing a Group Fill's opacity keeps text layers plain.
+- Empty inspector section titles stay compact
+- Fixed local screen, account, and storage setup when route or connection data is unavailable.
 
 ## 2026-10-14
 
 ### Improved
 
+- Text layers show one Text option for adding staggered motion.
 - Design Motion keeps supported React and HTML motion edits in sync with their source code.
 - Motion can import supported inline CSS keyframes and round-trip them through the timeline editor.
 - Motion timeline duration fields support keyboard stepping
+- Text motion presets now include editable direction, grouping, order, overlap, and space handling.
 - Show Figma fidelity warnings in Home URL imports
 
 ### Fixed
 
+- A failed live snapshot of a URL screen now names the page that failed instead of showing the bridge's raw JSON.
+- A layer dragged away and back to where it started no longer rewrites its style
+- A save rejected as out of date is no longer sent again after you reload the editor.
+- A screen no longer grows while a layer is dragged below it
+- Add auto layout keeps each wrapped layer at its own width, keeps a centred section full width when used on a screen, and on a layer that already has auto layout it wraps it in a new frame
+- Adding an image or video hosted on this machine no longer turns an inline screen into a localhost preview.
+- Adding an Inside stroke keeps the layer's size, and Shift+X turns a fill into a visible 1px stroke.
+- After Option-dragging a layer to another screen, only the copy shows as selected
+- Alt-resizing a layer from an edge now moves both opposite edges with the pointer
+- Clicking a Screen's label no longer changes the zoom, Cmd+D pans to a copy that lands out of view, and copies of Home are named Home copy.
+- Comment pins land where you click instead of at the edge of the layer
+- Continuing a pasted or imported SVG with the Pen tool keeps it in place instead of moving it away
+- Copying or moving a layer to another screen keeps its own fill and styles instead of rewriting them
+- Dragging a layer straight after editing text moves it instead of cancelling the drag
+- Dragging an anchor in vector edit mode moves the anchor instead of grabbing a nearby handle
+- Dragging down the Layers panel's eye column hides each row it crosses without reordering them
+- Go to main component in the inspector selects the main instance, not just its Layers row
+- Grid drops land in the cell the preview shows, a grid item with its own cell moves to the cell past the drop line, and items they displace stay inside the grid
+- Holding Control on a Mac before dragging a layer no longer opens the context menu
+- Inspect code shows a layer's authored markup instead of the editor's internal text wrapper.
+- K-scaling no longer writes invisible border and outline widths, keeps fractional borders exact, and scales auto-sized text without fixing its size.
+- Layers dropped on a positioned frame inside an auto-layout screen land in that frame at the release point
+- Layers moved into an auto-layout frame keep their fixed size instead of being squeezed or sized along the wrong axis, and fixed-size neighbours no longer shrink when a move or a Fixed size overfills the frame
+- Layers pasted into a frame keep their size and draw above the frame's other layers, and pasted SVG shapes keep readable names
+- Leaving Interact returns the canvas to where you left it instead of jumping under the Layers panel
+- Legacy text animations keep their timing and remain editable after cloning
+- Multi-selection inspector shows shared values instead of false Mixed, and Gap, Min width and Hug fields show their full values
+- New text over a light shape gets a readable colour instead of following the page behind it
+- On an empty board the zoom readout matches the drawing scale, so shapes save at the size you drag
+- On phone-width screens the canvas toolbar no longer covers an open side panel
+- Option-dragging a layer onto an empty screen drops the copy where you release it
+- Option-dragging a positioned layer into an auto-layout row adds it to the row's flow
+- PNG and PDF exports of auto-height screens keep the screen's frame size instead of squashing taller content into it.
+- Pressing Enter after extending a path in vector edit mode exits to the Move tool
+- Removing a fill, recoloring SVG paths, and grouping layers placed at 0 no longer leave stale styles or a zero-height group.
+- Renaming a layer no longer scrolls the Layers panel sideways
+- Swapping a component instance keeps it where it stood
+- Switches and checkboxes inside a tooltip, such as Share's Live collaboration toggle, show their on and off colors again.
+- Text animations keep defaults consistent, show grouping-specific controls, and explain when preset settings conflict.
+- Text motion clears Ignore spaces when the selected grouping hides that option.
+- Text motion edits now preserve saved stagger timing and outgoing rotation direction.
+- The Layers panel keeps previewing a drop after the pointer leaves the screen and comes back
+- Undoing a drag no longer leaves an extra undo step for the selection the drag started with.
+- Restoring a version puts Screens back in their original order, and selecting several Screens no longer tints the Screens between them.
 - Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
 - Deselecting a layer keeps Motion open and restores the canvas inspector.
 - Image fills show their picture in the Fill inspector instead of a broken swatch.
@@ -28,6 +194,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Motion source editing now refuses targets with dynamic styles, Alpine transitions, or inline CSS motion declarations that cannot be synchronized safely
 - Screen undo keeps the original order, deselected Screens clear from Layers, and clipboard pastes preserve placement across responsive previews.
 - Selection stays precise in deeply nested layers, and pasted content keeps its size, styling, and editing history
+- Text animations preserve whitespace layout, punctuation, legacy timing, and outgoing easing
+- Text animation edits preserve collapsed whitespace and reset ordering when grouping changes
 
 ## 2026-10-13
 
@@ -46,6 +214,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Dropping a layer in the empty end of an auto-layout row of buttons keeps it in the row as the last item
+- Layers dropped onto another screen, or beside an auto-layout frame they don't fit, land where they are released instead of the screen's top-left corner
+- Moving a layer in the Layers panel, including from the board into a screen, keeps it where it sits on the canvas
 - Home prompt suggestions stay hidden until AI is connected
 - Undo reliably restores screen positions after repeated keyboard nudges
 - Comment pins no longer show in Interact mode or paint over the editor panels.

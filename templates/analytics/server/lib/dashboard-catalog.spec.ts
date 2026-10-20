@@ -6,6 +6,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
+  repairKnownFirstPartyDashboardQueries,
+} from "./canonical-first-party-dashboard-repair";
+import {
   cloneDashboardConfig,
   dashboardCatalogEntries,
   getDashboardCatalogEntry,
@@ -189,13 +193,15 @@ describe("dashboard catalog", () => {
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
     expect(entry?.panelCount).toBe(config.panels.length);
-    expect(config.panels).toHaveLength(48);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(48);
+    expect(config.panels).toHaveLength(51);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(51);
     for (const id of [
       "activation-funnel",
       "signup-method-conversion",
       "onboarding-step-dropoff",
       "onboarding-setup-choice",
+      "onboarding-ab-comparison",
+      "onboarding-ab-connected-trend",
       "sharing-actions-by-app",
     ]) {
       expect(config.panels.find((panel) => panel.id === id)).toEqual(
@@ -255,6 +261,29 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("marks the A/B panels delivered on a fresh seeded dashboard", () => {
+    const config = cloneDashboardConfig(
+      getDashboardCatalogEntry("first-party-template-traffic")!,
+    ) as unknown as { introducedPanels?: string[]; panels: { id: string }[] };
+    expect(config.introducedPanels).toEqual(
+      PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
+    );
+
+    const withoutPanel = {
+      ...config,
+      panels: config.panels.filter((p) => p.id !== "onboarding-ab-comparison"),
+    };
+    const repaired = repairKnownFirstPartyDashboardQueries(
+      "agent-native-templates-first-party",
+      withoutPanel,
+    );
+    expect(
+      (repaired.config.panels as { id: string }[]).some(
+        (p) => p.id === "onboarding-ab-comparison",
+      ),
+    ).toBe(false);
+  });
+
   it("ships the onboarding panels with catalog SQL and columns", () => {
     const seed = loadDashboardSeed("agent-native-templates-first-party");
     const seedPanels = seed?.panels as Array<{
@@ -263,7 +292,12 @@ describe("dashboard catalog", () => {
       config?: { columns?: unknown };
     }>;
 
-    for (const id of ["onboarding-step-dropoff", "onboarding-setup-choice"]) {
+    for (const id of [
+      "onboarding-step-dropoff",
+      "onboarding-setup-choice",
+      "onboarding-ab-comparison",
+      "onboarding-ab-connected-trend",
+    ]) {
       const catalogPanel = buildPanel(id)!;
       const seedPanel = seedPanels.find((panel) => panel.id === id);
       expect(seedPanel?.sql).toBe(catalogPanel.sql);

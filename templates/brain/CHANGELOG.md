@@ -3,6 +3,22 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-16
+
+### Fixed
+
+- Brain reports when Gong credentials cannot be checked, so teams can tell a vault issue from a missing key.
+
+## 2026-10-15
+
+### Added
+
+- Brain can answer Gong call questions with shared organization credentials, so teammates without individual Gong seats can get live call data.
+
+### Improved
+
+- Saving a source's settings refreshes the Sources list faster, and the source shows "Updating…" until its new settings appear.
+
 ## 2026-10-13
 
 ### Changed

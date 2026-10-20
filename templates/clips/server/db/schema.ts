@@ -266,6 +266,36 @@ export const recordingTranscripts = table("recording_transcripts", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+// A ready transcript that an import, a regenerate, or a restore replaced, kept
+// so an editor can bring it back. Rows follow the recording's access and are
+// removed with it.
+export const recordingTranscriptVersions = table(
+  "recording_transcript_versions",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    language: text("language").notNull(),
+    segmentsJson: text("segments_json").notNull(),
+    fullText: text("full_text").notNull(),
+    status: text("status", {
+      enum: ["pending", "streaming", "ready", "failed"],
+    }).notNull(),
+    source: text("source", { enum: ["imported"] }),
+    importId: text("import_id"),
+    reason: text("reason", {
+      enum: ["import", "regenerate", "automatic", "restore"],
+    }).notNull(),
+    replacedBy: text("replaced_by"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (version) => ({
+    recordingCreatedIndex: index(
+      "recording_transcript_versions_recording_created_idx",
+    ).on(version.recordingId, version.createdAt),
+  }),
+);
+
 export const recordingBrowserDiagnostics = table(
   "recording_browser_diagnostics",
   {
@@ -664,6 +694,8 @@ export const recordingContextItems = table(
     // The desktop device that captured the Clip. NULL (web-requested or
     // pre-dating device scoping) is claimable by every device.
     capturedDeviceId: text("captured_device_id"),
+    includeMicrophone: boolean("include_microphone"),
+    includeSystemAudio: boolean("include_system_audio"),
     durationMs: integer("duration_ms"),
     width: integer("width"),
     height: integer("height"),

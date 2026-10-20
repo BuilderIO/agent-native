@@ -32,6 +32,10 @@ import {
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
 import {
+  extensionFrameNameWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+import {
   extensionLoadError,
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
@@ -43,6 +47,11 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import {
+  EXTENSION_OPEN_URL_MESSAGE,
+  useExtensionFrameKey,
+  useOpenUrlLatch,
+} from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 interface Extension {
@@ -58,8 +67,10 @@ interface Extension {
   };
 }
 
-const EXTENSION_IFRAME_SANDBOX =
-  normalizeAgentNativeExtensionSandbox(undefined);
+const EXTENSION_IFRAME_SANDBOX = normalizeAgentNativeExtensionSandbox(
+  undefined,
+  { mode: "nonce" },
+);
 
 function readHostThemeVars(): Record<string, string> {
   if (typeof document === "undefined") return {};
@@ -135,6 +146,7 @@ export function EmbeddedExtension({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
+  const openUrl = useOpenUrlLatch();
   const extensionRef = useRef(null as null | Extension);
 
   useEffect(() => {
@@ -176,6 +188,11 @@ export function EmbeddedExtension({
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
   extensionRef.current = extension ?? null;
+  const iframeKey = `${extensionId}-${extension?.updatedAt ?? ""}`;
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    `${iframeKey}:${Boolean(extension)}`,
+  );
 
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
@@ -198,11 +215,15 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
+  const frameKey = useExtensionFrameKey(
+    `${extensionId}|${extension?.updatedAt ?? ""}|${iframeSrc}`,
+  );
+
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
     readyFiredRef.current = false;
-  }, [extensionId, extension?.updatedAt]);
+  }, [extensionId, slotId, extension?.updatedAt]);
 
   const appearance = useAppearance();
 
@@ -235,6 +256,7 @@ export function EmbeddedExtension({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
+        openUrl.latch(message, event.source);
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
         const binding = (message as any).binding ?? {};
@@ -264,6 +286,11 @@ export function EmbeddedExtension({
           setHeight(Math.ceil(h));
           fireReady();
         }
+        return;
+      }
+
+      if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
+        openUrl.open(message);
         return;
       }
 
@@ -431,7 +458,7 @@ export function EmbeddedExtension({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extensionId, slotId]);
+  }, [extensionId, openUrl, slotId]);
 
   if (!extension) {
     if (!isLoading && !isFetching) return null;
@@ -449,8 +476,11 @@ export function EmbeddedExtension({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${extensionId}-${extension.updatedAt ?? ""}`}
-        src={iframeSrc}
+        key={`${iframeKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
+        name={
+          linkNonce ? extensionFrameNameWithLinkNonce(linkNonce) : undefined
+        }
+        src={linkNonce ? iframeSrc : undefined}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}
         style={{ width: "100%", border: 0, height, display: "block" }}

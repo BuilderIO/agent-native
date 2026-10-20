@@ -80,6 +80,7 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
+  appPathFromLocalRoute: (path: string) => `${routeState.basePath}${path}`,
   agentNativePath: (path: string) => `${routeState.basePath}${path}`,
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -1476,6 +1477,15 @@ describe("ChatRoute AgentKit surface", () => {
     await act(async () => root.render(<ChatHomeRoute />));
     expect(locationReplace).toHaveBeenCalledWith(
       expect.stringMatching(/^\/chatapp\/chat\/chat-/),
+    );
+  });
+
+  it("adds the mount path when it matches the internal route prefix", async () => {
+    routeState.basePath = "/chat";
+    await act(async () => root.render(<ChatHomeRoute />));
+
+    expect(locationReplace).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/chat\/chat\/chat-/),
     );
   });
 

@@ -350,6 +350,44 @@ function interpolationFailure(
   return null;
 }
 
+export type ResolvedDashboardPanelQuery =
+  | { panelId: string; title: string; source: string; query: string }
+  | { panelId: string; title: string; source: string; error: string };
+
+/**
+ * The SQL each queryable panel sends for the given filters (dashboard defaults
+ * when omitted), resolved the way verification does, without running anything.
+ * Section and extension panels have no query and are left out.
+ */
+export function resolveDashboardPanelQueries(
+  rawConfig: Record<string, unknown>,
+  filters?: Record<string, string>,
+): ResolvedDashboardPanelQuery[] {
+  const config = normalizeDashboardConfig(rawConfig);
+  const vars = resolveVerificationVars(config, filters);
+  return panelsOf(config)
+    .filter((panel) => typeof panel.id === "string" && hasSqlToRun(panel))
+    .map((panel) => {
+      const panelId = String(panel.id);
+      const title = typeof panel.title === "string" ? panel.title : panelId;
+      const source = typeof panel.source === "string" ? panel.source : "";
+      try {
+        const query = buildPanelQuery(panel as unknown as SqlPanel, vars);
+        const failure = interpolationFailure(query, panel.sql, vars);
+        return failure
+          ? { panelId, title, source, error: failure }
+          : { panelId, title, source, query };
+      } catch (error) {
+        return {
+          panelId,
+          title,
+          source,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+}
+
 function truncateCell(value: unknown): unknown {
   const text =
     typeof value === "string"

@@ -119,7 +119,7 @@ describe("Notion Toggle interactions", () => {
     const siblingInput = document.createElement("input");
     const siblingDom = document.createElement("div");
     siblingDom.appendChild(siblingInput);
-    siblingInput.className = "notion-toggle__summary";
+    siblingInput.className = "content-toggle__summary";
     const nodeDOM = (pos: number) => (pos === 9 ? siblingDom : nestedInput);
     const focus = vi.spyOn(siblingInput, "focus");
     const select = vi.spyOn(siblingInput, "select");

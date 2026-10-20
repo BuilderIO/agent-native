@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   QUERY_BUDGET_APPS,
@@ -18,8 +30,8 @@ import {
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
 import {
+  DESIGN_E2E_REGRESSION_PINS,
   DESIGN_E2E_REGRESSION_SHARDS,
-  resolveDesignE2ERegressionPinsForShard,
 } from "./design-e2e-regression-pins.ts";
 import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.ts";
 
@@ -133,24 +145,27 @@ test("normalizes paths from git output", () => {
 
 test("rejects runtime changes hidden under a test-only PR title", () => {
   assert.deepEqual(
-    runtimeSourceChangesInTestTitledPr("test: prove parity", [
-      "templates/design/actions/generate-design.ts",
-      "templates/design/app/pages/design-editor/editor-state.ts",
-      "templates/design/server/plugins/core-routes.ts",
-      "templates/design/shared/canvas-math.ts",
-      "templates/design/.generated/bridge/editor-chrome.generated.ts",
-      "packages/core/src/index.ts",
-      "templates/design/ssr-entry.ts",
-      "templates/design/agent-native.config.ts",
-      "templates/design/agent-native.json",
-      "templates/design/react-router.config.ts",
-      "templates/design/vite.config.ts",
-      "templates/design/public/logo.svg",
-      "templates/design/app/pages/design-editor/editor-state.spec.ts",
-      "templates/design/app/hooks/use-navigation-state.test.ts",
-      "templates/design/scripts/visual-edit-runtime-proof.ts",
-      "templates/slides/public/visual-edit-structure-proof.html",
-    ]),
+    runtimeSourceChangesInTestTitledPr(
+      "test: verify URL-backed visual editing",
+      [
+        "templates/design/actions/generate-design.ts",
+        "templates/design/app/pages/design-editor/editor-state.ts",
+        "templates/design/server/plugins/core-routes.ts",
+        "templates/design/shared/canvas-math.ts",
+        "templates/design/.generated/bridge/editor-chrome.generated.ts",
+        "packages/core/src/index.ts",
+        "templates/design/ssr-entry.ts",
+        "templates/design/agent-native.config.ts",
+        "templates/design/agent-native.json",
+        "templates/design/react-router.config.ts",
+        "templates/design/vite.config.ts",
+        "templates/design/public/logo.svg",
+        "templates/design/app/pages/design-editor/editor-state.spec.ts",
+        "templates/design/app/hooks/use-navigation-state.test.ts",
+        "templates/design/scripts/visual-edit-runtime-proof.ts",
+        "templates/slides/public/visual-edit-structure-proof.html",
+      ],
+    ),
     [
       "templates/design/actions/generate-design.ts",
       "templates/design/app/pages/design-editor/editor-state.ts",
@@ -167,9 +182,10 @@ test("rejects runtime changes hidden under a test-only PR title", () => {
     ],
   );
   assert.deepEqual(
-    runtimeSourceChangesInTestTitledPr("test(design)!: prove parity", [
-      "templates/design/app/pages/design-editor/editor-state.ts",
-    ]),
+    runtimeSourceChangesInTestTitledPr(
+      "test(design)!: verify URL-backed visual editing",
+      ["templates/design/app/pages/design-editor/editor-state.ts"],
+    ),
     ["templates/design/app/pages/design-editor/editor-state.ts"],
   );
   assert.deepEqual(
@@ -186,6 +202,14 @@ test("passes the pull request title to the change-scope guard", () => {
     workflow,
     /CI_PR_TITLE:\s*\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/u,
   );
+});
+
+test("runs CI for pull requests into any base branch", () => {
+  const triggers = readFileSync(".github/workflows/ci.yml", "utf8").split(
+    /^jobs:/mu,
+  )[0];
+  assert.match(triggers, /^ {2}pull_request:\s*$/mu);
+  assert.doesNotMatch(triggers, /^\s*branches(?:-ignore)?:/mu);
 });
 
 test("selects Slides caret CI for exact package roots and Creative Context", () => {
@@ -599,6 +623,110 @@ test("does not select Design dependencies for test or typecheck", () => {
   ]);
 });
 
+test("routes Design pin attestation inputs to core regression", () => {
+  const attestationInputs = [
+    {
+      path: "templates/design/e2e/retry-failure-reporter.ts",
+      full: false,
+      broad: false,
+    },
+    {
+      path: "scripts/design-e2e-regression-pin-identities.ts",
+      full: true,
+      broad: true,
+    },
+    {
+      path: "scripts/guard-design-e2e-regression-pins.ts",
+      full: false,
+      broad: false,
+    },
+    {
+      path: "scripts/design-e2e-regression-pins.ts",
+      full: true,
+      broad: true,
+    },
+  ];
+
+  for (const { path, full, broad } of attestationInputs) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
+    assert.equal(scope.full, full, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, broad, path);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [], path);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, [], path);
+  }
+
+  assert.deepEqual(
+    classifyChangedPaths(["scripts/design-e2e-regression-pins.ts"]).scriptTests,
+    ["scripts/design-e2e-regression-pins.test.ts"],
+  );
+
+  const selectorTest = classifyChangedPaths([
+    "scripts/design-e2e-regression-pins.test.ts",
+  ]);
+  assert.equal(selectorTest.checks.design_canvas_core_regression, false);
+  assert.equal(selectorTest.checks.design_canvas_broad_workflows, false);
+  assert.equal(selectorTest.checks.guards, true);
+  assert.deepEqual(selectorTest.scriptTests, [
+    "scripts/design-e2e-regression-pins.test.ts",
+  ]);
+
+  const identityHelper = classifyChangedPaths([
+    "scripts/design-e2e-regression-pin-identities.ts",
+  ]);
+  assert.deepEqual(identityHelper.scriptTests, [
+    "scripts/design-e2e-regression-pin-identities.test.ts",
+  ]);
+
+  const config = classifyChangedPaths([
+    "templates/design/playwright.config.ts",
+  ]);
+  assert.equal(config.checks.design_canvas_core_regression, true);
+  assert.equal(config.checks.design_canvas_broad_workflows, true);
+  assert.deepEqual(config.designCanvasE2eSpecs, []);
+  assert.deepEqual(config.designCanvasE2eDiagnosticSpecs, []);
+
+  const unrelatedUnitTest = classifyChangedPaths([
+    "templates/design/playwright-cleanup.test.ts",
+  ]);
+  assert.equal(unrelatedUnitTest.checks.design_canvas_core_regression, false);
+  assert.equal(unrelatedUnitTest.checks.design_canvas_broad_workflows, false);
+  assert.deepEqual(unrelatedUnitTest.designCanvasE2eSpecs, []);
+  assert.deepEqual(unrelatedUnitTest.designCanvasE2eDiagnosticSpecs, []);
+});
+
+test("routes shared Design E2E support modules and keeps dedicated lanes", () => {
+  for (const path of [
+    "templates/design/e2e/helpers.ts",
+    "templates/design/e2e/rails.ts",
+    "templates/design/e2e/interact-helpers.ts",
+    "templates/design/e2e/startup-child.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, true, path);
+    assert.ok(scope.designCanvasE2eSpecs.length > 0, path);
+    assert.deepEqual(
+      scope.designCanvasE2eDiagnosticSpecs,
+      scope.designCanvasE2eSpecs,
+      path,
+    );
+  }
+
+  const pinReporter = classifyChangedPaths([
+    "templates/design/e2e/retry-failure-reporter.ts",
+  ]);
+  assert.equal(pinReporter.checks.design_canvas_core_regression, true);
+  assert.equal(pinReporter.checks.design_canvas_broad_workflows, false);
+
+  const preAuthSmoke = classifyChangedPaths([
+    "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  ]);
+  assert.equal(preAuthSmoke.checks.design_canvas_core_regression, false);
+  assert.equal(preAuthSmoke.checks.design_canvas_broad_workflows, false);
+  assert.equal(preAuthSmoke.checks.pre_auth_session_replay_e2e, true);
+});
+
 test("selects focused Design core regression for its runtime dependencies", () => {
   for (const path of [
     "templates/design/app/components/MultiScreenCanvas.tsx",
@@ -623,6 +751,7 @@ test("selects focused Design core regression for its runtime dependencies", () =
     "templates/design/e2e/interaction-report-interactions.spec.ts",
     "templates/design/e2e/interaction-oversized-nested.spec.ts",
     "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+    "templates/design/e2e/css-style-helpers.ts",
     "templates/design/e2e/interaction-selection.spec.ts",
     "templates/design/e2e/z-order-behavior.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
@@ -743,6 +872,450 @@ test("selects focused Design core regression for its runtime dependencies", () =
   );
 });
 
+test("routes CSS style helper changes to its exact importing specs", () => {
+  const helperPath = "templates/design/e2e/css-style-helpers.ts";
+  const routedSpecs = [
+    "templates/design/e2e/css-style-helpers.spec.ts",
+    "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",
+    "templates/design/e2e/interaction-card-structure.spec.ts",
+    "templates/design/e2e/interaction-mobile-landing.spec.ts",
+  ];
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-css-helper-importers-"),
+  );
+  const writeSource = (path: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, 'import "./css-style-helpers";\n');
+  };
+
+  const renamedSpec = "templates/design/e2e/renamed.spec.ts";
+  try {
+    const helper = join(fixtureRoot, helperPath);
+    mkdirSync(dirname(helper), { recursive: true });
+    writeFileSync(helper, "export const styles = true;\n");
+    for (const spec of routedSpecs) writeSource(spec);
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.equal(scope.checks.design_canvas_core_regression, true);
+    assert.equal(scope.checks.design_canvas_broad_workflows, true);
+    assert.deepEqual(scope.designCanvasE2eSpecs, routedSpecs);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, routedSpecs);
+    assert.equal(scope.designCanvasE2eSpecCount, routedSpecs.length);
+
+    const withRename = classifyChangedPaths(
+      [helperPath, renamedSpec],
+      [renamedSpec],
+      fixtureRoot,
+    );
+    assert.deepEqual(withRename.designCanvasE2eSpecs, [
+      ...routedSpecs,
+      renamedSpec,
+    ]);
+    assert.deepEqual(withRename.designCanvasE2eDiagnosticSpecs, routedSpecs);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("routes JavaScript helper changes to their exact importing specs", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-javascript-helpers-"),
+  );
+  const helpers = [
+    ["shared-helper.js", "javascript-consumer.spec.ts"],
+    ["shared-helper.jsx", "jsx-consumer.spec.ts"],
+    ["shared-helper.mjs", "module-consumer.spec.ts"],
+    ["shared-helper.cjs", "commonjs-consumer.spec.ts"],
+  ] as const;
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    for (const [helper, spec] of helpers) {
+      writeSource(`templates/design/e2e/${helper}`, "export {};");
+      writeSource(`templates/design/e2e/${spec}`, `import "./${helper}";\n`);
+    }
+
+    const scope = classifyChangedPaths(
+      helpers.map(([helper]) => `templates/design/e2e/${helper}`),
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(
+      scope.designCanvasE2eSpecs,
+      helpers.map(([, spec]) => `templates/design/e2e/${spec}`).sort(),
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("traces Design E2E helper imports and literal dynamic imports", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-import-graph-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const expectedSpecs = [
+    "templates/design/e2e/dynamic-consumer.test.tsx",
+    "templates/design/e2e/transitive-consumer.spec.ts",
+  ];
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      "templates/design/e2e/intermediate-helper.ts",
+      'import "./shared-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/transitive-consumer.spec.ts",
+      'import "./intermediate-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/dynamic-consumer.test.tsx",
+      "void import(`./shared-helper`);\n",
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+      'import "./shared-helper";\n',
+    );
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, expectedSpecs);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, expectedSpecs);
+    assert.equal(scope.checks.pre_auth_session_replay_e2e, true);
+    assert.ok(
+      !scope.designCanvasE2eSpecs.includes(
+        "templates/design/e2e/unrelated.test.tsx",
+      ),
+    );
+    assert.ok(
+      !scope.designCanvasE2eSpecs.includes(
+        "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+      ),
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("raw import matching keeps regex quotes from hiding helper consumers", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-regex-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const consumerPath = "templates/design/e2e/regex-quoted-consumer.spec.tsx";
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      consumerPath,
+      [
+        'const pattern = /".*?/;',
+        'import "./shared-helper";',
+        'const view = <div>text "</div>;',
+      ].join("\n"),
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+
+    assert.deepEqual(
+      classifyChangedPaths([helperPath], [], fixtureRoot).designCanvasE2eSpecs,
+      [consumerPath],
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when JSX quotes make helper imports ambiguous", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-jsx-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const consumerPath = "templates/design/e2e/jsx-quoted-consumer.spec.tsx";
+  const unrelatedPath = "templates/design/e2e/unrelated.test.tsx";
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      consumerPath,
+      [
+        'const view = <div>quoted " text</div>;',
+        'import "./shared-helper";',
+      ].join("\n"),
+    );
+    writeSource(unrelatedPath, "export const fixture = true;\n");
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [consumerPath, unrelatedPath]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back safely for removed or untraceable Design E2E helpers", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-removed-helper-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    writeSource(
+      "templates/design/e2e/removed-helper-consumer.spec.ts",
+      'import "./removed-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+      "export const dedicated = true;\n",
+    );
+
+    const deletedHelper = classifyChangedPaths(
+      ["templates/design/e2e/removed-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(deletedHelper.designCanvasE2eSpecs, [
+      "templates/design/e2e/removed-helper-consumer.spec.ts",
+    ]);
+
+    writeSource(
+      "templates/design/e2e/orphan-helper.ts",
+      "export const orphan = true;\n",
+    );
+    const noKnownImporter = classifyChangedPaths(
+      ["templates/design/e2e/orphan-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(noKnownImporter.designCanvasE2eSpecs, [
+      "templates/design/e2e/removed-helper-consumer.spec.ts",
+      "templates/design/e2e/unrelated.test.tsx",
+    ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back to all eligible specs when a dynamic import is computed", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-computed-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    writeSource(
+      "templates/design/e2e/computed-helper.ts",
+      "export const helper = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./computed-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/computed-import-consumer.spec.ts",
+      "void import(resolveModulePath());\n",
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+
+    const scope = classifyChangedPaths(
+      ["templates/design/e2e/computed-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(scope.designCanvasE2eSpecs, [
+      "templates/design/e2e/computed-import-consumer.spec.ts",
+      "templates/design/e2e/static-consumer.spec.ts",
+      "templates/design/e2e/unrelated.test.tsx",
+    ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back when a template expression hides a dynamic import", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-template-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+
+  try {
+    writeSource(
+      "templates/design/e2e/template-helper.ts",
+      "export const helper = true;\n",
+    );
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./template-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/template-expression-consumer.spec.ts",
+      "void `${import(resolveHelperPath())}`;\n",
+    );
+    writeSource(
+      "templates/design/e2e/unrelated.test.tsx",
+      "export const fixture = true;\n",
+    );
+
+    const scope = classifyChangedPaths(
+      ["templates/design/e2e/template-helper.ts"],
+      [],
+      fixtureRoot,
+    );
+    assert.deepEqual(scope.designCanvasE2eSpecs, [
+      "templates/design/e2e/static-consumer.spec.ts",
+      "templates/design/e2e/template-expression-consumer.spec.ts",
+      "templates/design/e2e/unrelated.test.tsx",
+    ]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back when import and require arguments start with a literal", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-literal-prefix-import-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/computed-helper.ts";
+  const consumers = [
+    [
+      "templates/design/e2e/computed-import-consumer.spec.ts",
+      'void import("./computed-helper" + helperName);\n',
+    ],
+    [
+      "templates/design/e2e/computed-require-consumer.spec.ts",
+      'require("./computed-helper" + helperName);\n',
+    ],
+  ] as const;
+  const expectedSpecs = [
+    ...consumers.map(([path]) => path),
+    "templates/design/e2e/static-consumer.spec.ts",
+    "templates/design/e2e/unrelated.test.tsx",
+  ].sort();
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./computed-helper";\n',
+    );
+    writeSource("templates/design/e2e/unrelated.test.tsx", "export {};\n");
+
+    for (const [consumerPath, source] of consumers) {
+      for (const [path] of consumers) {
+        writeSource(path, path === consumerPath ? source : "export {};\n");
+      }
+      const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+      assert.deepEqual(scope.designCanvasE2eSpecs, expectedSpecs);
+    }
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("falls back when apostrophes can hide imports in regex and JSX source", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-unterminated-token-"),
+  );
+  const writeSource = (path: string, source: string) => {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, source);
+  };
+  const helperPath = "templates/design/e2e/shared-helper.ts";
+  const expectedSpecs = [
+    "templates/design/e2e/jsx-consumer.spec.tsx",
+    "templates/design/e2e/regex-consumer.spec.ts",
+    "templates/design/e2e/static-consumer.spec.ts",
+    "templates/design/e2e/unrelated.test.tsx",
+  ];
+
+  try {
+    writeSource(helperPath, "export const helper = true;\n");
+    writeSource(
+      "templates/design/e2e/static-consumer.spec.ts",
+      'import "./shared-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/regex-consumer.spec.ts",
+      'const matcher = /\'/;\nimport "./shared-helper";\n',
+    );
+    writeSource(
+      "templates/design/e2e/jsx-consumer.spec.tsx",
+      'const view = <span>it\'s ready</span>;\nimport "./shared-helper";\n',
+    );
+    writeSource("templates/design/e2e/unrelated.test.tsx", "export {};\n");
+
+    const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, expectedSpecs);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("routes direct Design specs before source-graph discovery", () => {
+  const fixtureRoot = mkdtempSync(
+    join(tmpdir(), "ci-change-scope-design-cold-spec-"),
+  );
+  const specPath = "templates/design/e2e/virtual.spec.mts";
+
+  try {
+    const scope = classifyChangedPaths([specPath], [], fixtureRoot);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [specPath]);
+    assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, [specPath]);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("Design core and broad selectors cover the same on/off/full inputs", () => {
   const cases = [
     {
@@ -809,8 +1382,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     changedSpecRegressions,
-    /^        timeout-minutes: 15$/m,
-    "the changed-spec diagnostic step must fit inside its 19-minute job after setup",
+    /^        timeout-minutes: 18$/m,
+    "the changed-spec diagnostic step must fit inside its 22-minute job after setup",
   );
   assert.match(
     changedSpecRegressions,
@@ -1183,14 +1756,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
   assert.ok(
-    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 19,
-    `changed-spec diagnostics must have the exact nineteen-minute cap (got ${diagnosticJobTimeout})`,
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 22,
+    `changed-spec diagnostics must have the exact twenty-two-minute cap (got ${diagnosticJobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 6 &&
-      jobTimeout >= stepTimeout + 3,
-    `focused Design tests need the exact six-minute cap and three minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 7 &&
+      jobTimeout >= stepTimeout + 2,
+    `focused Design tests need the exact seven-minute cap and two minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
@@ -1200,9 +1773,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 15 &&
+      changedSpecStepTimeout === 18 &&
       diagnosticJobTimeout >= changedSpecStepTimeout + 4,
-    `changed-spec diagnostics need the exact fifteen-minute cap and four minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
+    `changed-spec diagnostics need the exact eighteen-minute cap and four minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const coreShardEntries = [
     ...coreJob.matchAll(
@@ -1240,6 +1813,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     regressionCases,
+    /required_pin_identities_json="\$\(node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pin-identities\.ts "\$\{\{ matrix\.shard \}\}"\)"/,
+    "each required reporter outcome must carry its exact manifest title identity",
+  );
+  assert.match(
+    regressionCases,
     /mapfile -d '' -t focused_specs < "\$focused_specs_file"/,
     "the resolver output must become the Playwright selector list",
   );
@@ -1248,12 +1826,20 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /pnpm exec playwright test "\$\{focused_specs\[@\]\}" --workers=1/,
     "resolved fixed regression selectors must run serially",
   );
+  assert.match(
+    regressionCases,
+    /E2E_REQUIRED_PIN_IDENTITIES="\$required_pin_identities_json"/,
+    "the reporter must attest each resolved selector against its manifest title",
+  );
+  assert.match(
+    regressionCases,
+    /^          E2E_LOG_TEST_PROGRESS: "1"$/m,
+    "focused Design tests must log per-case progress before a shard timeout",
+  );
   assert.equal(
-    DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
-      resolveDesignE2ERegressionPinsForShard(shard),
-    ).length,
-    84,
-    "the title manifest must retain every fixed regression pin",
+    DESIGN_E2E_REGRESSION_PINS.length,
+    107,
+    "the merged manifest must retain the 94 main-branch pins plus the PR's 13 additional pins",
   );
 });
 
@@ -1312,6 +1898,11 @@ test("runs fixed Design regression pins even when their spec files changed", () 
     regressionCases,
     /^          node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pins\.ts "\$\{\{ matrix\.shard \}\}"/m,
     "fixed behavior pins must resolve in their dedicated shard regardless of changed files",
+  );
+  assert.match(
+    regressionCases,
+    /^          required_pin_identities_json="\$\(node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pin-identities\.ts "\$\{\{ matrix\.shard \}\}"\)"/m,
+    "fixed behavior attestations must include the exact manifest title",
   );
   assert.doesNotMatch(
     regressionCases,
@@ -2289,8 +2880,24 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/e2e/convergence-summary.ts",
     "templates/content/e2e/global-setup.ts",
     "templates/content/e2e/playwright.config.ts",
+    "packages/core/src/application-state/emitter.ts",
     "packages/core/src/collab/client.ts",
+    "packages/core/src/collab/routes.ts",
+    "packages/core/src/client/client-status-requests.ts",
+    "packages/core/src/client/use-db-sync.ts",
     "packages/core/src/client/use-session.ts",
+    "packages/core/src/db/client.ts",
+    "packages/core/src/db/ddl-guard.ts",
+    "packages/core/src/db/migration-policy.ts",
+    "packages/core/src/db/request-pool-context.ts",
+    "packages/core/src/db/store-registry.ts",
+    "packages/core/src/server/collab-plugin.ts",
+    "packages/core/src/server/core-routes-plugin.ts",
+    "packages/core/src/server/http-route.ts",
+    "packages/core/src/server/poll-events.ts",
+    "packages/core/src/server/poll.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/sharing/access.ts",
     "packages/toolkit/src/editor/useCollabReconcile.ts",
     "packages/toolkit/src/collab-ui/lead-client.ts",
     "packages/toolkit/package.json",
@@ -2299,12 +2906,19 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     assert.equal(scope.checks.content_convergence, true, path);
   }
 
-  // A toolkit-only change starts Content DB tests through this check alone.
+  // Shared editor changes keep convergence coverage without starting the DB suite.
   const toolkit = classifyChangedPaths([
     "packages/toolkit/src/editor/RichMarkdownEditor.tsx",
   ]);
   assert.equal(toolkit.checks.content, false);
+  assert.equal(toolkit.checks.content_db, false);
   assert.equal(toolkit.checks.content_convergence, true);
+
+  const coreCollaboration = classifyChangedPaths([
+    "packages/core/src/collab/client.ts",
+  ]);
+  assert.equal(coreCollaboration.checks.content_db, false);
+  assert.equal(coreCollaboration.checks.content_convergence, true);
 
   for (const path of [
     "templates/content/app/components/editor/comment-anchors.spec.ts",
@@ -2315,6 +2929,13 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/evals/editing.eval.ts",
     "templates/content/docs/product/capabilities/content.author.document-editor.md",
     "templates/content/README.md",
+    "packages/core/src/client/client-status-requests.spec.ts",
+    "packages/core/src/collab/routes.payload.spec.ts",
+    "packages/core/src/server/poll-events.spec.ts",
+    "packages/core/src/client/use-db-sync.spec.ts",
+    "packages/core/src/db/client.spec.ts",
+    "packages/core/src/application-state/store.ts",
+    "packages/core/src/onboarding/workspace-services.ts",
     "templates/design/app/components/MultiScreenCanvas.tsx",
     "packages/toolkit/src/composer/PromptComposer.tsx",
     "packages/toolkit/src/editor/useCollabReconcile.spec.ts",
@@ -2349,6 +2970,62 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
   }
 });
 
+test("scopes Content DB tests to Content and shared database runtime changes", () => {
+  for (const path of [
+    "templates/content/actions/update-document.ts",
+    "templates/content/server/db/schema.ts",
+    "templates/content/app/routes/page.$id.tsx",
+    "packages/core/src/application-state/store.ts",
+    "packages/core/src/db/client.ts",
+    "packages/core/src/db/migrations.ts",
+    "packages/core/src/db/schema-snapshot.generated.ts",
+    "packages/core/src/server/database-identity.ts",
+    "packages/core/src/server/release-migrations.ts",
+    "packages/core/src/server/release-schema.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/sharing/indexes.ts",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.content_db, true, path);
+  }
+
+  for (const path of [
+    "packages/core/src/db/client.spec.ts",
+    "packages/core/src/server/request-context.spec.ts",
+    "packages/core/src/onboarding/workspace-services.ts",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.content_db, false, path);
+  }
+
+  const pr7825Paths = [
+    ".changeset/web-search-onboarding-label.md",
+    "packages/core/src/onboarding/app-profile.spec.ts",
+    "packages/core/src/onboarding/workspace-services.ts",
+    ...[
+      "ar-SA",
+      "de-DE",
+      "en-US",
+      "es-ES",
+      "fr-FR",
+      "hi-IN",
+      "ja-JP",
+      "ko-KR",
+      "pt-BR",
+      "zh-CN",
+      "zh-TW",
+    ].map((locale) => `packages/toolkit/src/app/i18n/catalogs/${locale}.ts`),
+    "templates/analytics/server/plugins/agent-chat.spec.ts",
+  ];
+  const pr7825 = classifyChangedPaths(pr7825Paths);
+  assert.equal(pr7825.checks.content_db, false);
+  assert.equal(pr7825.checks.content_convergence, false);
+
+  for (const path of [".github/workflows/ci.yml", "pnpm-lock.yaml"]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, true, path);
+    assert.equal(scope.checks.content_db, true, path);
+  }
+});
+
 test("runs shared coverage when core changes", () => {
   const scope = classifyChangedPaths(["packages/core/src/agent/engine/run.ts"]);
 
@@ -2362,6 +3039,8 @@ test("runs shared coverage when core changes", () => {
     "!./community-templates/**",
   ]);
   assert.equal(scope.checks.content, true);
+  assert.equal(scope.checks.content_db, false);
+  assert.equal(scope.checks.content_convergence, false);
   assert.equal(scope.checks.core_integration, true);
   assert.equal(scope.checks.plan_e2e, true);
   assert.equal(scope.checks.brain_evals, true);
@@ -2624,6 +3303,14 @@ test("still runs changed root script tests when the change set is full", () => {
   ]);
 });
 
+test("selects deploy alert regression when the canary workflow changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/deploy-canary.yml"]);
+
+  assert.deepEqual(scope.scriptTests, [
+    "scripts/deploy-alerts-workflow.test.ts",
+  ]);
+});
+
 test("runs the change-scope test when the selector or its test changes", () => {
   for (const path of [
     "scripts/ci-change-scope.ts",
@@ -2771,3 +3458,99 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
     assert.equal(scope.checks.guards, true, paths.join(", "));
   }
 });
+
+test(
+  "pre-install scope tests pass without workspace dependencies",
+  { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
+  () => {
+    const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+    const fixtureRoot = mkdtempSync(
+      join(tmpdir(), "ci-change-scope-no-dependencies-"),
+    );
+    const copy = (path: string) => {
+      const destination = join(fixtureRoot, path);
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(join(repositoryRoot, path), destination);
+    };
+
+    try {
+      for (const path of [
+        "package.json",
+        "scripts/ci-change-scope.test.ts",
+        "scripts/ci-change-scope-renames.test.ts",
+        "scripts/ci-change-scope.ts",
+        "scripts/ci-build-workspaces.test.ts",
+        "scripts/ci-build-workspaces.ts",
+        "scripts/design-e2e-regression-pin-identities.test.ts",
+        "scripts/design-e2e-regression-pins.test.ts",
+        "scripts/guard-no-unbounded-table-reads.test.ts",
+        "scripts/deploy-alerts-workflow.test.ts",
+        "scripts/package-release-workflow.test.ts",
+        "scripts/qa-deploy-paths-lib.ts",
+        "scripts/design-e2e-regression-pins.ts",
+        "scripts/design-e2e-spec-selection.ts",
+        ".github/workflows/ci.yml",
+        ".github/workflows/slides-authoring-fuzz-soak.yml",
+        "templates/design/e2e/css-style-helpers.ts",
+        "templates/design/e2e/css-style-helpers.spec.ts",
+        "templates/design/e2e/drag-and-drop.modifier-timing.spec.ts",
+        "templates/design/e2e/interaction-card-structure.spec.ts",
+        "templates/design/e2e/interaction-mobile-landing.spec.ts",
+        "templates/design/e2e/interaction-selection-history-delete-screen.spec.ts",
+        "community-templates/package.json",
+        "templates/clips/desktop/package.json",
+      ]) {
+        copy(path);
+      }
+      for (const entry of readdirSync(
+        join(repositoryRoot, "community-templates"),
+        { withFileTypes: true },
+      )) {
+        if (
+          entry.isDirectory() &&
+          existsSync(
+            join(
+              repositoryRoot,
+              "community-templates",
+              entry.name,
+              "package.json",
+            ),
+          )
+        ) {
+          copy(`community-templates/${entry.name}/package.json`);
+        }
+      }
+
+      assert.equal(existsSync(join(fixtureRoot, "node_modules")), false);
+      const childEnv = {
+        ...process.env,
+        CI_CHANGE_SCOPE_COLD_FIXTURE: "1",
+        NODE_PATH: "",
+      };
+      delete childEnv.NODE_TEST_CONTEXT;
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          "--test",
+          "scripts/ci-change-scope.test.ts",
+          "scripts/ci-change-scope-renames.test.ts",
+          "scripts/ci-build-workspaces.test.ts",
+        ],
+        {
+          cwd: fixtureRoot,
+          encoding: "utf8",
+          env: childEnv,
+        },
+      );
+      assert.equal(result.error, undefined, result.error?.message);
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+      assert.match(
+        `${result.stdout}\n${result.stderr}`,
+        /pre-install scope tests pass without workspace dependencies/u,
+      );
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  },
+);

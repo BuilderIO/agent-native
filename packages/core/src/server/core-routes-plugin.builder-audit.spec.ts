@@ -10,6 +10,7 @@ vi.mock("../audit/record.js", () => ({
   recordActionAudit: recordActionAuditMock,
 }));
 
+import { routeAuditAttribution } from "../audit/attribution.js";
 import {
   builderDisconnectAuditScope,
   recordBuilderConnectionAudit,
@@ -18,7 +19,7 @@ import {
 function recordedEvent() {
   expect(recordActionAuditMock).toHaveBeenCalledTimes(1);
   const input = recordActionAuditMock.mock.calls[0]![0];
-  const meta = { status: input.status, caller: input.ctx.caller };
+  const meta = { status: input.status, caller: input.attribution.caller };
   return {
     action: input.ctx.actionName,
     orgId: input.ctx.orgId,
@@ -41,6 +42,7 @@ describe("recordBuilderConnectionAudit", () => {
       ownerEmail: "admin@example.com",
       orgId: "org-123",
       scope: "org",
+      attribution: routeAuditAttribution({ context: {} }),
     });
 
     expect(recordedEvent()).toEqual({
@@ -65,6 +67,7 @@ describe("recordBuilderConnectionAudit", () => {
       ownerEmail: "member@example.com",
       orgId: "org-123",
       scope: "user",
+      attribution: routeAuditAttribution({ context: {} }),
     });
 
     expect(recordedEvent()).toMatchObject({
@@ -86,6 +89,7 @@ describe("recordBuilderConnectionAudit", () => {
       ownerEmail: "admin@example.com",
       orgId: "org-123",
       scope: "org",
+      attribution: routeAuditAttribution({ context: {} }),
     });
 
     expect(recordedEvent()).toMatchObject({
@@ -101,6 +105,7 @@ describe("recordBuilderConnectionAudit", () => {
       ownerEmail: "member@example.com",
       orgId: "org-123",
       scope: "user",
+      attribution: routeAuditAttribution({ context: {} }),
     });
 
     expect(recordedEvent()).toMatchObject({
@@ -116,6 +121,7 @@ describe("recordBuilderConnectionAudit", () => {
       ownerEmail: "solo@example.com",
       orgId: null,
       scope: "user",
+      attribution: routeAuditAttribution({ context: {} }),
     });
 
     expect(recordedEvent()).toMatchObject({

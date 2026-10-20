@@ -1,5 +1,18 @@
 # @agent-native/core-corpus
 
+## 0.210.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
+## 0.209.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.209.1
 
 ### Patch Changes

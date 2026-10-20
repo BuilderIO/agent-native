@@ -163,7 +163,7 @@ describe("createWebSearchToolEntry", () => {
     const result = await tool.run({ query: "current docs" });
 
     expect(result).toContain("No web-search backend configured");
-    expect(result).toContain("Use Builder.io");
+    expect(result).toContain("Connect Builder.io");
     expect(result).toContain("BRAVE_SEARCH_API_KEY");
   });
 

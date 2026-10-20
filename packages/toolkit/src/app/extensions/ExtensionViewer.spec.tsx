@@ -10,6 +10,7 @@ import { resetExtensionIframeMetaCspForTests } from "./iframe-display-sources.js
 
 const embedState = vi.hoisted(() => ({ active: false }));
 const chatMocks = vi.hoisted(() => ({
+  openMcpAppHostLink: vi.fn(),
   sendToAgentChat: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
+  openMcpAppHostLink: chatMocks.openMcpAppHostLink,
   sendToAgentChat: chatMocks.sendToAgentChat,
 }));
 
@@ -112,6 +114,7 @@ describe("ExtensionViewer MCP embeds", () => {
     );
     resetExtensionIframeMetaCspForTests();
     embedState.active = false;
+    chatMocks.openMcpAppHostLink.mockReset();
     chatMocks.sendToAgentChat.mockReset();
     queryClient = new QueryClient({
       defaultOptions: {
@@ -127,6 +130,7 @@ describe("ExtensionViewer MCP embeds", () => {
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -154,8 +158,141 @@ describe("ExtensionViewer MCP embeds", () => {
     );
     expect(iframe.getAttribute("srcdoc")).toBeNull();
     expect(iframe.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-forms allow-popups allow-downloads",
+      "allow-scripts allow-forms allow-downloads",
     );
+  });
+
+  it("opens links only for the shell document that announced the binding", async () => {
+    document.body.appendChild(container);
+    const iframe = await renderViewer();
+    const frameWindow = iframe.contentWindow as Window;
+    expect(frameWindow).toBeTruthy();
+    const replies: unknown[] = [];
+    vi.spyOn(frameWindow, "postMessage").mockImplementation((data: unknown) => {
+      replies.push(data);
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const post = (data: unknown) =>
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", { data, source: frameWindow }),
+        );
+      });
+    const token = "a".repeat(32);
+    const url = "https://app.hubspot.com/contacts/1/company/2";
+
+    post({ type: "agent-native-extension-open-url", url, token });
+    expect(open).not.toHaveBeenCalled();
+
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "viewer" },
+      openUrlToken: token,
+    });
+    expect(replies).toContainEqual({
+      type: "agent-native-extension-open-url-ready",
+    });
+
+    // A page the iframe navigated to can't re-announce or guess the token.
+    post({
+      type: "agent-native-extension-binding",
+      binding: { role: "owner" },
+      openUrlToken: "b".repeat(32),
+    });
+    post({
+      type: "agent-native-extension-open-url",
+      url,
+      token: "b".repeat(32),
+    });
+    post({ type: "agent-native-extension-open-url", url });
+    post({
+      type: "agent-native-extension-open-url",
+      url: "javascript:alert(1)",
+      token,
+    });
+    expect(open).not.toHaveBeenCalled();
+
+    post({ type: "agent-native-extension-open-url", url, token });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith(url, "_blank", "noopener,noreferrer");
+  });
+
+  it("routes extension links through MCP and closes the reserved popup on success", async () => {
+    embedState.active = true;
+    document.body.appendChild(container);
+    const iframe = await renderViewer();
+    const frameWindow = iframe.contentWindow as Window;
+    const fallbackState = { closed: false };
+    const fallbackWindow = {
+      get closed() {
+        return fallbackState.closed;
+      },
+      close: vi.fn(() => {
+        fallbackState.closed = true;
+      }),
+      location: { replace: vi.fn() },
+    } as unknown as Window;
+    chatMocks.openMcpAppHostLink.mockResolvedValue(true);
+    const open = vi.spyOn(window, "open").mockReturnValue(fallbackWindow);
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userActivation: { isActive: true },
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("srcdoc")).toContain("hello-link-channel");
+      });
+    });
+    const srcDoc = iframe.getAttribute("srcdoc") ?? "";
+    const nonce = srcDoc.match(/data-link-nonce="([^"]+)"/)?.[1];
+    expect(nonce).toBeTruthy();
+    const channel = new MessageChannel();
+    const ready = new Promise<unknown>((resolve) => {
+      channel.port1.addEventListener(
+        "message",
+        (event) => resolve(event.data),
+        { once: true },
+      );
+      channel.port1.start();
+    });
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-extension.hello-link-channel",
+            nonce,
+          },
+          origin: "null",
+          source: frameWindow,
+          ports: [channel.port2],
+        }),
+      );
+    });
+    await expect(ready).resolves.toMatchObject({
+      type: "agent-native-extension.link-channel-ready",
+    });
+    act(() => {
+      channel.port1.postMessage({
+        type: "agent-native-extension.open-external-link",
+        href: "https://example.com/",
+      });
+    });
+
+    await vi.waitFor(() => {
+      expect(chatMocks.openMcpAppHostLink).toHaveBeenCalledWith(
+        "https://example.com/",
+      );
+    });
+    await vi.waitFor(() => {
+      expect(fallbackWindow.close).toHaveBeenCalledOnce();
+    });
+    expect(fallbackWindow.closed).toBe(true);
+    expect(fallbackWindow.location.replace).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    channel.port1.close();
+    channel.port2.close();
   });
 
   it("uses sandboxed srcdoc inside MCP chat embeds to avoid a blocked nested route frame", async () => {
@@ -163,15 +300,74 @@ describe("ExtensionViewer MCP embeds", () => {
     const iframe = await renderViewer();
 
     expect(iframe.getAttribute("src")).toBeNull();
-    await vi.waitFor(() => {
-      expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+      });
     });
     expect(iframe.getAttribute("srcdoc")).toContain(
       "agent-native-extension-binding",
     );
+    expect(iframe.getAttribute("srcdoc")).toContain("hello-link-channel");
+    expect(iframe.getAttribute("srcdoc")).toContain("data-link-nonce=");
     expect(iframe.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-forms allow-popups allow-downloads",
+      "allow-scripts allow-forms allow-downloads",
     );
+  });
+
+  it("rotates the link nonce when refreshed MCP srcdoc content remounts the frame", async () => {
+    embedState.active = true;
+    const firstFrame = await renderViewer();
+
+    await vi.waitFor(() => {
+      expect(firstFrame.getAttribute("srcdoc")).toContain("hello-link-channel");
+    });
+    const firstNonce = firstFrame
+      .getAttribute("srcdoc")
+      ?.match(/data-link-nonce="([^"]+)"/)?.[1];
+    expect(firstNonce).toBeTruthy();
+
+    let updatedFrame: HTMLIFrameElement | null = null;
+    await act(async () => {
+      queryClient.setQueryData(["extension", "ext-1"], {
+        ...extensionResponse,
+        content: "<section>Updated chart</section>",
+      });
+    });
+    await vi.waitFor(() => {
+      updatedFrame = container.querySelector("iframe");
+      expect(updatedFrame).not.toBe(firstFrame);
+      expect(updatedFrame?.getAttribute("srcdoc")).toContain("Updated chart");
+      const updatedNonce = updatedFrame
+        ?.getAttribute("srcdoc")
+        ?.match(/data-link-nonce="([^"]+)"/)?.[1];
+      expect(updatedNonce).toBeTruthy();
+      expect(updatedNonce).not.toBe(firstNonce);
+    });
+  });
+
+  it("keeps the render route when an MCP embed has no inline extension content", async () => {
+    embedState.active = true;
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).includes("/_agent-native/extensions/iframe/display-sources")
+        ? Response.json(displaySourcesResponse)
+        : Response.json({ ...extensionResponse, content: "" }),
+    );
+
+    const iframe = await renderViewer();
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("src")).toContain(
+          "/_agent-native/extensions/ext-1/render",
+        );
+        expect(iframe.getAttribute("src")).not.toContain("#");
+        expect(iframe.getAttribute("name")).toMatch(
+          /^__agent_native_link_nonce=[0-9a-f]{48}$/,
+        );
+      });
+    });
+    expect(iframe.getAttribute("srcdoc")).toBeNull();
   });
 
   it("applies the configured img-src and media-src to the MCP embed srcdoc", async () => {
@@ -215,11 +411,18 @@ describe("ExtensionViewer MCP embeds", () => {
     await act(async () => {
       resolveSources(Response.json(displaySourcesResponse));
     });
+    // The real document gets a fresh iframe element (a new window), so look
+    // it up again rather than reusing the blank frame's.
+    const loadedFrame = () =>
+      container.querySelector("iframe") as HTMLIFrameElement;
     await vi.waitFor(() => {
-      expect(iframe.getAttribute("srcdoc")).toContain("Star history chart");
+      expect(loadedFrame().getAttribute("srcdoc")).toContain(
+        "Star history chart",
+      );
     });
+    expect(spinner()).toBeTruthy();
     await act(async () => {
-      iframe.dispatchEvent(new Event("load"));
+      loadedFrame().dispatchEvent(new Event("load"));
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
     expect(spinner()).toBeNull();

@@ -3,7 +3,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  shouldActivateHandTool,
+  shouldActivateMoveTool,
   shouldActivateRectangleTool,
+  shouldActivateScaleTool,
   shouldActivateTextTool,
 } from "./text-tool-shortcut";
 
@@ -106,6 +109,90 @@ describe("shouldActivateRectangleTool", () => {
     );
     expect(
       shouldActivateRectangle(keyboardEvent(), { blockingSurfaceOpen: true }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldActivateMoveTool", () => {
+  const options = {
+    canEdit: true,
+    activeElement: document.body,
+    blockingSurfaceOpen: false,
+  };
+
+  it("activates for an unmodified V on the editor canvas", () => {
+    expect(shouldActivateMoveTool(keyboardEvent({ key: "v" }), options)).toBe(
+      true,
+    );
+    expect(shouldActivateMoveTool(keyboardEvent({ key: "t" }), options)).toBe(
+      false,
+    );
+  });
+
+  it("leaves paste and typing alone", () => {
+    expect(
+      shouldActivateMoveTool(
+        keyboardEvent({ key: "v", metaKey: true }),
+        options,
+      ),
+    ).toBe(false);
+    expect(
+      shouldActivateMoveTool(
+        keyboardEvent({ key: "v", target: document.createElement("input") }),
+        options,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("shouldActivateHandTool", () => {
+  const options = {
+    canEdit: true,
+    activeElement: document.body,
+    blockingSurfaceOpen: false,
+  };
+
+  it("activates for an unmodified H and ignores typing targets", () => {
+    expect(shouldActivateHandTool(keyboardEvent({ key: "h" }), options)).toBe(
+      true,
+    );
+    expect(
+      shouldActivateHandTool(
+        keyboardEvent({ key: "h", target: document.createElement("textarea") }),
+        options,
+      ),
+    ).toBe(false);
+    expect(
+      shouldActivateHandTool(
+        keyboardEvent({ key: "h", metaKey: true }),
+        options,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("shouldActivateScaleTool", () => {
+  const options = {
+    canEdit: true,
+    activeElement: document.body,
+    blockingSurfaceOpen: false,
+  };
+
+  it("activates for an unmodified K and ignores typing targets", () => {
+    expect(shouldActivateScaleTool(keyboardEvent({ key: "k" }), options)).toBe(
+      true,
+    );
+    expect(
+      shouldActivateScaleTool(
+        keyboardEvent({ key: "k", target: document.createElement("input") }),
+        options,
+      ),
+    ).toBe(false);
+    expect(
+      shouldActivateScaleTool(
+        keyboardEvent({ key: "k", metaKey: true }),
+        options,
+      ),
     ).toBe(false);
   });
 });

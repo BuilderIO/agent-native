@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { assertNativeRecordingMedia } from "./native-media";
+import {
+  assertNativeRecordingMedia,
+  assertTranscribableRecordingMedia,
+} from "./native-media";
+
+const youtubeClip = {
+  kind: "video",
+  sourceAppName: "YouTube",
+  sourceWindowTitle: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+  videoUrl: "https://www.youtube.com/embed/jNQXAC9IVRw",
+};
+const loomEmbed = {
+  kind: "video",
+  sourceAppName: "Loom",
+  videoUrl: "https://www.loom.com/embed/abcdefgh",
+};
 
 describe("assertNativeRecordingMedia", () => {
   it("refuses a screenshot", () => {
@@ -43,9 +58,37 @@ describe("assertNativeRecordingMedia", () => {
     }
   });
 
+  it("rejects YouTube clips with a reason that points at transcript import", () => {
+    expect(() => assertNativeRecordingMedia(youtubeClip)).toThrow(
+      expect.objectContaining({
+        errorCode: "native_media_required",
+        statusCode: 422,
+        message: expect.stringContaining("import-transcript"),
+      }),
+    );
+  });
+
   it("allows a Clips-hosted video", () => {
     expect(() =>
       assertNativeRecordingMedia({
+        kind: "video",
+        videoUrl: "https://store.example/clip.webm",
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("assertTranscribableRecordingMedia", () => {
+  it("refuses YouTube clips, which have no audio Clips can read", () => {
+    expect(() => assertTranscribableRecordingMedia(youtubeClip)).toThrow(
+      expect.objectContaining({ errorCode: "native_media_required" }),
+    );
+  });
+
+  it("still lets Loom embeds and hosted videos request a transcript", () => {
+    expect(() => assertTranscribableRecordingMedia(loomEmbed)).not.toThrow();
+    expect(() =>
+      assertTranscribableRecordingMedia({
         kind: "video",
         videoUrl: "https://store.example/clip.webm",
       }),

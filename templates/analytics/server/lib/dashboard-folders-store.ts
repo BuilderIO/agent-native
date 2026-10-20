@@ -1,9 +1,15 @@
 import { recordChange } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { type DashboardRecord, getDashboard } from "./dashboards-store.js";
+import {
+  type DashboardRecord,
+  getDashboard,
+  assertDashboardEditable,
+  assertDashboardMutationApplied,
+  dashboardWritableFilter,
+} from "./dashboards-store.js";
 
 export type DashboardFolderScope = "personal" | "shared";
 
@@ -123,10 +129,7 @@ export async function assignDashboardToFolder(
 ): Promise<DashboardRecord> {
   const dashboard = await getDashboard(dashboardId, ctx);
   if (!dashboard) throw new Error("dashboard not found or inaccessible");
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
+  await assertDashboardEditable(dashboardId, ctx);
 
   if (folderId) {
     const folder = await getFolder(folderId, ctx);
@@ -147,10 +150,13 @@ export async function assignDashboardToFolder(
     }
   }
 
-  await (getDb() as any)
+  const mutation = await (getDb() as any)
     .update(schema.dashboards)
     .set({ folderId, updatedAt: nowIso(), updatedBy: ctx.email })
-    .where(eq(schema.dashboards.id, dashboardId));
+    .where(
+      and(eq(schema.dashboards.id, dashboardId), dashboardWritableFilter()),
+    );
+  assertDashboardMutationApplied(mutation, dashboardId);
   recordChange({
     source: "dashboards",
     type: "change",

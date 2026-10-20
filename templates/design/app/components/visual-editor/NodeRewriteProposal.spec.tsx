@@ -5,6 +5,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NODE_REPROMPT_PREVIEW_FAILED_EVENT } from "@/lib/node-reprompt";
+
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
@@ -193,6 +195,289 @@ describe("NodeRewriteProposal overview positioning", () => {
     expect(proposal?.textContent).toContain("2 of 3");
     expect(proposal?.textContent).toContain("Second hero");
     expect(mocks.setClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("relays a matching preview failure and disables accepting an unapplied proposal", async () => {
+    const onPreviewFailed = vi.fn();
+    window.addEventListener(
+      NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+      onPreviewFailed,
+    );
+
+    try {
+      await act(async () => {
+        root.render(
+          <NodeRewriteProposal
+            designId="design-1"
+            fileId="screen-1"
+            canvasSelector=".proposal-test-canvas"
+            proposalSnapshot={proposalSnapshot}
+          />,
+        );
+      });
+
+      for (const [source, proposalId] of [
+        [window, "proposal-1"],
+        [iframe.contentWindow, "another-proposal"],
+      ] as const) {
+        await act(async () => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source,
+              data: {
+                type: "agent-native:node-html-preview-failed",
+                proposalId,
+                reason: "target-unresolved",
+              },
+            }),
+          );
+        });
+      }
+      expect(onPreviewFailed).not.toHaveBeenCalled();
+
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:node-html-preview-failed",
+              proposalId: "proposal-1",
+              reason: "target-unresolved",
+            },
+          }),
+        );
+      });
+
+      expect(onPreviewFailed).toHaveBeenCalledTimes(1);
+      expect(onPreviewFailed.mock.calls[0]?.[0]).toMatchObject({
+        detail: {
+          repromptId: "reprompt-1",
+          fileId: "screen-1",
+          reason: "target-unresolved",
+        },
+      });
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:node-html-preview-failed",
+              proposalId: "proposal-1",
+              reason: "future-bridge-reason",
+            },
+          }),
+        );
+      });
+      expect(onPreviewFailed.mock.calls[1]?.[0]).toMatchObject({
+        detail: {
+          repromptId: "reprompt-1",
+          fileId: "screen-1",
+          reason: "unknown",
+        },
+      });
+      const buttons = Array.from(document.querySelectorAll("button"));
+      expect(
+        buttons.find((button) =>
+          button.textContent?.includes("designEditor.nodeRewrite.accept"),
+        )?.disabled,
+      ).toBe(true);
+      expect(
+        buttons.find((button) =>
+          button.textContent?.includes("designEditor.nodeRewrite.reject"),
+        )?.disabled,
+      ).toBe(false);
+    } finally {
+      window.removeEventListener(
+        NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+        onPreviewFailed,
+      );
+    }
+  });
+
+  it("uses the saved instance selector for preview and restore messages", async () => {
+    const target = {
+      nodeId: "hero-code-layer",
+      selector:
+        "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+    };
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target,
+      resolvedTarget: {
+        nodeId: "hero-code-layer",
+        selector: '[data-loc="shared-hero"]',
+      },
+    };
+    const postMessage = vi
+      .spyOn(iframe.contentWindow!, "postMessage")
+      .mockImplementation(() => {});
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "node-html-preview",
+        operation: "preview",
+        target,
+      }),
+      "*",
+    );
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={null}
+        />,
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "node-html-preview",
+        operation: "restore",
+        target,
+      }),
+      "*",
+    );
+  });
+
+  it("positions the proposal from a data-loc target when the preview marker is absent", async () => {
+    iframe
+      .contentDocument!.querySelector(
+        '[data-agent-native-node-rewrite-proposal="proposal-1"]',
+      )
+      ?.remove();
+    Object.defineProperty(iframe, "clientWidth", { value: 500 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    const target = iframe.contentDocument!.createElement("section");
+    target.setAttribute("data-loc", "hero");
+    target.getBoundingClientRect = () => rect(20, 30, 100, 40);
+    iframe.contentDocument!.body.appendChild(target);
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target: { nodeId: "hero" },
+      resolvedTarget: { nodeId: "hero", selector: "[data-absent]" },
+    };
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    const proposal = document.querySelector<HTMLElement>(
+      '[data-node-rewrite-proposal="proposal-1"]',
+    );
+    expect(proposal?.style.left).toBe("12px");
+    expect(proposal?.style.top).toBe("168px");
+    expect(proposal?.getAttribute("data-side")).toBe("below");
+  });
+
+  it("uses a unique node ID when its saved source selector shifted to a sibling", async () => {
+    iframe
+      .contentDocument!.querySelector(
+        '[data-agent-native-node-rewrite-proposal="proposal-1"]',
+      )
+      ?.remove();
+    Object.defineProperty(iframe, "clientWidth", { value: 500 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    const main = iframe.contentDocument!.createElement("main");
+    const target = iframe.contentDocument!.createElement("section");
+    target.setAttribute("data-loc", "hero");
+    target.getBoundingClientRect = () => rect(20, 30, 100, 40);
+    const shiftedSibling = iframe.contentDocument!.createElement("section");
+    shiftedSibling.getBoundingClientRect = () => rect(300, 150, 100, 50);
+    main.append(target, shiftedSibling);
+    iframe.contentDocument!.body.appendChild(main);
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target: { nodeId: "hero" },
+      resolvedTarget: {
+        nodeId: "hero",
+        selector:
+          "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+      },
+    };
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    const proposal = document.querySelector<HTMLElement>(
+      '[data-node-rewrite-proposal="proposal-1"]',
+    );
+    expect(proposal?.style.left).toBe("12px");
+    expect(proposal?.style.top).toBe("168px");
+  });
+
+  it("does not anchor to the first match when a data-loc target is ambiguous", async () => {
+    iframe
+      .contentDocument!.querySelector(
+        '[data-agent-native-node-rewrite-proposal="proposal-1"]',
+      )
+      ?.remove();
+    Object.defineProperty(iframe, "clientWidth", { value: 500 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    for (const [left, top] of [
+      [20, 30],
+      [300, 150],
+    ] as const) {
+      const target = iframe.contentDocument!.createElement("section");
+      target.setAttribute("data-loc", "hero");
+      target.getBoundingClientRect = () => rect(left, top, 100, 40);
+      iframe.contentDocument!.body.appendChild(target);
+    }
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target: { nodeId: "hero" },
+      resolvedTarget: { nodeId: "hero", selector: '[data-loc="hero"]' },
+    };
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    const proposal = document.querySelector<HTMLElement>(
+      '[data-node-rewrite-proposal="proposal-1"]',
+    );
+    const fallbackPosition = placeNodeRewritePopover(
+      { centerX: 330, top: 106, bottom: 106 },
+      { width: 320, height: 176 },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    expect(proposal?.style.left).toBe(`${fallbackPosition.left}px`);
+    expect(proposal?.style.top).toBe(`${fallbackPosition.top}px`);
   });
 
   it("does not erase a newer pending refinement when delivery fails", async () => {

@@ -485,7 +485,11 @@ function logTail(logs: string[], maxLines = 120): string {
 }
 
 function hasChatMigrations(logs: string[]): boolean {
-  return logTail(logs).includes("Applied migration v1007");
+  const output = logs.join("");
+  return (
+    output.includes("Installed schema snapshot") ||
+    output.includes('migration(s) to store "org"')
+  );
 }
 
 function hasAuthLockFailure(logs: string[]): boolean {

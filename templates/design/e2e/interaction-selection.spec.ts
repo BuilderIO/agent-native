@@ -322,6 +322,49 @@ async function clickScreenNode(
   );
 }
 
+test("screen plain click selects the containing frame; Cmd-click selects the child", async ({
+  app,
+}) => {
+  const { id, before } = await openScreenFixture(app);
+
+  await clickScreenNode(app, "kid-a");
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
+
+  const card = await app.designRect("card");
+  const emptyCardPoint = await app.pagePoint(
+    card.x + card.width / 2,
+    card.y + card.height - 20,
+  );
+  await app.page.mouse.click(emptyCardPoint.x, emptyCardPoint.y);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  await clickScreenNode(app, "kid-a");
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  await clickScreenNode(app, "kid-a", ["Meta"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
+
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+});
+
+test("board plain click inside a selected Card keeps it; Cmd-click selects the child", async ({
+  app,
+  page,
+}) => {
+  await openBoardFixture(app, FIXTURE);
+  const card = (await node(page, "card").boundingBox())!;
+  await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  const kidA = (await node(page, "kid-a").boundingBox())!;
+  await click(page, kidA);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Card"]);
+
+  await click(page, kidA, ["Meta"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Kid A"]);
+});
+
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -544,9 +587,13 @@ test("board regression: overlapping board Frames keep the pointer drop without c
       ).__boardDragTrace ?? [],
   );
 
+  // The frame already sits on the board body, so wait for the drop's save itself.
   await expect
-    .poll(() => persistedBoardPosition(page, id, "drag-frame"))
-    .toMatchObject({ parentTagName: "body" });
+    .poll(async () => {
+      const saved = await persistedBoardPosition(page, id, "drag-frame");
+      return Math.abs(saved.left - expected.left) <= 6;
+    })
+    .toBe(true);
   const persisted = await persistedBoardPosition(page, id, "drag-frame");
   expect(Math.abs(persisted.left - expected.left)).toBeLessThanOrEqual(6);
   expect(Math.abs(persisted.top - expected.top)).toBeLessThanOrEqual(6);
@@ -621,7 +668,8 @@ test.describe("click selects the container on the board surface, not the deep ch
       x: selectedChildBefore.x + selectedChildBefore.width / 2,
       y: selectedChildBefore.y + selectedChildBefore.height / 2,
     };
-    const dragEnd = { x: dragStart.x + 64, y: dragStart.y + 48 };
+    // Ends clear of Outer's edge and centre lines, so snapping cannot pull it.
+    const dragEnd = { x: dragStart.x + 80, y: dragStart.y + 56 };
 
     await page.mouse.move(dragStart.x, dragStart.y);
     await page.mouse.down();

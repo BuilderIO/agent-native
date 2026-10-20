@@ -88,17 +88,14 @@ test("the Builder shell canvas makes no agent-native requests", async ({
     ).toBeVisible();
     await rail.getByRole("button", { name: "Layers", exact: true }).click();
     const layers = shell.getByRole("tree", { name: "Layers" });
-    await expect(layers.getByRole("treeitem")).toHaveText([
-      "Fusion about",
-      "Fusion home",
-    ]);
-    await layers.getByRole("treeitem", { name: "Fusion about" }).click();
+    await expect(layers.getByRole("treeitem")).toHaveText(["About", "Home"]);
+    await layers.getByRole("treeitem", { name: "About" }).click();
     await expect(
       shell.locator('[role="treeitem"][aria-selected="true"]'),
-    ).toHaveText(["Fusion about"]);
+    ).toHaveText(["About"]);
     await shell
       .locator("[data-frame-title]")
-      .filter({ hasText: "Fusion home" })
+      .filter({ hasText: "Home" })
       .dblclick();
     await page.keyboard.press("Escape");
 

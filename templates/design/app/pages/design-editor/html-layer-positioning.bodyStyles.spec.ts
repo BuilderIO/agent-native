@@ -221,11 +221,10 @@ describe("flow-insert positioning for code-backed Frames", () => {
     )!;
 
     expect(frame.style.position).toBe("relative");
-    expect(frame.style.left).toBe("auto");
-    expect(frame.style.top).toBe("auto");
-    expect(frame.style.right).toBe("auto");
-    expect(frame.style.bottom).toBe("auto");
-    expect(frame.style.getPropertyValue("inset")).toBe("");
+    expect(frame.getAttribute("style")).toContain("inset: auto");
+    expect(frame.getAttribute("style")).not.toMatch(
+      /(^|;)\s*(left|top|right|bottom):/,
+    );
     expect(
       frame.querySelector('[data-agent-native-node-id="badge"]'),
     ).not.toBeNull();
@@ -245,10 +244,10 @@ describe("flow-insert positioning for code-backed Frames", () => {
     )!;
     expect(frame.style.getPropertyValue("position")).toBe("relative");
     expect(frame.style.getPropertyPriority("position")).toBe("important");
-    for (const prop of ["left", "top", "right", "bottom"] as const) {
-      expect(frame.style.getPropertyValue(prop)).toBe("auto");
-      expect(frame.style.getPropertyPriority(prop)).toBe("important");
-    }
+    expect(frame.getAttribute("style")).toContain("inset: auto !important");
+    expect(frame.getAttribute("style")).not.toMatch(
+      /(^|;)\s*(left|top|right|bottom):/,
+    );
 
     const authored = removeAbsolutePositioningFromNodeInHtml(
       '<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="plain" style="position:absolute;inset:20px"></div></body></html>',

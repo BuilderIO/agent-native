@@ -17,8 +17,8 @@ export function utcDate(date: Date): string {
 
 /**
  * Days to collect: through yesterday (UTC), reaching back `lookbackDays` so a
- * source's late or revised numbers are fetched again, or `BACKFILL_DAYS`
- * until the step has succeeded once.
+ * source's late or revised numbers are fetched again. Gaps since the last
+ * covered day extend the window, up to `BACKFILL_DAYS`.
  */
 export async function collectionWindow(
   collection: ContentCollection,
@@ -28,9 +28,14 @@ export async function collectionWindow(
 ): Promise<{ startDate: string; endDate: string }> {
   const end = new Date(now.getTime() - DAY_MS);
   const previous = await lastSucceededContentRun(collection, step);
-  const days = previous ? lookbackDays : BACKFILL_DAYS;
+  const earliest = end.getTime() - (BACKFILL_DAYS - 1) * DAY_MS;
+  const lookback = end.getTime() - (lookbackDays - 1) * DAY_MS;
+  const uncovered = previous?.windowEnd
+    ? new Date(`${previous.windowEnd}T00:00:00Z`).getTime() + DAY_MS
+    : earliest;
+  const start = Math.max(earliest, Math.min(lookback, uncovered));
   return {
-    startDate: utcDate(new Date(end.getTime() - (days - 1) * DAY_MS)),
+    startDate: utcDate(new Date(start)),
     endDate: utcDate(end),
   };
 }
@@ -96,9 +101,9 @@ export class DailyMetricValues {
 
   /**
    * Snapshots for every item in scope on every day from `startDate` through
-   * the last day the source returned any row for. GA4 and Search Console
-   * leave out a page with no traffic, so inside that range a missing value is
-   * a real 0. A day after it may simply not be processed yet, so it gets no
+   * the last day the source returned any row for. GA4 leaves out a page with
+   * no traffic, so inside that range a missing value is a real 0. Search
+   * Console can omit traffic and uses fillMissing=false. A later day gets no
    * row at all and the view reads it as not collected.
    */
   snapshots(options: {
@@ -106,6 +111,7 @@ export class DailyMetricValues {
     metrics: string[];
     startDate: string;
     lastReturnedDate: string | null;
+    fillMissing?: boolean;
   }): ContentSnapshotInput[] {
     if (!options.lastReturnedDate) return [];
     const items = new Map(options.items.map((item) => [refKey(item), item]));
@@ -119,8 +125,11 @@ export class DailyMetricValues {
       const published = item.publishedAt?.slice(0, 10) ?? null;
       for (const date of dates) {
         const day = days?.get(date);
+        if (options.fillMissing === false && !day) continue;
         if (!day && published && date < published) continue;
         for (const metric of options.metrics) {
+          if (options.fillMissing === false && day?.[metric] === undefined)
+            continue;
           snapshots.push({
             itemSource: item.source,
             itemExternalId: item.externalId,

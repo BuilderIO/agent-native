@@ -75,7 +75,13 @@ const chatHomeUsesDurableHandoff =
       new RegExp(
         String.raw`window\.location\.replace\(\s*appPath\(\s*${chatThreadTarget}\s*\)\s*\)`,
         "s",
-      ).test(chatHomeRedirect)));
+      ).test(chatHomeRedirect)) ||
+    (chatHomeRedirect.includes(
+      'import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";',
+    ) &&
+      chatHomeRedirect.includes(
+        "window.location.replace(appPathFromLocalRoute(chatThreadPath(threadId)));",
+      )));
 
 const chatRailViolations = [
   chatSidebar.includes("<SidebarFooterActions")

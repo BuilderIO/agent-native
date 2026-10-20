@@ -1,4 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { NATIVE_EFFECT_SCRIPT_TYPE } from "@shared/native-effects";
 
 import type { ExportSettingsValue } from "@/components/design/inspector";
 import type { ElementInfo } from "@/components/design/types";
@@ -7,8 +8,9 @@ import {
   getExportCompositeBounds,
   resolveRasterExportScale,
 } from "@/pages/design-editor/export-capture";
-import { prepareExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
 import type { ExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
+import { prepareExportCaptureTarget } from "@/pages/design-editor/export-snapshot-frame";
+import { captureNativeCurrentFramePng } from "@/pages/design-editor/native-current-frame-png";
 import type { PngCaptureScope } from "@/pages/design-editor/png-export-render";
 import {
   PngCaptureError,
@@ -16,14 +18,17 @@ import {
   resolveBoardExportCropRect,
   resolveExportCropTarget,
   resolveSelectedExportElements,
+  screenFrameCropRect,
 } from "@/pages/design-editor/png-export-render";
 
 export interface RenderPngBlobArgs {
+  designId?: string;
+  fileId?: string;
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   overviewScreens: OverviewScreen[];
-  releaseScreenFromExport?: () => void;
+  releaseScreenFromExport?: (lease: symbol) => void;
   resolvePngCaptureTarget: (
     scope: PngCaptureScope,
     screenId?: string,
@@ -100,6 +105,8 @@ export function resolveSelectedScreensExportBounds(args: {
 export async function runRenderPngBlob(
   {
     activeCanvasSourceType,
+    designId,
+    fileId,
     canvasFrameGeometryById,
     overviewScreens,
     releaseScreenFromExport,
@@ -134,13 +141,24 @@ export async function runRenderPngBlob(
         }
       > = [];
       for (const screenId of selectedScreenIds) {
+        let screenLease: ExportCaptureTarget["screenLease"];
         try {
           const target = await resolvePngCaptureTarget(scope, screenId);
+          screenLease = target.screenLease;
+          if (
+            target.doc?.querySelector(
+              `script[type="${NATIVE_EFFECT_SCRIPT_TYPE}"]`,
+            )
+          )
+            throw new PngCaptureError(
+              "blob-failed",
+              "native screen composite is unavailable",
+            );
           const prepared = await prepareExportCaptureTarget(target);
           preparedTargets.push(prepared);
           captureSources.push({ screenId, ...prepared });
         } finally {
-          releaseScreenFromExport?.();
+          if (screenLease) releaseScreenFromExport?.(screenLease);
         }
       }
       const exportFrames = resolveSelectedScreenExportFrames({
@@ -177,18 +195,15 @@ export async function runRenderPngBlob(
       if (!context) throw new PngCaptureError("blob-failed");
 
       for (const capture of captures) {
-        const view = capture.doc.defaultView;
-        const viewportCropRect = {
-          x: view?.scrollX ?? 0,
-          y: view?.scrollY ?? 0,
-          width: Math.max(1, capture.iframe.clientWidth),
-          height: Math.max(1, capture.iframe.clientHeight),
-        };
         const rendered = await renderExportDocumentCanvas({
           doc: capture.doc,
           iframe: capture.iframe,
           exportScale,
-          cropRect: viewportCropRect,
+          cropRect: screenFrameCropRect(
+            capture.doc,
+            capture.iframe,
+            capture.frame,
+          ),
         });
         const frame = capture.frame;
         context.save();
@@ -213,8 +228,59 @@ export async function runRenderPngBlob(
     let prepared: Awaited<
       ReturnType<typeof prepareExportCaptureTarget>
     > | null = null;
+    let screenLease: ExportCaptureTarget["screenLease"];
     try {
       const target = await resolvePngCaptureTarget(scope);
+      screenLease = target.screenLease;
+      if (
+        target.doc?.querySelector(`script[type="${NATIVE_EFFECT_SCRIPT_TYPE}"]`)
+      ) {
+        if (
+          (scope !== "document" && scope !== "element") ||
+          format !== "png" ||
+          activeCanvasSourceType !== "inline" ||
+          !designId ||
+          !fileId
+        )
+          throw new PngCaptureError(
+            "blob-failed",
+            "native still needs a saved current scene",
+          );
+        const cropTarget = resolveExportCropTarget(
+          target.doc!,
+          target.cropSelection,
+        );
+        if (
+          cropTarget.kind === "unresolved" ||
+          (scope === "element" && cropTarget.kind !== "rect")
+        )
+          throw new PngCaptureError("selection-unresolved");
+        const cropRect =
+          cropTarget.kind === "rect"
+            ? cropTarget.rect
+            : resolveBoardExportCropRect(target.doc!, target.iframe);
+        const selectedNodeIds =
+          scope === "element"
+            ? resolveSelectedExportElements(
+                target.doc!,
+                target.cropSelection,
+              ).map((element) => {
+                const id = element.getAttribute("data-agent-native-node-id");
+                if (!id) throw new PngCaptureError("selection-unresolved");
+                return id;
+              })
+            : undefined;
+        if (selectedNodeIds && selectedNodeIds.length === 0)
+          throw new PngCaptureError("selection-unresolved");
+        return await captureNativeCurrentFramePng({
+          designId,
+          fileId,
+          iframe: target.iframe,
+          pixelRatio: requestedExportScale,
+          ...(cropRect ? { cropRect } : {}),
+          ...(selectedNodeIds ? { selectedNodeIds } : {}),
+        });
+      }
       prepared = await prepareExportCaptureTarget(target);
       const { cropSelection, doc, iframe } = {
         ...target,
@@ -241,11 +307,25 @@ export async function runRenderPngBlob(
         !selectionCropRect
           ? resolveBoardExportCropRect(doc, iframe)
           : null;
+      const screenId = iframe.getAttribute("data-screen-iframe-id");
+      const screenFrame =
+        scope === "document" &&
+        screenId &&
+        overviewScreens.some((screen) => screen.id === screenId)
+          ? resolveSelectedScreenExportFrames({
+              selectedScreenIds: [screenId],
+              overviewScreens,
+              canvasFrameGeometryById,
+            })[0]!.frame
+          : null;
       const rendered = await renderExportDocumentCanvas({
         doc,
         iframe,
         exportScale: requestedExportScale,
-        cropRect: selectionCropRect ?? boardCropRect,
+        cropRect:
+          selectionCropRect ??
+          boardCropRect ??
+          (screenFrame ? screenFrameCropRect(doc, iframe, screenFrame) : null),
         isolateSelectedElements: selectionCropRect
           ? resolveSelectedExportElements(doc, cropSelection)
           : [],
@@ -253,7 +333,7 @@ export async function runRenderPngBlob(
       outputCanvas = rendered.canvas;
     } finally {
       prepared?.dispose();
-      releaseScreenFromExport?.();
+      if (screenLease) releaseScreenFromExport?.(screenLease);
     }
   }
   const mimeType =

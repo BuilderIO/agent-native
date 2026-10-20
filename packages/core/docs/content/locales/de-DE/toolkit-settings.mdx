@@ -186,6 +186,8 @@ Das Lab zur Nutzung des ChatGPT-Plans ist standardmäßig deaktiviert. Aktiviere
 
 Lokale Open-Source-Nutzer benötigen weder eine Partnerfreigabe noch eine vorab konfigurierte Client-ID. OpenAI stellt die Client-ID bei der ersten Anmeldung aus; die App verwendet sie bei weiteren Anmeldungen mit demselben ChatGPT-Konto erneut.
 
+Für den Zugriff auf den ChatGPT-Plan ist ein persönliches Konto erforderlich. Lege in der lokalen Entwicklung vor der ersten Anmeldung `access.autoCreateDefaultOrg: false` fest, damit die App für dieses Konto keine Standardorganisation erstellt. Wenn das Konto bereits zu einer Organisation gehört, verwende für den ChatGPT-Plan ein persönliches Konto.
+
 Der Self-Service-Ablauf von OpenAI erfordert einen HTTP-OAuth-Callback unter `127.0.0.1`, einer Loopback-Adresse auf dem Rechner des Nutzers. Deshalb werden gehostete Apps nicht unterstützt, einschließlich der Websites unter `*.agent-native.com`; `localhost` ist kein zulässiger Ersatz für `127.0.0.1`. Die Partnerfreigabe beantragt der Betreiber der gehosteten App, nicht der einzelne Nutzer, über das [Interessenformular](https://openai.com/form/sign-in-with-chatgpt-interest).
 
 <Steps>

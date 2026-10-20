@@ -106,6 +106,7 @@ vi.mock("../integrations/a2a-continuation-processor.js", () => ({
 vi.mock("../agent/run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
   insertRunEvent: vi.fn(() => Promise.resolve()),
+  insertRunEvents: vi.fn(() => Promise.resolve()),
   updateRunStatus: vi.fn(() => Promise.resolve()),
   updateRunStatusIfRunning: vi.fn(() => Promise.resolve(true)),
   getRunStatus: vi.fn(() => Promise.resolve("running")),
@@ -198,6 +199,15 @@ describe("call-agent action", () => {
     expect(tool.description).toContain("availability alone is not a reason");
     expect(tool.description).toContain(
       "The receiver owns provider, schema, query, join, and SQL decisions",
+    );
+    expect(tool.description).toContain(
+      "use the current app's image-generation action or provider when it has one",
+    );
+    expect(tool.description).toContain(
+      'Call Assets (agent="assets") only when the user explicitly requests its brand library',
+    );
+    expect(tool.description).toContain(
+      "Assets being available, convenient, or able to enrich imagery is not enough to delegate",
     );
     expect(tool.description).toContain(
       "never expose or call a direct action to work around",
@@ -1932,16 +1942,21 @@ describe("call-agent action", () => {
         managedRun.subscribers.add(() => {});
 
         while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
+        bumpRunProgressMock.mockClear();
 
         await vi.advanceTimersByTimeAsync(30_000);
-        onUpdate!(makeTask("working"));
+        onUpdate!({ id: "remote-task", status: { state: "working" } });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(bumpRunProgressMock).toHaveBeenCalled();
+        bumpRunProgressMock.mockClear();
+
         await vi.advanceTimersByTimeAsync(30_000);
-        onUpdate!(makeTask("working"));
+        onUpdate!({ id: "remote-task", status: { state: "working" } });
         await vi.advanceTimersByTimeAsync(2_000);
+        expect(bumpRunProgressMock).toHaveBeenCalled();
+
         resolveCall!("final");
         await vi.advanceTimersByTimeAsync(2_000);
-
-        expect(bumpRunProgressMock.mock.calls.length).toBeGreaterThanOrEqual(4);
       } finally {
         vi.useRealTimers();
       }

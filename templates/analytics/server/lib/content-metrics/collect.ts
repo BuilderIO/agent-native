@@ -13,7 +13,6 @@ import {
   closeStaleContentRuns,
   completeContentRun,
   failContentRun,
-  latestContentRun,
   listEnabledContentCollections,
   startContentRun,
   type ContentCollection,
@@ -34,34 +33,6 @@ export type ContentStepRunSummary = {
   runId: string | null;
   reason?: string;
 };
-
-function sameUtcDay(iso: string, now: Date): boolean {
-  return iso.slice(0, 10) === now.toISOString().slice(0, 10);
-}
-
-/**
- * A scheduled pass runs each enabled step at most once per UTC day. A step
- * that already succeeded or hit its cost limit today is not run again, so a
- * restarted server or a retried trigger never pays twice.
- */
-async function skipReason(
-  collection: ContentCollection,
-  step: ContentCollectionStepId,
-  trigger: ContentRunTrigger,
-  now: Date,
-): Promise<string | null> {
-  const latest = await latestContentRun(collection, step);
-  if (!latest) return null;
-  if (latest.status === "running") return "already_running";
-  if (
-    trigger === "scheduled" &&
-    sameUtcDay(latest.startedAt, now) &&
-    (latest.status === "succeeded" || latest.status === "cost_limited")
-  ) {
-    return "already_ran_today";
-  }
-  return null;
-}
 
 export async function collectContentForCollection(
   collection: ContentCollection,
@@ -87,24 +58,24 @@ export async function collectContentForCollection(
       });
       continue;
     }
-    const reason = await skipReason(collection, stepId, options.trigger, now);
-    if (reason) {
-      summaries.push({
-        tenantKey: collection.tenantKey,
-        step: stepId,
-        status: "skipped",
-        runId: null,
-        reason,
-      });
-      continue;
-    }
-
-    const runId = await startContentRun(
+    const claim = await startContentRun(
       collection,
       stepId,
       options.trigger,
       now,
     );
+    if ("reason" in claim) {
+      summaries.push({
+        tenantKey: collection.tenantKey,
+        step: stepId,
+        status: "skipped",
+        runId: null,
+        reason: claim.reason,
+      });
+      continue;
+    }
+
+    const runId = claim.runId;
     try {
       const result = await runWithRequestContext(
         {
@@ -152,13 +123,19 @@ export async function collectContentForAllTenants(
 ): Promise<ContentStepRunSummary[]> {
   await closeStaleContentRuns(options.now);
   const summaries: ContentStepRunSummary[] = [];
-  for (const collection of await listEnabledContentCollections()) {
-    summaries.push(
-      ...(await collectContentForCollection(collection, {
-        trigger: "scheduled",
-        ...options,
-      })),
-    );
+  let afterTenantKey: string | undefined;
+  for (;;) {
+    const collections = await listEnabledContentCollections(afterTenantKey);
+    for (const collection of collections) {
+      summaries.push(
+        ...(await collectContentForCollection(collection, {
+          trigger: "scheduled",
+          ...options,
+        })),
+      );
+    }
+    if (collections.length < 1000) break;
+    afterTenantKey = collections[collections.length - 1]!.tenantKey;
   }
   return summaries;
 }

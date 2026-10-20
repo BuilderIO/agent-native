@@ -70,6 +70,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Wähle den Sigma-Arbeitsbereich aus, dessen Arbeitsmappen du anzeigen möchtest.",
     sigmaNoConnection: "Sigma ist nicht verbunden",
+    sigmaApiRegion: "Sigma-API-Region",
+    sigmaOAuthConnect: "Persönliches Sigma-Konto verbinden",
+    sigmaOAuthAddAnother: "Weiteres Sigma-Konto verbinden",
+    sigmaOAuthCancel: "Abbrechen",
+    sigmaOAuthDescription:
+      "Melde dich mit deinem Konto bei Sigma an, um auf deine Arbeitsmappen zuzugreifen.",
     sigmaClientId: "Client-ID",
     sigmaClientSecret: "Client-Secret",
     sigmaBaseUrl: "API-Basis-URL (optional)",
@@ -83,7 +89,7 @@ export default {
     sigmaCredentialsRequired:
       "Speichere zuerst die Sigma-Client-ID und das Client-Secret.",
     sigmaBaseUrlInvalid:
-      "Verwende eine HTTPS-URL der Sigma-API unter einer sigmacomputing.com-Domain.",
+      "Wähle eine unterstützte offizielle Sigma-API-Region-URL aus.",
     sigmaPersistenceUnavailable:
       "Analytics kann die Sigma-Verbindung derzeit nicht sicher speichern. Versuche es erneut.",
     sigmaPolicyInvalid:
@@ -98,7 +104,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Die gespeicherten Analytics-Sigma-Zugangsdaten konnten nicht gelesen werden. Ein Organisationsadmin kann Sigma in Dispatch erneut verbinden oder die Zugangsdaten in Analytics neu eingeben.",
     sigmaNoConnectionDescription:
-      "Gib hier Zugangsdaten ein, um eine nur für Analytics verfügbare Verbindung zu erstellen. In Dispatch für Analytics freigegebene Sigma-Verbindungen erscheinen hier automatisch; nur Organisationsadmins können Zugangsdaten direkt speichern.",
+      "Verbinde dein persönliches Sigma-Konto oder nutze Zugangsdaten, die ein Organisationsadmin gespeichert hat. Auch für Analytics freigegebene Dispatch-Verbindungen erscheinen hier.",
     sigmaOpenDispatch: "In Dispatch verbinden",
     sigmaOpenVault: "Vault öffnen",
     sigmaWorkbooksLoadFailed:
@@ -654,6 +660,7 @@ export default {
     notConnected: "Nicht verbunden",
     needsReauth: "Erneute Authentifizierung erforderlich",
     error: "Fehler",
+    unknown: "Unbekannt",
     indexNotImported: "Es wurde kein generierter Index importiert.",
     indexUnreadable:
       "Der gespeicherte Index konnte nicht gelesen werden. Lade einen gültigen Index hoch.",
@@ -884,6 +891,7 @@ export default {
     bigQueryHealthUnavailable:
       "Der Druck der First-Party-Analytics konnte nicht geprüft werden. Lade die Seite neu, bevor du das Backend wechselst.",
     analyticsEventCount: "Beobachtete Ereignisse",
+    analyticsRecentEventCount: "Beobachtete Ereignisse (letzte 30 Tage)",
     slowQueries24h: "Langsame Abfragen (24 h)",
     maxQueryDuration: "Maximale Abfragezeit",
     defaultKeyName: "Gehostete Vorlagen",
@@ -1295,6 +1303,8 @@ export default {
       "Fügen Sie ein Ereignis hinzu und wählen Sie es aus, um Ergebnisse anzuzeigen",
     queryError: "Query error: {{message}}",
     noDataReturned: "Es wurden keine Daten zurückgegeben",
+    incompleteResultsWarning:
+      "Dieses Ergebnis ist möglicherweise unvollständig. Fehlende Zeilen oder Quelldaten können Summen beeinflussen.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtern nach",
     pickPropertyToFilter: "Wählen Sie eine Eigenschaft zum Filtern aus",
@@ -1385,11 +1395,16 @@ export default {
     dashboardActions: "Dashboard-Details und Aktionen",
     certifyForAi: "Für KI-Abfragen zertifizieren",
     certifiedForAi: "Für KI-Abfragen zertifiziert",
+    duplicateToCustomize: "Zum Anpassen duplizieren",
+    duplicateToCustomizeHint:
+      "Integrierte Dashboards werden mit jedem Analytics-Release aktualisiert. Erstelle eine eigene Kopie, um dieses zu ändern.",
+    duplicateFailed: "Dieses Dashboard konnte nicht dupliziert werden.",
     certificationSaved: "Dashboard für KI-Abfragen zertifiziert",
     certificationFailed:
       "Dashboard konnte nicht zertifiziert werden: {{message}}",
     details: "Details",
     updated: "Updated {{date}}",
+    updatedAgo: "Aktualisiert {{age}}",
     public: "Public",
     sharedWithOrg: "Mit Org geteilt",
     private: "Private",
@@ -1419,6 +1434,23 @@ export default {
     resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
+    drilldownChartPoints: "Diagrammpunkte",
+    drilldownPreviousPage: "Vorherige Seite der Diagrammpunkte",
+    drilldownNextPage: "Nächste Seite der Diagrammpunkte",
+    drilldownPageRange: "{{start}}–{{end}} von {{total}} werden angezeigt",
+    drilldownFilterRows: "Zeilen filtern",
+    drilldownShowSql: "SQL anzeigen",
+    drilldownHideSql: "SQL ausblenden",
+    drilldownDownloadCsv: "CSV herunterladen",
+    drilldownShowing: "{{shown}} von {{total}} Datensätzen werden angezeigt",
+    drilldownCsvTruncated:
+      "Unvollständiger Export: Die Abfrage ergab {{total}} Datensätze, aber nur die ersten {{loaded}} wurden geladen; diese Datei enthält nach dem Filtern {{exported}}.",
+    drilldownCountMismatch:
+      "Das Diagramm zeigt {{chart}}, aber {{total}} Datensätze passen",
+    drilldownAggregateOnly:
+      "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
+    drilldownNoRecords: "Keine passenden Datensätze",
+    drilldownLoadFailed: "Datensätze konnten nicht geladen werden",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
     chartTimeRangeInherit: "Dashboard-Zeitraum",
@@ -1447,8 +1479,15 @@ export default {
     refresh: "Aktualisieren",
     refreshing: "Wird aktualisiert...",
     updating: "Wird aktualisiert",
+    refreshed: "Aktualisiert",
     updatingPreviousFilters: "Vorherige Filter · Wird aktualisiert",
     previousFilters: "Vorherige Filter",
+    fetchedAt: "Abgerufen {{time}}",
+    fetchTimeUnknown: "Abrufzeit unbekannt",
+    cacheApp: "Im Cache",
+    cacheProvider: "BigQuery-Cache",
+    cacheRestored: "Gespeicherte Kopie",
+    cacheUnknown: "Cache-Status unbekannt",
     downloadCsv: "Laden Sie CSV herunter",
     copyTable: "Tabelle kopieren",
     multiColumnSortHelp:
@@ -1475,6 +1514,9 @@ export default {
       "Export nach Google Sheets fehlgeschlagen: {{message}}",
     viewSql: "SQL anzeigen",
     dragToReorder: "Zum Neuanordnen ziehen",
+    resizePanelWidth: "Panelbreite ändern",
+    resizePanelHeight: "Panelhöhe ändern",
+    resetPanelHeight: "Panelhöhe zurücksetzen",
     columnFormat: "Format",
     columnFormatText: "Nur Text",
     columnFormatNumber: "Zahl",
@@ -1487,6 +1529,25 @@ export default {
     columnShowHidden: "Ausgeblendete Spalten einblenden",
     columnName: "Spaltenname",
     columnResize: "Spaltenbreite ändern",
+    rowBreakdownBy: "Aufschlüsseln nach",
+    rowBreakdownAll: "Alle",
+    rowBreakdownOther: "Andere",
+    rowBreakdownOtherHint:
+      "Kleinere Gruppen und alle, die das SQL dieses Panels auslässt",
+    rowBreakdownSmallGroup: "Weniger als {{count}}: Raten mit Vorsicht lesen",
+    rowBreakdownNoValue: "(keine)",
+    rowBreakdownEmpty: "Keine Zeilen für diese Aufschlüsselung.",
+    rowBreakdownUnavailable:
+      "Das SQL dieses Panels hat keine Aufschlüsselung nach {{column}}.",
+    rowBreakdownFromPanel:
+      "Aus den Zeilen dieses Panels. Es wurde nichts gelesen.",
+    rowBreakdownFromCache: "Aus dem Cache. Es wurde nichts gelesen.",
+    rowBreakdownAlreadyLoaded: "Bereits geladen. Es wurde nichts gelesen.",
+    rowBreakdownBytesRead: "{{bytes}} gelesen",
+    rowBreakdownOverByteCap:
+      "Diese Aufschlüsselung würde mehr als {{gib}} GiB lesen und wurde deshalb nicht ausgeführt. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",
+    rowBreakdownTruncated:
+      "Das Ergebnis wurde abgeschnitten, daher fehlen einige Gruppen oder sind unter „Andere“ gezählt.",
     deleteSectionTitle: "Abschnitt löschen?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Panel löschen?",
@@ -2181,10 +2242,6 @@ export default {
     noMatches: "Keine Definitionen passen zur Suche.",
     searchPlaceholder: "Definitionen durchsuchen",
     sourceIndex: "Quellindex",
-    statusApproved: "Freigegeben",
-    statusSuggested: "Vorgeschlagen",
-    statusUnreviewed: "Nicht geprüft",
-    unsourced: "Ohne Quelle",
   },
   indexPanel: {
     presetDaily: "Täglich um 06:00",
@@ -2242,6 +2299,8 @@ export default {
     dbtAdminOnly:
       "Nur Organisationsadministratoren können diese Verbindung ändern.",
     dbtReadFailed: "Die dbt-Verbindung konnte nicht geladen werden.",
+    dbtSeveralConnections:
+      "Mehrere dbt-Verbindungen sind für Analytics freigegeben, daher kann dieses Panel keine davon bearbeiten. Entfernen Sie die zusätzlichen Verbindungen unter Einstellungen → Integrationen, um eine zu behalten.",
     dbtSave: "Verbindung speichern",
     dbtChecking: "Wird geprüft",
     dbtSaveFailed: "Die dbt-Verbindung konnte nicht gespeichert werden.",
