@@ -540,7 +540,6 @@ function assignActiveMessage(
   // even before that predecessor's run finishes.
   const message = next.messages.find((item) => item.id === messageId);
   if (
-    run.activeMessageId !== messageId &&
     message?.role === "assistant" &&
     message.status === "complete" &&
     Object.values(thread.runs).some(
@@ -680,6 +679,7 @@ function settleRunItems(
     const foldedMessageId =
       thread.runs[runId]?.activeMessageId ?? activeMessageId;
     const runOrder = timestampOrder(run.startedAt);
+    if (run.status === "queued" && runOrder.kind !== "known") continue;
     if (
       (settlingRunOrder.kind === "known" &&
         runOrder.kind === "known" &&

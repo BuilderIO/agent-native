@@ -369,6 +369,94 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("reopens a restored shared reply when its active continuation resumes", () => {
+    const hydrated = {
+      ...createAgentThreadState("thread-1"),
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant" as const,
+          parts: [{ type: "text" as const, text: "Partial" }],
+          status: "complete" as const,
+        },
+      ],
+      runs: {
+        "run-1": {
+          id: "run-1",
+          status: "completed" as const,
+          lastSequence: 2,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:01.000Z",
+        },
+        "run-2": {
+          id: "run-2",
+          status: "running" as const,
+          lastSequence: 2,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:02.000Z",
+        },
+      },
+      activeRunIds: ["run-2"],
+    };
+
+    const resumed = reduceAgentEvent(hydrated, {
+      ...event(3, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: " still",
+      }),
+      runId: "run-2",
+    });
+
+    expect(resumed.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
+  it("does not assign an earlier reply to a queued run without a start time", () => {
+    const thread = {
+      ...createAgentThreadState("thread-1"),
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant" as const,
+          parts: [{ type: "text" as const, text: "Finished answer" }],
+          status: "streaming" as const,
+        },
+      ],
+      runs: {
+        "run-1": {
+          id: "run-1",
+          status: "running" as const,
+          lastSequence: 1,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+        },
+        "run-2": {
+          id: "run-2",
+          status: "queued" as const,
+          lastSequence: 0,
+        },
+      },
+      activeRunIds: ["run-1"],
+    };
+
+    const settled = reduceAgentEvent(thread, {
+      ...event(2, { type: "run.completed" }),
+      runId: "run-1",
+    });
+
+    expect(settled.runs["run-2"]?.inheritedMessageId).toBeUndefined();
+    expect(settled.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "complete" }),
+    ]);
+  });
+
   it("keeps a shared assistant message streaming when a client-registered continuation has not emitted", () => {
     let thread = [
       event(1, { type: "run.started" }),

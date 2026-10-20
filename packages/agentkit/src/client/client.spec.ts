@@ -4096,6 +4096,82 @@ describe("AgentKitClient", () => {
     await client.dispose();
   });
 
+  it("clears inherited ownership when a refreshed run moves to another message", async () => {
+    let refresh = false;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: refresh
+        ? "2026-08-29T00:00:03.000Z"
+        : "2026-08-29T00:00:02.000Z",
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "Earlier reply" }],
+        },
+        ...(refresh
+          ? [
+              {
+                id: "assistant-new",
+                role: "assistant" as const,
+                status: "streaming" as const,
+                parts: [{ type: "text" as const, text: "New reply" }],
+              },
+            ]
+          : []),
+      ],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "completed" as const,
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          completedAt: "2026-08-29T00:00:01.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "running" as const,
+          lastSequence: 1,
+          ...(refresh ? {} : { inheritedMessageId: "assistant-shared" }),
+        },
+      ],
+      activeRunIds: ["run-2"],
+    });
+    transport.getRun = async () => ({
+      id: "run-2",
+      threadId: "thread-1",
+      status: "running",
+      lastSequence: 1,
+      ...(refresh ? { activeMessageId: "assistant-new" } : {}),
+    });
+    const client = new AgentKitClient({ transport });
+
+    const initial = await client.loadThread("thread-1");
+    expect(initial.runs["run-2"]?.inheritedMessageId).toBe("assistant-shared");
+
+    refresh = true;
+    const refreshed = await client.loadThread("thread-1");
+
+    expect(refreshed.runs["run-2"]).toMatchObject({
+      activeMessageId: "assistant-new",
+    });
+    expect(refreshed.runs["run-2"]?.inheritedMessageId).toBeUndefined();
+    expect(
+      refreshed.messages.find((message) => message.id === "assistant-shared")
+        ?.status,
+    ).toBe("complete");
+    expect(
+      refreshed.messages.find((message) => message.id === "assistant-new")
+        ?.status,
+    ).toBe("streaming");
+    await client.dispose();
+  });
+
   it("resolves a shared message from its terminal writers during reload", async () => {
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({

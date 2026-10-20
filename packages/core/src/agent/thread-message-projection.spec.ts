@@ -230,6 +230,153 @@ describe("assistant root projection", () => {
     expect(result.representedRootMessageIds.has("root-answer")).toBe(true);
   });
 
+  it("keeps a complete folded root when a shared snapshot is only its prefix", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: {
+            runId: "run-root",
+            custom: { foldedRunIds: ["run-root", "run-continuation"] },
+          },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-root",
+          status: "completed",
+          activeMessageId: "snapshot-answer",
+        },
+        {
+          id: "run-continuation",
+          status: "running",
+          activeMessageId: "snapshot-answer",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(false);
+    expect(result.supersededSnapshotMessageIds.has("snapshot-answer")).toBe(
+      false,
+    );
+  });
+
+  it("suppresses a shared text duplicate while retaining durable tool calls", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: "complete",
+          parts: [
+            { type: "text", text: "Answer complete" },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+          ],
+          metadata: {
+            runId: "run-root",
+            custom: { foldedRunIds: ["run-root", "run-continuation"] },
+          },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+        },
+      ],
+      runs: [
+        {
+          id: "run-root",
+          status: "completed",
+          activeMessageId: "snapshot-answer",
+        },
+        {
+          id: "run-continuation",
+          status: "running",
+          activeMessageId: "snapshot-answer",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(false);
+    expect(result.supersededSnapshotMessageIds.has("snapshot-answer")).toBe(
+      true,
+    );
+  });
+
+  it("does not match a split projection with an unindexed durable tool call", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: "complete",
+          content: [
+            { type: "text", text: "Done." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-2",
+              toolName: "lookup",
+              args: { key: "example" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-text",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId: "run-one" },
+        },
+        {
+          id: "snapshot-tool",
+          role: "assistant",
+          parts: [{ type: "text", text: "" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      toolCalls: [
+        {
+          id: "call-1",
+          name: "search",
+          input: { query: "example" },
+          messageId: "snapshot-tool",
+        },
+        {
+          id: "call-2",
+          name: "lookup",
+          input: { key: "example" },
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("root-answer")).toBe(false);
+  });
+
   it("matches durable text and tool calls split across same-run snapshots", () => {
     const result = projectRootAssistantMessages({
       rootMessages: [

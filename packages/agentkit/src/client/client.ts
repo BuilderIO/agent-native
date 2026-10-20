@@ -2608,24 +2608,33 @@ export class AgentKitClient implements AgentKitController {
         if (run && !this.isTerminalStatus(run.status)) {
           const responseIsBehindCursor = run.lastSequence < appliedSequence;
           const localRun = this.getThread(threadId).runs[runId];
+          const refreshedRun =
+            responseIsBehindCursor && snapshotRun
+              ? { ...snapshotRun, ...run, status: snapshotRun.status }
+              : run;
           const inheritedMessageId =
             run.inheritedMessageId ??
-            localRun?.inheritedMessageId ??
-            snapshotRun?.inheritedMessageId;
-          const refreshedRun = {
-            ...(responseIsBehindCursor && snapshotRun
-              ? { ...snapshotRun, ...run, status: snapshotRun.status }
-              : run),
+            [
+              localRun?.inheritedMessageId,
+              snapshotRun?.inheritedMessageId,
+            ].find(
+              (messageId) =>
+                messageId !== undefined &&
+                (refreshedRun.activeMessageId === undefined ||
+                  refreshedRun.activeMessageId === messageId),
+            );
+          const mergedRun = {
+            ...refreshedRun,
             lastSequence: appliedSequence,
             ...(inheritedMessageId === undefined ? {} : { inheritedMessageId }),
           };
-          runSnapshots.set(runId, refreshedRun);
+          runSnapshots.set(runId, mergedRun);
           if (responseIsBehindCursor) {
             if (snapshot?.events !== undefined) {
               eventProjectionRunIds.add(runId);
             }
           } else {
-            refreshedRuns.set(runId, refreshedRun);
+            refreshedRuns.set(runId, mergedRun);
           }
         } else if (run && this.isTerminalStatus(run.status)) {
           if (hasReplayCursor && run.lastSequence > appliedSequence) {
