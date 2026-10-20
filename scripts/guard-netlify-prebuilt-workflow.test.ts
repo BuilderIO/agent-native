@@ -250,7 +250,7 @@ describe("Netlify offline prebuilt build environment", () => {
     );
 
     assert.equal(environment.BRANCH_VALUE, "main");
-    assert.equal(environment.NETLIFY_BRANCH, "main");
+    assert.equal(environment.BRANCH, "main");
   });
 
   it("requires a branch and rejects duplicate values for that branch", () => {
@@ -467,7 +467,7 @@ writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
 const { writeFileSync } = require("node:fs");
 writeFileSync(process.env.NETLIFY_TEST_RESULT, JSON.stringify({
   args: process.argv.slice(2),
-  branch: process.env.NETLIFY_BRANCH,
+  branch: process.env.BRANCH,
   branchValue: process.env.BRANCH_VALUE,
 }));
 `;

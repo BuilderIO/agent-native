@@ -169,7 +169,7 @@ export function resolveNetlifyBuildEnvironment(
   }
   const environment = { ...buildEnvironment, ...siteEnvironment };
   if (context === "branch-deploy" && branch) {
-    environment.NETLIFY_BRANCH = branch;
+    environment.BRANCH = branch;
   }
   return environment;
 }
