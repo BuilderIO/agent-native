@@ -21,7 +21,7 @@ import {
 
 export default defineAction({
   description:
-    "Count words in one exact Content Blocks field. Omit propertyId for the Page's primary Content body; provide a Blocks property ID for an additional field.",
+    "Count words in one exact Content Blocks field (a tab on a collection row's page), saving its open editor first. Omit propertyId for the Page's primary Content body; provide a Blocks property ID for an additional field.",
   schema: z.object({
     documentId: z.string().describe("Page document ID (required)"),
     propertyId: z
@@ -33,8 +33,14 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: true,
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async ({ documentId, propertyId }) => {
     const access = await resolveReadableDocument(documentId);
     const context = await readableFieldContext(access.resource);

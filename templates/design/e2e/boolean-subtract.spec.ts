@@ -103,10 +103,11 @@ function addStrokeButton(section: Locator): Locator {
 
 async function openBooleanMenu(app: App, selectedNodeId: string) {
   const page = app.page;
-  const rect = await app.designRect(selectedNodeId);
+  const rect = await app.designRect(selectedNodeId, "index.html");
   const point = await app.pagePoint(
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
+    "index.html",
   );
   await page.mouse.click(point.x, point.y, { button: "right" });
   const menu = page.getByRole("menu").last();
@@ -198,11 +199,12 @@ async function booleanMaskPixels(
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-// fixme: fails in CI on current main: Test timeout of 90000ms exceeded.
-test.fixme("Subtract creates an editable, transparent mask with undo and unique duplicate references", async ({
+test("Subtract creates an editable, transparent mask with undo and unique duplicate references", async ({
   app,
   page,
 }) => {
+  // Opens or reloads the editor several times; each cold open takes ~12 s on CI runners.
+  test.setTimeout(180_000);
   const designId = await app.seed(FIXTURE, {
     files: {
       "about.html":

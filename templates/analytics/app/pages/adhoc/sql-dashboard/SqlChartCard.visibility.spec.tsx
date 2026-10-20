@@ -48,6 +48,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   EmbeddedExtension: () => null,
   ExtensionSlot: () => null,
+  isExtensionApiPath: () => false,
 }));
 
 vi.mock("@/lib/cost-tracker", () => ({

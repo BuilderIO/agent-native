@@ -168,12 +168,24 @@ const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
 const FFMPEG_AUDIO_PROBE_TIMEOUT: Duration = Duration::from_secs(90);
+/// Last-resort lookups for a system ffmpeg, used only when the bundled sidecar
+/// is missing (a dev build run straight from `target/`, say).
+///
+/// These are a fallback, not the plan: the app ships its own ffmpeg. Before it
+/// did, every Mac without Homebrew's ffmpeg — which is every Mac handed a DMG —
+/// silently skipped audio normalization and uploaded raw ScreenCaptureKit mic
+/// audio, which has no automatic gain, so voices landed 20+ dB below where they
+/// should be.
 const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
     "ffmpeg",
     "/opt/homebrew/bin/ffmpeg",
     "/usr/local/bin/ffmpeg",
     "/opt/local/bin/ffmpeg",
 ];
+/// Name of the ffmpeg sidecar declared as `externalBin` in `tauri.conf.json`.
+/// Tauri strips the target triple and installs it beside the main executable,
+/// so it is found relative to `current_exe`, not by an absolute path.
+const FFMPEG_SIDECAR_NAME: &str = "ffmpeg";
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
 const CLIP_DRAFTS_DIR: &str = "Drafts";
 const NATIVE_UPLOAD_RESTART_REQUIRED: &str = "native upload requires a one-time restart";
@@ -9481,18 +9493,84 @@ fn max_upload_bytes() -> u64 {
         .unwrap_or(DEFAULT_MAX_UPLOAD_BYTES)
 }
 
-fn resolve_ffmpeg_path() -> Option<String> {
+/// Where Tauri put the bundled ffmpeg: beside the running executable, which on
+/// macOS is `Clips.app/Contents/MacOS/ffmpeg`.
+///
+/// Resolved from `current_exe` rather than hardcoded so it also works for the
+/// `.app` in a DMG, a copy the user dragged elsewhere, and `tauri dev`.
+fn bundled_ffmpeg_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    ffmpeg_sidecar_in(exe.parent()?)
+}
+
+/// The sidecar lookup itself, split out from `current_exe` so it is testable.
+/// `is_file`, not `exists`: a directory of that name would pass `exists` and
+/// then fail as a permission error deep in the upload path.
+fn ffmpeg_sidecar_in(dir: &Path) -> Option<PathBuf> {
+    let sidecar = dir.join(FFMPEG_SIDECAR_NAME);
+    sidecar.is_file().then_some(sidecar)
+}
+
+/// Pick the ffmpeg to run, most specific first.
+///
+/// `CLIPS_FFMPEG_PATH` wins so a machine can be pointed at its own build. Then
+/// the bundled sidecar, which is the version shipped and tested against. A
+/// system ffmpeg is only the fallback: relying on it is what made audio
+/// normalization silently optional.
+pub(crate) fn resolve_ffmpeg_path() -> Option<String> {
     if let Ok(path) = std::env::var("CLIPS_FFMPEG_PATH") {
         let trimmed = path.trim();
         if !trimmed.is_empty() && command_available(trimmed) {
             return Some(trimmed.to_string());
         }
     }
+    if let Some(bundled) = bundled_ffmpeg_path() {
+        let bundled = bundled.to_string_lossy().to_string();
+        if command_available(&bundled) {
+            return Some(bundled);
+        }
+        // Present but not runnable (missing +x, or quarantined/unsigned after a
+        // bad build). Say so: the fallback below can mask it as "no ffmpeg".
+        eprintln!(
+            "[clips-tray] bundled ffmpeg at {bundled} is not executable; falling back to a system ffmpeg"
+        );
+    }
     FFMPEG_CANDIDATE_PATHS
         .iter()
         .copied()
         .find(|candidate| command_available(candidate))
         .map(str::to_string)
+}
+
+fn preferred_h264_encoder(encoders: &str) -> Option<&'static str> {
+    let available = |name| {
+        encoders
+            .lines()
+            .any(|line| line.split_whitespace().nth(1) == Some(name))
+    };
+    if available("libx264") {
+        Some("libx264")
+    } else if available("h264_videotoolbox") {
+        Some("h264_videotoolbox")
+    } else {
+        None
+    }
+}
+
+fn ffmpeg_h264_encoder(ffmpeg_path: &str) -> Option<&'static str> {
+    let output = Command::new(ffmpeg_path)
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let encoders = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    preferred_h264_encoder(&encoders)
 }
 
 fn command_available(command: &str) -> bool {
@@ -9681,6 +9759,8 @@ fn transcode_with_ffmpeg(
     denoise_audio: bool,
     mic_pregain: bool,
 ) -> Result<(), String> {
+    let h264_encoder = ffmpeg_h264_encoder(ffmpeg_path)
+        .ok_or_else(|| "ffmpeg requires libx264 or h264_videotoolbox".to_owned())?;
     let mut command = Command::new(ffmpeg_path);
     command
         .arg("-y")
@@ -9725,17 +9805,27 @@ fn transcode_with_ffmpeg(
         .arg("-fpsmax")
         .arg(TRANSCODE_FRAME_RATE_LIMIT.to_string())
         .arg("-c:v")
-        .arg("libx264")
-        .arg("-preset")
-        .arg(preset.encoder_preset)
+        .arg(h264_encoder);
+    if h264_encoder == "libx264" {
+        command
+            .arg("-preset")
+            .arg(preset.encoder_preset)
+            .arg("-crf")
+            .arg(preset.crf.to_string());
+    } else {
+        command
+            .arg("-allow_sw")
+            .arg("1")
+            .arg("-b:v")
+            .arg(maxrate.clone());
+    }
+    command
         .arg("-profile:v")
         .arg("main")
         .arg("-level:v")
         .arg("4.0")
         .arg("-pix_fmt")
         .arg("yuv420p")
-        .arg("-crf")
-        .arg(preset.crf.to_string())
         .arg("-maxrate")
         .arg(maxrate)
         .arg("-bufsize")
@@ -9864,6 +9954,9 @@ pub(crate) fn materialize_mp4_slices_exact(
     let ffmpeg = resolve_ffmpeg_path().ok_or_else(|| {
         "exact bounded materialization requires ffmpeg; passthrough composition is not private enough for this range".to_string()
     })?;
+    let h264_encoder = ffmpeg_h264_encoder(&ffmpeg).ok_or_else(|| {
+        "exact bounded materialization requires libx264 or h264_videotoolbox".to_owned()
+    })?;
     let mut command = Command::new(ffmpeg);
     command
         .arg("-y")
@@ -9872,9 +9965,15 @@ pub(crate) fn materialize_mp4_slices_exact(
         .arg("-map")
         .arg("0:v:0?")
         .arg("-c:v")
-        .arg("libx264")
-        .arg("-preset")
-        .arg("ultrafast");
+        .arg(h264_encoder);
+    if h264_encoder == "libx264" {
+        // Exact Rewind exports must be freshly encoded to guarantee that no
+        // pre-boundary keyframe survives, but the default x264 preset makes
+        // Stop look hung for roughly the full duration of the Clip.
+        command.arg("-preset").arg("ultrafast");
+    } else {
+        command.args(["-allow_sw", "1", "-b:v", "8M"]);
+    }
     match audio {
         NativeAudioSelection::None => {
             command.arg("-an");
@@ -9920,6 +10019,37 @@ pub(crate) fn materialize_mp4_slices_exact(
     _audio: NativeAudioSelection,
 ) -> Result<(), String> {
     Err("exact bounded Rewind materialization is available only on macOS".into())
+}
+
+#[cfg(test)]
+mod h264_encoder_tests {
+    use super::preferred_h264_encoder;
+
+    #[test]
+    fn prefers_libx264_when_available() {
+        assert_eq!(
+            preferred_h264_encoder(
+                " V..... h264_videotoolbox VideoToolbox H.264 Encoder\n V..... libx264 libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10"
+            ),
+            Some("libx264")
+        );
+    }
+
+    #[test]
+    fn uses_videotoolbox_when_libx264_is_unavailable() {
+        assert_eq!(
+            preferred_h264_encoder(" V..... h264_videotoolbox VideoToolbox H.264 Encoder"),
+            Some("h264_videotoolbox")
+        );
+    }
+
+    #[test]
+    fn rejects_encoders_that_only_contain_a_supported_name() {
+        assert_eq!(
+            preferred_h264_encoder(" V..... not_libx264_but_similar Encoder"),
+            None
+        );
+    }
 }
 
 #[cfg(target_os = "macos")]

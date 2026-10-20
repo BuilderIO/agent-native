@@ -11,7 +11,10 @@
  * Kept free of DB imports so action modules can import `orgAdminAudit`; the
  * route recorder loads `record.js` on first use, like `action.ts` does.
  */
-import type { ActionCaller } from "../action.js";
+import {
+  assertAuditAttribution,
+  type AuditAttribution,
+} from "./attribution.js";
 import type {
   ActionAuditConfig,
   AuditCallMeta,
@@ -68,13 +71,13 @@ export interface OrgAdminAuditEventInput {
   userEmail: string | null | undefined;
   orgId: string | null | undefined;
   status?: AuditStatus;
-  /** Invocation surface. Routes called from the UI are `http`. */
-  caller?: ActionCaller;
+  /**
+   * `auditAttribution(ctx)` inside an action, `routeAuditAttribution(event)`
+   * in a route.
+   */
+  attribution: AuditAttribution;
   /** Recorded as the event's (redacted) input. */
   args?: Record<string, unknown>;
-  threadId?: string;
-  turnId?: string;
-  runId?: string;
   /**
    * The change affects only the actor (a member's own connection), so it stays
    * in their private trail even inside an org.
@@ -85,11 +88,13 @@ export interface OrgAdminAuditEventInput {
 /**
  * Record an organization settings or admin change from code that is not a
  * `defineAction` run, such as a Nitro route. Best-effort like every audit
- * write: it never throws for a recording failure.
+ * write: it never throws for a recording failure. It does throw
+ * `AuditAttributionError` when `attribution` is missing.
  */
 export async function recordOrgAdminAuditEvent(
   input: OrgAdminAuditEventInput,
 ): Promise<void> {
+  assertAuditAttribution(input.attribution, "recordOrgAdminAuditEvent");
   const target = orgAdminAuditTarget(
     input.targetType,
     input.targetId,
@@ -106,13 +111,10 @@ export async function recordOrgAdminAuditEvent(
     args: input.args ?? {},
     ctx: {
       actionName: input.action,
-      caller: input.caller ?? "http",
       userEmail: input.userEmail ?? undefined,
       orgId: input.orgId ?? null,
-      threadId: input.threadId,
-      turnId: input.turnId,
-      runId: input.runId,
     },
+    attribution: input.attribution,
     status: input.status ?? "success",
   });
 }

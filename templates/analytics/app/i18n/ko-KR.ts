@@ -68,6 +68,12 @@ export default {
     sigmaChooseConnectionDescription:
       "워크북을 찾아볼 Sigma 작업공간을 선택하세요.",
     sigmaNoConnection: "Sigma가 연결되지 않았습니다",
+    sigmaApiRegion: "Sigma API 리전",
+    sigmaOAuthConnect: "개인 Sigma 계정 연결",
+    sigmaOAuthAddAnother: "다른 Sigma 계정 연결",
+    sigmaOAuthCancel: "취소",
+    sigmaOAuthDescription:
+      "계정으로 Sigma에 로그인해 액세스할 수 있는 워크북을 확인하세요.",
     sigmaClientId: "클라이언트 ID",
     sigmaClientSecret: "클라이언트 시크릿",
     sigmaBaseUrl: "API 기본 URL(선택 사항)",
@@ -80,8 +86,7 @@ export default {
       "임시 Sigma 자격 증명을 저장하지 못했습니다. Vault 액세스 권한을 확인한 후 다시 시도하세요.",
     sigmaCredentialsRequired:
       "먼저 Sigma 클라이언트 ID와 클라이언트 시크릿을 저장하세요.",
-    sigmaBaseUrlInvalid:
-      "sigmacomputing.com 도메인의 HTTPS Sigma API URL을 사용하세요.",
+    sigmaBaseUrlInvalid: "Sigma에서 공식 지원하는 API 리전 URL을 선택하세요.",
     sigmaPersistenceUnavailable:
       "현재 Analytics에서 Sigma 연결을 안전하게 저장할 수 없습니다. 다시 시도하세요.",
     sigmaPolicyInvalid:
@@ -96,68 +101,26 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics에 저장된 Sigma 자격 증명을 읽을 수 없습니다. 조직 관리자가 Dispatch에서 다시 연결하거나 Analytics에서 자격 증명을 다시 입력할 수 있습니다.",
     sigmaNoConnectionDescription:
-      "여기에 자격 증명을 입력하면 Analytics 전용 연결을 만들 수 있습니다. Dispatch에서 Analytics에 허용된 Sigma 연결은 여기에 자동으로 표시되며, 자격 증명을 직접 저장할 수 있는 사용자는 조직 관리자뿐입니다.",
+      "개인 Sigma 계정을 연결하거나 조직 관리자가 저장한 자격 증명을 사용하세요. Analytics에 허용된 Dispatch 연결도 여기에 표시됩니다.",
     sigmaOpenDispatch: "Dispatch에서 연결",
     sigmaOpenVault: "Vault 열기",
     sigmaWorkbooksLoadFailed: "Sigma 워크북을 불러오지 못했습니다",
     sigmaRetryConnection: "연결을 확인한 후 다시 시도하세요.",
     sigmaRetry: "다시 시도",
     sigmaNoWorkbooks: "사용할 수 있는 Sigma 워크북이 없습니다.",
-    sigmaWorkbook: "워크북",
-    sigmaChooseWorkbook: "워크북 선택",
-    sigmaStatusNotImported: "가져오지 않음",
-    sigmaStatusImporting: "가져오는 중",
-    sigmaStatusImported: "가져옴",
-    sigmaStatusFailed: "가져오지 못함",
+    sigmaSearchWorkbooks: "워크북 검색…",
+    sigmaNoMatchingWorkbooks: "일치하는 워크북이 없습니다",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "아직 일치하는 워크북이 로드되지 않았습니다. 나머지를 검색하려면 워크북을 더 로드하세요.",
+    sigmaOpenMigratedDashboard: "가져온 대시보드를 새 탭에서 열기",
+    sigmaOwnedBy: "소유자",
+    sigmaMigratingTooltip: "{{name}} 님이 마이그레이션 중",
+    sigmaMigrate: "마이그레이션",
+    sigmaMigrateComingSoon: "곧 제공 예정",
     sigmaArchived: "보관됨",
-    sigmaPreviewTitle: "워크북 내용",
-    sigmaPreviewFailed: "이 워크북을 미리 볼 수 없습니다",
-    sigmaRetryPreview: "워크북 미리보기를 다시 불러오세요.",
-    sigmaImportableCount: "가져올 수 있음 {{count}}개",
-    sigmaUnsupportedCount: "지원되지 않음 {{count}}개",
-    sigmaImportable: "가져올 수 있음",
-    sigmaUnsupported: "지원되지 않음",
-    sigmaNoElements: "워크북 요소를 찾지 못했습니다.",
-    sigmaPreviewOnly:
-      "현재는 미리보기만 가능합니다. Sigma는 Analytics가 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않으므로 해당 매핑을 확인할 수 있을 때까지 가져오기가 비활성화됩니다.",
-    sigmaPreviewTruncated: "{{total}}개 중 {{shown}}개 요소 표시 중입니다.",
-    sigmaImportWorkbook: "워크북 가져오기",
-    sigmaImporting: "워크북 가져오는 중…",
-    sigmaImportInProgress: "이 워크북을 이미 가져오는 중입니다.",
-    sigmaMigrationFailed: "이 워크북을 가져오지 못했습니다. 다시 시도하세요.",
-    sigmaMigrationResultInvalid:
-      "가져오기 응답이 완전하지 않았습니다. 상태를 확인하려면 워크북 목록을 새로고침하세요.",
-    sigmaImportComplete: "대시보드 생성됨",
-    sigmaImportSummary:
-      "{{imported}}개 요소를 가져왔으며 지원되지 않는 {{unsupported}}개 요소는 검토 안내로 남겼습니다.",
-    sigmaAlreadyImported: "이 워크북은 이미 가져왔습니다.",
-    sigmaImportedNoDashboard:
-      "대시보드를 가져왔지만 이 계정에서는 열 수 없습니다.",
-    sigmaReviewRequiredCount: "{{count}}개 검토 필요",
-    sigmaBetaRepresentationWarning:
-      "베타 가져오기에서는 일부 시각화가 Sigma와 다르게 표시될 수 있습니다.",
-    sigmaReasonUnsupportedElement: "이 요소 유형은 가져올 수 없습니다.",
-    sigmaReasonUnsupportedSource: "이 요소는 가져올 수 없는 소스를 사용합니다.",
-    sigmaReasonSourceMappingRequired:
-      "Sigma가 Analytics에서 확인할 수 있는 BigQuery 프로젝트 매핑을 제공하지 않아 이 SQL을 아직 가져올 수 없습니다.",
-    sigmaReasonSourceUnavailable:
-      "Sigma가 이 소스 연결에 대한 액세스를 허용하지 않았습니다. 권한을 확인하세요.",
-    sigmaReasonQueryUnavailable:
-      "Sigma가 이 요소에 사용할 수 있는 쿼리를 반환하지 않았습니다.",
-    sigmaReasonUnsafeSql: "이 쿼리 패턴은 안전하게 가져올 수 없습니다.",
-    sigmaReasonVisualizationReview:
-      "데이터는 가져올 수 있지만 가져온 후 시각화를 확인하세요.",
-    sigmaRetryOwnerOnly: "이 가져오기를 시작한 사람만 다시 시도할 수 있습니다.",
-    sigmaImportedByTeammate: "팀원이 가져옴",
-    sigmaFlaggedCount: "{{count}}개 검토 표시됨",
     sigmaMoreWorkbooksFailed: "추가 워크북을 불러오지 못했습니다",
     sigmaLoadingMore: "워크북 불러오는 중…",
     sigmaLoadMore: "워크북 더 불러오기",
-    sigmaOpenDashboard: "대시보드 열기",
-    sigmaReviewWithAgent: "에이전트와 검토",
-    sigmaReviewContext: "가져온 Sigma 대시보드",
-    sigmaReviewPrompt:
-      "가져온 Sigma 대시보드 {{name}}을 검토하세요. 가져온 패널과 지원되지 않는 요소를 확인하고 수정 사항을 제안하세요.",
   },
   sidebar: {
     collapseSidebar: "사이드바 접기",
@@ -627,6 +590,7 @@ export default {
     notConnected: "연결 안 됨",
     needsReauth: "재인증 필요",
     error: "오류",
+    unknown: "알 수 없음",
     indexNotImported: "생성된 인덱스를 가져오지 않았습니다.",
     indexUnreadable:
       "저장된 인덱스를 읽을 수 없습니다. 올바른 인덱스를 업로드하세요.",
@@ -712,6 +676,43 @@ export default {
     sameNameCheckFailed: "이 지표의 기존 항목을 확인하지 못했습니다.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "콘텐츠 보기용 페이지별 일일 클릭수와 노출수입니다.",
+      serviceAccount: "서비스 계정",
+      copyEmail: "이메일 복사",
+      grantHint:
+        "Search Console의 각 속성에서 설정 → 사용자 및 권한에 이 이메일을 사용자로 추가하세요.",
+      noServiceAccount: "먼저 Google 서비스 계정 키를 추가하세요.",
+      openGoogleCloud: "Google Cloud 열기",
+      invalidServiceAccount: "저장된 서비스 계정 키를 읽을 수 없습니다.",
+      properties: "속성",
+      siteLabel: "속성",
+      pathLabel: "경로 접두사",
+      pathInvalid: "경로 접두사는 /로 시작해야 합니다.",
+      addProperty: "속성 추가",
+      removeProperty: "속성 제거",
+      save: "저장",
+      collectDaily: "매일 수집",
+      adminOnly: "조직 소유자와 관리자만 변경할 수 있습니다.",
+      statusCollecting: "수집 중",
+      statusNeedsAccess: "액세스 필요",
+      statusFailed: "마지막 실행 실패",
+      runSucceeded: "{{when}}에 수집됨",
+      runNeedsAccess: "{{when}} 기준 액세스 없음",
+      runRunning: "{{when}}부터 수집 중",
+      runFailed: "{{when}}에 실패",
+      unavailable: "수집 상태를 확인할 수 없습니다: {{message}}",
+      keyUnreadable:
+        "저장된 서비스 계정 키를 읽을 수 없습니다. Google Cloud에서 다시 저장하세요.",
+      propertyBareDomain: "도메인 속성에는 {{suggestion}}을(를) 사용하세요.",
+      propertyInvalidDomain:
+        "sc-domain: 뒤에는 도메인만 입력합니다(예: {{suggestion}}).",
+      propertyMissingSlash:
+        "URL 접두어 속성은 /로 끝납니다. {{suggestion}}을(를) 사용하세요.",
+      propertyUnrecognized:
+        "sc-domain:example.com 또는 /로 끝나는 URL 접두어 속성을 사용하세요.",
+    },
     uploadFile: "파일 업로드",
     googleSheetsExport: "Google Sheets 내보내기",
     googleSheetsExportDescription:
@@ -809,6 +810,7 @@ export default {
     bigQueryHealthUnavailable:
       "퍼스트파티 Analytics 부담을 확인하지 못했습니다. 백엔드를 바꾸기 전에 다시 로드하세요.",
     analyticsEventCount: "관측된 이벤트",
+    analyticsRecentEventCount: "관측된 이벤트 (최근 30일)",
     slowQueries24h: "느린 쿼리 (24시간)",
     maxQueryDuration: "최대 쿼리 시간",
     defaultKeyName: "호스팅된 템플릿",
@@ -1205,6 +1207,8 @@ export default {
     addEventToSeeResults: "이벤트를 추가하고 선택하여 결과를 확인하세요.",
     queryError: "Query error: {{message}}",
     noDataReturned: "데이터가 반환되지 않았습니다.",
+    incompleteResultsWarning:
+      "이 결과는 불완전할 수 있습니다. 누락된 행이나 원본 데이터가 합계에 영향을 줄 수 있습니다.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "필터링 기준",
     pickPropertyToFilter: "필터링할 속성을 선택하세요.",
@@ -1286,6 +1290,13 @@ export default {
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",
     saveFailed: "대시보드를 저장할 수 없습니다.",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: '"{{title}}"의 BigQuery 비용',
+    panelCostOverTitle: '"{{title}}"은(는) 새로 고침 비용이 큽니다',
+    panelCostScheduled:
+      "약 {{size}} 스캔 · 새로 고침당 {{perRun}} · 이메일 보고서로 월 약 {{perMonth}}",
+    panelCostUnscheduled:
+      "약 {{size}} 스캔 · 새로 고침당 {{perRun}} · 이메일 보고서 없음",
+    panelCostOverHint: "날짜 범위를 줄이거나 열을 줄이면 스캔량이 줄어듭니다.",
     archived: '"{{name}}" 대시보드를 보관처리했습니다.',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "대시보드를 보관처리할 수 없습니다.",
@@ -1294,6 +1305,10 @@ export default {
     dashboardActions: "대시보드 세부정보 및 작업",
     certifyForAi: "AI 쿼리용 인증",
     certifiedForAi: "AI 쿼리용 인증됨",
+    duplicateToCustomize: "복제하여 사용자 지정",
+    duplicateToCustomizeHint:
+      "기본 제공 대시보드는 Analytics가 릴리스될 때마다 업데이트됩니다. 변경하려면 내 사본을 만드세요.",
+    duplicateFailed: "이 대시보드를 복제하지 못했습니다.",
     certificationSaved: "대시보드가 AI 쿼리용으로 인증됨",
     certificationFailed: "대시보드를 인증할 수 없음: {{message}}",
     details: "Details",
@@ -1327,6 +1342,23 @@ export default {
     resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
+    drilldownChartPoints: "차트 데이터 포인트",
+    drilldownPreviousPage: "차트 데이터 포인트 이전 페이지",
+    drilldownNextPage: "차트 데이터 포인트 다음 페이지",
+    drilldownPageRange: "총 {{total}}개 중 {{start}}–{{end}}개 표시",
+    drilldownFilterRows: "행 필터링",
+    drilldownShowSql: "SQL 보기",
+    drilldownHideSql: "SQL 숨기기",
+    drilldownDownloadCsv: "CSV 다운로드",
+    drilldownShowing: "{{total}}개 레코드 중 {{shown}}개 표시",
+    drilldownCsvTruncated:
+      "불완전한 내보내기: 쿼리 결과 {{total}}개 중 처음 {{loaded}}개만 불러왔으며, 이 파일에는 필터 적용 후 {{exported}}개가 포함되어 있습니다.",
+    drilldownCountMismatch:
+      "차트에는 {{chart}}이(가) 표시되지만 {{total}}개 레코드가 일치했습니다",
+    drilldownAggregateOnly:
+      "이 패널에는 집계된 행만 있습니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
+    drilldownNoRecords: "일치하는 레코드가 없습니다",
+    drilldownLoadFailed: "레코드를 불러오지 못했습니다",
     filterSeries: "Filter",
     chartTimeRangeOverride: "이 차트의 기간 재정의",
     chartTimeRangeInherit: "대시보드 기간",
@@ -1401,6 +1433,24 @@ export default {
     columnShowHidden: "숨긴 열 표시",
     columnName: "열 이름",
     columnResize: "열 크기 조절",
+    rowBreakdownBy: "세부 기준",
+    rowBreakdownAll: "전체",
+    rowBreakdownOther: "기타",
+    rowBreakdownOtherHint: "작은 그룹과 이 패널의 SQL에서 제외된 사람",
+    rowBreakdownSmallGroup: "{{count}}명 미만: 비율을 신중하게 해석하세요",
+    rowBreakdownNoValue: "(없음)",
+    rowBreakdownEmpty: "이 세부 항목에 행이 없습니다.",
+    rowBreakdownUnavailable:
+      "이 패널의 SQL에는 {{column}} 기준 세부 항목이 없습니다.",
+    rowBreakdownFromPanel:
+      "이 패널의 행에서 가져왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownFromCache: "캐시에서 가져왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownAlreadyLoaded: "이미 불러왔습니다. 읽은 데이터가 없습니다.",
+    rowBreakdownBytesRead: "{{bytes}} 읽음",
+    rowBreakdownOverByteCap:
+      "이 분석은 {{gib}}GiB를 넘게 읽게 되어 실행하지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
+    rowBreakdownTruncated:
+      "결과가 잘려서 일부 그룹이 빠졌거나 기타에 포함되었습니다.",
     deleteSectionTitle: "섹션을 삭제하시겠습니까?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "패널을 삭제하시겠습니까?",
@@ -2067,10 +2117,6 @@ export default {
     noMatches: "검색과 일치하는 정의가 없습니다.",
     searchPlaceholder: "정의 검색",
     sourceIndex: "소스 인덱스",
-    statusApproved: "승인됨",
-    statusSuggested: "제안됨",
-    statusUnreviewed: "검토 전",
-    unsourced: "소스 없음",
   },
   indexPanel: {
     presetDaily: "매일 06:00",
@@ -2127,6 +2173,8 @@ export default {
     dbtDisabled: "사용 안 함",
     dbtAdminOnly: "조직 관리자만 이 연결을 변경할 수 있습니다.",
     dbtReadFailed: "dbt 연결을 불러올 수 없습니다.",
+    dbtSeveralConnections:
+      "Analytics에 여러 dbt 연결이 허용되어 있어 이 패널에서 하나를 편집할 수 없습니다. 설정 → 통합에서 추가 연결을 제거하고 하나만 남기세요.",
     dbtSave: "연결 저장",
     dbtChecking: "확인 중",
     dbtSaveFailed: "dbt 연결을 저장할 수 없습니다.",

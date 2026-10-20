@@ -4,10 +4,10 @@ import { fileURLToPath } from "node:url";
 import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-catalog";
 
 export const BENCHMARK_TITLE = "SYNTHETIC: Analytics retrieval benchmark";
-export const BASELINE_REVISION = "75e39e8547b408aa09605e54872d9a8ef6522df9";
-export const FIXTURE_REVISION = "synthetic-retrieval-fixtures-v6";
+export const BASELINE_REVISION = "f99e655433a40fcd5d82e3e84667a8e8576c956a";
+export const FIXTURE_REVISION = "synthetic-retrieval-fixtures-v9";
 export const CSV_PATH = fileURLToPath(
-  new URL("./SYNTHETIC-analytics-retrieval-v6.csv", import.meta.url),
+  new URL("./SYNTHETIC-analytics-retrieval-v9.csv", import.meta.url),
 );
 
 type SyntheticDictionaryEntry = Record<string, unknown> & {
@@ -434,6 +434,181 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
     ],
     dashboards: [],
   },
+  {
+    id: "weekly-active-builder-users-by-org-vs-membership-and-publishing",
+    query: "weekly active Builder product users by organization",
+    expectedCandidateId: "dictionary:synthetic-active-builders-weekly",
+    note: "Explicit Builder product activity must outrank a billing seat count and a narrower publishing-only activity example.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-workspace-seat-count",
+        metric: "Monthly User Count",
+        definition:
+          "A monthly snapshot of synthetic workspace membership seats.",
+        table: "synthetic_workspace_seat_counts",
+        columnsUsed: "month, organization_id, user_count",
+        grain: "One row per organization per month",
+        semanticScope: "membership",
+        approved: true,
+      },
+      {
+        id: "synthetic-publishing-active-user",
+        metric: "Publishing Active User",
+        definition:
+          "Distinct synthetic users who published a production event.",
+        table: "synthetic_publish_events",
+        columnsUsed: "user_id, organization_id, event_time, event_type",
+        semanticScope: "product_activity",
+        approved: true,
+      },
+      {
+        id: "synthetic-active-builders-weekly",
+        metric: "Weekly Active Builders",
+        definition:
+          "Distinct real Builder users with code and content edit events each week.",
+        table: "synthetic_builder_activity",
+        columnsUsed: "user_id, root_org_id, event_date, event_type",
+        grain: "One row per user, organization, date, and event type",
+        timeDimension: "event_date",
+        semanticScope: "analytics_user",
+        sourceKind: "dbt",
+        approved: true,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "weekly-agent-native-app-opens-vs-builder-activity",
+    query: "weekly Agent-Native Analytics app opens",
+    expectedCandidateId: "dictionary:synthetic-analytics-app-opens-weekly",
+    note: "An explicit app-open question must select app users, not Builder product-activity users.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-active-builders-weekly",
+        metric: "Weekly Active Builders",
+        definition:
+          "Distinct real Builder users with code and content edit events each week.",
+        table: "synthetic_builder_activity",
+        columnsUsed: "user_id, root_org_id, event_date, event_type",
+        grain: "One row per user, organization, date, and event type",
+        timeDimension: "event_date",
+        semanticScope: "product_activity",
+        approved: true,
+      },
+      {
+        id: "synthetic-analytics-app-opens-weekly",
+        metric: "Weekly Active Users",
+        definition:
+          "Distinct signed-in users who opened the Agent-Native Analytics app in each week.",
+        table: "synthetic_analytics_app_opens",
+        columnsUsed: "user_key, app_id, event_date",
+        grain: "One row per app user, app, and date",
+        timeDimension: "event_date",
+        semanticScope: "product_activity",
+        sourceKind: "dbt",
+        approved: true,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "weekly-active-users-keeps-membership-clarifier",
+    query: "weekly active users",
+    expectedCandidateId:
+      "dictionary:synthetic-weekly-active-organization-members",
+    note: "The time-scoped active-user label is ambiguous across organization membership, product use, and app opens; keep the member-grain metric available for clarification.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-weekly-active-organization-members",
+        metric: "Weekly Active Organization Members",
+        definition:
+          "Distinct users with an active organization membership during each week; this is a membership measure, not an event count.",
+        table: "synthetic_organization_membership_weeks",
+        columnsUsed: "organization_id, user_id, week_start, active_status",
+        grain: "One row per organization, user, and week",
+        timeDimension: "week_start",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        approved: true,
+      },
+      {
+        id: "synthetic-weekly-active-product-users",
+        metric: "Weekly Active Product Users",
+        definition:
+          "Distinct users with at least one synthetic product event during each week.",
+        table: "synthetic_product_activity_weeks",
+        columnsUsed: "organization_id, user_id, week_start, event_count",
+        grain: "One row per organization, user, and week with product activity",
+        timeDimension: "week_start",
+        semanticScope: "product_activity",
+        sourceKind: "dbt",
+        approved: true,
+      },
+      {
+        id: "synthetic-weekly-analytics-app-opens",
+        metric: "Weekly Analytics App Opens",
+        definition:
+          "Distinct users who opened a synthetic analytics app during each week.",
+        table: "synthetic_analytics_app_open_weeks",
+        columnsUsed: "organization_id, user_id, app_id, week_start",
+        grain: "One row per organization, user, app, and week with an app open",
+        timeDimension: "week_start",
+        semanticScope: "product_activity",
+        sourceKind: "dbt",
+        approved: true,
+      },
+      {
+        id: "synthetic-monthly-organization-user-seats",
+        metric: "Monthly Organization User Seats",
+        definition:
+          "Monthly snapshot of user seats assigned to each synthetic organization.",
+        table: "synthetic_organization_seat_months",
+        columnsUsed: "organization_id, month_start, seat_count",
+        grain: "One row per organization and month",
+        timeDimension: "month_start",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        approved: true,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "time-qualified-organization-roles-keeps-membership-grain",
+    query: "weekly active users by role",
+    expectedCandidateId: "dictionary:synthetic-weekly-members-by-role",
+    note: "Active users by role can mean product-active users or active members; retain both definitions so the agent can clarify before querying.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-weekly-members-by-role",
+        metric: "Weekly Members by Role",
+        definition:
+          "Weekly active users grouped by their synthetic workspace membership role.",
+        table: "synthetic_weekly_members_by_role",
+        columnsUsed: "user_id, workspace_id, role_code, week_start",
+        grain: "One row per workspace, user, role, and week",
+        timeDimension: "week_start",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        approved: true,
+      },
+      {
+        id: "synthetic-weekly-product-activity-by-role",
+        metric: "Weekly Product Activity by Role",
+        definition:
+          "Weekly distinct users with synthetic product activity, grouped by role.",
+        table: "synthetic_weekly_product_activity_by_role",
+        columnsUsed:
+          "user_id, workspace_id, role_code, week_start, event_count",
+        grain: "One row per workspace, role, and week with product activity",
+        timeDimension: "week_start",
+        semanticScope: "product_activity",
+        sourceKind: "dbt",
+        approved: true,
+      },
+    ],
+    dashboards: [],
+  },
 ];
 
 // Measured against the exact origin/main implementation at BASELINE_REVISION.
@@ -447,18 +622,13 @@ const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
     "dictionary:synthetic-generated-workflow-completions",
   ],
   "organization-product-users-vs-membership-grain": [
-    "dictionary:synthetic-product-user-directory",
     "dictionary:synthetic-membership-distribution",
-  ],
-  "bare-active-members-vs-product-events": [
-    "dictionary:synthetic-active-member-events",
+    "dictionary:synthetic-product-user-directory",
   ],
   "organization-roster-roles-vs-monthly-count": [
-    "dictionary:synthetic-monthly-user-count",
     "dictionary:synthetic-user-organization-role-bridge",
   ],
   "organization-user-activity-vs-membership": [
-    "dictionary:synthetic-organization-user-membership",
     "dictionary:synthetic-organization-user-events",
   ],
   "aggregate-wording-keeps-monthly-count": [
@@ -466,15 +636,30 @@ const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
     "dictionary:synthetic-user-organization-role-bridge",
   ],
   "active-member-roster-vs-product-events": [
-    "dictionary:synthetic-active-member-events",
+    "dictionary:synthetic-active-workspace-member-roles",
+  ],
+  "bare-active-members-vs-product-events": [
+    "dictionary:synthetic-active-organization-members",
   ],
   "negated-count-instruction-keeps-membership-rows": [
-    "dictionary:synthetic-monthly-user-count",
     "dictionary:synthetic-user-organization-role-bridge",
   ],
   "metadata-only-roster-keeps-membership-grain": [
-    "dictionary:synthetic-monthly-user-count",
     "dictionary:synthetic-user-organization-role-bridge",
+  ],
+  "weekly-active-builder-users-by-org-vs-membership-and-publishing": [
+    "dictionary:synthetic-workspace-seat-count",
+  ],
+  "weekly-agent-native-app-opens-vs-builder-activity": [
+    "dictionary:synthetic-analytics-app-opens-weekly",
+    "dictionary:synthetic-active-builders-weekly",
+  ],
+  "weekly-active-users-keeps-membership-clarifier": [
+    "dictionary:synthetic-weekly-active-product-users",
+    "dictionary:synthetic-weekly-analytics-app-opens",
+  ],
+  "time-qualified-organization-roles-keeps-membership-grain": [
+    "dictionary:synthetic-weekly-product-activity-by-role",
   ],
 };
 

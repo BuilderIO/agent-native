@@ -14,6 +14,7 @@ import type {
   AgentEvent,
   AgentInteraction,
   AgentMessage,
+  AgentMessagePart,
   AgentObjectReference,
   AgentParticipant,
   AgentRunStatus,
@@ -59,6 +60,7 @@ import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
 } from "../chat-first-state.js";
+import { toolDisplayName } from "../tool-display.js";
 import {
   decideAfterStreamClosed,
   runOutcomeForCode,
@@ -746,6 +748,92 @@ function runtimeInteractionToProtocol(
   };
 }
 
+const DELEGATED_ACTIVITY_KIND = "agent-native/agent-activity";
+const MAX_DELEGATED_SUMMARY_STEPS = 12;
+const MAX_DELEGATED_REPLY_CHARS = 600;
+
+/** What a delegated agent's tool call touched: a file, path or command. */
+function delegatedToolTarget(input: unknown): string {
+  if (typeof input !== "string" || !input) return "";
+  let target: unknown;
+  try {
+    const parsed = JSON.parse(input) as Record<string, unknown>;
+    target =
+      parsed.file ??
+      parsed.file_path ??
+      parsed.filePath ??
+      parsed.path ??
+      parsed.pattern ??
+      parsed.command;
+  } catch {
+    // coercion-ok: tool input is free text when it is not JSON.
+    return "";
+  }
+  if (typeof target !== "string" || !target.trim()) return "";
+  const oneLine = target.replace(/\s+/g, " ").trim();
+  return oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine;
+}
+
+/**
+ * A delegated agent's run as readable steps (its tool calls and what each
+ * touched, then its latest reply) for the expanded activity row. The raw
+ * snapshot has no renderer, so without this the row opens onto nothing.
+ */
+function delegatedActivitySummary(data: unknown): AgentMessagePart[] | null {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    (data as { kind?: unknown }).kind !== DELEGATED_ACTIVITY_KIND
+  ) {
+    return null;
+  }
+  const snapshot = data as {
+    toolCalls?: Array<{ name?: unknown; status?: unknown; input?: unknown }>;
+    responseText?: unknown;
+    response?: unknown;
+  };
+  const tools = Array.isArray(snapshot.toolCalls) ? snapshot.toolCalls : [];
+  const shown = tools.slice(-MAX_DELEGATED_SUMMARY_STEPS);
+  const lines: string[] = [];
+  if (tools.length > shown.length) {
+    lines.push(`- ${tools.length - shown.length} earlier steps`);
+  }
+  for (const tool of shown) {
+    const name =
+      typeof tool.name === "string" && tool.name ? tool.name : "Step";
+    const target = delegatedToolTarget(tool.input);
+    const status =
+      tool.status === "running"
+        ? "running"
+        : tool.status === "error" || tool.status === "failed"
+          ? "failed"
+          : "done";
+    lines.push(`- **${name}**${target ? ` \`${target}\`` : ""} · ${status}`);
+  }
+  const reply =
+    typeof snapshot.responseText === "string"
+      ? snapshot.responseText
+      : Array.isArray(snapshot.response)
+        ? snapshot.response.filter((part) => typeof part === "string").join("")
+        : "";
+  const trimmedReply = reply.trim();
+  const parts: AgentMessagePart[] = [];
+  if (lines.length) {
+    parts.push({ type: "text", text: lines.join("\n"), format: "markdown" });
+  }
+  if (trimmedReply) {
+    parts.push({
+      type: "text",
+      text:
+        trimmedReply.length > MAX_DELEGATED_REPLY_CHARS
+          ? `${trimmedReply.slice(0, MAX_DELEGATED_REPLY_CHARS - 1)}…`
+          : trimmedReply,
+      format: "markdown",
+    });
+  }
+  return parts.length ? parts : null;
+}
+
 function runtimeStructuredActivity(
   activity: Extract<AgentChatRuntimeEvent, { type: "activity" }>["activity"],
 ): AgentActivity {
@@ -766,7 +854,7 @@ function runtimeStructuredActivity(
     ...(activity.data === undefined
       ? {}
       : {
-          summary: [
+          summary: delegatedActivitySummary(activity.data) ?? [
             {
               type: "data",
               data: activity.data,
@@ -1097,7 +1185,7 @@ function runtimeToolStatus(
 }
 
 function runtimeActivityLabel(name: string): string {
-  const label = name
+  const label = (toolDisplayName(name) ?? name)
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .trim();
@@ -1476,9 +1564,18 @@ export function createAgentKitProtocolAdapter(
   function indexRun(
     run: ProtocolRun,
     runtimeRunId = run.turn.runId ?? run.runId,
-  ): void {
+    allowReplay = false,
+  ): ProtocolRun {
     const existingRun = runs.get(run.runId);
     if (existingRun && existingRun !== run) {
+      if (
+        allowReplay &&
+        existingRun.threadId === run.threadId &&
+        existingRun.turn.id !== undefined &&
+        existingRun.turn.id === run.turn.id
+      ) {
+        return existingRun;
+      }
       throw new Error(`Duplicate AgentKit run id: ${run.runId}`);
     }
     if (runtimeRunId && runtimeRunId !== run.runId) {
@@ -1503,6 +1600,7 @@ export function createAgentKitProtocolAdapter(
       runtimeRunAliases.set(aliasKey, run);
     }
     runs.set(run.runId, run);
+    return run;
   }
 
   async function resolveRuntimeRunOwner(
@@ -2001,7 +2099,11 @@ export function createAgentKitProtocolAdapter(
         : {}),
       listeners: new Set(),
     };
-    indexRun(run, turn.runId ?? input.runId);
+    const indexedRun = indexRun(run, turn.runId ?? input.runId, true);
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun;
+    }
     if (restoreRead) run.initialAuthorityRead = restoreRead;
     if (state && "pendingConnectionRequestId" in state) {
       run.restoredPendingConnectionRequestId = state.pendingConnectionRequestId;
@@ -2027,6 +2129,7 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
     turnMetadata: Record<string, unknown> | undefined,
     observability?: Record<string, unknown>,
+    start: { attachReplayedRun?: boolean } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
     const runMetadata = mergeTrustedProtocolMetadata(
@@ -2081,8 +2184,37 @@ export function createAgentKitProtocolAdapter(
         "The AgentKit adapter was disposed during turn creation.",
       );
     }
+    const existingRun = start.attachReplayedRun
+      ? findRun(threadId, runId)
+      : undefined;
+    if (existingRun) {
+      // A duplicate queued submission is answered with the run that already
+      // took it, replayed from its first event. This adapter reads that run
+      // already, so the replay is drained rather than indexed a second time.
+      // The replayed stream stays open until the run ends; closing it early
+      // needs a transport abort, because turn.cancel would cancel the run.
+      void (async () => {
+        for await (const _event of turn.events) {
+          // Discarded: the existing run delivers these events.
+        }
+      })().catch((error: unknown) => {
+        console.warn(
+          `[agentkit] replayed stream for run ${runId} failed`,
+          error,
+        );
+      });
+      touchRun(existingRun);
+      ensurePump(existingRun);
+      // A runtime alias resolves to the run that owns it, which may use a
+      // different protocol id; the caller must address that run.
+      return existingRun.runId;
+    }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    indexRun(run, turn.runId);
+    const indexedRun = indexRun(run, turn.runId, true);
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun.runId;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -2099,6 +2231,13 @@ export function createAgentKitProtocolAdapter(
     if (disposedSessions.has(session)) return;
     disposedSessions.add(session);
     await session.dispose?.();
+  }
+
+  async function closeDiscardedTurnEvents(
+    turn: AgentChatRuntimeTurn,
+  ): Promise<void> {
+    const iterator = turn.events[Symbol.asyncIterator]();
+    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {
@@ -3764,6 +3903,9 @@ export function createAgentKitProtocolAdapter(
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
+          ...(input.submissionPayload
+            ? { submissionPayload: input.submissionPayload }
+            : {}),
           ...(input.queuePromotion
             ? { queuePromotion: input.queuePromotion }
             : {}),
@@ -3782,7 +3924,16 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
-        return openStartedRun(input.threadId, session, turn, turnMetadata);
+        return openStartedRun(
+          input.threadId,
+          session,
+          turn,
+          turnMetadata,
+          undefined,
+          {
+            attachReplayedRun: true,
+          },
+        );
       };
       if (!queuePromotionKey) {
         return { runId: await createRun(), capabilities };

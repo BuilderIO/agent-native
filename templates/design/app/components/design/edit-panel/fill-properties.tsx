@@ -10,8 +10,16 @@ import {
   IconLayoutGrid,
   IconMinus,
   IconPlus,
+  IconWaveSine,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
@@ -25,12 +33,14 @@ import {
   FillFieldFace,
   FillFieldSwatch,
 } from "../inspector/color-picker-fill-field";
+import type { RenderNestedColorPicker } from "../inspector/color-picker-nested";
 import {
   findToken,
   parseVarReference,
   resolveVarColor,
   tokenVarCss,
 } from "../inspector/color-picker-tokens";
+import { inferPaintType } from "../inspector/DesignColorPicker";
 import {
   fillFieldEditText,
   fillPaintName,
@@ -43,6 +53,13 @@ import {
   findFillShader,
   type GlslShaderPanelContext,
 } from "../inspector/GlslShaderPanel";
+import { InspectorControlPopoverContent } from "../inspector/InspectorControlPopover";
+import { nativeCatalogDefinitionKey } from "../inspector/native-catalog-display";
+import {
+  NativeShaderPanel,
+  persistNativeShaderEdit,
+  selectedNativeInstances,
+} from "../inspector/NativeShaderPanel";
 import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
 import { useDesignColorTokenSource } from "./design-color-tokens";
@@ -189,6 +206,7 @@ export function FillProperties({
   breakpointOverrideContext,
   hideAddFill = false,
   cancelOpacityGestureOnHistoryUndo = false,
+  allowDesignHistoryHotkeys = false,
   onAddFill,
   capturedStyleTargets,
   readSubtreeColorStyles,
@@ -212,6 +230,7 @@ export function FillProperties({
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   hideAddFill?: boolean;
   cancelOpacityGestureOnHistoryUndo?: boolean;
+  allowDesignHistoryHotkeys?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
   readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
@@ -250,6 +269,97 @@ export function FillProperties({
         ? null
         : findFillShader(glslShaderContext),
     [glslShaderContext, isTextFillElement, isVectorFillElement],
+  );
+  const isNativeVectorFillElement =
+    isVectorFillElement &&
+    element.tagName.toLowerCase() === "svg" &&
+    Boolean(glslShaderContext?.fileId) &&
+    !glslShaderContext?.editSource;
+  const nativeFill = useMemo(
+    () =>
+      (isVectorFillElement && !isNativeVectorFillElement) || isTextFillElement
+        ? { instances: [], definitions: [], errors: [] }
+        : selectedNativeInstances(
+            glslShaderContext?.content,
+            glslShaderContext?.nodeId,
+            "fill",
+            glslShaderContext?.selector,
+          ),
+    [
+      glslShaderContext?.content,
+      glslShaderContext?.nodeId,
+      glslShaderContext?.selector,
+      isTextFillElement,
+      isVectorFillElement,
+      isNativeVectorFillElement,
+    ],
+  );
+  const nativeFillInstances = nativeFill.instances;
+  const nativeFillRows = [...nativeFillInstances].reverse();
+  const [nativeAddOpen, setNativeAddOpen] = useState(false);
+  const [nativeControlsOpenId, setNativeControlsOpenId] = useState<
+    string | null
+  >(null);
+  const [nativeBusyId, setNativeBusyId] = useState<string | null>(null);
+  const editNativeFill = async (
+    instanceId: string,
+    operation: Parameters<typeof persistNativeShaderEdit>[1],
+  ) => {
+    if (!glslShaderContext) return;
+    setNativeBusyId(instanceId);
+    try {
+      await persistNativeShaderEdit(glslShaderContext, operation);
+      if (operation.kind === "remove") setNativeControlsOpenId(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editPanel.shaders.saveFailed"),
+      );
+    } finally {
+      setNativeBusyId(null);
+    }
+  };
+  const reorderNativeFills = (from: number, to: number) => {
+    const reordered = [...nativeFillRows];
+    const [moved] = reordered.splice(from, 1);
+    if (!moved) return;
+    reordered.splice(to, 0, moved);
+    const canonical = reordered.reverse();
+    const nextIndex = canonical.findIndex(
+      (instance) => instance.id === moved.id,
+    );
+    void editNativeFill(moved.id, {
+      kind: "reorder",
+      instanceId: moved.id,
+      beforeInstanceId: canonical[nextIndex + 1]?.id ?? null,
+    });
+  };
+  const nativeFillDrag = useRowDragReorder(
+    nativeFillRows.length,
+    reorderNativeFills,
+  );
+  const renderNativeColorPicker: RenderNestedColorPicker = (request) => (
+    <DesignColorPicker
+      open
+      anchorElement={request.anchor}
+      onOpenChange={(open) => {
+        if (!open) request.onClose();
+      }}
+      value={request.css}
+      paintType={
+        request.supportedPaintTypes ? inferPaintType(request.css, 100) : "solid"
+      }
+      supportedPaintTypes={request.supportedPaintTypes ?? ["solid"]}
+      maxGradientStops={request.maxGradientStops}
+      showReverseStops={request.showReverseStops}
+      onChange={request.onChange}
+      onChangeComplete={request.onCommit}
+      side="left"
+      restoreOnEscape
+      opaqueSrgb={request.opaqueSrgb}
+      disabled={request.disabled}
+    />
   );
   const fillProperty = isTextFillElement
     ? "color"
@@ -291,6 +401,7 @@ export function FillProperties({
     index: number;
     previousLayerCount: number;
   } | null>(null);
+  const pickerHandoffRef = useRef<{ from: string; to: string } | null>(null);
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
@@ -306,8 +417,11 @@ export function FillProperties({
   const storedPaint = readGradientFillOpacity([
     { color: authoredFillValue ?? renderedFillValue },
   ]);
-  const isHidden = storedPaint.opacity === 0;
-  const fillValue = isHidden ? storedPaint.stops[0]!.color : renderedFillValue;
+  const cssFillHidden = storedPaint.opacity === 0;
+  const isHidden = cssFillHidden;
+  const fillValue = cssFillHidden
+    ? storedPaint.stops[0]!.color
+    : renderedFillValue;
   const backgroundLayers = isVectorFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
@@ -345,16 +459,17 @@ export function FillProperties({
   const hasBaseFill = isOpenPenPath
     ? hasAuthoredFill
     : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
-  const hasVisibleFill = hasBaseFill || hasBackgroundLayer;
-  // A shader is the element's whole fill, not one layer among several: it
-  // covers the others. So a layer offers Shader only when it is the one fill
-  // there is, and picking it takes that layer's place.
+  const hasVisibleFill =
+    hasBaseFill || hasBackgroundLayer || nativeFillInstances.length > 0;
+  // Legacy Shader conversion replaces its CSS paint layer. Keep it out of
+  // the sibling picker when native Fill instances already occupy their own slots.
   const layerShaderContext = useMemo(
     () =>
       glslShaderContext &&
       !isTextFillElement &&
       !isVectorFillElement &&
       !hasBaseFill &&
+      nativeFillInstances.length === 0 &&
       backgroundLayers.length === 1
         ? {
             ...glslShaderContext,
@@ -368,6 +483,7 @@ export function FillProperties({
       isTextFillElement,
       isVectorFillElement,
       hasBaseFill,
+      nativeFillInstances.length,
       backgroundLayers.length,
       fillStashKey,
     ],
@@ -401,6 +517,19 @@ export function FillProperties({
     };
   }
   const layerKeys = layerKeysRef.current.keys;
+  // The base picker stays open until the converted layer's row exists, so an
+  // Escape before the save lands closes it instead of being lost.
+  useEffect(() => {
+    const handoff = pickerHandoffRef.current;
+    if (!handoff) return;
+    if (!layerKeys.some((key) => `${fillStashKey}:${key}` === handoff.to)) {
+      return;
+    }
+    pickerHandoffRef.current = null;
+    setOpenFillPickerKey((current) =>
+      current === handoff.from ? handoff.to : current,
+    );
+  });
   const imageFillUploadScopeKey = JSON.stringify([
     uploadScopeKey ?? null,
     fillStashKey,
@@ -578,6 +707,10 @@ export function FillProperties({
   };
 
   const addFill = () => {
+    if (nativeFillInstances.length > 0 && glslShaderContext && !onAddFill) {
+      setNativeAddOpen(true);
+      return;
+    }
     if (onAddFill) {
       const added = onAddFill();
       if (added === "base") {
@@ -670,12 +803,33 @@ export function FillProperties({
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
           {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
-            <SectionIconButton
-              label={t("editPanel.labels.addFill")}
-              onClick={addFill}
-            >
-              <IconPlus className="size-3.5" />
-            </SectionIconButton>
+            <Popover open={nativeAddOpen} onOpenChange={setNativeAddOpen}>
+              <PopoverAnchor asChild>
+                <span className="inline-flex">
+                  <SectionIconButton
+                    label={t("editPanel.labels.addFill")}
+                    onClick={addFill}
+                  >
+                    <IconPlus className="size-3.5" />
+                  </SectionIconButton>
+                </span>
+              </PopoverAnchor>
+              {nativeFillInstances.length > 0 && glslShaderContext ? (
+                <InspectorControlPopoverContent
+                  title={t("editPanel.shaders.shader")}
+                  icon={<IconWaveSine className="size-4" />}
+                  onClose={() => setNativeAddOpen(false)}
+                  bodyClassName="max-h-[70vh] overflow-y-auto p-0"
+                >
+                  <NativeShaderPanel
+                    context={glslShaderContext}
+                    placement="fill"
+                    catalogOnly
+                    onChanged={() => setNativeAddOpen(false)}
+                  />
+                </InspectorControlPopoverContent>
+              ) : null}
+            </Popover>
           ) : null}
         </>
       }
@@ -695,6 +849,128 @@ export function FillProperties({
         </p>
       ) : hasVisibleFill ? (
         <div className="space-y-2">
+          {nativeFillRows.map((instance, index) => {
+            const definition = nativeFill.definitions.find(
+              (item) =>
+                item.id === instance.definitionId &&
+                item.version === instance.definitionVersion,
+            );
+            const definitionKey =
+              definition && nativeCatalogDefinitionKey(definition);
+            const title = definition
+              ? definitionKey
+                ? t(definitionKey)
+                : definition.name
+              : t("editPanel.shaders.shader");
+            const busy = nativeBusyId === instance.id;
+            return (
+              <Popover
+                key={instance.id}
+                open={nativeControlsOpenId === instance.id}
+                onOpenChange={(open) =>
+                  setNativeControlsOpenId(open ? instance.id : null)
+                }
+              >
+                <InspectorPaintRow
+                  draggable={nativeFillRows.length > 1}
+                  data-native-fill-id={instance.id}
+                  {...nativeFillDrag.getRowProps(index)}
+                >
+                  {nativeFillRows.length > 1 ? (
+                    <InspectorGridCell span={1}>
+                      <RowDragHandle
+                        label={t("editPanel.labels.reorderLayer")}
+                        dropIndicator={
+                          nativeFillDrag.dragIndex != null &&
+                          nativeFillDrag.overIndex === index
+                            ? nativeFillDrag.overIndex >
+                              nativeFillDrag.dragIndex
+                              ? "after"
+                              : "before"
+                            : null
+                        }
+                        {...nativeFillDrag.getHandleProps(index)}
+                      />
+                    </InspectorGridCell>
+                  ) : null}
+                  <InspectorGridCell span={nativeFillRows.length > 1 ? 19 : 20}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-6 w-full min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                      >
+                        <IconWaveSine className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                          {title}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {instance.enabled
+                            ? Math.round(instance.opacity * 100)
+                            : 0}
+                          %
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                  </InspectorGridCell>
+                  <InspectorGridCell span={4} className="flex justify-center">
+                    <SectionIconButton
+                      label={
+                        instance.enabled
+                          ? t("editPanel.labels.hideLayer")
+                          : t("editPanel.labels.showLayer")
+                      }
+                      disabled={busy}
+                      onClick={() =>
+                        void editNativeFill(instance.id, {
+                          kind: "set-instance",
+                          instanceId: instance.id,
+                          enabled: !instance.enabled,
+                        })
+                      }
+                    >
+                      {instance.enabled ? (
+                        <IconEye className="size-3.5" />
+                      ) : (
+                        <IconEyeOff className="size-3.5" />
+                      )}
+                    </SectionIconButton>
+                  </InspectorGridCell>
+                  <InspectorGridCell span={4} className="flex justify-center">
+                    <SectionIconButton
+                      label={t("editPanel.labels.removeLayer")}
+                      disabled={busy}
+                      onClick={() =>
+                        void editNativeFill(instance.id, {
+                          kind: "remove",
+                          instanceId: instance.id,
+                        })
+                      }
+                    >
+                      <IconMinus className="size-3.5" />
+                    </SectionIconButton>
+                  </InspectorGridCell>
+                </InspectorPaintRow>
+                <InspectorControlPopoverContent
+                  title={title}
+                  icon={<IconWaveSine className="size-4" />}
+                  onClose={() => setNativeControlsOpenId(null)}
+                  className="w-[min(320px,calc(100vw-2rem))]"
+                  bodyClassName="max-h-[70vh] overflow-y-auto p-0"
+                >
+                  {glslShaderContext ? (
+                    <NativeShaderPanel
+                      context={glslShaderContext}
+                      placement="fill"
+                      instanceId={instance.id}
+                      showCatalog={false}
+                      showRemoveButton={false}
+                      renderColorPicker={renderNativeColorPicker}
+                    />
+                  ) : null}
+                </InspectorControlPopoverContent>
+              </Popover>
+            );
+          })}
           {hasBaseFill ? (
             <InspectorPaintRow>
               <InspectorGridCell span={20}>
@@ -715,6 +991,7 @@ export function FillProperties({
                       : undefined
                   }
                   {...baseFillLayerProps}
+                  allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
                   open={openFillPickerKey === `${fillStashKey}:base`}
                   onOpenChange={(open) =>
                     setFillPickerOpen(`${fillStashKey}:base`, open)
@@ -750,9 +1027,10 @@ export function FillProperties({
                               index: backgroundLayers.length,
                               previousLayerCount: backgroundLayers.length,
                             };
-                            setOpenFillPickerKey(
-                              `${fillStashKey}:${convertedLayerKey}`,
-                            );
+                            pickerHandoffRef.current = {
+                              from: `${fillStashKey}:base`,
+                              to: `${fillStashKey}:${convertedLayerKey}`,
+                            };
                             commitStylePatch(
                               patch,
                               onStyleChange,
@@ -770,7 +1048,9 @@ export function FillProperties({
                   }
                   supportedPaintTypes={
                     isVectorFillElement
-                      ? ["solid", "linear", "radial"]
+                      ? isNativeVectorFillElement
+                        ? ["solid", "linear", "radial", "shader"]
+                        : ["solid", "linear", "radial"]
                       : isTextFillElement
                         ? TEXT_BASE_PAINT_TYPES
                         : undefined
@@ -787,7 +1067,9 @@ export function FillProperties({
                     fillProperty,
                   ].join(":")}
                   glslShaderContext={
-                    isVectorFillElement || isTextFillElement
+                    (isVectorFillElement && !isNativeVectorFillElement) ||
+                    isTextFillElement ||
+                    nativeFillInstances.length > 0
                       ? undefined
                       : glslShaderContext
                   }
@@ -823,7 +1105,7 @@ export function FillProperties({
                       return;
                     }
                     commitStylePatch(
-                      removeBaseFillPatch(fillProperty),
+                      removeBaseFillPatch(fillProperty, element.inlineStyles),
                       onStyleChange,
                       onStylesChange,
                     );

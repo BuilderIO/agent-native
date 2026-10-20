@@ -48,6 +48,27 @@ export interface MotionCompileOptions {
   easingVariables?: readonly MotionEasingVariable[];
 }
 
+/** Position tracks repeated on one node compose only as additive px moves. */
+export function hasIncompatibleRepeatedPositionTracks(
+  tracks: readonly MotionTrack[],
+): boolean {
+  const positionTrackCounts = new Map<string, number>();
+  for (const track of tracks) {
+    if (track.property !== "translate" || !track.keyframes?.length) continue;
+    positionTrackCounts.set(
+      track.targetNodeId,
+      (positionTrackCounts.get(track.targetNodeId) ?? 0) + 1,
+    );
+  }
+  return tracks.some(
+    (track) =>
+      track.property === "translate" &&
+      (positionTrackCounts.get(track.targetNodeId) ?? 0) > 1 &&
+      (!isAdditiveMotionPositionTrack(track) ||
+        track.composition === "replace"),
+  );
+}
+
 export function compile(
   timeline: MotionTimeline,
   options: MotionCompileOptions = {},
@@ -116,17 +137,10 @@ export function compile(
     const key = JSON.stringify([track.targetNodeId, track.property]);
     duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
   }
-  for (const track of identifiedTracks) {
-    const key = JSON.stringify([track.targetNodeId, track.property]);
-    if (
-      track.property === "translate" &&
-      (duplicateCounts.get(key) ?? 0) > 1 &&
-      (!isAdditiveMotionPositionTrack(track) || track.composition === "replace")
-    ) {
-      throw new Error(
-        "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
-      );
-    }
+  if (hasIncompatibleRepeatedPositionTracks(identifiedTracks)) {
+    throw new Error(
+      "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
+    );
   }
   const sorted = tracks
     .map((track, index) => ({ track, index }))

@@ -20,6 +20,7 @@ import { authoredStyleValue } from "./interaction-state-helpers";
 import {
   colorHasVisibleAlpha,
   cssLengthNumber,
+  insideStrokeBoxSizing,
   readTextStrokeStyle,
   strokeIsVisible,
 } from "./position-helpers";
@@ -91,6 +92,7 @@ export function swapFillStrokePatch(
         ? styles.outlineWidth
         : "1px";
     patch.borderStyle = borderExists ? styles.borderStyle : "solid";
+    if (!borderExists) Object.assign(patch, insideStrokeBoxSizing(styles));
   } else {
     patch.borderWidth = "0px";
     patch.borderStyle = "none";

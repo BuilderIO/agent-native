@@ -23,6 +23,7 @@ import {
   MAX_SANE_FRAME_DIMENSION_PX,
 } from "@shared/responsive-frame-layout";
 import { sourceContentHash } from "@shared/source-workspace";
+import type { QueryClient } from "@tanstack/react-query";
 import {
   useState,
   useEffect,
@@ -263,6 +264,20 @@ export function acknowledgeFrameGeometryRestoreClaims(
   );
 }
 
+/**
+ * Call once a write's operations stop being rebased onto server reads: a read
+ * still in flight may have been served before the write and would undo it.
+ */
+export function discardDesignReadsInFlight(
+  queryClient: QueryClient,
+  designId: string,
+): void {
+  const queryKey = ["action", "get-design", { id: designId }];
+  if (queryClient.isFetching({ queryKey }) === 0) return;
+  void queryClient.cancelQueries({ queryKey });
+  void queryClient.invalidateQueries({ queryKey });
+}
+
 export function useEditorActiveScreenAndGeometry({
   editorCore,
   editorHistory,
@@ -384,6 +399,7 @@ export function useEditorActiveScreenAndGeometry({
     canvasZoom?: number;
     nonce: number;
     paddingScreenPx?: number;
+    revealOnly?: boolean;
   } | null>(null);
   const cameraCommandNonceRef = useRef(0);
   const screenZoomByIdRef = useRef<Map<string, number>>(new Map());
@@ -636,6 +652,7 @@ export function useEditorActiveScreenAndGeometry({
                 pendingFrameGeometryOperationsForUnloadRef.current,
                 revision,
               );
+            discardDesignReadsInFlight(queryClient, id);
             await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
           } catch (error: unknown) {
             const restoreClaims = Array.isArray(
@@ -1722,10 +1739,13 @@ export function useEditorActiveScreenAndGeometry({
   const activeOverviewFrameWidth = overviewZoomBasisScreenId
     ? displayedCanvasFrameGeometryById[overviewZoomBasisScreenId]?.width
     : undefined;
-  const overviewZoomScale = getOverviewZoomScale({
-    frameWidth: activeOverviewFrameWidth,
-    sourceWidth: activeOverviewSourceWidth,
-  });
+  // With no screen to measure, the board's own pixels are the displayed zoom.
+  const overviewZoomScale = overviewZoomBasisScreenId
+    ? getOverviewZoomScale({
+        frameWidth: activeOverviewFrameWidth,
+        sourceWidth: activeOverviewSourceWidth,
+      })
+    : 1;
   const overviewZoomScaleRef = useRef(overviewZoomScale);
 
   useEffect(() => {

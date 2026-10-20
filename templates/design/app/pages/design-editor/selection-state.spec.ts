@@ -571,6 +571,7 @@ describe("shouldEscapeToOverview", () => {
     mode: "edit" as const,
     pinMode: false,
     selectedElement: null,
+    selectedLayerIds: [],
     viewMode: "single" as const,
   };
 
@@ -592,6 +593,12 @@ describe("shouldEscapeToOverview", () => {
           sourceId: "n1",
           selector: ".card",
         } as unknown as (typeof base)["selectedElement"],
+      }),
+    ).toBe(false);
+    expect(
+      shouldEscapeToOverview({
+        ...base,
+        selectedLayerIds: ["created-layer"],
       }),
     ).toBe(false);
   });

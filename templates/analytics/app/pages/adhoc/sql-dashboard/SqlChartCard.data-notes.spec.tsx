@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
   chart: null as null | ((props: { panel: unknown }) => null),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (name: string) => ({
     data:
       name === "list-data-notes" && mocks.dataNotesLoaded
@@ -24,11 +25,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   sendToAgentChat: vi.fn(),
 }));
 

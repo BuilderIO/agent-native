@@ -33,6 +33,7 @@ export {
   listWorkspaceConnectionsForApp,
   markWorkspaceConnectionUsed,
   resolveWorkspaceConnectionForApp,
+  resolveWorkspaceConnectionsForApp,
   revokeWorkspaceConnectionGrant,
   normalizeWorkspaceConnectionAllowedUsers,
   serializeWorkspaceConnectionGrant,

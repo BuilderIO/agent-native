@@ -33,8 +33,11 @@ export default defineAction({
     "Export one Design screen as a PNG image. Pass fileId, or pass designId " +
     "and filename, to choose the screen. Returns a durable image URL; MCP " +
     "callers also receive an inline PNG preview when it fits the image limit. " +
-    "The screen is rendered " +
-    "at 1440px wide by default and full-page height.",
+    "Screens with enabled native WebGPU effects require the foreground " +
+    "request-native-local-export action in an open editor tab; this " +
+    "headless action fails typed for those screens rather than returning " +
+    "pixels without the effect. Other screens render at 1440px wide " +
+    "by default and full-page height.",
   schema: z
     .object({
       designId: z

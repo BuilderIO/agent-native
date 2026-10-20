@@ -166,8 +166,7 @@ function textToolButton(page: Page) {
   return page.locator('button[aria-label="Text"]').first();
 }
 
-// fixme: fails on current main after the merge: Error: expect(locator).toContainText(expected) failed
-test.fixme("board target: text tool click then immediate typing is captured and layer is named", async ({
+test("board target: text tool click then immediate typing is captured and layer is named", async ({
   app,
   page,
 }) => {
@@ -305,8 +304,7 @@ test("single-screen control: text tool click then immediate typing still works",
   expectOnlyChanged(before, await app.savedNodes(designId), [created.id!]);
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toContainText(expected) failed
-test.fixme("board target: abandoning a creation by pointing away, then creating another", async ({
+test("board target: abandoning a creation by pointing away, then creating another", async ({
   app,
   page,
 }) => {
@@ -381,8 +379,7 @@ test.fixme("board target: abandoning a creation by pointing away, then creating 
   );
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toContainText(expected) failed
-test.fixme("board target: two committed text creations in a row keep their own text and names", async ({
+test("board target: two committed text creations in a row keep their own text and names", async ({
   app,
   page,
 }) => {
@@ -435,8 +432,7 @@ test.fixme("board target: two committed text creations in a row keep their own t
   ]);
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toBe(expected) // Object.is equality
-test.fixme("board target: Escape right after typing keeps the text, with nothing typed removes the node", async ({
+test("board target: Escape right after typing keeps the text, with nothing typed removes the node", async ({
   app,
   page,
 }) => {
@@ -486,8 +482,7 @@ test.fixme("board target: Escape right after typing keeps the text, with nothing
   ).toEqual([["Sta", "Sta"]]);
 });
 
-// fixme: fails on current main after the merge: Error: The app reported failures during this test
-test.fixme("board target: the FIRST creation on an unmounted board, escaped with nothing typed, leaves no node", async ({
+test("board target: the FIRST creation on an unmounted board, escaped with nothing typed, leaves no node", async ({
   app,
   page,
 }) => {
@@ -527,8 +522,7 @@ test.fixme("board target: the FIRST creation on an unmounted board, escaped with
     .toBe(0);
 });
 
-// fixme: fails on current main after the merge: Error: The app reported failures during this test
-test.fixme("board target: undo before the board canvas mounts leaves no node and swallows no shortcut", async ({
+test("board target: undo before the board canvas mounts leaves no node and swallows no shortcut", async ({
   app,
   page,
 }) => {

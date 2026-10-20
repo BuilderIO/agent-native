@@ -1,0 +1,649 @@
+---
+title: "Chat: 開発者ガイド"
+description: "クイックスタート、action 一覧、データモデル、action の実例、ルート リファレンス、そして Chat テンプレートに最初の機能を追加する方法。"
+---
+
+# 開発者ガイド
+
+このページは、Chat テンプレートを動かしたり拡張したりする開発者のためのものです。
+クイックスタート、組み込みのすべての action、データモデル、action の実例、ルート、
+そして最初の機能の追加方法を扱います。アプリが何をするかについては
+[Chat](/docs/template-chat) を参照してください。
+
+## クイックスタート {#quick-start}
+
+何もインストールされていない状態から、エージェントとのライブの会話までを通して
+Chat を動かす手順を説明します。macOS の Terminal でも Windows の
+PowerShell/コマンド プロンプトでも、コマンドは同一です。単純な
+Node.js のツール群だからです。
+
+<Steps>
+
+### アプリを作成する
+
+```bash
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+corepack enable
+pnpm install
+```
+
+これには [Node.js](https://nodejs.org) 22.22 以降が必要です。`pnpm` が `PATH` に
+ない場合は、生成されたアプリで `corepack enable` を実行してください。Node.js をまだ
+インストールしていない場合は、[はじめに](/docs/getting-started) を参照してください。
+
+### 開発サーバーを起動する
+
+```bash
+pnpm dev
+```
+
+アプリは、`pnpm dev` が表示するローカル URL で開きます。自動的に開かない場合は、
+その URL をブラウザで開いてください。8080 がすでに使用中の場合は、ポートが変わる
+ことがあります。
+
+### サインインして LLM を接続する
+
+Welcome 画面で **Continue as local dev** を選択します。ローカル開発ではメール
+アドレスもパスワードも不要です。次に LLM を接続します。無料クレジットを使うには
+**Builder.io を使用** を、お持ちのモデル プロバイダーのキーを使うには
+**Add your own keys** を選択します。Chat にはシードするドメイン データがないため、
+LLM を接続すれば、チャットを始める前にほかに設定するものはありません。
+
+</Steps>
+
+Chat はブラウザ UI 向けに作られています。スケジュール ジョブ、キュー、CLI ループ、
+外部エージェントのワークフローなど、画面のないエージェントが必要な場合は、
+代わりに `--headless` でスキャフォールドしてください。
+
+```bash
+npx --yes @agent-native/core@latest create my-agent --headless
+```
+
+重要な考え方は変わりません。actions は、チャット、UI、HTTP、MCP、A2A、CLI に共通の
+サーフェスです。この道筋の詳細は [オートメーション ファースト アプリ](/docs/pure-agent-apps)
+を参照してください。
+
+## Action 一覧 {#actions}
+
+すべての操作は `actions/` 内の TypeScript ファイルで、action が `http: false` を
+設定していない限り、`POST /_agent-native/actions/:name` に自動的にマウントされます。
+
+| Action                 | 内容                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `hello`                | サンプル action。あいさつを返します。置き換えるか、隣に action を追加してください。 |
+| `view-screen`          | 標準のコンテキスト action。現在のビューをエージェントに読み返します。               |
+| `navigate`             | 標準のナビゲーション action。UI をルートに移動します。                              |
+| `provider-api-request` | 接続された Slack ワークスペースを通じて Slack Web API を呼び出します。              |
+
+### チャット ランタイム {#chat-runtime}
+
+`server/plugins/agent-chat.ts` は、チャット ランタイムを設定する場所です。次の
+4 つを行います。
+
+- `loadActionsFromStaticRegistry` で、`actions/` 内のすべての action を呼び出し可能な
+  ツールとして登録します。
+- `resolveOrgId` で、スコープ設定のために現在の組織を解決します。
+- システム プロンプトを設定します。
+- `initialToolNames` で、最初のターンでモデルに見えるツールを宣言します。
+
+### action がツールになる仕組み {#actions-as-tools}
+
+すべての `defineAction` は、既定でツールになります。action を画面からは使えるまま
+エージェントからは隠したい場合は、`agentTool: false` を設定してください。
+
+### モデルが最初に見るもの {#initial-tools}
+
+`INITIAL_TOOL_NAMES` には `view-screen`、`navigate`、`hello`、
+`provider-api-request` が並んでいます。最初のターンで送られるツールはこれだけです。
+追加した action を含め、それ以外はすべて `tool-search` を通じて利用でき、必要に応じて
+読み込まれます。
+
+最初のメッセージからモデルの既定のツールセットにその action を入れたい場合にだけ、
+そのリストに名前を追加してください。
+
+## データモデル {#data-model}
+
+Chat には独自のテーブルがありません。自分で追加するまで `server/db/schema.ts`
+もありません。アプリは、チャット スレッドとメッセージ、アプリケーション状態、
+設定、セッション、リソース、実行履歴のためのフレームワークのコア テーブル上で
+動作します。これらはフレームワークのものなので、編集しないでください。接続モデルと
+新しいデータの置き場所については [データベース](/docs/server-database) を参照して
+ください。
+
+`useDbSync()` はすでにアプリ シェルに組み込まれています。エージェントや他の誰かが
+SQL に書き込むと、クライアントは SSE、または 2 秒間隔のポーリング フォールバックで
+その変更を受け取り、対応する React Query のキャッシュを無効化します。フックの API の
+詳細は [`useDbSync`](/docs/client-data#usedbsync) を参照してください。
+
+最初のテーブルは新しいファイルです。[最初の機能を追加する](#first-feature) を参照してください。
+
+## 認証 {#auth}
+
+認証は Better Auth で動作します。ログイン、サインアップ、セッション、組織があります。Chat は `server/plugins/auth.ts` で `createToolkitAuthPlugin` を使って設定しています。このファイルは `/` を公開にしてサインインのランディングを読み込めるようにし、`marketing: false` を設定しているので、サインイン ページにマーケティング文言はありません。アプリ名、キャッチコピー、機能の箇条書きを表示したい場合は、代わりに `marketing` オブジェクトを渡します。ローカルでも本番でも同じフローが動きますが、開発ではメール認証をスキップするので、すぐにサインアップして構築を始められます。認証モデルの全体 (セッション、組織、保護されたルート) については [認証](/docs/authentication) を参照してください。
+
+## ルート リファレンス {#routes}
+
+アプリはファイル システム ルーティング (`app/routes.ts` の `flatRoutes()`) を使うため、
+ルート ファイルを追加するだけでマウントされます。
+
+<FileTree
+  id="doc-block-chat3"
+  title="Chat テンプレートのルートとコンポーネント"
+  entries={[
+    {
+      path: "app/routes/_index.tsx",
+      note: "/: 共有のサインイン ページ。その後 /home へ進みます",
+    },
+    {
+      path: "app/routes/home.tsx",
+      note: "/home: Get started ページ。app/components/home/HomePage.tsx でレンダリングされます",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat: 新しいチャットを開始し、/chat/:threadId に引き継ぎます",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "/chat/:threadId: そのスレッド用に ChatRouteContent をレンダリングします",
+    },
+    {
+      path: "app/routes/settings.tsx",
+      note: "/settings と /settings/*: アカウント、接続、エージェント、組織のページ",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "/agent: Settings 内のエージェント ページにリダイレクトします",
+    },
+    {
+      path: "app/routes/team.tsx",
+      note: "/team: /settings/organization にリダイレクトします",
+    },
+    {
+      path: "app/routes/database.tsx",
+      note: "/database: テーブルのブラウザーとエディター",
+    },
+    {
+      path: "app/routes/observability.tsx",
+      note: "/observability: エージェントのトレース、コスト、評価、フィードバック",
+    },
+    {
+      path: "app/routes/extensions._index.tsx",
+      note: "/extensions: /settings/extensions にリダイレクトします。このページは Extensions をオンにした場合にだけ存在します",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "/extensions/:id (および /extensions/:id/:slug): 保存された拡張機能を 1 つ実行します",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "フルページのチャット サーフェス。空の状態、コンポーザー、メッセージのスロットはここで編集します",
+    },
+    {
+      path: "app/components/layout/Sidebar.tsx",
+      note: "サイドバー。ホーム、スレッド一覧、組織スイッチャー",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "チャットとホームの URL 用のパス ヘルパー",
+    },
+  ]}
+/>
+
+**Database** (`/database`) は、すべてのテンプレートに付属するものと同じ
+`DbAdminPage` です。アプリの SQL データベースに対する、直接的なテーブル ブラウザー
+兼エディターです。その背後にある接続モデルについては
+[データベース](/docs/server-database) を参照してください。
+
+**Observability** (`/observability`) は、すべてのテンプレートに付属するものと同じ、
+設定不要の `ObservabilityDashboard` です。あなた自身のデータベースにすでにある
+データから計算された、すべてのエージェント実行のトレース、コスト、評価、
+フィードバックを表示します。[エージェントの可観測性](/docs/observability) を
+参照してください。
+
+**拡張機能** は、サンドボックス化された Alpine.js のミニアプリです。Chat は、それらを
+表示して実行するルート (`/extensions/:id`) をマウントし、`/extensions` を
+`/settings/extensions` にリダイレクトします。Chat では Extensions が 2 か所でオフになっています。
+Settings のページは、`app/routes/settings.tsx` が `useAgentSettingsTabs()` に
+`extensionTools: true` を渡した場合にだけ表示されます。エージェントが拡張機能を作成できるのは、
+`server/plugins/agent-chat.ts` で `frameworkTools.extensions` をオンにした場合だけです。
+できることとできないことについては [拡張機能](/docs/extensions) を参照してください。
+
+## カスタマイズする {#customizing}
+
+アプリのすべての部分は編集可能なソースです。ここから始めてください。
+
+- `actions/`: `defineAction` を使った新しいファイルを追加して、エージェントと
+  フロントエンドの両方に新しい action を公開します。
+- `app/routes/`: UI です。ルート ファイルを追加してページをマウントします。
+- `server/db/schema.ts`: コア テーブルでは足りなくなったら、Drizzle で自分のテーブルを
+  追加します。ローカルの PGlite とホスト型の Postgres で同じセマンティクスになるよう、
+  コードは PostgreSQL 対応にしてください。
+- `AGENTS.md`: エージェントへの指示。エージェントに新しい action や規則を教える
+  ときはこれを更新してください。
+- `.agents/skills/`: エージェントが従う詳細なパターン。
+
+機能を追加する場合は、UI、action、skill または `AGENTS.md` のエントリ、そして
+エージェントが確認する必要のあるアプリケーション状態という 4 つの領域すべてを
+更新することを忘れないでください。それが、エージェントと UI を同等に保つ理由です。
+
+### チャット ルート {#chat-route}
+
+`app/components/chat/ChatRouteContent.tsx` は、`/chat/<threadId>` でフルページの
+チャットをレンダリングします。チャット サーフェスは AgentKit の部品、つまり
+トランスポート、スレッド ルート、チャット ビューから組み立てられています。その文言は
+リテラル文字列ではなく i18n キーから来ます。実際のファイルはもっと長く、ここは最も
+よく編集する部分です。
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/components/chat/ChatRouteContent.tsx (抜粋)"
+  filename="app/components/chat/ChatRouteContent.tsx"
+  language="tsx"
+  code={
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "15-21",
+      label: "トランスポート",
+      note: "`createAgentNativeAgentKitTransport` は、チャット ビューをアプリのエージェント ランタイムに接続します。`TAB_ID` (`app/lib/tab-id.ts`、ブラウザーのタブごとに 1 回生成されるランダムな id) により、ランタイムは同じアプリの開いているタブを区別でき、あるタブで開始された実行が別のタブのものと取り違えられることがありません。",
+    },
+    {
+      lines: "25-30",
+      label: "スレッド ルート",
+      note: "`CoreAgentKitRoot` は、`/chat/:threadId` (`chat.$threadId.tsx`) で指定されたスレッドを読み込みます。`/chat` にアクセスすると新しいスレッド id が作られ、ここに引き継がれます。スレッドがフォークされると、`chatThreadPath` が URL を新しいスレッドに移動します。",
+    },
+    {
+      lines: "29",
+      label: "スロット",
+      note: "スロットは、チャット ビューの一部を置き換えます。実際のファイルは、復旧メッセージ、MCP 接続カード、エージェント フッター用に、`message`、`runFailure`、`connectionRequest`、`footer` のスロットも渡します。",
+    },
+    {
+      lines: "32-35",
+      label: "中央寄せのコンポーザー",
+      note: '`emptyComposerPlacement="center"` は、スレッドにメッセージができるまでコンポーザーを中央に配置します。`requireAgentEngine` は、モデルが接続されるまで Connect AI カードを表示します。',
+    },
+    {
+      lines: "40-47",
+      label: "空の状態",
+      note: "中央寄せのコンポーザーの上の見出しです。その文言は `app/i18n/en-US.ts` の `chat.heroTitle` です。カタログを編集してキャッチコピーを変更するか、ここに要素を追加してください。",
+    },
+  ]}
+/>
+
+### 独自のエージェント バックエンドを使う {#own-agent-backend}
+
+このテンプレートは、既定で組み込みのアプリ エージェント ループを使います。カスタム
+バックエンドを接続するには、UI を書き直す代わりに、エージェント チャット プラグインの
+背後にあるチャット ランタイムを差し替えてください。チャット ルートは共有の
+チャット サーフェスを囲む薄いレンダラーにとどめ、バックエンドの選択はサーバー
+プラグインとランタイム アダプターに置きます。
+
+モデルのオーケストレーションがすでに別の場所にあっても、認証、スレッド、actions、
+UI 状態、デプロイ可能なページを備えたアプリが欲しい場合に使ってください。ランタイムの
+選択肢については [ネイティブ チャット UI](/docs/native-chat-ui#byo-agent-runtimes) を
+参照してください。
+
+## 最初の機能を追加する {#first-feature}
+
+ほとんどの最初の機能は同じ形をしています。テーブル、1 つか 2 つの actions、ページ、
+ナビゲーション エントリ、そして `AGENTS.md` の更新です。このセクションでは、メモ機能を
+4 つのパートで構築し、各ファイルの完全なコードを示します。エージェントにそのすべてを
+任せることもできます。
+
+> `notes` のデータモデルを追加して。メモには id、タイトル、本文、所有者がある。`/notes` にメモのページを表示し、作成と一覧の actions を追加して、チャットでもメモを作成できるようにして。
+
+### 1. データ レイヤーを追加する
+
+Chat には `server/db` フォルダーがないため、ここにある 3 つのファイルはすべて新規です。
+
+スキーマがテーブルを定義します。`ownableColumns()` は所有者、組織、公開範囲の列を
+追加し、`createSharesTable()` は共有用の対応するテーブルを追加します。
+
+```ts filename="server/db/schema.ts"
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import {
+  createSharesTable,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  ...ownableColumns(),
+});
+
+export const noteShares = createSharesTable("note_shares");
+```
+
+データベース クライアントは、actions に `getDb()` を提供し、メモを共有システムに
+登録します。メモには詳細ページがないので、共有リンクは一覧を指します。
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+
+registerShareableResource({
+  type: "note",
+  resourceTable: schema.notes,
+  sharesTable: schema.noteShares,
+  displayName: "Note",
+  titleColumn: "title",
+  getResourcePath: () => "/notes",
+  getDb,
+});
+```
+
+マイグレーションは、アプリの起動時にテーブルを作成します。後の変更には新しい
+エントリを追加し、すでに実行されたものは編集しないでください。
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "notes",
+      sql: `CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now()),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
+);
+CREATE TABLE IF NOT EXISTS note_shares (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (now()),
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_owner_org_idx ON notes (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS note_shares_resource_idx ON note_shares (resource_id, principal_type, principal_id)`,
+    },
+  ],
+  { table: "notes_app_migrations" },
+);
+```
+
+### 2. actions を追加する
+
+各 action は `actions/` 内のファイルで、ファイル名がツール名になります。エージェントと
+あなたのページは、同じ 2 つの actions を呼び出します。
+
+`create-note` は、サインインしているユーザーを所有者として記録します。メモは、組織が
+アクティブな場合はその組織に表示され、そうでない場合は作成者だけに表示されます。
+
+```ts filename="actions/create-note.ts"
+import { defineAction, fail } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description:
+    "Create a note with a title and body. It is visible to the organization when one is active, otherwise only to its creator.",
+  schema: z.object({
+    title: z.string().min(1).describe("Short title for the note"),
+    body: z.string().describe("Full text of the note"),
+  }),
+  run: async (args, ctx) => {
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create notes.", { statusCode: 401 });
+    const orgId = ctx?.orgId ?? null;
+    const note = {
+      id: crypto.randomUUID(),
+      title: args.title,
+      body: args.body,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? ("org" as const) : ("private" as const),
+    };
+    await getDb().insert(schema.notes).values(note);
+    return { id: note.id, title: note.title };
+  },
+});
+```
+
+`list-notes` は読み取り専用で、`accessFilter` が結果を現在のユーザーが閲覧できる
+メモに限定します。
+
+```ts filename="actions/list-notes.ts"
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the notes the current user can see, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async () => {
+    const { notes, noteShares } = schema;
+    const rows = await getDb()
+      .select({
+        id: notes.id,
+        title: notes.title,
+        body: notes.body,
+        createdAt: notes.createdAt,
+      })
+      .from(notes)
+      .where(accessFilter(notes, noteShares))
+      .orderBy(desc(notes.createdAt))
+      .limit(200);
+    return { notes: rows };
+  },
+});
+```
+
+新しい action は、作られた時点でチャットから呼び出せます。モデルの既定のツールセットに
+入れたい場合は、[モデルが最初に見るもの](#initial-tools) を参照してください。
+
+### 3. ページとサイドバーのリンクを追加する
+
+アプリはファイル システム ルーティングを使うため、このファイルを追加すると `/notes` が
+マウントされます。ページは `useActionQuery()` と `useActionMutation()` で、エージェントと
+同じ actions を呼び出し、ミューテーションが成功すると一覧は自動的に更新されます。
+
+```tsx filename="app/routes/notes.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APP_TITLE } from "@/lib/app-config";
+
+export function meta() {
+  return [{ title: `Notes - ${APP_TITLE}` }];
+}
+
+export default function NotesRoute() {
+  useSetPageTitle("Notes");
+  const { data, isLoading } = useActionQuery("list-notes");
+  const createNote = useActionMutation("create-note", {
+    onError: (error) => toast.error(error.message),
+  });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    createNote.mutate(
+      { title, body },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setBody("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Title"
+          required
+        />
+        <Input
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a note"
+        />
+        <Button type="submit" disabled={createNote.isPending}>
+          Add note
+        </Button>
+      </form>
+      <ul className="flex flex-col gap-2">
+        {isLoading && (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        )}
+        {data?.notes.map((note) => (
+          <li key={note.id} className="rounded-lg border p-3">
+            <p className="font-medium">{note.title}</p>
+            <p className="text-sm text-muted-foreground">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+`app/components/layout/Sidebar.tsx` で、既存の `@tabler/icons-react` のインポートに
+`IconNotes` を追加します。次に、`HomeNavLink` の下にこのコンポーネントを追加します。
+折りたたまれたサイドバーを含め、同じパターンに従います。
+
+```tsx filename="app/components/layout/Sidebar.tsx"
+function NotesNavLink({ collapsed }: { collapsed: boolean }) {
+  const location = useLocation();
+  const active = location.pathname.startsWith("/notes");
+  const link = (
+    <Link
+      to="/notes"
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? "Notes" : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconNotes className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>Notes</span>
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">Notes</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
+}
+```
+
+次に、サイドバーの `<nav>` の中で、スレッド一覧の前にこれをレンダリングします。
+
+```diff filename="app/components/layout/Sidebar.tsx"
+ <HomeNavLink collapsed={collapsed} />
++<NotesNavLink collapsed={collapsed} />
+ <ChatThreadsSection collapsed={collapsed} />
+```
+
+Chat 自身のラベルは翻訳ファイルから来るため、リテラルの "Notes" は近道です。アプリを
+ローカライズする場合は、代わりに `app/i18n/en-US.ts` にキーを追加し、`useT()` で
+読み取ってください。[国際化](/docs/internationalization) を参照してください。
+
+### 4. エージェントに知らせる
+
+`app/hooks/use-navigation-state.ts` は、現在のビューをエージェントに報告し、ビュー名を
+パスに対応付けます。この 2 つの編集がないと、エージェントは Notes ページを `chat` として
+認識し、「Notes を開いて」と頼んでもそこへ移動できません。
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+次に `AGENTS.md` に短いセクションを追加して、メモが存在すること、どの actions が管理するかを
+エージェントに知らせます。ランタイム プロンプトはこのファイルを 6,000 文字で切り捨てる
+ため、簡潔にしてください。
+
+```md filename="AGENTS.md"
+## Notes
+
+Notes live at `/notes`. Each note has a title and a body. A note is visible to
+the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
+
+| Action        | Purpose                             |
+| ------------- | ----------------------------------- |
+| `list-notes`  | List the notes the user can see     |
+| `create-note` | Create a note with a title and body |
+```
+
+`pnpm dev` を再起動して、新しい actions とマイグレーションを読み込みます。その後、
+**Notes** ページでメモを追加し、チャットに「Groceries という名前で、milk と eggs の
+メモを作成して」と頼んでください。どちらのメモも一覧に表示されます。
+
+## 次は何ですか
+
+- [**Chat**](/docs/template-chat): 既定で何が付属し、誰のためのものか
+- [**機能**](/docs/template-chat-features): 会話、サンプル action、チーム、管理ページ
+- [**Actions**](/docs/actions-overview): このテンプレートが構築されている action システム
+- [**ネイティブ チャット UI**](/docs/native-chat-ui): チャット サーフェスのプリミティブとランタイムの選択肢
+- [**データベース**](/docs/server-database): PostgreSQL の接続とフレームワークのデータモデル
+- [**エージェントの可観測性**](/docs/observability): ダッシュボードが追跡するものとその方法
+- [**拡張機能**](/docs/extensions): テンプレート内でミニアプリを構築する
+- [**認証**](/docs/authentication): セッション、組織、保護されたルート

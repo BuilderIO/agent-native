@@ -315,6 +315,7 @@ describe("analytics alert evaluation", () => {
     expect(firstPartyMocks.query).toHaveBeenCalledWith(
       expect.stringContaining("JSON_VALUE(properties, '$.status') = 'errored'"),
       { userEmail: "owner@example.test", orgId: "org-1" },
+      { eventsSource: "raw", maxBytesBilled: 50_000_000_000 },
     );
   });
 
@@ -477,6 +478,12 @@ describe("analytics alert evaluation", () => {
     expect(result.status).toBe("ok");
     expect(result.observedValue).toBe(1);
     expect(firstPartyMocks.query).toHaveBeenCalledTimes(2);
+    for (const call of firstPartyMocks.query.mock.calls) {
+      expect(call[2]).toEqual({
+        eventsSource: "raw",
+        maxBytesBilled: 50_000_000_000,
+      });
+    }
     expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
       "TIMESTAMP('2026-08-31T12:00:00.123456Z')",
     );
@@ -602,22 +609,29 @@ describe("analytics alert evaluation", () => {
       ),
       "utf8",
     );
-    const retentionSource = source.slice(
-      source.indexOf("function emitRetentionScheduledTrigger"),
+    const retentionJob = source.slice(
+      source.indexOf("const RETENTION_JOB"),
+      source.indexOf("const CONTENT_METRICS_JOB"),
     );
 
     expect(source).toContain('const RETENTION_SCHEDULE = "0 3 * * *";');
     expect(source).toContain(
       'const RETENTION_ROUTE_PATH = "/api/session-replay/retention";',
     );
-    expect(source).toContain("emitRetentionScheduledTrigger(retentionToken)");
-    expect(source).toContain("emitRetentionBackgroundWorker(retentionToken)");
-    expect(retentionSource).toContain(
-      '"x-agent-native-session-replay-retention-cron": CRON_TOKEN',
+    expect(source).toContain(
+      "emitDailyScheduledTrigger(RETENTION_JOB, retentionToken)",
     );
-    expect(retentionSource).toContain(
-      "globalThis.__AGENT_NATIVE_SESSION_REPLAY_RETENTION_SCHEDULED_RUNTIME__ = true",
+    expect(source).toContain(
+      "emitDailyBackgroundWorker(RETENTION_JOB, retentionToken)",
     );
+    expect(retentionJob).toContain(
+      'header: "x-agent-native-session-replay-retention-cron"',
+    );
+    expect(retentionJob).toContain(
+      'runtimeFlag: "__AGENT_NATIVE_SESSION_REPLAY_RETENTION_SCHEDULED_RUNTIME__"',
+    );
+    expect(source).toContain('"${job.header}": CRON_TOKEN');
+    expect(source).toContain("globalThis.${job.runtimeFlag} = true");
   });
 
   it("compares the uptime monitor cron bearer secret safely", () => {

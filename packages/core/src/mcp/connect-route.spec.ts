@@ -6,7 +6,7 @@ const connectionClaims = new Map<string, Record<string, unknown>>();
 vi.mock("../tracking/registry.js", () => ({
   isTrackingSuppressed: () => false,
   track: trackMock,
-  listTrackingProviders: () => ["test"],
+  listTrackingProviders: () => ["agent-native-analytics"],
 }));
 vi.mock("../settings/store.js", () => ({
   mutateSetting: async (

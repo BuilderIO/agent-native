@@ -721,6 +721,9 @@ const hiIN = {
     waitlistUnavailable:
       "इस environment में अभी waitlist signups उपलब्ध नहीं हैं. इसके बजाय hosted docs site आज़माएँ.",
     launchBuilder: "Builder लॉन्च करें",
+    newAppPrompt: "एक नया Agent-Native ऐप बनाएँ।",
+    customizeTemplatePrompt:
+      "मेरे काम के तरीके के अनुसार Agent-Native {{template}} टेम्पलेट को कस्टमाइज़ करें।",
   },
   templateCard: {
     pasteIntoTerminal: "अपने टर्मिनल में चिपकाएँ.",
@@ -2737,7 +2740,9 @@ const hiIN = {
     blueprintInstaller: "Blueprint installer",
     chat: "चैट",
     chatOverview: "अवलोकन",
-    chatFirstEdits: "आपका पहला फ़ीचर",
+    chatFeatures: "सुविधाएं",
+    chatAgent: "एजेंट से बात करें",
+    chatIntegrations: "क्रॉस-ऐप उपयोग",
     chatDevelopers: "डेवलपर गाइड",
     calendar: "कैलेंडर",
     calendarOverview: "अवलोकन",

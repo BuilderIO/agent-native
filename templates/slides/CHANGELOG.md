@@ -3,14 +3,43 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-20
+
+### Fixed
+
+- Slides handles chat attachments more reliably, including documents with unclear filenames and image links.
+
+## 2026-10-19
+
+### Improved
+
+- Slide image generation uses the local provider by default, with Assets available for brand-library requests.
+
+### Fixed
+
+- Generated images stay available when slide insertion fails.
+- Slides image generation stays in Slides and respects its supported reference image limit.
+- Slides owns deck creation and editing, avoiding unnecessary Design handoffs.
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
 ## 2026-10-16
 
 ### Added
 
 - Animations can now play with the previous one, so several objects appear together in one click
 
+### Improved
+
+- Contextual toolbar: the second row now changes with what is selected (text, shape, image, video, multi-select), and every state ends with an Edit with Agent button with quick picks.
+- The top bar shows a deck's privacy next to its name, Share has People and Agents tabs, and Present opens a menu to start in this tab, full screen, or Presenter View.
+
 ### Fixed
 
+- Preserve PDF text line spacing when importing decks.
+- Search and preview reference decks before choosing one
 - Slides can research public sources when creating presentations
 - Slides keeps the original prompt available if saving a failed generation status does not work.
 
@@ -138,6 +167,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Slide outlines generated with Gemini work again: Google retired the model they used.
 - By-paragraph animations now work with native paragraphs and bullet lists.
 - By-paragraph animations reveal multiple paragraphs in a list item one at a time.
 - By-paragraph animations step through nested list items in order, preserving explicit paragraph effects and consistently prioritizing the first configured effect when targets overlap.

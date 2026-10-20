@@ -11,10 +11,9 @@ import {
   type DashboardAnnotationSummary,
   type DashboardAnnotationsUnreadable,
 } from "./dashboard-annotation-summary.js";
-import { loadDashboardSeed } from "./dashboard-seeds.js";
-import { getDashboard } from "./dashboards-store.js";
 import { listDataNotes } from "./data-notes-store.js";
 import { listKeyDateSets } from "./key-dates-store.js";
+import { openDashboard } from "./open-dashboard.js";
 
 /** The key-date sets and data notes one dashboard draws, read from the scope it draws them from. */
 export async function loadDashboardAnnotationSummary(
@@ -71,7 +70,8 @@ export async function readDashboardForPlacement(
   dashboardId: string,
   caller: AnnotationScope,
 ): Promise<DashboardPlacementCheck> {
-  const dashboard = await getDashboard(dashboardId, caller);
+  const opened = await openDashboard(dashboardId, caller);
+  const dashboard = opened?.saved;
   if (dashboard && dashboard.kind !== "sql") {
     return {
       unavailable:
@@ -89,7 +89,7 @@ export async function readDashboardForPlacement(
   }
   const config = dashboard
     ? (dashboard.config as Record<string, unknown>)
-    : loadDashboardSeed(dashboardId);
+    : opened?.builtin?.config;
   if (!config) {
     fail(`Dashboard "${dashboardId}" was not found.`, {
       errorCode: "dashboard_not_found",

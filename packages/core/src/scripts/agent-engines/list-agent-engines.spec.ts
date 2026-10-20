@@ -14,6 +14,7 @@ describe("list-agent-engines", () => {
   beforeEach(() => {
     vi.doUnmock("../../server/credential-provider.js");
     vi.resetModules();
+    vi.doUnmock("../../server/credential-provider.js");
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_MODEL;
@@ -210,7 +211,8 @@ describe("list-agent-engines", () => {
           ? { value: "sk-ant-fake-placeholder" }
           : null,
     );
-    // The selection scope is keyless for OpenAI; endpoint ownership is covered separately.
+    // Both providers are keyless here, so model selection uses org scope.
+    // Endpoint ownership is covered separately.
     vi.doMock("../../server/credential-provider.js", async (importOriginal) => {
       const original =
         await importOriginal<
@@ -219,7 +221,11 @@ describe("list-agent-engines", () => {
       return {
         ...original,
         resolveSecretDetailed: vi.fn(async (key: string) => {
-          if (key === "OPENAI_API_KEY" || key === "OPENAI_BASE_URL") {
+          if (
+            key === "OPENAI_API_KEY" ||
+            key === "OPENAI_BASE_URL" ||
+            key === "GOOGLE_GENERATIVE_AI_API_KEY"
+          ) {
             return { value: null, lookupFailed: false };
           }
           return original.resolveSecretDetailed(key);

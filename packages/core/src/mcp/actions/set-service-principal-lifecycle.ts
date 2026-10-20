@@ -17,6 +17,7 @@ import {
   containServicePrincipal,
   prepareServicePrincipalContainment,
 } from "../../agent/contain-principal.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import {
   orgAdminAudit,
   recordOrgAdminAuditEvent,
@@ -46,6 +47,11 @@ const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Suspend, retire, or resume an org service principal. Suspended and retired principals are refused at MCP admission and run start, and their in-flight agent runs are aborted; retired also revokes every active token. The result reports abortedRuns, revokedTokens, and any containmentErrors (contained: false means containment is incomplete — retry). Org owner/admin only.",
   schema: z.object({
@@ -57,6 +63,7 @@ export default defineAction({
     lifecycle: z.enum(SERVICE_PRINCIPAL_LIFECYCLES),
     reason: z.string().trim().max(500).optional(),
   }),
+  agentTool: false,
   toolCallable: false,
   audit: orgAdminAudit({
     targetType: "service-principal",
@@ -215,7 +222,7 @@ export default defineAction({
         userEmail: caller.email,
         orgId: caller.orgId,
         status: containmentErrors.length ? "error" : "success",
-        caller: ctx?.caller,
+        attribution: auditAttribution(ctx),
       });
     }
     return {

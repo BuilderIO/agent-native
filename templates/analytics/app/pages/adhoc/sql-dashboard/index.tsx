@@ -47,6 +47,7 @@ import {
   IconGripVertical,
   IconHistory,
   IconInfoCircle,
+  IconCopy,
   IconLock,
   IconMail,
   IconPencil,
@@ -67,7 +68,12 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { useSearchParams, useParams, useNavigate } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { DashboardAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
@@ -101,6 +107,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -201,6 +208,7 @@ import {
   type FetchedDashboard,
 } from "./fetch-dashboard";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
+import { panelCostChange, usePanelCostNotice } from "./panel-cost-notice";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
@@ -949,6 +957,10 @@ function SqlDashboardPageContent({
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
     null,
   );
+  const [builtinDashboard, setBuiltinDashboard] = useState<{
+    id: string;
+    version: string;
+  } | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
@@ -966,7 +978,14 @@ function SqlDashboardPageContent({
   const [redoRevisionIds, setRedoRevisionIds] = useState<string[]>([]);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+  // A copy made from a built-in opens ready to edit. The signal rides on the
+  // navigation, not a ref: render may run twice, and the page may remount.
+  const openInEditModeId = (
+    useLocation().state as { openInEditMode?: string } | null
+  )?.openInEditMode;
+  const [editMode, setEditMode] = useState(
+    () => !!dashboardId && openInEditModeId === dashboardId,
+  );
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -1049,6 +1068,27 @@ function SqlDashboardPageContent({
   );
   const { mutateAsync: archiveDashboardAction } =
     useActionMutation("archive-dashboard");
+  const { mutate: duplicateDashboard, isPending: duplicatePending } =
+    useActionMutation("duplicate-dashboard", {
+      onSuccess: (copy: { id: string }) => {
+        void queryClient.invalidateQueries({
+          queryKey: ["sql-dashboards-sidebar", dashboardScope],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["sql-dashboards-palette", dashboardScope],
+        });
+        void navigate(`/dashboards/${encodeURIComponent(copy.id)}`, {
+          state: { openInEditMode: copy.id },
+        });
+      },
+      onError: (error: unknown) => {
+        toast.error(
+          error instanceof Error && error.message
+            ? error.message
+            : t("sqlDashboard.duplicateFailed"),
+        );
+      },
+    });
   const {
     mutateAsync: certifyDashboardAction,
     isPending: certificationPending,
@@ -1151,6 +1191,7 @@ function SqlDashboardPageContent({
     otherViewers: otherViewerCount(activeUsers, session?.email),
     onUndo: undoLatestSave,
   });
+  const panelCost = usePanelCostNotice(dashboardId);
 
   const updateCachedDashboardConfig = useCallback(
     (updated: SqlDashboardConfig) => {
@@ -1325,7 +1366,7 @@ function SqlDashboardPageContent({
   const [draftsOwnerShown, setDraftsOwnerShown] = useState(draftsOwner);
   if (draftsOwnerShown !== draftsOwner) {
     setDraftsOwnerShown(draftsOwner);
-    setEditMode(false);
+    setEditMode(!!dashboardId && openInEditModeId === dashboardId);
     setEditingName(false);
     setEditingDescription(false);
     setActiveDropSlot(null);
@@ -1355,6 +1396,7 @@ function SqlDashboardPageContent({
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
     setResourceAccess(null);
+    setBuiltinDashboard(null);
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
@@ -1417,7 +1459,17 @@ function SqlDashboardPageContent({
           }
         : null,
     );
+    setBuiltinDashboard(fetched?.builtin ?? null);
     setLoaded(true);
+    if (fetched?.builtin && fetched.builtin.id !== dashboardId) {
+      // An old copy that became the built-in: show the built-in's own URL.
+      const search = searchParams.toString();
+      void navigate(
+        `/dashboards/${encodeURIComponent(fetched.builtin.id)}${search ? `?${search}` : ""}`,
+        { replace: true },
+      );
+      return;
+    }
     if (
       fetched &&
       !reportScreenshot &&
@@ -1989,8 +2041,10 @@ function SqlDashboardPageContent({
           clampDashboardColumns(current.columns ?? DEFAULT_DASHBOARD_COLUMNS),
         ),
       }));
+      // A removed panel's cost notice would outlive it.
+      panelCost.clear(panelId);
     },
-    [persist],
+    [panelCost, persist],
   );
 
   const handleResizePanel = useCallback(
@@ -2023,6 +2077,7 @@ function SqlDashboardPageContent({
   );
   const handleSavePanel = useCallback(
     async (panel: SqlPanel, editorBaseline?: SqlPanel | null) => {
+      const cost: { change?: ReturnType<typeof panelCostChange> } = {};
       await persistThrow((current) => {
         const idx = current.panels.findIndex((p) => p.id === panel.id);
         if (editorBaseline && idx < 0) {
@@ -2036,30 +2091,43 @@ function SqlDashboardPageContent({
                 current.panels[idx],
               )
             : panel;
+        cost.change = panelCostChange(
+          idx >= 0 ? current.panels[idx] : null,
+          nextPanel,
+        );
         const nextPanels =
           idx >= 0
             ? current.panels.map((p, i) => (i === idx ? nextPanel : p))
             : [...current.panels, nextPanel];
         return { ...current, panels: nextPanels };
       });
+      if (cost.change === "notify")
+        void panelCost.notify(panel.id, panel.title);
+      // A panel turned into a section no longer costs what its notice said.
+      if (cost.change === "clear") panelCost.clear(panel.id);
     },
-    [persistThrow],
+    [panelCost, persistThrow],
   );
   const handleSaveSql = useCallback(
     async (panelId: string, sql: string) => {
+      const edit: { title?: string } = {};
       await persistThrow((current) => {
-        if (!current.panels.some((panel) => panel.id === panelId)) {
-          return current;
-        }
+        const panel = current.panels.find((p) => p.id === panelId);
+        edit.title =
+          panel && serializePanelSql(panel.sql) !== serializePanelSql(sql)
+            ? panel.title
+            : undefined;
+        if (!panel) return current;
         return {
           ...current,
-          panels: current.panels.map((panel) =>
-            panel.id === panelId ? { ...panel, sql } : panel,
+          panels: current.panels.map((p) =>
+            p.id === panelId ? { ...p, sql } : p,
           ),
         };
       });
+      if (edit.title !== undefined) void panelCost.notify(panelId, edit.title);
     },
-    [persistThrow],
+    [panelCost, persistThrow],
   );
   const handleSaveEditedPanel = useCallback(
     async (panel: SqlPanel) => {
@@ -2682,7 +2750,37 @@ function SqlDashboardPageContent({
           agentActive={agentActive}
           currentUserEmail={session?.email}
         />
-        {canEdit ? (
+        {builtinDashboard ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                disabled={duplicatePending}
+                onClick={() => {
+                  if (!dashboardId) return;
+                  duplicateDashboard({ id: dashboardId });
+                  trackEvent("dashboard_duplicated", {
+                    app_name: "analytics",
+                    template_name: "analytics",
+                    builtin_id: builtinDashboard.id,
+                  });
+                }}
+              >
+                {duplicatePending ? (
+                  <Spinner className="h-3.5 w-3.5" />
+                ) : (
+                  <IconCopy className="h-3.5 w-3.5" />
+                )}
+                {t("sqlDashboard.duplicateToCustomize")}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("sqlDashboard.duplicateToCustomizeHint")}
+            </TooltipContent>
+          </Tooltip>
+        ) : canEdit ? (
           <ToggleGroup
             type="single"
             value={editing ? "edit" : "view"}
@@ -2730,7 +2828,7 @@ function SqlDashboardPageContent({
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
         {annotationEditing.menu}
-        {dashboardId ? (
+        {dashboardId && !builtinDashboard ? (
           <ShareButton
             resourceType="dashboard"
             resourceId={dashboardId}
@@ -3230,10 +3328,16 @@ function SqlDashboardPageContent({
         dashboard.filters &&
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
+            key={`filters:${loadedDashboardId}`}
+            loadedDashboardId={loadedDashboardId}
             filters={dashboard.filters}
             views={dashboardViewsLoaded ? views : null}
             viewsRefreshing={dashboardViewsState === "loading"}
-            onSaveView={canEdit ? handleSaveView : undefined}
+            onSaveView={
+              canEdit && loadedDashboardId && loadedDashboardId === dashboardId
+                ? handleSaveView
+                : undefined
+            }
             onSavePreset={editing ? handleSaveFilterPreset : undefined}
             shared={dashboardShared}
           />
