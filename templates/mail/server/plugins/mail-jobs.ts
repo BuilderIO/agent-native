@@ -10,6 +10,11 @@ import {
   startIntervalJob,
   type RecurringSweepContext,
 } from "@agent-native/core/server";
+import {
+  readSetting,
+  removeSetting,
+  writeSetting,
+} from "@agent-native/core/settings";
 import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -56,6 +61,9 @@ const INBOX_RETENTION_INTERVAL_MS = 60 * 60_000;
 // A failed pass retries after this short backoff instead of waiting out the hour.
 const INBOX_RETENTION_RETRY_MS = 5 * 60_000;
 let nextInboxRetentionAt = 0;
+// Where a pass cut short by the sweep deadline stopped, so the next sweep
+// continues from there instead of restarting at the first account.
+const INBOX_RETENTION_CURSOR_KEY = "mail-inbox-retention-cursor";
 const JOB_PROCESSING_LEASE_GRACE_MS = 30_000;
 const MAX_DUE_JOBS_PER_TICK = 20;
 const MAX_AUTOMATION_ACCOUNTS_PER_TICK = 5;
@@ -566,10 +574,23 @@ export default () => {
     }
     if (Date.now() < nextInboxRetentionAt) return;
     try {
+      const cursor = await readSetting(INBOX_RETENTION_CURSOR_KEY);
       const summary = await runInboxRetention({
         resolveConnectedAccounts: getConnectedAccountsWithErrors,
+        deadlineAt: context.deadlineAt,
+        after: typeof cursor?.after === "string" ? cursor.after : undefined,
       });
-      nextInboxRetentionAt = Date.now() + INBOX_RETENTION_INTERVAL_MS;
+      if (summary.partial) {
+        // Cut short by the deadline, not a failure: continue on the next sweep.
+        if (summary.resumeAfter) {
+          await writeSetting(INBOX_RETENTION_CURSOR_KEY, {
+            after: summary.resumeAfter,
+          });
+        }
+      } else {
+        await removeSetting(INBOX_RETENTION_CURSOR_KEY);
+        nextInboxRetentionAt = Date.now() + INBOX_RETENTION_INTERVAL_MS;
+      }
       console.log("[mail-jobs] inbox retention", summary);
     } catch (error) {
       nextInboxRetentionAt = Date.now() + INBOX_RETENTION_RETRY_MS;

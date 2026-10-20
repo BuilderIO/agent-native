@@ -31,6 +31,9 @@ const mocks = vi.hoisted(() => ({
   getSnoozeThreadId: vi.fn(),
   getDb: vi.fn(),
   runInboxRetention: vi.fn(),
+  readSetting: vi.fn(),
+  writeSetting: vi.fn(),
+  removeSetting: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/db", async (importOriginal) => {
@@ -44,6 +47,16 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
 });
 vi.mock("@agent-native/core/event-bus", () => ({
   registerEvent: mocks.registerEvent,
+}));
+vi.mock("@agent-native/core/settings", () => ({
+  readSetting: mocks.readSetting,
+  writeSetting: mocks.writeSetting,
+  removeSetting: mocks.removeSetting,
+}));
+vi.mock("@agent-native/core/settings", () => ({
+  readSetting: mocks.readSetting,
+  writeSetting: mocks.writeSetting,
+  removeSetting: mocks.removeSetting,
 }));
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   getOAuthTokens: mocks.getOAuthTokens,
@@ -127,6 +140,12 @@ describe("Mail background job scheduling", () => {
       sweepHandlers.set(id, handler);
       return () => sweepHandlers.delete(id);
     }) as any);
+    mocks.readSetting.mockResolvedValue(null);
+    mocks.writeSetting.mockResolvedValue(undefined);
+    mocks.removeSetting.mockResolvedValue(true);
+    mocks.readSetting.mockResolvedValue(null);
+    mocks.writeSetting.mockResolvedValue(undefined);
+    mocks.removeSetting.mockResolvedValue(true);
     mocks.getOAuthTokens.mockResolvedValue({ access_token: "fake-token" });
     mocks.processMailAiFilterBackfills.mockResolvedValue(undefined);
     mocks.purgeExpiredMailAiFilterBackfills.mockResolvedValue(undefined);
@@ -630,6 +649,45 @@ describe("Mail background job scheduling", () => {
     now.mockReturnValue(1_000_000 + 70 * 60_000);
     await handler(context);
     expect(mocks.runInboxRetention).toHaveBeenCalledTimes(3);
+  });
+
+  it("resumes a deadline-cut retention pass at the next sweep without a failure backoff", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mocks.runInboxRetention
+      .mockResolvedValueOnce({ partial: true, resumeAfter: "owner:acct-7" })
+      .mockResolvedValueOnce({ partial: false, resumeAfter: null });
+    const plugin = await loadMailJobsPlugin();
+    plugin();
+    const handler = sweepHandlers.get("mail-inbox-retention")!;
+
+    await handler({ deadlineAt: 1_050_000 });
+
+    expect(mocks.runInboxRetention).toHaveBeenLastCalledWith(
+      expect.objectContaining({ deadlineAt: 1_050_000, after: undefined }),
+    );
+    expect(mocks.writeSetting).toHaveBeenCalledWith(
+      "mail-inbox-retention-cursor",
+      { after: "owner:acct-7" },
+    );
+
+    // The next sweep runs at once and continues after the stored account.
+    mocks.readSetting.mockResolvedValue({ after: "owner:acct-7" });
+    now.mockReturnValue(1_000_000 + 30_000);
+    await handler({ deadlineAt: 2_000_000 });
+
+    expect(mocks.runInboxRetention).toHaveBeenCalledTimes(2);
+    expect(mocks.runInboxRetention).toHaveBeenLastCalledWith(
+      expect.objectContaining({ after: "owner:acct-7" }),
+    );
+    expect(mocks.removeSetting).toHaveBeenCalledWith(
+      "mail-inbox-retention-cursor",
+    );
+
+    // A complete pass waits out the hourly interval.
+    now.mockReturnValue(1_000_000 + 40 * 60_000);
+    await handler({ deadlineAt: 900_000_000 });
+    expect(mocks.runInboxRetention).toHaveBeenCalledTimes(2);
   });
 
   it("caps the durable AI-filter backfill at the shared deadline and 45 seconds", async () => {

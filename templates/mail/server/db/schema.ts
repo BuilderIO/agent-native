@@ -161,6 +161,9 @@ export const mailSyncAccounts = table(
     ownerEmail: text("owner_email").notNull(),
     accountEmail: text("account_email").notNull(),
     historyId: text("history_id"),
+    // The archive and deletion stream's own cursor. Null means it has never
+    // moved apart from history_id.
+    archiveHistoryId: text("archive_history_id"),
     fullSyncPageToken: text("full_sync_page_token"),
     fullSyncHistoryId: text("full_sync_history_id"),
     fullSyncStartedAt: integer("full_sync_started_at"),

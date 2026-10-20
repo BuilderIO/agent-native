@@ -163,6 +163,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     ownerEmail: OWNER,
     accountEmail: ACCOUNT,
     historyId: null,
+    archiveHistoryId: null,
     fullSyncPageToken: null,
     fullSyncHistoryId: null,
     fullSyncStartedAt: null,
@@ -1756,14 +1757,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(currentRow.hydratePendingIds).toEqual(ids);
   });
 
-  describe("history cursor", () => {
-    const lastCursor = () => {
-      const cursors = mocks.patchSyncAccount.mock.calls
-        .map(([, , patch]) => patch.historyId)
-        .filter((historyId) => historyId !== undefined);
-      return cursors[cursors.length - 1];
-    };
-
+  describe("history cursors", () => {
     function twoStreams(inbox: unknown, archive: unknown) {
       mocks.gmailListHistory.mockImplementation(
         async (_token: string, params: { labelId?: string }) =>
@@ -1771,7 +1765,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       );
     }
 
-    it("advances only to the lower of the two stream heads", async () => {
+    it("moves each stream to its own head", async () => {
       currentRow = baseRow({ historyId: "1000" });
       twoStreams(
         { history: [], historyId: "1010" },
@@ -1780,10 +1774,11 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
       await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-      expect(lastCursor()).toBe("1005");
+      expect(currentRow.historyId).toBe("1010");
+      expect(currentRow.archiveHistoryId).toBe("1005");
     });
 
-    it("compares heads beyond 2^53 exactly", async () => {
+    it("keeps ids beyond 2^53 exact", async () => {
       currentRow = baseRow({ historyId: "9007199254740990" });
       twoStreams(
         { history: [], historyId: "9007199254740993" },
@@ -1792,26 +1787,115 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
 
       await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-      expect(lastCursor()).toBe("9007199254740992");
+      expect(currentRow.historyId).toBe("9007199254740993");
+      expect(currentRow.archiveHistoryId).toBe("9007199254740992");
     });
 
-    it("holds at the unfinished stream's last record, even below the other head", async () => {
+    it("holds an unfinished stream at its last record without holding the other", async () => {
       currentRow = baseRow({ historyId: "9007199254740990" });
       twoStreams(
+        { history: [], historyId: "9007199254740999" },
         {
           history: [{ id: "9007199254740993" }],
           historyId: "9007199254740999",
           nextPageToken: "more",
         },
-        { history: [], historyId: "9007199254740992" },
       );
 
       const result = await syncInboxAccount(OWNER, ACCOUNT, {
         budgetMs: 5_000,
       });
 
-      expect(lastCursor()).toBe("9007199254740992");
+      expect(currentRow.historyId).toBe("9007199254740999");
+      expect(currentRow.archiveHistoryId).toBe("9007199254740993");
       expect(result.state).toBe("initial");
+    });
+
+    it("starts the archive stream from its own cursor", async () => {
+      currentRow = baseRow({ historyId: "1010", archiveHistoryId: "1005" });
+      twoStreams(
+        { history: [], historyId: "1010" },
+        { history: [], historyId: "1010" },
+      );
+
+      await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+      const [inboxCall, archiveCall] = mocks.gmailListHistory.mock.calls.map(
+        (call) => call[1],
+      );
+      expect(inboxCall.startHistoryId).toBe("1010");
+      expect(archiveCall.startHistoryId).toBe("1005");
+    });
+
+    it("never rehydrates inbox events while the archive stream lags, and skips no archive event", async () => {
+      const archived = ["x1", "x2", "x3", "x4"];
+      currentRow = baseRow({ historyId: "1000" });
+      fakeRows = archived.map((threadId) => ({ threadId }));
+      const inboxRecords = [
+        {
+          id: "1001",
+          messagesAdded: [{ message: { id: "new-m1", threadId: "new" } }],
+        },
+      ];
+      // One archive record per page, like a stream that pages slowly.
+      const archiveRecords = archived.map((threadId, index) => ({
+        id: String(1002 + index),
+        labelsRemoved: [
+          { labelIds: ["INBOX"], message: { id: `${threadId}-m1`, threadId } },
+        ],
+      }));
+      mocks.gmailListHistory.mockImplementation(
+        async (
+          _token: string,
+          params: { labelId?: string; startHistoryId: string },
+        ) => {
+          const after = BigInt(params.startHistoryId);
+          if (params.labelId === "INBOX") {
+            return {
+              history: inboxRecords.filter(
+                (record) => BigInt(record.id) > after,
+              ),
+              historyId: "1010",
+            };
+          }
+          const next = archiveRecords.filter(
+            (record) => BigInt(record.id) > after,
+          );
+          return {
+            history: next.slice(0, 1),
+            historyId: "1010",
+            ...(next.length > 1 ? { nextPageToken: "more" } : {}),
+          };
+        },
+      );
+      mocks.deleteInboxThreadRow.mockImplementation(
+        async (_owner, _account, threadId: string) => {
+          fakeRows = fakeRows.filter((row) => row.threadId !== threadId);
+        },
+      );
+      mocks.gmailBatchGetThreads.mockImplementation(
+        async (_token: string, requested: string[], format: string) =>
+          requested.map((id) =>
+            format === "minimal"
+              ? minimalThread(id, [["CATEGORY_UPDATES"]])
+              : {
+                  id,
+                  data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+                },
+          ),
+      );
+
+      for (let step = 0; step < 6; step++) {
+        await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+      }
+
+      const hydrations = mocks.gmailBatchGetThreads.mock.calls
+        .filter((call) => call[2] === "metadata")
+        .flatMap((call) => call[1] as string[]);
+      expect(hydrations).toEqual(["new"]);
+      expect(fakeRows).toEqual([]);
+      expect(currentRow.historyId).toBe("1010");
+      expect(currentRow.archiveHistoryId).toBe("1010");
     });
   });
 

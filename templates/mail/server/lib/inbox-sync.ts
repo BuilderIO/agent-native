@@ -455,6 +455,7 @@ async function runFullSyncStep(
   if (nextPageToken) {
     await patchProgress(ownerEmail, accountEmail, claimId, {
       historyId,
+      ...(initialSync ? { archiveHistoryId: null } : {}),
       fullSyncPageToken: nextPageToken,
       fullSyncHistoryId,
       fullSyncStartedAt,
@@ -494,6 +495,7 @@ async function runFullSyncStep(
   const reconciled = !snapshot || localInboxTotal === snapshot.total;
   await patchProgress(ownerEmail, accountEmail, claimId, {
     historyId,
+    ...(initialSync ? { archiveHistoryId: null } : {}),
     fullSyncPageToken: null,
     fullSyncHistoryId: null,
     fullSyncStartedAt: null,
@@ -720,14 +722,6 @@ async function runReconciliationStep(
   };
 }
 
-// Gmail history ids are decimal strings that can pass 2^53, so they are never
-// compared as Numbers.
-function compareHistoryIds(a: string, b: string): number {
-  const x = BigInt(a);
-  const y = BigInt(b);
-  return x < y ? -1 : x > y ? 1 : 0;
-}
-
 // Null means the stream constrains nothing: it finished and reported neither a
 // head nor any records. An unfinished stream with no records holds the cursor.
 function streamWatermark(
@@ -759,6 +753,9 @@ async function runIncrementalSyncStep(
   const readStartedAt = Date.now();
   let inboxHistory: any;
   let archiveHistory: any;
+  // Each stream keeps its own cursor, so a lagging archive stream never makes
+  // the inbox stream reread events it already applied.
+  const archiveStart = row.archiveHistoryId ?? row.historyId!;
   try {
     [inboxHistory, archiveHistory] = await Promise.all([
       gmailListHistory(
@@ -774,7 +771,7 @@ async function runIncrementalSyncStep(
       gmailListHistory(
         accessToken,
         {
-          startHistoryId: row.historyId!,
+          startHistoryId: archiveStart,
           historyTypes: ARCHIVE_HISTORY_TYPES,
           maxResults: ARCHIVE_HISTORY_PAGE_SIZE,
         },
@@ -791,6 +788,7 @@ async function runIncrementalSyncStep(
       const freshRow: SyncAccountRow = {
         ...row,
         historyId: null,
+        archiveHistoryId: null,
         fullSyncPageToken: null,
         fullSyncHistoryId: null,
         fullSyncStartedAt: null,
@@ -848,30 +846,25 @@ async function runIncrementalSyncStep(
         archivedThreadIds.add(entry.message.threadId);
     }
   }
-  // The two streams are separate reads and can report different mailbox heads,
-  // so the cursor moves only to the lowest point both have fully processed: a
-  // finished stream contributes its head, an unfinished one its last record.
-  // The next step rereads from there; both writes are idempotent.
+  // A finished stream moves its cursor to its own head, an unfinished one to
+  // its last record. Everything either stream returned is queued in the pending
+  // lists below before the cursors move, so neither stream skips an event.
   const inboxCaughtUp = !inboxHistory.nextPageToken;
   const archiveCaughtUp = !archiveHistory.nextPageToken;
-  const watermarks = [
+  const historyId =
     streamWatermark(
       inboxHistory,
       inboxCaughtUp,
       lastInboxRecordId,
       row.historyId!,
-    ),
+    ) ?? row.historyId!;
+  const archiveHistoryId =
     streamWatermark(
       archiveHistory,
       archiveCaughtUp,
       lastArchiveRecordId,
-      row.historyId!,
-    ),
-  ].filter((value): value is string => value != null);
-  const historyId =
-    watermarks.length > 0
-      ? watermarks.reduce((a, b) => (compareHistoryIds(b, a) < 0 ? b : a))
-      : row.historyId!;
+      archiveStart,
+    ) ?? archiveStart;
 
   // One message losing INBOX, or being deleted, does not remove a thread: the
   // row is deleted only when a minimal read shows no message in it still
@@ -909,11 +902,12 @@ async function runIncrementalSyncStep(
   );
   const verifyNow = verifyQueue.slice(0, STEP_THREAD_READS - hydrateNow.length);
 
-  // Record the cursor and every unprocessed id before any thread read, so a
+  // Record the cursors and every unprocessed id before any thread read, so a
   // quota failure or crash mid-step retries the pending ids instead of
   // replaying the same history page.
   await patchProgress(ownerEmail, accountEmail, claimId, {
     historyId,
+    archiveHistoryId,
     hydratePendingIds: hydrateQueue,
     archivePendingIds: verifyQueue,
   });

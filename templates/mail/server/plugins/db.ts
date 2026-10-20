@@ -489,6 +489,12 @@ CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS hydrate_pending_ids_json TEXT;`,
     },
+    {
+      version: 42,
+      name: "mail-inbox-archive-history-id",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS archive_history_id TEXT;`,
+    },
   ],
   { table: "mail_migrations" },
 );

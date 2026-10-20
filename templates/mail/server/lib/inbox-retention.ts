@@ -50,14 +50,22 @@ export type InboxRetentionSummary = {
   // Claimed or synced between the scan and the clear.
   pairsSkippedActive: number;
   pairsSkippedUnverified: number;
+  // Owners whose connection lookup threw; their pairs count as unverified and
+  // keep their rows.
+  resolverErrors: number;
+  // The pass stopped at its deadline before the last account. Resume with
+  // `after: resumeAfter` so the next pass continues instead of restarting.
+  partial: boolean;
+  resumeAfter: string | null;
 };
 
 // One row per mail_sync_accounts row.
 export async function readRetentionPairs(
   now: number,
+  after = "",
 ): Promise<RetentionPair[]> {
   const pairs: RetentionPair[] = [];
-  let cursor = "";
+  let cursor = after;
   for (;;) {
     const { rows } = await getDbExec().execute({
       sql: `SELECT s.owner_email, s.account_email, s.id,
@@ -140,6 +148,7 @@ export async function clearPair(
       .update(schema.mailSyncAccounts)
       .set({
         historyId: null,
+        archiveHistoryId: null,
         fullSyncPageToken: null,
         fullSyncHistoryId: null,
         fullSyncStartedAt: null,
@@ -190,9 +199,13 @@ export async function clearPair(
 export async function runInboxRetention(opts: {
   now?: number;
   resolveConnectedAccounts: ResolveConnectedAccounts;
+  // Epoch ms; checked between accounts.
+  deadlineAt?: number;
+  // Sync-account id the previous partial pass stopped after.
+  after?: string;
 }): Promise<InboxRetentionSummary> {
   const now = opts.now ?? Date.now();
-  const pairs = await readRetentionPairs(now);
+  const pairs = await readRetentionPairs(now, opts.after ?? "");
   const summary: InboxRetentionSummary = {
     pairs: pairs.length,
     archivedRowsRemoved: 0,
@@ -205,33 +218,30 @@ export async function runInboxRetention(opts: {
     pairsSkippedTrim: 0,
     pairsSkippedActive: 0,
     pairsSkippedUnverified: 0,
+    resolverErrors: 0,
+    partial: false,
+    resumeAfter: null,
   };
 
   const cappedOwners = new Set<string>();
-  for (const pair of pairs) {
-    const trimmed = await trimPair(pair, now);
-    if (trimmed === null) {
-      summary.pairsSkippedTrim++;
-      continue;
-    }
-    summary.archivedRowsRemoved += trimmed.archived;
-    if (trimmed.capped > 0) {
-      summary.capRowsRemoved += trimmed.capped;
-      cappedOwners.add(pair.ownerEmail);
-    }
-  }
-  summary.capOwners = cappedOwners.size;
-
   const connectedByOwner = new Map<string, Set<string> | null>();
   const connectedFor = async (ownerEmail: string) => {
     if (!connectedByOwner.has(ownerEmail)) {
-      const result = await opts.resolveConnectedAccounts(ownerEmail);
-      connectedByOwner.set(
-        ownerEmail,
-        result.errors.length > 0
-          ? null
-          : new Set(result.accounts.map((email) => email.toLowerCase())),
-      );
+      let verified: Set<string> | null = null;
+      try {
+        const result = await opts.resolveConnectedAccounts(ownerEmail);
+        if (result.errors.length === 0) {
+          verified = new Set(
+            result.accounts.map((email) => email.toLowerCase()),
+          );
+        }
+      } catch (error) {
+        summary.resolverErrors++;
+        console.warn("[inbox-retention] connection lookup failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      connectedByOwner.set(ownerEmail, verified);
     }
     return connectedByOwner.get(ownerEmail) ?? null;
   };
@@ -257,29 +267,68 @@ export async function runInboxRetention(opts: {
   };
 
   const ruleOwners = new Set<string>();
+  let lastDone: string | null = null;
   for (const pair of pairs) {
-    if (!pair.inactive && (await hasGmailGrant(pair))) continue;
+    if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) {
+      summary.partial = true;
+      summary.resumeAfter = lastDone ?? opts.after ?? null;
+      break;
+    }
+    await processPair(pair);
+    lastDone = pair.syncId;
+  }
+  summary.capOwners = cappedOwners.size;
+  summary.ruleOwners = ruleOwners.size;
+  return summary;
+
+  async function processPair(pair: RetentionPair): Promise<void> {
+    const trimmed = await trimPair(pair, now);
+    if (trimmed === null) {
+      summary.pairsSkippedTrim++;
+    } else {
+      summary.archivedRowsRemoved += trimmed.archived;
+      if (trimmed.capped > 0) {
+        summary.capRowsRemoved += trimmed.capped;
+        cappedOwners.add(pair.ownerEmail);
+      }
+    }
+    await applyRules(pair);
+  }
+
+  async function applyRules(pair: RetentionPair): Promise<void> {
+    if (!pair.inactive) {
+      let granted: boolean;
+      try {
+        granted = await hasGmailGrant(pair);
+      } catch (error) {
+        summary.resolverErrors++;
+        summary.pairsSkippedUnverified++;
+        console.warn("[inbox-retention] grant lookup failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      if (granted) return;
+    }
     if (pair.claimed) {
       summary.pairsSkippedClaimed++;
-      continue;
+      return;
     }
     if (!pair.inactive) {
       const connected = await connectedFor(pair.ownerEmail);
       if (connected === null) {
         summary.pairsSkippedUnverified++;
-        continue;
+        return;
       }
-      if (connected.has(pair.accountEmail)) continue;
+      if (connected.has(pair.accountEmail)) return;
     }
     const removed = await clearPair(pair, now, pair.inactive);
     if (removed === null) {
       summary.pairsSkippedActive++;
-      continue;
+      return;
     }
     summary.pairsReset++;
     summary.ruleRowsRemoved += removed;
     if (removed > 0) ruleOwners.add(pair.ownerEmail);
   }
-  summary.ruleOwners = ruleOwners.size;
-  return summary;
 }

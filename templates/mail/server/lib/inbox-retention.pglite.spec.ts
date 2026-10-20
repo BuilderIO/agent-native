@@ -492,4 +492,74 @@ describe("runInboxRetention (PGlite)", () => {
     expect(summary).toMatchObject({ capRowsRemoved: 30, capOwners: 1 });
     expect(await countRows(owner, account, 1)).toBe(2_000);
   });
+  it("keeps one owner's rows when their connection lookup throws and cleans the rest", async () => {
+    await seedAccount("a-flaky@example.com", "flaky-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    await seedAccount("b-gone@example.com", "gone-acct@example.com", {
+      lastSyncedAt: NOW - HOUR,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resolveConnectedAccounts = vi.fn(async (owner: string) => {
+      if (owner === "a-flaky@example.com") throw new Error("lookup down");
+      return { accounts: [], errors: [] };
+    });
+
+    const summary = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts,
+    });
+
+    expect(summary).toMatchObject({
+      pairsReset: 1,
+      pairsSkippedUnverified: 1,
+      resolverErrors: 1,
+    });
+    expect(
+      await countRows("a-flaky@example.com", "flaky-acct@example.com"),
+    ).toBe(3);
+    expect(await countRows("b-gone@example.com", "gone-acct@example.com")).toBe(
+      0,
+    );
+    warn.mockRestore();
+  });
+
+  it("stops at the deadline and resumes after the last finished account", async () => {
+    for (const name of ["a", "b", "c"]) {
+      await seedAccount(
+        `${name}-gone@example.com`,
+        `${name}-acct@example.com`,
+        {
+          lastSyncedAt: NOW - HOUR,
+        },
+      );
+    }
+    // The clock passes the deadline while the first account is processed.
+    const deadlineAt = Date.now() + 60_000;
+    let clock: ReturnType<typeof vi.spyOn> | undefined;
+    const first = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: async (owner: string) => {
+        if (owner === "a-gone@example.com") {
+          clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
+        }
+        return { accounts: [], errors: [] };
+      },
+      deadlineAt,
+    });
+    clock?.mockRestore();
+
+    expect(first).toMatchObject({ partial: true, pairsReset: 1 });
+    expect(first.resumeAfter).toBe("a-gone@example.com:a-acct@example.com");
+    expect(await countRows("c-gone@example.com", "c-acct@example.com")).toBe(3);
+
+    const second = await retention.runInboxRetention({
+      now: NOW,
+      resolveConnectedAccounts: noConnections,
+      after: first.resumeAfter!,
+    });
+
+    expect(second).toMatchObject({ partial: false, pairs: 2, pairsReset: 2 });
+    expect(await countRows("c-gone@example.com", "c-acct@example.com")).toBe(0);
+  });
 });

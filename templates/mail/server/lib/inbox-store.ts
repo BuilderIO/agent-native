@@ -59,6 +59,7 @@ export type SyncAccountRow = {
   ownerEmail: string;
   accountEmail: string;
   historyId: string | null;
+  archiveHistoryId: string | null;
   fullSyncPageToken: string | null;
   fullSyncHistoryId: string | null;
   fullSyncStartedAt: number | null;
@@ -142,6 +143,7 @@ function toSyncAccountRow(
     ownerEmail: row.ownerEmail,
     accountEmail: row.accountEmail,
     historyId: row.historyId,
+    archiveHistoryId: row.archiveHistoryId,
     fullSyncPageToken: row.fullSyncPageToken,
     fullSyncHistoryId: row.fullSyncHistoryId,
     fullSyncStartedAt: row.fullSyncStartedAt,
@@ -1235,6 +1237,7 @@ export async function releaseSyncAccount(
 
 export type SyncAccountPatch = Partial<{
   historyId: string | null;
+  archiveHistoryId: string | null;
   fullSyncPageToken: string | null;
   fullSyncHistoryId: string | null;
   fullSyncStartedAt: number | null;
@@ -1350,6 +1353,7 @@ export async function resetSyncAccountProgress(
     accountEmail,
     {
       historyId: null,
+      archiveHistoryId: null,
       fullSyncPageToken: null,
       fullSyncHistoryId: null,
       fullSyncStartedAt: null,
