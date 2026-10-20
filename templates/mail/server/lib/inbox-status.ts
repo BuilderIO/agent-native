@@ -1,5 +1,6 @@
 import type { InboxSyncAccountStatus } from "@shared/inbox-threads.js";
 
+import { pushWatchState } from "./inbox-push-watch.js";
 import type { SyncAccountRow } from "./inbox-store.js";
 
 // The one place a stored sync row becomes a status, so the sync step and the
@@ -36,6 +37,7 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
       state: row.status,
       lastSyncedAt: row.lastSyncedAt,
       error: row.lastError ?? undefined,
+      pushWatch: pushWatchState(row, Date.now()),
       ...(backfillPending ? { backfillPending: true } : {}),
       ...degraded,
     };
@@ -46,10 +48,12 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
     state:
       row.historyId == null ||
       row.status === "syncing" ||
+      row.historyPending ||
       row.archiveHistoryPending
         ? "initial"
         : "ready",
     lastSyncedAt: row.lastSyncedAt,
+    pushWatch: pushWatchState(row, Date.now()),
     ...(backfillPending ? { backfillPending: true } : {}),
     ...degraded,
   };

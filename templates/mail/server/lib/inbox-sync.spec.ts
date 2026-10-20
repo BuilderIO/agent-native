@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => {
     purgeArchivedInboxThreadRows: vi.fn(),
     readSyncAccounts: vi.fn(),
     readInboxThreads: vi.fn(),
+    readInboxTabWindows: vi.fn(),
     readCachedLabels: vi.fn(),
     withSyncClaim: vi.fn(),
     SyncClaimLostError,
@@ -118,6 +119,8 @@ vi.mock("./inbox-store.js", () => ({
   purgeArchivedInboxThreadRows: mocks.purgeArchivedInboxThreadRows,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxThreads: mocks.readInboxThreads,
+  readInboxTabWindows: mocks.readInboxTabWindows,
+  aiImportantLabelIds: () => [],
   readCachedLabels: mocks.readCachedLabels,
   readGmailQuotaCooldowns: async () => new Map<string, number>(),
   inboxRowToItem: (row: any, labelMap?: Map<string, string>) => ({
@@ -147,6 +150,17 @@ vi.mock("./inbox-store.js", () => ({
 }));
 
 import listInboxAction from "../../actions/list-inbox-threads.js";
+
+mocks.readInboxTabWindows.mockImplementation(async (params: any) => {
+  const { inboxRowToItem } = await import("./inbox-store.js");
+  const { inMemoryTabWindows } = await import("./inbox-tab-windows.fake.js");
+  const rows = await mocks.readInboxThreads(params.ownerEmail, {
+    accountEmails: params.accountEmails,
+  });
+  return inMemoryTabWindows(rows, params, (row) =>
+    inboxRowToItem(row, undefined),
+  );
+});
 import {
   ensureInboxFresh,
   resetInboxSync,
@@ -2845,6 +2859,191 @@ describe("ensureInboxFresh — managed workspace grant", () => {
     );
     expect(upsertedRows).toHaveLength(1);
     expect(upsertedRows[0].fromEmail).toBe("external@example.com");
+  });
+});
+
+describe("syncInbox — steady-account short-circuit", () => {
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+
+  function steadyRow(overrides: Partial<Record<string, unknown>> = {}) {
+    currentRow = baseRow({
+      status: "idle",
+      syncClaimId: null,
+      syncClaimedAt: null,
+      historyId: "500",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 0,
+      lastWatchRenewedAt: null,
+      ...overrides,
+    });
+    return currentRow;
+  }
+
+  beforeEach(() => {
+    mocks.gmailListHistory.mockResolvedValue({ historyId: "600", history: [] });
+  });
+
+  it("returns an account synced inside its push window without Gmail calls", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 30_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    const result = await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
+    expect(mocks.gmailListHistory).not.toHaveBeenCalled();
+    expect(result.accounts[0]).toMatchObject({
+      state: "ready",
+      changed: false,
+      pushWatch: "active",
+    });
+  });
+
+  it("syncs an active-watch account once its 60s window has passed", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - MINUTE - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a fallback account inside its 20s window and syncs it after", async () => {
+    steadyRow({ lastSyncedAt: Date.now() - 10_000 });
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
+
+    steadyRow({ lastSyncedAt: Date.now() - 25_000 });
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not short-circuit an account whose renewed watch has lapsed", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 30_000,
+      lastWatchRenewedAt: Date.now() - 13 * HOUR,
+    });
+
+    const result = await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+    expect(result.accounts[0].pushWatch).toBe("fallback");
+  });
+
+  it("never short-circuits a backfill in progress", async () => {
+    steadyRow({
+      fullSyncPageToken: "page-2",
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("never short-circuits a reconcile pass in progress", async () => {
+    steadyRow({
+      fullSyncPhase: "reconcile",
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a pending push bypass the window", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+    mocks.readInboxPushGeneration.mockResolvedValue(1);
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a multi-page history drain non-steady until the last page", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 60_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        historyId: "600",
+        history: [{ id: "510" }],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        history: [{ id: "520" }],
+        nextPageToken: "page-3",
+      })
+      .mockResolvedValueOnce({ historyId: "700", history: [] });
+
+    const first = await syncInbox(OWNER);
+    expect(first.accounts[0].state).toBe("initial");
+    expect(currentRow.historyPending).toBe(true);
+
+    // The window has not passed, but the drain is unfinished, so the next poll
+    // must read the next page instead of short-circuiting.
+    const second = await syncInbox(OWNER);
+    expect(second.accounts[0].state).toBe("initial");
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(2);
+    expect(currentRow.historyPending).toBe(true);
+
+    const drained = await syncInbox(OWNER);
+    expect(drained.accounts[0].state).toBe("ready");
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(3);
+    expect(currentRow.historyPending).toBe(false);
+
+    // Once drained the account is steady again and the window applies.
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(3);
+  });
+
+  it("refreshes labels on a manual refresh even inside the label TTL", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+      labelsUpdatedAt: Date.now() - 1_000,
+    });
+
+    await syncInbox(OWNER, { force: true });
+
+    expect(mocks.gmailListLabels).toHaveBeenCalled();
+  });
+
+  it("keeps the label TTL for an unforced sync that must still run", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+      labelsUpdatedAt: Date.now() - 1_000,
+    });
+    mocks.readInboxPushGeneration.mockResolvedValue(1);
+
+    await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailListLabels).not.toHaveBeenCalled();
+  });
+
+  it("lets a manual refresh force a sync inside the window", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+    });
+
+    await syncInbox(OWNER, { force: true });
+
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -974,6 +974,7 @@ const comments = {
   commentOnProperty: "{{name}}에 댓글 달기",
   openPropertyComments_other: "{{name}}의 열린 댓글 {{count}}개",
   openRowComments_other: "{{title}}의 열린 댓글 {{count}}개",
+  openRow: "행 열기",
   suggestions: "제안",
   suggestionAdd: "추가",
   suggestionDelete: "삭제",

@@ -473,6 +473,11 @@ CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
     },
     {
       version: 39,
+      name: "mail-sync-history-pending",
+      sql: `ALTER TABLE mail_sync_accounts ADD COLUMN IF NOT EXISTS history_pending INTEGER`,
+    },
+    {
+      version: 39,
       name: "mail-inbox-full-sync-listed-count",
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS full_sync_listed_count INTEGER NOT NULL DEFAULT 0;`,

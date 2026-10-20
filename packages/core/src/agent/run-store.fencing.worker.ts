@@ -13,6 +13,7 @@ import {
 import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import { abortRunAtSafeBoundaryDurably } from "./run-manager.js";
 import {
   beginAgentExecutionStep,
   claimTurnExecutionLease,
@@ -73,6 +74,8 @@ function waitForContinue(): Promise<void> {
     process.stdin.resume();
   });
 }
+
+let databaseBackendPid: number | undefined;
 
 async function main(): Promise<void> {
   const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
@@ -172,6 +175,23 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (mode === "durable-abort") {
+        const [{ pid }] = await sql`SELECT pg_backend_pid() AS pid`;
+        databaseBackendPid = Number(pid);
+        const aborted = await abortRunAtSafeBoundaryDurably(
+          runId,
+          stepId ?? "user",
+        );
+        process.stdout.write(
+          JSON.stringify({
+            aborted,
+            processId: process.pid,
+            databaseBackendPid,
+          }),
+        );
+        return;
+      }
+
       await insertRun(runId, threadId, turnId);
       const fence = await claimTurnExecutionLease(threadId, turnId, runId);
       if (mode === "claim") {
@@ -248,6 +268,13 @@ main().catch((error) => {
     error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code)
       : undefined;
-  process.stdout.write(JSON.stringify({ error: String(error), code }));
+  process.stdout.write(
+    JSON.stringify({
+      error: String(error),
+      code,
+      processId: process.pid,
+      databaseBackendPid,
+    }),
+  );
   process.exitCode = code === "turn_execution_lease_busy" ? 3 : 1;
 });

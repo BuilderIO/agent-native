@@ -198,6 +198,9 @@ export const mailSyncAccounts = table(
     lastPushGeneration: bigint("last_push_generation", { mode: "number" })
       .notNull()
       .default(0),
+    // Set while incremental history is not drained: a page was returned with
+    // more to read. Such an account is not steady, so polls keep the fast cadence.
+    historyPending: integer("history_pending"),
     syncClaimId: text("sync_claim_id"),
     syncClaimedAt: integer("sync_claimed_at"),
     lastWatchRenewedAt: bigint("last_watch_renewed_at", { mode: "number" }),

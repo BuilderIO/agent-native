@@ -1842,7 +1842,7 @@ const messages = {
     unmuteMicrophone: "ミュートを解除",
     uploadVideo: "Upload video (ローカライズ済み)",
     takeScreenshot: "スクリーンショットを撮る",
-    importLoom: "Import Loom (ローカライズ済み)",
+    importLoom: "動画をインポート",
     importing: "Importing... (ローカライズ済み)",
     import: "Import (ローカライズ済み)",
     recordNew: "新規録画",
@@ -2098,8 +2098,8 @@ const messages = {
       "この録画はまだ処理中のため、Clips はコピーをここに残しました。完了を待つか、もう一度アップロードしてください。",
   },
   importRoute: {
-    pageTitle: "Loom をインポート — Clips",
-    title: "Loom をインポート",
+    pageTitle: "動画をインポート — Clips",
+    title: "動画をインポート",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "インポート",
     helperText:
