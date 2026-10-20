@@ -656,6 +656,54 @@ describe("engineMessagesToAnthropic", () => {
     expect(JSON.stringify(result)).not.toContain("Its outcome is UNKNOWN");
   });
 
+  it("does not fall back to a different identified call when a result step is unknown", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "known-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+            executionStepId: "known-step",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "known-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            executionStepId: "unknown-step",
+            content: "Unmatched result",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const content = result[1]!.content;
+
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "known-call-id",
+        isError: true,
+        content: expect.stringContaining("Its outcome is UNKNOWN"),
+      }),
+    );
+    expect(content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Unmatched result"),
+      }),
+    );
+  });
+
   it("backfills tool_name and tool_input from the matching tool_use when omitted", () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "ping" }] },

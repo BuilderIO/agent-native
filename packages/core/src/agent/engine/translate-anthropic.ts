@@ -270,10 +270,15 @@ export function backfillEngineMessagesToolResults(
             (pending) => pending.name === requestedToolName,
           )
         : pendingCandidates;
+      const legacyPendingCandidates = part.executionStepId
+        ? namedPendingCandidates.filter(
+            (pending) => pending.executionStepId === undefined,
+          )
+        : namedPendingCandidates;
       const parsedToolInput = parseToolInput(part.toolInput);
       const fingerprintMatches =
         parsedToolInput.status === "parsed"
-          ? namedPendingCandidates.filter(
+          ? legacyPendingCandidates.filter(
               (pending) =>
                 toolCallInputSignature(pending.input) ===
                 toolCallInputSignature(parsedToolInput.value),
@@ -289,8 +294,8 @@ export function backfillEngineMessagesToolResults(
           ? stepMatches[0]
           : stepMatches.length > 1
             ? undefined
-            : namedPendingCandidates.length === 1
-              ? namedPendingCandidates[0]
+            : legacyPendingCandidates.length === 1
+              ? legacyPendingCandidates[0]
               : fingerprintMatches.length === 1
                 ? fingerprintMatches[0]
                 : undefined;
