@@ -72,7 +72,7 @@ function isColor(value: string | null | undefined): value is string {
   return !!value && NFM_COLORS.has(value) && value !== "default";
 }
 
-const ESCAPABLE = new Set("\\*~`$[]<>{}|^".split(""));
+const ESCAPABLE = /[\\*~`$[\]<>{}|^]/g;
 
 // CommonMark lets a backslash escape any ASCII punctuation, and agents write
 // `\_` or `1\.`. Writing still escapes only `ESCAPABLE`, so the bytes the
@@ -80,12 +80,7 @@ const ESCAPABLE = new Set("\\*~`$[]<>{}|^".split(""));
 const PARSE_ESCAPABLE = new Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".split(""));
 
 export function escapeInlineText(text: string): string {
-  let out = "";
-  for (const ch of text) {
-    if (ESCAPABLE.has(ch)) out += "\\" + ch;
-    else out += ch;
-  }
-  return out;
+  return text.replace(ESCAPABLE, "\\$&");
 }
 
 function unescapeInlineText(text: string): string {
