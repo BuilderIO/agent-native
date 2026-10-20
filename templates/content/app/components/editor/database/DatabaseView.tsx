@@ -111,6 +111,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useCallback,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -323,8 +324,12 @@ import {
 } from "./DatabaseViewSkeleton";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
-import { GitHubLinkDialog } from "./GitHubLinkDialog";
-import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
+import type { GitHubCollectionPlace } from "./github-availability";
+import { GitHubSourcePanel, useGitHubSourcesRow } from "./GitHubSourcePanel";
+import {
+  GitHubEmptyCollectionHint,
+  GitHubSourceStatusLine,
+} from "./GitHubSourceStatusLine";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
@@ -3493,7 +3498,24 @@ function DatabaseTable({
             (candidate) => candidate.sourceType === GITHUB_SOURCE_TYPE,
           ) ?? null
         }
+        documentId={document.id}
+        canEdit={canEdit}
+        pageCount={totalItemCount}
       />
+      {canEdit &&
+      databaseId &&
+      data &&
+      !data.database.systemRole &&
+      !source &&
+      sources.length === 0 &&
+      totalItemCount === 0 ? (
+        <GitHubEmptyCollectionHint
+          databaseId={databaseId}
+          documentId={document.id}
+          spaceId={document.spaceId ?? undefined}
+          parentId={document.parentId}
+        />
+      ) : null}
 
       {database.itemsFailed ? (
         <QueryErrorState
@@ -3847,6 +3869,15 @@ function DatabaseTable({
         databaseId={databaseId}
         documentId={document.id}
         isFilesDatabase={document.database?.systemRole === "files"}
+        githubPlace={{
+          databaseId,
+          documentId: document.id,
+          spaceId: document.spaceId ?? undefined,
+          parentId: document.parentId,
+          systemRole: data?.database.systemRole ?? null,
+          pageCount: totalItemCount,
+          canEdit,
+        }}
         canEdit={canEdit}
         canManage={document.canManage === true}
         activeView={activeView}
@@ -7820,7 +7851,8 @@ type SourceNavStep =
   | { kind: "addSource" }
   | { kind: "secondarySource"; sourceId: string; sourceName: string }
   | { kind: "keyConfirm"; candidate: PendingSourceCandidate }
-  | { kind: "fieldPicker"; sourceId: string; sourceName: string };
+  | { kind: "fieldPicker"; sourceId: string; sourceName: string }
+  | { kind: "github" };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
@@ -7831,6 +7863,7 @@ function sourceNavTitle(stack: SourceNavStep[]): string {
   if (top.kind === "secondarySource") return top.sourceName;
   if (top.kind === "keyConfirm") return dbText("matchExistingItemsToDetails");
   if (top.kind === "fieldPicker") return dbText("chooseFields");
+  if (top.kind === "github") return "GitHub";
   return top.model?.displayName ?? top.sourceName ?? "Builder";
 }
 
@@ -7877,6 +7910,7 @@ function DatabaseSettingsPanelSheet({
   databaseId,
   documentId,
   isFilesDatabase,
+  githubPlace,
   canEdit,
   canManage,
   activeView,
@@ -7916,6 +7950,7 @@ function DatabaseSettingsPanelSheet({
   databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
+  githubPlace: GitHubCollectionPlace;
   canEdit: boolean;
   canManage: boolean;
   activeView: ContentDatabaseView;
@@ -8086,6 +8121,7 @@ function DatabaseSettingsPanelSheet({
               databaseId={databaseId}
               documentId={documentId}
               isFilesDatabase={isFilesDatabase}
+              githubPlace={githubPlace}
               itemCount={items.length}
               canEdit={canEdit}
               canManage={canManage}
@@ -8494,6 +8530,7 @@ function DatabaseSettingsSourcePanel({
   databaseId,
   documentId,
   isFilesDatabase,
+  githubPlace,
   itemCount,
   canEdit,
   canManage,
@@ -8518,6 +8555,7 @@ function DatabaseSettingsSourcePanel({
   databaseId: string;
   documentId: string;
   isFilesDatabase: boolean;
+  githubPlace: GitHubCollectionPlace;
   itemCount: number;
   canEdit: boolean;
   canManage: boolean;
@@ -8571,65 +8609,60 @@ function DatabaseSettingsSourcePanel({
     },
   });
   const top = nav[nav.length - 1];
-  const [githubDialogOpen, setGitHubDialogOpen] = useState(false);
 
   if (!top) {
     return (
-      <>
-        <SourcesListView
-          source={source}
-          sources={sources}
-          builderConfigured={builderConfigured}
-          builderSpaceLabel={builderSpaceLabel}
-          reviewableCount={
-            builderSources.every(databaseSourceChangeSetsAreComplete)
-              ? builderSources.reduce(
-                  (total, candidate) =>
-                    total + builderReviewableChangeSets(candidate).length,
-                  0,
-                )
-              : undefined
-          }
-          onOpenBuilder={(builderSource) =>
-            onNavPush(
-              builderSource
-                ? {
-                    kind: "model",
-                    sourceId: builderSource.id,
-                    sourceName: builderSource.sourceName,
-                  }
-                : { kind: "provider", providerId: "builder" },
-            )
-          }
-          onOpenNotion={() => onNavPush({ kind: "addSource" })}
-          onOpenLocalFolder={() =>
-            navigate(`/local-files?databaseId=${databaseId}`)
-          }
-          showLocalFolder={isFilesDatabase}
-          onOpenGitHub={
-            canEdit && !isFilesDatabase
-              ? () => setGitHubDialogOpen(true)
-              : undefined
-          }
-          onDisconnectGitHub={
-            canEdit ? (github) => onDisconnectSource(github.id) : undefined
-          }
-          disconnectPending={sourcePendingOperations.disconnect}
-          onOpenSecondary={(secondary) =>
-            onNavPush({
-              kind: "secondarySource",
-              sourceId: secondary.id,
-              sourceName: secondary.sourceName,
-            })
-          }
-          onAddSource={() => onNavPush({ kind: "addSource" })}
-        />
-        <GitHubLinkDialog
-          databaseId={databaseId}
-          open={githubDialogOpen}
-          onOpenChange={setGitHubDialogOpen}
-        />
-      </>
+      <SourcesListView
+        source={source}
+        sources={sources}
+        builderConfigured={builderConfigured}
+        builderSpaceLabel={builderSpaceLabel}
+        reviewableCount={
+          builderSources.every(databaseSourceChangeSetsAreComplete)
+            ? builderSources.reduce(
+                (total, candidate) =>
+                  total + builderReviewableChangeSets(candidate).length,
+                0,
+              )
+            : undefined
+        }
+        onOpenBuilder={(builderSource) =>
+          onNavPush(
+            builderSource
+              ? {
+                  kind: "model",
+                  sourceId: builderSource.id,
+                  sourceName: builderSource.sourceName,
+                }
+              : { kind: "provider", providerId: "builder" },
+          )
+        }
+        onOpenNotion={() => onNavPush({ kind: "addSource" })}
+        onOpenLocalFolder={() =>
+          navigate(`/local-files?databaseId=${databaseId}`)
+        }
+        showLocalFolder={isFilesDatabase}
+        githubPlace={githubPlace}
+        onOpenGitHubStep={() => onNavPush({ kind: "github" })}
+        onOpenSecondary={(secondary) =>
+          onNavPush({
+            kind: "secondarySource",
+            sourceId: secondary.id,
+            sourceName: secondary.sourceName,
+          })
+        }
+        onAddSource={() => onNavPush({ kind: "addSource" })}
+      />
+    );
+  }
+
+  if (top.kind === "github") {
+    return (
+      <GitHubSourcePanel
+        place={githubPlace}
+        sources={sources.length > 0 ? sources : source ? [source] : []}
+        onUnlinked={() => onNavReplace([])}
+      />
     );
   }
 
@@ -9279,9 +9312,8 @@ export function SourcesListView({
   onOpenNotion,
   onOpenLocalFolder,
   showLocalFolder,
-  onOpenGitHub,
-  onDisconnectGitHub,
-  disconnectPending = false,
+  githubPlace,
+  onOpenGitHubStep,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -9294,11 +9326,9 @@ export function SourcesListView({
   onOpenNotion: () => void;
   onOpenLocalFolder: () => void;
   showLocalFolder: boolean;
-  /** Opens the GitHub link dialog; undefined when the reader can't link one. */
-  onOpenGitHub?: () => void;
-  /** Unlinks the GitHub folder; undefined when the reader can't. */
-  onDisconnectGitHub?: (source: ContentDatabaseSource) => void;
-  disconnectPending?: boolean;
+  githubPlace: GitHubCollectionPlace;
+  /** Opens the GitHub step: the linked folder, or why one can't link here. */
+  onOpenGitHubStep: () => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -9306,13 +9336,20 @@ export function SourcesListView({
   const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
-  const githubSource = connectedSources.find(
-    (connected) => connected.sourceType === GITHUB_SOURCE_TYPE,
+  const github = useGitHubSourcesRow(
+    githubPlace,
+    connectedSources,
+    onOpenGitHubStep,
   );
-  const openGitHubFolder = (connected: ContentDatabaseSource) => {
-    const folderUrl = connected.metadata.github?.folderUrl;
-    if (folderUrl) window.open(folderUrl, "_blank", "noopener,noreferrer");
-  };
+  const githubSource =
+    github.availability.kind === "linked"
+      ? github.availability.source
+      : undefined;
+  // A GitHub folder is the collection's whole content, so other apps
+  // explain that instead of leading to a refusal.
+  const lockedByGitHub = githubSource
+    ? dbText("githubRowUnavailableWhileLinked")
+    : undefined;
   return (
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
@@ -9336,15 +9373,28 @@ export function SourcesListView({
                   <IconLayoutGrid className="size-4" />
                 )
               }
-              label={connected.sourceName}
-              value={sourceRoleLabel(connected, index)}
+              label={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? "GitHub"
+                  : connected.sourceName
+              }
+              value={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? undefined
+                  : sourceRoleLabel(connected, index)
+              }
+              description={
+                connected.sourceType === GITHUB_SOURCE_TYPE
+                  ? github.description
+                  : undefined
+              }
               onClick={
                 connected.metadata.federation?.role === "secondary"
                   ? () => onOpenSecondary(connected)
                   : connected.sourceType === "builder-cms"
                     ? () => onOpenBuilder(connected)
                     : connected.sourceType === GITHUB_SOURCE_TYPE
-                      ? () => openGitHubFolder(connected)
+                      ? onOpenGitHubStep
                       : undefined
               }
               disabled={
@@ -9364,28 +9414,6 @@ export function SourcesListView({
           )}
         </div>
       )}
-      {githubSource && onDisconnectGitHub ? (
-        <div className="rounded-lg border border-border bg-background p-3">
-          <div className="break-words text-xs text-muted-foreground">
-            {dbText("githubDisconnectDescription")}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline-destructive"
-            className="mt-2"
-            disabled={disconnectPending}
-            onClick={() => onDisconnectGitHub(githubSource)}
-          >
-            {disconnectPending ? (
-              <Spinner className="mr-1 size-3.5" />
-            ) : (
-              <IconX className="mr-1 size-3.5" />
-            )}
-            {dbText("disconnectSource")}
-          </Button>
-        </div>
-      ) : null}
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Integrations
@@ -9401,7 +9429,9 @@ export function SourcesListView({
                 : undefined
           }
           badgeCount={reviewableCount}
-          onClick={onOpenBuilder}
+          description={lockedByGitHub}
+          muted={!!lockedByGitHub}
+          onClick={lockedByGitHub ? onOpenGitHubStep : () => onOpenBuilder()}
         />
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
@@ -9413,16 +9443,19 @@ export function SourcesListView({
               ? dbText("connected")
               : undefined
           }
-          onClick={onOpenNotion}
+          description={lockedByGitHub}
+          muted={!!lockedByGitHub}
+          onClick={lockedByGitHub ? onOpenGitHubStep : onOpenNotion}
         />
-        <DatabaseSettingsRow
-          icon={<IconBrandGithub className="size-4" />}
-          label="GitHub"
-          value={githubSource ? dbText("connected") : undefined}
-          onClick={
-            githubSource ? () => openGitHubFolder(githubSource) : onOpenGitHub
-          }
-        />
+        {githubSource ? null : (
+          <DatabaseSettingsRow
+            icon={<IconBrandGithub className="size-4" />}
+            label="GitHub"
+            description={github.description}
+            muted={github.muted}
+            onClick={github.open}
+          />
+        )}
         {showLocalFolder ? (
           <DatabaseSettingsRow
             icon={<IconFolder className="size-4" />}
@@ -11103,37 +11136,69 @@ function DatabaseSettingsRow({
   icon,
   label,
   value,
+  description,
   badgeCount = 0,
   disabled = false,
+  muted = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   value?: string;
+  /** A second line that's always shown, like why the row can't be used. */
+  description?: string;
   badgeCount?: number;
   disabled?: boolean;
-  onClick?: () => void;
+  /**
+   * Looks unavailable but stays focusable and clickable, so its reason can
+   * still be opened by keyboard, touch and screen readers.
+   */
+  muted?: boolean;
+  onClick?: (button: HTMLButtonElement) => void;
 }) {
   const badgeLabel = formatCompactCountBadge(badgeCount);
+  const descriptionId = useId();
   return (
     <button
       type="button"
       disabled={disabled || !onClick}
+      aria-disabled={muted || undefined}
+      aria-describedby={description ? descriptionId : undefined}
       className={cn(
-        "flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        description ? "min-h-9 py-1.5" : "h-9",
         disabled || !onClick
           ? "cursor-default text-muted-foreground/60"
-          : "text-foreground hover:bg-muted",
+          : muted
+            ? "text-muted-foreground hover:bg-muted"
+            : "text-foreground hover:bg-muted",
       )}
       onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
-        onClick?.();
+        onClick?.(event.currentTarget);
       }}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+      <span
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center text-muted-foreground",
+          description && "self-start",
+        )}
+      >
         {icon}
       </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {description ? (
+        <span className="grid min-w-0 flex-1">
+          <span className="truncate">{label}</span>
+          <span
+            id={descriptionId}
+            className="break-words text-xs text-muted-foreground"
+          >
+            {description}
+          </span>
+        </span>
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      )}
       {value ? (
         <span className="max-w-28 shrink-0 truncate text-xs text-muted-foreground">
           {value}

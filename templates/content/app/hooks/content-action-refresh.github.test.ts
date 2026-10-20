@@ -48,6 +48,17 @@ describe("GitHub folder sync refresh invalidation", () => {
     },
   );
 
+  it("shows a collection made from a GitHub folder in the sidebar and lists", () => {
+    const predicate = contentActionInvalidatePredicate("/page/elsewhere");
+    const events = [{ source: "action", key: "create-github-collection" }];
+    expect(
+      predicate({ queryKey: ["action", "list-documents", {}] }, events),
+    ).toBe(true);
+    expect(
+      predicate({ queryKey: ["action", "list-content-databases", {}] }, events),
+    ).toBe(true);
+  });
+
   it("rereads an open page and its collection after a disconnect", () => {
     const events = [
       { source: "action", key: "disconnect-content-database-source" },

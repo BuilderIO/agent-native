@@ -3,68 +3,151 @@ import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
   githubLinkTitle: "GitHub फ़ोल्डर लिंक करें",
+  githubNewCollectionTitle: "GitHub फ़ोल्डर से नया संग्रह",
   githubLinkDescription:
-    "हर Markdown फ़ाइल केवल-देखने वाला पेज बनती है, और ब्रांच पर किए गए पुश लगभग एक मिनट में आ जाते हैं।",
-  githubLinkUrlLabel: "फ़ोल्डर लिंक",
-  githubLinkPreview: "पूर्वावलोकन",
-  githubLinkReading: "फ़ोल्डर पढ़ा जा रहा है…",
-  githubLinkFolderAt: "{{commit}} पर {{folder}}",
-  githubLinkFiles: "{{count}} Markdown फ़ाइलें पेज बनेंगी।",
-  githubLinkFilesOne: "1 Markdown फ़ाइल पेज बनेगी।",
-  githubLinkNoFiles: "इस फ़ोल्डर में लिंक करने के लिए कोई Markdown फ़ाइल नहीं है।",
-  githubLinkColumns: "फ़्रंटमैटर से कॉलम",
-  githubLinkNoColumns: "इन फ़ाइलों में फ़्रंटमैटर नहीं है, इसलिए शीर्षक ही एकमात्र कॉलम है।",
-  githubLinkColumnsSampled:
-    "{{total}} में से {{count}} फ़ाइलों से पढ़े गए। बाकी फ़ाइलें कॉलम जोड़ सकती हैं या उनका प्रकार बदल सकती हैं।",
-  githubLinkPages: "पेज",
-  githubLinkSkipped: "लिंक नहीं हुईं",
-  githubSkipMdx: "MDX अभी समर्थित नहीं है",
-  githubSkipTooLarge: "इंपोर्ट करने के लिए बहुत बड़ी है",
-  githubSkipNotText: "UTF-8 टेक्स्ट नहीं है",
-  githubLinkImagesWaiting: "फ़ाइल स्टोरेज सेट होने पर इस फ़ोल्डर की इमेज दिखेंगी।",
-  githubLinkBlockedHasRows:
-    "इस कलेक्शन में पहले से पेज हैं। किसी नए, खाली कलेक्शन से GitHub फ़ोल्डर लिंक करें।",
-  githubLinkBlockedLinked: "यह कलेक्शन पहले से किसी सोर्स का अनुसरण करता है।",
-  githubLinkBlockedSystem: "यह कलेक्शन GitHub फ़ोल्डर का अनुसरण नहीं कर सकता।",
-  githubLinkNeedsConnection:
-    "GitHub कनेक्ट करें ताकि Content इस रिपॉज़िटरी को पढ़ सके।",
+    "इसके दस्तावेज़ यहाँ केवल पढ़ने योग्य पेज के रूप में दिखेंगे, और GitHub पर फ़ाइलें बदलने पर अपने आप अपडेट होंगे।",
+  githubNewCollectionDescription:
+    "Content फ़ोल्डर के नाम से एक संग्रह बनाता है। इसके दस्तावेज़ वहाँ केवल पढ़ने योग्य पेज के रूप में दिखेंगे, और GitHub पर फ़ाइलें बदलने पर अपने आप अपडेट होंगे।",
+  githubLinkUrlLabel: "GitHub फ़ोल्डर का लिंक",
+  githubLinkUrlHelp: "GitHub पर फ़ोल्डर खोलें और अपने ब्राउज़र से उसका पता कॉपी करें।",
+  githubLinkCheck: "फ़ोल्डर जाँचें",
+  githubLinkReading: "GitHub पर फ़ोल्डर पढ़ा जा रहा है…",
+  githubConnectChecking: "आपका GitHub कनेक्शन जाँचा जा रहा है…",
+  githubConnectPrompt: "अपना GitHub खाता कनेक्ट करें ताकि Content आपके फ़ोल्डर पढ़ सके।",
   githubConnect: "GitHub कनेक्ट करें",
-  githubLinkSubmit: "फ़ोल्डर लिंक करें",
-  githubLinkedToast: "{{folder}} लिंक हो गया",
-  githubLinkedSyncFailed: "{{folder}} लिंक हो गया, लेकिन उसका पहला सिंक विफल रहा",
-  githubFollows: "{{branch}} पर {{folder}} का अनुसरण करता है",
-  githubViewOnly: "केवल देखने के लिए: फ़ाइलें GitHub में संपादित करें",
-  githubSyncedTo: "{{commit}} तक सिंक हुआ {{time}}",
-  githubNotSyncedYet: "अभी सिंक नहीं हुआ",
-  githubSyncingProgress:
-    "{{commit}} लाया जा रहा है: {{total}} में से {{done}} फ़ाइलें",
-  githubSkippedFiles: "{{count}} फ़ाइलें छोड़ी गईं",
-  githubSkippedFilesOne: "1 फ़ाइल छोड़ी गई",
-  githubImagesWaiting: "कुछ इमेज फ़ाइल स्टोरेज का इंतज़ार कर रही हैं",
-  githubSyncNow: "अभी सिंक करें",
-  githubOpenFolder: "GitHub में खोलें",
-  githubAlreadyUpToDate: "पहले से अप टू डेट",
-  githubSyncedToast: "{{commit}} तक सिंक हुआ",
-  githubProblemConnection:
-    "इस कलेक्शन को अप टू डेट रखने के लिए GitHub फिर से कनेक्ट करें।",
-  githubProblemForbidden: "GitHub ने इस रिपॉज़िटरी तक पहुँच से मना कर दिया।",
-  githubProblemRepositoryNotFound:
-    "रिपॉज़िटरी नहीं मिली। हो सकता है वह निजी हो, उसका नाम बदला गया हो या उसे हटा दिया गया हो।",
-  githubProblemBranchNotFound:
-    "ब्रांच नहीं मिली। हो सकता है उसका नाम बदला गया हो या उसे हटा दिया गया हो।",
-  githubProblemFolderNotFound: "फ़ोल्डर अब इस ब्रांच पर नहीं है।",
-  githubProblemRateLimited:
-    "GitHub अनुरोध सीमित कर रहा है। सिंक अपने आप फिर शुरू होगा।",
-  githubProblemTooLarge: "फ़ोल्डर में इतनी फ़ाइलें हैं जितनी कोई लिंक फ़ॉलो नहीं कर सकता।",
-  githubProblemUnavailable: "GitHub ने जवाब नहीं दिया। सिंक अपने आप फिर शुरू होगा।",
-  githubProblemSyncFailed: "पिछला सिंक विफल रहा। यह अपने आप फिर से कोशिश करेगा।",
-  githubProblemStorageUnavailable: "इमेज फ़ाइल स्टोरेज सेट होने का इंतज़ार कर रही हैं।",
+  githubLinkFolderIn: "{{repo}} में {{folder}}",
+  githubLinkPagesOne: "1 पेज: {{titles}}।",
+  githubLinkPages: "{{count}} पेज: {{titles}}।",
+  githubLinkPagesUpTo: "अधिकतम {{count}} पेज: {{titles}}।",
+  githubLinkMore: "{{count}} और",
+  githubLinkNoFiles:
+    "इस फ़ोल्डर में कोई Markdown (.md) फ़ाइल नहीं है, इसलिए दिखाने के लिए कुछ नहीं है।",
+  githubLinkColumns: "कॉलम: {{columns}}।",
+  githubLinkNoColumns:
+    "इन फ़ाइलों में सबसे ऊपर कोई विवरण नहीं है, इसलिए हर पेज को सिर्फ़ उसका शीर्षक मिलेगा।",
+  githubLinkNotShownOne: "1 फ़ाइल अभी नहीं दिखेगी।",
+  githubLinkNotShown: "{{count}} फ़ाइलें अभी नहीं दिखेंगी।",
+  githubLinkPicturesWaiting:
+    "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक इन फ़ाइलों की इमेज नहीं दिखेंगी।",
+  githubShowDetails: "विवरण दिखाएँ",
+  githubHideDetails: "विवरण छिपाएँ",
+  githubDetailsPages: "पेज",
+  githubDetailsColumns: "कॉलम",
+  githubDetailsColumnsSampled:
+    "{{total}} में से पहली {{count}} फ़ाइलों से पढ़े गए। बाकी फ़ाइलें कॉलम जोड़ सकती हैं।",
+  githubDetailsNotShown: "अभी नहीं दिखेंगी",
+  githubDetailsFrom: "स्रोत",
+  githubDetailsBranchVersion: "ब्रांच {{branch}} · वर्शन {{commit}}",
+  githubYes: "हाँ",
+  githubNo: "नहीं",
+  githubSkipMdx: "इसमें MDX है, जिसे Content अभी नहीं दिखा सकता",
+  githubSkipTooLarge: "Content में दिखाने के लिए बहुत बड़ी है",
+  githubSkipNotText: "ऐसी टेक्स्ट फ़ाइल नहीं है जिसे Content पढ़ सके",
+  githubLinkSubmitOne: "1 पेज लिंक करें",
+  githubLinkSubmit: "{{count}} पेज लिंक करें",
+  githubLinkSubmitUpTo: "अधिकतम {{count}} पेज लिंक करें",
+  githubLinking: "लिंक किया जा रहा है…",
+  githubLinkingProgressOne: "GitHub से 1 पेज लाया जा रहा है…",
+  githubLinkingProgress: "GitHub से {{count}} पेज लाए जा रहे हैं…",
+  githubLinkedToastOne: "लिंक हो गया। {{folder}} से 1 पेज यहाँ आ गया है।",
+  githubLinkedToast: "लिंक हो गया। {{folder}} से {{count}} पेज यहाँ आ गए हैं।",
+  githubLinkedPartialToast:
+    "लिंक हो गया। {{total}} में से {{done}} पेज यहाँ आ गए हैं; बाकी एक मिनट में आ जाएँगे।",
+  githubLinkedSyncFailed: "{{folder}} लिंक हो गया, लेकिन अभी पेज नहीं लाए जा सके।",
   githubLinkInvalidUrl:
-    "GitHub फ़ोल्डर का लिंक पेस्ट करें, जैसे github.com/owner/repo/tree/main/docs।",
-  githubLinkFileUrl: "यह लिंक एक फ़ाइल का है। उसके फ़ोल्डर का लिंक पेस्ट करें।",
-  githubSyncBusy: "एक सिंक पहले से चल रहा है। पूरा होने पर उसके बदलाव दिखेंगे।",
-  githubDisconnectDescription:
-    "फ़ोल्डर का अनुसरण करना बंद करें। इसके पेज यहीं रहेंगे और संपादित किए जा सकेंगे। फिर से अनुसरण करने के लिए, इसे किसी नए कलेक्शन से लिंक करें।",
+    "यह GitHub फ़ोल्डर का लिंक नहीं है। GitHub पर फ़ोल्डर खोलें और अपने ब्राउज़र से उसका पता कॉपी करें।",
+  githubLinkFileUrl: "यह एक फ़ाइल का लिंक है।",
+  githubLinkUseFolder: "“{{folder}}” फ़ोल्डर इस्तेमाल करें",
+  githubLinkRepositoryNotFound:
+    "“{{repo}}” नहीं खुल सका। वर्तनी जाँचें, या पक्का करें कि आपका GitHub खाता इसे देख सकता है।",
+  githubLinkBranchNotFound:
+    "{{repo}} में “{{branch}}” नाम की कोई ब्रांच नहीं है। लिंक जाँचें।",
+  githubLinkFolderNotFound:
+    "{{repo}} में “{{folder}}” नाम का कोई फ़ोल्डर नहीं है। लिंक जाँचें।",
+  githubLinkForbidden:
+    "आपका GitHub खाता “{{repo}}” नहीं खोल सकता। इसके मालिक से पहुँच माँगें।",
+  githubLinkTooLarge:
+    "इस फ़ोल्डर में {{max}} से ज़्यादा फ़ाइलें हैं। इसके अंदर का कोई छोटा फ़ोल्डर चुनें।",
+  githubLinkUnavailable:
+    "अभी GitHub तक नहीं पहुँच पाए। एक मिनट बाद फिर से कोशिश करें।",
+  githubLinkBlockedHasRows:
+    "इस संग्रह में अब पेज हैं, इसलिए GitHub फ़ोल्डर इसे नहीं भर सकता।",
+  githubLinkBlockedLinked: "यह संग्रह पहले से किसी दूसरे ऐप से अपने पेज लेता है।",
+  githubLinkBlockedSystem: "यह संग्रह GitHub फ़ोल्डर नहीं दिखा सकता।",
+  githubNewCollectionInstead: "GitHub से नया संग्रह",
+  githubRowAvailable: "किसी GitHub फ़ोल्डर के दस्तावेज़ यहाँ दिखाएँ",
+  githubRowConnectFirst: "पहले अपना GitHub खाता कनेक्ट करें",
+  githubRowEmptyOnly: "सिर्फ़ खाली संग्रहों के लिए",
+  githubRowOtherSource: "पहले से {{source}} से अपने पेज लेता है",
+  githubRowFiles: "Files के लिए उपलब्ध नहीं",
+  githubRowSystem: "इस संग्रह के लिए उपलब्ध नहीं",
+  githubRowEditorsOnly: "सिर्फ़ संपादकों के लिए",
+  githubRowLinked: "{{folder}} फ़ोल्डर · {{time}} अपडेट हुआ",
+  githubRowLinkedNotUpdated: "{{folder}} फ़ोल्डर · अभी अपडेट नहीं हुआ",
+  githubRowUnavailableWhileLinked: "GitHub से लिंक रहते हुए उपलब्ध नहीं",
+  githubExplainHasPagesOne:
+    "GitHub फ़ोल्डर पूरे संग्रह को भरता है, इसलिए उसके लिए बिना पेज वाला संग्रह चाहिए। इसमें 1 पेज है।",
+  githubExplainHasPages:
+    "GitHub फ़ोल्डर पूरे संग्रह को भरता है, इसलिए उसके लिए बिना पेज वाला संग्रह चाहिए। इसमें {{count}} पेज हैं।",
+  githubExplainOtherSource:
+    "एक संग्रह अपने पेज एक ही जगह से लेता है। यह संग्रह {{source}} इस्तेमाल करता है।",
+  githubExplainFiles: "Files संग्रह GitHub फ़ोल्डर नहीं दिखा सकता।",
+  githubExplainSystem: "यह संग्रह GitHub फ़ोल्डर नहीं दिखा सकता।",
+  githubExplainEditorsOnly:
+    "GitHub फ़ोल्डर सिर्फ़ वही लोग लिंक कर सकते हैं जो इस संग्रह को संपादित कर सकते हैं। इसके मालिक से संपादन की पहुँच माँगें।",
+  githubExplainLinked:
+    "इस संग्रह के पेज GitHub से आते हैं। कोई दूसरा स्रोत इस्तेमाल करने के लिए फ़ोल्डर अनलिंक करें।",
+  githubDetailFolder: "फ़ोल्डर",
+  githubDetailBranch: "ब्रांच",
+  githubDetailVersion: "वर्शन",
+  githubDetailUpdated: "अपडेट हुआ",
+  githubCheckForUpdates: "अपडेट जाँचें",
+  githubOpenFolder: "GitHub में खोलें",
+  githubUnlinkFolder: "फ़ोल्डर अनलिंक करें…",
+  githubUnlinkTitle: "यह GitHub फ़ोल्डर अनलिंक करें?",
+  githubUnlinkBodyOne:
+    "यह 1 पेज यहीं रहेगा और एक सामान्य पेज बन जाएगा जिसे आप संपादित कर सकते हैं। GitHub पर हुए बदलाव अब यहाँ नहीं आएँगे। बाद में इस फ़ोल्डर को फिर से लिंक करने के लिए, आपको एक नया संग्रह इस्तेमाल करना होगा।",
+  githubUnlinkBody:
+    "ये {{count}} पेज यहीं रहेंगे और सामान्य पेज बन जाएँगे जिन्हें आप संपादित कर सकते हैं। GitHub पर हुए बदलाव अब यहाँ नहीं आएँगे। बाद में इस फ़ोल्डर को फिर से लिंक करने के लिए, आपको एक नया संग्रह इस्तेमाल करना होगा।",
+  githubUnlink: "अनलिंक करें",
+  githubUnlinking: "अनलिंक किया जा रहा है…",
+  githubUnlinkedToast:
+    "अनलिंक हो गया। आपके पेज रखे गए हैं और अब आप उन्हें संपादित कर सकते हैं।",
+  githubUnlinkFailed: "फ़ोल्डर अनलिंक नहीं हो सका",
+  githubFromFolder: "GitHub पर {{folder}} फ़ोल्डर से",
+  githubFromRepo: "GitHub पर {{repo}} से",
+  githubUpdatedAgo: "{{time}} अपडेट हुआ",
+  githubJustNow: "अभी-अभी",
+  githubNotUpdatedYet: "अभी अपडेट नहीं हुआ",
+  githubEditOnGitHub: "GitHub पर संपादित करें",
+  githubDetails: "विवरण",
+  githubNotShownOne: "1 फ़ाइल नहीं दिखाई गई",
+  githubNotShown: "{{count}} फ़ाइलें नहीं दिखाई गईं",
+  githubNotShownHeading: "नहीं दिखाई गईं",
+  githubShowingAsOf: "पेज {{time}} की स्थिति में दिखाए जा रहे हैं।",
+  githubSyncingProgress: "बदलाव लाए जा रहे हैं: {{total}} में से {{done}} फ़ाइलें",
+  githubPicturesWaiting:
+    "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक कुछ इमेज नहीं दिखेंगी।",
+  githubReconnect: "GitHub फिर से कनेक्ट करें",
+  githubProblemConnection: "अपडेट रुक गए: GitHub चाहता है कि आप फिर से साइन इन करें।",
+  githubProblemForbidden:
+    "अपडेट रुक गए: आपका GitHub खाता अब इस रिपॉज़िटरी को नहीं खोल सकता। इसके मालिक से पहुँच माँगें।",
+  githubProblemRepositoryNotFound:
+    "अपडेट रुक गए: रिपॉज़िटरी कहीं और ले जाई गई, उसका नाम बदला गया या उसे निजी कर दिया गया।",
+  githubProblemBranchNotFound:
+    "अपडेट रुक गए: “{{branch}}” ब्रांच अब GitHub पर नहीं है।",
+  githubProblemFolderNotFound:
+    "अपडेट रुक गए: “{{folder}}” फ़ोल्डर अब उस ब्रांच पर नहीं है।",
+  githubProblemPaused: "अपडेट कुछ देर के लिए रुके हैं। ये अपने आप फिर शुरू हो जाएँगे।",
+  githubProblemTooLarge: "अपडेट रुक गए: अब फ़ोल्डर में {{max}} से ज़्यादा फ़ाइलें हैं।",
+  githubProblemStorageUnavailable:
+    "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक इमेज नहीं दिखेंगी।",
+  githubAlreadyUpToDate: "सब अप टू डेट है।",
+  githubSyncedToastOne: "अपडेट हो गया। 1 पेज बदला।",
+  githubSyncedToast: "अपडेट हो गया। {{count}} पेज बदले।",
+  githubSyncPartialToast: "अपडेट हो रहा है: अब तक {{total}} में से {{done}} फ़ाइलें।",
+  githubSyncBusy: "अपडेट पहले से जाँचे जा रहे हैं। जाँच पूरी होने पर बदलाव दिखेंगे।",
+  githubEmptyHint: "या इसे किसी GitHub फ़ोल्डर से भरें",
   formChecked: "चयनित",
   formChooseOption: "एक विकल्प चुनें",
   formDescription: "इस संग्रह में पेज जोड़ने के लिए नीचे दिए सवाल भरें।",
@@ -404,8 +487,7 @@ const databaseExactEnglish = {
   sortDescending: "अवरोही क्रम में सॉर्ट करें",
   sortRowsBy: "पंक्तियां इसके अनुसार सॉर्ट करें",
   startDate: "प्रारंभ तारीख",
-  thisDatabaseIsLocalConnectASourceToMapIts:
-    "यह संग्रह स्थानीय है। इसके कॉलम इन पंक्तियों पर मैप करने के लिए स्रोत कनेक्ट करें।",
+  thisDatabaseIsLocalConnectASourceToMapIts: "किसी दूसरे ऐप से इस संग्रह में पेज लाएँ।",
   thisPropertyHasNoOptionsYet: "इस गुण में अभी कोई विकल्प नहीं है।",
   thisSourceIsNoLongerConnected: "यह स्रोत अब कनेक्ट नहीं है।",
 };
@@ -973,6 +1055,7 @@ const rawLiterals = {
     expandItem: "{{title}} का विस्तार करें",
     database: "संग्रह",
     collection: "संग्रह",
+    collectionFromGitHub: "GitHub फ़ोल्डर से संग्रह",
     databasePermanentlyDeleted: "संग्रह स्थायी रूप से हटाया गया",
     databaseRestored: "संग्रह बहाल किया गया",
     deleteDatabaseNamedPermanently: "{{title}} को स्थायी रूप से हटाएं",

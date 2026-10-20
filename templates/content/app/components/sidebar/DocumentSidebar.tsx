@@ -37,6 +37,7 @@ import {
   IconTrash,
   IconGitBranch,
   IconSearch,
+  IconBrandGithub,
   IconDatabase,
   IconFileText,
 } from "@tabler/icons-react";
@@ -154,6 +155,7 @@ import {
   readPagedFilesRootHint,
   rememberPagedFilesRoot,
 } from "@/lib/files-root-hint";
+import { openGitHubLinkDialog } from "@/lib/github-link-dialog";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -617,6 +619,7 @@ function WorkspaceSidebarItem({
   onToggleExpanded,
   onCreatePageInSpace,
   onCreateDatabaseInSpace,
+  onCreateGitHubCollectionInSpace,
   onCreateChildPage,
   onCreateChildDatabase,
   onDeleteItem,
@@ -644,6 +647,7 @@ function WorkspaceSidebarItem({
   onToggleExpanded: () => void;
   onCreatePageInSpace: (space: ContentSpaceSummary) => void;
   onCreateDatabaseInSpace: (space: ContentSpaceSummary) => void;
+  onCreateGitHubCollectionInSpace: (space: ContentSpaceSummary) => void;
   onCreateChildPage: (
     space: ContentSpaceSummary,
     item: ContentDatabaseItem,
@@ -996,7 +1000,7 @@ function WorkspaceSidebarItem({
                 <IconPlus size={14} />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={() => onCreatePageInSpace(space)}>
                 <IconFileText className="me-2 size-4" />
                 {t("sidebar.page")}
@@ -1004,6 +1008,12 @@ function WorkspaceSidebarItem({
               <DropdownMenuItem onClick={() => onCreateDatabaseInSpace(space)}>
                 <IconDatabase className="me-2 size-4" />
                 {t("sidebar.collection")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onCreateGitHubCollectionInSpace(space)}
+              >
+                <IconBrandGithub className="me-2 size-4" />
+                {t("sidebar.collectionFromGitHub")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -2838,6 +2848,17 @@ export function DocumentSidebar({
     [handleCreateDatabase, selectSpaceForCreation],
   );
 
+  // The collection is made once the folder is checked, named after it.
+  const handleCreateGitHubCollectionInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      if (!(await selectSpaceForCreation(space))) return;
+      openGitHubLinkDialog({
+        target: { kind: "new", spaceId: space.id, parentId: null },
+      });
+    },
+    [selectSpaceForCreation],
+  );
+
   const handleDelete = useCallback(
     async (id: string) => {
       const deletedDocument = documentMetadata.get(id) ?? null;
@@ -3205,7 +3226,7 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>{t("sidebar.new")}</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent side="right" align="start" className="w-44">
+        <DropdownMenuContent side="right" align="start" className="w-56">
           <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
@@ -3217,6 +3238,14 @@ export function DocumentSidebar({
           >
             <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              void handleCreateGitHubCollectionInSpace(selectedSpace)
+            }
+          >
+            <IconBrandGithub className="me-2 size-4" />
+            {t("sidebar.collectionFromGitHub")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -3333,7 +3362,7 @@ export function DocumentSidebar({
             <IconPlus className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
@@ -3345,6 +3374,14 @@ export function DocumentSidebar({
           >
             <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              void handleCreateGitHubCollectionInSpace(selectedSpace)
+            }
+          >
+            <IconBrandGithub className="me-2 size-4" />
+            {t("sidebar.collectionFromGitHub")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -3436,6 +3473,9 @@ export function DocumentSidebar({
       }
       onCreateDatabaseInSpace={(nextSpace) =>
         void handleCreateDatabaseInSpace(nextSpace)
+      }
+      onCreateGitHubCollectionInSpace={(nextSpace) =>
+        void handleCreateGitHubCollectionInSpace(nextSpace)
       }
       onCreateChildPage={async (nextSpace, item) => {
         if (!(await selectSpaceForCreation(nextSpace))) return;

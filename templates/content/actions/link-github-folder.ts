@@ -112,6 +112,96 @@ function blockedError(blocked: GitHubLinkBlockedReason) {
   });
 }
 
+/**
+ * Links a collection to a folder already read and previewed, then brings in
+ * the first files. The link is saved before the sync, so a sync that fails is
+ * reported on the link rather than thrown.
+ */
+export async function linkPreviewedGitHubFolder({
+  database,
+  resolved,
+  preview,
+  connectionId,
+  userEmail,
+}: {
+  database: Parameters<typeof createGitHubSourceLink>[0]["database"];
+  resolved: Awaited<ReturnType<typeof resolveGitHubFolder>>;
+  preview: Awaited<ReturnType<typeof previewGitHubFolder>>;
+  connectionId: string | null;
+  userEmail: string;
+}) {
+  const sourceId = await createGitHubSourceLink({
+    database,
+    resolved,
+    preview,
+    connectionId,
+    userEmail,
+    // Reading GitHub takes seconds, so someone may have added a row since
+    // the check above; this runs again under the collection's lock.
+    assertLinkable: async (tx) => {
+      const blockedNow = await linkBlockedReason(database, tx);
+      if (blockedNow) throw blockedError(blockedNow);
+    },
+  });
+  return bringInGitHubLink({ database, preview, sourceId });
+}
+
+/**
+ * Brings in a saved link's first files, or the rest of them on a retry, and
+ * says how far it got.
+ */
+export async function bringInGitHubLink({
+  database,
+  preview,
+  sourceId,
+}: {
+  database: Parameters<typeof createGitHubSourceLink>[0]["database"];
+  preview: Awaited<ReturnType<typeof previewGitHubFolder>>;
+  sourceId: string;
+}) {
+  // The link is saved by now, so anything that fails from here is reported
+  // on it rather than thrown, which would leave the caller thinking it failed.
+  // A contract error is the exception: the link or its collection went away
+  // during the sync, so there's nothing left to report on.
+  let sync: GitHubSyncResult;
+  try {
+    sync = await syncGitHubSource({
+      sourceId,
+      budgetMs: FIRST_SYNC_BUDGET_MS,
+    });
+  } catch (error) {
+    if (error instanceof ActionContractError) throw error;
+    console.warn(
+      "[github-source] first sync failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    sync = unexpectedSyncFailure(new Date().toISOString());
+  }
+  await writeAppState("refresh-signal", { ts: Date.now() }).catch(
+    (error: unknown) => {
+      // The change event below still reaches open pages.
+      console.warn(
+        "[github-source] refresh signal failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    },
+  );
+  // coercion-ok: the status line reads the link on its own; this is a courtesy copy.
+  const source = await getContentDatabaseSourceSnapshot(database).catch(
+    () => null,
+  );
+  return {
+    sync,
+    source,
+    summary:
+      sync.state === "partial"
+        ? `Linked ${preview.label}. ${sync.created} of ${preview.markdownFiles} rows are in; the rest follow within about a minute.`
+        : sync.state === "error"
+          ? `Linked ${preview.label}, but the first sync failed: ${sync.problem?.message ?? "GitHub sync failed."}`
+          : `Linked ${preview.label}: ${sync.created} rows from commit ${sync.commitSha?.slice(0, 7) ?? "unknown"}.${sync.problem ? ` ${sync.problem.message}` : ""}`,
+  };
+}
+
 export default defineAction({
   description:
     "Link an empty content collection to a GitHub folder, view only: each Markdown file becomes a row, frontmatter becomes read-only columns, and pushes to the branch arrive on their own. Run with dryRun first to see the file count, skipped files with reasons, and the columns and types the frontmatter becomes.",
@@ -168,62 +258,17 @@ export default defineAction({
       };
     }
 
-    const sourceId = await createGitHubSourceLink({
-      database,
-      resolved,
-      preview,
-      connectionId,
-      userEmail,
-      // Reading GitHub takes seconds, so someone may have added a row since
-      // the check above; this runs again under the collection's lock.
-      assertLinkable: async (tx) => {
-        const blockedNow = await linkBlockedReason(database, tx);
-        if (blockedNow) throw blockedError(blockedNow);
-      },
-    });
-    // The link is saved by now, so anything that fails from here is reported
-    // on it rather than thrown, which would leave the caller thinking it failed.
-    // A contract error is the exception: the link or its collection went away
-    // during the sync, so there's nothing left to report on.
-    let sync: GitHubSyncResult;
-    try {
-      sync = await syncGitHubSource({
-        sourceId,
-        budgetMs: FIRST_SYNC_BUDGET_MS,
-      });
-    } catch (error) {
-      if (error instanceof ActionContractError) throw error;
-      console.warn(
-        "[github-source] first sync failed:",
-        error instanceof Error ? error.message : String(error),
-      );
-      sync = unexpectedSyncFailure(new Date().toISOString());
-    }
-    await writeAppState("refresh-signal", { ts: Date.now() }).catch(
-      (error: unknown) => {
-        // The change event below still reaches open pages.
-        console.warn(
-          "[github-source] refresh signal failed:",
-          error instanceof Error ? error.message : String(error),
-        );
-      },
-    );
-    // coercion-ok: the status line reads the link on its own; this is a courtesy copy.
-    const source = await getContentDatabaseSourceSnapshot(database).catch(
-      () => null,
-    );
     return {
       dryRun: false,
       database: serializeDatabase(database),
       preview,
-      sync,
-      source,
-      summary:
-        sync.state === "partial"
-          ? `Linked ${preview.label}. ${sync.created} of ${preview.markdownFiles} rows are in; the rest follow within about a minute.`
-          : sync.state === "error"
-            ? `Linked ${preview.label}, but the first sync failed: ${sync.problem?.message ?? "GitHub sync failed."}`
-            : `Linked ${preview.label}: ${sync.created} rows from commit ${sync.commitSha?.slice(0, 7) ?? "unknown"}.${sync.problem ? ` ${sync.problem.message}` : ""}`,
+      ...(await linkPreviewedGitHubFolder({
+        database,
+        resolved,
+        preview,
+        connectionId,
+        userEmail,
+      })),
     };
   },
   // Everyone reading the collection gets its new rows, not just the caller.

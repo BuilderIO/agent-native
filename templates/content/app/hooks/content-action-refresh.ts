@@ -37,6 +37,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "edit-document",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "create-github-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -80,6 +81,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "edit-document",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "create-github-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -105,6 +107,7 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 ]);
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
+  "create-github-collection",
   "delete-content-database",
   "execute-content-trash-purge",
   "permanently-delete-document",
@@ -117,6 +120,7 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "create-document",
+  "create-github-collection",
   "import-content",
   "link-github-folder",
   "refresh-content-database-source",

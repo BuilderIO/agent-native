@@ -29,11 +29,14 @@ evidence:
     "templates/content/actions/_github-source-freshness.ts",
     "templates/content/actions/github-source.db.test.ts",
     "templates/content/shared/github-source.spec.ts",
+    "templates/content/actions/create-github-collection.ts",
+    "templates/content/app/components/editor/database/github-availability.ts",
+    "templates/content/app/components/editor/database/GitHubSourcePanel.tsx",
     "templates/content/app/components/editor/database/GitHubSourceStatusLine.tsx",
     "templates/content/app/components/editor/database/GitHubSourceStatusLine.ui.test.tsx",
   ]
 superseded_by: null
-last_reviewed: "2026-10-18"
+last_reviewed: "2026-10-20"
 ---
 
 # Source sync policy
@@ -148,8 +151,11 @@ files into a Collection as Pages, resumably, renaming and trashing Pages as
 files move or disappear, and Content refuses edits to those Pages with the
 reason. `templates/content/actions/_github-source-freshness.ts` brings in
 pushes on a background sweep and before stale reads, so nobody has to ask.
-`GitHubSourceStatusLine.tsx` shows the policy, the synced commit, and the
-specific problem when one stops refresh. `actions/github-source.db.test.ts`,
+`GitHubSourceStatusLine.tsx` shows where the Pages come from and when they
+last updated, with the synced commit behind Details and the specific problem
+when one stops refresh. Sources says before any typing whether a Collection
+can take a folder and why not (`github-availability.ts`), and
+`create-github-collection.ts` makes a new Collection for the folder instead. `actions/github-source.db.test.ts`,
 `shared/github-source.spec.ts`, and the status line's UI tests exercise these
 paths through shared Actions and the interface.
 

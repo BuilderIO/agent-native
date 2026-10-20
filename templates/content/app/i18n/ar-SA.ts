@@ -3,67 +3,153 @@ import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
   githubLinkTitle: "ربط مجلد GitHub",
+  githubNewCollectionTitle: "مجموعة جديدة من مجلد GitHub",
   githubLinkDescription:
-    "يصبح كل ملف Markdown صفحة للعرض فقط، وتصل التغييرات المدفوعة إلى الفرع خلال دقيقة تقريبًا.",
-  githubLinkUrlLabel: "رابط المجلد",
-  githubLinkPreview: "معاينة",
-  githubLinkReading: "جارٍ قراءة المجلد…",
-  githubLinkFolderAt: "{{folder}} عند {{commit}}",
-  githubLinkFiles: "ستصبح ملفات Markdown البالغ عددها {{count}} صفحات.",
-  githubLinkFilesOne: "سيصبح ملف Markdown واحد صفحة.",
-  githubLinkNoFiles: "لا يحتوي هذا المجلد على ملفات Markdown لربطها.",
-  githubLinkColumns: "أعمدة من frontmatter",
+    "تظهر مستنداته هنا كصفحات للقراءة فقط، وتتحدّث تلقائيًا عندما تتغيّر الملفات على GitHub.",
+  githubNewCollectionDescription:
+    "ينشئ Content مجموعة باسم المجلد. تظهر مستنداته فيها كصفحات للقراءة فقط، وتتحدّث تلقائيًا عندما تتغيّر الملفات على GitHub.",
+  githubLinkUrlLabel: "رابط مجلد GitHub",
+  githubLinkUrlHelp: "افتح المجلد على GitHub، ثم انسخ العنوان من المتصفح.",
+  githubLinkCheck: "فحص المجلد",
+  githubLinkReading: "جارٍ قراءة المجلد على GitHub…",
+  githubConnectChecking: "جارٍ التحقق من اتصال حسابك على GitHub…",
+  githubConnectPrompt:
+    "وصّل حسابك على GitHub حتى يتمكن Content من قراءة مجلداتك.",
+  githubConnect: "توصيل GitHub",
+  githubLinkFolderIn: "{{folder}}، في {{repo}}",
+  githubLinkPagesOne: "صفحة واحدة: {{titles}}.",
+  githubLinkPages: "{{count}} صفحات: {{titles}}.",
+  githubLinkPagesUpTo: "ما يصل إلى {{count}} صفحات: {{titles}}.",
+  githubLinkMore: "{{count}} أخرى",
+  githubLinkNoFiles:
+    "لا يحتوي هذا المجلد على ملفات Markdown (.md)، لذا لا يوجد ما يُعرض.",
+  githubLinkColumns: "الأعمدة: {{columns}}.",
   githubLinkNoColumns:
-    "لا تحتوي هذه الملفات على frontmatter، لذا العنوان هو العمود الوحيد.",
-  githubLinkColumnsSampled:
-    "تمت قراءتها من {{count}} من أصل {{total}} ملف. يمكن لبقية الملفات إضافة أعمدة أو تغيير أنواعها.",
-  githubLinkPages: "الصفحات",
-  githubLinkSkipped: "غير مرتبطة",
-  githubSkipMdx: "MDX غير مدعوم بعد",
-  githubSkipTooLarge: "كبير جدًا للاستيراد",
-  githubSkipNotText: "ليس نص UTF-8",
-  githubLinkImagesWaiting: "ستظهر الصور في هذا المجلد بعد إعداد تخزين الملفات.",
-  githubLinkBlockedHasRows:
-    "تحتوي هذه المجموعة على صفحات بالفعل. اربط مجلد GitHub من مجموعة جديدة فارغة.",
-  githubLinkBlockedLinked: "هذه المجموعة تتبع مصدرًا بالفعل.",
-  githubLinkBlockedSystem: "لا يمكن لهذه المجموعة أن تتبع مجلد GitHub.",
-  githubLinkNeedsConnection:
-    "اربط GitHub حتى يتمكن Content من قراءة هذا المستودع.",
-  githubConnect: "ربط GitHub",
-  githubLinkSubmit: "ربط المجلد",
-  githubLinkedToast: "تم ربط {{folder}}",
-  githubLinkedSyncFailed: "تم ربط {{folder}}، لكن فشلت مزامنته الأولى",
-  githubFollows: "يتبع {{folder}} على {{branch}}",
-  githubViewOnly: "للعرض فقط: عدّل الملفات في GitHub",
-  githubSyncedTo: "متزامن مع {{commit}} {{time}}",
-  githubNotSyncedYet: "لم تتم المزامنة بعد",
-  githubSyncingProgress: "جارٍ جلب {{commit}}: {{done}} من أصل {{total}} ملفات",
-  githubSkippedFiles: "تم تخطي ملفات عددها {{count}}",
-  githubSkippedFilesOne: "تم تخطي ملف واحد",
-  githubImagesWaiting: "بعض الصور تنتظر تخزين الملفات",
-  githubSyncNow: "مزامنة الآن",
-  githubOpenFolder: "فتح في GitHub",
-  githubAlreadyUpToDate: "محدّث بالفعل",
-  githubSyncedToast: "متزامن مع {{commit}}",
-  githubProblemConnection: "أعد ربط GitHub لإبقاء هذه المجموعة محدّثة.",
-  githubProblemForbidden: "رفض GitHub الوصول إلى هذا المستودع.",
-  githubProblemRepositoryNotFound:
-    "تعذّر العثور على المستودع. ربما أصبح خاصًا أو أعيدت تسميته أو حُذف.",
-  githubProblemBranchNotFound:
-    "تعذّر العثور على الفرع. ربما أعيدت تسميته أو حُذف.",
-  githubProblemFolderNotFound: "لم يعد المجلد موجودًا على الفرع.",
-  githubProblemRateLimited: "يحدّ GitHub من الطلبات. ستستأنف المزامنة تلقائيًا.",
-  githubProblemTooLarge: "يحتوي المجلد على ملفات أكثر مما يمكن للرابط متابعته.",
-  githubProblemUnavailable: "لم يستجب GitHub. ستستأنف المزامنة تلقائيًا.",
-  githubProblemSyncFailed: "فشلت آخر مزامنة. ستُعاد المحاولة تلقائيًا.",
-  githubProblemStorageUnavailable: "تنتظر الصور إعداد تخزين الملفات.",
+    "لا تحتوي هذه الملفات على تفاصيل في أعلاها، لذا تحصل كل صفحة على عنوانها فقط.",
+  githubLinkNotShownOne: "ملف واحد لن يظهر حاليًا.",
+  githubLinkNotShown: "{{count}} ملفات لن تظهر حاليًا.",
+  githubLinkPicturesWaiting:
+    "لن تظهر الصور في هذه الملفات حتى يُعدّ مشرف مساحة العمل تخزين الملفات.",
+  githubShowDetails: "إظهار التفاصيل",
+  githubHideDetails: "إخفاء التفاصيل",
+  githubDetailsPages: "الصفحات",
+  githubDetailsColumns: "الأعمدة",
+  githubDetailsColumnsSampled:
+    "تمت قراءتها من أول {{count}} من أصل {{total}} ملفات. يمكن للملفات الأخرى إضافة أعمدة.",
+  githubDetailsNotShown: "لن تظهر حاليًا",
+  githubDetailsFrom: "المصدر",
+  githubDetailsBranchVersion: "الفرع {{branch}} · الإصدار {{commit}}",
+  githubYes: "نعم",
+  githubNo: "لا",
+  githubSkipMdx: "يستخدم MDX، ولا يستطيع Content عرضه بعد",
+  githubSkipTooLarge: "أكبر من أن يعرضه Content",
+  githubSkipNotText: "ليس ملفًا نصيًا يستطيع Content قراءته",
+  githubLinkSubmitOne: "ربط صفحة واحدة",
+  githubLinkSubmit: "ربط {{count}} صفحات",
+  githubLinkSubmitUpTo: "ربط ما يصل إلى {{count}} صفحات",
+  githubLinking: "جارٍ الربط…",
+  githubLinkingProgressOne: "جارٍ جلب صفحة واحدة من GitHub…",
+  githubLinkingProgress: "جارٍ جلب {{count}} صفحات من GitHub…",
+  githubLinkedToastOne: "تم الربط. صفحة واحدة من {{folder}} أصبحت هنا.",
+  githubLinkedToast: "تم الربط. {{count}} صفحات من {{folder}} أصبحت هنا.",
+  githubLinkedPartialToast:
+    "تم الربط. وصلت {{done}} من أصل {{total}} صفحات، وتصل البقية خلال دقيقة.",
+  githubLinkedSyncFailed: "تم ربط {{folder}}، لكن تعذّر جلب الصفحات بعد.",
   githubLinkInvalidUrl:
-    "الصق رابط مجلد على GitHub، مثل github.com/owner/repo/tree/main/docs.",
-  githubLinkFileUrl: "هذا الرابط لملف. الصق رابط المجلد الذي يحتويه.",
-  githubSyncBusy:
-    "هناك مزامنة قيد التشغيل بالفعل. تظهر تغييراتها عند انتهائها.",
-  githubDisconnectDescription:
-    "أوقف متابعة المجلد. تبقى صفحاته هنا وتصبح قابلة للتعديل. لمتابعته مجددًا، اربطه من مجموعة جديدة.",
+    "هذا ليس رابط مجلد على GitHub. افتح المجلد على GitHub، ثم انسخ العنوان من المتصفح.",
+  githubLinkFileUrl: "هذا رابط لملف واحد.",
+  githubLinkUseFolder: "استخدام المجلد «{{folder}}»",
+  githubLinkRepositoryNotFound:
+    "تعذّر فتح «{{repo}}». تحقّق من الإملاء، أو تأكّد من أن حسابك على GitHub يمكنه رؤيته.",
+  githubLinkBranchNotFound:
+    "لا يوجد فرع باسم «{{branch}}» في {{repo}}. تحقّق من الرابط.",
+  githubLinkFolderNotFound:
+    "لا يوجد مجلد باسم «{{folder}}» في {{repo}}. تحقّق من الرابط.",
+  githubLinkForbidden:
+    "لا يستطيع حسابك على GitHub فتح «{{repo}}». اطلب الوصول من مالكه.",
+  githubLinkTooLarge:
+    "يحتوي هذا المجلد على أكثر من {{max}} ملف. اختر مجلدًا أصغر داخله.",
+  githubLinkUnavailable: "تعذّر الوصول إلى GitHub الآن. حاول مرة أخرى بعد دقيقة.",
+  githubLinkBlockedHasRows:
+    "تحتوي هذه المجموعة على صفحات الآن، لذا لا يمكن لمجلد GitHub ملؤها.",
+  githubLinkBlockedLinked: "تحصل هذه المجموعة على صفحاتها من تطبيق آخر بالفعل.",
+  githubLinkBlockedSystem: "لا يمكن لهذه المجموعة عرض مجلد GitHub.",
+  githubNewCollectionInstead: "مجموعة جديدة من GitHub",
+  githubRowAvailable: "عرض مستندات مجلد GitHub هنا",
+  githubRowConnectFirst: "وصّل حسابك على GitHub أولًا",
+  githubRowEmptyOnly: "للمجموعات الفارغة فقط",
+  githubRowOtherSource: "تحصل على صفحاتها من {{source}} بالفعل",
+  githubRowFiles: "غير متاح لمجموعة Files",
+  githubRowSystem: "غير متاح لهذه المجموعة",
+  githubRowEditorsOnly: "للمحررين فقط",
+  githubRowLinked: "مجلد {{folder}} · تم التحديث {{time}}",
+  githubRowLinkedNotUpdated: "مجلد {{folder}} · لم يُحدَّث بعد",
+  githubRowUnavailableWhileLinked: "غير متاح أثناء الربط بـ GitHub",
+  githubExplainHasPagesOne:
+    "يملأ مجلد GitHub مجموعة كاملة، لذا يحتاج إلى مجموعة بلا صفحات. تحتوي هذه المجموعة على صفحة واحدة.",
+  githubExplainHasPages:
+    "يملأ مجلد GitHub مجموعة كاملة، لذا يحتاج إلى مجموعة بلا صفحات. تحتوي هذه المجموعة على {{count}} صفحات.",
+  githubExplainOtherSource:
+    "تحصل المجموعة على صفحاتها من مكان واحد. هذه المجموعة تستخدم {{source}}.",
+  githubExplainFiles: "لا يمكن لمجموعة Files عرض مجلد GitHub.",
+  githubExplainSystem: "لا يمكن لهذه المجموعة عرض مجلد GitHub.",
+  githubExplainEditorsOnly:
+    "لا يستطيع ربط مجلد GitHub إلا من يمكنه تعديل هذه المجموعة. اطلب صلاحية التعديل من مالكها.",
+  githubExplainLinked:
+    "تأتي صفحات هذه المجموعة من GitHub. ألغِ ربط المجلد لاستخدام مصدر آخر.",
+  githubDetailFolder: "المجلد",
+  githubDetailBranch: "الفرع",
+  githubDetailVersion: "الإصدار",
+  githubDetailUpdated: "آخر تحديث",
+  githubCheckForUpdates: "التحقق من وجود تحديثات",
+  githubOpenFolder: "فتح في GitHub",
+  githubUnlinkFolder: "إلغاء ربط المجلد…",
+  githubUnlinkTitle: "هل تريد إلغاء ربط مجلد GitHub هذا؟",
+  githubUnlinkBodyOne:
+    "تبقى الصفحة هنا وتصبح صفحة عادية يمكنك تعديلها. لن تصل التغييرات من GitHub بعد الآن. لربط هذا المجلد مرة أخرى لاحقًا، ستستخدم مجموعة جديدة.",
+  githubUnlinkBody:
+    "تبقى الصفحات الـ{{count}} هنا وتصبح صفحات عادية يمكنك تعديلها. لن تصل التغييرات من GitHub بعد الآن. لربط هذا المجلد مرة أخرى لاحقًا، ستستخدم مجموعة جديدة.",
+  githubUnlink: "إلغاء الربط",
+  githubUnlinking: "جارٍ إلغاء الربط…",
+  githubUnlinkedToast: "تم إلغاء الربط. صفحاتك محفوظة ويمكنك تعديلها الآن.",
+  githubUnlinkFailed: "تعذّر إلغاء ربط المجلد",
+  githubFromFolder: "من مجلد {{folder}} على GitHub",
+  githubFromRepo: "من {{repo}} على GitHub",
+  githubUpdatedAgo: "تم التحديث {{time}}",
+  githubJustNow: "للتو",
+  githubNotUpdatedYet: "لم يُحدَّث بعد",
+  githubEditOnGitHub: "تعديل على GitHub",
+  githubDetails: "التفاصيل",
+  githubNotShownOne: "ملف واحد غير معروض",
+  githubNotShown: "{{count}} ملفات غير معروضة",
+  githubNotShownHeading: "غير معروضة",
+  githubShowingAsOf: "تُعرض الصفحات كما كانت {{time}}.",
+  githubSyncingProgress: "جارٍ جلب التغييرات: {{done}} من أصل {{total}} ملفات",
+  githubPicturesWaiting:
+    "لن تظهر بعض الصور حتى يُعدّ مشرف مساحة العمل تخزين الملفات.",
+  githubReconnect: "إعادة توصيل GitHub",
+  githubProblemConnection:
+    "توقّف التحديث: يطلب GitHub منك تسجيل الدخول مرة أخرى.",
+  githubProblemForbidden:
+    "توقّف التحديث: لم يعد حسابك على GitHub قادرًا على فتح هذا المستودع. اطلب الوصول من مالكه.",
+  githubProblemRepositoryNotFound:
+    "توقّف التحديث: نُقل المستودع أو أعيدت تسميته أو أصبح خاصًا.",
+  githubProblemBranchNotFound:
+    "توقّف التحديث: لم يعد الفرع «{{branch}}» موجودًا على GitHub.",
+  githubProblemFolderNotFound:
+    "توقّف التحديث: لم يعد المجلد «{{folder}}» موجودًا في ذلك الفرع.",
+  githubProblemPaused: "التحديثات متوقفة لحظات. ستُستأنف تلقائيًا.",
+  githubProblemTooLarge:
+    "توقّف التحديث: أصبح المجلد يحتوي على أكثر من {{max}} ملف.",
+  githubProblemStorageUnavailable:
+    "لن تظهر الصور حتى يُعدّ مشرف مساحة العمل تخزين الملفات.",
+  githubAlreadyUpToDate: "كل شيء محدّث.",
+  githubSyncedToastOne: "تم التحديث. تغيّرت صفحة واحدة.",
+  githubSyncedToast: "تم التحديث. تغيّرت {{count}} صفحات.",
+  githubSyncPartialToast:
+    "جارٍ التحديث: {{done}} من أصل {{total}} ملفات حتى الآن.",
+  githubSyncBusy: "التحقق من التحديثات جارٍ بالفعل. تظهر التغييرات عند انتهائه.",
+  githubEmptyHint: "أو املأها من مجلد GitHub",
   formChecked: "محدد",
   formChooseOption: "اختر خيارا",
   formDescription: "أجب عن الأسئلة أدناه لإضافة صفحة إلى هذه المجموعة.",
@@ -408,7 +494,7 @@ const databaseExactEnglish = {
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "Esta colección es local. Conecta una fuente para mapear sus columnas a estas filas.",
+    "اجلب صفحات إلى هذه المجموعة من تطبيق آخر.",
   thisPropertyHasNoOptionsYet: "Esta propiedad aún no tiene opciones.",
   thisSourceIsNoLongerConnected: "Esta fuente ya no está conectada.",
 };
@@ -973,6 +1059,7 @@ const rawLiterals = {
     expandItem: "توسيع {{title}}",
     database: "المجموعة",
     collection: "مجموعة",
+    collectionFromGitHub: "مجموعة من مجلد GitHub",
     databasePermanentlyDeleted: "تم حذف المجموعة نهائيًا",
     databaseRestored: "تمت استعادة المجموعة",
     deleteDatabaseNamedPermanently: "حذف {{title}} نهائيًا",

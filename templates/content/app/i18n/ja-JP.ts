@@ -3,77 +3,164 @@ import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
   githubLinkTitle: "GitHub フォルダーをリンク",
+  githubNewCollectionTitle: "GitHub フォルダーから新しいコレクションを作成",
   githubLinkDescription:
-    "Markdown ファイルはそれぞれ閲覧専用のページになり、ブランチへのプッシュは約 1 分以内に反映されます。",
-  githubLinkUrlLabel: "フォルダーのリンク",
-  githubLinkPreview: "プレビュー",
-  githubLinkReading: "フォルダーを読み込んでいます…",
-  githubLinkFolderAt: "{{folder}}（{{commit}}）",
-  githubLinkFiles: "{{count}} 個の Markdown ファイルがページになります。",
-  githubLinkFilesOne: "1 個の Markdown ファイルがページになります。",
-  githubLinkNoFiles:
-    "このフォルダーにはリンクできる Markdown ファイルがありません。",
-  githubLinkColumns: "フロントマターからの列",
-  githubLinkNoColumns:
-    "これらのファイルにはフロントマターがないため、列はタイトルだけです。",
-  githubLinkColumnsSampled:
-    "{{total}} 件中 {{count}} 件のファイルから読み取りました。残りのファイルによって列が追加されたり、型が変わったりすることがあります。",
-  githubLinkPages: "ページ",
-  githubLinkSkipped: "リンクされないファイル",
-  githubSkipMdx: "MDX はまだサポートされていません",
-  githubSkipTooLarge: "大きすぎてインポートできません",
-  githubSkipNotText: "UTF-8 テキストではありません",
-  githubLinkImagesWaiting:
-    "このフォルダーの画像は、ファイルストレージを設定すると表示されます。",
-  githubLinkBlockedHasRows:
-    "このコレクションにはすでにページがあります。新しい空のコレクションから GitHub フォルダーをリンクしてください。",
-  githubLinkBlockedLinked: "このコレクションはすでにソースに連動しています。",
-  githubLinkBlockedSystem:
-    "このコレクションは GitHub フォルダーに連動できません。",
-  githubLinkNeedsConnection:
-    "Content がこのリポジトリを読み取れるように GitHub を接続してください。",
+    "フォルダー内のドキュメントは閲覧専用のページとしてここに表示され、GitHub でファイルが変わると自動で更新されます。",
+  githubNewCollectionDescription:
+    "Content がフォルダーと同じ名前のコレクションを作成します。フォルダー内のドキュメントは閲覧専用のページとしてそこに表示され、GitHub でファイルが変わると自動で更新されます。",
+  githubLinkUrlLabel: "GitHub フォルダーのリンク",
+  githubLinkUrlHelp:
+    "GitHub でフォルダーを開き、ブラウザーのアドレスをコピーしてください。",
+  githubLinkCheck: "フォルダーを確認",
+  githubLinkReading: "GitHub のフォルダーを読み込んでいます…",
+  githubConnectChecking: "GitHub との接続を確認しています…",
+  githubConnectPrompt:
+    "Content がフォルダーを読み込めるように、GitHub アカウントを接続してください。",
   githubConnect: "GitHub を接続",
-  githubLinkSubmit: "フォルダーをリンク",
-  githubLinkedToast: "{{folder}} をリンクしました",
+  githubLinkFolderIn: "{{repo}} の {{folder}}",
+  githubLinkPagesOne: "1 ページ：{{titles}}。",
+  githubLinkPages: "{{count}} ページ：{{titles}}。",
+  githubLinkPagesUpTo: "最大 {{count}} ページ：{{titles}}。",
+  githubLinkMore: "他 {{count}} 件",
+  githubLinkNoFiles:
+    "このフォルダーには Markdown (.md) ファイルがないため、表示するものがありません。",
+  githubLinkColumns: "列：{{columns}}。",
+  githubLinkNoColumns:
+    "これらのファイルの先頭には詳細情報がないため、各ページにはタイトルだけが入ります。",
+  githubLinkNotShownOne: "1 個のファイルはまだ表示されません。",
+  githubLinkNotShown: "{{count}} 個のファイルはまだ表示されません。",
+  githubLinkPicturesWaiting:
+    "これらのファイルの画像は、ワークスペースの管理者がファイルストレージを設定するまで表示されません。",
+  githubShowDetails: "詳細を表示",
+  githubHideDetails: "詳細を非表示",
+  githubDetailsPages: "ページ",
+  githubDetailsColumns: "列",
+  githubDetailsColumnsSampled:
+    "{{total}} 個のファイルのうち最初の {{count}} 個から読み取りました。ほかのファイルで列が増えることがあります。",
+  githubDetailsNotShown: "まだ表示されないファイル",
+  githubDetailsFrom: "取得元",
+  githubDetailsBranchVersion: "ブランチ {{branch}} · バージョン {{commit}}",
+  githubYes: "はい",
+  githubNo: "いいえ",
+  githubSkipMdx: "MDX を使っているため、Content ではまだ表示できません",
+  githubSkipTooLarge: "大きすぎて Content で表示できません",
+  githubSkipNotText: "Content で読み込めるテキストファイルではありません",
+  githubLinkSubmitOne: "1 ページをリンク",
+  githubLinkSubmit: "{{count}} ページをリンク",
+  githubLinkSubmitUpTo: "最大 {{count}} ページをリンク",
+  githubLinking: "リンクしています…",
+  githubLinkingProgressOne: "GitHub から 1 ページを取り込んでいます…",
+  githubLinkingProgress: "GitHub から {{count}} ページを取り込んでいます…",
+  githubLinkedToastOne:
+    "リンクしました。{{folder}} の 1 ページが追加されました。",
+  githubLinkedToast:
+    "リンクしました。{{folder}} の {{count}} ページが追加されました。",
+  githubLinkedPartialToast:
+    "リンクしました。{{total}} ページのうち {{done}} ページが追加されました。残りは 1 分以内に届きます。",
   githubLinkedSyncFailed:
-    "{{folder}} をリンクしましたが、最初の同期に失敗しました",
-  githubFollows: "{{branch}} の {{folder}} に連動",
-  githubViewOnly: "閲覧専用：ファイルは GitHub で編集してください",
-  githubSyncedTo: "{{commit}} に同期済み（{{time}}）",
-  githubNotSyncedYet: "まだ同期されていません",
-  githubSyncingProgress:
-    "{{commit}} を取り込み中：{{total}} ファイル中 {{done}}",
-  githubSkippedFiles: "{{count}} 個のファイルをスキップ",
-  githubSkippedFilesOne: "1 個のファイルをスキップ",
-  githubImagesWaiting: "一部の画像はファイルストレージを待っています",
-  githubSyncNow: "今すぐ同期",
-  githubOpenFolder: "GitHub で開く",
-  githubAlreadyUpToDate: "最新の状態です",
-  githubSyncedToast: "{{commit}} に同期しました",
-  githubProblemConnection:
-    "このコレクションを最新に保つには GitHub を再接続してください。",
-  githubProblemForbidden: "GitHub がこのリポジトリへのアクセスを拒否しました。",
-  githubProblemRepositoryNotFound:
-    "リポジトリが見つかりません。非公開になったか、名前が変わったか、削除された可能性があります。",
-  githubProblemBranchNotFound:
-    "ブランチが見つかりません。名前が変わったか、削除された可能性があります。",
-  githubProblemFolderNotFound: "フォルダーがブランチにありません。",
-  githubProblemRateLimited:
-    "GitHub がリクエストを制限しています。同期は自動的に再開されます。",
-  githubProblemTooLarge:
-    "フォルダーのファイル数がリンクで追跡できる上限を超えています。",
-  githubProblemUnavailable:
-    "GitHub から応答がありません。同期は自動的に再開されます。",
-  githubProblemSyncFailed: "前回の同期に失敗しました。自動的に再試行されます。",
-  githubProblemStorageUnavailable:
-    "画像はファイルストレージの設定を待っています。",
+    "{{folder}} をリンクしましたが、まだページを取り込めていません。",
   githubLinkInvalidUrl:
-    "github.com/owner/repo/tree/main/docs のような GitHub フォルダーのリンクを貼り付けてください。",
-  githubLinkFileUrl:
-    "このリンクはファイルを指しています。そのフォルダーのリンクを貼り付けてください。",
-  githubSyncBusy: "すでに同期が実行中です。完了すると変更が表示されます。",
-  githubDisconnectDescription:
-    "フォルダーとの連動を解除します。ページはここに残り、編集できるようになります。再び連動させるには、新しいコレクションからリンクしてください。",
+    "これは GitHub フォルダーのリンクではありません。GitHub でフォルダーを開き、ブラウザーのアドレスをコピーしてください。",
+  githubLinkFileUrl: "これは 1 つのファイルへのリンクです。",
+  githubLinkUseFolder: "「{{folder}}」フォルダーを使う",
+  githubLinkRepositoryNotFound:
+    "「{{repo}}」を開けません。つづりを確認するか、お使いの GitHub アカウントから見られるか確かめてください。",
+  githubLinkBranchNotFound:
+    "{{repo}} に「{{branch}}」というブランチはありません。リンクを確認してください。",
+  githubLinkFolderNotFound:
+    "{{repo}} に「{{folder}}」というフォルダーはありません。リンクを確認してください。",
+  githubLinkForbidden:
+    "お使いの GitHub アカウントでは「{{repo}}」を開けません。所有者にアクセス権を依頼してください。",
+  githubLinkTooLarge:
+    "このフォルダーには {{max}} 個を超えるファイルがあります。中にある、より小さいフォルダーを選んでください。",
+  githubLinkUnavailable:
+    "GitHub から応答がありませんでした。1 分ほどしてからもう一度お試しください。",
+  githubLinkBlockedHasRows:
+    "このコレクションにはすでにページがあるため、GitHub フォルダーから取り込むことはできません。",
+  githubLinkBlockedLinked:
+    "このコレクションはすでに別のアプリからページを取り込んでいます。",
+  githubLinkBlockedSystem:
+    "このコレクションには GitHub フォルダーを表示できません。",
+  githubNewCollectionInstead: "GitHub から新しいコレクションを作成",
+  githubRowAvailable: "GitHub フォルダーのドキュメントをここに表示",
+  githubRowConnectFirst: "先に GitHub アカウントを接続してください",
+  githubRowEmptyOnly: "空のコレクションでのみ使えます",
+  githubRowOtherSource: "すでに {{source}} からページを取り込んでいます",
+  githubRowFiles: "「ファイル」では使えません",
+  githubRowSystem: "このコレクションでは使えません",
+  githubRowEditorsOnly: "編集者のみ",
+  githubRowLinked: "{{folder}} フォルダー · 更新：{{time}}",
+  githubRowLinkedNotUpdated: "{{folder}} フォルダー · まだ更新されていません",
+  githubRowUnavailableWhileLinked: "GitHub にリンクしている間は使えません",
+  githubExplainHasPagesOne:
+    "GitHub フォルダーのページはコレクション全体を占めるため、ページのないコレクションが必要です。このコレクションには 1 ページあります。",
+  githubExplainHasPages:
+    "GitHub フォルダーのページはコレクション全体を占めるため、ページのないコレクションが必要です。このコレクションには {{count}} ページあります。",
+  githubExplainOtherSource:
+    "コレクションのページの取り込み元は 1 か所だけです。このコレクションは {{source}} を使っています。",
+  githubExplainFiles:
+    "「ファイル」コレクションには GitHub フォルダーを表示できません。",
+  githubExplainSystem:
+    "このコレクションには GitHub フォルダーを表示できません。",
+  githubExplainEditorsOnly:
+    "GitHub フォルダーをリンクできるのは、このコレクションを編集できる人だけです。所有者に編集権限を依頼してください。",
+  githubExplainLinked:
+    "このコレクションのページは GitHub から取り込まれています。別のソースを使うには、フォルダーのリンクを解除してください。",
+  githubDetailFolder: "フォルダー",
+  githubDetailBranch: "ブランチ",
+  githubDetailVersion: "バージョン",
+  githubDetailUpdated: "最終更新",
+  githubCheckForUpdates: "更新を確認",
+  githubOpenFolder: "GitHub で開く",
+  githubUnlinkFolder: "フォルダーのリンクを解除…",
+  githubUnlinkTitle: "この GitHub フォルダーのリンクを解除しますか？",
+  githubUnlinkBodyOne:
+    "1 ページはここに残り、編集できる通常のページになります。GitHub での変更は今後反映されません。あとでこのフォルダーをもう一度リンクするには、新しいコレクションを使います。",
+  githubUnlinkBody:
+    "{{count}} ページはここに残り、編集できる通常のページになります。GitHub での変更は今後反映されません。あとでこのフォルダーをもう一度リンクするには、新しいコレクションを使います。",
+  githubUnlink: "リンクを解除",
+  githubUnlinking: "リンクを解除しています…",
+  githubUnlinkedToast:
+    "リンクを解除しました。ページはそのまま残り、編集できるようになりました。",
+  githubUnlinkFailed: "フォルダーのリンクを解除できませんでした",
+  githubFromFolder: "GitHub の {{folder}} フォルダーから",
+  githubFromRepo: "GitHub の {{repo}} から",
+  githubUpdatedAgo: "更新：{{time}}",
+  githubJustNow: "たった今",
+  githubNotUpdatedYet: "まだ更新されていません",
+  githubEditOnGitHub: "GitHub で編集",
+  githubDetails: "詳細",
+  githubNotShownOne: "1 個のファイルは表示されていません",
+  githubNotShown: "{{count}} 個のファイルは表示されていません",
+  githubNotShownHeading: "表示されていないファイル",
+  githubShowingAsOf: "{{time}}の時点のページを表示しています。",
+  githubSyncingProgress:
+    "変更を取り込んでいます：{{total}} 個中 {{done}} 個のファイル",
+  githubPicturesWaiting:
+    "一部の画像は、ワークスペースの管理者がファイルストレージを設定するまで表示されません。",
+  githubReconnect: "GitHub を再接続",
+  githubProblemConnection:
+    "更新が止まっています：GitHub にもう一度サインインする必要があります。",
+  githubProblemForbidden:
+    "更新が止まっています：お使いの GitHub アカウントでは現在このリポジトリを開けません。所有者にアクセス権を依頼してください。",
+  githubProblemRepositoryNotFound:
+    "更新が止まっています：リポジトリが移動されたか、名前が変更されたか、非公開になりました。",
+  githubProblemBranchNotFound:
+    "更新が止まっています：「{{branch}}」ブランチが GitHub からなくなりました。",
+  githubProblemFolderNotFound:
+    "更新が止まっています：「{{folder}}」フォルダーがそのブランチからなくなりました。",
+  githubProblemPaused: "更新を少しの間停止しています。自動的に再開されます。",
+  githubProblemTooLarge:
+    "更新が止まっています：フォルダーのファイルが {{max}} 個を超えました。",
+  githubProblemStorageUnavailable:
+    "ワークスペースの管理者がファイルストレージを設定するまで、画像は表示されません。",
+  githubAlreadyUpToDate: "最新の状態です。",
+  githubSyncedToastOne: "更新しました。1 ページが変更されました。",
+  githubSyncedToast: "更新しました。{{count}} ページが変更されました。",
+  githubSyncPartialToast:
+    "更新しています：これまでに {{total}} 個中 {{done}} 個のファイルが完了しました。",
+  githubSyncBusy: "すでに更新を確認しています。完了すると変更が表示されます。",
+  githubEmptyHint: "または GitHub フォルダーからページを取り込む",
   formChecked: "チェック済み",
   formChooseOption: "オプションを選択",
   formDescription:
@@ -421,7 +508,7 @@ const databaseExactEnglish = {
   sortRowsBy: "排序行依据",
   startDate: "开始日期",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "此集合是本地的。连接来源以将其列映射到这些行。",
+    "別のアプリからこのコレクションにページを取り込みます。",
   thisPropertyHasNoOptionsYet: "此属性还没有选项。",
   thisSourceIsNoLongerConnected: "此来源已不再连接。",
 };
@@ -997,6 +1084,7 @@ const rawLiterals = {
     expandItem: "{{title}} を展開",
     database: "コレクション",
     collection: "コレクション",
+    collectionFromGitHub: "GitHub フォルダーからのコレクション",
     databasePermanentlyDeleted: "コレクションを完全に削除しました",
     databaseRestored: "コレクションを復元しました",
     deleteDatabaseNamedPermanently: "{{title}} を完全に削除",

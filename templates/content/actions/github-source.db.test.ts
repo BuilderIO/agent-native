@@ -40,6 +40,8 @@ const github = vi.hoisted(() => {
     hangAfterBlobReads: null as number | null,
     /** Branch reads wait until the sync's time runs out. */
     hangHead: false,
+    /** What GitHub says about the saved connection. */
+    connected: true as boolean | null,
   };
   let commitCount = 0;
   return {
@@ -56,6 +58,7 @@ const github = vi.hoisted(() => {
       state.duringBlobRead = null;
       state.hangAfterBlobReads = null;
       state.hangHead = false;
+      state.connected = true;
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -147,6 +150,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       return new TextEncoder().encode(content);
     },
     readGitHubRenames: async () => github.state.renames,
+    readGitHubConnected: async () => github.state.connected,
   };
 });
 
@@ -245,6 +249,8 @@ let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let createDatabase: typeof import("./create-content-database.js").default;
 let linkFolder: typeof import("./link-github-folder.js").default;
+let createGitHubCollection: typeof import("./create-github-collection.js").default;
+let checkConnection: typeof import("./check-github-connection.js").default;
 let syncFolder: typeof import("./sync-github-folder.js").default;
 let getSource: typeof import("./get-content-database-source.js").default;
 let refreshSource: typeof import("./refresh-content-database-source.js").default;
@@ -281,6 +287,9 @@ beforeAll(async () => {
   await (await import("../server/plugins/db.js")).default(undefined as never);
   createDatabase = (await import("./create-content-database.js")).default;
   linkFolder = (await import("./link-github-folder.js")).default;
+  createGitHubCollection = (await import("./create-github-collection.js"))
+    .default;
+  checkConnection = (await import("./check-github-connection.js")).default;
   syncFolder = (await import("./sync-github-folder.js")).default;
   getSource = (await import("./get-content-database-source.js")).default;
   refreshSource = (await import("./refresh-content-database-source.js"))
@@ -1683,6 +1692,141 @@ async function pushMovedAgo(databaseId: string, ms: number) {
 }
 
 const EDITED_FAQ = "# Frequently asked\n\nAnswers moved to the forum.\n";
+
+describe("A new collection from a GitHub folder", () => {
+  async function collectionsInSpace() {
+    return getDb()
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.spaceId, spaceId));
+  }
+
+  async function sourcesOf(databaseId: string) {
+    return getDb()
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  }
+
+  it("checks the folder and names the collection without making it", async () => {
+    github.commit(BASE_FILES);
+    const before = await collectionsInSpace();
+    const checked = await as(() =>
+      createGitHubCollection.run({ url: FOLDER_URL, spaceId, dryRun: true }),
+    );
+    expect(checked).toMatchObject({
+      dryRun: true,
+      title: "docs",
+      preview: { markdownFiles: 3 },
+    });
+    expect(await collectionsInSpace()).toHaveLength(before.length);
+  });
+
+  it("makes a collection named after the folder, linked and filled", async () => {
+    github.commit(BASE_FILES);
+    const made = await as(() =>
+      createGitHubCollection.run({ url: FOLDER_URL, spaceId }),
+    );
+    if (made.dryRun) throw new Error("Expected a new collection");
+    expect(made).toMatchObject({
+      title: "docs",
+      sync: { state: "synced", created: 3 },
+      source: { sourceType: "github" },
+    });
+    expect(await page(made.database.documentId)).toMatchObject({
+      title: "docs",
+      trashedAt: null,
+    });
+    expect((await liveRows(made.database.id)).map((row) => row.title)).toEqual([
+      "Frequently asked",
+      "Getting started",
+      "Untitled notes",
+    ]);
+  });
+
+  it("gives a retry the collection the first try made, linked once", async () => {
+    github.commit(BASE_FILES);
+    const request = {
+      url: FOLDER_URL,
+      spaceId,
+      idempotencyKey: `github-new-collection-${Date.now()}`,
+    };
+    const first = await as(() => createGitHubCollection.run(request));
+    const retry = await as(() => createGitHubCollection.run(request));
+    if (first.dryRun || retry.dryRun) throw new Error("Expected collections");
+    expect(retry.database.id).toBe(first.database.id);
+    expect(retry.sync).toMatchObject({ state: "unchanged" });
+    expect(await page(first.database.documentId)).toMatchObject({
+      trashedAt: null,
+    });
+    expect(await sourcesOf(first.database.id)).toHaveLength(1);
+    expect(await liveRows(first.database.id)).toHaveLength(3);
+  });
+
+  it("makes nothing when the folder can't be read", async () => {
+    github.commit(BASE_FILES);
+    const before = await collectionsInSpace();
+    await expect(
+      as(() =>
+        createGitHubCollection.run({
+          url: "https://github.com/acme/site/tree/main/missing",
+          spaceId,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "GITHUB_FOLDER_NOT_FOUND" });
+    expect(await collectionsInSpace()).toHaveLength(before.length);
+  });
+
+  it("moves the new collection to Trash when its link goes away while it fills", async () => {
+    github.commit({ "docs/1.md": "# One\n" });
+    const before = new Set(
+      (await collectionsInSpace()).map((collection) => collection.id),
+    );
+    // The preview reads the file first; the first sync's read unlinks it.
+    github.state.duringBlobRead = async () => {
+      github.state.duringBlobRead = async () => {
+        const [made] = (await collectionsInSpace()).filter(
+          (collection) => !before.has(collection.id),
+        );
+        await as(() => disconnectSource.run({ databaseId: made!.id }));
+      };
+    };
+
+    await expect(
+      as(() => createGitHubCollection.run({ url: FOLDER_URL, spaceId })),
+    ).rejects.toThrow("isn't linked to a GitHub folder");
+    const [made] = await getDb()
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+      })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.spaceId, spaceId))
+      .then((collections) =>
+        collections.filter((collection) => !before.has(collection.id)),
+      );
+    expect(made).toBeDefined();
+    expect((await page(made!.documentId))?.trashedAt).not.toBe(null);
+  });
+
+  it("refuses someone who can't add to the space before asking GitHub", async () => {
+    github.commit(BASE_FILES);
+    const stranger = `github-stranger-${Date.now()}@example.com`;
+    await expect(
+      runWithRequestContext({ userEmail: stranger }, () =>
+        createGitHubCollection.run({ url: FOLDER_URL, spaceId, dryRun: true }),
+      ),
+    ).rejects.toThrow();
+    expect(github.state.blobReads).toBe(0);
+  });
+
+  it("says whether GitHub is connected, and when it couldn't ask", async () => {
+    for (const connected of [true, false, null]) {
+      github.state.connected = connected;
+      expect(await as(() => checkConnection.run({}))).toEqual({ connected });
+    }
+  });
+});
 
 describe("GitHub folder freshness", () => {
   it("checks GitHub before a read once a link is a minute stale", async () => {

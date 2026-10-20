@@ -165,6 +165,14 @@ export function githubFolderLabel(location: GitHubFolderLocation): string {
   return `${location.owner}/${location.repo}${folder ? `/${folder}` : ""}`;
 }
 
+/** What people call the folder: its own name, or the repository's at the root. */
+export function githubFolderName(
+  location: Pick<GitHubFolderLocation, "repo" | "path">,
+): string {
+  const folder = normalizeGitHubFolderPath(location.path);
+  return folder ? folder.slice(folder.lastIndexOf("/") + 1) : location.repo;
+}
+
 /** Joins a folder-relative path back onto the folder for its repository path. */
 export function githubRepoPath(folder: string, relativePath: string): string {
   const base = normalizeGitHubFolderPath(folder);

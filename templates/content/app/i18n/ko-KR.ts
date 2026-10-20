@@ -3,74 +3,160 @@ import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
   githubLinkTitle: "GitHub 폴더 연결",
+  githubNewCollectionTitle: "GitHub 폴더로 새 컬렉션 만들기",
   githubLinkDescription:
-    "각 Markdown 파일은 보기 전용 페이지가 되며, 브랜치에 푸시한 내용은 약 1분 안에 반영됩니다.",
-  githubLinkUrlLabel: "폴더 링크",
-  githubLinkPreview: "미리 보기",
-  githubLinkReading: "폴더를 읽는 중…",
-  githubLinkFolderAt: "{{commit}} 시점의 {{folder}}",
-  githubLinkFiles: "Markdown 파일 {{count}}개가 페이지가 됩니다.",
-  githubLinkFilesOne: "Markdown 파일 1개가 페이지가 됩니다.",
-  githubLinkNoFiles: "이 폴더에는 연결할 Markdown 파일이 없습니다.",
-  githubLinkColumns: "프런트매터에서 가져온 열",
-  githubLinkNoColumns: "이 파일들에는 프런트매터가 없어 제목만 열이 됩니다.",
-  githubLinkColumnsSampled:
-    "{{total}}개 파일 중 {{count}}개에서 읽었습니다. 나머지 파일이 열을 추가하거나 유형을 바꿀 수 있습니다.",
-  githubLinkPages: "페이지",
-  githubLinkSkipped: "연결되지 않음",
-  githubSkipMdx: "MDX는 아직 지원되지 않습니다",
-  githubSkipTooLarge: "너무 커서 가져올 수 없습니다",
-  githubSkipNotText: "UTF-8 텍스트가 아님",
-  githubLinkImagesWaiting:
-    "이 폴더의 이미지는 파일 저장소를 설정하면 표시됩니다.",
-  githubLinkBlockedHasRows:
-    "이 컬렉션에는 이미 페이지가 있습니다. 비어 있는 새 컬렉션에서 GitHub 폴더를 연결하세요.",
-  githubLinkBlockedLinked: "이 컬렉션은 이미 소스를 따르고 있습니다.",
-  githubLinkBlockedSystem: "이 컬렉션은 GitHub 폴더를 따를 수 없습니다.",
-  githubLinkNeedsConnection:
-    "Content가 이 저장소를 읽을 수 있도록 GitHub를 연결하세요.",
-  githubConnect: "GitHub 연결",
-  githubLinkSubmit: "폴더 연결",
-  githubLinkedToast: "{{folder}} 연결됨",
-  githubLinkedSyncFailed: "{{folder}} 연결됨. 하지만 첫 동기화에 실패했습니다",
-  githubFollows: "{{branch}} 브랜치의 {{folder}}를 따름",
-  githubViewOnly: "보기 전용: 파일은 GitHub에서 편집하세요",
-  githubSyncedTo: "{{commit}}(으)로 동기화됨 {{time}}",
-  githubNotSyncedYet: "아직 동기화되지 않음",
-  githubSyncingProgress:
-    "{{commit}} 가져오는 중: 파일 {{total}}개 중 {{done}}개",
-  githubSkippedFiles: "파일 {{count}}개 건너뜀",
-  githubSkippedFilesOne: "파일 1개 건너뜀",
-  githubImagesWaiting: "일부 이미지는 파일 저장소를 기다리는 중",
-  githubSyncNow: "지금 동기화",
-  githubOpenFolder: "GitHub에서 열기",
-  githubAlreadyUpToDate: "이미 최신 상태",
-  githubSyncedToast: "{{commit}}(으)로 동기화됨",
-  githubProblemConnection:
-    "이 컬렉션을 최신 상태로 유지하려면 GitHub를 다시 연결하세요.",
-  githubProblemForbidden: "GitHub가 이 저장소에 대한 접근을 거부했습니다.",
-  githubProblemRepositoryNotFound:
-    "저장소를 찾을 수 없습니다. 비공개로 바뀌었거나 이름이 바뀌었거나 삭제되었을 수 있습니다.",
-  githubProblemBranchNotFound:
-    "브랜치를 찾을 수 없습니다. 이름이 바뀌었거나 삭제되었을 수 있습니다.",
-  githubProblemFolderNotFound: "폴더가 더 이상 브랜치에 없습니다.",
-  githubProblemRateLimited:
-    "GitHub가 요청을 제한하고 있습니다. 동기화는 자동으로 다시 시작됩니다.",
-  githubProblemTooLarge:
-    "폴더의 파일 수가 연결로 따라갈 수 있는 한도를 넘었습니다.",
-  githubProblemUnavailable:
-    "GitHub가 응답하지 않았습니다. 동기화는 자동으로 다시 시작됩니다.",
-  githubProblemSyncFailed:
-    "마지막 동기화에 실패했습니다. 자동으로 다시 시도합니다.",
-  githubProblemStorageUnavailable:
-    "이미지는 파일 저장소 설정을 기다리고 있습니다.",
+    "폴더의 문서가 여기에 보기 전용 페이지로 표시되며, GitHub에서 파일이 바뀌면 자동으로 업데이트됩니다.",
+  githubNewCollectionDescription:
+    "Content가 폴더 이름으로 컬렉션을 만듭니다. 폴더의 문서가 그 컬렉션에 보기 전용 페이지로 표시되며, GitHub에서 파일이 바뀌면 자동으로 업데이트됩니다.",
+  githubLinkUrlLabel: "GitHub 폴더 링크",
+  githubLinkUrlHelp: "GitHub에서 폴더를 연 다음 브라우저의 주소를 복사하세요.",
+  githubLinkCheck: "폴더 확인",
+  githubLinkReading: "GitHub에서 폴더를 읽는 중…",
+  githubConnectChecking: "GitHub 연동 상태를 확인하는 중…",
+  githubConnectPrompt:
+    "Content가 폴더를 읽을 수 있도록 GitHub 계정을 연동하세요.",
+  githubConnect: "GitHub 연동",
+  githubLinkFolderIn: "{{repo}}의 {{folder}}",
+  githubLinkPagesOne: "페이지 1개: {{titles}}.",
+  githubLinkPages: "페이지 {{count}}개: {{titles}}.",
+  githubLinkPagesUpTo: "페이지 최대 {{count}}개: {{titles}}.",
+  githubLinkMore: "기타 {{count}}개",
+  githubLinkNoFiles:
+    "이 폴더에는 Markdown (.md) 파일이 없어 표시할 내용이 없습니다.",
+  githubLinkColumns: "열: {{columns}}.",
+  githubLinkNoColumns:
+    "이 파일들은 맨 위에 세부 정보가 없어 각 페이지에 제목만 들어갑니다.",
+  githubLinkNotShownOne: "파일 1개는 아직 표시되지 않습니다.",
+  githubLinkNotShown: "파일 {{count}}개는 아직 표시되지 않습니다.",
+  githubLinkPicturesWaiting:
+    "이 파일들의 이미지는 워크스페이스 관리자가 파일 저장소를 설정해야 표시됩니다.",
+  githubShowDetails: "세부 정보 보기",
+  githubHideDetails: "세부 정보 숨기기",
+  githubDetailsPages: "페이지",
+  githubDetailsColumns: "열",
+  githubDetailsColumnsSampled:
+    "파일 {{total}}개 중 처음 {{count}}개에서 읽었습니다. 다른 파일에서 열이 더 추가될 수 있습니다.",
+  githubDetailsNotShown: "아직 표시되지 않는 파일",
+  githubDetailsFrom: "출처",
+  githubDetailsBranchVersion: "{{branch}} 브랜치 · 버전 {{commit}}",
+  githubYes: "예",
+  githubNo: "아니요",
+  githubSkipMdx: "MDX를 사용해서 Content에서 아직 표시할 수 없습니다",
+  githubSkipTooLarge: "너무 커서 Content에서 표시할 수 없습니다",
+  githubSkipNotText: "Content가 읽을 수 있는 텍스트 파일이 아닙니다",
+  githubLinkSubmitOne: "페이지 1개 연결",
+  githubLinkSubmit: "페이지 {{count}}개 연결",
+  githubLinkSubmitUpTo: "페이지 최대 {{count}}개 연결",
+  githubLinking: "연결하는 중…",
+  githubLinkingProgressOne: "GitHub에서 페이지 1개를 가져오는 중…",
+  githubLinkingProgress: "GitHub에서 페이지 {{count}}개를 가져오는 중…",
+  githubLinkedToastOne:
+    "연결했습니다. {{folder}}의 페이지 1개가 추가되었습니다.",
+  githubLinkedToast:
+    "연결했습니다. {{folder}}의 페이지 {{count}}개가 추가되었습니다.",
+  githubLinkedPartialToast:
+    "연결했습니다. 페이지 {{total}}개 중 {{done}}개가 추가되었고, 나머지는 1분 안에 추가됩니다.",
+  githubLinkedSyncFailed:
+    "{{folder}} 폴더를 연결했지만 아직 페이지를 가져오지 못했습니다.",
   githubLinkInvalidUrl:
-    "github.com/owner/repo/tree/main/docs 같은 GitHub 폴더 링크를 붙여 넣으세요.",
-  githubLinkFileUrl: "파일 링크입니다. 해당 폴더의 링크를 붙여 넣으세요.",
+    "GitHub 폴더 링크가 아닙니다. GitHub에서 폴더를 연 다음 브라우저의 주소를 복사하세요.",
+  githubLinkFileUrl: "파일 하나의 링크입니다.",
+  githubLinkUseFolder: "“{{folder}}” 폴더 사용",
+  githubLinkRepositoryNotFound:
+    "“{{repo}}” 저장소를 열 수 없습니다. 철자를 확인하거나 내 GitHub 계정에서 볼 수 있는지 확인하세요.",
+  githubLinkBranchNotFound:
+    "{{repo}}에 “{{branch}}” 브랜치가 없습니다. 링크를 확인하세요.",
+  githubLinkFolderNotFound:
+    "{{repo}}에 “{{folder}}” 폴더가 없습니다. 링크를 확인하세요.",
+  githubLinkForbidden:
+    "내 GitHub 계정으로는 “{{repo}}” 저장소를 열 수 없습니다. 소유자에게 접근 권한을 요청하세요.",
+  githubLinkTooLarge:
+    "이 폴더에는 파일이 {{max}}개보다 많습니다. 그 안에 있는 더 작은 폴더를 선택하세요.",
+  githubLinkUnavailable:
+    "지금은 GitHub에 접속할 수 없습니다. 1분 뒤에 다시 시도하세요.",
+  githubLinkBlockedHasRows:
+    "이 컬렉션에는 이미 페이지가 있어 GitHub 폴더로 채울 수 없습니다.",
+  githubLinkBlockedLinked:
+    "이 컬렉션은 이미 다른 앱에서 페이지를 가져오고 있습니다.",
+  githubLinkBlockedSystem: "이 컬렉션에는 GitHub 폴더를 표시할 수 없습니다.",
+  githubNewCollectionInstead: "GitHub에서 새 컬렉션 만들기",
+  githubRowAvailable: "GitHub 폴더의 문서를 여기에 표시",
+  githubRowConnectFirst: "먼저 GitHub 계정을 연동하세요",
+  githubRowEmptyOnly: "빈 컬렉션에서만 사용 가능",
+  githubRowOtherSource: "이미 {{source}}에서 페이지를 가져오고 있음",
+  githubRowFiles: "“파일”에서는 사용할 수 없음",
+  githubRowSystem: "이 컬렉션에서는 사용할 수 없음",
+  githubRowEditorsOnly: "편집자 전용",
+  githubRowLinked: "{{folder}} 폴더 · {{time}} 업데이트됨",
+  githubRowLinkedNotUpdated: "{{folder}} 폴더 · 아직 업데이트되지 않음",
+  githubRowUnavailableWhileLinked: "GitHub에 연결된 동안에는 사용할 수 없음",
+  githubExplainHasPagesOne:
+    "GitHub 폴더는 컬렉션 전체를 채우므로 페이지가 없는 컬렉션이 필요합니다. 이 컬렉션에는 페이지가 1개 있습니다.",
+  githubExplainHasPages:
+    "GitHub 폴더는 컬렉션 전체를 채우므로 페이지가 없는 컬렉션이 필요합니다. 이 컬렉션에는 페이지가 {{count}}개 있습니다.",
+  githubExplainOtherSource:
+    "컬렉션은 한 곳에서만 페이지를 가져옵니다. 이 컬렉션은 {{source}}에서 가져오고 있습니다.",
+  githubExplainFiles: "“파일” 컬렉션에는 GitHub 폴더를 표시할 수 없습니다.",
+  githubExplainSystem: "이 컬렉션에는 GitHub 폴더를 표시할 수 없습니다.",
+  githubExplainEditorsOnly:
+    "이 컬렉션을 편집할 수 있는 사람만 GitHub 폴더를 연결할 수 있습니다. 소유자에게 편집 권한을 요청하세요.",
+  githubExplainLinked:
+    "이 컬렉션의 페이지는 GitHub에서 가져옵니다. 다른 소스를 사용하려면 폴더 연결을 해제하세요.",
+  githubDetailFolder: "폴더",
+  githubDetailBranch: "브랜치",
+  githubDetailVersion: "버전",
+  githubDetailUpdated: "마지막 업데이트",
+  githubCheckForUpdates: "업데이트 확인",
+  githubOpenFolder: "GitHub에서 열기",
+  githubUnlinkFolder: "폴더 연결 해제…",
+  githubUnlinkTitle: "이 GitHub 폴더의 연결을 해제할까요?",
+  githubUnlinkBodyOne:
+    "페이지 1개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. GitHub의 변경 사항은 더 이상 들어오지 않습니다. 나중에 이 폴더를 다시 연결하려면 새 컬렉션을 사용해야 합니다.",
+  githubUnlinkBody:
+    "페이지 {{count}}개는 여기에 남아 편집할 수 있는 일반 페이지가 됩니다. GitHub의 변경 사항은 더 이상 들어오지 않습니다. 나중에 이 폴더를 다시 연결하려면 새 컬렉션을 사용해야 합니다.",
+  githubUnlink: "연결 해제",
+  githubUnlinking: "연결 해제하는 중…",
+  githubUnlinkedToast:
+    "연결을 해제했습니다. 페이지는 그대로 남아 있으며 이제 편집할 수 있습니다.",
+  githubUnlinkFailed: "폴더 연결을 해제하지 못했습니다",
+  githubFromFolder: "GitHub의 {{folder}} 폴더에서 가져옴",
+  githubFromRepo: "GitHub의 {{repo}}에서 가져옴",
+  githubUpdatedAgo: "{{time}} 업데이트됨",
+  githubJustNow: "방금",
+  githubNotUpdatedYet: "아직 업데이트되지 않음",
+  githubEditOnGitHub: "GitHub에서 편집",
+  githubDetails: "세부 정보",
+  githubNotShownOne: "파일 1개 표시 안 됨",
+  githubNotShown: "파일 {{count}}개 표시 안 됨",
+  githubNotShownHeading: "표시되지 않음",
+  githubShowingAsOf: "{{time}} 기준 페이지를 표시하고 있습니다.",
+  githubSyncingProgress:
+    "변경 사항을 가져오는 중: 파일 {{total}}개 중 {{done}}개",
+  githubPicturesWaiting:
+    "일부 이미지는 워크스페이스 관리자가 파일 저장소를 설정해야 표시됩니다.",
+  githubReconnect: "GitHub 다시 연동",
+  githubProblemConnection: "업데이트 중지됨: GitHub에 다시 로그인해야 합니다.",
+  githubProblemForbidden:
+    "업데이트 중지됨: 지금은 내 GitHub 계정으로 이 저장소를 열 수 없습니다. 소유자에게 접근 권한을 요청하세요.",
+  githubProblemRepositoryNotFound:
+    "업데이트 중지됨: 저장소가 이동되었거나 이름이 바뀌었거나 비공개로 전환되었습니다.",
+  githubProblemBranchNotFound:
+    "업데이트 중지됨: GitHub에서 “{{branch}}” 브랜치가 사라졌습니다.",
+  githubProblemFolderNotFound:
+    "업데이트 중지됨: 해당 브랜치에서 “{{folder}}” 폴더가 사라졌습니다.",
+  githubProblemPaused: "업데이트가 잠시 멈췄습니다. 자동으로 다시 시작됩니다.",
+  githubProblemTooLarge:
+    "업데이트 중지됨: 이제 폴더의 파일이 {{max}}개를 넘습니다.",
+  githubProblemStorageUnavailable:
+    "워크스페이스 관리자가 파일 저장소를 설정해야 이미지가 표시됩니다.",
+  githubAlreadyUpToDate: "최신 상태입니다.",
+  githubSyncedToastOne: "업데이트했습니다. 페이지 1개가 변경되었습니다.",
+  githubSyncedToast: "업데이트했습니다. 페이지 {{count}}개가 변경되었습니다.",
+  githubSyncPartialToast:
+    "업데이트 중: 지금까지 파일 {{total}}개 중 {{done}}개 완료.",
   githubSyncBusy:
-    "이미 동기화가 진행 중입니다. 완료되면 변경 사항이 표시됩니다.",
-  githubDisconnectDescription:
-    "폴더 따르기를 중지합니다. 페이지는 여기에 남고 편집할 수 있게 됩니다. 다시 따르려면 새 컬렉션에서 연결하세요.",
+    "이미 업데이트를 확인하고 있습니다. 완료되면 변경 사항이 표시됩니다.",
+  githubEmptyHint: "또는 GitHub 폴더로 채우기",
   formChecked: "선택됨",
   formChooseOption: "옵션 선택",
   formDescription: "아래 질문에 답하여 이 컬렉션에 페이지를 추가하세요.",
@@ -414,7 +500,7 @@ const databaseExactEnglish = {
   sortRowsBy: "排序行依据",
   startDate: "开始日期",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "此集合是本地的。连接来源以将其列映射到这些行。",
+    "다른 앱에서 이 컬렉션으로 페이지를 가져옵니다.",
   thisPropertyHasNoOptionsYet: "此属性还没有选项。",
   thisSourceIsNoLongerConnected: "此来源已不再连接。",
 };
@@ -988,6 +1074,7 @@ const rawLiterals = {
     expandItem: "{{title}} 펼치기",
     database: "컬렉션",
     collection: "컬렉션",
+    collectionFromGitHub: "GitHub 폴더에서 가져온 컬렉션",
     databasePermanentlyDeleted: "컬렉션가 영구 삭제되었습니다",
     databaseRestored: "컬렉션가 복원되었습니다",
     deleteDatabaseNamedPermanently: "{{title}} 영구 삭제",

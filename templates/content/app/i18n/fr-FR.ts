@@ -3,78 +3,166 @@ import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
   githubLinkTitle: "Lier un dossier GitHub",
+  githubNewCollectionTitle: "Nouvelle collection à partir d’un dossier GitHub",
   githubLinkDescription:
-    "Chaque fichier Markdown devient une page en lecture seule, et les pushes sur la branche arrivent en une minute environ.",
-  githubLinkUrlLabel: "Lien du dossier",
-  githubLinkPreview: "Aperçu",
-  githubLinkReading: "Lecture du dossier…",
-  githubLinkFolderAt: "{{folder}} au commit {{commit}}",
-  githubLinkFiles: "{{count}} fichiers Markdown deviennent des pages.",
-  githubLinkFilesOne: "1 fichier Markdown devient une page.",
-  githubLinkNoFiles: "Ce dossier ne contient aucun fichier Markdown à lier.",
-  githubLinkColumns: "Colonnes issues du frontmatter",
-  githubLinkNoColumns:
-    "Ces fichiers n’ont pas de frontmatter : le titre est la seule colonne.",
-  githubLinkColumnsSampled:
-    "Lues dans {{count}} fichiers sur {{total}}. Les autres fichiers peuvent ajouter des colonnes ou changer leur type.",
-  githubLinkPages: "Pages",
-  githubLinkSkipped: "Non liés",
-  githubSkipMdx: "MDX n’est pas encore pris en charge",
-  githubSkipTooLarge: "Trop volumineux pour être importé",
-  githubSkipNotText: "Pas du texte UTF-8",
-  githubLinkImagesWaiting:
-    "Les images de ce dossier s’afficheront une fois le stockage de fichiers configuré.",
-  githubLinkBlockedHasRows:
-    "Cette collection contient déjà des pages. Liez un dossier GitHub depuis une nouvelle collection vide.",
-  githubLinkBlockedLinked: "Cette collection suit déjà une source.",
-  githubLinkBlockedSystem:
-    "Cette collection ne peut pas suivre un dossier GitHub.",
-  githubLinkNeedsConnection:
-    "Connectez GitHub pour que Content puisse lire ce dépôt.",
+    "Les documents du dossier apparaissent ici sous forme de pages en lecture seule et se mettent à jour d’eux-mêmes quand les fichiers changent sur GitHub.",
+  githubNewCollectionDescription:
+    "Content crée une collection qui porte le nom du dossier. Ses documents y apparaissent sous forme de pages en lecture seule et se mettent à jour d’eux-mêmes quand les fichiers changent sur GitHub.",
+  githubLinkUrlLabel: "Lien du dossier GitHub",
+  githubLinkUrlHelp:
+    "Sur GitHub, ouvrez le dossier et copiez l’adresse depuis votre navigateur.",
+  githubLinkCheck: "Vérifier le dossier",
+  githubLinkReading: "Lecture du dossier sur GitHub…",
+  githubConnectChecking: "Vérification de votre connexion GitHub…",
+  githubConnectPrompt:
+    "Connectez votre compte GitHub pour que Content puisse lire vos dossiers.",
   githubConnect: "Connecter GitHub",
-  githubLinkSubmit: "Lier le dossier",
-  githubLinkedToast: "{{folder}} lié",
+  githubLinkFolderIn: "{{folder}}, dans {{repo}}",
+  githubLinkPagesOne: "1 page : {{titles}}.",
+  githubLinkPages: "{{count}} pages : {{titles}}.",
+  githubLinkPagesUpTo: "Jusqu’à {{count}} pages : {{titles}}.",
+  githubLinkMore: "{{count}} autres",
+  githubLinkNoFiles:
+    "Ce dossier ne contient aucun fichier Markdown (.md), il n’y a donc rien à afficher.",
+  githubLinkColumns: "Colonnes : {{columns}}.",
+  githubLinkNoColumns:
+    "Ces fichiers n’ont pas d’informations en haut, donc chaque page reçoit seulement son titre.",
+  githubLinkNotShownOne: "1 fichier ne s’affiche pas encore.",
+  githubLinkNotShown: "{{count}} fichiers ne s’affichent pas encore.",
+  githubLinkPicturesWaiting:
+    "Les images de ces fichiers ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubShowDetails: "Afficher les détails",
+  githubHideDetails: "Masquer les détails",
+  githubDetailsPages: "Pages",
+  githubDetailsColumns: "Colonnes",
+  githubDetailsColumnsSampled:
+    "Lues dans les {{count}} premiers fichiers sur {{total}}. Les autres peuvent ajouter des colonnes.",
+  githubDetailsNotShown: "Pas encore affichés",
+  githubDetailsFrom: "Provenance",
+  githubDetailsBranchVersion: "Branche {{branch}} · version {{commit}}",
+  githubYes: "Oui",
+  githubNo: "Non",
+  githubSkipMdx: "Utilise MDX, que Content ne peut pas encore afficher",
+  githubSkipTooLarge: "Trop volumineux pour être affiché dans Content",
+  githubSkipNotText: "Pas un fichier texte lisible par Content",
+  githubLinkSubmitOne: "Lier 1 page",
+  githubLinkSubmit: "Lier {{count}} pages",
+  githubLinkSubmitUpTo: "Lier jusqu’à {{count}} pages",
+  githubLinking: "Liaison en cours…",
+  githubLinkingProgressOne: "Récupération d’une page depuis GitHub…",
+  githubLinkingProgress: "Récupération de {{count}} pages depuis GitHub…",
+  githubLinkedToastOne: "Dossier lié. 1 page de {{folder}} est arrivée.",
+  githubLinkedToast:
+    "Dossier lié. {{count}} pages de {{folder}} sont arrivées.",
+  githubLinkedPartialToast:
+    "Dossier lié. {{done}} pages sur {{total}} sont arrivées ; les autres arrivent d’ici une minute.",
   githubLinkedSyncFailed:
-    "{{folder}} lié, mais sa première synchronisation a échoué",
-  githubFollows: "Suit {{folder}} sur {{branch}}",
-  githubViewOnly: "Lecture seule : modifiez les fichiers dans GitHub",
-  githubSyncedTo: "Synchronisé avec {{commit}} {{time}}",
-  githubNotSyncedYet: "Pas encore synchronisé",
-  githubSyncingProgress:
-    "Récupération de {{commit}} : {{done}} fichiers sur {{total}}",
-  githubSkippedFiles: "{{count}} fichiers ignorés",
-  githubSkippedFilesOne: "1 fichier ignoré",
-  githubImagesWaiting: "Certaines images attendent le stockage de fichiers",
-  githubSyncNow: "Synchroniser maintenant",
-  githubOpenFolder: "Ouvrir dans GitHub",
-  githubAlreadyUpToDate: "Déjà à jour",
-  githubSyncedToast: "Synchronisé avec {{commit}}",
-  githubProblemConnection:
-    "Reconnectez GitHub pour garder cette collection à jour.",
-  githubProblemForbidden: "GitHub a refusé l’accès à ce dépôt.",
-  githubProblemRepositoryNotFound:
-    "Le dépôt est introuvable. Il est peut-être privé, renommé ou supprimé.",
-  githubProblemBranchNotFound:
-    "La branche est introuvable. Elle a peut-être été renommée ou supprimée.",
-  githubProblemFolderNotFound: "Le dossier n’est plus sur la branche.",
-  githubProblemRateLimited:
-    "GitHub limite les requêtes. La synchronisation reprendra d’elle-même.",
-  githubProblemTooLarge:
-    "Le dossier contient plus de fichiers qu’un lien ne peut en suivre.",
-  githubProblemUnavailable:
-    "GitHub n’a pas répondu. La synchronisation reprendra d’elle-même.",
-  githubProblemSyncFailed:
-    "La dernière synchronisation a échoué. Elle sera relancée d’elle-même.",
-  githubProblemStorageUnavailable:
-    "Les images attendent la configuration du stockage de fichiers.",
+    "{{folder}} est lié, mais les pages n’ont pas encore pu être récupérées.",
   githubLinkInvalidUrl:
-    "Collez le lien d’un dossier GitHub, comme github.com/owner/repo/tree/main/docs.",
-  githubLinkFileUrl:
-    "Ce lien mène à un fichier. Collez le lien de son dossier.",
+    "Ce n’est pas un lien vers un dossier GitHub. Sur GitHub, ouvrez le dossier et copiez l’adresse depuis votre navigateur.",
+  githubLinkFileUrl: "C’est un lien vers un seul fichier.",
+  githubLinkUseFolder: "Utiliser le dossier « {{folder}} »",
+  githubLinkRepositoryNotFound:
+    "Impossible d’ouvrir « {{repo}} ». Vérifiez l’orthographe, ou assurez-vous que votre compte GitHub peut le voir.",
+  githubLinkBranchNotFound:
+    "Il n’y a pas de branche « {{branch}} » dans {{repo}}. Vérifiez le lien.",
+  githubLinkFolderNotFound:
+    "Il n’y a pas de dossier « {{folder}} » dans {{repo}}. Vérifiez le lien.",
+  githubLinkForbidden:
+    "Votre compte GitHub ne peut pas ouvrir « {{repo}} ». Demandez l’accès à son propriétaire.",
+  githubLinkTooLarge:
+    "Ce dossier contient plus de {{max}} fichiers. Choisissez un dossier plus petit à l’intérieur.",
+  githubLinkUnavailable:
+    "Impossible de joindre GitHub pour le moment. Réessayez dans une minute.",
+  githubLinkBlockedHasRows:
+    "Cette collection contient maintenant des pages, donc un dossier GitHub ne peut plus la remplir.",
+  githubLinkBlockedLinked:
+    "Cette collection reçoit déjà ses pages d’une autre app.",
+  githubLinkBlockedSystem:
+    "Cette collection ne peut pas afficher de dossier GitHub.",
+  githubNewCollectionInstead: "Nouvelle collection depuis GitHub",
+  githubRowAvailable: "Afficher ici les documents d’un dossier GitHub",
+  githubRowConnectFirst: "Connectez d’abord votre compte GitHub",
+  githubRowEmptyOnly: "Uniquement pour les collections vides",
+  githubRowOtherSource: "Reçoit déjà ses pages de {{source}}",
+  githubRowFiles: "Non disponible pour Fichiers",
+  githubRowSystem: "Non disponible pour cette collection",
+  githubRowEditorsOnly: "Réservé aux éditeurs",
+  githubRowLinked: "Dossier {{folder}} · Mis à jour {{time}}",
+  githubRowLinkedNotUpdated: "Dossier {{folder}} · Pas encore mis à jour",
+  githubRowUnavailableWhileLinked:
+    "Non disponible tant que la collection est liée à GitHub",
+  githubExplainHasPagesOne:
+    "Un dossier GitHub remplit une collection entière, il lui faut donc une collection sans pages. Celle-ci contient 1 page.",
+  githubExplainHasPages:
+    "Un dossier GitHub remplit une collection entière, il lui faut donc une collection sans pages. Celle-ci contient {{count}} pages.",
+  githubExplainOtherSource:
+    "Une collection reçoit ses pages d’un seul endroit. Celle-ci utilise {{source}}.",
+  githubExplainFiles:
+    "La collection Fichiers ne peut pas afficher de dossier GitHub.",
+  githubExplainSystem:
+    "Cette collection ne peut pas afficher de dossier GitHub.",
+  githubExplainEditorsOnly:
+    "Seules les personnes qui peuvent modifier cette collection peuvent lier un dossier GitHub. Demandez un accès en modification à son propriétaire.",
+  githubExplainLinked:
+    "Les pages de cette collection viennent de GitHub. Dissociez le dossier pour utiliser une autre source.",
+  githubDetailFolder: "Dossier",
+  githubDetailBranch: "Branche",
+  githubDetailVersion: "Version",
+  githubDetailUpdated: "Dernière mise à jour",
+  githubCheckForUpdates: "Rechercher des mises à jour",
+  githubOpenFolder: "Ouvrir dans GitHub",
+  githubUnlinkFolder: "Dissocier le dossier…",
+  githubUnlinkTitle: "Dissocier ce dossier GitHub ?",
+  githubUnlinkBodyOne:
+    "La page reste ici et devient une page normale que vous pouvez modifier. Les modifications sur GitHub n’arriveront plus. Pour lier à nouveau ce dossier plus tard, vous utiliserez une nouvelle collection.",
+  githubUnlinkBody:
+    "Les {{count}} pages restent ici et deviennent des pages normales que vous pouvez modifier. Les modifications sur GitHub n’arriveront plus. Pour lier à nouveau ce dossier plus tard, vous utiliserez une nouvelle collection.",
+  githubUnlink: "Dissocier",
+  githubUnlinking: "Dissociation…",
+  githubUnlinkedToast:
+    "Dossier dissocié. Vos pages sont conservées et vous pouvez maintenant les modifier.",
+  githubUnlinkFailed: "Impossible de dissocier le dossier",
+  githubFromFolder: "Depuis le dossier {{folder}} sur GitHub",
+  githubFromRepo: "Depuis {{repo}} sur GitHub",
+  githubUpdatedAgo: "Dernière mise à jour : {{time}}",
+  githubJustNow: "à l’instant",
+  githubNotUpdatedYet: "Pas encore de mise à jour",
+  githubEditOnGitHub: "Modifier sur GitHub",
+  githubDetails: "Détails",
+  githubNotShownOne: "1 fichier non affiché",
+  githubNotShown: "{{count}} fichiers non affichés",
+  githubNotShownHeading: "Non affichés",
+  githubShowingAsOf: "Pages affichées telles qu’elles étaient {{time}}.",
+  githubSyncingProgress:
+    "Récupération des modifications : {{done}} fichiers sur {{total}}",
+  githubPicturesWaiting:
+    "Certaines images ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubReconnect: "Reconnecter GitHub",
+  githubProblemConnection:
+    "Mises à jour arrêtées : GitHub vous demande de vous reconnecter.",
+  githubProblemForbidden:
+    "Mises à jour arrêtées : votre compte GitHub ne peut plus ouvrir ce dépôt. Demandez l’accès à son propriétaire.",
+  githubProblemRepositoryNotFound:
+    "Mises à jour arrêtées : le dépôt a été déplacé, renommé ou rendu privé.",
+  githubProblemBranchNotFound:
+    "Mises à jour arrêtées : la branche « {{branch}} » n’existe plus sur GitHub.",
+  githubProblemFolderNotFound:
+    "Mises à jour arrêtées : le dossier « {{folder}} » n’existe plus sur cette branche.",
+  githubProblemPaused:
+    "Les mises à jour sont en pause pour un moment. Elles reprendront d’elles-mêmes.",
+  githubProblemTooLarge:
+    "Mises à jour arrêtées : le dossier contient maintenant plus de {{max}} fichiers.",
+  githubProblemStorageUnavailable:
+    "Les images ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubAlreadyUpToDate: "À jour.",
+  githubSyncedToastOne: "Mise à jour terminée. 1 page a changé.",
+  githubSyncedToast: "Mise à jour terminée. {{count}} pages ont changé.",
+  githubSyncPartialToast:
+    "Mise à jour : {{done}} fichiers sur {{total}} pour l’instant.",
   githubSyncBusy:
-    "Une synchronisation est déjà en cours. Ses modifications s’affichent quand elle se termine.",
-  githubDisconnectDescription:
-    "Arrêtez de suivre le dossier. Ses pages restent ici et deviennent modifiables. Pour le suivre à nouveau, liez-le depuis une nouvelle collection.",
+    "Une recherche de mises à jour est déjà en cours. Les modifications s’afficheront quand elle sera terminée.",
+  githubEmptyHint: "Ou remplissez-la depuis un dossier GitHub",
   formChecked: "Coché",
   formChooseOption: "Choisir une option",
   formDescription:
@@ -436,7 +524,7 @@ const databaseExactEnglish = {
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "Esta colección es local. Conecta una fuente para mapear sus columnas a estas filas.",
+    "Importez dans cette collection des pages d’une autre app.",
   thisPropertyHasNoOptionsYet: "Esta propiedad aún no tiene opciones.",
   thisSourceIsNoLongerConnected: "Esta fuente ya no está conectada.",
 };
@@ -1020,6 +1108,7 @@ const rawLiterals = {
     expandItem: "Développer {{title}}",
     database: "Collection",
     collection: "Collection",
+    collectionFromGitHub: "Collection depuis un dossier GitHub",
     databasePermanentlyDeleted: "Collection supprimée définitivement",
     databaseRestored: "Collection restaurée",
     deleteDatabaseNamedPermanently: "Supprimer définitivement {{title}}",

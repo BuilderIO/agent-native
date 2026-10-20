@@ -276,6 +276,38 @@ async function refineNotFound(
   throw new GitHubSourceError(inside, message, 404);
 }
 
+/** How long the connection check waits for GitHub before giving up. */
+const CONNECTION_CHECK_MS = 5_000;
+
+/**
+ * Whether the person has a GitHub connection Content can read through. It
+ * asks for the rate limit, which reads no repository and costs none of it.
+ * Null means GitHub couldn't be asked, so the caller shouldn't say either way.
+ */
+export async function readGitHubConnected(
+  connectionId?: string | null,
+): Promise<boolean | null> {
+  try {
+    const raw = await executeGitHubSourceRequest({
+      provider: "github",
+      method: "GET",
+      path: "/rate_limit",
+      connectionId: connectionId ?? undefined,
+      signal: AbortSignal.timeout(CONNECTION_CHECK_MS),
+    });
+    const status = asRecord(asRecord(raw).response).status;
+    if (typeof status !== "number") return null;
+    return status !== 401;
+  } catch (error) {
+    if (isAgentConnectionRequiredError(error)) return false;
+    console.warn(
+      "[github-source] connection check failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
 /** The branch a repository URL without `/tree/` means. */
 export async function readGitHubDefaultBranch(
   target: GitHubRepositoryTarget,

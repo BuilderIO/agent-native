@@ -3,79 +3,165 @@ import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
   githubLinkTitle: "GitHub-Ordner verknüpfen",
+  githubNewCollectionTitle: "Neue Sammlung aus einem GitHub-Ordner",
   githubLinkDescription:
-    "Jede Markdown-Datei wird zu einer Seite, die nur angesehen werden kann. Pushes auf den Branch kommen innerhalb etwa einer Minute an.",
-  githubLinkUrlLabel: "Ordner-Link",
-  githubLinkPreview: "Vorschau",
-  githubLinkReading: "Ordner wird gelesen…",
-  githubLinkFolderAt: "{{folder}} bei {{commit}}",
-  githubLinkFiles: "{{count}} Markdown-Dateien werden zu Seiten.",
-  githubLinkFilesOne: "1 Markdown-Datei wird zu einer Seite.",
-  githubLinkNoFiles:
-    "Dieser Ordner enthält keine Markdown-Dateien zum Verknüpfen.",
-  githubLinkColumns: "Spalten aus dem Frontmatter",
-  githubLinkNoColumns:
-    "Diese Dateien haben kein Frontmatter, daher ist der Titel die einzige Spalte.",
-  githubLinkColumnsSampled:
-    "Aus {{count}} von {{total}} Dateien gelesen. Die übrigen Dateien können Spalten hinzufügen oder ihren Typ ändern.",
-  githubLinkPages: "Seiten",
-  githubLinkSkipped: "Nicht verknüpft",
-  githubSkipMdx: "MDX wird noch nicht unterstützt",
-  githubSkipTooLarge: "Zu groß zum Importieren",
-  githubSkipNotText: "Kein UTF-8-Text",
-  githubLinkImagesWaiting:
-    "Bilder in diesem Ordner werden angezeigt, sobald der Dateispeicher eingerichtet ist.",
-  githubLinkBlockedHasRows:
-    "Diese Sammlung hat bereits Seiten. Verknüpfe einen GitHub-Ordner aus einer neuen, leeren Sammlung.",
-  githubLinkBlockedLinked: "Diese Sammlung folgt bereits einer Quelle.",
-  githubLinkBlockedSystem: "Diese Sammlung kann keinem GitHub-Ordner folgen.",
-  githubLinkNeedsConnection:
-    "Verbinde GitHub, damit Content dieses Repository lesen kann.",
+    "Die Dokumente des Ordners erscheinen hier als schreibgeschützte Seiten und aktualisieren sich von selbst, wenn sich die Dateien auf GitHub ändern.",
+  githubNewCollectionDescription:
+    "Content erstellt eine Sammlung mit dem Namen des Ordners. Die Dokumente des Ordners erscheinen dort als schreibgeschützte Seiten und aktualisieren sich von selbst, wenn sich die Dateien auf GitHub ändern.",
+  githubLinkUrlLabel: "Link zum GitHub-Ordner",
+  githubLinkUrlHelp:
+    "Öffne den Ordner auf GitHub und kopiere die Adresse aus deinem Browser.",
+  githubLinkCheck: "Ordner prüfen",
+  githubLinkReading: "Ordner auf GitHub wird gelesen…",
+  githubConnectChecking: "Deine GitHub-Verbindung wird geprüft…",
+  githubConnectPrompt:
+    "Verbinde dein GitHub-Konto, damit Content deine Ordner lesen kann.",
   githubConnect: "GitHub verbinden",
-  githubLinkSubmit: "Ordner verknüpfen",
-  githubLinkedToast: "{{folder}} verknüpft",
+  githubLinkFolderIn: "{{folder}} in {{repo}}",
+  githubLinkPagesOne: "1 Seite: {{titles}}.",
+  githubLinkPages: "{{count}} Seiten: {{titles}}.",
+  githubLinkPagesUpTo: "Bis zu {{count}} Seiten: {{titles}}.",
+  githubLinkMore: "{{count}} weitere",
+  githubLinkNoFiles:
+    "Dieser Ordner enthält keine Markdown-Dateien (.md), daher gibt es nichts anzuzeigen.",
+  githubLinkColumns: "Spalten: {{columns}}.",
+  githubLinkNoColumns:
+    "Diese Dateien haben am Anfang keine Angaben, daher bekommt jede Seite nur ihren Titel.",
+  githubLinkNotShownOne: "1 Datei wird noch nicht angezeigt.",
+  githubLinkNotShown: "{{count}} Dateien werden noch nicht angezeigt.",
+  githubLinkPicturesWaiting:
+    "Bilder in diesen Dateien werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubShowDetails: "Details anzeigen",
+  githubHideDetails: "Details ausblenden",
+  githubDetailsPages: "Seiten",
+  githubDetailsColumns: "Spalten",
+  githubDetailsColumnsSampled:
+    "Aus den ersten {{count}} von {{total}} Dateien gelesen. Weitere Dateien können Spalten hinzufügen.",
+  githubDetailsNotShown: "Noch nicht angezeigt",
+  githubDetailsFrom: "Herkunft",
+  githubDetailsBranchVersion: "Branch {{branch}} · Version {{commit}}",
+  githubYes: "Ja",
+  githubNo: "Nein",
+  githubSkipMdx: "Nutzt MDX, das Content noch nicht anzeigen kann",
+  githubSkipTooLarge: "Zu groß für die Anzeige in Content",
+  githubSkipNotText: "Keine Textdatei, die Content lesen kann",
+  githubLinkSubmitOne: "1 Seite verknüpfen",
+  githubLinkSubmit: "{{count}} Seiten verknüpfen",
+  githubLinkSubmitUpTo: "Bis zu {{count}} Seiten verknüpfen",
+  githubLinking: "Wird verknüpft…",
+  githubLinkingProgressOne: "1 Seite wird von GitHub geholt…",
+  githubLinkingProgress: "{{count}} Seiten werden von GitHub geholt…",
+  githubLinkedToastOne: "Verknüpft. 1 Seite aus {{folder}} ist jetzt hier.",
+  githubLinkedToast:
+    "Verknüpft. {{count}} Seiten aus {{folder}} sind jetzt hier.",
+  githubLinkedPartialToast:
+    "Verknüpft. {{done}} von {{total}} Seiten sind hier; der Rest folgt innerhalb einer Minute.",
   githubLinkedSyncFailed:
-    "{{folder}} verknüpft, aber die erste Synchronisierung ist fehlgeschlagen",
-  githubFollows: "Folgt {{folder}} auf {{branch}}",
-  githubViewOnly: "Nur Ansicht: Bearbeite die Dateien in GitHub",
-  githubSyncedTo: "Synchronisiert mit {{commit}} {{time}}",
-  githubNotSyncedYet: "Noch nicht synchronisiert",
-  githubSyncingProgress:
-    "{{commit}} wird übernommen: {{done}} von {{total}} Dateien",
-  githubSkippedFiles: "{{count}} Dateien übersprungen",
-  githubSkippedFilesOne: "1 Datei übersprungen",
-  githubImagesWaiting: "Einige Bilder warten auf den Dateispeicher",
-  githubSyncNow: "Jetzt synchronisieren",
-  githubOpenFolder: "In GitHub öffnen",
-  githubAlreadyUpToDate: "Bereits aktuell",
-  githubSyncedToast: "Synchronisiert mit {{commit}}",
-  githubProblemConnection:
-    "Verbinde GitHub erneut, damit diese Sammlung aktuell bleibt.",
-  githubProblemForbidden:
-    "GitHub hat den Zugriff auf dieses Repository verweigert.",
-  githubProblemRepositoryNotFound:
-    "Das Repository wurde nicht gefunden. Es ist vielleicht privat, umbenannt oder gelöscht.",
-  githubProblemBranchNotFound:
-    "Der Branch wurde nicht gefunden. Er wurde vielleicht umbenannt oder gelöscht.",
-  githubProblemFolderNotFound: "Der Ordner ist nicht mehr auf dem Branch.",
-  githubProblemRateLimited:
-    "GitHub begrenzt Anfragen. Die Synchronisierung läuft von selbst weiter.",
-  githubProblemTooLarge:
-    "Der Ordner hat mehr Dateien, als eine Verknüpfung verfolgen kann.",
-  githubProblemUnavailable:
-    "GitHub hat nicht geantwortet. Die Synchronisierung läuft von selbst weiter.",
-  githubProblemSyncFailed:
-    "Die letzte Synchronisierung ist fehlgeschlagen. Sie wird von selbst erneut versucht.",
-  githubProblemStorageUnavailable:
-    "Bilder warten darauf, dass der Dateispeicher eingerichtet wird.",
+    "{{folder}} ist verknüpft, aber die Seiten konnten noch nicht geholt werden.",
   githubLinkInvalidUrl:
-    "Füge einen Link zu einem GitHub-Ordner ein, z. B. github.com/owner/repo/tree/main/docs.",
-  githubLinkFileUrl:
-    "Dieser Link führt zu einer Datei. Füge den Link zu ihrem Ordner ein.",
+    "Das ist kein Link zu einem GitHub-Ordner. Öffne den Ordner auf GitHub und kopiere die Adresse aus deinem Browser.",
+  githubLinkFileUrl: "Das ist ein Link zu einer einzelnen Datei.",
+  githubLinkUseFolder: "Ordner „{{folder}}“ verwenden",
+  githubLinkRepositoryNotFound:
+    "„{{repo}}“ lässt sich nicht öffnen. Prüfe die Schreibweise oder stelle sicher, dass dein GitHub-Konto es sehen kann.",
+  githubLinkBranchNotFound:
+    "In {{repo}} gibt es keinen Branch namens „{{branch}}“. Prüfe den Link.",
+  githubLinkFolderNotFound:
+    "In {{repo}} gibt es keinen Ordner namens „{{folder}}“. Prüfe den Link.",
+  githubLinkForbidden:
+    "Dein GitHub-Konto kann „{{repo}}“ nicht öffnen. Bitte den Eigentümer um Zugriff.",
+  githubLinkTooLarge:
+    "Dieser Ordner hat mehr als {{max}} Dateien. Wähle einen kleineren Ordner darin.",
+  githubLinkUnavailable:
+    "GitHub ist gerade nicht erreichbar. Versuche es in einer Minute noch einmal.",
+  githubLinkBlockedHasRows:
+    "Diese Sammlung hat inzwischen Seiten, daher kann ein GitHub-Ordner sie nicht mehr füllen.",
+  githubLinkBlockedLinked:
+    "Diese Sammlung bekommt ihre Seiten bereits aus einer anderen App.",
+  githubLinkBlockedSystem: "Diese Sammlung kann keinen GitHub-Ordner anzeigen.",
+  githubNewCollectionInstead: "Neue Sammlung aus GitHub",
+  githubRowAvailable: "Dokumente aus einem GitHub-Ordner hier anzeigen",
+  githubRowConnectFirst: "Verbinde zuerst dein GitHub-Konto",
+  githubRowEmptyOnly: "Nur für leere Sammlungen",
+  githubRowOtherSource: "Seiten kommen bereits aus {{source}}",
+  githubRowFiles: "Für Dateien nicht verfügbar",
+  githubRowSystem: "Für diese Sammlung nicht verfügbar",
+  githubRowEditorsOnly: "Nur mit Bearbeitungszugriff",
+  githubRowLinked: "Ordner {{folder}} · Aktualisiert {{time}}",
+  githubRowLinkedNotUpdated: "Ordner {{folder}} · Noch nicht aktualisiert",
+  githubRowUnavailableWhileLinked:
+    "Nicht verfügbar, solange mit GitHub verknüpft",
+  githubExplainHasPagesOne:
+    "Ein GitHub-Ordner füllt eine ganze Sammlung, deshalb braucht er eine ohne Seiten. Diese hat 1 Seite.",
+  githubExplainHasPages:
+    "Ein GitHub-Ordner füllt eine ganze Sammlung, deshalb braucht er eine ohne Seiten. Diese hat {{count}} Seiten.",
+  githubExplainOtherSource:
+    "Eine Sammlung bekommt ihre Seiten aus einer einzigen Quelle. Diese nutzt {{source}}.",
+  githubExplainFiles:
+    "Die Dateien-Sammlung kann keinen GitHub-Ordner anzeigen.",
+  githubExplainSystem: "Diese Sammlung kann keinen GitHub-Ordner anzeigen.",
+  githubExplainEditorsOnly:
+    "Nur wer diese Sammlung bearbeiten darf, kann einen GitHub-Ordner verknüpfen. Bitte den Eigentümer um Bearbeitungszugriff.",
+  githubExplainLinked:
+    "Die Seiten dieser Sammlung kommen von GitHub. Heb die Verknüpfung mit dem Ordner auf, um eine andere Quelle zu nutzen.",
+  githubDetailFolder: "Ordner",
+  githubDetailBranch: "Branch",
+  githubDetailVersion: "Version",
+  githubDetailUpdated: "Aktualisiert",
+  githubCheckForUpdates: "Auf Aktualisierungen prüfen",
+  githubOpenFolder: "In GitHub öffnen",
+  githubUnlinkFolder: "Verknüpfung mit Ordner aufheben…",
+  githubUnlinkTitle: "Verknüpfung mit diesem GitHub-Ordner aufheben?",
+  githubUnlinkBodyOne:
+    "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
+  githubUnlinkBody:
+    "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
+  githubUnlink: "Verknüpfung aufheben",
+  githubUnlinking: "Verknüpfung wird aufgehoben…",
+  githubUnlinkedToast:
+    "Verknüpfung aufgehoben. Deine Seiten bleiben erhalten, und du kannst sie jetzt bearbeiten.",
+  githubUnlinkFailed:
+    "Die Verknüpfung mit dem Ordner konnte nicht aufgehoben werden",
+  githubFromFolder: "Aus dem Ordner {{folder}} auf GitHub",
+  githubFromRepo: "Aus {{repo}} auf GitHub",
+  githubUpdatedAgo: "Aktualisiert {{time}}",
+  githubJustNow: "gerade eben",
+  githubNotUpdatedYet: "Noch nicht aktualisiert",
+  githubEditOnGitHub: "Auf GitHub bearbeiten",
+  githubDetails: "Details",
+  githubNotShownOne: "1 Datei nicht angezeigt",
+  githubNotShown: "{{count}} Dateien nicht angezeigt",
+  githubNotShownHeading: "Nicht angezeigt",
+  githubShowingAsOf: "Stand der Seiten: {{time}}.",
+  githubSyncingProgress:
+    "Änderungen werden geholt: {{done}} von {{total}} Dateien",
+  githubPicturesWaiting:
+    "Einige Bilder werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubReconnect: "GitHub erneut verbinden",
+  githubProblemConnection:
+    "Aktualisierung gestoppt: Du musst dich erneut bei GitHub anmelden.",
+  githubProblemForbidden:
+    "Aktualisierung gestoppt: Dein GitHub-Konto kann dieses Repository nicht mehr öffnen. Bitte den Eigentümer um Zugriff.",
+  githubProblemRepositoryNotFound:
+    "Aktualisierung gestoppt: Das Repository wurde verschoben, umbenannt oder auf privat gestellt.",
+  githubProblemBranchNotFound:
+    "Aktualisierung gestoppt: Den Branch „{{branch}}“ gibt es auf GitHub nicht mehr.",
+  githubProblemFolderNotFound:
+    "Aktualisierung gestoppt: Den Ordner „{{folder}}“ gibt es auf diesem Branch nicht mehr.",
+  githubProblemPaused:
+    "Aktualisierungen sind kurz pausiert. Sie laufen von selbst weiter.",
+  githubProblemTooLarge:
+    "Aktualisierung gestoppt: Der Ordner hat jetzt mehr als {{max}} Dateien.",
+  githubProblemStorageUnavailable:
+    "Bilder werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubAlreadyUpToDate: "Auf dem neuesten Stand.",
+  githubSyncedToastOne: "Aktualisiert. 1 Seite wurde geändert.",
+  githubSyncedToast: "Aktualisiert. {{count}} Seiten wurden geändert.",
+  githubSyncPartialToast:
+    "Wird aktualisiert: bisher {{done}} von {{total}} Dateien.",
   githubSyncBusy:
-    "Eine Synchronisierung läuft bereits. Ihre Änderungen erscheinen, sobald sie fertig ist.",
-  githubDisconnectDescription:
-    "Dem Ordner nicht mehr folgen. Seine Seiten bleiben hier und lassen sich bearbeiten. Um ihm wieder zu folgen, verknüpfe ihn aus einer neuen Sammlung.",
+    "Es wird bereits nach Aktualisierungen gesucht. Änderungen erscheinen, sobald das fertig ist.",
+  githubEmptyHint: "Oder fülle sie aus einem GitHub-Ordner",
   formChecked: "Ausgewählt",
   formChooseOption: "Option auswählen",
   formDescription:
@@ -436,7 +522,7 @@ const databaseExactEnglish = {
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "Esta colección es local. Conecta una fuente para mapear sus columnas a estas filas.",
+    "Seiten aus einer anderen App in diese Sammlung holen.",
   thisPropertyHasNoOptionsYet: "Esta propiedad aún no tiene opciones.",
   thisSourceIsNoLongerConnected: "Esta fuente ya no está conectada.",
 };
@@ -1025,6 +1111,7 @@ const rawLiterals = {
     expandItem: "{{title}} erweitern",
     database: "Sammlung",
     collection: "Sammlung",
+    collectionFromGitHub: "Sammlung aus GitHub-Ordner",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",
     databaseRestored: "Sammlung wiederhergestellt",
     deleteDatabaseNamedPermanently: "{{title}} endgültig löschen",

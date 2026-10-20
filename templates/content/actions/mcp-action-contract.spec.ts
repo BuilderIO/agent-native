@@ -13,6 +13,7 @@ import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
+import createGitHubCollection from "./create-github-collection.js";
 import deleteContentDatabase from "./delete-content-database.js";
 import deleteDocument from "./delete-document.js";
 import describeContentDatabase from "./describe-content-database.js";
@@ -89,6 +90,7 @@ describe("Content action-owned agent catalogs", () => {
     "upsert-database-item-by-key": upsertDatabaseItemByKey,
     "migrate-content-database-rows": migrateContentDatabaseRows,
     "link-github-folder": linkGitHubFolder,
+    "create-github-collection": createGitHubCollection,
     "sync-github-folder": syncGitHubFolder,
   };
 
