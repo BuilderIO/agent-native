@@ -771,6 +771,32 @@ describe("Blocks field edit merge", () => {
     });
   });
 
+  it("moves my rewrite even when it copies another paragraph", () => {
+    expect(
+      mergeBlocksFieldEdits(
+        "Chorus\nVerse one\nChorus",
+        "Chorus\nChorus\nChorus",
+        "Chorus\nVerse two\nChorus",
+      ),
+    ).toEqual({
+      content: "Chorus\nVerse two\nChorus\nChorus",
+      moved: true,
+    });
+  });
+
+  it("keeps a repeated paragraph I added when theirs repeats one too", () => {
+    expect(
+      mergeBlocksFieldEdits(
+        "Chorus\nVerse",
+        "Chorus\nVerse\nChorus",
+        "Verse\nChorus\nVerse",
+      ),
+    ).toEqual({
+      content: "Verse\nChorus\nVerse\nChorus",
+      moved: false,
+    });
+  });
+
   it("drops a deletion of words the other side rewrote, moving nothing", () => {
     expect(
       mergeBlocksFieldEdits("Keep this part", "Keep part", "Keep that part"),

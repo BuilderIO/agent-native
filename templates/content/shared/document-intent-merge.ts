@@ -29,6 +29,26 @@ function stableBlock(block: PMNode): string {
   return JSON.stringify(block);
 }
 
+// How many copies of each block there are, so a repeated paragraph doesn't
+// stand in for another copy of it.
+function blockCopies(blocks: readonly PMNode[]): Map<string, number> {
+  const copies = new Map<string, number>();
+  for (const block of blocks) {
+    const key = stableBlock(block);
+    copies.set(key, (copies.get(key) ?? 0) + 1);
+  }
+  return copies;
+}
+
+// Whether a block with text appears more than once. Empty paragraphs don't
+// count: they're blank lines.
+function repeatsParagraph(content: string): boolean {
+  const blocks = (parseStableBlocks(content) ?? []).filter(
+    (block) => block.type !== "paragraph" || Boolean(block.content?.length),
+  );
+  return blockCopies(blocks).size < blocks.length;
+}
+
 function parseStableBlocks(content: string): PMNode[] | null {
   try {
     const parsed = nfmToDoc(content);
@@ -267,16 +287,17 @@ function appendChangedBlocks(
   if (!theirBlocks || !mineBlocks) {
     return { content: `${theirs}\n${mineText}`, moved: true };
   }
-  const baseBlocks = new Set(
-    ((baseText === null ? null : parseStableBlocks(baseText)) ?? []).map(
-      stableBlock,
-    ),
+  const baseCopies = blockCopies(
+    (baseText === null ? null : parseStableBlocks(baseText)) ?? [],
   );
-  const kept = new Set(theirBlocks.map(stableBlock));
-  const moved = mineBlocks.filter(
-    (block) =>
-      !baseBlocks.has(stableBlock(block)) && !kept.has(stableBlock(block)),
-  );
+  const theirCopies = blockCopies(theirBlocks);
+  const seen = new Map<string, number>();
+  const moved = mineBlocks.filter((block) => {
+    const key = stableBlock(block);
+    const copy = (seen.get(key) ?? 0) + 1;
+    seen.set(key, copy);
+    return copy > Math.max(baseCopies.get(key) ?? 0, theirCopies.get(key) ?? 0);
+  });
   return {
     content: moved.length
       ? docToNfm({ type: "doc", content: [...theirBlocks, ...moved] })
@@ -317,11 +338,13 @@ export function mergeBlocksFieldEdits(
   }
   if (theirText === baseText) return { content: mine, moved: false };
   // One side can already hold the other's changes, such as a save of mine
-  // that landed before its answer reached the editor.
-  if (bodyHoldsChanges(base, mineText, theirs)) {
+  // that landed before its answer reached the editor. A repeated paragraph
+  // can pass for a changed copy of itself there, so it takes the full merge.
+  const repeats = [baseText, mineText, theirText].some(repeatsParagraph);
+  if (!repeats && bodyHoldsChanges(base, mineText, theirs)) {
     return { content: mine, moved: false };
   }
-  if (bodyHoldsChanges(base, theirText, mine)) {
+  if (!repeats && bodyHoldsChanges(base, theirText, mine)) {
     return { content: theirs, moved: false };
   }
 
@@ -387,13 +410,21 @@ export function mergeBlocksFieldEdits(
   if (!mergedSpans || !mineSpans) {
     return appendChangedBlocks(baseText, mineText, theirText, theirs);
   }
-  const kept = new Set(mergedSpans.map((span) => stableBlock(span.block)));
+  // A paragraph the merge already holds as often as mine does isn't moved.
+  const held = blockCopies(mergedSpans.map((span) => span.block));
+  const mineCopies = blockCopies(mineSpans.map((span) => span.block));
   const moved = mineSpans
     .filter((span) =>
       unplaced.some((range) => span.from < range.to && range.from < span.to),
     )
     .map((span) => span.block)
-    .filter((block) => !kept.has(stableBlock(block)));
+    .filter((block) => {
+      const key = stableBlock(block);
+      const copies = held.get(key) ?? 0;
+      if (copies >= (mineCopies.get(key) ?? 0)) return false;
+      held.set(key, copies + 1);
+      return true;
+    });
   if (!moved.length) return { content: merged, moved: false };
   return {
     content: docToNfm({
