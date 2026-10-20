@@ -2987,6 +2987,85 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
   });
 
+  it("preserves Stop intent when config fails after Stop lands", async () => {
+    const taskId = "stop-during-config-failure";
+    await seedTask(taskId);
+
+    let markConfigStarted!: () => void;
+    let releaseConfig!: () => void;
+    let markAbortStarted!: () => void;
+    let releaseAbort!: () => void;
+    const configStarted = new Promise<void>((resolve) => {
+      markConfigStarted = resolve;
+    });
+    const configGate = new Promise<void>((resolve) => {
+      releaseConfig = resolve;
+    });
+    const abortStarted = new Promise<void>((resolve) => {
+      markAbortStarted = resolve;
+    });
+    const abortGate = new Promise<void>((resolve) => {
+      releaseAbort = resolve;
+    });
+
+    abortRunDurablyMock.mockImplementationOnce(
+      async (runId, reason, options) => {
+        expect(options).toEqual({ allowNotStarted: true });
+        expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+          status: "running",
+          stopRequestedAt: expect.any(Number),
+          stopRequestedRunId: runId,
+          stopRequestedReason: reason,
+        });
+        markAbortStarted();
+        await abortGate;
+        return false;
+      },
+    );
+
+    const processing = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => {
+        markConfigStarted();
+        await configGate;
+        throw new Error("config unavailable");
+      },
+    });
+    let stopping: Promise<unknown> | undefined;
+
+    try {
+      await configStarted;
+      stopping = runWithRequestContext({ userEmail: OWNER }, () =>
+        stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+      );
+      await abortStarted;
+
+      releaseConfig();
+      await expect(processing).resolves.toEqual({
+        ok: true,
+        skipped: "stop-requested",
+      });
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+        status: "running",
+        stopRequestedAt: expect.any(Number),
+      });
+
+      releaseAbort();
+      await expect(stopping).resolves.toEqual({ ok: true });
+    } finally {
+      releaseConfig();
+      releaseAbort();
+      await Promise.allSettled([processing, ...(stopping ? [stopping] : [])]);
+    }
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      terminalProgressStatus: "cancelled",
+    });
+  });
+
   it("rechecks Stop intent after run registration and before model dispatch", async () => {
     const taskId = "stop-before-run-registration";
     await seedTask(taskId);

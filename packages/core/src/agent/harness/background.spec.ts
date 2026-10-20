@@ -71,7 +71,7 @@ describe("Agent Harness background stop", () => {
     );
   });
 
-  it("does not mark the session stopped when run abort persistence fails", async () => {
+  it("tears down the harness when run abort persistence fails", async () => {
     abortRunDurablyMock.mockRejectedValueOnce(
       new Error("run abort persistence failed"),
     );
@@ -86,7 +86,34 @@ describe("Agent Harness background stop", () => {
     expect(abortRunDurablyMock).toHaveBeenCalledWith("run-1", "user", {
       allowNotStarted: true,
     });
-    expect(stopLiveAgentHarnessSessionMock).not.toHaveBeenCalled();
-    expect(markAgentHarnessSessionStoppedMock).not.toHaveBeenCalled();
+    expect(stopLiveAgentHarnessSessionMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      scope: { ownerEmail: "owner@example.com", orgId: "org-1" },
+    });
+    expect(markAgentHarnessSessionStoppedMock).toHaveBeenCalledWith(
+      "session-1",
+      "errored",
+    );
+  });
+
+  it("surfaces abort and teardown failures after recording an errored session", async () => {
+    const abortError = new Error("run abort persistence failed");
+    const teardownError = new Error("harness stop failed");
+    abortRunDurablyMock.mockRejectedValueOnce(abortError);
+    stopLiveAgentHarnessSessionMock.mockRejectedValueOnce(teardownError);
+
+    await expect(
+      stopAgentHarnessBackgroundRun("run-1", {
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).rejects.toMatchObject({
+      errors: [abortError, teardownError],
+    });
+
+    expect(markAgentHarnessSessionStoppedMock).toHaveBeenCalledWith(
+      "session-1",
+      "errored",
+    );
   });
 });

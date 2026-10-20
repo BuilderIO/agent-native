@@ -911,6 +911,32 @@ describe("AISDKEngine model dispatch guard", () => {
     expect(streamText).not.toHaveBeenCalled();
     expect(onModelDispatchStarted).not.toHaveBeenCalled();
   });
+
+  it("propagates dispatch-gate errors without classifying them as provider failures", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "test-key" });
+    const dispatchError = new Error("database connection terminated");
+    const beforeModelDispatch = async <T>(_dispatch: () => T) => {
+      throw dispatchError;
+    };
+    const events: unknown[] = [];
+
+    await expect(
+      (async () => {
+        for await (const event of engine.stream({
+          ...BASE_STREAM_OPTIONS,
+          beforeModelDispatch,
+        })) {
+          events.push(event);
+        }
+      })(),
+    ).rejects.toBe(dispatchError);
+
+    expect(events).toEqual([]);
+    expect(streamText).not.toHaveBeenCalled();
+  });
 });
 
 describe("AISDKEngine first-event deadline", () => {

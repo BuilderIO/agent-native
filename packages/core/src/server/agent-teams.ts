@@ -856,6 +856,7 @@ async function failReconciledTask(
       ? undefined
       : structuredClone(currentTask);
     Object.assign(task, currentTask);
+    if (task.stopRequestedAt !== undefined) return false;
     cancelled ||= isCancelledAgentTask(task);
     terminalProgressStatus = cancelled ? "cancelled" : progressStatus;
     task.status = "errored";
@@ -2471,6 +2472,13 @@ export async function processAgentTeamRun(
           claimed,
           false,
         );
+        const latestTask = await loadTask(opts.taskId);
+        if (
+          latestTask?.stopRequestedAt !== undefined ||
+          latestTask?.terminalProgressStatus === "cancelled"
+        ) {
+          return { ok: true, skipped: "stop-requested" };
+        }
         return { ok: false, skipped: "config-failed" };
       }
 

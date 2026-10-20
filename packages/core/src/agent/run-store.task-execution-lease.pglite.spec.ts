@@ -77,6 +77,7 @@ const {
   recordLateAgentExecutionStepOutcome,
   ensureRunTables,
   insertRun,
+  markRunAborted,
   markTurnAborted,
   readBackgroundRunClaim,
   reapUnclaimedBackgroundRun,
@@ -111,6 +112,17 @@ describe("task execution leases", () => {
       withExecutionLeaseRequested(() => withFencedExecutionWrite(write)),
     ).rejects.toMatchObject({ code: "missing_execution_fence" });
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("rejects run aborts when an execution lease was requested without a fence", async () => {
+    await expect(
+      withExecutionLeaseRequested(() => markRunAborted("missing-abort-fence")),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+    await expect(
+      withExecutionLeaseRequested(() =>
+        markRunAbortedAtSafeBoundary("missing-safe-abort-fence"),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
   });
 
   it("rejects execution-lease fence reads when the fence is missing", () => {
@@ -235,6 +247,50 @@ describe("task execution leases", () => {
         insertRun("run-fenced-successor-current-child", threadId, turnId),
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("prevents a stale generation from aborting its same-run replacement", async () => {
+    const threadId = "thread-fenced-run-abort";
+    const turnId = "turn-fenced-run-abort";
+    const runId = "run-fenced-run-abort";
+    await insertRun(runId, threadId, turnId);
+    const firstFence = await claimTurnExecutionLease(threadId, turnId, runId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const secondFence = await claimTurnExecutionLease(threadId, turnId, runId);
+    expect(BigInt(secondFence.generation)).toBe(
+      BigInt(firstFence.generation) + 1n,
+    );
+
+    await expect(
+      withExecutionFence(firstFence, () => markRunAborted(runId, "user")),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    const stillRunning = await pglite.query(
+      "SELECT status, worker_generation FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(stillRunning.rows[0]?.status).toBe("running");
+    expect(Number(stillRunning.rows[0]?.worker_generation)).toBe(
+      Number(secondFence.generation),
+    );
+    const terminalEvents = await pglite.query(
+      "SELECT seq FROM agent_run_events WHERE run_id = ?",
+      [runId],
+    );
+    expect(terminalEvents.rows).toHaveLength(0);
+
+    await expect(
+      withExecutionFence(secondFence, () => markRunAborted(runId, "user")),
+    ).resolves.toBe(true);
+    const aborted = await pglite.query(
+      "SELECT status FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(aborted.rows[0]).toMatchObject({ status: "aborted" });
   });
 
   it("prevents a stale worker from aborting its replacement generation", async () => {

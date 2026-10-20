@@ -39,6 +39,7 @@ import {
 } from "./engine/credential-errors.js";
 import {
   currentExecutionFence,
+  currentExecutionFenceForScope,
   ExecutionFenceError,
   MissingExecutionFenceError,
   lockAndAssertCurrentExecutionFences,
@@ -3355,25 +3356,41 @@ async function updateRunAborted(
   requireSafeBoundary: boolean,
 ): Promise<boolean> {
   await ensureRunTables();
+  const fence = currentExecutionFenceForScope({ runId });
   const client = getDbExec();
   if (!client.transaction) {
     throw new Error("Atomic run cancellation requires transaction support");
   }
   const abortResult = await client.transaction(async (tx) => {
     await lockExecutionLeasesForRuns(tx, [runId]);
+    await lockAndAssertCurrentExecutionFences(tx);
+    const runResult = await tx.execute({
+      sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id,
+                   worker_generation
+            FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const lockedRun = runResult.rows[0] as
+      | {
+          thread_id?: string;
+          turn_id?: string;
+          worker_generation?: number | string | null;
+        }
+      | undefined;
+    if (
+      fence &&
+      (lockedRun?.thread_id !== fence.threadId ||
+        lockedRun.turn_id !== fence.turnId ||
+        lockedRun.worker_generation == null ||
+        String(lockedRun.worker_generation) !== fence.generation)
+    ) {
+      throw new StaleExecutionFenceError(fence);
+    }
     if (requireSafeBoundary) {
-      const run = await tx.execute({
-        sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
-              FROM agent_runs WHERE id = ?`,
-        args: [runId],
-      });
-      const runRef = run.rows[0] as
-        | { thread_id?: string; turn_id?: string }
-        | undefined;
-      if (runRef) {
+      if (lockedRun) {
         if (
-          typeof runRef.thread_id !== "string" ||
-          typeof runRef.turn_id !== "string"
+          typeof lockedRun.thread_id !== "string" ||
+          typeof lockedRun.turn_id !== "string"
         ) {
           throw new Error(`Run ${runId} has an invalid thread or turn ID`);
         }
@@ -3382,7 +3399,7 @@ async function updateRunAborted(
                 WHERE thread_id = ? AND turn_id = ? AND status = 'dispatched'
                   AND run_id = ?
                 LIMIT 1`,
-          args: [runRef.thread_id, runRef.turn_id, runId],
+          args: [lockedRun.thread_id, lockedRun.turn_id, runId],
         });
         if (dispatchedStep.rows.length > 0) {
           return { rowsAffected: 0, appendTerminalEvent: false };
@@ -3403,11 +3420,11 @@ async function updateRunAborted(
       await revokeExecutionLeasesForRuns(tx, [runId]);
       return { rowsAffected, appendTerminalEvent: true };
     }
-    const current = await tx.execute({
+    const terminalState = await tx.execute({
       sql: `SELECT status, terminal_reason, in_flight_since FROM agent_runs WHERE id = ?`,
       args: [runId],
     });
-    const currentRun = current.rows[0] as
+    const terminalRun = terminalState.rows[0] as
       | {
           status?: string;
           terminal_reason?: string | null;
@@ -3417,9 +3434,9 @@ async function updateRunAborted(
     return {
       rowsAffected,
       appendTerminalEvent:
-        currentRun?.status === "aborted" &&
-        currentRun.terminal_reason === `aborted:${reason ?? "user"}` &&
-        (!requireSafeBoundary || currentRun.in_flight_since == null),
+        terminalRun?.status === "aborted" &&
+        terminalRun.terminal_reason === `aborted:${reason ?? "user"}` &&
+        (!requireSafeBoundary || terminalRun.in_flight_since == null),
     };
   });
   if (abortResult.appendTerminalEvent) {

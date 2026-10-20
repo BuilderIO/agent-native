@@ -499,32 +499,38 @@ class AISDKEngine implements AgentEngine {
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const toolInputs = createStreamedToolInputState();
 
-    try {
-      const dispatch = await startModelDispatch(opts, () =>
-        streamText({
-          model: providerModel,
-          system: opts.systemPrompt,
-          messages,
-          tools: aiSdkTools,
-          ...(this.omitMaxOutputTokens
-            ? {}
-            : { maxOutputTokens: resolvedMaxOutputTokens }),
-          maxRetries: 1,
-          ...(samplingAllowed && opts.temperature !== undefined
-            ? { temperature: opts.temperature }
-            : {}),
-          abortSignal: firstEventAbort.signal,
-          onStepFinish: (step: any) => {
-            assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
-          },
-          ...(Object.keys(providerOpts).length > 0
-            ? { providerOptions: providerOpts }
-            : {}),
-        }),
-      );
-      if (!dispatch.started) return;
-      const result = dispatch.value;
+    const dispatch = await startModelDispatch(opts, () =>
+      streamText({
+        model: providerModel,
+        system: opts.systemPrompt,
+        messages,
+        tools: aiSdkTools,
+        ...(this.omitMaxOutputTokens
+          ? {}
+          : { maxOutputTokens: resolvedMaxOutputTokens }),
+        maxRetries: 1,
+        ...(samplingAllowed && opts.temperature !== undefined
+          ? { temperature: opts.temperature }
+          : {}),
+        abortSignal: firstEventAbort.signal,
+        onStepFinish: (step: any) => {
+          assistantContent = aiSdkStepToAssistantContent(step, toolNameMap);
+        },
+        ...(Object.keys(providerOpts).length > 0
+          ? { providerOptions: providerOpts }
+          : {}),
+      }),
+    ).catch((error) => {
+      firstEventAbort.cleanup();
+      throw error;
+    });
+    if (!dispatch.started) {
+      firstEventAbort.cleanup();
+      return;
+    }
+    const result = dispatch.value;
 
+    try {
       let bufferedStop: EngineEvent | undefined;
       let sawFirstEvent = false;
       let credentialFailureRecorded = false;
