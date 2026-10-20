@@ -166,6 +166,18 @@ function DetailRow({
   );
 }
 
+/** An item of the status line, led by its "·" (see the line for why). */
+function Dotted({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex min-w-0 items-center">
+      <span aria-hidden className="w-3 shrink-0 text-center">
+        ·
+      </span>
+      {children}
+    </span>
+  );
+}
+
 /** A path that wraps after a slash rather than in the middle of a name. */
 function WrapsAtSlashes({ text }: { text: string }) {
   return text.split("/").map((part, index) => (
@@ -370,69 +382,85 @@ function GitHubStatusLineContent({
 
   return (
     <div className="mb-2 grid min-w-0 gap-1 text-xs" data-github-source-status>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground">
-        <IconBrandGithub className="size-3.5 shrink-0" aria-hidden />
-        <FromFolder status={status} />
-        {stops ? null : (
-          <>
-            <span aria-hidden>·</span>
-            <span>{githubUpdatedText(status, now)}</span>
-          </>
-        )}
-        <span aria-hidden>·</span>
-        <a
-          href={status.folderUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-0.5 rounded-sm underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          {dbText("githubEditOnGitHub")}
-          <IconExternalLink className="size-3" aria-hidden />
-        </a>
-        {status.skippedCount > 0 ? (
-          <>
-            <span aria-hidden>·</span>
-            <NotShownFiles files={status.skipped} count={status.skippedCount} />
-          </>
-        ) : null}
-        <Popover open={detailsOpen} onOpenChange={onDetailsOpenChange}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="ms-1 inline-flex items-center gap-0.5 rounded-sm px-1 py-0.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      {/* Every item starts with its dot, and the row sits one dot to the left
+          of a clipped box, so the dot of whichever item starts a line is cut
+          off: no line starts or ends with a dot, however the row wraps. */}
+      <div className="-m-px overflow-hidden p-px">
+        <div className="-ms-3 flex min-w-0 flex-wrap items-center gap-y-1 text-muted-foreground">
+          <Dotted>
+            <IconBrandGithub className="me-1.5 size-3.5 shrink-0" aria-hidden />
+            <FromFolder status={status} />
+          </Dotted>
+          {stops ? null : (
+            <Dotted>
+              <span>{githubUpdatedText(status, now)}</span>
+            </Dotted>
+          )}
+          <Dotted>
+            <a
+              href={status.folderUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-0.5 rounded-sm underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              {dbText("githubDetails")}
-              <IconChevronDown className="size-3" aria-hidden />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-72">
-            <div className="grid min-w-0 gap-3">
-              <GitHubFolderFacts status={status} now={now} />
-              <div className="flex flex-wrap gap-1.5">
-                <Button
+              {dbText("githubEditOnGitHub")}
+              <IconExternalLink className="size-3" aria-hidden />
+            </a>
+          </Dotted>
+          {status.skippedCount > 0 ? (
+            <Dotted>
+              <NotShownFiles
+                files={status.skipped}
+                count={status.skippedCount}
+              />
+            </Dotted>
+          ) : null}
+          {/* No dot before Details, but the same lead, so it isn't cut off. */}
+          <span className="ps-3">
+            <Popover open={detailsOpen} onOpenChange={onDetailsOpenChange}>
+              <PopoverTrigger asChild>
+                <button
                   type="button"
-                  size="xs"
-                  variant="outline"
-                  disabled={check.pending}
-                  onClick={check.run}
+                  className="inline-flex items-center gap-0.5 rounded-sm px-1 py-0.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                  {check.pending ? <Spinner /> : <IconRefresh aria-hidden />}
-                  {dbText("githubCheckForUpdates")}
-                </Button>
-                {canEdit ? (
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="outline-destructive"
-                    onClick={openUnlink}
-                  >
-                    {dbText("githubUnlinkFolder")}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
+                  {dbText("githubDetails")}
+                  <IconChevronDown className="size-3" aria-hidden />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72">
+                <div className="grid min-w-0 gap-3">
+                  <GitHubFolderFacts status={status} now={now} />
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      disabled={check.pending}
+                      onClick={check.run}
+                    >
+                      {check.pending ? (
+                        <Spinner />
+                      ) : (
+                        <IconRefresh aria-hidden />
+                      )}
+                      {dbText("githubCheckForUpdates")}
+                    </Button>
+                    {canEdit ? (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline-destructive"
+                        onClick={openUnlink}
+                      >
+                        {dbText("githubUnlinkFolder")}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </span>
+        </div>
       </div>
 
       {problem && stops ? (
