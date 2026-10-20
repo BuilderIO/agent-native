@@ -355,7 +355,11 @@ async function resolveWorkspaceOAuthProviderCredential(
   const connectionOrgId = resolvedConnection.connection.orgId?.trim();
   if (
     options.ctx.credentialScope === "org" &&
-    (!contextOrgId || !connectionOrgId || connectionOrgId !== contextOrgId)
+    (!contextOrgId ||
+      !connectionOrgId ||
+      connectionOrgId !== contextOrgId ||
+      resolvedConnection.connection.config.workspaceConnectionScope !==
+        "organization")
   ) {
     return null;
   }

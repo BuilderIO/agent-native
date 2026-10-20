@@ -536,7 +536,10 @@ describe("analytics provider credentials", () => {
         ownerEmail: "owner@example.test",
         orgId: "org-1",
         label: "Organization GitHub",
-        config: { credentialMode: "oauth" },
+        config: {
+          credentialMode: "oauth",
+          workspaceConnectionScope: "organization",
+        },
       },
       appAccess: { available: true, mode: "explicit-grant" },
       reason: "Available.",
@@ -560,6 +563,39 @@ describe("analytics provider credentials", () => {
       scopeId: "org-1",
       connectionId: "github-org-connection",
     });
+  });
+
+  it("does not promote a caller-owned OAuth connection to org scope", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "github-user-connection",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+        label: "Personal GitHub",
+        allowedUsers: ["owner@example.test"],
+        config: {
+          credentialMode: "oauth",
+          workspaceConnectionScope: "user",
+        },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = { accessToken: "user-oauth-token" };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.oauthCalls).toEqual([]);
   });
 
   it("does not use caller-owned GitHub OAuth for a specific connection", async () => {

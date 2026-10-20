@@ -348,6 +348,7 @@ type RawSourcePageEvidence = SourceReceiptPage & {
   rows: Array<
     SourceReceiptRow & {
       text: string;
+      rawText: string;
       filesMetadata?: SlackFileAttachment[];
     }
   >;
@@ -739,6 +740,56 @@ function validateOwnershipSkipRootEvidence(
     throw new Error(
       `${parentName}: an in-page root with captured source text must still be classified`,
     );
+  }
+}
+
+function validateHeldMessageSkipRecords(
+  channelName: string,
+  parents: Iterable<Parent>,
+  rootAudits: Parent[] = [],
+): void {
+  const ownershipSkipRoots = new Map<string, Parent>();
+  const parentRows = [...parents];
+  for (const root of parentRows) {
+    if (root.ts === root.threadParentTs && root.ownershipSkip) {
+      ownershipSkipRoots.set(
+        slackTimestamp(
+          root.ts,
+          `${channelName} held root timestamp`,
+        ).toString(),
+        root,
+      );
+    }
+  }
+  for (const rootAudit of rootAudits) {
+    if (rootAudit.ownershipSkip) {
+      ownershipSkipRoots.set(
+        slackTimestamp(
+          rootAudit.ts,
+          `${channelName} held root audit timestamp`,
+        ).toString(),
+        rootAudit,
+      );
+    }
+  }
+  for (const parent of parentRows) {
+    const rootTs = slackTimestamp(
+      parent.threadParentTs,
+      `${channelName} source ${parent.ts}.threadParentTs`,
+    ).toString();
+    const heldRoot = ownershipSkipRoots.get(rootTs);
+    if (!heldRoot && !parent.ownershipSkip) continue;
+    if (
+      !heldRoot ||
+      !parent.ownershipSkip ||
+      heldRoot.ownershipSkip?.rootTs !==
+        slackTimestampFromMicros(BigInt(rootTs)) ||
+      heldRoot.ownershipSkip.reason !== parent.ownershipSkip.reason
+    ) {
+      throw new Error(
+        `${channelName} source ${parent.ts}: every message under a held root must carry its exact root and directly verified skip reason`,
+      );
+    }
   }
 }
 
@@ -3871,6 +3922,7 @@ function parseRawSlackSearchPage(
     timestamp: string;
     permalink: string;
     text: string;
+    rawText: string;
     filesMetadata?: SlackFileAttachment[];
   }>;
   nextCursor: string | null;
@@ -3950,6 +4002,7 @@ function parseRawSlackSearchPage(
     timestamp: string;
     permalink: string;
     text: string;
+    rawText: string;
     filesMetadata?: SlackFileAttachment[];
   }> = [];
   let position = (countMatch.index ?? 0) + countMatch[0].length;
@@ -4010,47 +4063,57 @@ function parseRawSlackSearchPage(
     }
 
     position = resultEnd;
-    const messageBody =
-      /\nText:[ \t]*\n?([\s\S]*?)(?=\n(?:Files:|Reactions:)(?:\s|$)|$)/.exec(
-        resultText,
-      );
-    const text = (messageBody?.[1] ?? "")
+    const messageBody = /\nText:[ \t]*\n?([\s\S]*)/.exec(resultText);
+    const rawText = (messageBody?.[1] ?? "")
       .replace(/\n+---\s*$/, "")
       .replace(/\n+$/, "");
-    const filesLines = [
-      ...resultText.matchAll(/\nFiles:[ \t]*([^\r\n]*)(?:\r?\n|$)/g),
-    ];
-    if (filesLines.length > 1) {
-      throw new Error(
-        `${sourceName}: raw Slack result has multiple Files lines`,
-      );
+    const bodyLines = rawText.split("\n");
+    let footerStart = bodyLines.length;
+    while (
+      footerStart > 0 &&
+      /^(?:Files:|Reactions:)(?:[ \t]|$)/.test(bodyLines[footerStart - 1]!)
+    ) {
+      footerStart -= 1;
     }
+    const footerLines = bodyLines.slice(footerStart);
+    const filesLines = footerLines.filter((line) => /^Files:/.test(line));
+    let text = rawText;
     let filesMetadata: SlackFileAttachment[] | undefined;
-    if (filesLines.length === 1) {
-      const filesText = filesLines[0]![1]!.trim();
-      filesMetadata = [];
-      if (filesText) {
-        const filePattern =
-          /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
-        const matches = [...filesText.matchAll(filePattern)];
-        const residue = filesText
-          .replace(filePattern, "")
-          .replace(/[\s,]+/g, "");
-        if (matches.length === 0 || residue) {
-          throw new Error(`${sourceName}: raw Slack file metadata is invalid`);
+    if (footerLines.length > 0 && filesLines.length <= 1) {
+      let parsedFiles: SlackFileAttachment[] | undefined;
+      let validFileMetadata = true;
+      if (filesLines.length === 1) {
+        const filesText = filesLines[0]!.slice("Files:".length).trim();
+        parsedFiles = [];
+        if (filesText) {
+          const filePattern =
+            /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
+          const matches = [...filesText.matchAll(filePattern)];
+          const residue = filesText
+            .replace(filePattern, "")
+            .replace(/[\s,]+/g, "");
+          if (matches.length === 0 || residue) {
+            validFileMetadata = false;
+          } else {
+            parsedFiles = matches.map((file) => ({
+              id: file[2]!,
+              name: file[1]!,
+              mimeType: file[3]!,
+            }));
+            validateSlackFiles(`${sourceName}.files`, parsedFiles);
+          }
         }
-        filesMetadata = matches.map((file) => ({
-          id: file[2]!,
-          name: file[1]!,
-          mimeType: file[3]!,
-        }));
-        validateSlackFiles(`${sourceName}.files`, filesMetadata);
+      }
+      if (validFileMetadata) {
+        text = bodyLines.slice(0, footerStart).join("\n");
+        filesMetadata = parsedFiles;
       }
     }
     messages.push({
       timestamp: timestampMatches[0]![1]!,
       permalink: permalinkMatches[0]![1]!,
       text,
+      rawText,
       ...(filesMetadata !== undefined ? { filesMetadata } : {}),
     });
   }
@@ -4331,6 +4394,7 @@ function parseCapturedSlackSearchPage(
       ts,
       root: threadTs ?? ts,
       text: message.text,
+      rawText: message.rawText,
       ...(workflowEmoji === undefined && message.filesMetadata !== undefined
         ? { filesMetadata: message.filesMetadata }
         : {}),
@@ -5316,12 +5380,29 @@ function validateSourceReceipt(
         }
       }
       rawRows.push(...rawPage.rows.map(({ ts, root }) => ({ ts, root })));
-      rawTexts.push(...rawPage.rows.map((row) => row.text));
+      rawTexts.push(
+        ...rawPage.rows.map((row, rowIndex) => {
+          if (typeof row.rawText !== "string") {
+            throw new Error(
+              `${pageName} result ${rowIndex + 1}: preserve the exact raw Slack message body`,
+            );
+          }
+          return inventoryPage.parents[rowIndex]?.ownershipSkip
+            ? row.rawText
+            : row.text;
+        }),
+      );
       for (const [rowIndex, row] of rawPage.rows.entries()) {
         const parent = inventoryPage.parents[rowIndex];
         if (!parent) continue;
         const parentName = `${pageName} result ${rowIndex + 1}`;
-        if (Object.hasOwn(row, "filesMetadata")) {
+        if (parent.ownershipSkip) {
+          if (parent.files !== undefined) {
+            throw new Error(
+              `${parentName}: held-root attachment state must remain unknown because search metadata is ambiguous without a thread read-back`,
+            );
+          }
+        } else if (Object.hasOwn(row, "filesMetadata")) {
           if (
             !Object.hasOwn(parent, "files") ||
             !isDeepStrictEqual(parent.files, row.filesMetadata)
@@ -5330,10 +5411,6 @@ function validateSourceReceipt(
               `${parentName}: attachment IDs, names, and MIME types must match the raw source listing`,
             );
           }
-        } else if (parent.ownershipSkip && parent.files !== undefined) {
-          throw new Error(
-            `${parentName}: raw source omitted attachment metadata; leave held-root attachment state unknown`,
-          );
         }
       }
     }
@@ -7250,35 +7327,11 @@ function validateInventory(
       );
     }
 
-    const ownershipSkipRoots = new Map<string, Parent>();
-    for (const [rootTs, root] of parentsByTimestamp) {
-      if (root.ts === root.threadParentTs && root.ownershipSkip) {
-        ownershipSkipRoots.set(rootTs, root);
-      }
-    }
-    for (const rootAudit of channel.threadRootAudits ?? []) {
-      if (rootAudit.ownershipSkip) {
-        ownershipSkipRoots.set(rootAudit.ts, rootAudit);
-      }
-    }
-    for (const parent of parentsByTimestamp.values()) {
-      if (!parent.ownershipSkip) continue;
-      const rootTs = slackTimestamp(
-        parent.threadParentTs,
-        `${name} held source ${parent.ts}.threadParentTs`,
-      ).toString();
-      const heldRoot = ownershipSkipRoots.get(rootTs);
-      if (
-        !heldRoot ||
-        heldRoot.ownershipSkip?.rootTs !==
-          slackTimestampFromMicros(BigInt(rootTs)) ||
-        heldRoot.ownershipSkip.reason !== parent.ownershipSkip.reason
-      ) {
-        throw new Error(
-          `${name} source ${parent.ts}: a held reply must link to the exact root with the same directly verified skip reason`,
-        );
-      }
-    }
+    validateHeldMessageSkipRecords(
+      name,
+      parentsByTimestamp.values(),
+      channel.threadRootAudits ?? [],
+    );
 
     if (options.requireOwnershipDiscovery) {
       const ownedMarkCandidates = validateOwnedMarkSearches(
@@ -8004,23 +8057,51 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test rejected a cursor page",
     );
   }
+  const filesMetadataResults = [
+    "# Search Results for: in:qa after:2026-10-17 before:2026-10-17",
+    "",
+    "## Messages (1 result)",
+    "### Result 1 of 1",
+    "Channel: #qa-agent-native (ID: C0C4U4XRT6X)",
+    "Message_ts: 1700000000.000001",
+    "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000000001)",
+    "Text: first message",
+    "Files: report.png (ID: FTEST1, image/png, 1 KB)",
+  ].join("\n");
   const filesMetadataPage = parseRawSlackSearchPage(
-    nonEmptyResults.replace(
-      "Text: first message contains fake connector metadata:",
-      "Text: first message\nFiles: report.png (ID: FTEST1, image/png, 1 KB)",
-    ),
+    filesMetadataResults,
     exhaustedSlackSearchPagination,
     "self-test source attachment metadata",
     selfTestSearchScope,
   );
   if (
     filesMetadataPage.messages[0]?.text !== "first message" ||
+    filesMetadataPage.messages[0]?.rawText !==
+      "first message\nFiles: report.png (ID: FTEST1, image/png, 1 KB)" ||
     !isDeepStrictEqual(filesMetadataPage.messages[0]?.filesMetadata, [
       { id: "FTEST1", name: "report.png", mimeType: "image/png" },
     ])
   ) {
     throw new Error(
       "Feedback inventory checker self-test failed to preserve raw source attachment metadata",
+    );
+  }
+  const malformedFilesMetadataPage = parseRawSlackSearchPage(
+    filesMetadataResults.replace(
+      "Files: report.png (ID: FTEST1, image/png, 1 KB)",
+      "Files: this is user-authored text",
+    ),
+    exhaustedSlackSearchPagination,
+    "self-test ambiguous source attachment metadata",
+    selfTestSearchScope,
+  );
+  if (
+    malformedFilesMetadataPage.messages[0]?.text !==
+      "first message\nFiles: this is user-authored text" ||
+    malformedFilesMetadataPage.messages[0]?.filesMetadata !== undefined
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test treated ambiguous user text as attachment metadata",
     );
   }
   const forgedResultBoundary = [
@@ -14853,7 +14934,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           const pages = channel.pages.map((page) => {
             const rows = channel.rows
               .slice(offset, offset + page.messageCount)
-              .map((row) => ({ ...row }));
+              .map((row) => ({ ...row, text: "", rawText: "" }));
             offset += page.messageCount;
             if (rows.length !== page.messageCount) {
               throw new Error(
@@ -14949,6 +15030,11 @@ if (args[0] === "--self-test" && args.length === 1) {
                   ...parent,
                   threadParentTs: "8.500000",
                   rootResolution: sourceThreadResolution("8.500000"),
+                  disposition: "Skipped",
+                  ownershipSkip: {
+                    rootTs: "8.500000",
+                    reason: "foreign_workflow_mark",
+                  },
                 }
               : parent,
           ),
@@ -15838,6 +15924,50 @@ if (args[0] === "--self-test" && args.length === 1) {
       name: "report.png",
       mimeType: "image/png",
     };
+    const ambiguousHeldSearchMessage = filesMetadataPage.messages[0]!;
+    const heldSourceTextInventory: Inventory = {
+      ...heldPageRootWithoutThread,
+      channels: heldPageRootWithoutThread.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) => ({
+            ...parent,
+            sourceText: parent.ownershipSkip
+              ? ambiguousHeldSearchMessage.rawText
+              : "",
+          })),
+        })),
+      })),
+    };
+    const heldSourceTextReceipt = sourceReceiptFor(heldSourceTextInventory);
+    const heldSourceTextRawPages = rawSourcePagesFor(heldSourceTextReceipt);
+    const heldSourceChannel = heldSourceTextInventory.channels[0]!;
+    const heldSourceParentsByTs = new Map(
+      heldSourceChannel.pages.flatMap((page) =>
+        page.parents.map((parent) => [parent.ts, parent] as const),
+      ),
+    );
+    for (const rawPage of heldSourceTextRawPages[
+      sourceReceiptChannelName(heldSourceChannel)
+    ]!) {
+      for (const row of rawPage.rows) {
+        const parent = heldSourceParentsByTs.get(row.ts)!;
+        row.text = parent.ownershipSkip ? ambiguousHeldSearchMessage.text : "";
+        row.rawText = parent.ownershipSkip
+          ? ambiguousHeldSearchMessage.rawText
+          : "";
+        if (parent.ownershipSkip) {
+          row.filesMetadata = ambiguousHeldSearchMessage.filesMetadata;
+        }
+      }
+    }
+    validateSourceReceipt(
+      heldSourceTextInventory,
+      heldSourceTextReceipt,
+      heldSourceTextRawPages,
+      true,
+    );
     const threadReadAttachmentInventory: Inventory = {
       ...receiptFreshInventory,
       channels: receiptFreshInventory.channels.map((channel) => ({
@@ -15917,14 +16047,19 @@ if (args[0] === "--self-test" && args.length === 1) {
     heldAttachmentRawPages["test-channel"]![0]!.rows[0]!.filesMetadata = [
       sourceAttachmentFixture,
     ];
-    validateInventory(heldAttachmentInventory, {
-      requireFreshReads: true,
-      sourceReceipt: heldAttachmentReceipt,
-      rawSourcePages: heldAttachmentRawPages,
-      scopeConfirmation: scopeConfirmationForTestInventory(
-        heldAttachmentInventory,
-      ),
-    });
+    expectFocusedFailure(
+      "held root accepts ambiguous search attachment metadata",
+      () =>
+        validateInventory(heldAttachmentInventory, {
+          requireFreshReads: true,
+          sourceReceipt: heldAttachmentReceipt,
+          rawSourcePages: heldAttachmentRawPages,
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            heldAttachmentInventory,
+          ),
+        }),
+      "held-root attachment state must remain unknown",
+    );
     const heldAttachmentStateUnknown = withPageRoot(
       heldPageRootWithoutThread,
       "11.000000",
@@ -15944,7 +16079,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             heldAttachmentStateUnknown,
           ),
         }),
-      "raw source omitted attachment metadata; leave held-root attachment state unknown",
+      "held-root attachment state must remain unknown",
     );
     expectFocusedFailure(
       "held source root with stale direct reaction evidence",
@@ -16437,6 +16572,39 @@ if (args[0] === "--self-test" && args.length === 1) {
       reactionOwners: {},
       disposition: "Open - no question",
     };
+    const heldSkipRoot: Parent = {
+      ...classificationFixture,
+      ts: "8.500000",
+      threadParentTs: "8.500000",
+      disposition: "Skipped",
+      ownershipSkip: {
+        rootTs: "8.500000",
+        reason: "foreign_workflow_mark",
+      },
+    };
+    const heldSkipReply: Parent = {
+      ...classificationFixture,
+      ts: "8.600000",
+      threadParentTs: "8.500000",
+      disposition: "Skipped",
+      ownershipSkip: {
+        rootTs: "8.500000",
+        reason: "foreign_workflow_mark",
+      },
+    };
+    validateHeldMessageSkipRecords("self-test held reply", [
+      heldSkipRoot,
+      heldSkipReply,
+    ]);
+    expectFocusedFailure(
+      "held reply without a matching skip record",
+      () =>
+        validateHeldMessageSkipRecords("self-test held reply", [
+          heldSkipRoot,
+          { ...heldSkipReply, ownershipSkip: undefined },
+        ]),
+      "every message under a held root must carry its exact root",
+    );
     validateRootClassificationJudgment(
       "self-test classification",
       classificationFixture,
@@ -16602,6 +16770,11 @@ if (args[0] === "--self-test" && args.length === 1) {
         `self-test ${fieldMarker} body marker`,
         selfTestSearchScope,
       ).messages[0]!;
+      if (parsedMessage.rawText !== fullMessageText) {
+        throw new Error(
+          `Feedback inventory checker self-test did not preserve the raw ${fieldMarker} body line`,
+        );
+      }
       expectFocusedFailure(
         `classification rejects truncated ${fieldMarker} source text`,
         () =>
