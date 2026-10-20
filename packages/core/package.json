@@ -478,6 +478,7 @@
     "./workspace-connections": "./dist/workspace-connections/index.js",
     "./notifications": "./dist/notifications/index.js",
     "./jobs": "./dist/jobs/index.js",
+    "./jobs/cron": "./dist/jobs/cron.js",
     "./jobs/frontmatter": "./dist/jobs/frontmatter.js",
     "./client/notifications": "./dist/client/notifications/index.js",
     "./progress": "./dist/progress/index.js",

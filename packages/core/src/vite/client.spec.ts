@@ -4444,7 +4444,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sheet",
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
-          "@agent-native/core > cron-parser",
+          "@agent-native/core/jobs/cron",
           "@agent-native/core > ajv",
           "@agent-native/core > ajv/dist/2020.js",
           "@agent-native/toolkit > lowlight > highlight.js/lib/core",

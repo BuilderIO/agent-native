@@ -1,4 +1,4 @@
-import { isValidCron } from "@agent-native/core/jobs";
+import { isValidCron } from "@agent-native/core/jobs/cron";
 
 export type AutomationFrequency =
   | "hourly"
