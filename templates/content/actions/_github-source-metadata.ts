@@ -43,6 +43,12 @@ export interface GitHubSourceState extends GitHubFolderLocation {
   checkedAt: string | null;
   pendingCommitSha: string | null;
   progress: { done: number; total: number } | null;
+  /**
+   * Files a sync's time ran out on before the push in progress finished.
+   * The next sync takes them after the rest, so one slow file can't hold
+   * back every file after it.
+   */
+  cutShort: string[];
   files: number;
   /** Up to 50 skipped files; `skippedCount` says how many there are. */
   skipped: GitHubSkippedFile[];
@@ -179,6 +185,9 @@ export function readGitHubSourceState(
       typeof progress.total === "number"
         ? { done: progress.done, total: progress.total }
         : null,
+    cutShort: (Array.isArray(github.cutShort) ? github.cutShort : []).filter(
+      (path): path is string => typeof path === "string",
+    ),
     files: typeof github.files === "number" ? github.files : 0,
     skipped,
     skippedCount:

@@ -1889,11 +1889,19 @@ export async function syncGitHubSource(
         (retryImages && (previous.imagesWaiting ?? 0) > 0)
       );
     });
+    // Files a run's time ran out on go after the rest, so one slow file
+    // can't hold back every file after it.
+    const cutShort = new Set(state.cutShort);
+    work.sort(
+      (a, b) =>
+        Number(cutShort.has(a.repoPath)) - Number(cutShort.has(b.repoPath)),
+    );
     result.commitSha = head.sha;
     result.unchanged = planned.length - work.length - stillSkipped.length;
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
     readSkipsSoFar = readSkips;
     let done = 0;
+    let cutShortPath: string | null = null;
     for (const file of work) {
       if (outOfTime()) break;
       let outcome: Awaited<ReturnType<typeof applyFile>>;
@@ -1922,8 +1930,12 @@ export async function syncGitHubSource(
         }
         outcome = await applyFile(run, file);
       } catch (error) {
-        // A read the deadline cut short leaves this file for the next sync.
-        if (error instanceof GitHubSourceDeadlineError) break;
+        // A read the deadline cut short leaves this file for the next sync,
+        // which takes it after the rest.
+        if (error instanceof GitHubSourceDeadlineError) {
+          cutShortPath = file.repoPath;
+          break;
+        }
         throw error;
       }
       if (typeof outcome === "string") result[outcome] += 1;
@@ -1999,9 +2011,14 @@ export async function syncGitHubSource(
                 headEtag: head.etag,
                 pendingCommitSha: null,
                 progress: null,
+                cutShort: [],
               }
             : {
                 pendingCommitSha: head.sha,
+                cutShort:
+                  cutShortPath && !current.cutShort.includes(cutShortPath)
+                    ? [...current.cutShort, cutShortPath]
+                    : current.cutShort,
                 progress,
               }),
         };
@@ -2108,6 +2125,7 @@ export async function createGitHubSourceLink(args: {
     pendingCommitSha: resolved.commitSha,
     imagesWaiting: 0,
     progress: { done: 0, total: preview.markdownFiles },
+    cutShort: [],
     files: preview.markdownFiles,
     skipped: rememberedSkips(preview.skipped),
     skippedCount: preview.skipped.length,
