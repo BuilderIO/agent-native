@@ -7,7 +7,12 @@ import {
 } from "./store-migrations-lock.js";
 
 function lockOf(
-  migrations: Array<{ name: string; sql?: string; run?: () => Promise<void> }>,
+  migrations: Array<{
+    name: string;
+    sql?: string;
+    run?: () => Promise<void>;
+    legacy?: { table: string; version: number; ranAtBoot?: boolean };
+  }>,
 ) {
   return buildStoreMigrationsLock([defineStore({ id: "widgets", migrations })]);
 }
@@ -45,6 +50,28 @@ describe("store migrations lock", () => {
         message: expect.stringMatching(/store "widgets" was removed/),
       }),
     ]);
+  });
+
+  it("rejects a new migration on a release-only list, not one already there", () => {
+    const listed = (name: string) => ({
+      name,
+      sql: "SELECT 1",
+      legacy: { table: "_widget_migrations", version: 1 },
+    });
+    const base = lockOf([baseline, listed("v1")]);
+    const findings = compareStoreMigrationsLocks(
+      base,
+      lockOf([baseline, listed("v1"), listed("v2")]),
+    );
+    expect(findings.map((f) => f.message)).toEqual([
+      expect.stringMatching(/"v2" was added to a release-only migration list/),
+    ]);
+    expect(
+      compareStoreMigrationsLocks(
+        base,
+        lockOf([baseline, listed("v1"), { name: "v2", sql: "SELECT 2" }]),
+      ),
+    ).toEqual([]);
   });
 
   it("does not checksum run migrations", () => {

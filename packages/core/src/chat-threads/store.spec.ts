@@ -26,6 +26,10 @@ function storeBootstrapResult(sql: string) {
   if (/FROM information_schema\.columns/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
+  // The store's own migrations (inbox tables and columns) run on first use.
+  if (/^\s*(CREATE (UNIQUE )?(TABLE|INDEX)|ALTER TABLE)/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
   return storeLedgerResult(sql);
 }
 
@@ -148,7 +152,11 @@ describe("chat thread store", () => {
       const ledger = storeBootstrapResult(sql);
       if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql) ||
+        /^\s*ALTER TABLE/i.test(sql)
+      ) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/DELETE FROM chat_threads/i.test(sql)) {
@@ -3709,7 +3717,11 @@ describe("chat thread store", () => {
       const sql = typeof query === "string" ? query : query.sql;
       const ledger = storeBootstrapResult(sql);
       if (ledger) return ledger;
-      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql) ||
+        /^\s*ALTER TABLE/i.test(sql)
+      ) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
@@ -3754,7 +3766,11 @@ describe("chat thread store", () => {
       const sql = typeof query === "string" ? query : query.sql;
       const ledger = storeBootstrapResult(sql);
       if (ledger) return ledger;
-      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql) ||
+        /^\s*ALTER TABLE/i.test(sql)
+      ) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
@@ -3870,7 +3886,11 @@ describe("chat thread store", () => {
       const ledger = storeBootstrapResult(sql);
       if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql) ||
+        /^\s*ALTER TABLE/i.test(sql)
+      ) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
@@ -3940,7 +3960,11 @@ describe("chat thread store", () => {
       const ledger = storeBootstrapResult(sql);
       if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql) ||
+        /^\s*ALTER TABLE/i.test(sql)
+      ) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, owner_email, thread_data, message_count/i.test(sql)) {
@@ -4599,7 +4623,11 @@ describe("chat thread store", () => {
       const ledger = storeBootstrapResult(sql);
       if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql) ||
+        /^\s*ALTER TABLE/i.test(sql)
+      ) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, owner_email/i.test(sql)) {
@@ -4713,7 +4741,11 @@ describe("adoptThreadScopeIfUnscoped", () => {
       const ledger = storeBootstrapResult(sql);
       if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
-      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+      if (
+        /CREATE TABLE/i.test(sql) ||
+        /CREATE INDEX/i.test(sql) ||
+        /^\s*ALTER TABLE/i.test(sql)
+      ) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, thread_data, message_count/i.test(sql)) {

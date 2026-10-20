@@ -75,6 +75,15 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE IF EXISTS chat_thread_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
     `,
   },
+];
+
+/**
+ * Migrations added after the list above was folded into the `chat_threads`
+ * store. They are the store's own migrations, so every runtime that owns its
+ * database applies them (local dev included), not only the release step.
+ * Append new chat-thread schema changes here, never to the list above.
+ */
+export const CHAT_THREAD_STORE_MIGRATIONS: MigrationEntry[] = [
   {
     version: 5,
     name: "chat-thread-durable-submission-inbox",

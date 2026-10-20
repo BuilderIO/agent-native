@@ -85,6 +85,15 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS auto_continue_of TEXT
     `,
   },
+];
+
+/**
+ * Migrations added after the list above was folded into the `agent_runs`
+ * store. They are the store's own migrations, so every runtime that owns its
+ * database applies them (local dev included), not only the release step.
+ * Append new `agent_runs` schema changes here, never to the list above.
+ */
+export const AGENT_RUN_STORE_MIGRATIONS: MigrationEntry[] = [
   {
     // Nullable: a result recorded before calls bound their arguments
     // recovers no call, whose outcome then stays unknown.

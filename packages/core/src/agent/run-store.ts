@@ -10,7 +10,10 @@ import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
-import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import {
+  fromMigrationEntries,
+  storeMigrationsFromEntries,
+} from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import {
@@ -50,6 +53,7 @@ import {
 import {
   AGENT_RUN_MIGRATIONS,
   AGENT_RUN_MIGRATIONS_TABLE,
+  AGENT_RUN_STORE_MIGRATIONS,
 } from "./run-migrations.js";
 import {
   isConsistentToolCallInputFingerprint,
@@ -396,6 +400,7 @@ export const agentRunsStore = defineStore({
       },
     },
     ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
+    ...storeMigrationsFromEntries(AGENT_RUN_STORE_MIGRATIONS),
   ],
 });
 

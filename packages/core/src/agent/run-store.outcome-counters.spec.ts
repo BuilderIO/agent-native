@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
-import { AGENT_RUN_MIGRATIONS } from "./run-migrations.js";
 
 const pglite = await createTestPglite();
 
@@ -120,14 +119,8 @@ async function executionArtifactCounts(
 }
 
 beforeEach(async () => {
+  // The store's own migrations create the execution tables locally.
   await ensureRunTables();
-  const executionTablesMigration = AGENT_RUN_MIGRATIONS.find(
-    (migration) => migration.name === "agent-turn-execution-leases-and-steps",
-  );
-  if (typeof executionTablesMigration?.sql !== "string") {
-    throw new Error("Execution tables migration SQL is unavailable");
-  }
-  await pglite.exec(executionTablesMigration.sql);
   for (const table of [
     "agent_execution_steps",
     "agent_execution_leases",

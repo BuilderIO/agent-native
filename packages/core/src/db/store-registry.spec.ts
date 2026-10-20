@@ -23,6 +23,10 @@ import {
   orderStoresForRelease,
   withStoreMigrationLock,
 } from "./store-registry.js";
+import {
+  fromMigrationEntries,
+  storeMigrationsFromEntries,
+} from "./versioned-store-migrations.js";
 
 let previousDatabaseUrl: string | undefined;
 
@@ -376,6 +380,48 @@ describe("local and self-hosted runtimes", () => {
       `SELECT count(*)::int AS n FROM ${counter}`,
     );
     expect(rows[0]?.n).toBe(1);
+  });
+
+  it("applies a migration appended after the baseline ran, unlike a release-only list entry", async () => {
+    const table = `widgets_${++seq}`;
+    const baseline = {
+      name: "baseline",
+      sql: `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY)`,
+    };
+    // An existing local database: the store's baseline ran before either
+    // migration below existed.
+    await defineStore({ id: table, migrations: [baseline] }).ready();
+    __resetStoreLedgerSnapshotForTests();
+
+    await defineStore({
+      id: table,
+      migrations: [
+        baseline,
+        ...fromMigrationEntries(`_${table}_migrations`, [
+          {
+            version: 1,
+            name: "listed-column",
+            sql: `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS listed TEXT`,
+          },
+        ]),
+        ...storeMigrationsFromEntries([
+          {
+            version: 2,
+            name: "store-column",
+            sql: `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS added TEXT`,
+          },
+        ]),
+      ],
+    }).ready();
+
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT column_name FROM information_schema.columns WHERE table_name = ?`,
+      args: [table],
+    });
+    const columns = rows.map((row) => row.column_name);
+    expect(columns).toContain("added");
+    // Release-only list entries run nowhere but the release step.
+    expect(columns).not.toContain("listed");
   });
 
   it("recovers when the ledger disappears behind a live executor", async () => {

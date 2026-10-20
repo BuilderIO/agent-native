@@ -67,6 +67,8 @@ function recordPersistedEvents() {
       typeof statement === "string" ? statement : statement.sql,
     );
     if (ledger) return ledger;
+    // The store's own migrations send bare DDL strings.
+    if (typeof statement === "string") return { rows: [], rowsAffected: 0 };
     if (statement.sql.includes("INSERT INTO agent_run_events"))
       mocks.events.push({
         run_id: statement.args[0],
@@ -462,6 +464,7 @@ it.each([
         typeof statement === "string" ? statement : statement.sql,
       );
       if (ledger) return ledger;
+      if (typeof statement === "string") return { rows: [], rowsAffected: 0 };
       if (statement.sql.includes("INSERT INTO agent_run_events")) {
         mocks.events.push({
           run_id: statement.args[0],

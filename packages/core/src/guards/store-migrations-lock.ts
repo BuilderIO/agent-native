@@ -14,7 +14,16 @@ export const STORE_MIGRATIONS_LOCK_FILE = "src/db/store-migrations.lock.json";
 
 export type StoreMigrationsLock = Record<
   string,
-  Array<{ name: string; checksum: string | null }>
+  Array<{
+    name: string;
+    checksum: string | null;
+    /**
+     * Carried over from a release-only `runMigrations` list. Such entries run
+     * only in the release step, so local and self-hosted databases never get
+     * one appended after the list was folded into its store.
+     */
+    releaseOnlyList?: true;
+  }>
 >;
 
 export function buildStoreMigrationsLock(
@@ -25,6 +34,9 @@ export function buildStoreMigrationsLock(
     lock[store.id] = store.migrations.map((migration) => ({
       name: migration.name,
       checksum: migrationChecksum(migration),
+      ...(migration.legacy && !migration.legacy.ranAtBoot
+        ? { releaseOnlyList: true as const }
+        : {}),
     }));
   }
   return lock;
@@ -74,6 +86,18 @@ export function compareStoreMigrationsLocks(
         );
       }
     });
+  }
+  for (const [storeId, headMigrations] of Object.entries(head)) {
+    const known = new Set((base[storeId] ?? []).map((m) => m.name));
+    for (const migration of headMigrations) {
+      if (migration.releaseOnlyList && !known.has(migration.name)) {
+        findings.push(
+          at(
+            `store "${storeId}" migration "${migration.name}" was added to a release-only migration list, so only the release step would ever run it: local dev and self-hosted databases would never get it. Add it as a store migration instead (storeMigrationsFromEntries or a plain store migration).`,
+          ),
+        );
+      }
+    }
   }
   return findings;
 }

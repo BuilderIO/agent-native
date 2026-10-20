@@ -30,19 +30,23 @@
     },
     {
       "name": "agent-harness-sessions-base-table",
-      "checksum": "709f6e82e6323dcb"
+      "checksum": "709f6e82e6323dcb",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-harness-sessions-state-columns",
-      "checksum": "91875faf324c0ef2"
+      "checksum": "91875faf324c0ef2",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-harness-sessions-widen-millisecond-timestamps",
-      "checksum": "1e9e1af1581a9742"
+      "checksum": "1e9e1af1581a9742",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-harness-sessions-generation",
-      "checksum": "e93055de6007e793"
+      "checksum": "e93055de6007e793",
+      "releaseOnlyList": true
     }
   ],
   "agent_runs": [
@@ -56,27 +60,33 @@
     },
     {
       "name": "agent-run-base-tables",
-      "checksum": "ac6ed4a256f28116"
+      "checksum": "ac6ed4a256f28116",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-run-liveness-and-diagnostics-columns",
-      "checksum": "2a9d24ed6ffbea78"
+      "checksum": "2a9d24ed6ffbea78",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-run-continuation-order",
-      "checksum": "efb06f1b4c911719"
+      "checksum": "efb06f1b4c911719",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-tool-ledger-result-type",
-      "checksum": "d4fe90219a833db8"
+      "checksum": "d4fe90219a833db8",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-tool-ledger-chat-ui-result",
-      "checksum": "288137f1126005f6"
+      "checksum": "288137f1126005f6",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-run-auto-continue-of",
-      "checksum": "00eb09bcf9ca7fb0"
+      "checksum": "00eb09bcf9ca7fb0",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-tool-ledger-arguments-hash",
@@ -108,7 +118,8 @@
     },
     {
       "name": "agent-tool-approval-policies-table-and-index",
-      "checksum": "bb1c9e53c85d4f40"
+      "checksum": "bb1c9e53c85d4f40",
+      "releaseOnlyList": true
     }
   ],
   "agent_tool_approvals": [
@@ -122,15 +133,18 @@
     },
     {
       "name": "agent-tool-approvals-table-and-index",
-      "checksum": "8ba8562ff05494fb"
+      "checksum": "8ba8562ff05494fb",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-tool-approvals-logical-binding-index",
-      "checksum": "6e7debaee18fb19e"
+      "checksum": "6e7debaee18fb19e",
+      "releaseOnlyList": true
     },
     {
       "name": "agent-tool-approvals-recovery-index",
-      "checksum": "fdca5e603cce164c"
+      "checksum": "fdca5e603cce164c",
+      "releaseOnlyList": true
     },
     {
       "name": "arguments-hash",
@@ -190,35 +204,43 @@
     },
     {
       "name": "automation-runs-table",
-      "checksum": "05e4a639e8e40142"
+      "checksum": "05e4a639e8e40142",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-runs-claimed-at",
-      "checksum": "9d1c3994e5887d2f"
+      "checksum": "9d1c3994e5887d2f",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-runs-dispatch-pending",
-      "checksum": "110d2c93fba69a3f"
+      "checksum": "110d2c93fba69a3f",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-runs-app-id",
-      "checksum": "48a8d098bd64ed91"
+      "checksum": "48a8d098bd64ed91",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-runs-error-code",
-      "checksum": "d31999550cf54e2d"
+      "checksum": "d31999550cf54e2d",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-runs-notification-email",
-      "checksum": "db8402925a12ae73"
+      "checksum": "db8402925a12ae73",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-runs-failure-alerted",
-      "checksum": "c6aab02ee88bf93d"
+      "checksum": "c6aab02ee88bf93d",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-runs-failure-alert-delivery",
-      "checksum": "0ad391513d7c511c"
+      "checksum": "0ad391513d7c511c",
+      "releaseOnlyList": true
     }
   ],
   "automation_trigger_events": [
@@ -228,23 +250,28 @@
     },
     {
       "name": "automation-trigger-event-queue",
-      "checksum": "40d51d285df8b7a6"
+      "checksum": "40d51d285df8b7a6",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-trigger-event-failure-attempts",
-      "checksum": "62e7a1833ef325b0"
+      "checksum": "62e7a1833ef325b0",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-trigger-event-stale-mail-index",
-      "checksum": "f036574b0be6169c"
+      "checksum": "f036574b0be6169c",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-trigger-event-queue-sweep-state",
-      "checksum": "89eb2b9ac8a2eb2f"
+      "checksum": "89eb2b9ac8a2eb2f",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-trigger-event-active-head-index",
-      "checksum": "dad2945b14f0de23"
+      "checksum": "dad2945b14f0de23",
+      "releaseOnlyList": true
     }
   ],
   "automation_webhook_tokens": [
@@ -326,19 +353,23 @@
     },
     {
       "name": "chat-threads-base-tables",
-      "checksum": "bfeaaa8ca4af1288"
+      "checksum": "bfeaaa8ca4af1288",
+      "releaseOnlyList": true
     },
     {
       "name": "chat-threads-scope-and-sharing-columns",
-      "checksum": "76d071b18224f89b"
+      "checksum": "76d071b18224f89b",
+      "releaseOnlyList": true
     },
     {
       "name": "chat-threads-source-backfill",
-      "checksum": "027aa9d753e848a3"
+      "checksum": "027aa9d753e848a3",
+      "releaseOnlyList": true
     },
     {
       "name": "chat-thread-shares-notified-at",
-      "checksum": "f2a3dce63fe66310"
+      "checksum": "f2a3dce63fe66310",
+      "releaseOnlyList": true
     },
     {
       "name": "chat-thread-durable-submission-inbox",
@@ -480,11 +511,13 @@
     },
     {
       "name": "identity-sso-flow-state-and-jti",
-      "checksum": "0ef131c592e35909"
+      "checksum": "0ef131c592e35909",
+      "releaseOnlyList": true
     },
     {
       "name": "identity-sso-timestamps-bigint",
-      "checksum": "a17c0175452484cc"
+      "checksum": "a17c0175452484cc",
+      "releaseOnlyList": true
     }
   ],
   "integration_campaigns": [
@@ -554,27 +587,33 @@
     },
     {
       "name": "oauth-tokens-table",
-      "checksum": "8c7ddcbbb856d01f"
+      "checksum": "8c7ddcbbb856d01f",
+      "releaseOnlyList": true
     },
     {
       "name": "oauth-tokens-owner-column",
-      "checksum": "2b02d7f09707be90"
+      "checksum": "2b02d7f09707be90",
+      "releaseOnlyList": true
     },
     {
       "name": "oauth-tokens-display-name-column",
-      "checksum": "ea7cbba8dff602f8"
+      "checksum": "ea7cbba8dff602f8",
+      "releaseOnlyList": true
     },
     {
       "name": "oauth-tokens-owner-backfill",
-      "checksum": "4aa6eb2e77f62037"
+      "checksum": "4aa6eb2e77f62037",
+      "releaseOnlyList": true
     },
     {
       "name": "oauth-tokens-revision-column",
-      "checksum": "73d74fcfed62aa4e"
+      "checksum": "73d74fcfed62aa4e",
+      "releaseOnlyList": true
     },
     {
       "name": "oauth-tokens-revision-backfill",
-      "checksum": "753598f3334087f5"
+      "checksum": "753598f3334087f5",
+      "releaseOnlyList": true
     }
   ],
   "observability": [
@@ -584,15 +623,18 @@
     },
     {
       "name": "observability-org-scope-legacy-traces",
-      "checksum": "5e3e1e7109673004"
+      "checksum": "5e3e1e7109673004",
+      "releaseOnlyList": true
     },
     {
       "name": "observability-org-scope-legacy-feedback",
-      "checksum": "1b6cac0ebaa64b44"
+      "checksum": "1b6cac0ebaa64b44",
+      "releaseOnlyList": true
     },
     {
       "name": "observability-org-scope-legacy-threads",
-      "checksum": "e9e749744df6b0e4"
+      "checksum": "e9e749744df6b0e4",
+      "releaseOnlyList": true
     }
   ],
   "observational_memory": [
@@ -806,7 +848,8 @@
     },
     {
       "name": "remote-device-table-and-indexes",
-      "checksum": "f6b9d7421da71549"
+      "checksum": "f6b9d7421da71549",
+      "releaseOnlyList": true
     }
   ],
   "remote_push": [
@@ -876,11 +919,13 @@
     },
     {
       "name": "automation-scheduler-health-table",
-      "checksum": "211a9aced4e5b550"
+      "checksum": "211a9aced4e5b550",
+      "releaseOnlyList": true
     },
     {
       "name": "automation-scheduler-health-lease",
-      "checksum": "d6a4998c3d5b4fd1"
+      "checksum": "d6a4998c3d5b4fd1",
+      "releaseOnlyList": true
     }
   ],
   "search_resources": [
@@ -966,15 +1011,18 @@
     },
     {
       "name": "usage-alert-rules-and-events-tables",
-      "checksum": "b0b123d2d2fe1941"
+      "checksum": "b0b123d2d2fe1941",
+      "releaseOnlyList": true
     },
     {
       "name": "usage-alert-default-column",
-      "checksum": "5fc7cb1ccb6873ab"
+      "checksum": "5fc7cb1ccb6873ab",
+      "releaseOnlyList": true
     },
     {
       "name": "usage-alert-notification-column",
-      "checksum": "6bf0a66d6dd9c131"
+      "checksum": "6bf0a66d6dd9c131",
+      "releaseOnlyList": true
     }
   ],
   "usage_budgets": [
@@ -990,31 +1038,38 @@
     },
     {
       "name": "v1",
-      "checksum": "90de1807614ef821"
+      "checksum": "90de1807614ef821",
+      "releaseOnlyList": true
     },
     {
       "name": "v2",
-      "checksum": "2301affd4acb941c"
+      "checksum": "2301affd4acb941c",
+      "releaseOnlyList": true
     },
     {
       "name": "v3",
-      "checksum": "258fd20e2058890a"
+      "checksum": "258fd20e2058890a",
+      "releaseOnlyList": true
     },
     {
       "name": "v4",
-      "checksum": "d1b7e6139ee84514"
+      "checksum": "d1b7e6139ee84514",
+      "releaseOnlyList": true
     },
     {
       "name": "v5",
-      "checksum": "ad39b83040e92a4b"
+      "checksum": "ad39b83040e92a4b",
+      "releaseOnlyList": true
     },
     {
       "name": "v6",
-      "checksum": "ac28e025039da66a"
+      "checksum": "ac28e025039da66a",
+      "releaseOnlyList": true
     },
     {
       "name": "v7",
-      "checksum": "27d57be3f9f535ad"
+      "checksum": "27d57be3f9f535ad",
+      "releaseOnlyList": true
     }
   ],
   "workspace_user_groups": [
@@ -1024,31 +1079,38 @@
     },
     {
       "name": "v8",
-      "checksum": "69b4d474b17225bc"
+      "checksum": "69b4d474b17225bc",
+      "releaseOnlyList": true
     },
     {
       "name": "v9",
-      "checksum": "a7fbcc459812be31"
+      "checksum": "a7fbcc459812be31",
+      "releaseOnlyList": true
     },
     {
       "name": "v10",
-      "checksum": "6908298ccdce8ea6"
+      "checksum": "6908298ccdce8ea6",
+      "releaseOnlyList": true
     },
     {
       "name": "v11",
-      "checksum": "9d51b0a350f3732b"
+      "checksum": "9d51b0a350f3732b",
+      "releaseOnlyList": true
     },
     {
       "name": "v12",
-      "checksum": "9d51b0a350f3732b"
+      "checksum": "9d51b0a350f3732b",
+      "releaseOnlyList": true
     },
     {
       "name": "v13",
-      "checksum": "f2d372060f300501"
+      "checksum": "f2d372060f300501",
+      "releaseOnlyList": true
     },
     {
       "name": "v14",
-      "checksum": "75d25dd8c52ada33"
+      "checksum": "75d25dd8c52ada33",
+      "releaseOnlyList": true
     }
   ]
 }

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { AGENT_HARNESS_SESSION_MIGRATIONS } from "../agent/harness/migrations.js";
-import { AGENT_RUN_MIGRATIONS } from "../agent/run-migrations.js";
+import {
+  AGENT_RUN_MIGRATIONS,
+  AGENT_RUN_STORE_MIGRATIONS,
+} from "../agent/run-migrations.js";
 import { CHAT_THREAD_SCHEMA_MIGRATIONS } from "../chat-threads/schema-migrations.js";
 import type { MigrationEntry } from "../db/migrations.js";
 import { REMOTE_DEVICE_MIGRATIONS } from "../integrations/remote-device-migrations.js";
@@ -53,7 +56,10 @@ describe("framework release schema migrations", () => {
   });
   it("creates the run and event columns used by failure diagnostics", async () => {
     const db = await createTestPglite();
-    await applyMigrations(db, AGENT_RUN_MIGRATIONS);
+    await applyMigrations(db, [
+      ...AGENT_RUN_MIGRATIONS,
+      ...AGENT_RUN_STORE_MIGRATIONS,
+    ]);
     expect(await columns(db, "agent_runs")).toEqual(
       expect.arrayContaining([
         "error_code",
