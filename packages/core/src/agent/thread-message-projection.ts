@@ -318,9 +318,11 @@ function snapshotRepresentsRootContent(
     return true;
   }
   return (
-    rootCalls.length === 1 &&
+    rootCalls.length > 0 &&
+    rootToolCalls(candidate).length === 0 &&
     typeof candidate.id === "string" &&
-    toolMessageIds?.has(candidate.id) === true &&
+    toolMessageIds?.size === 1 &&
+    toolMessageIds.has(candidate.id) &&
     snapshotAdditionalContentIsRepresented(root, candidate)
   );
 }
@@ -360,7 +362,6 @@ function splitSnapshotGroupMatch(
     }),
   );
   const indexedToolMessagesMatch =
-    rootCalls.length === 1 &&
     toolMessageIds !== undefined &&
     toolMessageIds.size > 0 &&
     [...toolMessageIds].every(
@@ -369,6 +370,7 @@ function splitSnapshotGroupMatch(
         candidates.some(
           (candidate) =>
             candidate.id === messageId &&
+            rootToolCalls(candidate).length === 0 &&
             snapshotAdditionalContentIsRepresented(root, candidate),
         ),
     );
@@ -489,12 +491,16 @@ function snapshotGroupRepresentsRootToolCalls(
     return true;
   }
   return (
-    rootCalls.length === 1 &&
-    candidates.some(
-      (candidate) =>
-        typeof candidate.id === "string" &&
-        toolMessageIds?.has(candidate.id) === true &&
-        snapshotAdditionalContentIsRepresented(root, candidate),
+    rootCalls.length > 0 &&
+    toolMessageIds !== undefined &&
+    toolMessageIds.size > 0 &&
+    [...toolMessageIds].every((messageId) =>
+      candidates.some(
+        (candidate) =>
+          candidate.id === messageId &&
+          rootToolCalls(candidate).length === 0 &&
+          snapshotAdditionalContentIsRepresented(root, candidate),
+      ),
     )
   );
 }

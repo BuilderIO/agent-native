@@ -229,6 +229,65 @@ describe("assistant root projection", () => {
     );
   });
 
+  it("matches multiple indexed tool calls on one text-only snapshot message", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          status: "complete",
+          parts: [
+            { type: "text", text: "The sample widgets are ready." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "render-mail",
+              args: { subject: "Draft" },
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-2",
+              toolName: "render-calendar",
+              args: { title: "Event" },
+            },
+          ],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-answer",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "The sample widgets are ready." }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+      toolCalls: [
+        {
+          id: "call-1",
+          name: "render-mail",
+          input: { subject: "Draft" },
+          messageId: "snapshot-answer",
+        },
+        {
+          id: "call-2",
+          name: "render-calendar",
+          input: { title: "Event" },
+          messageId: "snapshot-answer",
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(true);
+    expect(result.snapshotMessageIdsByRootMessageId.get("server-run-one")).toBe(
+      "snapshot-answer",
+    );
+    expect(result.supersededSnapshotMessageIds.has("snapshot-answer")).toBe(
+      false,
+    );
+  });
+
   it("matches a folded root claimed only by an active inherited snapshot message id", () => {
     const result = projectRootAssistantMessages({
       rootMessages: [
