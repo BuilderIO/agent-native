@@ -649,6 +649,8 @@ describe("Index skip to editor", () => {
     const skipButton = container.querySelector(
       '[data-testid="design-home-skip-prompt"]',
     );
+    expect(actionsRow).toBeTruthy();
+    expect(skipButton).toBeTruthy();
     expect(
       actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
     ).not.toBeNull();
@@ -712,6 +714,8 @@ describe("Index skip to editor", () => {
       '[data-testid="design-home-skip-prompt"]',
     );
     const actionsRow = skipButton?.closest("[data-home-prompt-actions]");
+    expect(actionsRow).toBeTruthy();
+    expect(skipButton).toBeTruthy();
     expect(
       actionsRow?.querySelector('[data-agent-suggestion-bar="true"]'),
     ).toBeNull();
