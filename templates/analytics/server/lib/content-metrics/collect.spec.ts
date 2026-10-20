@@ -331,7 +331,7 @@ describe("content collection", () => {
   });
 
   it("expires an abandoned run during a manual retry", async () => {
-    const collection = await writeContentCollection(ORG_A, { enabled: true });
+    const collection = await onlySteps({ builderBlog: true });
     await client.exec(`INSERT INTO analytics_content_collection_runs
       (id, tenant_key, owner_email, org_id, step, trigger, status, started_at)
       VALUES ('stuck', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'manual', 'running', '2026-10-14T07:00:00.000Z')`);
@@ -344,6 +344,7 @@ describe("content collection", () => {
       await collectContentForCollection(collection, {
         trigger: "manual",
         now: new Date("2026-10-15T07:00:00Z"),
+        steps: ["builder_blog"],
       }),
     ).toEqual([expect.objectContaining({ status: "succeeded" })]);
     expect(
@@ -396,8 +397,9 @@ describe("content collection", () => {
         '{"builderBlog":{"enabled":false}}', '2026-10-15', '2026-10-15'
       FROM generate_series(1, 1001) AS i`);
     const summaries = await collectContentForAllTenants();
-    expect(summaries).toHaveLength(1001);
-    expect(summaries[1000]?.tenantKey).toBe("org:1001");
+    const tenants = [...new Set(summaries.map((summary) => summary.tenantKey))];
+    expect(tenants).toHaveLength(1001);
+    expect(tenants[1000]).toBe("org:1001");
   });
 
   it("skips tenants that turned collection off and steps they turned off", async () => {
@@ -585,12 +587,6 @@ describe("content collection", () => {
     expect(clicks.filter((row) => row.external_id === "a1")).toEqual([
       {
         external_id: "a1",
-        metric_date: "2026-10-09",
-        value: 0,
-        source: "search_console",
-      },
-      {
-        external_id: "a1",
         metric_date: "2026-10-10",
         value: 4,
         source: "search_console",
@@ -614,6 +610,79 @@ describe("content collection", () => {
         url: "https://agent-native.com/docs/",
       },
     ]);
+  });
+
+  it("emits each key once for overlapping properties and leaves omissions absent", async () => {
+    await onlySteps({ builderBlog: true, searchConsole: true }, [
+      { siteUrl: "sc-domain:builder.io" },
+      { siteUrl: "https://www.builder.io/" },
+    ]);
+    feed(article("a1"), article("a2"));
+    mocks.querySearchAnalytics
+      .mockResolvedValueOnce([
+        {
+          keys: ["2026-10-10", "https://www.builder.io/blog/post-a1"],
+          clicks: 3,
+          impressions: 40,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          keys: ["2026-10-10", "https://www.builder.io/blog/post-a1"],
+          clicks: 2,
+          impressions: 30,
+        },
+      ]);
+    const summaries = await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+    expect(ran(summaries).map((summary) => summary.status)).toEqual([
+      "succeeded",
+      "succeeded",
+    ]);
+    expect(await snapshots("search_console_clicks")).toEqual([
+      {
+        external_id: "a1",
+        metric_date: "2026-10-10",
+        value: 3,
+        source: "search_console",
+      },
+    ]);
+    expect(await snapshots("search_console_impressions")).toEqual([
+      {
+        external_id: "a1",
+        metric_date: "2026-10-10",
+        value: 40,
+        source: "search_console",
+      },
+    ]);
+  });
+
+  it("fails the entire step if any Search Console property denies access", async () => {
+    await onlySteps({ searchConsole: true }, [
+      { siteUrl: "sc-domain:example.test" },
+      { siteUrl: "sc-domain:denied.test" },
+    ]);
+    mocks.querySearchAnalytics
+      .mockResolvedValueOnce([
+        {
+          keys: ["2026-10-10", "https://example.test/page"],
+          clicks: 3,
+          impressions: 4,
+        },
+      ])
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Access denied"), {
+          errorCode: "search_console_no_access",
+          statusCode: 424,
+        }),
+      );
+    expect(
+      (await collectContentForAllTenants()).find(
+        (summary) => summary.step === "search_console",
+      )?.status,
+    ).toBe("not_configured");
+    expect(await snapshots("search_console_clicks")).toEqual([]);
   });
 
   it("records Search Console without access, or without properties, as not configured", async () => {

@@ -4,6 +4,7 @@ import { ContentStepStop, type ContentStep } from "../step.js";
 import {
   listContentItems,
   type ContentItemInput,
+  type ContentSnapshotInput,
   type StoredContentItem,
 } from "../store.js";
 import {
@@ -83,7 +84,7 @@ export const searchConsoleStep: ContentStep = {
       LOOKBACK_DAYS,
     );
     const newPages = new Map<string, ContentItemInput>();
-    const snapshots = [];
+    const snapshots = new Map<string, ContentSnapshotInput>();
     let lastReturnedOverall: string | null = null;
 
     for (const site of sites) {
@@ -140,16 +141,25 @@ export const searchConsoleStep: ContentStep = {
         );
       }
 
-      snapshots.push(
-        ...values.snapshots({
-          items: [...articles, ...knownPages].filter((item) =>
-            inScope(site, item.url),
-          ),
-          metrics: METRICS,
-          startDate: window.startDate,
-          lastReturnedDate,
-        }),
-      );
+      for (const snapshot of values.snapshots({
+        items: [...articles, ...knownPages].filter((item) =>
+          inScope(site, item.url),
+        ),
+        metrics: METRICS,
+        startDate: window.startDate,
+        lastReturnedDate,
+        fillMissing: false,
+      })) {
+        // Overlapping properties measure the same traffic. The first configured
+        // property returning a value owns it, rather than double counting.
+        const key = JSON.stringify([
+          snapshot.itemSource,
+          snapshot.itemExternalId,
+          snapshot.metricDate,
+          snapshot.metric,
+        ]);
+        if (!snapshots.has(key)) snapshots.set(key, snapshot);
+      }
       if (
         lastReturnedDate &&
         (!lastReturnedOverall || lastReturnedDate > lastReturnedOverall)
@@ -160,9 +170,9 @@ export const searchConsoleStep: ContentStep = {
 
     return {
       items: [...newPages.values()],
-      snapshots,
+      snapshots: [...snapshots.values()],
       outcome: {
-        rowCount: snapshots.length,
+        rowCount: snapshots.size,
         windowStart: window.startDate,
         windowEnd: lastReturnedOverall,
       },
