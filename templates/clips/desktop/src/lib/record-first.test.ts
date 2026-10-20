@@ -12,9 +12,8 @@ import {
   RecordFirstFileUnreadableError,
   recordFirstFilesKey,
   RecordFirstHandoffResetError,
-  recordFirstFilesToQueue,
-  recordFirstMediaFlags,
   saveRecordFirstFiles,
+  shouldPollVideoStorageStatus,
   stageRecordFirstFile,
   stagedIdAfterFailure,
   transferRecordFirstFiles,
@@ -52,19 +51,25 @@ function memoryStorage() {
 }
 
 describe("effectiveLocalRecordingMode", () => {
-  it.each(["checking", "missing"] as const)(
-    "records to disk instead of waiting when storage is %s",
+  it.each(["off", "composed", "separate"] as const)(
+    "preserves the configured %s mode",
+    (mode) => {
+      expect(effectiveLocalRecordingMode(mode)).toBe(mode);
+    },
+  );
+});
+
+describe("shouldPollVideoStorageStatus", () => {
+  it.each(["checking", "missing", "unavailable"] as const)(
+    "keeps probing while storage is %s for a signed-in account",
     (status) => {
-      expect(effectiveLocalRecordingMode("off", status)).toBe("composed");
+      expect(shouldPollVideoStorageStatus(true, status)).toBe(true);
     },
   );
 
-  it("streams to the server once storage reads as connected", () => {
-    expect(effectiveLocalRecordingMode("off", "configured")).toBe("off");
-  });
-
-  it("keeps an explicit local mode", () => {
-    expect(effectiveLocalRecordingMode("separate", "missing")).toBe("separate");
+  it("stops probing when storage is configured or the user is signed out", () => {
+    expect(shouldPollVideoStorageStatus(true, "configured")).toBe(false);
+    expect(shouldPollVideoStorageStatus(false, "missing")).toBe(false);
   });
 });
 
@@ -225,32 +230,6 @@ describe("record-first file list", () => {
       expect(storage.getItem("unclaimed")).toBe("{not json");
       expect(paths(storage, "acct")).toEqual(["/mine.webm"]);
     });
-  });
-
-  it("describes each separate file by what it holds", () => {
-    const take = { hasAudio: true, hasCamera: true };
-
-    expect(recordFirstMediaFlags("composed", take)).toEqual(take);
-    expect(recordFirstMediaFlags("desktop", take)).toEqual({
-      hasAudio: true,
-      hasCamera: false,
-    });
-    expect(recordFirstMediaFlags("camera", take)).toEqual({
-      hasAudio: false,
-      hasCamera: true,
-    });
-  });
-
-  it("queues the composed file, or every file when a capture wrote none", () => {
-    const composed = { role: "composed", path: "/c.webm" };
-    const desktop = { role: "desktop", path: "/d.webm" };
-    const camera = { role: "camera", path: "/cam.webm" };
-
-    expect(recordFirstFilesToQueue([desktop, composed])).toEqual([composed]);
-    expect(recordFirstFilesToQueue([desktop, camera])).toEqual([
-      desktop,
-      camera,
-    ]);
   });
 
   it("sets an unreadable list aside instead of overwriting it", () => {
