@@ -304,6 +304,11 @@ describe("openUploadTarget", () => {
   it.each([
     {
       status: 403,
+      errorCode: "sign_in_required",
+      expected: "storage_setup_required",
+    },
+    {
+      status: 403,
       errorCode: "forbidden",
       denyReason: "disabled",
       expected: "storage_setup_required",

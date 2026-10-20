@@ -66,7 +66,11 @@ const STORAGE_SETUP_DENIAL_CODES = new Set([
 
 function typedUploadTargetError(
   denialCode: string | undefined,
+  options: { intake?: boolean } = {},
 ): UploadTargetError | null {
+  if (options.intake && denialCode === "sign_in_required") {
+    return new UploadTargetError("storage_setup_required");
+  }
   if (STORAGE_SETUP_DENIAL_CODES.has(denialCode ?? "")) {
     return new UploadTargetError("storage_setup_required");
   }
@@ -188,7 +192,7 @@ export async function openUploadTarget(options: {
       details?: { denyReason?: string };
     } | null;
     const denialCode = body?.details?.denyReason ?? body?.errorCode;
-    const typedError = typedUploadTargetError(denialCode);
+    const typedError = typedUploadTargetError(denialCode, { intake: true });
     if (typedError) throw typedError;
     if (res.status === 401 || res.status === 403) {
       throw new UploadTargetError("session_expired");
