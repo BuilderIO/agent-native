@@ -6,6 +6,7 @@ import {
   addCut,
   addSplitAt,
   buildTimelinePieces,
+  editedMarkerMs,
   editedToOriginal,
   effectiveDuration,
   getCuts,
@@ -45,6 +46,15 @@ describe("edited playback timeline", () => {
 
   it("keeps reaction timestamps anchored to the original video timeline", () => {
     expect(editedToOriginal(1_500, editsWithCuts)).toBe(2_500);
+  });
+
+  it("places marks on the edited timeline and hides those inside a cut", () => {
+    expect(editedMarkerMs(500, editsWithCuts)).toBe(500);
+    expect(editedMarkerMs(2_500, editsWithCuts)).toBe(1_500);
+    expect(editedMarkerMs(1_000, editsWithCuts)).toBeNull();
+    expect(editedMarkerMs(1_999, editsWithCuts)).toBeNull();
+    expect(editedMarkerMs(2_000, editsWithCuts)).toBe(1_000);
+    expect(editedMarkerMs(Number.NaN, editsWithCuts)).toBeNull();
   });
 });
 

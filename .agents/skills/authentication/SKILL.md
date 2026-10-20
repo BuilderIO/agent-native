@@ -126,6 +126,10 @@ same path as Settings > Members. It emails a real person, so it sets
 user, and "always allow" is not offered. It cannot grant admin; owners invite
 admins from settings. Role changes, removal, and revoking an invitation have no
 agent tool. Keep it that way unless the new tool follows the same approval rule.
+Actions that create, change, or revoke a credential, or change who may use an
+app or what they may do in it, follow the same rule. The gate holds on every
+surface: over HTTP only the signed-in app UI runs such a call (see the `actions`
+skill, `references/action-fields.md`).
 
 The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
@@ -255,6 +259,11 @@ names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
   agent's tools. Suspending or retiring also aborts the principal's in-flight
   runs. Never let the agent or a service token mint a credential or widen its
   own grant.
+- `revoke-org-service-token` stays an agent and MCP tool, gated like
+  `invite-organization-member`: `needsApproval: true` with
+  `allowPersistentApproval: false`. A service identity can never give approval,
+  so any approval-gated action it calls is refused (`409 approval_required`
+  over HTTP).
 
 ## A2A Identity
 

@@ -335,6 +335,46 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not retry hidden pin mode when its close callback changes", async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          hidden
+          onClose={onClose}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    const nextOnClose = vi.fn();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          hidden
+          onClose={nextOnClose}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(nextOnClose).not.toHaveBeenCalled();
+  });
+
   it("keeps a clicked persisted thread open outside pin-placement mode", async () => {
     await act(async () => {
       root.render(

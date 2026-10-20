@@ -350,7 +350,6 @@ templates/clips/app/i18n/es-ES|preRecord.defaultMicrophone|Default microphone
 templates/clips/app/i18n/es-ES|preRecord.enumerateFailed|Could not enumerate devices
 templates/clips/app/i18n/es-ES|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
 templates/clips/app/i18n/es-ES|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
-templates/clips/app/i18n/es-ES|preRecord.importLoom|Import Loom
 templates/clips/app/i18n/es-ES|preRecord.importing|Importing...
 templates/clips/app/i18n/es-ES|preRecord.includeAudioAria|Include audio in this recording
 templates/clips/app/i18n/es-ES|preRecord.includeCameraAria|Include camera in this recording
@@ -520,7 +519,6 @@ templates/clips/app/i18n/pt-BR|preRecord.defaultMicrophone|Default microphone
 templates/clips/app/i18n/pt-BR|preRecord.enumerateFailed|Could not enumerate devices
 templates/clips/app/i18n/pt-BR|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
 templates/clips/app/i18n/pt-BR|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
-templates/clips/app/i18n/pt-BR|preRecord.importLoom|Import Loom
 templates/clips/app/i18n/pt-BR|preRecord.importing|Importing...
 templates/clips/app/i18n/pt-BR|preRecord.includeAudioAria|Include audio in this recording
 templates/clips/app/i18n/pt-BR|preRecord.includeCameraAria|Include camera in this recording

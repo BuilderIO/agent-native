@@ -20,7 +20,7 @@ import {
 } from "../../../packages/core/src/shared/embed-auth";
 import { CHATGPT_DIRECTORY_PROFILE } from "../server/lib/chatgpt-directory-tools.js";
 import { AUTH_FILES } from "./auth-files";
-import { postAction } from "./helpers";
+import { postAction, presentUiCapability } from "./helpers";
 
 async function removeDocument(page: Page, id: string) {
   await postAction(page, "delete-document", { id });
@@ -32,6 +32,7 @@ async function removeDocument(page: Page, id: string) {
     documentIds: [id],
   });
   if (!plan.planId || !plan.scopeToken) return;
+  await presentUiCapability(page);
   await postAction(page, "permanently-delete-document", {
     id,
     planId: plan.planId,

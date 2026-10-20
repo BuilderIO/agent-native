@@ -17,6 +17,7 @@ import {
 } from "./scrubber-position";
 
 export interface ScrubberProps {
+  hoverPreviews?: boolean;
   currentMs: number;
   durationMs: number;
   onSeek: (ms: number) => void;
@@ -33,6 +34,7 @@ const MARKER_GAP_PX = 2;
 
 export function Scrubber(props: ScrubberProps) {
   const {
+    hoverPreviews = true,
     currentMs,
     durationMs,
     onSeek,
@@ -235,7 +237,7 @@ export function Scrubber(props: ScrubberProps) {
       }}
     >
       {/* Hover bubble */}
-      {hoverMs !== null && !tooltip ? (
+      {hoverPreviews && hoverMs !== null && !tooltip ? (
         <div
           className="absolute -top-8 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[11px] text-white pointer-events-none"
           style={{ left: hoverX }}
@@ -245,7 +247,7 @@ export function Scrubber(props: ScrubberProps) {
       ) : null}
 
       {/* Tooltip (comment / chapter) */}
-      {tooltip ? (
+      {hoverPreviews && tooltip ? (
         <div
           data-player-comment-hover
           className={cn(

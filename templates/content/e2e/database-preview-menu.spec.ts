@@ -1,5 +1,7 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
+import { presentUiCapability } from "./helpers";
+
 test.describe.configure({ mode: "serial" });
 
 const ACTION_HEADERS = {
@@ -177,6 +179,7 @@ async function cleanupDatabaseFixture(page: Page, fixture: DatabaseFixture) {
     mode: "selection",
     documentIds: [fixture.databaseDocumentId],
   });
+  await presentUiCapability(page);
   await runAction(page, "permanently-delete-document", {
     id: fixture.databaseDocumentId,
     planId: plan.planId,

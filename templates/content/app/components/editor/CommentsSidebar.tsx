@@ -116,6 +116,7 @@ import {
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 import {
+  proposalGroups,
   receiptSuggestion,
   suggestionSourceThreadId,
   suggestionsByThread,
@@ -1622,25 +1623,47 @@ export function CommentsSidebar({
     const freshResolution =
       thread.resolved && commentAi?.freshResolutions.has(thread.threadId);
     const embedded = threadSuggestions.get(thread.threadId) ?? [];
-    const receipts = new Map<string, ResourceSuggestion>();
+    // A receipt links the first edit of its proposal and stands for them all.
+    const groups = proposalGroups(embedded);
+    const receipts = new Map<string, ResourceSuggestion[]>();
     for (const comment of thread.comments) {
       const suggestion = receiptSuggestion(comment, embedded);
-      if (suggestion) receipts.set(comment.id, suggestion);
+      const group =
+        suggestion && groups.find((members) => members.includes(suggestion));
+      if (group) receipts.set(comment.id, group);
     }
-    const receiptless = embedded.filter(
-      (suggestion) => ![...receipts.values()].includes(suggestion),
+    const receiptless = groups.filter(
+      (group) => ![...receipts.values()].includes(group),
     );
     const aiWorking = Boolean(
       commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
     );
-    const suggestionProps = (suggestion: ResourceSuggestion) => ({
-      suggestion,
-      canDecide: canDecideSuggestions,
-      busy: suggestionBusy(suggestion),
-      conflict: isUnplaceable(suggestion),
-      onDecide: (decision: SuggestionDecision) =>
-        onDecideSuggestion?.(suggestion, decision),
-    });
+    const suggestionProps = (members: ResourceSuggestion[]) => {
+      const proposalId = members.length > 1 ? members[0]?.proposalId : null;
+      return {
+        suggestions: members,
+        canDecide: canDecideSuggestions,
+        busy: suggestionBusy,
+        conflict: isUnplaceable,
+        onDecide: (
+          suggestion: ResourceSuggestion,
+          decision: SuggestionDecision,
+        ) => onDecideSuggestion?.(suggestion, decision),
+        onDecideRemaining:
+          proposalId && onDecideSuggestionProposal
+            ? (decision: SuggestionDecision) =>
+                onDecideSuggestionProposal(
+                  proposalId,
+                  decision,
+                  suggestions.filter(
+                    (suggestion) =>
+                      suggestion.proposalId === proposalId &&
+                      suggestion.status === "pending",
+                  ),
+                )
+            : undefined,
+      };
+    };
     const showsRequestSuggestion =
       aiRequest?.status === "suggested" &&
       embedded.some(
@@ -1843,10 +1866,10 @@ export function CommentsSidebar({
         feedback={
           (aiRequest && commentAi) || receiptless.length ? (
             <>
-              {receiptless.map((suggestion) => (
+              {receiptless.map((members) => (
                 <ThreadSuggestionRow
-                  key={suggestion.id}
-                  {...suggestionProps(suggestion)}
+                  key={members[0]!.id}
+                  {...suggestionProps(members)}
                 />
               ))}
               {!aiRequest || !commentAi ? null : continuation ||

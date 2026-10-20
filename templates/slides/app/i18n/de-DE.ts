@@ -281,7 +281,6 @@ const messages = {
     commentMenu: "Kommentaroptionen",
     comments: "Kommentare",
     annotate: "Markieren",
-    pinComment: "Kommentar anheften",
     agent: "Agent",
     agentMenu: "Agent-Optionen",
     agentUnavailable:
@@ -384,7 +383,6 @@ const messages = {
     shapeLine: "Linie",
     shapeStar: "Stern",
     shapePolygon: "Polygon",
-    pinComments: "Kommentare anheften",
     undo: "Rückgängig",
     undoWithShortcut: "Rückgängig ({{shortcut}})",
     redo: "Wiederholen",

@@ -9,12 +9,14 @@ const state = vi.hoisted(() => ({
   documentRevision: "base-revision",
   transactionError: null as Error | null,
   resolvedRows: false,
+  earlierRequests: null as Array<{ id: string }> | null,
 }));
 
 const mocks = vi.hoisted(() => ({
   addComment: vi.fn(),
   editDocument: vi.fn(),
   createSuggestion: vi.fn(),
+  createProposal: vi.fn(),
   listSuggestions: vi.fn(),
   assertSourceUnchanged: vi.fn(),
   requireRequest: vi.fn(),
@@ -128,6 +130,13 @@ vi.mock(
   }),
 );
 
+vi.mock(
+  "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal",
+  () => ({
+    default: { run: (...args: unknown[]) => mocks.createProposal(...args) },
+  }),
+);
+
 vi.mock("../server/lib/suggested-edits.js", () => ({
   CONTENT_DOCUMENT_SUGGESTION_ADAPTER: "content-document",
 }));
@@ -138,20 +147,6 @@ vi.mock(
     default: { run: (...args: unknown[]) => mocks.listSuggestions(...args) },
   }),
 );
-
-vi.mock("../shared/document-text-edits.js", () => ({
-  resolveDocumentTextEdits: (
-    content: string,
-    edits: Array<{ find: string; replace: string }>,
-  ) => ({
-    ok: true,
-    content: content.replace(edits[0].find, edits[0].replace),
-  }),
-}));
-
-vi.mock("../app/components/editor/suggestions/markdown-operation.js", () => ({
-  markdownSuggestionOperation: () => ({ type: "replace", from: 0, to: 5 }),
-}));
 
 vi.mock("./_document-edit-mutation.js", () => ({
   documentContentHash: (content: string) => `hash:${content}`,
@@ -177,7 +172,7 @@ vi.mock("../server/db/index.js", () => {
             table === schema.documents
               ? [state.source.document]
               : table === schema.commentAiRequests
-                ? [state.request]
+                ? (state.earlierRequests ?? [state.request])
                 : state.source.comments;
           return Object.assign(Promise.resolve(rows), {
             for: async () => rows,
@@ -240,6 +235,7 @@ beforeEach(() => {
     fieldId: "body",
     intent: "reply",
     status: "running",
+    attemptCount: 1,
     threadDigest: "thread-digest",
     payloadJson: null,
     result: null,
@@ -263,6 +259,7 @@ beforeEach(() => {
   state.transactionDigest = "thread-digest";
   state.transactionError = null;
   state.resolvedRows = false;
+  state.earlierRequests = null;
 
   mocks.requireRequest.mockImplementation(async (intent?: string) => {
     if (intent && state.request.intent !== intent) {
@@ -284,6 +281,10 @@ beforeEach(() => {
   );
   mocks.addComment.mockResolvedValue({ id: "ai-receipt-1", duplicate: false });
   mocks.createSuggestion.mockResolvedValue({ id: "suggestion-1" });
+  mocks.createProposal.mockResolvedValue({
+    proposal: { id: "proposal-1" },
+    suggestions: [{ id: "suggestion-1" }, { id: "suggestion-2" }],
+  });
   mocks.editDocument.mockImplementation(async () => {
     state.source.document.content = "After text";
     return {
@@ -305,7 +306,7 @@ describe("comment AI dedicated action boundaries", () => {
     [
       "reply",
       createSuggestion,
-      { summary: "Fix", find: "Before", replace: "After" },
+      { summary: "Fix", edits: [{ find: "Before", replace: "After" }] },
     ],
     [
       "reply",
@@ -380,17 +381,22 @@ describe("comment AI dedicated action boundaries", () => {
 
     const result = await run(createSuggestion as any, {
       summary: "Clarify [this]",
-      find: "Before",
-      replace: "After",
+      edits: [{ find: "Before", replace: "After" }],
     });
 
+    expect(mocks.createProposal).not.toHaveBeenCalled();
     expect(mocks.createSuggestion).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceType: "document",
         resourceId: "page-1",
         baseRevision: "suggestion-revision",
-        idempotencyKey:
-          "comment-ai:11111111-1111-4111-8111-111111111111:suggestion",
+        idempotencyKey: "comment-ai:attempt-1:suggestion",
+        operations: [
+          expect.objectContaining({
+            before: expect.objectContaining({ changedText: "Before" }),
+            after: expect.objectContaining({ changedText: "After" }),
+          }),
+        ],
         metadata: expect.objectContaining({
           sourceCommentId: "comment-1",
           sourceThreadId: "thread-1",
@@ -418,6 +424,170 @@ describe("comment AI dedicated action boundaries", () => {
     expect(state.resolvedRows).toBe(false);
   });
 
+  const filler = "Unchanged prose stays out of the review. ".repeat(40);
+  it.each([
+    [
+      "one span that reaches across unchanged text",
+      [
+        {
+          find: `Open source is open.\n\n${filler}\n\nFork Open source`,
+          replace: `Open-source is open.\n\n${filler}\n\nFork Open-source`,
+        },
+      ],
+    ],
+    [
+      "separate edits",
+      [
+        { find: "Open source is", replace: "Open-source is" },
+        { find: "Fork Open source", replace: "Fork Open-source" },
+      ],
+    ],
+  ])(
+    "proposes each change on its own, linked to the comment, from %s",
+    async (_shape, edits) => {
+      state.request.intent = "suggest";
+      state.source.document.content = `Open source is open.\n\n${filler}\n\nFork Open source today.`;
+      // A first request on its comment has no earlier edits to look up.
+      state.earlierRequests = [];
+
+      const result = await run(createSuggestion as any, {
+        summary: "Hyphenate Open-source",
+        edits,
+      });
+
+      expect(mocks.createSuggestion).not.toHaveBeenCalled();
+      expect(mocks.listSuggestions).not.toHaveBeenCalled();
+      const [proposal] = mocks.createProposal.mock.calls[0]!;
+      expect(proposal).toMatchObject({
+        resourceId: "page-1",
+        summary: "Hyphenate Open-source",
+        idempotencyKey: "comment-ai:attempt-1:proposal",
+      });
+      expect(
+        proposal.suggestions.map(
+          (suggestion: { operations: any[] }) => suggestion.operations,
+        ),
+      ).toEqual([
+        [
+          expect.objectContaining({
+            ordinal: 0,
+            before: expect.objectContaining({ changedText: " " }),
+            after: expect.objectContaining({ changedText: "-" }),
+          }),
+        ],
+        [
+          expect.objectContaining({
+            ordinal: 0,
+            before: expect.objectContaining({ changedText: " " }),
+            after: expect.objectContaining({ changedText: "-" }),
+          }),
+        ],
+      ]);
+      for (const suggestion of proposal.suggestions) {
+        expect(suggestion.metadata).toMatchObject({
+          sourceThreadId: "thread-1",
+          commentAiRequestId: "11111111-1111-4111-8111-111111111111",
+        });
+      }
+      expect(mocks.addComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content:
+            "[Hyphenate Open-source](/page/page-1?suggestion=suggestion-1)",
+        }),
+        ctx,
+      );
+      expect(result).toMatchObject({
+        status: "suggested",
+        result: { suggestionId: "suggestion-1" },
+      });
+    },
+  );
+
+  it("replaces the requester's earlier edits on this comment with the new proposal", async () => {
+    state.request.intent = "suggest";
+    state.source.document.content = "Open source and Open source again.";
+    mocks.listSuggestions.mockResolvedValue({
+      suggestions: [
+        {
+          id: "earlier-suggestion",
+          adapterKind: "content-document",
+          authorEmail: "agent@example.test",
+          createdAt: "2026-09-07T00:00:00.000Z",
+          metadata: {
+            sourceThreadId: "thread-1",
+            commentAiRequestId: "earlier-request",
+          },
+        },
+      ],
+    });
+    state.earlierRequests = [{ id: "earlier-request" }];
+
+    await run(createSuggestion as any, {
+      summary: "Hyphenate both",
+      edits: [
+        { find: "Open source and", replace: "Open-source and" },
+        { find: "Open source again", replace: "Open-source again" },
+      ],
+    });
+
+    expect(mocks.createProposal).toHaveBeenCalledWith(
+      expect.objectContaining({ supersedes: ["earlier-suggestion"] }),
+      ctx,
+    );
+  });
+
+  it.each([
+    ["several edits", ["Open source and", "Open source again"], "proposal"],
+    ["the same single edit", ["Open source and"], "suggestion"],
+  ])(
+    "replaces an earlier attempt's edit when a retry proposes %s",
+    async (_shape, finds, kind) => {
+      state.request.intent = "suggest";
+      state.source.document.content = "Open source and Open source again.";
+      state.earlierRequests = [];
+      // The first attempt created its edit but failed before recording it.
+      state.request.attemptCount = 2;
+      const fromThisRequest = (id: string, commentAiAttemptId: string) => ({
+        id,
+        proposalId: null,
+        adapterKind: "content-document",
+        authorEmail: "agent@example.test",
+        createdAt: "2026-09-08T00:00:01.000Z",
+        metadata: {
+          sourceThreadId: "thread-1",
+          commentAiRequestId: state.request.id,
+          commentAiAttemptId,
+        },
+      });
+      mocks.listSuggestions.mockResolvedValue({
+        suggestions: [
+          fromThisRequest("first-attempt", "attempt-1"),
+          // A replay of this attempt must build the same list.
+          fromThisRequest("this-attempt", "attempt-2"),
+        ],
+      });
+
+      await run(createSuggestion as any, {
+        attemptId: "attempt-2",
+        summary: "Hyphenate",
+        edits: finds.map((find) => ({
+          find,
+          replace: find.replace(" ", "-"),
+        })),
+      });
+
+      const create =
+        kind === "proposal" ? mocks.createProposal : mocks.createSuggestion;
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: `comment-ai:attempt-2:${kind}`,
+          supersedes: ["first-attempt"],
+        }),
+        ctx,
+      );
+    },
+  );
+
   it("keeps a suggestion request recoverable when feedback changes before its receipt", async () => {
     state.request.intent = "suggest";
     mocks.createSuggestion.mockImplementationOnce(async () => {
@@ -428,8 +598,7 @@ describe("comment AI dedicated action boundaries", () => {
     await expect(
       run(createSuggestion as any, {
         summary: "Clarify this",
-        find: "Before",
-        replace: "After",
+        edits: [{ find: "Before", replace: "After" }],
       }),
     ).rejects.toThrow(
       "comment discussion changed before the proposal receipt was saved",
