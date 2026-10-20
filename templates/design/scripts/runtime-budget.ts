@@ -9,8 +9,14 @@ import { parseArgs } from "node:util";
 
 import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
+import { OVERVIEW_FRAME_WIDTH } from "../app/components/design/multi-screen/overview-layout.ts";
+import { DEVICE_FRAME_VIEWPORTS } from "../app/components/design/types.ts";
 import {
-  expectedCanvasScaleAtZoomPercent,
+  readRuntimeZoomSnapshot,
+  type ZoomSnapshot,
+} from "./runtime-budget-zoom-snapshot.ts";
+import {
+  measureRuntimeZoom,
   readZoomUntilAvailable,
 } from "./runtime-budget-zoom.ts";
 
@@ -371,20 +377,16 @@ function worstFrameSince(since: number) {
   );
 }
 
-const zoomOf = () =>
-  page.evaluate(() => {
-    const transform =
-      document.querySelector<HTMLElement>("[data-multi-screen-canvas-world]")
-        ?.style.transform ?? "";
-    const match = /scale\(([0-9.]+)\)/.exec(transform);
-    return match ? Number(match[1]) * 100 : null;
-  });
-const zoomPercentFromUrl = () =>
-  page.evaluate(() => {
-    const raw = new URLSearchParams(location.search).get("zoom");
-    const zoom = raw === null ? Number.NaN : Number(raw);
-    return Number.isFinite(zoom) && zoom > 0 ? zoom : null;
-  });
+const zoomMeasurements: {
+  target: number;
+  before: ZoomSnapshot | null;
+  final: ZoomSnapshot | null;
+  expectedBefore: ReturnType<typeof measureRuntimeZoom>;
+  finalMeasurement: ReturnType<typeof measureRuntimeZoom>;
+  elapsedMs: number;
+  arrived: boolean;
+  error: string | null;
+}[] = [];
 async function zoomTo(target: number): Promise<boolean> {
   const startedAt = Date.now();
   const deadline = startedAt + 10_000;
@@ -392,58 +394,75 @@ async function zoomTo(target: number): Promise<boolean> {
   // This benchmark measures camera-driven rendering and preview churn; wheel
   // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
   const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
-  const currentZoomPercent = await readZoomUntilAvailable(
-    zoomPercentFromUrl,
-    (ms) => page.waitForTimeout(ms),
-    deadline,
-    () => cdp.send("Runtime.terminateExecution"),
-  );
-  if (currentZoomPercent === null) return false;
-  // Overview zoom is normalized by board geometry, so compare the world
-  // transform with the exact route zoom instead of the rounded toolbar label.
-  const currentCanvasScale = await readZoomUntilAvailable(
-    zoomOf,
-    (ms) => page.waitForTimeout(ms),
-    deadline,
-    () => cdp.send("Runtime.terminateExecution"),
-  );
-  const expectedScale = expectedCanvasScaleAtZoomPercent(
-    currentCanvasScale,
-    currentZoomPercent,
-    target,
-  );
-  if (expectedScale === null) return false;
-  await readout.click({ timeout: remainingTimeout() });
-  const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
-  await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
-  await zoomInput.press("Enter", { timeout: remainingTimeout() });
-  const actual = await readZoomUntilAvailable(
-    async () => {
-      const zoom = await zoomOf();
-      const routeZoom = await zoomPercentFromUrl();
-      const label = (await readout.textContent())?.trim();
-      return zoom !== null &&
-        routeZoom === target &&
-        Math.abs(zoom - expectedScale) <=
-          Math.max(0.005, expectedScale * 0.001) &&
-        label === `${target}%`
-        ? zoom
-        : null;
-    },
-    (ms) => page.waitForTimeout(ms),
-    deadline,
-    () => cdp.send("Runtime.terminateExecution"),
-  );
-  const arrived = actual !== null;
-  if (!arrived) {
-    const actualZoom = await zoomOf();
-    const actualText =
-      actualZoom === null ? "unavailable" : `${actualZoom.toFixed(1)}%`;
-    console.log(
-      `  zoom ${target}% ended at ${actualText} with readout ${(await readout.textContent())?.trim() ?? "unavailable"} after ${Date.now() - startedAt}ms`,
+  const readZoomSnapshot = async () => {
+    const handle = await readout.elementHandle({ timeout: remainingTimeout() });
+    try {
+      return await page.evaluate(readRuntimeZoomSnapshot, {
+        readout: handle,
+        defaultFrameWidth: OVERVIEW_FRAME_WIDTH,
+        defaultSourceWidth: 1280,
+        deviceWidths: Object.fromEntries(
+          Object.entries(DEVICE_FRAME_VIEWPORTS).map(([name, size]) => [
+            name,
+            size.width,
+          ]),
+        ),
+      });
+    } finally {
+      await handle?.dispose();
+    }
+  };
+  let before: ZoomSnapshot | null = null;
+  let final: ZoomSnapshot | null = null;
+  let arrived = false;
+  let error: string | null = null;
+  try {
+    const baseline = await readZoomUntilAvailable(
+      async () => {
+        before = await readZoomSnapshot();
+        return measureRuntimeZoom(before, target).expectedScale;
+      },
+      (ms) => page.waitForTimeout(ms),
+      deadline,
+      () => cdp.send("Runtime.terminateExecution"),
     );
+    if (baseline === null) return false;
+    await readout.click({ timeout: remainingTimeout() });
+    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+    await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
+    await zoomInput.press("Enter", { timeout: remainingTimeout() });
+    const actual = await readZoomUntilAvailable(
+      async () => {
+        final = await readZoomSnapshot();
+        const measurement = measureRuntimeZoom(final, target);
+        return measurement.failedChecks.length === 0
+          ? final!.camera.scale
+          : null;
+      },
+      (ms) => page.waitForTimeout(ms),
+      deadline,
+      () => cdp.send("Runtime.terminateExecution"),
+    );
+    arrived = actual !== null;
+    return arrived;
+  } catch (cause) {
+    error = String(cause);
+    throw cause;
+  } finally {
+    const measurement = {
+      target,
+      before,
+      final,
+      expectedBefore: measureRuntimeZoom(before, target),
+      finalMeasurement: measureRuntimeZoom(final, target),
+      elapsedMs: Date.now() - startedAt,
+      arrived,
+      error,
+    };
+    zoomMeasurements.push(measurement);
+    if (!arrived)
+      console.log(`  zoom measurement failed: ${JSON.stringify(measurement)}`);
   }
-  return arrived;
 }
 
 async function until(check: () => Promise<boolean>, timeoutMs = 30_000) {
@@ -1026,6 +1045,7 @@ if (values.out) {
         },
         metrics,
         heapSeries,
+        zoomMeasurements,
         failedSteps,
         refreshes,
       },

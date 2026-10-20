@@ -1,22 +1,59 @@
+import type { ZoomSnapshot } from "./runtime-budget-zoom-snapshot";
+
 type DeadlineResult<T> = { timedOut: false; value: T } | { timedOut: true };
 
 export function expectedCanvasScaleAtZoomPercent(
-  currentScale: number | null,
-  currentZoomPercent: number,
+  displayZoomBasis: number | null,
   targetZoomPercent: number,
 ): number | null {
   if (
-    currentScale === null ||
-    !Number.isFinite(currentScale) ||
-    currentScale <= 0 ||
-    !Number.isFinite(currentZoomPercent) ||
-    currentZoomPercent <= 0 ||
+    displayZoomBasis === null ||
+    !Number.isFinite(displayZoomBasis) ||
+    displayZoomBasis <= 0 ||
     !Number.isFinite(targetZoomPercent) ||
     targetZoomPercent <= 0
   ) {
     return null;
   }
-  return (currentScale * targetZoomPercent) / currentZoomPercent;
+  return targetZoomPercent / displayZoomBasis;
+}
+
+export function measureRuntimeZoom(
+  snapshot: ZoomSnapshot | null,
+  target: number,
+) {
+  const expectedScale = expectedCanvasScaleAtZoomPercent(
+    snapshot?.basis.scale ?? null,
+    target,
+  );
+  const tolerance =
+    expectedScale === null ? null : Math.max(0.005, expectedScale * 0.001);
+  const checks = {
+    available: snapshot !== null && expectedScale !== null,
+    sampleRevision:
+      snapshot !== null &&
+      snapshot.sampleRevision === snapshot.camera.sampleRevision &&
+      snapshot.sampleRevision === snapshot.basis.sampleRevision,
+    camera:
+      snapshot !== null &&
+      expectedScale !== null &&
+      Math.abs(snapshot.camera.scale - expectedScale) <= tolerance!,
+    committedCamera:
+      snapshot !== null &&
+      tolerance !== null &&
+      Math.abs(snapshot.camera.scale - snapshot.committedCanvasScale) <=
+        tolerance,
+    route: snapshot?.routeZoom === target,
+    toolbar: snapshot?.label === `${target}%`,
+  };
+  return {
+    expectedScale,
+    tolerance,
+    checks,
+    failedChecks: Object.entries(checks)
+      .filter(([, passed]) => !passed)
+      .map(([name]) => name),
+  };
 }
 
 async function beforeDeadline<T>(
