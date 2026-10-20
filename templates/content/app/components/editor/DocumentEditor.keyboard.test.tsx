@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Extension, type Editor } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { act, createElement, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -231,6 +232,25 @@ describe("document editor keyboard exit", () => {
     expect(consumed).toHaveBeenCalledOnce();
     expect(onEscape).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(editor.view.dom);
+  });
+
+  it("selects a table cell on the first Escape and exits on the second", async () => {
+    const { editor, target, onEscape } = await mount();
+    act(() => {
+      editor.commands.insertTable({ rows: 2, cols: 2 });
+      editor.view.dispatch(editor.state.tr.insertText("A"));
+    });
+    expect(editor.state.selection.$from.parent.textContent).toBe("A");
+
+    const escape = key(editor.view.dom, "Escape");
+    expect(escape.defaultPrevented).toBe(true);
+    expect(editor.state.selection).toBeInstanceOf(CellSelection);
+    expect(onEscape).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(editor.view.dom);
+
+    key(editor.view.dom, "Escape");
+    expect(onEscape).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(target.current);
   });
 
   it("does not exit during an IME composition Escape", async () => {

@@ -35,10 +35,12 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
+import type { DocumentProperty } from "@shared/api";
 import {
   commentMentionsForText,
   findCommentMentions,
 } from "@shared/comment-mentions";
+import type { CommentPropertyTarget } from "@shared/comment-property-target";
 import { suggestionDiffParts } from "@shared/suggestion-diff";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
@@ -66,6 +68,7 @@ import {
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { cn } from "@/lib/utils";
 
+import { primaryBlockFieldEditor } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   draftMention,
@@ -91,6 +94,11 @@ import {
   renderCommentBody,
   useCommentTimestamp,
 } from "./CommentRow";
+import {
+  PropertyThreadTargetLabel,
+  propertyThreadTarget,
+  type PropertyThreadTarget,
+} from "./property-comments";
 export { getAiCommentSource } from "./CommentEntry";
 import {
   CommentAiConversation,
@@ -108,6 +116,7 @@ import {
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 import {
+  proposalGroups,
   receiptSuggestion,
   suggestionSourceThreadId,
   suggestionsByThread,
@@ -221,7 +230,7 @@ export function findThreadPosition(
   }
 
   if (!quotedText) return null;
-  const pm = scrollContainer.querySelector(".ProseMirror") as HTMLElement;
+  const pm = primaryBlockFieldEditor(scrollContainer);
   if (!pm) return null;
   const walker = window.document.createTreeWalker(
     pm,
@@ -584,6 +593,10 @@ export type PendingCommentSelection = {
   offsetTop: number;
   anchor?: CommentTextAnchor;
   range?: { from: number; to: number };
+  /** Set when the comment is on a Property value instead of quoted text. */
+  property?: CommentPropertyTarget;
+  /** The Collection whose Property it is. */
+  databaseId?: string | null;
 };
 
 type PendingCommentDraft = PendingCommentSelection & {
@@ -683,6 +696,8 @@ interface CommentsSidebarOptions {
   replyDrafts: ReturnType<typeof useCommentReplyDrafts>;
   documentId: string;
   threads?: CommentThread[];
+  /** The Page's Properties, so a Property thread can say what changed. */
+  documentProperties?: readonly DocumentProperty[];
   isLoading?: boolean;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   activeThreadId?: string | null;
@@ -760,6 +775,7 @@ export function CommentsSidebar({
   replyDrafts,
   documentId,
   threads = NO_THREADS,
+  documentProperties,
   isLoading = false,
   pendingComment,
   pendingTargetValid = true,
@@ -1133,23 +1149,52 @@ export function CommentsSidebar({
   const pendingFocus = displayedPendingComment?.focus;
   useEffect(() => {
     if (!pendingFocus || presentation !== "inline") return;
-    const timer = setTimeout(() => {
+    // A new comment has no saved caret yet ({}); a draft that lost focus has
+    // none at all (null) and stays put. A new comment takes focus from the
+    // page, which keeps it through the toolbar click or shortcut that opened
+    // the comment, so typing goes into the comment. A restored draft only
+    // takes focus nobody else holds.
+    const isNew =
+      pendingFocus.current !== null && pendingFocus.current.start === undefined;
+    let movedAway = false;
+    const relinquish = (event: FocusEvent) => {
+      if (!pendingCardRef.current?.contains(event.target as Node))
+        movedAway = true;
+    };
+    document.addEventListener("focusin", relinquish);
+    let attempts = 0;
+    let frame = 0;
+    const focusComposer = () => {
       const input = pendingInputRef.current;
+      const card = pendingCardRef.current;
       const saved = pendingFocus.current;
-      if (!input || !saved) return;
-      const active = document.activeElement;
-      if (
-        active &&
-        active !== document.body &&
-        active !== document.documentElement &&
-        active.isConnected
-      )
-        return;
-      input.focus();
-      if (saved.start !== undefined && saved.end !== undefined)
-        input.setSelection(saved.start, saved.end, saved.direction);
-    }, 50);
-    return () => clearTimeout(timer);
+      if (!saved || movedAway) return;
+      if (input && card) {
+        if (card.contains(document.activeElement)) return;
+        const active = document.activeElement;
+        if (
+          !isNew &&
+          active &&
+          active !== document.body &&
+          active !== document.documentElement &&
+          active.isConnected
+        )
+          return;
+        input.focus();
+        if (saved.start !== undefined && saved.end !== undefined)
+          input.setSelection(saved.start, saved.end, saved.direction);
+        if (card.contains(document.activeElement)) return;
+      }
+      // The composer may still be mounting, or hidden while its popover is
+      // positioned; focus can't land until it's on screen.
+      if (++attempts < 30) frame = requestAnimationFrame(focusComposer);
+    };
+    const timer = setTimeout(focusComposer, 50);
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      document.removeEventListener("focusin", relinquish);
+    };
   }, [pendingFocus, presentation]);
 
   const handlePendingSubmit = async (
@@ -1178,10 +1223,17 @@ export function CommentsSidebar({
         clientOperationId,
         documentId,
         content: pendingText.trim(),
-        quotedText: pendingComment?.quotedText,
-        anchorPrefix: pendingComment?.anchor?.prefix,
-        anchorSuffix: pendingComment?.anchor?.suffix,
-        anchorStartOffset: pendingComment?.anchor?.startOffset,
+        ...(pendingComment.property
+          ? {
+              propertyId: pendingComment.property.propertyId,
+              databaseId: pendingComment.databaseId ?? undefined,
+            }
+          : {
+              quotedText: pendingComment.quotedText,
+              anchorPrefix: pendingComment.anchor?.prefix,
+              anchorSuffix: pendingComment.anchor?.suffix,
+              anchorStartOffset: pendingComment.anchor?.startOffset,
+            }),
         mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
       });
       pendingDraft.finishSubmission(clientOperationId);
@@ -1417,7 +1469,7 @@ export function CommentsSidebar({
     };
     recomputeOffsets();
 
-    const pm = container.querySelector(".ProseMirror");
+    const pm = primaryBlockFieldEditor(container);
     const observer = new MutationObserver(schedule);
     observer.observe(pm ?? container, {
       childList: true,
@@ -1600,25 +1652,47 @@ export function CommentsSidebar({
     const freshResolution =
       thread.resolved && commentAi?.freshResolutions.has(thread.threadId);
     const embedded = threadSuggestions.get(thread.threadId) ?? [];
-    const receipts = new Map<string, ResourceSuggestion>();
+    // A receipt links the first edit of its proposal and stands for them all.
+    const groups = proposalGroups(embedded);
+    const receipts = new Map<string, ResourceSuggestion[]>();
     for (const comment of thread.comments) {
       const suggestion = receiptSuggestion(comment, embedded);
-      if (suggestion) receipts.set(comment.id, suggestion);
+      const group =
+        suggestion && groups.find((members) => members.includes(suggestion));
+      if (group) receipts.set(comment.id, group);
     }
-    const receiptless = embedded.filter(
-      (suggestion) => ![...receipts.values()].includes(suggestion),
+    const receiptless = groups.filter(
+      (group) => ![...receipts.values()].includes(group),
     );
     const aiWorking = Boolean(
       commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
     );
-    const suggestionProps = (suggestion: ResourceSuggestion) => ({
-      suggestion,
-      canDecide: canDecideSuggestions,
-      busy: suggestionBusy(suggestion),
-      conflict: isUnplaceable(suggestion),
-      onDecide: (decision: SuggestionDecision) =>
-        onDecideSuggestion?.(suggestion, decision),
-    });
+    const suggestionProps = (members: ResourceSuggestion[]) => {
+      const proposalId = members.length > 1 ? members[0]?.proposalId : null;
+      return {
+        suggestions: members,
+        canDecide: canDecideSuggestions,
+        busy: suggestionBusy,
+        conflict: isUnplaceable,
+        onDecide: (
+          suggestion: ResourceSuggestion,
+          decision: SuggestionDecision,
+        ) => onDecideSuggestion?.(suggestion, decision),
+        onDecideRemaining:
+          proposalId && onDecideSuggestionProposal
+            ? (decision: SuggestionDecision) =>
+                onDecideSuggestionProposal(
+                  proposalId,
+                  decision,
+                  suggestions.filter(
+                    (suggestion) =>
+                      suggestion.proposalId === proposalId &&
+                      suggestion.status === "pending",
+                  ),
+                )
+            : undefined,
+      };
+    };
     const showsRequestSuggestion =
       aiRequest?.status === "suggested" &&
       embedded.some(
@@ -1774,6 +1848,11 @@ export function CommentsSidebar({
         onClose={onClose}
         currentUserEmail={currentUserEmail}
         quote={thread.quotedText}
+        propertyTarget={
+          thread.property
+            ? propertyThreadTarget(thread.property, documentProperties)
+            : null
+        }
         anchorUnavailable={
           threadPositionsMeasured &&
           !!thread.quotedText &&
@@ -1816,10 +1895,10 @@ export function CommentsSidebar({
         feedback={
           (aiRequest && commentAi) || receiptless.length ? (
             <>
-              {receiptless.map((suggestion) => (
+              {receiptless.map((members) => (
                 <ThreadSuggestionRow
-                  key={suggestion.id}
-                  {...suggestionProps(suggestion)}
+                  key={members[0]!.id}
+                  {...suggestionProps(members)}
                 />
               ))}
               {!aiRequest || !commentAi ? null : continuation ||
@@ -2214,6 +2293,15 @@ export function CommentsSidebar({
               <CommentAvatar email={currentUserEmail} name={currentUserEmail} />
             </div>
             <div className="min-w-0 flex-1">
+              {displayedPendingComment.property ? (
+                <PropertyThreadTargetLabel
+                  className="mb-2"
+                  target={propertyThreadTarget(
+                    displayedPendingComment.property,
+                    documentProperties,
+                  )}
+                />
+              ) : null}
               {!pendingTargetValid && (
                 <p role="alert" className="mb-2 text-xs text-muted-foreground">
                   {t("comments.selectTextToComment")}
@@ -2269,7 +2357,7 @@ export function CommentsSidebar({
 
       {/* Open thread cards — positioned to align with their referenced text */}
       {items.map((item, index) => {
-        const { thread, top, isOrphaned } = item;
+        const { thread, top } = item;
         const restingItem = restingItemsById.get(thread.threadId);
         const marginTop = restingItem?.marginTop ?? item.marginTop;
         const translateY = top - (restingItem?.top ?? top);
@@ -2293,9 +2381,14 @@ export function CommentsSidebar({
                 0,
                 activeThreadId === thread.threadId,
               );
+        // A Property thread has no highlight to lose, so it isn't one that
+        // went missing.
+        const lostHighlight = (candidate: (typeof items)[number]) =>
+          candidate.isOrphaned &&
+          !("property" in candidate.thread && candidate.thread.property);
         const startsOrphanedSection =
-          isOrphaned &&
-          !items.slice(0, index).some((prior) => prior.isOrphaned);
+          lostHighlight(item) &&
+          !items.slice(0, index).some((prior) => lostHighlight(prior));
         return (
           <div
             key={thread.threadId}
@@ -3137,6 +3230,7 @@ function ThreadView({
   renderEntry,
   surface = "rail",
   quote,
+  propertyTarget,
   anchorUnavailable = false,
   onClose,
   popoverTitle,
@@ -3182,6 +3276,8 @@ function ThreadView({
   surface?: CommentSurface;
   /** The anchored text, shown as a quote line above the thread in the panel. */
   quote?: string | null;
+  /** The Property a thread is on, shown above it on every surface. */
+  propertyTarget?: PropertyThreadTarget | null;
   anchorUnavailable?: boolean;
   onClose?: () => void;
   popoverTitle?: string;
@@ -3438,6 +3534,12 @@ function ThreadView({
         )}
         data-comment-thread-body
       >
+        {propertyTarget ? (
+          <PropertyThreadTargetLabel
+            className="-mb-1"
+            target={propertyTarget}
+          />
+        ) : null}
         {isPanel && quote ? (
           <button
             type="button"

@@ -20,7 +20,7 @@ import {
   EMBED_SESSION_COOKIE,
 } from "../../../packages/core/src/shared/embed-auth";
 import { CHATGPT_DIRECTORY_PROFILE } from "../server/lib/chatgpt-directory-tools.js";
-import { postAction } from "./helpers";
+import { postAction, presentUiCapability } from "./helpers";
 
 async function removeDocument(page: Page, id: string) {
   await postAction(page, "delete-document", { id });
@@ -32,6 +32,7 @@ async function removeDocument(page: Page, id: string) {
     documentIds: [id],
   });
   if (!plan.planId || !plan.scopeToken) return;
+  await presentUiCapability(page);
   await postAction(page, "permanently-delete-document", {
     id,
     planId: plan.planId,
@@ -246,7 +247,7 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
         contentEditor.locator('[data-block-fields-state="solo"]'),
       ).toBeVisible({ timeout: 5_000 });
       await expect(
-        contentEditor.locator(".notion-editor.ProseMirror"),
+        contentEditor.locator(".content-editor.ProseMirror"),
       ).toContainText(marker, { timeout: 10_000 });
     } catch (error) {
       await captureWidgetFailure(

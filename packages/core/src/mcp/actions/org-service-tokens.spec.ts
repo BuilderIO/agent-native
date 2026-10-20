@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isActionExposedToExternalAgents } from "../../action.js";
+
 const mintOrgServiceTokenMock = vi.fn();
 const { OrgServiceTokenAppUrlError } = vi.hoisted(() => ({
   OrgServiceTokenAppUrlError: class extends Error {},
@@ -114,7 +116,9 @@ describe("create-org-service-token", () => {
     ).toBe(false);
   });
 
-  it("is not callable from the sandboxed agent tool loop", () => {
+  it("is not an agent or MCP tool, so an agent cannot mint a credential", () => {
+    expect(createAction.agentTool).toBe(false);
+    expect(isActionExposedToExternalAgents(createAction)).toBe(false);
     expect(createAction.toolCallable).toBe(false);
     expect(revokeAction.toolCallable).toBe(false);
   });
@@ -578,6 +582,13 @@ describe("list-org-service-tokens", () => {
 });
 
 describe("revoke-org-service-token", () => {
+  it("asks for approval on every call and stays agent- and MCP-callable", () => {
+    expect(revokeAction.needsApproval).toBe(true);
+    expect(revokeAction.allowPersistentApproval).toBe(false);
+    expect(revokeAction.agentTool).not.toBe(false);
+    expect(isActionExposedToExternalAgents(revokeAction)).toBe(true);
+  });
+
   it("revokes for an org admin, scoped to the caller's org", async () => {
     const res = await revokeAction.run({ id: "tok-1" }, CTX());
     expect(revokeOrgServiceTokenMock).toHaveBeenCalledWith("org-1", "tok-1");

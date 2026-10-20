@@ -1,0 +1,564 @@
+---
+title: "Chat: Entwicklerhandbuch"
+description: "Schnellstart, das Aktionsinventar, das Datenmodell, eine Aktion im Detail, die Routen-Referenz und wie Sie der Chat-Vorlage Ihre erste Funktion hinzufügen."
+---
+
+# Entwicklerhandbuch
+
+Diese Seite richtet sich an Entwickler, die die Chat-Vorlage ausführen oder erweitern. Sie behandelt den Schnellstart, jede integrierte Aktion, das Datenmodell, eine Aktion im Detail, die Routen und wie Sie Ihre erste Funktion hinzufügen. Was die App tut, erfahren Sie unter [Chat](/docs/template-chat).
+
+## Schnellstart {#quick-start}
+
+Dies führt Sie durch das Ausführen von Chat, von nichts Installiertem bis zu einer Live-Konversation mit dem Agenten. Die Befehle sind identisch, egal ob Sie im Terminal auf macOS oder in PowerShell/Command Prompt auf Windows arbeiten, es handelt sich um reines Node.js-Tooling.
+
+<Steps>
+
+### Die App erstellen
+
+```bash
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
+cd my-chat-app
+corepack enable
+pnpm install
+```
+
+Dafür benötigen Sie [Node.js](https://nodejs.org) 22.22 oder neuer. Wenn `pnpm` nicht in Ihrem `PATH` liegt, führen Sie `corepack enable` in der generierten App aus. Wenn Sie Node.js noch nicht installiert haben, lesen Sie [Erste Schritte](/docs/getting-started).
+
+### Den Entwicklungsserver starten
+
+```bash
+pnpm dev
+```
+
+Die App öffnet sich unter der lokalen URL, die `pnpm dev` ausgibt. Wenn sie sich nicht automatisch öffnet, rufen Sie diese URL in Ihrem Browser auf. Der Port kann abweichen, wenn 8080 bereits belegt ist.
+
+### Anmelden und ein LLM verbinden
+
+Wählen Sie auf dem Willkommensbildschirm **Als lokaler Entwickler fortfahren**. Für die lokale Entwicklung sind weder E-Mail noch Passwort nötig. Verbinden Sie dann ein LLM: Wählen Sie **Builder.io verwenden** für kostenlose Credits oder **Eigene Schlüssel hinzufügen**, um einen eigenen Schlüssel eines Modellanbieters zu verwenden. Chat wird ohne Domänendaten zum Befüllen ausgeliefert. Sobald ein LLM verbunden ist, müssen Sie also nichts weiter einrichten, bevor Sie chatten können.
+
+</Steps>
+
+Chat ist für eine Browseroberfläche gebaut. Wenn Sie einen Agenten ganz ohne Bildschirm möchten, für geplante Jobs, Warteschlangen, CLI-Schleifen oder Workflows mit externen Agenten, erstellen Sie das Gerüst stattdessen mit `--headless`:
+
+```bash
+npx --yes @agent-native/core@latest create my-agent --headless
+```
+
+Die Kernidee bleibt dieselbe. Aktionen sind die gemeinsame Oberfläche für Chat, UI, HTTP, MCP, A2A und CLI. Diesen Weg behandelt [Automatisierungsorientierte Apps](/docs/pure-agent-apps) ausführlich.
+
+## Aktionsinventar {#actions}
+
+Jede Operation ist eine TypeScript-Datei in `actions/`, die automatisch unter `POST /_agent-native/actions/:name` eingebunden wird, sofern die Aktion nicht `http: false` setzt.
+
+| Aktion                 | Was sie tut                                                                                         |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `hello`                | Beispielaktion. Gibt eine Begrüßung zurück. Ersetzen Sie sie oder fügen Sie Aktionen daneben hinzu. |
+| `view-screen`          | Standard-Kontextaktion. Liest die aktuelle Ansicht für den Agenten zurück.                          |
+| `navigate`             | Standard-Navigationsaktion. Bewegt die UI zu einer Route.                                           |
+| `provider-api-request` | Ruft die Slack Web API über einen verbundenen Slack-Arbeitsbereich auf.                             |
+
+### Die Chat-Laufzeit {#chat-runtime}
+
+In `server/plugins/agent-chat.ts` wird die Chat-Laufzeit konfiguriert. Sie erledigt vier Dinge:
+
+- Sie registriert jede Aktion in `actions/` als aufrufbares Werkzeug, mit
+  `loadActionsFromStaticRegistry`.
+- Sie löst die aktuelle Organisation für die Zugriffsbegrenzung auf, mit `resolveOrgId`.
+- Sie legt den System-Prompt fest.
+- Sie deklariert, welche Werkzeuge das Modell im ersten Zug sieht, mit
+  `initialToolNames`.
+
+### Wie Aktionen zu Werkzeugen werden {#actions-as-tools}
+
+Jede `defineAction` ist standardmäßig ein Werkzeug. Setzen Sie `agentTool: false`, damit eine Aktion für Ihre Bildschirme verfügbar bleibt, aber vor dem Agenten verborgen ist.
+
+### Was das Modell zuerst sieht {#initial-tools}
+
+`INITIAL_TOOL_NAMES` listet `view-screen`, `navigate`, `hello` und `provider-api-request` auf. Das sind die einzigen Werkzeuge, die im ersten Zug gesendet werden. Alles andere, auch eine Aktion, die Sie hinzufügen, bleibt über `tool-search` erreichbar und wird bei Bedarf geladen.
+
+Fügen Sie dieser Liste nur dann einen Namen hinzu, wenn die Aktion ab der ersten Nachricht im Standard-Werkzeugsatz des Modells sein soll.
+
+## Datenmodell {#data-model}
+
+Chat definiert keine eigenen Tabellen. Es gibt keine `server/db/schema.ts`, bis Sie eine hinzufügen. Die App läuft auf den Kerntabellen des Frameworks für Chat-Threads und Nachrichten, Anwendungsstatus, Einstellungen, Sitzungen, Ressourcen und Laufverlauf. Diese gehören dem Framework, bearbeiten Sie sie also nicht. Das Verbindungsmodell und wo neue Daten abgelegt werden sollten, erfahren Sie unter [Datenbank](/docs/server-database).
+
+`useDbSync()` ist bereits in die App-Shell eingebunden. Wenn der Agent oder jemand anderes in SQL schreibt, erhält der Client die Änderung über SSE oder den 2-Sekunden-Polling-Fallback und invalidiert die passenden React-Query-Caches. Die vollständige Hook-API finden Sie unter [`useDbSync`](/docs/client-data#usedbsync).
+
+Ihre erste Tabelle ist eine neue Datei. Siehe [Ihre erste Funktion hinzufügen](#first-feature).
+
+## Authentifizierung {#auth}
+
+Die Authentifizierung läuft über Better Auth: Login, Registrierung, Sitzungen und Organisationen. Chat konfiguriert sie in `server/plugins/auth.ts` mit `createToolkitAuthPlugin`. Die Datei hält `/` öffentlich, damit die Startseite zur Anmeldung laden kann, und setzt `marketing: false`, sodass die Anmeldeseite keinen Marketingtext zeigt. Um dort App-Name, Slogan und Funktionsstichpunkte anzuzeigen, übergeben Sie stattdessen ein `marketing`-Objekt. Derselbe Ablauf läuft lokal und in Produktion, nur dass die Entwicklung die E-Mail-Verifizierung überspringt, damit Sie sich sofort registrieren und mit dem Bauen beginnen können. Das vollständige Authentifizierungsmodell (Sitzungen, Organisationen, geschützte Routen) finden Sie unter [Authentifizierung](/docs/authentication).
+
+## Routen-Referenz {#routes}
+
+Die App verwendet dateisystembasiertes Routing (`flatRoutes()` in `app/routes.ts`), sodass das Hinzufügen einer Routendatei zum Einbinden genügt.
+
+<FileTree
+  id="doc-block-chat3"
+  title="Routen und Komponenten der Chat-Vorlage"
+  entries={[
+    {
+      path: "app/routes/_index.tsx",
+      note: "/: die gemeinsame Anmeldeseite, danach weiter zu /home",
+    },
+    {
+      path: "app/routes/home.tsx",
+      note: "/home: die Loslegen-Seite, gerendert von app/components/home/HomePage.tsx",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat: startet einen neuen Chat und übergibt an /chat/:threadId",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "/chat/:threadId: rendert ChatRouteContent für diesen Thread",
+    },
+    {
+      path: "app/routes/settings.tsx",
+      note: "/settings und /settings/*: Konto-, Verbindungs-, Agent- und Organisationsseiten",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "/agent: leitet zu den Agent-Seiten in den Einstellungen weiter",
+    },
+    {
+      path: "app/routes/team.tsx",
+      note: "/team: leitet zu /settings/organization weiter",
+    },
+    {
+      path: "app/routes/database.tsx",
+      note: "/database: der Tabellenbrowser und -editor",
+    },
+    {
+      path: "app/routes/observability.tsx",
+      note: "/observability: Agent-Traces, Kosten, Evals und Feedback",
+    },
+    {
+      path: "app/routes/extensions._index.tsx",
+      note: "/extensions: leitet zu /settings/extensions weiter, was erst existiert, wenn Erweiterungen eingeschaltet sind",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "/extensions/:id (und /extensions/:id/:slug): führt eine gespeicherte Erweiterung aus",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "die Vollseiten-Chatoberfläche. Bearbeiten Sie hier den Leerzustand, den Composer und die Nachrichten-Slots",
+    },
+    {
+      path: "app/components/layout/Sidebar.tsx",
+      note: "die Seitenleiste: Startseite, die Thread-Liste und der Organisationswechsler",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "Pfad-Helfer für Chat- und Startseiten-URLs",
+    },
+  ]}
+/>
+
+**Datenbank** (`/database`) ist dieselbe `DbAdminPage`, die jede Vorlage erhält. Sie ist ein direkter Tabellenbrowser und -editor über die SQL-Datenbank der App. Das dahinterliegende Verbindungsmodell finden Sie unter [Datenbank](/docs/server-database).
+
+**Beobachtbarkeit** (`/observability`) ist dasselbe konfigurationsfreie `ObservabilityDashboard`, das jede Vorlage erhält. Es zeigt Traces, Kosten, Evals und Feedback für jeden Agentenlauf, berechnet aus Daten, die bereits in Ihrer eigenen Datenbank liegen. Siehe [Agent-Observability](/docs/observability).
+
+**Erweiterungen** sind isolierte Alpine.js-Mini-Apps. Chat bindet die Routen ein, die sie anzeigen und ausführen (`/extensions/:id`), und leitet `/extensions` auf `/settings/extensions` weiter. Chat lässt Erweiterungen an zwei Stellen ausgeschaltet. Die Einstellungsseite erscheint nur, wenn `app/routes/settings.tsx` `extensionTools: true` an `useAgentSettingsTabs()` übergibt. Der Agent kann Erweiterungen erst erstellen, wenn `frameworkTools.extensions` in `server/plugins/agent-chat.ts` eingeschaltet ist. Was sie können und was nicht, erfahren Sie unter [Erweiterungen](/docs/extensions).
+
+## Anpassen {#customizing}
+
+Jeder Teil der App ist bearbeitbarer Quellcode. Beginnen Sie hier:
+
+- `actions/`: Fügen Sie eine neue Datei mit `defineAction` hinzu, um eine neue Aktion sowohl dem Agenten als auch dem Frontend zur Verfügung zu stellen.
+- `app/routes/`: die Oberfläche. Fügen Sie eine Routendatei hinzu, um eine Seite einzubinden.
+- `server/db/schema.ts`: Fügen Sie mit Drizzle eigene Tabellen hinzu, sobald Ihnen die Kerntabellen nicht mehr genügen. Halten Sie den Code PostgreSQL-spezifisch, damit lokales PGlite und gehostetes Postgres dieselbe Semantik verwenden.
+- `AGENTS.md`: Agentenanweisungen. Aktualisieren Sie dies, wenn Sie dem Agenten neue Aktionen oder Konventionen beibringen.
+- `.agents/skills/`: detaillierte Muster, denen der Agent folgt.
+
+Wenn Sie eine Funktion hinzufügen, denken Sie daran, alle vier Bereiche zu aktualisieren: UI, Aktion, Skill- oder `AGENTS.md`-Eintrag und jeden Anwendungsstatus, den der Agent sehen muss. Das ist es, was den Agenten und die Oberfläche in Einklang hält.
+
+### Die Chat-Route {#chat-route}
+
+`app/components/chat/ChatRouteContent.tsx` rendert den Vollseiten-Chat unter `/chat/<threadId>`. Die Chatoberfläche wird aus AgentKit-Bausteinen zusammengesetzt: einem Transport, einer Thread-Wurzel und der Chatansicht. Ihre Texte stammen aus i18n-Schlüsseln statt aus Literalen. Die echte Datei ist länger. Dies ist der Teil, den Sie am häufigsten bearbeiten.
+
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/components/chat/ChatRouteContent.tsx (gekürzt)"
+  filename="app/components/chat/ChatRouteContent.tsx"
+  language="tsx"
+  code={
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "15-21",
+      label: "Transport",
+      note: "`createAgentNativeAgentKitTransport` verbindet die Chatansicht mit der Agentenlaufzeit der App. `TAB_ID` (`app/lib/tab-id.ts`, eine zufällige ID, die einmal pro Browser-Tab erzeugt wird) lässt die Laufzeit geöffnete Tabs derselben App unterscheiden, sodass ein in einem Tab gestarteter Lauf nicht mit einem in einem anderen verwechselt wird.",
+    },
+    {
+      lines: "25-30",
+      label: "Thread-Wurzel",
+      note: "`CoreAgentKitRoot` lädt den Thread, der in `/chat/:threadId` genannt ist (`chat.$threadId.tsx`). Der Aufruf von `/chat` erzeugt eine neue Thread-ID und übergibt hierher. Wenn ein Thread verzweigt wird, verschiebt `chatThreadPath` die URL auf den neuen Thread.",
+    },
+    {
+      lines: "29",
+      label: "Slots",
+      note: "Slots ersetzen Teile der Chatansicht. Die echte Datei übergibt außerdem die Slots `message`, `runFailure`, `connectionRequest` und `footer` für Wiederherstellungsnachrichten, MCP-Verbindungskarten und die Agent-Fußzeile.",
+    },
+    {
+      lines: "32-35",
+      label: "Zentrierter Composer",
+      note: '`emptyComposerPlacement="center"` zentriert den Composer, bis der Thread eine Nachricht hat. `requireAgentEngine` zeigt die Karte „Connect AI“ an, bis ein Modell verbunden ist.',
+    },
+    {
+      lines: "40-47",
+      label: "Leerzustand",
+      note: "Die Überschrift über dem zentrierten Composer. Ihr Text ist `chat.heroTitle` in `app/i18n/en-US.ts`: Bearbeiten Sie den Katalog, um den Pitch zu ändern, oder fügen Sie hier Elemente hinzu.",
+    },
+  ]}
+/>
+
+### Ein eigenes Agent-Backend verwenden {#own-agent-backend}
+
+Die Vorlage verwendet standardmäßig die integrierte App-Agent-Schleife. Um ein eigenes Backend anzubinden, tauschen Sie die Chat-Laufzeit hinter dem Agent-Chat-Plugin aus, statt die UI neu zu schreiben. Die Chat-Route sollte ein schlanker Renderer um die gemeinsame Chatoberfläche bleiben, und die Wahl des Backends gehört in das Server-Plugin und den Laufzeitadapter.
+
+Nutzen Sie dies, wenn Ihre Modellorchestrierung bereits anderswo liegt, Sie aber trotzdem eine App mit Authentifizierung, Threads, Aktionen, UI-Status und bereitstellbaren Seiten möchten. Die Laufzeitoptionen finden Sie unter [Native Chat-UI](/docs/native-chat-ui#byo-agent-runtimes).
+
+## Ihre erste Funktion hinzufügen {#first-feature}
+
+Die meisten ersten Funktionen folgen derselben Form: eine Tabelle, eine oder zwei Aktionen, eine Seite, ein Navigationseintrag und eine Aktualisierung von `AGENTS.md`. Dieser Abschnitt baut eine Notizfunktion in vier Teilen auf, mit dem vollständigen Code für jede Datei. Sie können den Agenten auch bitten, alles zu erledigen:
+
+> Add a data model for `notes`. A note has an id, title, body, and owner. Render a notes page at `/notes`, add create/list actions, and keep chat able to create notes.
+
+### 1. Die Datenschicht hinzufügen
+
+Chat wird ohne Ordner `server/db` ausgeliefert, daher sind alle drei Dateien hier neu.
+
+Das Schema definiert die Tabellen. `ownableColumns()` fügt die Spalten für Eigentümer, Organisation und Sichtbarkeit hinzu, und `createSharesTable()` fügt eine passende Tabelle für die Freigabe hinzu.
+
+```ts filename="server/db/schema.ts"
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
+import {
+  createSharesTable,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+export const notes = pgTable("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
+  ...ownableColumns(),
+});
+
+export const noteShares = createSharesTable("note_shares");
+```
+
+Der Datenbank-Client stellt Ihren Aktionen `getDb()` bereit und registriert Notizen im Freigabesystem. Notizen haben keine Detailseite, daher verweisen Freigabelinks auf die Liste.
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+
+registerShareableResource({
+  type: "note",
+  resourceTable: schema.notes,
+  sharesTable: schema.noteShares,
+  displayName: "Note",
+  titleColumn: "title",
+  getResourcePath: () => "/notes",
+  getDb,
+});
+```
+
+Die Migration erstellt die Tabellen beim Start der App. Fügen Sie für spätere Änderungen neue Einträge hinzu und bearbeiten Sie niemals einen, der bereits gelaufen ist.
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "notes",
+      sql: `CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now()),
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  org_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private'
+);
+CREATE TABLE IF NOT EXISTS note_shares (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (now()),
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_owner_org_idx ON notes (owner_email, org_id, created_at);
+CREATE INDEX IF NOT EXISTS note_shares_resource_idx ON note_shares (resource_id, principal_type, principal_id)`,
+    },
+  ],
+  { table: "notes_app_migrations" },
+);
+```
+
+### 2. Die Aktionen hinzufügen
+
+Jede Aktion ist eine Datei in `actions/`, und der Dateiname wird zum Werkzeugnamen. Der Agent und Ihre Seite rufen dieselben zwei Aktionen auf.
+
+`create-note` hält den angemeldeten Nutzer als Eigentümer fest. Die Notiz ist für die Organisation sichtbar, wenn eine aktiv ist, andernfalls nur für ihren Ersteller.
+
+```ts filename="actions/create-note.ts"
+import { defineAction, fail } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description:
+    "Create a note with a title and body. It is visible to the organization when one is active, otherwise only to its creator.",
+  schema: z.object({
+    title: z.string().min(1).describe("Short title for the note"),
+    body: z.string().describe("Full text of the note"),
+  }),
+  run: async (args, ctx) => {
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create notes.", { statusCode: 401 });
+    const orgId = ctx?.orgId ?? null;
+    const note = {
+      id: crypto.randomUUID(),
+      title: args.title,
+      body: args.body,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? ("org" as const) : ("private" as const),
+    };
+    await getDb().insert(schema.notes).values(note);
+    return { id: note.id, title: note.title };
+  },
+});
+```
+
+`list-notes` ist schreibgeschützt, und `accessFilter` beschränkt die Ergebnisse auf Notizen, die der aktuelle Nutzer sehen darf.
+
+```ts filename="actions/list-notes.ts"
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the notes the current user can see, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async () => {
+    const { notes, noteShares } = schema;
+    const rows = await getDb()
+      .select({
+        id: notes.id,
+        title: notes.title,
+        body: notes.body,
+        createdAt: notes.createdAt,
+      })
+      .from(notes)
+      .where(accessFilter(notes, noteShares))
+      .orderBy(desc(notes.createdAt))
+      .limit(200);
+    return { notes: rows };
+  },
+});
+```
+
+Eine neue Aktion ist für den Chat aufrufbar, sobald sie existiert. Siehe [Was das Modell zuerst sieht](#initial-tools), wenn Sie sie im Standard-Werkzeugsatz des Modells haben möchten.
+
+### 3. Die Seite und den Seitenleisten-Link hinzufügen
+
+Die App verwendet dateisystembasiertes Routing, sodass das Hinzufügen dieser Datei `/notes` einbindet. Die Seite ruft mit `useActionQuery()` und `useActionMutation()` dieselben Aktionen auf wie der Agent, und eine erfolgreiche Mutation aktualisiert die Liste von selbst.
+
+```tsx filename="app/routes/notes.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APP_TITLE } from "@/lib/app-config";
+
+export function meta() {
+  return [{ title: `Notes - ${APP_TITLE}` }];
+}
+
+export default function NotesRoute() {
+  useSetPageTitle("Notes");
+  const { data, isLoading } = useActionQuery("list-notes");
+  const createNote = useActionMutation("create-note", {
+    onError: (error) => toast.error(error.message),
+  });
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    createNote.mutate(
+      { title, body },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setBody("");
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <Input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Title"
+          required
+        />
+        <Input
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Write a note"
+        />
+        <Button type="submit" disabled={createNote.isPending}>
+          Add note
+        </Button>
+      </form>
+      <ul className="flex flex-col gap-2">
+        {isLoading && (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </>
+        )}
+        {data?.notes.map((note) => (
+          <li key={note.id} className="rounded-lg border p-3">
+            <p className="font-medium">{note.title}</p>
+            <p className="text-sm text-muted-foreground">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+Fügen Sie in `app/components/layout/Sidebar.tsx` `IconNotes` zum bestehenden Import aus `@tabler/icons-react` hinzu. Fügen Sie dann diese Komponente unterhalb von `HomeNavLink` ein. Sie folgt demselben Muster, einschließlich der eingeklappten Seitenleiste.
+
+```tsx filename="app/components/layout/Sidebar.tsx"
+function NotesNavLink({ collapsed }: { collapsed: boolean }) {
+  const location = useLocation();
+  const active = location.pathname.startsWith("/notes");
+  const link = (
+    <Link
+      to="/notes"
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? "Notes" : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconNotes className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>Notes</span>
+    </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">Notes</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
+}
+```
+
+Rendern Sie sie dann im `<nav>` der Seitenleiste, vor der Thread-Liste:
+
+```diff filename="app/components/layout/Sidebar.tsx"
+ <HomeNavLink collapsed={collapsed} />
++<NotesNavLink collapsed={collapsed} />
+ <ChatThreadsSection collapsed={collapsed} />
+```
+
+Die eigenen Beschriftungen von Chat stammen aus Übersetzungsdateien, daher ist das Literal „Notes“ eine Abkürzung. Wenn Ihre App lokalisiert ist, fügen Sie Schlüssel zu `app/i18n/en-US.ts` hinzu und lesen Sie sie stattdessen mit `useT()`. Siehe [Internationalisierung](/docs/internationalization).
+
+### 4. Dem Agenten davon erzählen
+
+`app/hooks/use-navigation-state.ts` meldet dem Agenten die aktuelle Ansicht und ordnet Ansichtsnamen wieder Pfaden zu. Ohne diese beiden Änderungen sieht der Agent die Seite Notes als `chat`, und „open Notes“ kann nicht dorthin navigieren.
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function viewForPath(pathname: string): string {
+   if (isChatPathname(pathname)) return "chat";
+   if (pathname === HOME_PATH) return "home";
++  if (pathname.startsWith("/notes")) return "notes";
+```
+
+```diff filename="app/hooks/use-navigation-state.ts"
+ function pathForView(view?: string): string {
+   switch (view) {
+     case "home":
+       return HOME_PATH;
++    case "notes":
++      return "/notes";
+```
+
+Hängen Sie dann einen kurzen Abschnitt an `AGENTS.md` an, damit der Agent weiß, dass es Notizen gibt und welche Aktionen sie verwalten. Halten Sie ihn kurz, denn der Laufzeit-Prompt schneidet die Datei bei 6.000 Zeichen ab.
+
+```md filename="AGENTS.md"
+## Notes
+
+Notes live at `/notes`. Each note has a title and a body. A note is visible to
+the organization when one is active and private to its creator otherwise.
+
+`navigation` reports `view: "notes"` while the page is open.
+
+| Action        | Purpose                             |
+| ------------- | ----------------------------------- |
+| `list-notes`  | List the notes the user can see     |
+| `create-note` | Create a note with a title and body |
+```
+
+Starten Sie `pnpm dev` neu, damit die neuen Aktionen und die Migration geladen werden. Fügen Sie dann auf der Seite **Notes** eine Notiz hinzu und bitten Sie einen Chat: „Create a note called Groceries with milk and eggs“. Beide Notizen stehen in der Liste.
+
+## Wie geht es weiter?
+
+- [**Chat**](/docs/template-chat): was standardmäßig mitgeliefert wird und für wen es gedacht ist
+- [**Funktionen**](/docs/template-chat-features): Konversationen, die Beispielaktion, Teams und Admin-Seiten
+- [**Aktionen**](/docs/actions-overview): das Aktionssystem, auf dem diese Vorlage aufbaut
+- [**Native Chat-UI**](/docs/native-chat-ui): Bausteine der Chatoberfläche und Laufzeitoptionen
+- [**Datenbank**](/docs/server-database): PostgreSQL anbinden und das Datenmodell des Frameworks
+- [**Agent-Observability**](/docs/observability): was das Dashboard erfasst und wie
+- [**Erweiterungen**](/docs/extensions): Mini-Apps innerhalb einer Vorlage bauen
+- [**Authentifizierung**](/docs/authentication): Sitzungen, Organisationen und geschützte Routen

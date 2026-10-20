@@ -12,6 +12,12 @@ import { z } from "zod";
 import { assertWorkspaceConnectionDeleteManager } from "./connection-permissions.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   description: "Delete a shared workspace integration connection.",
   chatUI: {
     renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -21,6 +27,10 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Workspace connection ID to delete."),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async ({ id }, ctx) => {
     const connection = await getWorkspaceConnection(id);
     if (!connection) {

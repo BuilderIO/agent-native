@@ -74,9 +74,11 @@ describe("GettingStartedPathsBlock", () => {
     const launchBuilder = screen.getByRole("link", {
       name: "Launch Builder",
     });
-    expect(launchBuilder.getAttribute("href")).toBe(
-      "https://builder.io/signup?initialPrompt=true&useFusion=true",
+    const launchUrl = new URL(launchBuilder.getAttribute("href") ?? "");
+    expect(launchUrl.searchParams.get("initialPrompt")).toBe(
+      "Create a new Agent-Native app.",
     );
+    expect(launchUrl.searchParams.get("useFusion")).toBe("true");
     expect(screen.getByText("Prompt away")).toBeTruthy();
     expect(
       screen.getByText(

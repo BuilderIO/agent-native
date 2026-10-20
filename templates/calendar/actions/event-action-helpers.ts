@@ -21,10 +21,6 @@ export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
 
-export function rawCliBoolean(value: unknown): boolean {
-  return value === true || value === "true";
-}
-
 export const eventTypeInput = z
   .enum(["default", "outOfOffice", "focusTime", "workingLocation"])
   .optional();

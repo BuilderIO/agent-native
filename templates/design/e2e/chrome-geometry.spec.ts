@@ -63,6 +63,20 @@ const WIDE_SCREENSHOT = path.join(
   "design-chrome-geometry-320.png",
 );
 
+test("Layers search toggles open and closed from the heading", async ({
+  app,
+}) => {
+  await app.open(await app.seed(CHROME_FIXTURE));
+  const search = app.page.locator('[data-layers-panel-action="search"]');
+  const input = app.page.getByPlaceholder("Search layers...");
+
+  await expect(input).toHaveCount(0);
+  await search.click();
+  await expect(input).toBeVisible();
+  await search.click();
+  await expect(input).toBeHidden();
+});
+
 async function postAction(
   page: Page,
   name: string,
@@ -293,8 +307,8 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
   );
   expect(fillGeometry.height).toBeCloseTo(hugGeometry.height, 1);
   expect(fillGeometry.y - hugGeometry.y).toBeCloseTo(hugGeometry.height, 0);
-  expect(hugGeometry.styles["padding-top"]).toBe("6px");
-  expect(hugGeometry.styles["padding-bottom"]).toBe("6px");
+  expect(hugGeometry.styles["padding-top"]).toBe("4px");
+  expect(hugGeometry.styles["padding-bottom"]).toBe("4px");
   expect(
     Number.parseFloat(hugGeometry.styles["line-height"]),
   ).toBeGreaterThanOrEqual(12);
@@ -417,20 +431,21 @@ async function assertLeftPanelWidth(page: Page): Promise<void> {
   );
   const width = async () =>
     (await readGeometry(leftPanel, ["width"])).styles.width;
-  expect(await width()).toBe("240px");
+  expect(await width()).toBe("280px");
   await dragLeftPanelBy(page, 9);
-  await expect.poll(width).toBe("248px");
+  await expect.poll(width).toBe("288px");
   await dragLeftPanelBy(page, 1000);
   await expect.poll(width).toBe("416px");
   await dragLeftPanelBy(page, -1000);
   await expect.poll(width).toBe("232px");
 }
 
-// fixme: fails in CI on current main: Test timeout of 90000ms exceeded.
-test.fixme("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
+test("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
   app,
   page,
 }) => {
+  // Opens or reloads the editor several times; each cold open takes ~12 s on CI runners.
+  test.setTimeout(180_000);
   await mkdir(ARTIFACT_DIR, { recursive: true });
   const designId = await app.seed(CHROME_FIXTURE, { title: "Chrome geometry" });
   await gotoEditor(page, designId);

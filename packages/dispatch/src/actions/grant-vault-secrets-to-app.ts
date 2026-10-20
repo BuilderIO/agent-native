@@ -17,5 +17,9 @@ export default defineAction({
       .max(100)
       .describe("Vault secret IDs to grant to the app"),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => grantSecretsToApp(args.secretIds, args.appId),
 });

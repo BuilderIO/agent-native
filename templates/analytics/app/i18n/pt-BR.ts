@@ -70,6 +70,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
     sigmaNoConnection: "O Sigma não está conectado",
+    sigmaApiRegion: "Região da API do Sigma",
+    sigmaOAuthConnect: "Conectar conta pessoal do Sigma",
+    sigmaOAuthAddAnother: "Conectar outra conta do Sigma",
+    sigmaOAuthCancel: "Cancelar",
+    sigmaOAuthDescription:
+      "Entre no Sigma com sua conta para ver as pastas de trabalho às quais você tem acesso.",
     sigmaClientId: "ID do cliente",
     sigmaClientSecret: "Segredo do cliente",
     sigmaBaseUrl: "URL base da API (opcional)",
@@ -83,7 +89,7 @@ export default {
     sigmaCredentialsRequired:
       "Salve primeiro o ID e o segredo do cliente Sigma.",
     sigmaBaseUrlInvalid:
-      "Use uma URL HTTPS da API do Sigma em um domínio sigmacomputing.com.",
+      "Escolha a URL de uma região oficial compatível da API do Sigma.",
     sigmaPersistenceUnavailable:
       "O Analytics não pode salvar a conexão do Sigma com segurança agora. Tente novamente.",
     sigmaPolicyInvalid:
@@ -98,7 +104,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Não foi possível ler as credenciais do Sigma salvas no Analytics. Um administrador da organização pode reconectar no Dispatch ou inserir as credenciais novamente no Analytics.",
     sigmaNoConnectionDescription:
-      "Insira as credenciais aqui para criar uma conexão exclusiva do Analytics. As conexões do Sigma concedidas ao Analytics no Dispatch aparecem aqui automaticamente; somente administradores da organização podem salvar credenciais diretamente.",
+      "Conecte sua conta pessoal do Sigma ou use as credenciais salvas por um administrador da organização. As conexões do Dispatch concedidas ao Analytics também aparecem aqui.",
     sigmaOpenDispatch: "Conectar no Dispatch",
     sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
@@ -106,68 +112,20 @@ export default {
     sigmaRetryConnection: "Verifique a conexão e tente novamente.",
     sigmaRetry: "Tentar novamente",
     sigmaNoWorkbooks: "Nenhuma pasta de trabalho do Sigma está disponível.",
-    sigmaWorkbook: "Pasta de trabalho",
-    sigmaChooseWorkbook: "Escolha uma pasta de trabalho",
-    sigmaStatusNotImported: "Não importado",
-    sigmaStatusImporting: "Importando",
-    sigmaStatusImported: "Importado",
-    sigmaStatusFailed: "Falha na importação",
+    sigmaSearchWorkbooks: "Pesquisar pastas de trabalho…",
+    sigmaNoMatchingWorkbooks: "Nenhuma pasta de trabalho correspondente",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "Nenhuma pasta de trabalho correspondente carregada ainda. Carregue mais pastas de trabalho para pesquisar o restante.",
+    sigmaOpenMigratedDashboard: "Abrir o painel importado em uma nova aba",
+    sigmaOwnedBy: "Proprietário",
+    sigmaMigratingTooltip: "Sendo migrado por {{name}}",
+    sigmaMigrate: "Migrar",
+    sigmaMigrateComingSoon: "Em breve",
     sigmaArchived: "Arquivado",
-    sigmaPreviewTitle: "Conteúdo da pasta de trabalho",
-    sigmaPreviewFailed: "Não foi possível visualizar esta pasta de trabalho",
-    sigmaRetryPreview: "Tente carregar a prévia da pasta novamente.",
-    sigmaImportableCount: "{{count}} importáveis",
-    sigmaUnsupportedCount: "{{count}} sem suporte",
-    sigmaImportable: "Importável",
-    sigmaUnsupported: "Sem suporte",
-    sigmaNoElements: "Nenhum elemento foi encontrado nesta pasta de trabalho.",
-    sigmaPreviewOnly:
-      "Por enquanto, somente visualização: o Sigma não fornece um mapeamento de projeto do BigQuery que o Analytics possa verificar. A importação ficará desativada até que esse mapeamento esteja disponível.",
-    sigmaPreviewTruncated: "Exibindo {{shown}} de {{total}} elementos.",
-    sigmaImportWorkbook: "Importar pasta de trabalho",
-    sigmaImporting: "Importando pasta de trabalho…",
-    sigmaImportInProgress:
-      "A importação desta pasta de trabalho já está em andamento.",
-    sigmaMigrationFailed:
-      "Não foi possível importar esta pasta de trabalho. Tente novamente.",
-    sigmaMigrationResultInvalid:
-      "A resposta da importação estava incompleta. Atualize a lista de pastas de trabalho para verificar o status.",
-    sigmaImportComplete: "Painel criado",
-    sigmaImportSummary:
-      "{{imported}} elementos importados; os {{unsupported}} elementos sem suporte foram mantidos como avisos para revisão.",
-    sigmaAlreadyImported: "Esta pasta de trabalho já foi importada.",
-    sigmaImportedNoDashboard:
-      "O painel foi importado, mas não pode ser aberto por esta conta.",
-    sigmaReviewRequiredCount: "{{count}} precisam de revisão",
-    sigmaBetaRepresentationWarning:
-      "Esta importação beta pode representar algumas visualizações de forma diferente do Sigma.",
-    sigmaReasonUnsupportedElement:
-      "Este tipo de elemento não é compatível com a importação.",
-    sigmaReasonUnsupportedSource:
-      "Este elemento usa uma fonte que não é compatível com a importação.",
-    sigmaReasonSourceMappingRequired:
-      "O Sigma não fornece um mapeamento de projeto BigQuery que o Analytics possa verificar, então este SQL ainda não pode ser importado.",
-    sigmaReasonSourceUnavailable:
-      "O Sigma não permitiu acesso a esta conexão de origem. Verifique as permissões.",
-    sigmaReasonQueryUnavailable:
-      "O Sigma não retornou uma consulta importável para este elemento.",
-    sigmaReasonUnsafeSql:
-      "Este padrão de consulta não pode ser importado com segurança.",
-    sigmaReasonVisualizationReview:
-      "Os dados podem ser importados, mas confira a visualização depois.",
-    sigmaRetryOwnerOnly:
-      "Somente quem iniciou esta importação pode tentar novamente.",
-    sigmaImportedByTeammate: "Importado por um colega da equipe",
-    sigmaFlaggedCount: "{{count}} marcados para revisão",
     sigmaMoreWorkbooksFailed:
       "Não foi possível carregar mais pastas de trabalho",
     sigmaLoadingMore: "Carregando pastas de trabalho…",
     sigmaLoadMore: "Carregar mais pastas de trabalho",
-    sigmaOpenDashboard: "Abrir painel",
-    sigmaReviewWithAgent: "Revisar com o agente",
-    sigmaReviewContext: "Painel importado do Sigma",
-    sigmaReviewPrompt:
-      "Revise o painel importado do Sigma {{name}}. Confira os painéis importados e os elementos sem suporte e sugira correções.",
   },
   sidebar: {
     collapseSidebar: "Recolher barra lateral",
@@ -647,6 +605,7 @@ export default {
     notConnected: "Não conectado",
     needsReauth: "Reautenticação necessária",
     error: "Erro",
+    unknown: "Desconhecido",
     indexNotImported: "Nenhum índice gerado foi importado.",
     indexUnreadable:
       "Não foi possível ler o índice salvo. Envie um índice válido.",
@@ -736,6 +695,48 @@ export default {
       "Não foi possível verificar se já existem itens para esta métrica.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Cliques e impressões diários por página para a visualização de conteúdo.",
+      serviceAccount: "Conta de serviço",
+      copyEmail: "Copiar e-mail",
+      grantHint:
+        "Adicione este e-mail como usuário em cada propriedade no Search Console, em Configurações → Usuários e permissões.",
+      noServiceAccount:
+        "Adicione primeiro uma chave de conta de serviço do Google.",
+      openGoogleCloud: "Abrir Google Cloud",
+      invalidServiceAccount:
+        "Não é possível ler a chave de conta de serviço salva.",
+      properties: "Propriedades",
+      siteLabel: "Propriedade",
+      pathLabel: "Prefixo do caminho",
+      pathInvalid: "O prefixo do caminho deve começar com /.",
+      addProperty: "Adicionar propriedade",
+      removeProperty: "Remover propriedade",
+      save: "Salvar",
+      collectDaily: "Coletar diariamente",
+      adminOnly:
+        "Somente proprietários e administradores da organização podem alterar isso.",
+      statusCollecting: "Coletando",
+      statusNeedsAccess: "Precisa de acesso",
+      statusFailed: "A última execução falhou",
+      runSucceeded: "Coletado {{when}}",
+      runNeedsAccess: "Sem acesso em {{when}}",
+      runRunning: "Coletando desde {{when}}",
+      runFailed: "Falhou {{when}}",
+      unavailable: "Status da coleta indisponível: {{message}}",
+      keyUnreadable:
+        "Não foi possível ler a chave de conta de serviço salva. Salve-a novamente em Google Cloud.",
+      propertyBareDomain:
+        "Para uma propriedade de domínio, use {{suggestion}}.",
+      propertyInvalidDomain:
+        "Depois de sc-domain: vem só o domínio, como em {{suggestion}}.",
+      propertyMissingSlash:
+        "Propriedades de prefixo de URL terminam em /. Use {{suggestion}}.",
+      propertyUnrecognized:
+        "Use sc-domain:example.com ou uma propriedade de prefixo de URL terminada em /.",
+    },
     uploadFile: "Carregar arquivo",
     googleSheetsExport: "Exportação para o Google Sheets",
     googleSheetsExportDescription:
@@ -834,6 +835,7 @@ export default {
     bigQueryHealthUnavailable:
       "Não foi possível verificar a pressão do Analytics primário. Recarregue antes de trocar o backend.",
     analyticsEventCount: "Eventos observados",
+    analyticsRecentEventCount: "Eventos observados (últimos 30 dias)",
     slowQueries24h: "Consultas lentas (24 h)",
     maxQueryDuration: "Tempo máximo da consulta",
     defaultKeyName: "Modelos hospedados",
@@ -1242,6 +1244,8 @@ export default {
       "Adicione um evento e selecione-o para ver os resultados",
     queryError: "Query error: {{message}}",
     noDataReturned: "Nenhum dado retornado",
+    incompleteResultsWarning:
+      "Este resultado pode estar incompleto. Linhas ou dados de origem ausentes podem afetar os totais.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrar por",
     pickPropertyToFilter: "Escolha uma propriedade para filtrar",
@@ -1324,6 +1328,13 @@ export default {
     viewOnly: "Você tem acesso somente visualização a este painel.",
     saveFailed: "Não foi possível salvar o painel",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: 'Custo do BigQuery de "{{title}}"',
+    panelCostOverTitle: 'Atualizar "{{title}}" é caro',
+    panelCostScheduled:
+      "~{{size}} lidos · {{perRun}} por atualização · ~{{perMonth}}/mês em relatórios por e-mail",
+    panelCostUnscheduled:
+      "~{{size}} lidos · {{perRun}} por atualização · sem relatórios por e-mail",
+    panelCostOverHint: "Um período menor ou menos colunas leem menos dados.",
     archived: 'Painel "{{name}}" arquivado',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Não foi possível arquivar o painel",
@@ -1332,6 +1343,10 @@ export default {
     dashboardActions: "Detalhes e ações do painel",
     certifyForAi: "Certificar para consultas de IA",
     certifiedForAi: "Certificado para consultas de IA",
+    duplicateToCustomize: "Duplicar para personalizar",
+    duplicateToCustomizeHint:
+      "Os painéis integrados são atualizados a cada versão do Analytics. Crie sua própria cópia para alterar este.",
+    duplicateFailed: "Não foi possível duplicar este painel.",
     certificationSaved: "Dashboard certificado para consultas de IA",
     certificationFailed: "Não foi possível certificar o dashboard: {{message}}",
     details: "Details",
@@ -1366,6 +1381,23 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    drilldownChartPoints: "Pontos do gráfico",
+    drilldownPreviousPage: "Página anterior dos pontos do gráfico",
+    drilldownNextPage: "Página seguinte dos pontos do gráfico",
+    drilldownPageRange: "Exibindo {{start}}–{{end}} de {{total}}",
+    drilldownFilterRows: "Filtrar linhas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Baixar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
+    drilldownCountMismatch:
+      "O gráfico mostra {{chart}}, mas {{total}} registros correspondem",
+    drilldownAggregateOnly:
+      "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
+    drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownLoadFailed: "Não foi possível carregar os registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
@@ -1443,6 +1475,24 @@ export default {
     columnShowHidden: "Mostrar colunas ocultas",
     columnName: "Nome da coluna",
     columnResize: "Redimensionar coluna",
+    rowBreakdownBy: "Detalhar por",
+    rowBreakdownAll: "Todos",
+    rowBreakdownOther: "Outros",
+    rowBreakdownOtherHint:
+      "Grupos menores e quem o SQL deste painel deixa de fora",
+    rowBreakdownSmallGroup: "Menos de {{count}}: leia as taxas com cautela",
+    rowBreakdownNoValue: "(nenhum)",
+    rowBreakdownEmpty: "Nenhuma linha para este detalhamento.",
+    rowBreakdownUnavailable:
+      "O SQL deste painel não tem detalhamento por {{column}}.",
+    rowBreakdownFromPanel: "Das linhas deste painel. Nada foi lido.",
+    rowBreakdownFromCache: "Do cache. Nada foi lido.",
+    rowBreakdownAlreadyLoaded: "Já carregado. Nada foi lido.",
+    rowBreakdownBytesRead: "{{bytes}} lidos",
+    rowBreakdownOverByteCap:
+      "Este detalhamento leria mais de {{gib}} GiB, então não foi executado. Restrinja os filtros ou o período do painel e tente de novo.",
+    rowBreakdownTruncated:
+      "O resultado foi cortado, então alguns grupos estão faltando ou contados em Outros.",
     deleteSectionTitle: "Excluir seção?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Excluir painel?",
@@ -2127,10 +2177,6 @@ export default {
     noMatches: "Nenhuma definição corresponde à busca.",
     searchPlaceholder: "Buscar definições",
     sourceIndex: "Índice de fontes",
-    statusApproved: "Aprovada",
-    statusSuggested: "Sugerida",
-    statusUnreviewed: "Não revisada",
-    unsourced: "Sem fonte",
   },
   indexPanel: {
     presetDaily: "Diariamente às 06:00",
@@ -2188,6 +2234,8 @@ export default {
     dbtAdminOnly:
       "Somente administradores da organização podem alterar esta conexão.",
     dbtReadFailed: "Não foi possível carregar a conexão com o dbt.",
+    dbtSeveralConnections:
+      "Várias conexões dbt estão concedidas ao Analytics, então este painel não pode editar nenhuma delas. Remova as conexões extras em Configurações → Integrações para manter apenas uma.",
     dbtSave: "Salvar conexão",
     dbtChecking: "Verificando",
     dbtSaveFailed: "Não foi possível salvar a conexão com o dbt.",

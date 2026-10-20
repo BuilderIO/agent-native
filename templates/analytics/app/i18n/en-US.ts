@@ -282,6 +282,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Choose the Sigma workspace to browse its workbooks.",
     sigmaNoConnection: "Sigma isn't connected",
+    sigmaApiRegion: "Sigma API region",
+    sigmaOAuthConnect: "Connect personal Sigma",
+    sigmaOAuthAddAnother: "Connect another Sigma account",
+    sigmaOAuthCancel: "Cancel",
+    sigmaOAuthDescription:
+      "Sign in to Sigma with your account to browse the workbooks you can access.",
     sigmaClientId: "Client ID",
     sigmaClientSecret: "Client secret",
     sigmaBaseUrl: "API base URL (optional)",
@@ -293,8 +299,7 @@ export default {
     sigmaCredentialStageFailed:
       "Couldn't securely stage the Sigma credentials. Check Vault access and try again.",
     sigmaCredentialsRequired: "Enter the Sigma client ID and client secret.",
-    sigmaBaseUrlInvalid:
-      "Use an HTTPS Sigma API URL on a sigmacomputing.com domain.",
+    sigmaBaseUrlInvalid: "Choose a supported official Sigma API region URL.",
     sigmaPersistenceUnavailable:
       "Analytics can't securely save the Sigma connection right now. Try again.",
     sigmaPolicyInvalid:
@@ -309,72 +314,26 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Couldn't read Analytics's saved Sigma credentials. An organization admin can reconnect in Dispatch or enter them again in Analytics.",
     sigmaNoConnectionDescription:
-      "Enter credentials here to create an Analytics-only connection. Dispatch connections granted to Analytics appear here automatically; only organization admins can save credentials directly.",
+      "Connect your personal Sigma account or use credentials saved by an organization admin. Dispatch connections granted to Analytics also appear here.",
     sigmaOpenDispatch: "Connect in Dispatch",
     sigmaOpenVault: "Open Vault",
     sigmaWorkbooksLoadFailed: "Couldn't load Sigma workbooks",
     sigmaRetryConnection: "Check the connection and try again.",
     sigmaRetry: "Retry",
     sigmaNoWorkbooks: "No Sigma workbooks are available.",
-    sigmaWorkbook: "Workbook",
-    sigmaChooseWorkbook: "Choose a workbook",
-    sigmaStatusNotImported: "Not imported",
-    sigmaStatusImporting: "Importing",
-    sigmaStatusImported: "Imported",
-    sigmaStatusFailed: "Import failed",
+    sigmaSearchWorkbooks: "Search workbooks…",
+    sigmaNoMatchingWorkbooks: "No matching workbooks",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "No matching workbooks loaded yet. Load more workbooks to search the rest.",
+    sigmaOpenMigratedDashboard: "Open the imported dashboard in a new tab",
+    sigmaOwnedBy: "Owned by",
+    sigmaMigratingTooltip: "Being migrated by {{name}}",
+    sigmaMigrate: "Migrate",
+    sigmaMigrateComingSoon: "Coming soon",
     sigmaArchived: "Archived",
-    sigmaPreviewTitle: "Workbook contents",
-    sigmaPreviewFailed: "Couldn't preview this workbook",
-    sigmaRetryPreview: "Try again to load the workbook preview.",
-    sigmaImportableCount: "{{count}} importable",
-    sigmaUnsupportedCount: "{{count}} unsupported",
-    sigmaImportable: "Importable",
-    sigmaUnsupported: "Unsupported",
-    sigmaNoElements: "No workbook elements were found.",
-    sigmaPreviewOnly:
-      "Preview only for now: Sigma does not expose a BigQuery project mapping Analytics can verify, so importing is disabled until that mapping is available.",
-    sigmaPreviewTruncated: "Showing {{shown}} of {{total}} elements.",
-    sigmaImportWorkbook: "Import workbook",
-    sigmaImporting: "Importing workbook…",
-    sigmaImportInProgress:
-      "An import for this workbook is already in progress.",
-    sigmaMigrationFailed: "Couldn't import this workbook. Try again.",
-    sigmaMigrationResultInvalid:
-      "The import response was incomplete. Reload the workbook list to check its status.",
-    sigmaImportComplete: "Dashboard created",
-    sigmaImportSummary:
-      "{{imported}} elements imported; {{unsupported}} unsupported elements retained as review callouts.",
-    sigmaAlreadyImported: "This workbook has already been imported.",
-    sigmaImportedNoDashboard:
-      "The imported dashboard isn't available to open from this account.",
-    sigmaReviewRequiredCount: "{{count}} need review",
-    sigmaBetaRepresentationWarning:
-      "This beta import may represent some visualizations differently from Sigma.",
-    sigmaReasonUnsupportedElement:
-      "This element type is not supported for import.",
-    sigmaReasonUnsupportedSource:
-      "This element uses a source that is not supported for import.",
-    sigmaReasonSourceMappingRequired:
-      "Sigma doesn't expose a BigQuery project mapping Analytics can verify, so this SQL can't be imported yet.",
-    sigmaReasonSourceUnavailable:
-      "Sigma didn't allow access to this source connection. Check its permissions.",
-    sigmaReasonQueryUnavailable:
-      "Sigma did not return an importable query for this element.",
-    sigmaReasonUnsafeSql: "This query pattern cannot be imported safely.",
-    sigmaReasonVisualizationReview:
-      "The data can be imported, but verify its visualization after import.",
-    sigmaRetryOwnerOnly:
-      "Only the person who started this import can retry it.",
-    sigmaImportedByTeammate: "Imported by a teammate",
-    sigmaFlaggedCount: "{{count}} flagged for review",
     sigmaMoreWorkbooksFailed: "Could not load more workbooks",
     sigmaLoadingMore: "Loading workbooks…",
     sigmaLoadMore: "Load more workbooks",
-    sigmaOpenDashboard: "Open dashboard",
-    sigmaReviewWithAgent: "Review with agent",
-    sigmaReviewContext: "Imported Sigma dashboard",
-    sigmaReviewPrompt:
-      "Review the imported Sigma dashboard {{name}}. Check the imported panels and unsupported elements, then suggest any corrections.",
   },
   sidebar: {
     collapseSidebar: "Collapse sidebar",
@@ -850,6 +809,8 @@ export default {
     addEventToSeeResults: "Add an event and select it to see results",
     queryError: "Query error: {{message}}",
     noDataReturned: "No data returned",
+    incompleteResultsWarning:
+      "This result may be incomplete. Missing rows or source data can affect totals.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filter by",
     pickPropertyToFilter: "Pick a property to filter",
@@ -931,6 +892,13 @@ export default {
     viewOnly: "You have view-only access to this dashboard.",
     saveFailed: "Couldn't save dashboard",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: 'BigQuery cost of "{{title}}"',
+    panelCostOverTitle: '"{{title}}" is expensive to refresh',
+    panelCostScheduled:
+      "~{{size}} scanned · {{perRun}} per refresh · ~{{perMonth}}/month in email reports",
+    panelCostUnscheduled:
+      "~{{size}} scanned · {{perRun}} per refresh · no email reports",
+    panelCostOverHint: "A narrower date range or fewer columns scans less.",
     archived: 'Archived "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "Couldn't archive dashboard",
@@ -939,6 +907,10 @@ export default {
     dashboardActions: "Dashboard details and actions",
     certifyForAi: "Certify for AI queries",
     certifiedForAi: "Certified for AI queries",
+    duplicateToCustomize: "Duplicate to customize",
+    duplicateToCustomizeHint:
+      "Built-in dashboards update when Analytics ships. Make your own copy to change this one.",
+    duplicateFailed: "Couldn't duplicate this dashboard.",
     certificationSaved: "Dashboard certified for AI queries",
     certificationFailed: "Couldn't certify dashboard: {{message}}",
     details: "Details",
@@ -972,6 +944,23 @@ export default {
     resetFilters: "Reset filters",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
+    drilldownChartPoints: "Chart points",
+    drilldownPreviousPage: "Previous page of chart points",
+    drilldownNextPage: "Next page of chart points",
+    drilldownPageRange: "Showing {{start}}–{{end}} of {{total}}",
+    drilldownFilterRows: "Filter rows",
+    drilldownShowSql: "Show SQL",
+    drilldownHideSql: "Hide SQL",
+    drilldownDownloadCsv: "Download CSV",
+    drilldownShowing: "Showing {{shown}} of {{total}} records",
+    drilldownCsvTruncated:
+      "Incomplete export: the query matched {{total}} records, but only the first {{loaded}} were loaded; this file includes {{exported}} after filtering.",
+    drilldownCountMismatch:
+      "The chart shows {{chart}}, but {{total}} records matched",
+    drilldownAggregateOnly:
+      "This panel only has aggregate rows. Rows matching the clicked point are highlighted.",
+    drilldownNoRecords: "No matching records",
+    drilldownLoadFailed: "Couldn't load records",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",
@@ -1044,6 +1033,23 @@ export default {
     columnShowHidden: "Show hidden columns",
     columnName: "Column name",
     columnResize: "Resize column",
+    rowBreakdownBy: "Break down by",
+    rowBreakdownAll: "All",
+    rowBreakdownOther: "Other",
+    rowBreakdownOtherHint:
+      "Smaller groups, and anyone this panel's SQL leaves out",
+    rowBreakdownSmallGroup: "Fewer than {{count}}: read rates with care",
+    rowBreakdownNoValue: "(none)",
+    rowBreakdownEmpty: "No rows for this breakdown.",
+    rowBreakdownUnavailable: "This panel's SQL has no breakdown by {{column}}.",
+    rowBreakdownFromPanel: "From this panel's rows. Nothing was read.",
+    rowBreakdownFromCache: "From cache. Nothing was read.",
+    rowBreakdownAlreadyLoaded: "Already loaded. Nothing was read.",
+    rowBreakdownBytesRead: "Read {{bytes}}",
+    rowBreakdownOverByteCap:
+      "This breakdown would read more than {{gib}} GiB, so it didn't run. Narrow the dashboard's filters or date range and try again.",
+    rowBreakdownTruncated:
+      "The result was cut off, so some groups are missing or counted in Other.",
     deleteSectionTitle: "Delete section?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Delete panel?",
@@ -1181,6 +1187,7 @@ export default {
     notConnected: "Not connected",
     needsReauth: "Needs reauth",
     error: "Error",
+    unknown: "Unknown",
     indexNotImported: "No generated index has been imported.",
     indexUnreadable: "The saved index could not be read. Upload a valid index.",
     indexReadFailed: "Index status could not be loaded.",
@@ -1268,6 +1275,44 @@ export default {
       "Couldn't check for existing entries with this metric.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Daily clicks and impressions per page for the Content view.",
+      serviceAccount: "Service account",
+      copyEmail: "Copy email",
+      grantHint:
+        "Add this email as a user on each property in Search Console, under Settings → Users and permissions.",
+      noServiceAccount: "Add a Google service account key first.",
+      openGoogleCloud: "Open Google Cloud",
+      invalidServiceAccount: "The saved service account key can't be read.",
+      properties: "Properties",
+      siteLabel: "Property",
+      pathLabel: "Path prefix",
+      pathInvalid: "Start the path prefix with /.",
+      addProperty: "Add property",
+      removeProperty: "Remove property",
+      save: "Save",
+      collectDaily: "Collect daily",
+      adminOnly: "Only organization owners and admins can change this.",
+      statusCollecting: "Collecting",
+      statusNeedsAccess: "Needs access",
+      statusFailed: "Last run failed",
+      runSucceeded: "Collected {{when}}",
+      runNeedsAccess: "No access as of {{when}}",
+      runRunning: "Collecting since {{when}}",
+      runFailed: "Failed {{when}}",
+      unavailable: "Collection status is unavailable: {{message}}",
+      keyUnreadable:
+        "Couldn't read the saved service account key. Re-save it under Google Cloud.",
+      propertyBareDomain: "For a Domain property, use {{suggestion}}.",
+      propertyInvalidDomain:
+        "Put only the domain after sc-domain:, as in {{suggestion}}.",
+      propertyMissingSlash:
+        "URL-prefix properties end in /. Use {{suggestion}}.",
+      propertyUnrecognized:
+        "Use sc-domain:example.com, or a URL-prefix property ending in /.",
+    },
     uploadFile: "Upload file",
     googleSheetsExport: "Google Sheets export",
     googleSheetsExportDescription:
@@ -1365,6 +1410,7 @@ export default {
     bigQueryHealthUnavailable:
       "We could not check first-party analytics pressure right now. Reload and try again before changing backends.",
     analyticsEventCount: "Observed events",
+    analyticsRecentEventCount: "Observed events (last 30 days)",
     slowQueries24h: "Slow queries (24h)",
     maxQueryDuration: "Max query time",
     defaultKeyName: "Hosted templates",
@@ -2067,10 +2113,6 @@ export default {
     noMatches: "No definitions match your search.",
     searchPlaceholder: "Search definitions",
     sourceIndex: "Source index",
-    statusApproved: "Approved",
-    statusSuggested: "Suggested",
-    statusUnreviewed: "Unreviewed",
-    unsourced: "No source",
   },
   indexPanel: {
     presetDaily: "Daily at 06:00",
@@ -2127,6 +2169,8 @@ export default {
     dbtDisabled: "Disabled",
     dbtAdminOnly: "Only organization admins can change this connection.",
     dbtReadFailed: "The dbt connection could not be loaded.",
+    dbtSeveralConnections:
+      "Several dbt connections are granted to Analytics, so this panel cannot edit one of them. Remove the extra connections in Settings → Integrations to keep one.",
     dbtSave: "Save connection",
     dbtChecking: "Checking",
     dbtSaveFailed: "The dbt connection could not be saved.",

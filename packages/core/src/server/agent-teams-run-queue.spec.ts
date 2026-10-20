@@ -1,7 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { withExecutionFence } from "../agent/execution-fence.js";
+
 let rows: Record<string, any>[] = [];
 let persistedEvents: Record<string, unknown>[] = [];
+let reclaimAfterClaimUpdate = false;
+let executionLease:
+  | {
+      threadId: string;
+      turnId: string;
+      runId: string;
+      generation: string;
+      expiresAt: number;
+    }
+  | undefined;
 
 function affected(n: number) {
   return { rows: [], rowsAffected: n };
@@ -16,8 +28,25 @@ const mockDb = {
     if (s.includes("CREATE TABLE") || s.includes("CREATE INDEX")) {
       return affected(0);
     }
+    if (
+      s.startsWith("SELECT generation") &&
+      s.includes("FROM agent_execution_leases")
+    ) {
+      const [threadId, turnId, runId, generation] = args;
+      const current =
+        executionLease &&
+        executionLease.threadId === threadId &&
+        executionLease.turnId === turnId &&
+        executionLease.runId === runId &&
+        executionLease.generation === String(generation) &&
+        executionLease.expiresAt > Date.now();
+      return {
+        rows: current ? [{ generation: executionLease!.generation }] : [],
+        rowsAffected: 0,
+      };
+    }
     if (s.includes("WITH current_attempt AS MATERIALIZED")) {
-      const [taskId, attempts, runId, seq, eventAt, eventData] = args;
+      const [taskId, attempts] = args;
       const row = rows.find((candidate) => candidate.task_id === taskId);
       const statuses = s.includes(
         "status IN ('queued', 'running', 'done', 'failed')",
@@ -26,8 +55,28 @@ const mockDb = {
         : ["running"];
       const isCurrent =
         row && row.attempts === attempts && statuses.includes(row.status);
+      const leaseBound = s.includes("current_execution_lease AS MATERIALIZED");
+      const leaseArgs = leaseBound ? args.slice(4, 8) : [];
+      const leaseCurrent =
+        !leaseBound ||
+        Boolean(
+          executionLease &&
+          executionLease.threadId === leaseArgs[0] &&
+          executionLease.turnId === leaseArgs[1] &&
+          executionLease.runId === leaseArgs[2] &&
+          executionLease.generation === String(leaseArgs[3]) &&
+          executionLease.expiresAt > Date.now() &&
+          row?.thread_id === args[2] &&
+          JSON.parse(String(row.payload)).turnId === args[3],
+        );
+      const eventOffset = leaseBound ? 8 : 2;
+      const [runId, seq, eventAt, eventData] = args.slice(
+        eventOffset,
+        eventOffset + 4,
+      );
       if (
         isCurrent &&
+        leaseCurrent &&
         !persistedEvents.some(
           (event) => event.runId === runId && event.seq === seq,
         )
@@ -35,8 +84,8 @@ const mockDb = {
         persistedEvents.push({ runId, seq, eventAt, eventData });
       }
       return {
-        rows: [{ is_current: Boolean(isCurrent) }],
-        rowsAffected: isCurrent ? 1 : 0,
+        rows: [{ is_current: Boolean(isCurrent && leaseCurrent) }],
+        rowsAffected: isCurrent && leaseCurrent ? 1 : 0,
       };
     }
     if (s.includes("INSERT INTO agent_team_run_queue")) {
@@ -84,7 +133,16 @@ const mockDb = {
         r.status = "running";
         r.attempts += 1;
         r.updated_at = updatedAt;
-        return affected(1);
+        const claimedRow = { ...r };
+        if (reclaimAfterClaimUpdate) {
+          reclaimAfterClaimUpdate = false;
+          r.attempts += 1;
+          r.updated_at = Date.now();
+        }
+        return {
+          rows: s.includes("RETURNING *") ? [claimedRow] : [],
+          rowsAffected: 1,
+        };
       }
       return affected(0);
     }
@@ -227,11 +285,7 @@ const mockDb = {
       const r = rows.find((x) => x.task_id === args[0]);
       return { rows: r ? [{ ...r }] : [], rowsAffected: 0 };
     }
-    if (
-      s.includes(
-        "SELECT status, attempts, updated_at FROM agent_team_run_queue",
-      )
-    ) {
+    if (s.includes("SELECT status, attempts, updated_at, thread_id, payload")) {
       const r = rows.find((x) => x.task_id === args[0]);
       return {
         rows: r
@@ -240,6 +294,8 @@ const mockDb = {
                 status: r.status,
                 attempts: r.attempts,
                 updated_at: r.updated_at,
+                thread_id: r.thread_id,
+                payload: r.payload,
               },
             ]
           : [],
@@ -265,6 +321,17 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 vi.mock("../agent/run-store.js", () => ({
   ensureRunTables: vi.fn().mockResolvedValue(undefined),
+  lockTaskExecutionLease: vi.fn().mockResolvedValue(undefined),
+  revokeTaskExecutionLease: vi.fn(
+    async (_tx: unknown, threadId: string, turnId: string) => {
+      if (
+        executionLease?.threadId === threadId &&
+        executionLease.turnId === turnId
+      ) {
+        executionLease.expiresAt = Date.now();
+      }
+    },
+  ),
 }));
 
 const queue = await import("./agent-teams-run-queue.js");
@@ -284,6 +351,8 @@ describe("agent_team_run_queue", () => {
   beforeEach(() => {
     rows = [];
     persistedEvents = [];
+    reclaimAfterClaimUpdate = false;
+    executionLease = undefined;
     queue._agentTeamRunQueueForTests.resetInit();
     vi.clearAllMocks();
   });
@@ -297,6 +366,20 @@ describe("agent_team_run_queue", () => {
 
     const second = await queue.claimAgentTeamRun("t1");
     expect(second).toBeNull();
+  });
+
+  it("returns the attempt from its atomic claim when another claimant reclaims immediately", async () => {
+    await enqueue("claim-snapshot");
+    reclaimAfterClaimUpdate = true;
+
+    const claimed = await queue.claimAgentTeamRun("claim-snapshot", {
+      stuckAfterMs: -1,
+    });
+
+    expect(claimed?.attempts).toBe(1);
+    expect(rows.find((row) => row.task_id === "claim-snapshot")?.attempts).toBe(
+      2,
+    );
   });
 
   it("returns null when claiming a missing run", async () => {
@@ -384,6 +467,42 @@ describe("agent_team_run_queue", () => {
     expect(writes).toBe(1);
   });
 
+  it("validates the active execution lease inside the attempt transaction", async () => {
+    await enqueue("lease-fenced-write");
+    const claimed = await queue.claimAgentTeamRun("lease-fenced-write");
+    if (!claimed) throw new Error("run was not claimed");
+    const fence = {
+      threadId: "thread-lease-fenced-write",
+      turnId: "run-task-lease-fenced-write",
+      runId: "worker-run-lease-fenced-write",
+      generation: "7",
+    };
+    executionLease = { ...fence, expiresAt: Date.now() + 60_000 };
+
+    let writes = 0;
+    await expect(
+      withExecutionFence(fence, () =>
+        queue.withCurrentAgentTeamRunAttempt(
+          "lease-fenced-write",
+          claimed.attempts,
+          async () => ++writes,
+        ),
+      ),
+    ).resolves.toEqual({ current: true, value: 1 });
+
+    executionLease.expiresAt = Date.now() - 1;
+    await expect(
+      withExecutionFence(fence, () =>
+        queue.withCurrentAgentTeamRunAttempt(
+          "lease-fenced-write",
+          claimed.attempts,
+          async () => ++writes,
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    expect(writes).toBe(1);
+  });
+
   it("persists run events with one current-attempt-fenced statement", async () => {
     await enqueue("event-write");
     const claimed = await queue.claimAgentTeamRun("event-write");
@@ -424,6 +543,47 @@ describe("agent_team_run_queue", () => {
       }),
     ).resolves.toBe(false);
     expect(persistedEvents).toHaveLength(1);
+  });
+
+  it("does not persist a worker event after its execution lease expires", async () => {
+    await enqueue("lease-event-write");
+    const claimed = await queue.claimAgentTeamRun("lease-event-write");
+    if (!claimed) throw new Error("run was not claimed");
+    const fence = {
+      threadId: "thread-lease-event-write",
+      turnId: "run-task-lease-event-write",
+      runId: "run-lease-event-write",
+      generation: "9",
+    };
+    executionLease = { ...fence, expiresAt: Date.now() + 60_000 };
+
+    await expect(
+      withExecutionFence(fence, () =>
+        queue.persistAgentTeamRunEventIfCurrent({
+          taskId: "lease-event-write",
+          claimedAttempts: claimed.attempts,
+          runId: fence.runId,
+          seq: 0,
+          eventData: '{"type":"text","text":"current"}',
+          terminal: false,
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    executionLease.expiresAt = Date.now() - 1;
+    await expect(
+      withExecutionFence(fence, () =>
+        queue.persistAgentTeamRunEventIfCurrent({
+          taskId: "lease-event-write",
+          claimedAttempts: claimed.attempts,
+          runId: fence.runId,
+          seq: 1,
+          eventData: '{"type":"text","text":"stale"}',
+          terminal: false,
+        }),
+      ),
+    ).resolves.toBe(false);
+    expect(persistedEvents).toMatchObject([{ seq: 0 }]);
   });
 
   it("requeues a continuation only for the current running attempt", async () => {
@@ -508,6 +668,33 @@ describe("agent_team_run_queue", () => {
     ).resolves.toBe(false);
     await expect(
       queue.getAgentTeamRunDispatchState("fenced"),
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("revokes the task run lease while settling a stale queue attempt", async () => {
+    await enqueue("stale-lease-settlement");
+    const claimed = await queue.claimAgentTeamRun("stale-lease-settlement");
+    if (!claimed) throw new Error("run was not claimed");
+    executionLease = {
+      threadId: claimed.threadId,
+      turnId: claimed.payload.turnId,
+      runId: "stale-worker-run",
+      generation: "4",
+      expiresAt: Date.now() + 60_000,
+    };
+
+    const settled = await queue.withCurrentAgentTeamRunAttempt(
+      claimed.taskId,
+      claimed.attempts,
+      () =>
+        queue.completeAgentTeamRun(claimed.taskId, "failed", claimed.attempts),
+      { revokeExecutionLease: true },
+    );
+
+    expect(settled).toEqual({ current: true, value: true });
+    expect(executionLease.expiresAt).toBeLessThanOrEqual(Date.now());
+    await expect(
+      queue.getAgentTeamRunDispatchState(claimed.taskId),
     ).resolves.toMatchObject({ status: "failed" });
   });
 

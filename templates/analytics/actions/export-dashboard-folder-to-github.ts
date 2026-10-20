@@ -7,6 +7,11 @@ import {
 } from "../server/lib/dashboard-github-sync/folder-sync";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Export app changes from a linked dashboard folder as one GitHub pull request. Only dashboards " +
     "whose GitHub file is unchanged since the last sync are exported; others are skipped with a reason " +

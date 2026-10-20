@@ -22,6 +22,17 @@ const ledger = vi.hoisted(() =>
 const threadRead = vi.hoisted(() =>
   vi.fn(async (): Promise<{ id: string; threadData: string } | null> => null),
 );
+// These specs pin resume assembly; Context X-Ray merges adjacent same-role
+// messages and has its own specs, and whether its table exists depends on what
+// else the worker's shared database already ran.
+vi.mock("./engine/context-directives-transform.js", () => ({
+  applyContextXrayTransformForIteration: async ({
+    messages,
+  }: {
+    messages: unknown[];
+  }) => messages,
+}));
+
 vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/self-dispatch.js")>()),
   fireInternalDispatch: vi.fn(async () => {}),
@@ -525,24 +536,45 @@ describe("reaper successor resume context", () => {
         write,
         custom,
       );
-      const completion =
-        mode !== "delayed"
-          ? expect(pending).rejects.toThrow(
-              mode === "failed"
-                ? "Fixture event persistence failed"
-                : "Run event was not persisted",
-            )
-          : pending;
+      const failedPersistence =
+        mode === "failed"
+          ? expect(pending).rejects.toThrow("Fixture event persistence failed")
+          : undefined;
+      let result: Awaited<typeof pending> | undefined;
+      let terminalPersistenceError = false;
       try {
         await persisting;
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(write).not.toHaveBeenCalled();
       } finally {
         release();
-        await completion;
+        if (mode === "terminal") {
+          await pending.then(
+            (value) => {
+              result = value;
+            },
+            (error) => {
+              expect(error).toMatchObject({
+                name: "AgentRunEventNotPersistedError",
+                terminalRun: true,
+              });
+              terminalPersistenceError = true;
+            },
+          );
+        } else if (failedPersistence) {
+          await failedPersistence;
+        } else {
+          await pending;
+        }
         spy.mockRestore();
       }
       expect(write).toHaveBeenCalledTimes(mode === "delayed" ? 1 : 0);
+      if (mode === "terminal") {
+        expect(result !== undefined || terminalPersistenceError).toBe(true);
+        if (result !== undefined) {
+          expect(result.run?.status).not.toBe("running");
+        }
+      }
     },
   );
 

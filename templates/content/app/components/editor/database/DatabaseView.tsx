@@ -46,7 +46,12 @@ import {
 } from "@shared/api";
 import { contentRecentHref } from "@shared/content-personal-navigation";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
-import { applyContentDatabaseTableQuery } from "@shared/database-query";
+import {
+  applyContentDatabaseTableQuery,
+  contentDatabaseFilterDateRangeValues,
+  contentDatabaseFilterOperatorNeedsValue,
+  contentDatabaseFilterOperatorsForType,
+} from "@shared/database-query";
 import {
   databaseTableColumnIds,
   databaseFrozenColumnIds,
@@ -250,7 +255,11 @@ import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
-import { PageEditorSurface, type PageEditorSession } from "../DocumentEditor";
+import {
+  PageEditorSurface,
+  type PageCommentIntent,
+  type PageEditorSession,
+} from "../DocumentEditor";
 import {
   AddProperty,
   PropertyManagementPopover,
@@ -292,6 +301,12 @@ import {
   useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
+import {
+  DatabaseCellCommentMarker,
+  DatabaseItemCommentsContext,
+  DatabaseRowCommentCount,
+  type OpenDatabaseItemComments,
+} from "./database-item-comments";
 import {
   DatabaseColumnPresentation,
   ColumnPresentationMenuItems,
@@ -1046,6 +1061,9 @@ function DatabaseTable({
   const [previewDocumentId, setPreviewDocumentIdState] = useState<
     string | null
   >(null);
+  const [previewCommentIntent, setPreviewCommentIntent] =
+    useState<PageCommentIntent | null>(null);
+  const previewCommentIntentSequenceRef = useRef(0);
   const previewSessionRef = useRef<PageEditorSession | null>(null);
   const previewTransitionRef = useRef(false);
   const [previewTransitionPending, setPreviewTransitionPending] =
@@ -1087,6 +1105,7 @@ function DatabaseTable({
     if (id === previewDocumentId) return;
     runPreviewTransition(() => {
       previewSessionRef.current = null;
+      setPreviewCommentIntent(null);
       setPreviewDocumentIdState(id);
     });
   }
@@ -1910,6 +1929,41 @@ function DatabaseTable({
     }
     setPreviewDocumentId(item.document.id);
   }
+
+  // Opens the row with its Comments showing, from a count or a cell marker.
+  const previewItemComments: OpenDatabaseItemComments = (item, threadId) => {
+    if (openWorkspaceFiles(item)) return;
+    seedDatabaseItemDocumentCaches(queryClient, item);
+    prioritizeBuilderBodyHydrationForItem(item);
+    if (activeView.openPagesIn === "full_page") {
+      const path = databaseItemPagePath(
+        item.document.id,
+        databaseId,
+        document.id,
+      );
+      runPreviewTransition(
+        () =>
+          void navigate(
+            threadId ? `${path}&comment=${encodeURIComponent(threadId)}` : path,
+          ),
+      );
+      return;
+    }
+    const intent: PageCommentIntent = {
+      key: ++previewCommentIntentSequenceRef.current,
+      documentId: item.document.id,
+      threadId,
+    };
+    if (item.document.id === previewDocumentId) {
+      setPreviewCommentIntent(intent);
+      return;
+    }
+    runPreviewTransition(() => {
+      previewSessionRef.current = null;
+      setPreviewCommentIntent(intent);
+      setPreviewDocumentIdState(item.document.id);
+    });
+  };
 
   function handleDeletedPreviewItem(item: ContentDatabaseItem) {
     const previewState = previewStateRef.current;
@@ -3618,101 +3672,106 @@ function DatabaseTable({
           onOpenPage={openItemPage}
         />
       ) : (
-        <DatabaseTableView
-          startupAnchored={renderMode === "page"}
-          columnOrderIds={activeView.tableColumnOrderIds ?? []}
-          databaseId={databaseId}
-          databaseSystemRole={data?.database.systemRole}
-          newRowLabel={newDatabaseRowLabel}
-          properties={tableProperties}
-          groupableProperties={orderedProperties}
-          items={visibleItems}
-          source={source}
-          sources={sources}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canEditRows={canEditWidgetRows}
-          canManageDatabase={effectiveCanEdit && document.canManage === true}
-          workspaceCreationPropertyValues={workspaceCreationPropertyValues}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem}
-          columnWidths={columnWidths}
-          sorts={sorts}
-          filters={filters}
-          activeFilters={activeFilters}
-          selectedItemIds={selectedItemIds}
-          hasSearch={!!searchQuery}
-          totalCount={totalItemCount}
-          constrained={hasResultConstraints}
-          rowsAreManuallyOrdered={rowsAreManuallyOrdered}
-          wrapCells={activeView.wrapCells === true}
-          onGroupByChange={(propertyId) =>
-            updateActiveView((view) =>
-              setDatabaseViewGroupByProperty(view, propertyId),
-            )
-          }
-          onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
-          columnWrapOverrides={activeView.columnWrapOverrides ?? {}}
-          frozenThroughColumnId={activeView.frozenThroughColumnId}
-          onWrapColumn={(id, wrapped) =>
-            updateActiveView((view) => ({
-              ...view,
-              columnWrapOverrides: {
-                ...view.columnWrapOverrides,
-                [id]: wrapped,
-              },
-            }))
-          }
-          onFreezeThrough={(id) =>
-            updateActiveView((view) => ({ ...view, frozenThroughColumnId: id }))
-          }
-          rowDensity={activeView.rowDensity ?? "default"}
-          groupByPropertyId={activeView.groupByPropertyId ?? null}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          focusedTitleDocumentId={inlineTitleFocusDocumentId}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          onClearResultConstraints={clearSearchAndFilters}
-          onSortsChange={setActiveSorts}
-          onFiltersChange={setActiveFilters}
-          onResizeColumn={resizeColumn}
-          onPropertyHiddenChange={setPropertyHiddenInActiveView}
-          onPropertyMove={movePropertyInActiveView}
-          calculations={activeView.calculations ?? {}}
-          onCalculationChange={setColumnCalculation}
-          onToggleRowSelection={(itemId) =>
-            setSelectedItemIds((current) =>
-              toggleDatabaseRowSelection(current, itemId),
-            )
-          }
-          onToggleAllRowsSelection={() =>
-            setSelectedItemIds((current) =>
-              toggleAllDatabaseRowSelection(current, visibleItems),
-            )
-          }
-          onClearSelection={() => setSelectedItemIds([])}
-          onRemoveSelection={(itemIds) =>
-            setSelectedItemIds((current) => {
-              const removedIds = new Set(itemIds);
-              return current.filter((itemId) => !removedIds.has(itemId));
-            })
-          }
-          onCreateRow={createInlineRow}
-          onUpdateWidgetRowTitle={updateWidgetRowTitle}
-          onCreateGroupedRow={createInlineGroupedRow}
-          onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onDeletedPreviewItems={handleDeletedPreviewItems}
-          onOpenPage={openItemPage}
-        />
+        <DatabaseItemCommentsContext.Provider value={previewItemComments}>
+          <DatabaseTableView
+            startupAnchored={renderMode === "page"}
+            columnOrderIds={activeView.tableColumnOrderIds ?? []}
+            databaseId={databaseId}
+            databaseSystemRole={data?.database.systemRole}
+            newRowLabel={newDatabaseRowLabel}
+            properties={tableProperties}
+            groupableProperties={orderedProperties}
+            items={visibleItems}
+            source={source}
+            sources={sources}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canEditRows={canEditWidgetRows}
+            canManageDatabase={effectiveCanEdit && document.canManage === true}
+            workspaceCreationPropertyValues={workspaceCreationPropertyValues}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem}
+            columnWidths={columnWidths}
+            sorts={sorts}
+            filters={filters}
+            activeFilters={activeFilters}
+            selectedItemIds={selectedItemIds}
+            hasSearch={!!searchQuery}
+            totalCount={totalItemCount}
+            constrained={hasResultConstraints}
+            rowsAreManuallyOrdered={rowsAreManuallyOrdered}
+            wrapCells={activeView.wrapCells === true}
+            onGroupByChange={(propertyId) =>
+              updateActiveView((view) =>
+                setDatabaseViewGroupByProperty(view, propertyId),
+              )
+            }
+            onEffectiveFrozenColumnsChange={setEffectiveFrozenColumnIds}
+            columnWrapOverrides={activeView.columnWrapOverrides ?? {}}
+            frozenThroughColumnId={activeView.frozenThroughColumnId}
+            onWrapColumn={(id, wrapped) =>
+              updateActiveView((view) => ({
+                ...view,
+                columnWrapOverrides: {
+                  ...view.columnWrapOverrides,
+                  [id]: wrapped,
+                },
+              }))
+            }
+            onFreezeThrough={(id) =>
+              updateActiveView((view) => ({
+                ...view,
+                frozenThroughColumnId: id,
+              }))
+            }
+            rowDensity={activeView.rowDensity ?? "default"}
+            groupByPropertyId={activeView.groupByPropertyId ?? null}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            focusedTitleDocumentId={inlineTitleFocusDocumentId}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            onClearResultConstraints={clearSearchAndFilters}
+            onSortsChange={setActiveSorts}
+            onFiltersChange={setActiveFilters}
+            onResizeColumn={resizeColumn}
+            onPropertyHiddenChange={setPropertyHiddenInActiveView}
+            onPropertyMove={movePropertyInActiveView}
+            calculations={activeView.calculations ?? {}}
+            onCalculationChange={setColumnCalculation}
+            onToggleRowSelection={(itemId) =>
+              setSelectedItemIds((current) =>
+                toggleDatabaseRowSelection(current, itemId),
+              )
+            }
+            onToggleAllRowsSelection={() =>
+              setSelectedItemIds((current) =>
+                toggleAllDatabaseRowSelection(current, visibleItems),
+              )
+            }
+            onClearSelection={() => setSelectedItemIds([])}
+            onRemoveSelection={(itemIds) =>
+              setSelectedItemIds((current) => {
+                const removedIds = new Set(itemIds);
+                return current.filter((itemId) => !removedIds.has(itemId));
+              })
+            }
+            onCreateRow={createInlineRow}
+            onUpdateWidgetRowTitle={updateWidgetRowTitle}
+            onCreateGroupedRow={createInlineGroupedRow}
+            onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onDeletedPreviewItems={handleDeletedPreviewItems}
+            onOpenPage={openItemPage}
+          />
+        </DatabaseItemCommentsContext.Provider>
       )}
 
       {hasMoreItems &&
@@ -3750,11 +3809,13 @@ function DatabaseTable({
         position={previewPosition}
         databaseDocumentId={document.id}
         open={!!previewItem}
+        commentIntent={previewCommentIntent}
         focusTitle={previewTitleFocusDocumentId === previewItem?.document.id}
         onOpenChange={(open) => {
           if (!open) {
             runPreviewTransition(() => {
               previewSessionRef.current = null;
+              setPreviewCommentIntent(null);
               setPreviewDocumentIdState(null);
               setPreviewTitleFocusDocumentId(null);
               setCreatedPreviewItem(null);
@@ -4963,6 +5024,7 @@ function DatabaseItemPreviewSheet({
   onOpenPage,
   transitionPending,
   onSessionChange,
+  commentIntent,
 }: {
   item: ContentDatabaseItem | null;
   previousItem: ContentDatabaseItem | null;
@@ -4970,6 +5032,7 @@ function DatabaseItemPreviewSheet({
   position: { index: number; total: number } | null;
   databaseDocumentId: string;
   open: boolean;
+  commentIntent: PageCommentIntent | null;
   focusTitle: boolean;
   transitionPending: boolean;
   onSessionChange: (session: PageEditorSession | null) => void;
@@ -5014,6 +5077,7 @@ function DatabaseItemPreviewSheet({
             position={position}
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}
+            commentIntent={commentIntent}
             transitionPending={transitionPending}
             onSessionChange={onSessionChange}
             onPreviewItem={onPreviewItem}
@@ -5053,12 +5117,14 @@ function DatabaseItemPreview({
   onOpenPage,
   transitionPending,
   onSessionChange,
+  commentIntent,
 }: {
   item: ContentDatabaseItem;
   previousItem: ContentDatabaseItem | null;
   nextItem: ContentDatabaseItem | null;
   position: { index: number; total: number } | null;
   databaseDocumentId: string;
+  commentIntent: PageCommentIntent | null;
   focusTitle: boolean;
   transitionPending: boolean;
   onSessionChange: (session: PageEditorSession | null) => void;
@@ -5252,6 +5318,7 @@ function DatabaseItemPreview({
             host="preview"
             focusTitle={focusTitle}
             onTitleFocused={onTitleFocused}
+            commentIntent={commentIntent}
             onSessionChange={handleSessionChange}
             onDelete={() => deletePreviewPage()}
           />
@@ -6796,7 +6863,7 @@ function DatabaseInlineSortControl({
   );
 }
 
-function DatabaseAddFilterButton({
+export function DatabaseAddFilterButton({
   open,
   filters,
   properties,
@@ -6811,19 +6878,10 @@ function DatabaseAddFilterButton({
   onAddFilter: (key: "name" | (string & {}), label: string) => void;
   onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
 }) {
-  const excludedFilterKeys = useMemo(
-    () => new Set(filters.filter(isActiveFilter).map((filter) => filter.key)),
-    [filters],
+  const advancedFilterCandidate = databaseFilterRuleCandidate(
+    properties,
+    filters.filter(isActiveFilter),
   );
-  const advancedFilterCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: excludedFilterKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: excludedFilterKeys,
-    })[0];
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -6843,17 +6901,14 @@ function DatabaseAddFilterButton({
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
-            excludeKeys={excludedFilterKeys}
             placeholder={dbText("filterBy")}
             closeOnSelect
             onSelect={onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            disabled={!advancedFilterCandidate}
             onSelect={(event) => {
               event.preventDefault();
-              if (!advancedFilterCandidate) return;
               onAddAdvancedFilter(
                 advancedFilterCandidate.key,
                 advancedFilterCandidate.label,
@@ -6949,19 +7004,10 @@ function DatabaseAdvancedFilterGroupControl({
     ({ filter }) => !filter.parentFilterGroupId,
   );
   const nestedGroupEntries = advancedNestedFilterGroups(filterEntries);
-  const advancedKeys = useMemo(
-    () => new Set(advancedFilters.map((filter) => filter.key)),
-    [advancedFilters],
+  const addRuleCandidate = databaseFilterRuleCandidate(
+    properties,
+    advancedFilters,
   );
-  const addRuleCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: advancedKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: advancedKeys,
-    })[0];
 
   function updateFilterAt(index: number, next: Partial<DatabaseFilter>) {
     const nextFilters = [...filters];
@@ -6973,7 +7019,7 @@ function DatabaseAdvancedFilterGroupControl({
       filterGroupId: next.filterGroupId ?? currentFilter.filterGroupId,
       parentFilterGroupId:
         next.parentFilterGroupId ?? currentFilter.parentFilterGroupId,
-      value: filterOperatorNeedsValue(nextOperator)
+      value: contentDatabaseFilterOperatorNeedsValue(nextOperator)
         ? (next.value ?? currentFilter.value)
         : "",
     };
@@ -7096,10 +7142,8 @@ function DatabaseAdvancedFilterGroupControl({
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-56">
               <DropdownMenuItem
-                disabled={!addRuleCandidate}
                 onSelect={(event) => {
                   event.preventDefault();
-                  if (!addRuleCandidate) return;
                   addAdvancedRule(addRuleCandidate.key, addRuleCandidate.label);
                 }}
               >
@@ -7107,10 +7151,8 @@ function DatabaseAdvancedFilterGroupControl({
                 {dbText("addFilterRule")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={!addRuleCandidate}
                 onSelect={(event) => {
                   event.preventDefault();
-                  if (!addRuleCandidate) return;
                   addNestedFilterGroup(
                     addRuleCandidate.key,
                     addRuleCandidate.label,
@@ -7282,7 +7324,7 @@ function DatabaseAdvancedFilterRuleRow({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {filterOperatorNeedsValue(filter.operator) ? (
+          {contentDatabaseFilterOperatorNeedsValue(filter.operator) ? (
             <div className="min-w-0 flex-[1.35] [&>div>div:first-child]:px-0 [&>input]:h-9 [&>input]:text-xs">
               <DatabaseFilterValueControl
                 documentId={documentId}
@@ -7353,19 +7395,10 @@ function DatabaseAdvancedNestedFilterGroup({
   onRemoveFilter: (index: number) => void;
   onRemoveGroup: () => void;
 }) {
-  const nestedKeys = useMemo(
-    () => new Set(group.entries.map(({ filter }) => filter.key)),
-    [group.entries],
+  const addRuleCandidate = databaseFilterRuleCandidate(
+    properties,
+    group.entries.map(({ filter }) => filter),
   );
-  const addRuleCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: nestedKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: nestedKeys,
-    })[0];
 
   return (
     <div className="flex items-start gap-2">
@@ -7444,10 +7477,8 @@ function DatabaseAdvancedNestedFilterGroup({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
             <DropdownMenuItem
-              disabled={!addRuleCandidate}
               onSelect={(event) => {
                 event.preventDefault();
-                if (!addRuleCandidate) return;
                 onAddNestedFilterRule(
                   group.id,
                   addRuleCandidate.key,
@@ -7519,7 +7550,7 @@ function DatabaseInlineFilterControl({
     nextFilters[filterIndex] = {
       ...currentFilter,
       ...next,
-      value: filterOperatorNeedsValue(nextOperator)
+      value: contentDatabaseFilterOperatorNeedsValue(nextOperator)
         ? (next.value ?? currentFilter.value)
         : "",
     };
@@ -7536,7 +7567,7 @@ function DatabaseInlineFilterControl({
   }
 
   const filterIsComplete =
-    !filterOperatorNeedsValue(filter.operator) ||
+    !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
     filter.value.trim().length > 0;
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -7691,7 +7722,7 @@ function DatabaseInlineFilterControl({
             </DropdownMenu>
           </div>
 
-          {filterOperatorNeedsValue(filter.operator) ? (
+          {contentDatabaseFilterOperatorNeedsValue(filter.operator) ? (
             <DatabaseFilterValueControl
               autoFocus={!filter.value}
               documentId={documentId}
@@ -11537,6 +11568,12 @@ type DatabasePropertyPickerOption = {
   type: DocumentPropertyType | "name";
 };
 
+const DATABASE_NAME_PICKER_OPTION: DatabasePropertyPickerOption = {
+  key: "name",
+  label: "Name",
+  type: "name",
+};
+
 export function databasePropertyPickerItems(
   properties: DocumentProperty[],
   query: string,
@@ -11547,9 +11584,7 @@ export function databasePropertyPickerItems(
 ): DatabasePropertyPickerOption[] {
   const normalizedQuery = query.trim().toLowerCase();
   const items: DatabasePropertyPickerOption[] = [
-    ...(includeName
-      ? [{ key: "name", label: "Name", type: "name" as const }]
-      : []),
+    ...(includeName ? [DATABASE_NAME_PICKER_OPTION] : []),
     ...properties.map((property) => ({
       key: property.definition.id,
       label: property.definition.name,
@@ -11562,6 +11597,23 @@ export function databasePropertyPickerItems(
     [item.key, item.label, item.type].some((value) =>
       String(value).toLowerCase().includes(normalizedQuery),
     ),
+  );
+}
+
+// Filters may repeat a property, so used properties are only deprioritized.
+// Excluding them would disable the add-rule actions once every one is used.
+export function databaseFilterRuleCandidate(
+  properties: DocumentProperty[],
+  filters: readonly DatabaseFilter[],
+): DatabasePropertyPickerOption {
+  const usedKeys = new Set(filters.map((filter) => filter.key));
+  const candidates = [
+    ...databasePropertyPickerItems(properties, "", { includeName: false }),
+    DATABASE_NAME_PICKER_OPTION,
+  ];
+  return (
+    candidates.find((candidate) => !usedKeys.has(candidate.key)) ??
+    candidates[0]
   );
 }
 
@@ -11621,7 +11673,6 @@ function DatabasePropertyPickerMenuItems({
   properties,
   selectedKey,
   includeName,
-  excludeKeys,
   placeholder,
   closeOnSelect,
   onSelect,
@@ -11629,7 +11680,6 @@ function DatabasePropertyPickerMenuItems({
   properties: DocumentProperty[];
   selectedKey?: string;
   includeName?: boolean;
-  excludeKeys?: ReadonlySet<string>;
   placeholder?: string;
   closeOnSelect?: boolean;
   onSelect: (key: string, label: string) => void;
@@ -11637,7 +11687,6 @@ function DatabasePropertyPickerMenuItems({
   const [query, setQuery] = useState("");
   const items = databasePropertyPickerItems(properties, query, {
     includeName,
-    excludeKeys,
   });
 
   return (
@@ -17208,7 +17257,7 @@ function isActiveFilter(
   filter: DatabaseFilter | null,
 ): filter is DatabaseFilter {
   if (!filter) return false;
-  if (filterOperatorNeedsValue(filter.operator)) {
+  if (contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
     return databaseFilterSelectedValues(filter.value).length > 0;
   }
   return true;
@@ -17233,11 +17282,18 @@ export function databasePropertyValuesForNewItem(
     );
     if (!property?.editable) continue;
     if (isComputedPropertyType(property.definition.type)) continue;
-    if (propertyValues[property.definition.id] !== undefined) continue;
 
     const value = databaseFilterDefaultValueForNewItem(filter, property);
-    if (value !== undefined) {
+    if (value === undefined) continue;
+    const current = propertyValues[property.definition.id];
+    if (current === undefined) {
       propertyValues[property.definition.id] = value;
+    } else if (Array.isArray(current) && Array.isArray(value)) {
+      // "Tags contains A" and "Tags contains B" both have to match, so a
+      // new row gets every value; one value would drop it from the view.
+      propertyValues[property.definition.id] = [
+        ...new Set([...current, ...value]),
+      ];
     }
   }
 
@@ -17565,7 +17621,7 @@ function SortFieldIcon({
   return <Icon className="mr-2 size-4 text-muted-foreground" />;
 }
 
-function FilterMenu({
+export function FilterMenu({
   filters,
   properties,
   inlineOpen,
@@ -17584,19 +17640,10 @@ function FilterMenu({
 }) {
   const activeFilters = filters.filter(isActiveFilter);
   const active = activeFilters.length > 0 || inlineOpen;
-  const excludedFilterKeys = useMemo(
-    () => new Set(activeFilters.map((filter) => filter.key)),
-    [activeFilters],
+  const advancedFilterCandidate = databaseFilterRuleCandidate(
+    properties,
+    activeFilters,
   );
-  const advancedFilterCandidate =
-    databasePropertyPickerItems(properties, "", {
-      includeName: false,
-      excludeKeys: excludedFilterKeys,
-    })[0] ??
-    databasePropertyPickerItems(properties, "", {
-      includeName: true,
-      excludeKeys: excludedFilterKeys,
-    })[0];
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -17619,17 +17666,14 @@ function FilterMenu({
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
-            excludeKeys={excludedFilterKeys}
             placeholder={dbText("filterBy")}
             closeOnSelect
             onSelect={onAddFilter}
           />
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            disabled={!advancedFilterCandidate}
             onSelect={(event) => {
               event.preventDefault();
-              if (!advancedFilterCandidate) return;
               onAddAdvancedFilter(
                 advancedFilterCandidate.key,
                 advancedFilterCandidate.label,
@@ -17920,6 +17964,8 @@ const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
   does_not_equal: "Is not",
   greater_than: "Greater than",
   less_than: "Less than",
+  greater_than_or_equal: "Greater than or equal to",
+  less_than_or_equal: "Less than or equal to",
   before: "Before",
   after: "After",
   between: "Between",
@@ -17958,50 +18004,10 @@ function databaseFilterOperatorInlineLabel(
 function filterOperatorsForKey(
   key: string,
   properties: DocumentProperty[],
-): FilterOperator[] {
-  const type = filterPropertyTypeForKey(key, properties);
-
-  if (type === "checkbox") {
-    return ["is_checked", "is_unchecked"];
-  }
-
-  if (
-    type === "select" ||
-    type === "status" ||
-    type === "multi_select" ||
-    type === "person"
-  ) {
-    return ["contains", "does_not_equal", "is_empty", "is_not_empty"];
-  }
-
-  if (type === "number") {
-    return [
-      "equals",
-      "does_not_equal",
-      "greater_than",
-      "less_than",
-      "is_empty",
-      "is_not_empty",
-    ];
-  }
-
-  if (
-    type === "date" ||
-    type === "created_time" ||
-    type === "last_edited_time"
-  ) {
-    return [
-      "equals",
-      "does_not_equal",
-      "before",
-      "after",
-      "between",
-      "is_empty",
-      "is_not_empty",
-    ];
-  }
-
-  return ["contains", "equals", "does_not_equal", "is_empty", "is_not_empty"];
+): readonly FilterOperator[] {
+  return contentDatabaseFilterOperatorsForType(
+    filterPropertyTypeForKey(key, properties),
+  );
 }
 
 function defaultFilterOperatorForKey(
@@ -18019,12 +18025,6 @@ function filterPropertyTypeForKey(
   return (
     properties.find((property) => property.definition.id === key)?.definition
       .type ?? "text"
-  );
-}
-
-function filterOperatorNeedsValue(operator: FilterOperator) {
-  return !["is_empty", "is_not_empty", "is_checked", "is_unchecked"].includes(
-    operator,
   );
 }
 
@@ -18065,7 +18065,7 @@ function DatabaseBetweenDateFilterValueControl({
   filter: DatabaseFilter;
   onValueChange: (value: string) => void;
 }) {
-  const [start, end] = databaseFilterDateRangeValues(filter.value);
+  const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
   const updateRange = (nextStart: string, nextEnd: string) => {
     onValueChange(databaseFilterEncodeDateRangeValues(nextStart, nextEnd));
   };
@@ -18182,7 +18182,7 @@ function databaseFilterValueLabel(
   properties: DocumentProperty[],
 ) {
   if (filter.operator === "between") {
-    const [start, end] = databaseFilterDateRangeValues(filter.value);
+    const [start, end] = contentDatabaseFilterDateRangeValues(filter.value);
     if (start && end) return `${start} to ${end}`;
     return start || end || "Choose dates";
   }
@@ -18221,20 +18221,6 @@ function databaseFilterSelectedValues(value: string) {
   }
 }
 
-function databaseFilterDateRangeValues(value: string): [string, string] {
-  const trimmed = value.trim();
-  if (!trimmed) return ["", ""];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return [trimmed, ""];
-    const start = typeof parsed[0] === "string" ? parsed[0].trim() : "";
-    const end = typeof parsed[1] === "string" ? parsed[1].trim() : "";
-    return [start, end];
-  } catch {
-    return [trimmed, ""];
-  }
-}
-
 function databaseFilterEncodeDateRangeValues(start: string, end: string) {
   const normalizedStart = start.trim();
   const normalizedEnd = end.trim();
@@ -18267,17 +18253,62 @@ export function databaseInlineFilterLabel(
   filter: DatabaseFilter,
   properties: DocumentProperty[],
 ) {
-  if (!filterOperatorNeedsValue(filter.operator)) {
-    return `${filter.label}: ${databaseFilterOperatorLabel(
-      filter.operator,
-      filter.key,
-      properties,
-    )}`;
+  const operator = databaseFilterChipOperatorLabel(
+    filter.operator,
+    filter.key,
+    properties,
+  );
+  if (!contentDatabaseFilterOperatorNeedsValue(filter.operator)) {
+    return `${filter.label}: ${operator}`;
   }
   if (databaseFilterSelectedValues(filter.value).length === 0) {
     return filter.label;
   }
-  return `${filter.label}: ${databaseFilterValueLabel(filter, properties)}`;
+  const value = databaseFilterValueLabel(filter, properties);
+  return `${filter.label}: ${operator ? `${operator} ${value}` : value}`;
+}
+
+// Empty only for operators that read as a plain match ("Status: Done"). The
+// `never` default makes a new operator choose its wording; at runtime it
+// still catches unknown operators in saved views.
+function databaseFilterChipOperatorLabel(
+  operator: FilterOperator,
+  key: string,
+  properties: DocumentProperty[],
+): string {
+  const type = filterPropertyTypeForKey(key, properties);
+  switch (operator) {
+    case "contains":
+    case "between":
+      return "";
+    case "equals":
+      if (type === "number") return "=";
+      return databaseFilterOptionPropertyForKey(key, properties) ? "" : "is";
+    case "does_not_equal":
+      if (type === "number") return "≠";
+      return type === "multi_select" || type === "person"
+        ? "does not contain"
+        : "is not";
+    case "greater_than":
+      return ">";
+    case "less_than":
+      return "<";
+    case "greater_than_or_equal":
+      return "≥";
+    case "less_than_or_equal":
+      return "≤";
+    case "before":
+    case "after":
+    case "is_checked":
+    case "is_unchecked":
+    case "is_empty":
+    case "is_not_empty":
+      return databaseFilterOperatorInlineLabel(operator, key, properties);
+    default: {
+      const savedOperator: never = operator;
+      return databaseFilterOperatorInlineLabel(savedOperator, key, properties);
+    }
+  }
 }
 
 function databaseFilterPropertyForKey(
@@ -18685,6 +18716,11 @@ function DatabaseTableRow({
             ) : (
               value
             )}
+            <DatabaseCellCommentMarker
+              item={item}
+              propertyId={itemProperty.definition.id}
+              propertyName={itemProperty.definition.name}
+            />
           </div>
         );
       })}
@@ -19084,6 +19120,7 @@ function RowNameCell({
           </span>
         </button>
       )}
+      {!editingTitle ? <DatabaseRowCommentCount item={item} /> : null}
       {(canEdit || onUpdateWidgetRowTitle) && !editingTitle ? (
         <button
           type="button"

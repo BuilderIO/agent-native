@@ -52,7 +52,7 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("left: 137px;");
+    expect(patch.content).toContain("left: 137px !important;");
     expect(patch.content).not.toContain('style="');
   });
 
@@ -119,7 +119,7 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
     expect(patch.content).toContain(
-      'background-image: url("https://example.com/fill.png") center / cover no-repeat;',
+      'background-image: url("https://example.com/fill.png") center / cover no-repeat !important;',
     );
     expect(patch.content).not.toContain('style="');
   });
@@ -194,7 +194,7 @@ describe("Fill 'Add layer' single-property commit with a breakpoint active", () 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("background-color: #ffffff;");
+    expect(patch.content).toContain("background-color: #ffffff !important;");
     expect(patch.content).not.toContain('style="');
   });
 
@@ -230,9 +230,9 @@ describe("Fill 'Add layer' single-property commit with a breakpoint active", () 
       content = patch.content;
     }
     expect(content).toContain("<style data-agent-native-breakpoints>");
-    expect(content).toContain("color: #000000;");
-    expect(content).toContain("background-color: #ffffff;");
-    expect(content).toContain("background-image: none;");
+    expect(content).toContain("color: #000000 !important;");
+    expect(content).toContain("background-color: #ffffff !important;");
+    expect(content).toContain("background-image: none !important;");
     expect(content).not.toContain('style="');
   });
 });
@@ -288,7 +288,7 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("display: none;");
+    expect(patch.content).toContain("display: none !important;");
     expect(patch.content).toContain(
       '<section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section>',
     );
@@ -565,7 +565,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(handler).toContain("removeElementFromHtml");
 
     const singleElementStart = handler.indexOf(
-      "// Item 7b — same breakpoint-scoped display:none routing",
+      "// Item 7b — same breakpoint-scoped display:none routing as the",
     );
     const multiElementBranch = handler.slice(0, singleElementStart);
     expect(multiElementBranch).toContain(
@@ -581,7 +581,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       /if \(shouldDeleteActiveLiveDom\) \{\s*deleteFromLiveDom\(activeRuntimeSelectors\);/,
     );
     const singleElementEnd = handler.indexOf(
-      "const nextContent = removeElementFromHtml",
+      "const removedContent = removeElementFromHtml",
       singleElementStart,
     );
     const singleElementBranch = handler.slice(
@@ -596,7 +596,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
   });
 
-  it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {
+  it("item 8b: overview breakpoint frame menu and edit callbacks are wired to MultiScreenCanvas", () => {
     expect(canvasBreakpointGroup).toContain("onRemoveBreakpoint:");
     expect(canvasBreakpointGroup).toContain("onChangeBreakpointWidth:");
     expect(canvasBreakpointGroup).toContain(

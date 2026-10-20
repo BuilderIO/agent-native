@@ -11,7 +11,7 @@ import {
   IconSubtitles,
   IconRectangle,
 } from "@tabler/icons-react";
-import { useState, type FocusEvent } from "react";
+import { useCallback, useState, type FocusEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -49,10 +49,15 @@ export interface PlayerControlsProps {
   volume: number;
   muted: boolean;
   speed: number;
+  /** Rates the player can play; defaults to the native player's list. */
+  speedOptions?: readonly number[];
   captionsOn: boolean;
   hasCaptions: boolean;
   isFullscreen: boolean;
   isPip: boolean;
+  canPip?: boolean;
+  /** Sits below the video instead of over it, so its menus open downward. */
+  docked?: boolean;
   theaterMode: boolean;
   comments?: (CommentPreviewData & {
     videoTimestampMs: number;
@@ -87,10 +92,13 @@ export function PlayerControls(props: PlayerControlsProps) {
     volume,
     muted,
     speed,
+    speedOptions = SPEED_OPTIONS,
     captionsOn,
     hasCaptions,
     isFullscreen,
     isPip,
+    canPip = true,
+    docked = false,
     theaterMode,
     comments,
     chapters,
@@ -115,6 +123,16 @@ export function PlayerControls(props: PlayerControlsProps) {
   } = props;
 
   const [volumePopoverOpen, setVolumePopoverOpen] = useState(false);
+  // Docked controls must hold the markers that rise above the scrubber, so
+  // none of them reach up over the video.
+  const [markerLaneCount, setMarkerLaneCount] = useState(0);
+  const handleDockedMarkerLanes = useCallback(
+    (lanes: Map<number, number>) => {
+      setMarkerLaneCount(lanes.size ? Math.max(...lanes.values()) + 1 : 0);
+      onMarkerLanesChange?.(lanes);
+    },
+    [onMarkerLanesChange],
+  );
 
   const handleVolumeBlur = (event: FocusEvent<HTMLDivElement>) => {
     const nextFocusedElement = event.relatedTarget as Node | null;
@@ -124,15 +142,31 @@ export function PlayerControls(props: PlayerControlsProps) {
   };
 
   return (
-    <div className="px-3 pb-2 pt-10 bg-gradient-to-t from-black/80 via-black/50 to-transparent">
+    <div
+      className={
+        docked
+          ? cn(
+              "bg-player-control px-3 pb-2",
+              markerLaneCount === 0
+                ? "pt-2"
+                : markerLaneCount === 1
+                  ? "pt-3"
+                  : "pt-10",
+            )
+          : "px-3 pb-2 pt-10 bg-gradient-to-t from-black/80 via-black/50 to-transparent"
+      }
+    >
       <Scrubber
+        hoverPreviews={!docked}
         currentMs={currentMs}
         durationMs={durationMs}
         onSeek={onSeek}
         comments={comments}
         chapters={chapters}
         reactions={reactions}
-        onMarkerLanesChange={onMarkerLanesChange}
+        onMarkerLanesChange={
+          docked ? handleDockedMarkerLanes : onMarkerLanesChange
+        }
       />
 
       {/* guard:allow-raw-color -- video controls overlay the dark player scrim itself, not themed app chrome, so text stays white regardless of light/dark mode */}
@@ -186,7 +220,7 @@ export function PlayerControls(props: PlayerControlsProps) {
             </PopoverTrigger>
             <PopoverContent
               data-player-ui
-              side="top"
+              side={docked ? "bottom" : "top"}
               align="center"
               sideOffset={8}
               portalled={false}
@@ -249,12 +283,12 @@ export function PlayerControls(props: PlayerControlsProps) {
           <DropdownMenuContent
             data-player-ui
             align="end"
-            side="top"
+            side={docked ? "bottom" : "top"}
             className="min-w-[90px]"
             container={menuPortalContainer}
           >
             <DropdownMenuLabel>Speed</DropdownMenuLabel>
-            {SPEED_OPTIONS.map((rate) => (
+            {speedOptions.map((rate) => (
               <DropdownMenuItem
                 key={rate}
                 onSelect={() => onSpeedChange(rate)}
@@ -269,15 +303,17 @@ export function PlayerControls(props: PlayerControlsProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div className="hidden sm:block">
-          <IconBtn
-            onClick={onTogglePip}
-            active={isPip}
-            tooltip="Picture in picture"
-          >
-            <IconPictureInPicture />
-          </IconBtn>
-        </div>
+        {canPip ? (
+          <div className="hidden sm:block">
+            <IconBtn
+              onClick={onTogglePip}
+              active={isPip}
+              tooltip="Picture in picture"
+            >
+              <IconPictureInPicture />
+            </IconBtn>
+          </div>
+        ) : null}
 
         {onToggleTheater ? (
           <div className="hidden sm:block">

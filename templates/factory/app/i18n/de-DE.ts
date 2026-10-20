@@ -101,6 +101,7 @@ const messages = {
       pr_observed: "PR beobachtet",
       auto_approved: "Automatisch genehmigt",
       merged: "Zusammengeführt",
+      resolved: "Gelöst",
     },
     inboxColumnAutomation: "Automatisierung",
     inboxRouting: {
@@ -275,6 +276,11 @@ const messages = {
     inboxTitle: "Beobachtungs-Posteingang",
     inboxTab: "Posteingang",
     inboxBackToList: "Zurück zum Posteingang",
+    inboxRowActions: "Aktionen für {{title}}",
+    inboxMarkResolved: "Als gelöst markieren",
+    inboxSendBackToAutomation: "Zurück an die Automatisierung",
+    inboxOutcomeUpdated: "Status aktualisiert",
+    inboxOutcomeFailed: "Status konnte nicht aktualisiert werden",
     inboxDescription: "Eingehende Belege vor autonomer Arbeit.",
     selectObservation:
       "Wähle eine Beobachtung, um ihren Pfad und ihr Feedback zu prüfen.",

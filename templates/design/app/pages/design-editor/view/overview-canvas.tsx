@@ -181,8 +181,9 @@ export function renderOverviewCanvas({
     handleOverviewActiveToolChange,
     handleOverviewScreenSelectionChange,
     vectorEditOverlayState,
-    handleCreatePrimitive,
-    handlePrimitiveCreated,
+    handleOverviewCreatePrimitive,
+    handleOverviewPrimitiveCreated,
+    handleOverviewPrimitivesCreated,
     handleUpdatePenPath,
     handleBoardDrawPrimitive,
     handleOverviewScreenPick,
@@ -238,7 +239,6 @@ export function renderOverviewCanvas({
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
   const {
-    fullViewScreenIds,
     editableLiveScreenIds,
     gradientEditTarget,
     handleBoardElementMarqueeSelect,
@@ -312,7 +312,6 @@ export function renderOverviewCanvas({
         exportPreviewScreenId={exportPreviewScreenId}
         hiddenScreenIds={hiddenLayerIds}
         lockedScreenIds={lockedLayerIds}
-        fullViewScreenIds={fullViewScreenIds}
         pixelGridEnabled={pixelGrid}
         snapToPixelGrid={snapToPixelGrid}
         showRulers={rulers}
@@ -360,8 +359,9 @@ export function renderOverviewCanvas({
           onActiveToolChange: handleOverviewActiveToolChange,
           gradientEditTarget,
           vectorEdit: vectorEditOverlayState,
-          onCreatePrimitive: handleCreatePrimitive,
-          onPrimitiveCreated: handlePrimitiveCreated,
+          onCreatePrimitive: handleOverviewCreatePrimitive,
+          onPrimitiveCreated: handleOverviewPrimitiveCreated,
+          onPrimitivesCreated: handleOverviewPrimitivesCreated,
           onUpdatePenPath: canEditDesign ? handleUpdatePenPath : undefined,
           onPrimitiveReparent: handleOverviewPrimitiveReparent,
           onCreateScreenFrame: handleCreateScreenFrame,

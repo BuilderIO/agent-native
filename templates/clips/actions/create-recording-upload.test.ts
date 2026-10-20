@@ -80,6 +80,7 @@ describe("create-recording-upload", () => {
         title: "PR 7419 chart fixes",
         visibility: "private",
         mimeType: "video/mp4",
+        sizeBytes: 7 * MIB,
         width: 1920,
         height: 1080,
         hasAudio: true,

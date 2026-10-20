@@ -56,7 +56,8 @@ vi.mock("./registry.js", () => ({
   }),
 }));
 
-const { createResourceSuggestion } = await import("./actions.js");
+const { createResourceSuggestion, createResourceSuggestionProposal } =
+  await import("./actions.js");
 const {
   insertSuggestion,
   getSuggestion,
@@ -186,6 +187,74 @@ describe("superseding earlier suggestions", () => {
       id: first.id,
     });
     await expect(revise([])).rejects.toThrow("different suggestion");
+    expect(resolveThread).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("superseding earlier suggestions with a proposal", () => {
+  const propose = (supersedes: string[]) =>
+    createResourceSuggestionProposal.run(
+      {
+        resourceType: "document",
+        resourceId: "doc-1",
+        adapterKind: "test",
+        baseRevision: "base-1",
+        summary: "Revised edits",
+        idempotencyKey: "proposal-revision-1",
+        suggestions: ["first", "second"].map((after) => ({
+          summary: `Use ${after}`,
+          operations: [{ ...operation, after }],
+        })),
+        supersedes,
+      },
+      author,
+    );
+
+  it("replaces every pending edit of the earlier proposal in the same step", async () => {
+    const earlier = [await seed(), await seed()];
+
+    const revised = await propose(earlier.map((suggestion) => suggestion.id));
+
+    expect(revised.suggestions.map((suggestion) => suggestion.status)).toEqual([
+      "pending",
+      "pending",
+    ]);
+    for (const suggestion of earlier) {
+      expect((await getSuggestion(suggestion.id))?.status).toBe("superseded");
+      expect(
+        await getDecision(
+          client,
+          `proposal-revision-1:supersedes:${suggestion.id}`,
+        ),
+      ).toMatchObject({
+        outcome: "superseded",
+        detail: revised.suggestions[0]!.id,
+      });
+    }
+    expect(resolveThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses another author's suggestion and creates no proposal", async () => {
+    const theirs = await seed({ authorEmail: "other@example.com" });
+
+    await expect(propose([theirs.id])).rejects.toThrow(
+      "Only the author can supersede",
+    );
+
+    const rows = await pglite.query(
+      "SELECT COUNT(*)::int AS count FROM agent_review_suggestions",
+    );
+    expect(rows.rows[0]).toEqual({ count: 1 });
+  });
+
+  it("replays an exact retry without superseding twice", async () => {
+    const earlier = await seed();
+    const first = await propose([earlier.id]);
+
+    await expect(propose([earlier.id])).resolves.toMatchObject({
+      proposal: { id: first.proposal.id },
+    });
+    await expect(propose([])).rejects.toThrow("different proposal creation");
     expect(resolveThread).toHaveBeenCalledTimes(1);
   });
 });

@@ -41,6 +41,7 @@ import {
   createMotionTrackId,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
 } from "@shared/motion-timeline";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
 import {
@@ -56,6 +57,7 @@ import * as Y from "yjs";
 
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
+import { isOutlineDrawingEligible } from "@/components/design/edit-panel/motion-controls";
 import {
   type MotionDockLiveState,
   type MotionDockTrack,
@@ -1114,10 +1116,10 @@ export function useEditorLiveEditsAndPresence({
     () =>
       new Set(
         overviewScreens
-          .filter(
-            (screen) =>
-              resolveOverviewScreenSourceType(screen, designSourceType) ===
-              "localhost",
+          .filter((screen) =>
+            isRunningAppSourceType(
+              resolveOverviewScreenSourceType(screen, designSourceType),
+            ),
           )
           .map((screen) => screen.id),
       ),
@@ -1198,9 +1200,7 @@ export function useEditorLiveEditsAndPresence({
   const pendingActiveFileEntry = activeFile?.id
     ? pendingLocalFileContentsSnapshot.get(activeFile.id)
     : undefined;
-  const acceptedActiveContent = pendingActiveFileEntry
-    ? pendingActiveFileEntry.baseContent
-    : acceptedActiveFile?.content;
+  const acceptedActiveContent = acceptedActiveFile?.content;
   const hasSelectedComponent = Boolean(
     selectedComponentNodeId &&
     ((selectedCodeLayerNode && isComponentInstance(selectedCodeLayerNode)) ||
@@ -1244,7 +1244,8 @@ export function useEditorLiveEditsAndPresence({
       activeCodeLayerProjection.nodes.some(matchesSelectedComponent),
     );
     if (!hasSelectedComponent || !selectedNodeIsOptimistic) return true;
-    if (pendingActiveFileEntry && !acceptedComponentProjection) return false;
+    // A pending save can still add or remove this node on the server.
+    if (pendingActiveFileEntry) return false;
     if (!acceptedComponentProjection) return true;
     return acceptedComponentProjection.nodes.some(matchesSelectedComponent);
   }, [
@@ -1264,6 +1265,9 @@ export function useEditorLiveEditsAndPresence({
     [activeCanvasSourceType, activeCodeLayerProjection, selectedCodeLayerNode],
   );
 
+  const selectedElementIsOutlineDrawable = selectedElement
+    ? isOutlineDrawingEligible(selectedElement)
+    : false;
   const motionSelectedTarget = useMemo<{
     nodeId: string;
     label: string;
@@ -1288,9 +1292,14 @@ export function useEditorLiveEditsAndPresence({
             (animation) => animation.targetNodeId === nodeId,
           ),
         ),
-      isPath: selectedCodeLayerNode.tag.toLowerCase() === "path",
+      isPath: selectedElementIsOutlineDrawable,
     };
-  }, [motionTextDocument, selectedCodeLayerNode, selectedElement?.tagName]);
+  }, [
+    motionTextDocument,
+    selectedCodeLayerNode,
+    selectedElement?.tagName,
+    selectedElementIsOutlineDrawable,
+  ]);
   const [motionOriginEditing, setMotionOriginEditing] = useState(false);
 
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {

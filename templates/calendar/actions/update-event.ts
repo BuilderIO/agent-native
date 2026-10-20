@@ -74,12 +74,8 @@ function mergeAttendees(
   return Array.from(merged.values());
 }
 
-function namesGuests(value: unknown): boolean {
-  if (typeof value !== "string" && !Array.isArray(value)) return false;
-  return (
-    (normalizeAttendees(value as Parameters<typeof normalizeAttendees>[0])
-      ?.length ?? 0) > 0
-  );
+function namesGuests(value: Parameters<typeof normalizeAttendees>[0]): boolean {
+  return (normalizeAttendees(value)?.length ?? 0) > 0;
 }
 
 function workingLocationTitle(

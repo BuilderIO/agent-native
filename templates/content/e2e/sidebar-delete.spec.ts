@@ -6,6 +6,8 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { presentUiCapability } from "./helpers";
+
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
   "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
@@ -135,6 +137,7 @@ async function cleanupFixtures(page: Page, fixtures: Fixture[]) {
       mode: "selection",
       documentIds: [fixture.documentId],
     });
+    await presentUiCapability(page);
     const permanentlyDeleted = await page.request.post(
       "/_agent-native/actions/permanently-delete-document",
       {

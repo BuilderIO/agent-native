@@ -668,7 +668,7 @@ describe("get-motion-timeline inline source recovery", () => {
     });
   });
 
-  it("recovers native Figma style instances losslessly from source metadata", async () => {
+  it("recovers imported motion style instances losslessly from source metadata", async () => {
     const nativeStyles = [
       {
         type: "FIGMA" as const,
@@ -743,6 +743,57 @@ describe("get-motion-timeline inline source recovery", () => {
     expect(mocks.fileChain.where).not.toHaveBeenCalled();
     expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
     expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("validates inline timelines when a localhost timeline is first", async () => {
+    mocks.setDesignData(
+      JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: "app/routes/home.tsx",
+          },
+          "file-1": { sourceType: "inline" },
+        },
+      }),
+    );
+    mocks.setTimelineRows([
+      {
+        id: "localhost-timeline",
+        designId: "design-1",
+        sourceRef: "screen-1",
+        filePath: null,
+        tracks: JSON.stringify([]),
+        durationMs: 100,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: null,
+        updatedAt: "2026-10-12T00:00:00.000Z",
+      },
+      {
+        id: "inline-timeline",
+        designId: "design-1",
+        sourceRef: "file-1",
+        filePath: null,
+        tracks: JSON.stringify([]),
+        durationMs: 100,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: null,
+        updatedAt: "2026-10-11T00:00:00.000Z",
+      },
+    ]);
+    mocks.setFileRows([fileRow("file-1")]);
+    mocks.setLiveContents({ "file-1": "" });
+
+    await expect(action.run({ designId: "design-1" })).rejects.toMatchObject({
+      errorCode: "motion_inline_source_missing",
+      statusCode: 422,
+    });
+    expect(mocks.readLiveSourceFile).toHaveBeenCalledWith(fileRow("file-1"));
   });
 
   it("revalidates a persisted React module path against its saved screen graph", async () => {

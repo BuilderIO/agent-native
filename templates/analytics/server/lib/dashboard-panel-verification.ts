@@ -38,6 +38,18 @@ import {
   describeError,
   runResolvedPanel,
 } from "./dashboard-panel-runner";
+import {
+  describeReportSchedules,
+  estimateResolvedPanels,
+  formatBytes,
+  formatUsd,
+  QUERY_COST_THRESHOLDS,
+  scheduledDashboardRuns,
+  totalCost,
+  usdForBytes,
+  type PanelCostEstimate,
+  type QueryCostFailure,
+} from "./query-cost-estimate";
 
 export type PanelVerificationStatus =
   | "ok"
@@ -83,6 +95,8 @@ export interface PanelVerification {
   truncated?: boolean;
   error?: string;
   note?: PanelUnverifiedNote;
+  /** The dry run's bytes, kept when they stopped the panel from running (`too_expensive`). */
+  estimatedBytes?: number;
   /** A section or extension panel: nothing to run, so only its config was checked. */
   visualOnly?: true;
   hint?: string;
@@ -144,7 +158,7 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "its data source is not connected (the viewer sees a connect prompt)",
   "skipped:program": "data-program panels are not run during verification",
   too_expensive:
-    "the dry run is larger than the automatic-verification byte limit",
+    "the dry run is larger than the automatic-verification byte limit, so it was not run",
   "not_executed:over_budget":
     "more panels were affected than the per-save verification cap runs",
 };
@@ -274,6 +288,46 @@ export function touchedPanelIds(
   };
 }
 
+/**
+ * The touched panels whose query changed: new panels, panels that start or
+ * stop running a query (a section turned into a chart), and panels whose
+ * source or resolved SQL differs. Any other chart-type or config edit reads
+ * the same bytes. Compares the first copy of each id, the one the edit API
+ * addresses.
+ */
+function queryChangedPanelIds(
+  rawBase: Record<string, unknown> | null,
+  rawNext: Record<string, unknown>,
+  ids: readonly string[],
+): string[] {
+  const base = rawBase && normalizeDashboardConfig(rawBase);
+  const next = normalizeDashboardConfig(rawNext);
+  const firstCopies = (config: Record<string, unknown> | null) => {
+    const panels = new Map<string, Record<string, unknown>>();
+    for (const panel of config ? panelsOf(config) : []) {
+      if (typeof panel.id === "string" && !panels.has(panel.id)) {
+        panels.set(panel.id, panel);
+      }
+    }
+    return panels;
+  };
+  const before = firstCopies(base);
+  const after = firstCopies(next);
+  const baseVars = base ? resolveVerificationVars(base) : {};
+  const nextVars = resolveVerificationVars(next);
+  return ids.filter((id) => {
+    const was = before.get(id);
+    const now = after.get(id);
+    if (!now) return false;
+    return (
+      !was ||
+      hasSqlToRun(was) !== hasSqlToRun(now) ||
+      was.source !== now.source ||
+      resolvedSqlOf(was, baseVars) !== resolvedSqlOf(now, nextVars)
+    );
+  });
+}
+
 export interface VisualPanelChange {
   panelId: string;
   title: string;
@@ -348,6 +402,44 @@ function interpolationFailure(
     return `SQL uses ${missing.map((name) => `{{${name}}}`).join(", ")} but the dashboard has no filter that provides it; add a timeRange select filter or a date-range filter with that id`;
   }
   return null;
+}
+
+export type ResolvedDashboardPanelQuery =
+  | { panelId: string; title: string; source: string; query: string }
+  | { panelId: string; title: string; source: string; error: string };
+
+/**
+ * The SQL each queryable panel sends for the given filters (dashboard defaults
+ * when omitted), resolved the way verification does, without running anything.
+ * Section and extension panels have no query and are left out.
+ */
+export function resolveDashboardPanelQueries(
+  rawConfig: Record<string, unknown>,
+  filters?: Record<string, string>,
+): ResolvedDashboardPanelQuery[] {
+  const config = normalizeDashboardConfig(rawConfig);
+  const vars = resolveVerificationVars(config, filters);
+  return panelsOf(config)
+    .filter((panel) => typeof panel.id === "string" && hasSqlToRun(panel))
+    .map((panel) => {
+      const panelId = String(panel.id);
+      const title = typeof panel.title === "string" ? panel.title : panelId;
+      const source = typeof panel.source === "string" ? panel.source : "";
+      try {
+        const query = buildPanelQuery(panel as unknown as SqlPanel, vars);
+        const failure = interpolationFailure(query, panel.sql, vars);
+        return failure
+          ? { panelId, title, source, error: failure }
+          : { panelId, title, source, query };
+      } catch (error) {
+        return {
+          panelId,
+          title,
+          source,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
 }
 
 function truncateCell(value: unknown): unknown {
@@ -572,7 +664,11 @@ async function verifyOne(
     dryRun?.totalBytesProcessed !== undefined &&
     dryRun.totalBytesProcessed > state.maxBytes
   ) {
-    return finish({ status: "unverified", note: "too_expensive" });
+    return finish({
+      status: "unverified",
+      note: "too_expensive",
+      estimatedBytes: dryRun.totalBytesProcessed,
+    });
   }
   if (!execute) {
     return finish({ status: "unverified", note: "not_executed:over_budget" });
@@ -917,6 +1013,170 @@ export interface PanelWriteVerdict {
     reason: string;
   }[];
   nextStep?: string;
+  /** What the changed panels cost to refresh; absent when none could be priced. */
+  cost?: PanelWriteCost;
+}
+
+export interface PanelWriteCost {
+  /** Each changed panel's estimate at the dashboard's default filters. */
+  panels: PanelCostEstimate[];
+  total: ReturnType<typeof totalCost> & {
+    /** Some changed panel could not be priced, so the total counts only the rest. */
+    partial: boolean;
+  };
+  runsPerMonth: number | null;
+  runsPerMonthBasis: string;
+}
+
+const MAX_COST_PANELS = 60;
+/** Once verification is done, how much longer a write waits for its price. */
+const COST_GRACE_MS = 3_000;
+const COST_LATE =
+  "Stopped: pricing took longer than the save. Estimate this panel with estimate-query-cost.";
+/** Sources whose panels can bill BigQuery, whether or not they can be priced. */
+const BILLABLE_SOURCES = new Set(["bigquery", "first-party", "program"]);
+
+type WriteCostPanel = ReturnType<typeof resolveDashboardPanelQueries>[number];
+
+/** The first copy of each panel to price, the one the edit API addresses. */
+function writeCostPanels(
+  config: Record<string, unknown>,
+  panelIds: readonly string[],
+): WriteCostPanel[] {
+  if (panelIds.length === 0) return [];
+  const wanted = new Set(panelIds);
+  const seen = new Set<string>();
+  return resolveDashboardPanelQueries(config).filter((panel) => {
+    if (!wanted.has(panel.panelId) || seen.has(panel.panelId)) return false;
+    seen.add(panel.panelId);
+    return true;
+  });
+}
+
+function writeCostOf(
+  estimates: PanelCostEstimate[],
+  runsPerMonth: number | null,
+  runsPerMonthBasis: string,
+): PanelWriteCost {
+  return {
+    panels: estimates,
+    total: {
+      ...totalCost(estimates),
+      partial: estimates.some(
+        (panel) =>
+          panel.status === "failed" || panel.status === "not_estimated",
+      ),
+    },
+    runsPerMonth,
+    runsPerMonthBasis,
+  };
+}
+
+/** Every panel that can bill, marked unpriced; null when none can bill. */
+function unpricedWriteCost(
+  panels: readonly WriteCostPanel[],
+  failure: QueryCostFailure,
+  error: string,
+): PanelWriteCost | null {
+  const billable = panels.filter((panel) => BILLABLE_SOURCES.has(panel.source));
+  if (billable.length === 0) return null;
+  return writeCostOf(
+    billable.map((panel) => ({
+      panelId: panel.panelId,
+      title: panel.title,
+      source: panel.source,
+      status: "failed",
+      failure,
+      error,
+    })),
+    null,
+    "none",
+  );
+}
+
+/** `work`'s result, or undefined if `stop` fires first. */
+function beforeStop<T>(
+  work: Promise<T>,
+  stop: AbortSignal,
+): Promise<T | undefined> {
+  if (stop.aborted) return Promise.resolve(undefined);
+  let onStop: (() => void) | undefined;
+  const stopped = new Promise<undefined>((resolve) => {
+    onStop = () => resolve(undefined);
+    stop.addEventListener("abort", onStop, { once: true });
+  });
+  return Promise.race([work, stopped]).finally(() => {
+    if (onStop) stop.removeEventListener("abort", onStop);
+  });
+}
+
+/**
+ * Prices the panels a write changed with the same free dry runs as
+ * estimate-query-cost, at the default filters a fresh tab shows. Once `late`
+ * fires it settles at once: panels already priced keep their estimates and
+ * the rest go unpriced.
+ */
+async function estimateWriteCost(
+  panels: readonly WriteCostPanel[],
+  dashboardId: string | undefined,
+  signal: AbortSignal,
+  late: AbortSignal,
+): Promise<PanelWriteCost | null> {
+  const scope = getCredentialContext();
+  if (!scope || !dashboardId || panels.length === 0) return null;
+  try {
+    const schedule = await beforeStop(
+      scheduledDashboardRuns(dashboardId, scope),
+      late,
+    );
+    if (!schedule) return unpricedWriteCost(panels, "timeout", COST_LATE);
+    const { reportSchedules, runsPerMonth } = schedule;
+    const estimates = await estimateResolvedPanels(
+      panels.slice(0, MAX_COST_PANELS),
+      scope,
+      runsPerMonth,
+      Date.now() + PANEL_VERIFICATION_BUDGET_MS,
+      signal,
+      { signal: late, error: COST_LATE },
+    );
+    const skipped: PanelCostEstimate[] = panels
+      .slice(MAX_COST_PANELS)
+      .filter((panel) => BILLABLE_SOURCES.has(panel.source))
+      .map((panel) => ({
+        panelId: panel.panelId,
+        title: panel.title,
+        source: panel.source,
+        status: "not_estimated",
+        reason: `One write prices at most ${MAX_COST_PANELS} panels; estimate-query-cost can price this one.`,
+      }));
+    return writeCostOf(
+      [...estimates, ...skipped],
+      runsPerMonth,
+      reportSchedules > 0
+        ? describeReportSchedules(reportSchedules, scope.orgId)
+        : "none",
+    );
+  } catch (error) {
+    // coercion-ok: a failed estimate leaves the save and its verdict as they were; the summary says the panels went unpriced.
+    return unpricedWriteCost(panels, "no_estimate", describeError(error));
+  }
+}
+
+/**
+ * Pricing is informational, so once verification is done an estimate still
+ * running gets COST_GRACE_MS more. Then `late` fires, and the estimate
+ * settles with what it has priced.
+ */
+async function settleWriteCost(
+  pending: Promise<PanelWriteCost | null>,
+  late: AbortController,
+): Promise<PanelWriteCost | null> {
+  const timer = setTimeout(() => late.abort(), COST_GRACE_MS);
+  try {
+    return await pending;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** One line saying what the viewer sees, or why that could not be checked. */
@@ -931,7 +1191,11 @@ export function describePanelOutcome(panel: PanelVerification): string {
         }`;
   }
   if (panel.status === "unverified") {
-    const why = panel.note ? NOTE_REASONS[panel.note] : "could not be checked";
+    const why = `${panel.note ? NOTE_REASONS[panel.note] : "could not be checked"}${
+      panel.estimatedBytes === undefined
+        ? ""
+        : ` (~${formatBytes(panel.estimatedBytes)}, ${formatUsd(usdForBytes(panel.estimatedBytes))} per refresh)`
+    }`;
     return panel.error ? `${why} (${clipHead(panel.error, 200)})` : why;
   }
   if (panel.status === "empty") {
@@ -986,6 +1250,23 @@ export async function verifyPanelWrite(
   const visualIds = visual
     .filter((change) => change.change !== "removed")
     .map((change) => change.panelId);
+  // The estimate runs beside verification and stops if the write is refused.
+  const stopEstimate = new AbortController();
+  const costLate = new AbortController();
+  const costPanels = options.dashboardId
+    ? writeCostPanels(
+        next,
+        queryChangedPanelIds(base, next, [...direct, ...affected]),
+      )
+    : [];
+  const pendingCost = estimateWriteCost(
+    costPanels,
+    options.dashboardId,
+    options.signal
+      ? AbortSignal.any([options.signal, stopEstimate.signal])
+      : stopEstimate.signal,
+    costLate.signal,
+  );
   const verification = await verifyDashboardPanels(
     next,
     [...direct, ...affected, ...visualIds],
@@ -995,13 +1276,17 @@ export async function verifyPanelWrite(
       memo: options.memo,
       serverAuthoredPanelIds: options.serverAuthoredPanelIds,
     },
-  );
+  ).catch((error: unknown) => {
+    stopEstimate.abort();
+    throw error;
+  });
   const allowEmpty = options.allowEmptyResult === true;
   const directIds = new Set([...direct, ...visualIds]);
   const blockers = verification.panels.filter(
     (panel) => directIds.has(panel.panelId) && blocksSave(panel, allowEmpty),
   );
   if (blockers.length > 0 && options.mode !== "report") {
+    stopEstimate.abort();
     fail(formatVerificationFailure(blockers), {
       errorCode: "dashboard_panel_verification_failed",
       statusCode: 422,
@@ -1026,9 +1311,11 @@ export async function verifyPanelWrite(
       .slice(0, 5)
       .map((panel) => panel.panelId)
       .join(", ")}${panels.length > 5 ? ` (+${panels.length - 5} more)` : ""}`;
+  const cost = await settleWriteCost(pendingCost, costLate);
   return {
     verified,
     ...(visual.length > 0 ? { visualOnly: visual } : {}),
+    ...(cost ? { cost } : {}),
     verification,
     proof: verification.panels
       .filter((panel) => panel.rowCount !== null)
@@ -1085,7 +1372,50 @@ export function verdictFields(
       ? { unverified: verdict.unverified }
       : {}),
     ...(verdict.nextStep ? { nextStep: verdict.nextStep } : {}),
+    ...(verdict.cost ? { cost: verdict.cost } : {}),
   };
+}
+
+/**
+ * "Cost of ...: ~X · $Y per refresh · ~$Z/month ...", or empty when no
+ * changed panel reads BigQuery. Over a threshold it tells the agent to say so.
+ */
+export function describeWriteCost(verdict: PanelWriteVerdict): string {
+  const cost = verdict.cost;
+  if (!cost) return "";
+  const priced = cost.panels.filter((panel) => panel.status === "estimated");
+  const unpriced = cost.panels.filter(
+    (panel) => panel.status === "failed" || panel.status === "not_estimated",
+  ).length;
+  if (priced.length === 0) {
+    return unpriced > 0
+      ? `Cost: ${unpriced} changed panel(s) could not be priced; estimate-query-cost says why.`
+      : "";
+  }
+  const { total } = cost;
+  const subject =
+    priced.length === 1
+      ? `"${priced[0].title}"`
+      : `the ${priced.length} changed panels that read BigQuery`;
+  const monthly =
+    total.usdPerMonth === null
+      ? "no email reports scheduled"
+      : `~${formatUsd(total.usdPerMonth)}/month for ${cost.runsPerMonthBasis}`;
+  const over = [
+    total.overPerRunThreshold &&
+      `the ${formatUsd(QUERY_COST_THRESHOLDS.perRunUsd)}/run`,
+    total.overPerMonthThreshold &&
+      `the ${formatUsd(QUERY_COST_THRESHOLDS.perMonthUsd)}/month`,
+  ].filter(Boolean);
+  return [
+    `Cost of ${subject} at default filters: ~${formatBytes(total.estimatedBytes)} · ${formatUsd(total.usdPerRun)} per refresh · ${monthly}.`,
+    unpriced > 0 ? `${unpriced} more could not be priced.` : "",
+    over.length > 0
+      ? `That is over ${over.join(" and ")} threshold; tell the user this cost.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Says the viewer-visible edits no data check covered; empty when the edit touched no section or extension panel. */
@@ -1119,11 +1449,14 @@ export function annotateSummary(
       shown.length > 0
         ? `Verified: ${shown.join("; ")}${more > 0 ? ` (+${more} more)` : ""}.`
         : "No data panel was affected.";
-    return [summary, checked, visual].filter(Boolean).join(" ");
+    return [summary, checked, visual, describeWriteCost(verdict)]
+      .filter(Boolean)
+      .join(" ");
   }
   return [
     `${options.saved === false ? "NOT VERIFIED" : "SAVED BUT NOT VERIFIED"}: ${summary} ${verdict.nextStep}`,
     visual,
+    describeWriteCost(verdict),
   ]
     .filter(Boolean)
     .join(" ");

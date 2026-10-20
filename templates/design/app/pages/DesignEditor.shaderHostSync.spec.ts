@@ -108,6 +108,7 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
       forcePreviewFullDocument: false,
       persist: false,
       shaderWriteCompletion: true,
+      serverAccepted: true,
       updatedAt: "T2",
     });
   });

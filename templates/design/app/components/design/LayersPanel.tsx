@@ -287,20 +287,51 @@ function canUseActiveDragStateForDrop(
 export { canUseActiveDragStateForDrop };
 export type { LayersPanelMoveIntent };
 
-let activeIconToggleDrag: { kind: "hidden" | "locked"; value: boolean } | null =
-  null;
+let activeIconToggleDrag: {
+  kind: "hidden" | "locked";
+  value: boolean;
+  row: HTMLElement;
+  appliedIds: Set<string>;
+  clear: () => void;
+} | null = null;
 
-function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
-  activeIconToggleDrag = { kind, value };
-  const clear = () => {
-    activeIconToggleDrag = null;
-    window.removeEventListener("mouseup", clear);
-    window.removeEventListener("blur", clear);
-    window.removeEventListener("pointercancel", clear);
+function clearIconToggleDrag(row?: HTMLElement | null): void {
+  const drag = activeIconToggleDrag;
+  if (!drag || (row !== undefined && drag.row !== row)) return;
+
+  activeIconToggleDrag = null;
+  drag.row.draggable = drag.row.dataset.layerRowDraggable === "true";
+  window.removeEventListener("mouseup", drag.clear, true);
+  window.removeEventListener("pointerup", drag.clear, true);
+  window.removeEventListener("pointercancel", drag.clear, true);
+  window.removeEventListener("lostpointercapture", drag.clear, true);
+  window.removeEventListener("blur", drag.clear, true);
+}
+
+function beginIconToggleDrag(
+  kind: "hidden" | "locked",
+  value: boolean,
+  nodeId: string,
+  button: HTMLButtonElement,
+): void {
+  const row = button.closest<HTMLElement>('[role="treeitem"]');
+  if (!row) return;
+
+  clearIconToggleDrag();
+  row.draggable = false;
+  const clear = () => clearIconToggleDrag(row);
+  activeIconToggleDrag = {
+    kind,
+    value,
+    row,
+    appliedIds: new Set([nodeId]),
+    clear,
   };
-  window.addEventListener("mouseup", clear, { once: true });
-  window.addEventListener("blur", clear, { once: true });
-  window.addEventListener("pointercancel", clear, { once: true });
+  window.addEventListener("mouseup", clear, true);
+  window.addEventListener("pointerup", clear, true);
+  window.addEventListener("pointercancel", clear, true);
+  window.addEventListener("lostpointercapture", clear, true);
+  window.addEventListener("blur", clear, true);
 }
 
 // Row height, left inset and type size; the Tokens panel lays its rows out with
@@ -887,6 +918,11 @@ function layerCanShowBadge(node: LayersPanelNode) {
   );
 }
 
+// autoFocus would scroll the Layers tree to the input.
+function focusRenameInput(input: HTMLInputElement | null) {
+  input?.focus({ preventScroll: true });
+}
+
 function clampScreenSectionHeight(nextHeight: number, panelHeight: number) {
   const maxHeight = panelHeight > 0 ? panelHeight * 0.3 : nextHeight;
   const minHeight = Math.min(96, maxHeight);
@@ -1151,6 +1187,15 @@ function LayersPanelImpl(
     setSearchOpen(true);
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, []);
+
+  const toggleSearch = useCallback(() => {
+    if (searchOpen || searchQuery.trim()) {
+      setSearchOpen(false);
+      if (searchQuery) onSearchQueryChange("");
+      return;
+    }
+    focusSearch();
+  }, [focusSearch, onSearchQueryChange, searchOpen, searchQuery]);
 
   const beginRename = useCallback(
     (layerId: string): boolean => {
@@ -1534,7 +1579,7 @@ function LayersPanelImpl(
             <IconTooltipButton
               label={labels.searchPlaceholder}
               dataAction="search"
-              onClick={focusSearch}
+              onClick={toggleSearch}
             >
               <IconSearch
                 className="!size-[var(--design-icon-size)]"
@@ -1737,8 +1782,8 @@ export function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full items-center",
-            fit ? "min-w-0 max-w-6 flex-[1_1_24px]" : "w-6 shrink-0",
+            "flex h-full w-6 items-center",
+            fit ? "min-w-0 shrink" : "shrink-0",
             fit && index === count - 1 && "min-w-4",
             index === count - 1 ? "justify-start" : "justify-center",
           )}
@@ -1829,6 +1874,16 @@ const LayerRow = memo(function LayerRow({
   const activeDrop = activeDropPlacement;
   const renameCancelledRef = useRef(false);
   const preventContextMenuFocusRestoreRef = useRef(false);
+  const rowElementRef = useRef<HTMLDivElement | null>(null);
+  const setRowElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      const previous = rowElementRef.current;
+      if (!element && previous) clearIconToggleDrag(previous);
+      rowElementRef.current = element;
+      registerRowElement(row.rowKey, element);
+    },
+    [registerRowElement, row.rowKey],
+  );
   const springLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SPRING_LOAD_DELAY_MS = 600;
   const clearSpringLoadTimer = () => {
@@ -1869,6 +1924,36 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
+  const applyIconToggleDrag = (row: HTMLElement, clientX: number) => {
+    const toggleDrag = activeIconToggleDrag;
+    if (!toggleDrag || toggleDrag.appliedIds.has(node.id)) return;
+    const toggleButton = row.querySelector<HTMLButtonElement>(
+      `[data-layer-toggle="${toggleDrag.kind}"]`,
+    );
+    if (!toggleButton) return;
+    const bounds = toggleButton.getBoundingClientRect();
+    if (bounds.width <= 0 || clientX < bounds.left || clientX > bounds.right)
+      return;
+    toggleDrag.appliedIds.add(node.id);
+    if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
+      onToggleLocked?.(node.id, toggleDrag.value);
+    } else if (
+      toggleDrag?.kind === "hidden" &&
+      node.hidden !== toggleDrag.value
+    ) {
+      onToggleHidden?.(node.id, toggleDrag.value);
+    }
+  };
+
+  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
+    onHoverLayer?.(node.id);
+    applyIconToggleDrag(event.currentTarget, event.clientX);
+  };
+
+  const handleRowMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    applyIconToggleDrag(event.currentTarget, event.clientX);
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       if (event.key === "Enter" && isSelected) return;
@@ -1907,7 +1992,7 @@ const LayerRow = memo(function LayerRow({
   };
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
-    if (!draggable) {
+    if (!draggable || activeIconToggleDrag) {
       event.preventDefault();
       return;
     }
@@ -2095,8 +2180,9 @@ const LayerRow = memo(function LayerRow({
     <ContextMenu>
       <ContextMenuTrigger asChild disabled={!showContextMenu}>
         <div
-          ref={(element) => registerRowElement(row.rowKey, element)}
+          ref={setRowElement}
           role="treeitem"
+          data-layer-row-draggable={draggable ? "true" : "false"}
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
@@ -2124,7 +2210,8 @@ const LayerRow = memo(function LayerRow({
             onDropIndicatorChange(null);
             clearSpringLoadTimer();
           }}
-          onMouseEnter={() => onHoverLayer?.(node.id)}
+          onMouseEnter={handleRowMouseEnter}
+          onMouseMove={handleRowMouseMove}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
@@ -2242,7 +2329,7 @@ const LayerRow = memo(function LayerRow({
               {isRenaming ? (
                 <input
                   data-layer-row-name
-                  autoFocus
+                  ref={focusRenameInput}
                   value={renameDraft}
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => onRenameDraftChange(event.target.value)}
@@ -2317,28 +2404,25 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.locked ? labels.unlock : labels.lock}
+                        data-layer-toggle="locked"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextLocked = !node.locked;
                           onToggleLocked?.(node.id, nextLocked);
-                          beginIconToggleDrag("locked", nextLocked);
+                          beginIconToggleDrag(
+                            "locked",
+                            nextLocked,
+                            node.id,
+                            event.currentTarget,
+                          );
                         }}
                         onClick={(event) => {
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleLocked?.(node.id, !node.locked);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "locked" &&
-                            node.locked !== activeIconToggleDrag.value
-                          ) {
-                            onToggleLocked?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.locked ? (
@@ -2367,28 +2451,25 @@ const LayerRow = memo(function LayerRow({
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.hidden ? labels.show : labels.hide}
+                        data-layer-toggle="hidden"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
                           event.stopPropagation();
                           const nextHidden = !node.hidden;
                           onToggleHidden?.(node.id, nextHidden);
-                          beginIconToggleDrag("hidden", nextHidden);
+                          beginIconToggleDrag(
+                            "hidden",
+                            nextHidden,
+                            node.id,
+                            event.currentTarget,
+                          );
                         }}
                         onClick={(event) => {
                           if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleHidden?.(node.id, !node.hidden);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "hidden" &&
-                            node.hidden !== activeIconToggleDrag.value
-                          ) {
-                            onToggleHidden?.(
-                              node.id,
-                              activeIconToggleDrag.value,
-                            );
-                          }
                         }}
                       >
                         {node.hidden ? (

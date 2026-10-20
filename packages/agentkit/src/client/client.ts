@@ -1,3 +1,5 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+
 import type {
   AgentActionInvocation,
   AgentActionResult,
@@ -14,6 +16,7 @@ import type {
   AgentQueuedMessage,
   AgentRequestAttachment,
   AgentRequestContext,
+  AgentSubmissionPayload,
   AgentRunSnapshot,
   AgentRunOptions,
   AgentThread,
@@ -218,7 +221,7 @@ export interface SendMessageInput {
   queuedWhileRunActive?: boolean;
   /** Host intent for a send that must interrupt the active run if it hits a server-side slot conflict. */
   interruptActiveRun?: boolean;
-  /** Host-only acknowledgement after the recoverable message enters local state; never sent to the transport. */
+  /** Host-only acknowledgement after a local message is ready for handoff; never sent to the transport. */
   onLocalSubmit?: () => void;
   /** Reuses a host-created optimistic queue row while async preparation finishes. */
   queuedMessageReservationId?: string;
@@ -235,6 +238,16 @@ export interface AgentRunHandle {
   completed: Promise<void>;
   cancel(): Promise<void>;
 }
+
+export type AgentQueuedMessageSubmission =
+  | (AgentQueuedMessage & {
+      alreadySubmitted?: false;
+      submittedRunId?: never;
+    })
+  | (AgentQueuedMessage & {
+      alreadySubmitted: true;
+      submittedRunId: RunId;
+    });
 
 function isTerminalRunEvent(event: AgentEvent): boolean {
   return (
@@ -324,6 +337,34 @@ function submissionMetadataAtHandoff(
       ),
     },
   };
+}
+
+function stableSubmissionJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableSubmissionJson).join(",")}]`;
+  }
+  if (!value || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `${JSON.stringify(key)}:${stableSubmissionJson(record[key])}`)
+    .join(",")}}`;
+}
+
+async function submissionAttachmentFingerprint(
+  value: unknown,
+): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  const bytes = new TextEncoder().encode(stableSubmissionJson(value));
+  const digest = subtle
+    ? new Uint8Array(await subtle.digest("SHA-256", bytes))
+    : sha256(bytes);
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 function sameQueuedMessageIds(
@@ -540,7 +581,7 @@ export interface AgentKitController {
   queueMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
-  ): Promise<AgentQueuedMessage>;
+  ): Promise<AgentQueuedMessageSubmission>;
   /** Adds a text-only local queue row before the host starts async preparation. */
   reserveQueuedMessage(
     input: Pick<SendMessageInput, "threadId" | "text">,
@@ -705,7 +746,10 @@ export class AgentKitRunSlotBusyError extends Error {
   public readonly code = "run_slot_busy" as const;
   public readonly retryable = true;
 
-  public constructor(public readonly activeRunId?: RunId) {
+  public constructor(
+    public readonly activeRunId?: RunId,
+    public readonly submittedRunId?: RunId,
+  ) {
     super("The current agent run still owns this thread.");
     this.name = "AgentKitRunSlotBusyError";
   }
@@ -721,6 +765,19 @@ function isAgentKitRunSlotBusyError(
       "code" in error &&
       error.code === "run_slot_busy")
   );
+}
+
+function submittedRunIdFromError(error: unknown): RunId | undefined {
+  const submittedRunId = errorProperty(error, "submittedRunId");
+  if (
+    typeof submittedRunId !== "string" ||
+    submittedRunId.length === 0 ||
+    (!isAgentKitRunSlotBusyError(error) &&
+      errorProperty(error, "status") !== 409)
+  ) {
+    return undefined;
+  }
+  return submittedRunId;
 }
 
 function isRetryableQueuePromotionError(error: unknown): boolean {
@@ -2309,6 +2366,10 @@ export class AgentKitClient implements AgentKitController {
   private readonly queuePromotionAfterReconciliation = new Set<ThreadId>();
   private readonly pendingQueueMessageIds = new Set<string>();
   private readonly queuedMessageReservationIds = new Set<string>();
+  private readonly queuedMessageReservationCallbacks = new Map<
+    string,
+    () => void
+  >();
   private readonly queueMessagePreflightTokens = new WeakMap<
     QueueMessagePreflightToken,
     QueueMessagePreflightState
@@ -2952,10 +3013,48 @@ export class AgentKitClient implements AgentKitController {
       hasActiveAgentRuns(current) &&
       this.transport.queueMessage
     ) {
-      const queued = await this.queueMessage(
-        { ...input, queuedWhileRunActive: true },
-        requestContext,
-      );
+      const queuedMessageId = this.createId("queued-message");
+      let queued: AgentQueuedMessageSubmission;
+      try {
+        queued = await this.queueMessageWithId(
+          { ...input, queuedWhileRunActive: true },
+          requestContext,
+          queuedMessageId,
+        );
+      } catch (queueError) {
+        const submittedRunId = submittedRunIdFromError(queueError);
+        if (submittedRunId) {
+          const queuedMessage: AgentQueuedMessage = {
+            id: queuedMessageId,
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: this.now(),
+            attachments: input.attachments,
+            metadata: input.metadata,
+            options: input.options,
+            ...(input.interruptActiveRun ? { interruptActiveRun: true } : {}),
+          };
+          const userMessageId = this.markQueueMessageSubmitted(
+            input.threadId,
+            queuedMessage,
+          );
+          return this.submittedQueueRunHandle(
+            input.threadId,
+            submittedRunId,
+            userMessageId,
+            requestContext,
+          );
+        }
+        throw queueError;
+      }
+      if (queued.alreadySubmitted) {
+        return this.submittedQueueRunHandle(
+          input.threadId,
+          queued.submittedRunId,
+          queued.id,
+          requestContext,
+        );
+      }
       if (input.interruptActiveRun) {
         try {
           const steered = await this.steerQueuedMessage(
@@ -3016,9 +3115,17 @@ export class AgentKitClient implements AgentKitController {
       suggestionsPendingTurn: true,
     });
     this.setConnection("connecting");
-
+    let localSubmitAcknowledged = false;
+    let submissionPayload: AgentSubmissionPayload | undefined;
     try {
-      input.onLocalSubmit?.();
+      submissionPayload ??= await this.createSubmissionPayload(
+        input,
+        message.id,
+        expiresAt,
+      );
+      assertSubmissionNotExpired(expiresAt);
+      this.acknowledgeLocalSubmit(input.onLocalSubmit);
+      localSubmitAcknowledged = true;
       const messages = messagesWithToolCallHistory(
         [...currentAfterReadiness.messages, message],
         orderedThreadToolCalls(currentAfterReadiness),
@@ -3034,6 +3141,7 @@ export class AgentKitClient implements AgentKitController {
               : {}),
             options: input.options,
             metadata: submissionMetadataAtHandoff(input.metadata, expiresAt),
+            submissionPayload,
           },
           context,
         );
@@ -3059,6 +3167,20 @@ export class AgentKitClient implements AgentKitController {
       };
     } catch (error) {
       if (this.disposed) throw error;
+      const submittedRunId = submittedRunIdFromError(error);
+      if (typeof submittedRunId === "string" && submittedRunId.length > 0) {
+        this.markRunStarted(input.threadId, submittedRunId);
+        this.submittedUserMessages.set(
+          this.runKey(input.threadId, submittedRunId),
+          message.id,
+        );
+        const completed = this.resubscribeRun(input.threadId, submittedRunId);
+        return {
+          runId: submittedRunId,
+          completed,
+          cancel: () => this.cancelRun(input.threadId, submittedRunId),
+        };
+      }
       if (
         isAgentKitRunSlotBusyError(error) &&
         expiresAt === undefined &&
@@ -3085,7 +3207,7 @@ export class AgentKitClient implements AgentKitController {
               (candidate) => candidate.id !== message.id,
             ),
           });
-          const queued = await this.queueMessage(
+          const queued = await this.queueMessageWithId(
             {
               ...input,
               onLocalSubmit: undefined,
@@ -3093,7 +3215,17 @@ export class AgentKitClient implements AgentKitController {
               queuedWhileRunActive: false,
             },
             requestContext,
+            message.id,
+            submissionPayload,
           );
+          if (queued.alreadySubmitted) {
+            return this.submittedQueueRunHandle(
+              input.threadId,
+              queued.submittedRunId,
+              queued.id,
+              requestContext,
+            );
+          }
           if (activeRunId) this.markRunStarted(input.threadId, activeRunId);
           else this.setConnection("connected");
           if (input.interruptActiveRun) {
@@ -3134,6 +3266,30 @@ export class AgentKitClient implements AgentKitController {
               ),
           };
         } catch (queueError) {
+          const submittedRunId = submittedRunIdFromError(queueError);
+          if (submittedRunId) {
+            const queuedMessage: AgentQueuedMessage = {
+              id: message.id,
+              threadId: input.threadId,
+              text: input.text,
+              createdAt: message.createdAt ?? this.now(),
+              attachments: input.attachments,
+              metadata: input.metadata,
+              options: input.options,
+              ...(input.interruptActiveRun ? { interruptActiveRun: true } : {}),
+            };
+            const userMessageId = this.markQueueMessageSubmitted(
+              input.threadId,
+              queuedMessage,
+              message,
+            );
+            return this.submittedQueueRunHandle(
+              input.threadId,
+              submittedRunId,
+              userMessageId,
+              requestContext,
+            );
+          }
           const current = this.getThread(input.threadId);
           if (
             !current.messages.some((candidate) => candidate.id === message.id)
@@ -3151,13 +3307,14 @@ export class AgentKitClient implements AgentKitController {
         errorProperty(error, "code") === "submission_expired";
       this.setThread(input.threadId, {
         ...failed,
-        messages: submissionExpired
-          ? failed.messages.filter((candidate) => candidate.id !== message.id)
-          : failed.messages.map((candidate) =>
-              candidate.id === message.id
-                ? { ...candidate, status: "error" }
-                : candidate,
-            ),
+        messages:
+          submissionExpired && !localSubmitAcknowledged
+            ? failed.messages.filter((candidate) => candidate.id !== message.id)
+            : failed.messages.map((candidate) =>
+                candidate.id === message.id
+                  ? { ...candidate, status: "error" }
+                  : candidate,
+              ),
         ...(submissionExpired
           ? {
               suggestions: currentAfterReadiness.suggestions,
@@ -3504,6 +3661,44 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
   }
 
+  private async createSubmissionPayload(
+    input: SendMessageInput,
+    id: string,
+    expiresAt: number | undefined,
+  ): Promise<AgentSubmissionPayload> {
+    const [attachments, requestAttachments] = await Promise.all([
+      Promise.all(
+        (input.attachments ?? []).map(async (attachment) => ({
+          type: "file" as const,
+          name: attachment.name,
+          ...(attachment.mediaType ? { mediaType: attachment.mediaType } : {}),
+          fingerprint: await submissionAttachmentFingerprint(attachment),
+        })),
+      ),
+      Promise.all(
+        (input.requestAttachments ?? []).map(async (attachment) => ({
+          type: "image" as const,
+          name: attachment.name,
+          ...(attachment.contentType
+            ? { contentType: attachment.contentType }
+            : {}),
+          fingerprint: await submissionAttachmentFingerprint(attachment),
+        })),
+      ),
+    ]);
+    const metadata = submissionMetadataAtHandoff(input.metadata, expiresAt);
+    return {
+      threadId: input.threadId,
+      id,
+      text: input.text,
+      ...(attachments.length ? { attachments } : {}),
+      ...(requestAttachments.length ? { requestAttachments } : {}),
+      ...(metadata ? { metadata } : {}),
+      ...(input.options ? { options: input.options } : {}),
+      ...(input.interruptActiveRun ? { interruptActiveRun: true } : {}),
+    };
+  }
+
   private async queueSafeRequestAttachments(
     threadId: ThreadId,
     attachments: AgentRequestAttachment[] | undefined,
@@ -3619,11 +3814,8 @@ export class AgentKitClient implements AgentKitController {
       messages: queuedMessages,
       removedIds,
     });
-    try {
-      onLocalSubmit?.();
-    } catch (error) {
-      this.cancelQueuedMessageReservation(input.threadId, reservation.id);
-      throw error;
+    if (onLocalSubmit) {
+      this.queuedMessageReservationCallbacks.set(reservation.id, onLocalSubmit);
     }
     return reservation;
   }
@@ -3633,6 +3825,7 @@ export class AgentKitClient implements AgentKitController {
     messageId: string,
   ): void {
     if (!this.queuedMessageReservationIds.delete(messageId)) return;
+    this.queuedMessageReservationCallbacks.delete(messageId);
     this.pendingQueueMessageIds.delete(messageId);
     const thread = this.getThread(threadId);
     const queuedMessages = thread.queuedMessages.filter(
@@ -3695,7 +3888,97 @@ export class AgentKitClient implements AgentKitController {
   public async queueMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
-  ): Promise<AgentQueuedMessage> {
+  ): Promise<AgentQueuedMessageSubmission> {
+    const queued = await this.queueMessageWithId(input, context);
+    if (queued.alreadySubmitted) {
+      this.submittedQueueRunHandle(
+        input.threadId,
+        queued.submittedRunId,
+        queued.id,
+        context,
+      );
+    }
+    return queued;
+  }
+
+  private markQueueMessageSubmitted(
+    threadId: ThreadId,
+    queued: AgentQueuedMessage,
+    preferredMessage?: AgentMessage,
+  ): string {
+    const thread = this.getThread(threadId);
+    const submittedMessage = thread.messages.find((message) => {
+      const custom = metadataRecord(message.metadata?.custom);
+      return (
+        message.id === queued.id ||
+        custom?.agentNativeQueuedMessageId === queued.id
+      );
+    });
+    const message = submittedMessage ??
+      preferredMessage ?? {
+        id: queued.id,
+        role: "user" as const,
+        createdAt: queued.createdAt,
+        status: "complete" as const,
+        parts: [
+          { type: "text" as const, text: queued.text },
+          ...(queued.attachments ?? []),
+        ],
+        metadata: queued.metadata,
+      };
+    const queuedMessages = thread.queuedMessages.filter(
+      (candidate) => candidate.id !== queued.id,
+    );
+    this.setThread(threadId, {
+      ...thread,
+      messages: submittedMessage
+        ? thread.messages
+        : [...thread.messages, message],
+      queuedMessages,
+    });
+    const previousOverride = this.queuedMessageOverrides.get(threadId);
+    const removedIds = new Set(previousOverride?.removedIds);
+    removedIds.add(queued.id);
+    this.queuedMessageOverrides.set(threadId, {
+      messages: queuedMessages,
+      removedIds,
+    });
+    return message.id;
+  }
+
+  private submittedQueueRunHandle(
+    threadId: ThreadId,
+    runId: RunId,
+    queuedMessageId: string,
+    context?: AgentRequestContext,
+  ): AgentRunHandle {
+    const submittedMessage = this.getThread(threadId).messages.find(
+      (message) => {
+        const custom = metadataRecord(message.metadata?.custom);
+        return (
+          message.id === queuedMessageId ||
+          custom?.agentNativeQueuedMessageId === queuedMessageId
+        );
+      },
+    );
+    this.markRunStarted(threadId, runId);
+    this.submittedUserMessages.set(
+      this.runKey(threadId, runId),
+      submittedMessage?.id ?? queuedMessageId,
+    );
+    return {
+      runId,
+      completed: this.resubscribeRun(threadId, runId),
+      cancel: () => this.cancelRun(threadId, runId, context),
+    };
+  }
+
+  private async queueMessageWithId(
+    input: SendMessageInput,
+    context?: AgentRequestContext,
+    messageIdOverride?: string,
+    submissionPayloadOverride?: AgentSubmissionPayload,
+  ): Promise<AgentQueuedMessageSubmission> {
     this.assertActive();
     const expiresAt = submissionExpiresAt(input.metadata);
     assertSubmissionNotExpired(expiresAt);
@@ -3788,7 +4071,7 @@ export class AgentKitClient implements AgentKitController {
           options: input.options,
         }
       : {
-          id: this.createId("queued-message"),
+          id: messageIdOverride ?? this.createId("queued-message"),
           threadId: input.threadId,
           text: input.text,
           createdAt: this.now(),
@@ -3814,7 +4097,19 @@ export class AgentKitClient implements AgentKitController {
       messages: optimisticQueue,
       removedIds,
     });
+    const localSubmit = reservedMessage
+      ? this.queuedMessageReservationCallbacks.get(optimisticMessage.id)
+      : input.onLocalSubmit;
+    this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
+    this.acknowledgeLocalSubmit(localSubmit);
     try {
+      const submissionPayload =
+        submissionPayloadOverride ??
+        (await this.createSubmissionPayload(
+          input,
+          optimisticMessage.id,
+          expiresAt,
+        ));
       if (!preflightMatches) {
         await this.assertAiSetupReady(
           {
@@ -3835,7 +4130,6 @@ export class AgentKitClient implements AgentKitController {
       if (!queueMessage) {
         throw new AgentKitCapabilityError("messageQueue");
       }
-      if (!reservedMessage) input.onLocalSubmit?.();
       return await this.enqueueQueueMutation(input.threadId, async () => {
         this.assertActive();
         await this.requireCapability("messageQueue", requestContext);
@@ -3886,6 +4180,8 @@ export class AgentKitClient implements AgentKitController {
               ...(requestAttachments?.length ? { requestAttachments } : {}),
               metadata: submissionMetadataAtHandoff(input.metadata, expiresAt),
               options: input.options,
+              submissionPayload,
+              ...(input.interruptActiveRun ? { interruptActiveRun: true } : {}),
             },
             context,
           );
@@ -3893,34 +4189,59 @@ export class AgentKitClient implements AgentKitController {
         this.assertActive();
         this.queuedMessageReservationIds.delete(optimisticMessage.id);
         this.pendingQueueMessageIds.delete(optimisticMessage.id);
-        const thread = this.getThread(input.threadId);
-        const queuedMessages = thread.queuedMessages.map((message) =>
-          message.id === optimisticMessage.id ? result.message : message,
-        );
-        this.setThread(input.threadId, { ...thread, queuedMessages });
-        const queueOverride = this.queuedMessageOverrides.get(input.threadId);
-        const nextRemovedIds = new Set(queueOverride?.removedIds);
-        nextRemovedIds.delete(optimisticMessage.id);
-        nextRemovedIds.delete(result.message.id);
-        this.queuedMessageOverrides.set(input.threadId, {
-          messages: queuedMessages,
-          removedIds: nextRemovedIds,
-        });
+        if (result.alreadySubmitted) {
+          this.markQueueMessageSubmitted(input.threadId, result.message);
+        } else {
+          const thread = this.getThread(input.threadId);
+          const queuedMessages = thread.queuedMessages.map((message) =>
+            message.id === optimisticMessage.id ? result.message : message,
+          );
+          this.setThread(input.threadId, { ...thread, queuedMessages });
+          const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+          const nextRemovedIds = new Set(queueOverride?.removedIds);
+          nextRemovedIds.delete(optimisticMessage.id);
+          nextRemovedIds.delete(result.message.id);
+          this.queuedMessageOverrides.set(input.threadId, {
+            messages: queuedMessages,
+            removedIds: nextRemovedIds,
+          });
+        }
         const updatedThread = this.getThread(input.threadId);
         const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
           (runId) => !runIdsBeforeWrite.has(runId),
         );
         if (
+          !result.alreadySubmitted &&
           !hasActiveAgentRuns(updatedThread) &&
           (runWasActive || runStartedDuringWrite)
         ) {
           this.scheduleQueuePromotion(input.threadId);
         }
-        return result.message;
+        return result.alreadySubmitted
+          ? {
+              ...result.message,
+              alreadySubmitted: true,
+              submittedRunId: result.submittedRunId,
+            }
+          : result.message;
       });
     } catch (error) {
       this.queuedMessageReservationIds.delete(optimisticMessage.id);
+      this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
       this.pendingQueueMessageIds.delete(optimisticMessage.id);
+      const submittedRunId = submittedRunIdFromError(error);
+      if (submittedRunId) {
+        const submittedMessage =
+          this.getThread(input.threadId).queuedMessages.find(
+            (message) => message.id === optimisticMessage.id,
+          ) ?? optimisticMessage;
+        this.markQueueMessageSubmitted(input.threadId, submittedMessage);
+        return {
+          ...submittedMessage,
+          alreadySubmitted: true,
+          submittedRunId,
+        };
+      }
       const thread = this.getThread(input.threadId);
       const queuedMessages = thread.queuedMessages.filter(
         (message) => message.id !== optimisticMessage.id,
@@ -4234,18 +4555,25 @@ export class AgentKitClient implements AgentKitController {
       const previousError = this.snapshot.error;
       this.setConnection("connecting");
       try {
-        const result = await this.invokeRequest(requestContext, (context) =>
-          steerQueuedMessage(
-            {
-              threadId,
-              messageId,
-              ...(options?.interruptActiveRun
-                ? { interruptActiveRun: true }
-                : {}),
-            },
-            context,
-          ),
-        );
+        let result: Awaited<ReturnType<typeof steerQueuedMessage>>;
+        try {
+          result = await this.invokeRequest(requestContext, (context) =>
+            steerQueuedMessage(
+              {
+                threadId,
+                messageId,
+                ...(options?.interruptActiveRun
+                  ? { interruptActiveRun: true }
+                  : {}),
+              },
+              context,
+            ),
+          );
+        } catch (error) {
+          const submittedRunId = submittedRunIdFromError(error);
+          if (!submittedRunId) throw error;
+          result = { runId: submittedRunId, alreadySubmitted: true };
+        }
         this.assertActive();
         if (result && "alreadyRemoved" in result) {
           this.removeQueuedMessageFromState(threadId, messageId);
@@ -4496,6 +4824,7 @@ export class AgentKitClient implements AgentKitController {
     this.queuePromotionTerminalExpedites.clear();
     this.pendingQueueMessageIds.clear();
     this.queuedMessageReservationIds.clear();
+    this.queuedMessageReservationCallbacks.clear();
     this.queuePromotionAfterReconciliation.clear();
     this.terminalRunCatchUps.clear();
     for (const controller of this.consumerAbortControllers.values()) {
@@ -6689,6 +7018,14 @@ export class AgentKitClient implements AgentKitController {
 
   private report(error: unknown, code: string): void {
     this.onError?.(toError(error, code));
+  }
+
+  private acknowledgeLocalSubmit(callback?: () => void): void {
+    try {
+      callback?.();
+    } catch (error) {
+      this.report(error, "local_submit_ack_failed");
+    }
   }
 
   private reportIntegrity(report: AgentStreamIntegrityReport): void {

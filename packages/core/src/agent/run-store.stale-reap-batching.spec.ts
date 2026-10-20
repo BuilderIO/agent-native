@@ -4,10 +4,24 @@ let staleSelectRows: Array<{ id: string }> = [];
 const updatedRunIds: string[] = [];
 
 const mockDb = {
+  transaction: async (fn: (tx: any) => Promise<unknown>) => fn(mockDb),
   execute: vi.fn(
     async (statement: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof statement === "string" ? statement : statement.sql;
       const args = typeof statement === "string" ? [] : (statement.args ?? []);
+
+      if (/SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id/i.test(sql)) {
+        return {
+          rows: [{ thread_id: "thread-1", turn_id: args[0] }],
+          rowsAffected: 0,
+        };
+      }
+      if (/SELECT status, worker_generation FROM agent_runs/i.test(sql)) {
+        return {
+          rows: [{ status: "running", worker_generation: null }],
+          rowsAffected: 0,
+        };
+      }
 
       if (
         /SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1/i.test(sql)

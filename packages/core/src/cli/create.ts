@@ -11,7 +11,13 @@ import {
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
 import type { CreateStartKind } from "./create-tui.js";
-import { setupAgentSymlinks } from "./setup-agents.js";
+import {
+  createAgentSymlink,
+  prepareAgentSymlink,
+  rebaseAgentSymlinkTarget,
+  setupAgentSymlinks,
+} from "./setup-agents.js";
+import { resolveTarExecutable } from "./tar-command.js";
 import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
 import {
   coreTemplates,
@@ -871,24 +877,11 @@ function linkWorkspaceRootSkills(targetDir: string): void {
 
   fs.mkdirSync(agentsDir, { recursive: true });
 
-  try {
-    const stat = fs.lstatSync(linkPath);
-    if (stat.isSymbolicLink()) {
-      if (fs.readlinkSync(linkPath) === target) return;
-      fs.unlinkSync(linkPath);
-    } else {
-      return;
-    }
-  } catch {
-    // Missing link; create below.
-  }
+  const state = prepareAgentSymlink(linkPath, target, "dir");
+  if (state !== "create") return;
 
   try {
-    fs.symlinkSync(
-      target,
-      linkPath,
-      process.platform === "win32" ? "junction" : "dir",
-    );
+    createAgentSymlink(target, linkPath, "dir");
   } catch {
     try {
       copyDir(sharedSkillsDir, linkPath);
@@ -1797,7 +1790,7 @@ function localPackageTarball(packageDir: string): string {
   const unpackDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-unpack-"),
   );
-  execFileSync("tar", ["-xzf", rawTarball, "-C", unpackDir], {
+  execFileSync(resolveTarExecutable(), ["-xzf", rawTarball, "-C", unpackDir], {
     stdio: "pipe",
   });
   rewritePublishedPackageManifest(
@@ -2632,7 +2625,7 @@ interface ArchiveSymlink {
 }
 
 function archiveSymlinksForExtraction(tarPath: string): ArchiveSymlink[] {
-  const listing = execFileSync("tar", ["tvzf", tarPath], {
+  const listing = execFileSync(resolveTarExecutable(), ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: TAR_LISTING_MAX_BUFFER,
@@ -2765,7 +2758,7 @@ function extractTarball(
       ? archiveSymlinksForExtraction(tarPath)
       : [];
   execFileSync(
-    "tar",
+    resolveTarExecutable(),
     tarExtractArgs(tarPath, destDir, {
       ...options,
       additionalExcludes: symlinks.map((link) => link.archivePath),
@@ -2814,7 +2807,7 @@ async function downloadAndExtract(
 }
 
 function validateCommunityArchive(tarPath: string): void {
-  const listing = execFileSync("tar", ["tvzf", tarPath], {
+  const listing = execFileSync(resolveTarExecutable(), ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: TAR_LISTING_MAX_BUFFER,
@@ -4667,8 +4660,10 @@ function copyDir(
   dest: string,
   root?: string,
   opts?: { skipExisting?: boolean; materializeSymlinks?: boolean },
+  destinationRoot?: string,
 ): void {
   const resolvedRoot = root ?? path.resolve(src);
+  const resolvedDestinationRoot = destinationRoot ?? path.resolve(dest);
   const skipExisting = opts?.skipExisting ?? false;
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
@@ -4680,17 +4675,43 @@ function copyDir(
     }
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
-      const resolvedTarget = path.resolve(path.dirname(srcPath), target);
-      if (
-        !opts?.materializeSymlinks &&
-        isPathWithin(resolvedRoot, resolvedTarget)
-      ) {
-        fs.symlinkSync(target, destPath);
+      const copiedTarget = rebaseAgentSymlinkTarget(
+        resolvedRoot,
+        resolvedDestinationRoot,
+        srcPath,
+        destPath,
+        target,
+      );
+      if (!opts?.materializeSymlinks && copiedTarget !== undefined) {
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(srcPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          if (process.platform === "win32") {
+            throw new Error(
+              `Cannot copy dangling symlink at "${srcPath}" on Windows because its target type is unknown.`,
+            );
+          }
+          fs.symlinkSync(copiedTarget, destPath);
+          continue;
+        }
+        createAgentSymlink(
+          copiedTarget,
+          destPath,
+          stat.isDirectory() ? "dir" : "file",
+        );
       } else {
         try {
           const stat = fs.statSync(srcPath);
           if (stat.isDirectory()) {
-            copyDir(srcPath, destPath, resolvedRoot, opts);
+            copyDir(
+              srcPath,
+              destPath,
+              resolvedRoot,
+              opts,
+              resolvedDestinationRoot,
+            );
           } else {
             fs.copyFileSync(srcPath, destPath);
           }
@@ -4699,7 +4720,7 @@ function copyDir(
         }
       }
     } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, resolvedRoot, opts);
+      copyDir(srcPath, destPath, resolvedRoot, opts, resolvedDestinationRoot);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }

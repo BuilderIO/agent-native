@@ -704,6 +704,9 @@ const messages = {
     submitError: "無法加入等候名單。請再試一次。",
     waitlistUnavailable: "此環境目前無法加入等候名單。請改用託管的文件網站。",
     launchBuilder: "啟動 Builder",
+    newAppPrompt: "建立新的 Agent-Native 應用程式。",
+    customizeTemplatePrompt:
+      "根據我的工作流程自訂 Agent-Native {{template}} 範本。",
   },
   templateCard: {
     pasteIntoTerminal: "貼上到您的終端中。",
@@ -2687,7 +2690,9 @@ const messages = {
     blueprintInstaller: "Blueprint 安裝器",
     chat: "聊天",
     chatOverview: "總覽",
-    chatFirstEdits: "你的第一個功能",
+    chatFeatures: "功能",
+    chatAgent: "與 Agent 對話",
+    chatIntegrations: "跨應用使用",
     chatDevelopers: "開發者指南",
     calendar: "行事曆",
     calendarOverview: "總覽",

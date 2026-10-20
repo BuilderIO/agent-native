@@ -5,12 +5,13 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
-import type {
-  ContentDatabaseFilter,
-  ContentDatabaseFilterOperator,
-  ContentDatabaseView,
-  ContentDatabaseViewConfig,
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  type ContentDatabaseFilter,
+  type ContentDatabaseView,
+  type ContentDatabaseViewConfig,
 } from "../shared/api.js";
+import { contentDatabaseFilterOperatorsForType } from "../shared/database-query.js";
 import type { DocumentPropertyType } from "../shared/properties.js";
 import {
   runDatabaseSetupMutation,
@@ -31,20 +32,7 @@ const filterSchema = z
   .object({
     key: z.string().trim().min(1).max(200),
     label: z.string().max(500),
-    operator: z.enum([
-      "contains",
-      "equals",
-      "does_not_equal",
-      "greater_than",
-      "less_than",
-      "before",
-      "after",
-      "between",
-      "is_checked",
-      "is_unchecked",
-      "is_empty",
-      "is_not_empty",
-    ]),
+    operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
     value: z.string(),
     filterGroupId: z.string().max(200).optional(),
     parentFilterGroupId: z.string().max(200).optional(),
@@ -147,59 +135,6 @@ export type UpdateContentDatabaseViewAgentInput = z.infer<
   typeof updateContentDatabaseViewAgentSchema
 >;
 
-const operatorsByType: Partial<
-  Record<DocumentPropertyType, readonly ContentDatabaseFilterOperator[]>
-> = {
-  checkbox: ["is_checked", "is_unchecked"],
-  select: ["contains", "does_not_equal", "is_empty", "is_not_empty"],
-  status: ["contains", "does_not_equal", "is_empty", "is_not_empty"],
-  multi_select: ["contains", "does_not_equal", "is_empty", "is_not_empty"],
-  person: ["contains", "does_not_equal", "is_empty", "is_not_empty"],
-  number: [
-    "equals",
-    "does_not_equal",
-    "greater_than",
-    "less_than",
-    "is_empty",
-    "is_not_empty",
-  ],
-  date: [
-    "equals",
-    "does_not_equal",
-    "before",
-    "after",
-    "between",
-    "is_empty",
-    "is_not_empty",
-  ],
-  created_time: [
-    "equals",
-    "does_not_equal",
-    "before",
-    "after",
-    "between",
-    "is_empty",
-    "is_not_empty",
-  ],
-  last_edited_time: [
-    "equals",
-    "does_not_equal",
-    "before",
-    "after",
-    "between",
-    "is_empty",
-    "is_not_empty",
-  ],
-};
-
-const defaultOperators: readonly ContentDatabaseFilterOperator[] = [
-  "contains",
-  "equals",
-  "does_not_equal",
-  "is_empty",
-  "is_not_empty",
-];
-
 function uniqueReferences(values: readonly string[], field: string) {
   if (new Set(values).size !== values.length) {
     setupError(
@@ -228,9 +163,10 @@ function validateTablePatch(
     values: readonly string[] | undefined,
     allowed: ReadonlySet<string>,
     field: string,
+    { unique = true }: { unique?: boolean } = {},
   ) => {
     if (!values) return;
-    uniqueReferences(values, field);
+    if (unique) uniqueReferences(values, field);
     const invalid = values.find((value) => !allowed.has(value));
     if (invalid) {
       setupError(
@@ -248,10 +184,13 @@ function validateTablePatch(
     columnIds,
     "sorts",
   );
+  // A view may filter one property more than once ("Rank is not empty" and
+  // "Rank ≤ 25"), so filter keys only need to exist.
   assertReferences(
     patch.filters?.map((filter) => filter.key),
     columnIds,
     "filters",
+    { unique: false },
   );
   assertReferences(
     patch.columnWidths ? Object.keys(patch.columnWidths) : undefined,
@@ -277,8 +216,9 @@ function validateTablePatch(
   }
   for (const filter of patch.filters ?? []) {
     const type = filter.key === "name" ? "text" : typeById.get(filter.key)!;
-    const allowed = operatorsByType[type] ?? defaultOperators;
-    if (!allowed.includes(filter.operator)) {
+    if (
+      !contentDatabaseFilterOperatorsForType(type).includes(filter.operator)
+    ) {
       setupError(
         "INVALID_VIEW_REFERENCE",
         `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\".`,
@@ -589,5 +529,5 @@ export function filterIsCompatible(
   filter: ContentDatabaseFilter,
   type: DocumentPropertyType,
 ) {
-  return (operatorsByType[type] ?? defaultOperators).includes(filter.operator);
+  return contentDatabaseFilterOperatorsForType(type).includes(filter.operator);
 }
