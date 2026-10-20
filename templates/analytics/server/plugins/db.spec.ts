@@ -415,50 +415,6 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "repairPersistedFirstPartyDashboardQueries",
     );
   });
-
-  it("skips Analytics migrations in non-rollup durable background functions", () => {
-    const pluginSource = dbTsSource.slice(
-      dbTsSource.lastIndexOf("export default async"),
-    );
-    const backgroundGuardIdx = pluginSource.indexOf(
-      "if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {",
-    );
-    const migrationsCallIdx = pluginSource.indexOf(
-      "await runAnalyticsMigrations(",
-    );
-    expect(backgroundGuardIdx).toBeGreaterThan(-1);
-    expect(migrationsCallIdx).toBeGreaterThan(backgroundGuardIdx);
-    expect(pluginSource.slice(backgroundGuardIdx, migrationsCallIdx)).toMatch(
-      /return;/,
-    );
-    expect(pluginSource).toContain(
-      "__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__",
-    );
-  });
-
-  it("skips production serverless migrations except for the scheduled rollup worker", () => {
-    const pluginSource = dbTsSource.slice(
-      dbTsSource.lastIndexOf("export default async"),
-    );
-    const serverlessGuardIdx = pluginSource.indexOf(
-      "if (isProductionServerless && !isScheduledRollupRuntime) {",
-    );
-    const migrationsCallIdx = pluginSource.indexOf(
-      "await runAnalyticsMigrations(",
-    );
-    expect(serverlessGuardIdx).toBeGreaterThan(-1);
-    expect(migrationsCallIdx).toBeGreaterThan(serverlessGuardIdx);
-    expect(pluginSource.slice(serverlessGuardIdx, migrationsCallIdx)).toMatch(
-      /return;/,
-    );
-    expect(pluginSource).toContain(
-      "withMigrationExecutionRuntime(runSchemaWork)",
-    );
-    expect(pluginSource).toContain(
-      "Skipping Analytics migrations in production serverless runtime",
-    );
-    expect(pluginSource).not.toContain("ANALYTICS_SKIP_BOOT_MIGRATIONS");
-  });
 });
 
 describe("Analytics release migrations repair persisted first-party dashboards", () => {

@@ -11,6 +11,11 @@ import { readContentCollection } from "../server/lib/content-metrics/store.js";
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Run the organization's Content view collection now instead of waiting for the daily job. Requires an organization owner or admin and a saved collection (configure-content-collection). Each step calls its provider and records a run; a failed step is recorded as failed and writes no data. Returns each step's status.",
   schema: z.object({

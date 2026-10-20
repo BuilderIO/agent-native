@@ -66,6 +66,9 @@ describe("get-first-party-analytics-backend", () => {
         analytics_event_daily_rollups: "postgres",
         analytics_user_days: "postgres",
         session_recordings: "postgres",
+        analytics_content_items: "postgres",
+        analytics_content_metric_snapshots: "postgres",
+        analytics_content_collection_runs: "postgres",
       },
     });
     expect(mocks.getOrgSetting).toHaveBeenCalledWith(
@@ -89,6 +92,9 @@ describe("get-first-party-analytics-backend", () => {
         analytics_event_daily_rollups: "bigquery",
         analytics_user_days: "bigquery",
         session_recordings: "postgres",
+        analytics_content_items: "postgres",
+        analytics_content_metric_snapshots: "postgres",
+        analytics_content_collection_runs: "postgres",
       },
     });
     expectNoBigQuery();
