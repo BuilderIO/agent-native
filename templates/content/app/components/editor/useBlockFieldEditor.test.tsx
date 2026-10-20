@@ -985,6 +985,36 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("merges newer text the editor hasn't merged yet into a page-close save", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn((_req: SaveCall) => Promise.reject({ status: 409 }));
+    const keepaliveSave = vi.fn((_req: SaveCall) => true);
+    const { field, render } = mountField({
+      initialContent: "One\nTwo",
+      initialRevision: 10,
+      save,
+      keepaliveSave,
+    });
+
+    act(() => field.onChange("One\nTwo and more"));
+    await settle();
+    expect(save).toHaveBeenCalledTimes(1);
+    // The newer text arrives while the editor waits out an input method.
+    render("One edited\nTwo", 11);
+    expect(field.externalContent).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(keepaliveSave).toHaveBeenCalledExactlyOnceWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "One edited\nTwo and more",
+      expectedBlocksFieldRevision: 11,
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it("saves right away when the page-close save can't be sent", () => {
     vi.useFakeTimers();
     const save = vi.fn(async (_req: SaveCall) => savedAt(11));

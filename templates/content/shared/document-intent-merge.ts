@@ -252,6 +252,40 @@ function blockSpans(
 }
 
 /**
+ * Their text, then the paragraphs of mine that neither theirs nor the base
+ * holds. Text that can't be read as paragraphs keeps all of mine after theirs,
+ * so typing is never dropped.
+ */
+function appendChangedBlocks(
+  baseText: string | null,
+  mineText: string,
+  theirText: string,
+  theirs: string,
+): { content: string; moved: boolean } {
+  const theirBlocks = parseStableBlocks(theirText);
+  const mineBlocks = parseStableBlocks(mineText);
+  if (!theirBlocks || !mineBlocks) {
+    return { content: `${theirs}\n${mineText}`, moved: true };
+  }
+  const baseBlocks = new Set(
+    ((baseText === null ? null : parseStableBlocks(baseText)) ?? []).map(
+      stableBlock,
+    ),
+  );
+  const kept = new Set(theirBlocks.map(stableBlock));
+  const moved = mineBlocks.filter(
+    (block) =>
+      !baseBlocks.has(stableBlock(block)) && !kept.has(stableBlock(block)),
+  );
+  return {
+    content: moved.length
+      ? docToNfm({ type: "doc", content: [...theirBlocks, ...moved] })
+      : theirs,
+    moved: moved.length > 0,
+  };
+}
+
+/**
  * Merges a Blocks field's unsaved text with a newer version saved elsewhere,
  * both edited from `base`. Their changes always land. Mine land too, except
  * where both changed the same words: their words stay in place, and the
@@ -271,7 +305,12 @@ export function mergeBlocksFieldEdits(
   const mineText = parsedForm(mine);
   const theirText = parsedForm(theirs);
   if (baseText === null || mineText === null || theirText === null) {
-    return { content: theirs, moved: true };
+    return appendChangedBlocks(
+      baseText,
+      mineText ?? mine,
+      theirText ?? theirs,
+      theirs,
+    );
   }
   if (mineText === theirText || mineText === baseText) {
     return { content: theirs, moved: false };
@@ -346,23 +385,7 @@ export function mergeBlocksFieldEdits(
   const mergedSpans = parsedForm(merged) === merged ? blockSpans(merged) : null;
   const mineSpans = blockSpans(mineText);
   if (!mergedSpans || !mineSpans) {
-    const theirBlocks = parseStableBlocks(theirText);
-    const baseBlocks = new Set(
-      (parseStableBlocks(baseText) ?? []).map(stableBlock),
-    );
-    const mineBlocks = parseStableBlocks(mineText);
-    if (!theirBlocks || !mineBlocks) return { content: theirs, moved: true };
-    const kept = new Set(theirBlocks.map(stableBlock));
-    const moved = mineBlocks.filter(
-      (block) =>
-        !baseBlocks.has(stableBlock(block)) && !kept.has(stableBlock(block)),
-    );
-    return {
-      content: moved.length
-        ? docToNfm({ type: "doc", content: [...theirBlocks, ...moved] })
-        : theirs,
-      moved: moved.length > 0,
-    };
+    return appendChangedBlocks(baseText, mineText, theirText, theirs);
   }
   const kept = new Set(mergedSpans.map((span) => stableBlock(span.block)));
   const moved = mineSpans

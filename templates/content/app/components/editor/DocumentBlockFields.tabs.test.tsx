@@ -1070,6 +1070,46 @@ describe("DocumentBlockFields tabs", () => {
       },
     );
 
+    it("saves again, and reports it, when a delete fails after a save failed during it", async () => {
+      let failSave = () => {};
+      mocks.save.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failSave = () => reject(new Error("Offline"));
+          }),
+      );
+      let failDelete = () => {};
+      mocks.remove.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failDelete = () => reject(new Error("Offline"));
+          }),
+      );
+      await render();
+      await click(tab("notes"));
+      await type("Notes text", "Typed just before deleting");
+      await act(async () => {
+        void flushAllBlockFieldSaveControllersForDocument("doc-1").catch(
+          () => {},
+        );
+      });
+      await rightClick(tab("notes"));
+      await choose("[data-block-field-delete]");
+      await confirmDelete();
+      await act(async () => failSave());
+      expect(mocks.toastError).not.toHaveBeenCalled();
+
+      mocks.save.mockRejectedValueOnce(new Error("Still offline"));
+      await act(async () => failDelete());
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(mocks.save).toHaveBeenCalledTimes(2);
+      expect(mocks.toastError).toHaveBeenCalledWith("Something went wrong", {
+        description: "Still offline",
+      });
+    });
+
     it("reports a failed delete", async () => {
       mocks.remove.mockRejectedValueOnce(new Error("Offline"));
       await render();

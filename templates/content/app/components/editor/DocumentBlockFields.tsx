@@ -945,6 +945,11 @@ function MultiBlockFields({
       forgetBlockFieldSaveController(`${documentId}:${id}`);
     } catch (error) {
       setBlockFieldDeleting(`${documentId}:${id}`, false);
+      // The field is still there, so a save that failed unreported while the
+      // delete ran goes out again, and reports if it fails again.
+      void peekBlockFieldSaveController(`${documentId}:${id}`)
+        ?.flush()
+        .catch(() => {});
       // The field is still there, so go back to it unless another tab was
       // opened while the delete was in flight.
       const current = requestedIdRef.current;
@@ -1727,6 +1732,8 @@ export function useBlockFieldEditor({
   onTextMovedRef.current = onTextMoved;
   const keepaliveSaveRef = useRef(keepaliveSave);
   keepaliveSaveRef.current = keepaliveSave;
+  const saveRef = useRef(save);
+  saveRef.current = save;
   const onReleaseSettledRef = useRef(onReleaseSettled);
   onReleaseSettledRef.current = onReleaseSettled;
   implRef.current = async (value: string) => {
@@ -1895,12 +1902,33 @@ export function useBlockFieldEditor({
   useEffect(() => {
     const onPageHide = () => {
       const controller = controllerRef.current;
+      if (!controller) return;
       const revision = blockFieldRevision(key, initialRevision);
-      if (
-        !controller ||
-        controller.pending === controller.lastSaved ||
-        revision.stale
-      ) {
+      // Newer text the editor hasn't merged yet (it waits out a slash command
+      // or an input method) is merged now, since the page won't wait.
+      const newer = mergeRequestRef.current;
+      if (newer && newer.revision > revision.base) {
+        const { content: merged } = mergeBlocksFieldEdits(
+          controller.lastSaved,
+          controller.pending,
+          newer.content,
+        );
+        if (merged === newer.content) return;
+        const request = {
+          documentId,
+          propertyId,
+          value: merged,
+          expectedBlocksFieldRevision: newer.revision,
+        };
+        if (!keepaliveSaveRef.current?.(request)) {
+          void saveRef.current(request).catch(() => {
+            /* Page is going away; the save reports its own failure. */
+          });
+        }
+        return;
+      }
+      // A refused save waits for the newer text, which hasn't arrived.
+      if (controller.pending === controller.lastSaved || revision.stale) {
         return;
       }
       const sent = keepaliveSaveRef.current?.({
