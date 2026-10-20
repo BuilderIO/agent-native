@@ -913,6 +913,35 @@ describe("SuggestionHighlight", () => {
       }
     });
 
+    it("keeps each line's number in a suggested new numbered list", () => {
+      const source = "Alpha one.\n1. One\n2. Two\nBravo two.";
+      const from = "Alpha one.".length;
+      const to = source.indexOf("\nBravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "numbered",
+            kind: "add_block",
+            from: 1 + from,
+            to: 1 + from,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(
+          Array.from(
+            mount.querySelectorAll(".suggestion-block-widget ol"),
+            (list) => `${list.getAttribute("start")} ${list.textContent}`,
+          ),
+        ).toEqual(["1 One", "2 Two"]);
+      } finally {
+        view.destroy();
+      }
+    });
+
     it("shows a suggested empty paragraph as a pilcrow block", () => {
       const source = "Alpha one.\n<empty-block/>\nBravo two.";
       const from = "Alpha one.".length;

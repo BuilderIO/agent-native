@@ -342,6 +342,8 @@ function lineWidget(
       const item = document.createElement("li");
       item.append(content);
       content = document.createElement(list[2] ? "ol" : "ul");
+      // Each line is its own list, so a numbered line keeps its number.
+      if (list[2]) content.setAttribute("start", list[2]);
       content.append(item);
     }
     widget.append(content);
