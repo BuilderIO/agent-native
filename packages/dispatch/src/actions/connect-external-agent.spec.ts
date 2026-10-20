@@ -68,6 +68,22 @@ describe("connect-external-agent action", () => {
     expect((caught as Error).message).toMatch(/https/i);
   });
 
+  it("rejects localhost HTTP endpoints", async () => {
+    let caught: unknown;
+    try {
+      await action.run({
+        url: "http://localhost:3000",
+        scope: "personal",
+      } as never);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isActionContractError(caught)).toBe(true);
+    expect((caught as Error).message).toMatch(/https/i);
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
   it.each([
     "https://127.0.0.1",
     "https://10.0.0.8",
@@ -126,19 +142,25 @@ describe("connect-external-agent action", () => {
     expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
-  it("requires an owner or admin actor for personal agents too", async () => {
+  it("lets organization members create personal connections without shared-agent admin access", async () => {
     mocks.currentOrgId.mockReturnValue("org_1");
-    mocks.getDbExec.mockReturnValue({
-      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
-    });
+    mocks.currentOwnerEmail.mockReturnValue("member@example.com");
 
-    await expect(
-      action.run({
-        url: "https://agent.example.com",
-        scope: "personal",
-      } as never),
-    ).rejects.toMatchObject({ statusCode: 403 });
-    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
+    const result = await action.run({
+      url: "https://agent.example.com",
+      name: "Personal Agent",
+      scope: "personal",
+    } as never);
+
+    expect(result.status).toBe("created");
+    expect(result.scope).toBe("personal");
+    expect(mocks.getDbExec).not.toHaveBeenCalled();
+    expect(mocks.resourcePutIfAbsent).toHaveBeenCalledWith(
+      "member@example.com",
+      "remote-agents/personal-agent.json",
+      expect.any(String),
+      "application/json",
+    );
   });
 
   it("connects a well-formed https endpoint", async () => {

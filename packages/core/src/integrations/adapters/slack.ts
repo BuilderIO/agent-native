@@ -463,16 +463,30 @@ export function slackAdapter(
         image_url: url,
         alt_text: alt || "Image",
       }));
-      const finalBlocks = blocks
-        ? [...blocks, ...imageBlocks].slice(0, 50)
-        : buildResponseBlocks(
-            deliveryText,
-            {
-              threadDeepLinkUrl: (message.platformContext as any)
-                ?.threadDeepLinkUrl,
-            },
-            imageBlocks,
-          );
+      const finalBlocks =
+        hasProvidedBlocks && restChunks.length === 0
+          ? [...blocks, ...imageBlocks].slice(0, 50)
+          : hasProvidedBlocks
+            ? [
+                ...buildResponseBlocks(
+                  firstChunk,
+                  {
+                    threadDeepLinkUrl: (message.platformContext as any)
+                      ?.threadDeepLinkUrl,
+                  },
+                  imageBlocks,
+                ).filter((block: any) => block?.type === "section"),
+                ...blocks.filter((block: any) => block?.type !== "section"),
+                ...imageBlocks,
+              ].slice(0, 50)
+            : buildResponseBlocks(
+                restChunks.length > 0 ? firstChunk : deliveryText,
+                {
+                  threadDeepLinkUrl: (message.platformContext as any)
+                    ?.threadDeepLinkUrl,
+                },
+                imageBlocks,
+              );
 
       const baseBody: Record<string, unknown> = {
         channel: channelId,

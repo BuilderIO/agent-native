@@ -47,9 +47,9 @@ async function assertCanManageSharedAgent() {
 
 export default defineAction({
   description:
-    "Connect an existing HTTP/A2A agent to Dispatch. This stores only its public endpoint and metadata; authentication remains in the normal A2A/MCP connection flow.",
+    "Connect an existing HTTPS/A2A agent to Dispatch. This stores only its public endpoint and metadata; authentication remains in the normal A2A/MCP connection flow.",
   schema: z.object({
-    url: z.string().min(1).describe("HTTP or HTTPS agent endpoint"),
+    url: z.string().min(1).describe("HTTPS agent endpoint"),
     name: z.string().max(160).optional().describe("Agent name"),
     description: z.string().max(500).optional().describe("Short description"),
     scope: z
@@ -60,11 +60,9 @@ export default defineAction({
   run: async ({ url, name, description, scope }) => {
     const parsed = normalizeConnectUrl(url);
     if (!parsed)
-      fail(
-        "Use HTTPS, except for localhost HTTP, and do not include credentials or private addresses.",
-      );
+      fail("Use an HTTPS URL without credentials or private addresses.");
 
-    await assertCanManageSharedAgent();
+    if (scope === "shared") await assertCanManageSharedAgent();
     const agentName = name?.trim() || parsed.hostname.replace(/^www\./, "");
     const id = slugify(agentName);
     const path = `remote-agents/${id}.json`;

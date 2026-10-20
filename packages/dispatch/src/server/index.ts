@@ -13,6 +13,7 @@ export {
 } from "./lib/app-creation-store.js";
 export {
   invalidateOrgAppsDirectoryCache,
+  orgAppsDirectoryAccessCache,
   orgAppsDirectoryCache,
 } from "./lib/org-apps-directory-cache.js";
 

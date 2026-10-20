@@ -35,7 +35,7 @@ describe("connect apps helpers", () => {
     expect(normalizeConnectUrl("https://[fc00::1]")).toBeNull();
     expect(normalizeConnectUrl("https://[fe80::1]")).toBeNull();
     expect(normalizeConnectUrl("https://fdroid.org")).not.toBeNull();
-    expect(normalizeConnectUrl("http://localhost:3000")).not.toBeNull();
+    expect(normalizeConnectUrl("http://localhost:3000")).toBeNull();
   });
 
   it("accepts a connect-capable card only from the requested origin", () => {
@@ -162,6 +162,9 @@ describe("connect apps helpers", () => {
     await expect(fetchConnectAgentCard("https://127.0.0.1")).rejects.toThrow(
       /secure app URL/,
     );
+    await expect(
+      fetchConnectAgentCard("http://localhost:3000"),
+    ).rejects.toThrow(/secure app URL/);
     expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
   });
 

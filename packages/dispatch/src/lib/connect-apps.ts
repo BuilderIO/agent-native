@@ -65,8 +65,7 @@ export function normalizeConnectUrl(value: string): URL | null {
         /^fe[89ab]/.test(ipv6) ||
         Boolean(mappedAddress && isPrivateIpv4(mappedAddress)));
     if (
-      (url.protocol !== "https:" &&
-        !(url.protocol === "http:" && hostname === "localhost")) ||
+      url.protocol !== "https:" ||
       (hostname !== "localhost" && (privateIpv4 || privateIpv6)) ||
       url.username ||
       url.password

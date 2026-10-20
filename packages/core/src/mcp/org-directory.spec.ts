@@ -83,7 +83,15 @@ describe("resolveOrgDirectoryOrigin", () => {
     ).toBe("https://hub.acme.com");
   });
 
-  it("rejects non-http(s) values", () => {
+  it("requires HTTPS origins for credentialed directory requests", () => {
+    expect(
+      resolveOrgDirectoryOrigin({
+        AGENT_NATIVE_ORG_DIRECTORY_URL: "http://dispatch.acme.com",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects non-HTTPS and malformed values", () => {
     expect(
       resolveOrgDirectoryOrigin({
         AGENT_NATIVE_ORG_DIRECTORY_URL: "ftp://bad",
@@ -119,7 +127,7 @@ describe("fetchOrgApps", () => {
     ).resolves.toEqual({ status: "unavailable", reason: "invalid-origin" });
   });
 
-  it.each(["http://127.0.0.1", "http://10.2.3.4", "http://169.254.1.2"])(
+  it.each(["https://127.0.0.1", "https://10.2.3.4", "https://169.254.1.2"])(
     "blocks private directory origin %s before making a request",
     async (origin) => {
       const fetchSpy = vi.fn();
@@ -131,6 +139,16 @@ describe("fetchOrgApps", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     },
   );
+
+  it("rejects a public HTTP directory origin before sending credentials", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({ directoryBaseUrl: "http://dispatch.example" }),
+    ).resolves.toEqual({ status: "unavailable", reason: "invalid-origin" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 
   it("fetches the directory and normalizes the app list", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
@@ -162,7 +180,7 @@ describe("fetchOrgApps", () => {
 
     const apps = await fetchOrgApps({ selfId: "mail" });
     expect(callerAuth.resolveA2ACallerAuth).toHaveBeenCalledWith({
-      audience: "https://dispatch.acme.com",
+      audience: "https://dispatch.acme.com/_agent-native/org/apps",
     });
     expect(apps).toEqual([
       {
@@ -195,7 +213,7 @@ describe("fetchOrgApps", () => {
       expect.any(Object),
     );
     expect(callerAuth.resolveA2ACallerAuth).toHaveBeenCalledWith({
-      audience: "https://dispatch.example/dispatch",
+      audience: "https://dispatch.example/dispatch/_agent-native/org/apps",
     });
     expect(process.env.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
       "https://configured.example",
@@ -492,7 +510,7 @@ describe("fetchOrgApps", () => {
       {
         expiresIn: "5m",
         preferGlobalSecret: true,
-        audience: "https://dispatch.acme.com",
+        audience: "https://dispatch.acme.com/_agent-native/org/apps",
       },
     );
     expect(signA2AOrganizationTokenMock).toHaveBeenNthCalledWith(
@@ -503,7 +521,7 @@ describe("fetchOrgApps", () => {
       {
         expiresIn: "5m",
         preferGlobalSecret: false,
-        audience: "https://dispatch.acme.com",
+        audience: "https://dispatch.acme.com/_agent-native/org/apps",
       },
     );
     expect(authHeaders).toEqual([

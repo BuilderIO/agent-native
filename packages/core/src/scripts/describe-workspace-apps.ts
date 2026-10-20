@@ -72,6 +72,20 @@ export async function run(
 
   const query = String(args.query ?? "").trim();
   const selection = selectWorkspaceAppCandidates(agents, query, MAX_APPS);
+  const directoryStatus =
+    discovery.directory.status === "unavailable"
+      ? `Organization app directory status: unavailable (${discovery.directory.reason}). This list may be incomplete.`
+      : discovery.directory.status === "forbidden"
+        ? "Organization app directory status: forbidden. This list may be incomplete."
+        : discovery.directory.status === "setup-required"
+          ? `Organization app directory status: setup-required (${discovery.directory.reason}). This list may be incomplete.`
+          : null;
+
+  if (query && selection.status === "no-match") {
+    const noMatch = `No reachable workspace apps matched "${query}". Try a different query or omit query to list all available apps.`;
+    return directoryStatus ? `${directoryStatus}\n${noMatch}` : noMatch;
+  }
+
   const shown = selection.agents;
   const summary = formatCapabilitySummary(
     await loadAllCapabilities(shown),
@@ -81,14 +95,6 @@ export async function run(
   const list = selection.omittedCount
     ? `${summary}\n+${selection.omittedCount} more — search with describe-workspace-apps query="..."`
     : summary;
-  const directoryStatus =
-    discovery.directory.status === "unavailable"
-      ? `Organization app directory status: unavailable (${discovery.directory.reason}). This list may be incomplete.`
-      : discovery.directory.status === "forbidden"
-        ? "Organization app directory status: forbidden. This list may be incomplete."
-        : discovery.directory.status === "setup-required"
-          ? `Organization app directory status: setup-required (${discovery.directory.reason}). This list may be incomplete.`
-          : null;
 
   return directoryStatus ? `${directoryStatus}\n${list}` : list;
 }

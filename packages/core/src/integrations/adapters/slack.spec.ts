@@ -2158,6 +2158,70 @@ describe("slackAdapter", () => {
     ]);
   });
 
+  it("builds first-message sections from the first chunk and preserves auxiliary blocks", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryBodies: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          deliveryBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+
+    const responseText = `${"first chunk ".repeat(450)}follow-up chunk`;
+    const blocks = [
+      { type: "section", text: { type: "mrkdwn", text: "full response" } },
+      {
+        type: "image",
+        image_url: "https://example.test/chart.png",
+        alt_text: "chart",
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Open thread" },
+            url: "https://example.test/thread",
+          },
+        ],
+      },
+    ];
+    await slackAdapter().sendResponse(
+      { text: responseText, platformContext: { blocks } },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "request",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(deliveryBodies).toHaveLength(2);
+    const firstSections = deliveryBodies[0].blocks.filter(
+      (block: any) => block.type === "section",
+    );
+    expect(firstSections[0].text.text.length).toBeLessThanOrEqual(3000);
+    expect(responseText.startsWith(firstSections[0].text.text)).toBe(true);
+    expect(
+      firstSections.map((block: any) => block.text.text).join(""),
+    ).not.toContain("follow-up chunk");
+    expect(deliveryBodies[0].blocks).toContainEqual(
+      expect.objectContaining({ type: "image", alt_text: "chart" }),
+    );
+    expect(deliveryBodies[0].blocks).toContainEqual(
+      expect.objectContaining({ type: "actions" }),
+    );
+    expect(deliveryBodies[1].text).toContain("follow-up chunk");
+    expect(deliveryBodies[1].blocks).toBeUndefined();
+  });
+
   it("keeps unowned Markdown image URLs as links instead of loading them", async () => {
     fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue(null);
     process.env.SLACK_BOT_TOKEN = "xoxb-test";

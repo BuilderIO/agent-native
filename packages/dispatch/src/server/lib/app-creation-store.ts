@@ -1208,6 +1208,7 @@ export async function archiveWorkspaceApp(input: {
   const current = parseArchivedAppIds(raw.archivedAppIds);
   if (!current.includes(appId)) current.push(appId);
   await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.archived",
     targetType: "workspace-app",
@@ -1227,6 +1228,7 @@ export async function unarchiveWorkspaceApp(input: {
     (id) => id !== appId,
   );
   await putSetting(scopedSettingsKey(), { ...raw, archivedAppIds: current });
+  invalidateOrgAppsDirectoryCache();
   await recordAudit({
     action: "workspace-app.unarchived",
     targetType: "workspace-app",
@@ -2534,6 +2536,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
       visibility,
     },
   ]);
+  invalidateOrgAppsDirectoryCache();
 
   return { appId, template, output };
 }

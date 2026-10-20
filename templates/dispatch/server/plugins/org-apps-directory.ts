@@ -41,6 +41,7 @@ import { getOrgDomain, resolveOrgByDomain } from "@agent-native/core/org";
 import { getH3App, runWithRequestContext } from "@agent-native/core/server";
 import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
 import {
+  orgAppsDirectoryAccessCache,
   orgAppsDirectoryCache,
   listOrganizationVisibleWorkspaceApps,
   listWorkspaceApps,
@@ -98,7 +99,10 @@ export const orgAppsHandler = defineEventHandler(
 
     let verified: Awaited<ReturnType<typeof verifyA2AToken>>;
     try {
-      verified = await verifyA2AToken(token, event);
+      verified = await verifyA2AToken(token, event, {
+        routePrefix: ORG_APPS_PATH,
+        requireAudience: true,
+      });
     } catch {
       return jsonResponse({ error: "identity_verification_unavailable" }, 503, {
         "Cache-Control": "private, no-store",
@@ -189,26 +193,31 @@ export const orgAppsHandler = defineEventHandler(
         },
         async () => {
           const startedAt = Date.now();
-          const visibleWorkspaceApps = isOrganizationPrincipal
-            ? await listOrganizationVisibleWorkspaceApps()
-            : await listWorkspaceApps({
-                includeAgentCards: false,
-                audience: "all",
-              });
-          const allowedWorkspaceAppIds = new Set(
-            visibleWorkspaceApps
-              .filter(
-                (app) =>
-                  app.status === "ready" &&
-                  (app.visibility === "org" ||
-                    (app.visibility === "private" &&
-                      !!userEmail &&
-                      app.owner?.trim().toLowerCase() === userEmail)) &&
-                  app.orgEnabled !== false &&
-                  typeof app.url === "string" &&
-                  app.url.trim().length > 0,
-              )
-              .map((app) => app.id),
+          const allowedWorkspaceAppIds = await orgAppsDirectoryAccessCache.get(
+            cacheKey.join("|"),
+            async () => {
+              const visibleWorkspaceApps = isOrganizationPrincipal
+                ? await listOrganizationVisibleWorkspaceApps()
+                : await listWorkspaceApps({
+                    includeAgentCards: false,
+                    audience: "all",
+                  });
+              return new Set(
+                visibleWorkspaceApps
+                  .filter(
+                    (app) =>
+                      app.status === "ready" &&
+                      (app.visibility === "org" ||
+                        (app.visibility === "private" &&
+                          !!userEmail &&
+                          app.owner?.trim().toLowerCase() === userEmail)) &&
+                      app.orgEnabled !== false &&
+                      typeof app.url === "string" &&
+                      app.url.trim().length > 0,
+                  )
+                  .map((app) => app.id),
+              );
+            },
           );
           const scopedCacheKey = [
             ...cacheKey,
@@ -299,6 +308,7 @@ export const orgAppsHandler = defineEventHandler(
 
 export function _resetOrgAppsDirectoryCache(): void {
   directoryCache.clear();
+  orgAppsDirectoryAccessCache.clear();
 }
 
 export default async (nitroApp: any) => {

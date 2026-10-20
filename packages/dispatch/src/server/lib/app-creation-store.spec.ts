@@ -20,7 +20,10 @@ import {
   startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
-import { orgAppsDirectoryCache } from "./org-apps-directory-cache.js";
+import {
+  orgAppsDirectoryAccessCache,
+  orgAppsDirectoryCache,
+} from "./org-apps-directory-cache.js";
 
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
@@ -227,6 +230,7 @@ afterEach(() => {
   mocks.state.orgRole = "admin";
   mocks.state.workspaceApps = [];
   orgAppsDirectoryCache.clear();
+  orgAppsDirectoryAccessCache.clear();
   mocks.getDbExec.mockReset();
   mocks.getDbExec.mockImplementation(() => ({
     execute: vi.fn(async (statement: unknown) => {
@@ -1909,6 +1913,8 @@ describe("listWorkspaceApps", () => {
       },
     ]);
     await orgAppsDirectoryCache.get("org-123|organization", load);
+    const loadAccess = vi.fn(async () => new Set(["todo"]));
+    await orgAppsDirectoryAccessCache.get("org-123|organization", loadAccess);
 
     await runWithRequestContext(
       { userEmail: "dev@example.test", orgId: "org-123" },
@@ -1936,6 +1942,12 @@ describe("listWorkspaceApps", () => {
       },
     ]);
     expect(refreshedLoad).toHaveBeenCalledOnce();
+
+    const refreshedAccess = vi.fn(async () => new Set(["todo"]));
+    await expect(
+      orgAppsDirectoryAccessCache.get("org-123|organization", refreshedAccess),
+    ).resolves.toEqual(new Set(["todo"]));
+    expect(refreshedAccess).toHaveBeenCalledOnce();
   });
 
   it("clears explicit null metadata and preserves an empty when-to-use list", async () => {

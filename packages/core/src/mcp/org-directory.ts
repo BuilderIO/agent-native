@@ -34,7 +34,8 @@ import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
  *     `fetchOrgApps()` remains the best-effort compatibility wrapper: on ANY
  *     error it returns `[]` and NEVER throws, so cross-app verbs still degrade
  *     silently to their exact current local-only behavior.
- *   - A short in-memory TTL cache (default 60s) keyed by directory origin and
+ *   - Credentialed requests require HTTPS and use manual redirects. A short
+ *     in-memory TTL cache (default 60s) is keyed by directory origin and
  *     caller identity/org scope so sibling app lists never cross tenants.
  *     Successful responses are cached for 60s; transient unavailable results
  *     are cached for 30s to avoid repeating failing directory requests.
@@ -92,7 +93,7 @@ export function resolveOrgDirectoryOrigin(
   if (!trimmed) return null;
   try {
     const u = new URL(trimmed);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (u.protocol !== "https:") return null;
     return trimmed;
   } catch {
     // coercion-ok: The caller converts malformed configured URLs to invalid-origin.
@@ -290,7 +291,7 @@ async function fetchOrgAppsResultInternal(
   }
   try {
     const directoryUrl = `${origin}/_agent-native/org/apps`;
-    const audience = canonicalA2AAudience(origin);
+    const audience = canonicalA2AAudience(directoryUrl);
     const auth = serviceOrgId
       ? await resolveOrgDirectoryServiceAuth(serviceOrgId, audience)
       : await resolveOrgDirectoryCallerAuth(audience);
@@ -337,7 +338,7 @@ async function fetchOrgAppsResultInternal(
           },
           signal: AbortSignal.timeout(4000),
         },
-        { maxRedirects: 0, followRedirects: false },
+        { maxRedirects: 0, followRedirects: false, httpsOnly: true },
       );
       if (res.status >= 300 && res.status < 400) {
         return { status: "unavailable", reason: "http-error" };
@@ -416,7 +417,7 @@ function normalizeDirectoryBaseUrl(value: string): string | null {
   try {
     const url = new URL(trimmed);
     if (
-      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.protocol !== "https:" ||
       url.username ||
       url.password ||
       url.search ||

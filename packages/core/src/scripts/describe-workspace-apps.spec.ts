@@ -214,6 +214,21 @@ describe("describe-workspace-apps", () => {
     expect(output).not.toContain("App 0 (app-0)");
   });
 
+  it("reports when a supplied query matches no workspace apps", async () => {
+    discoverAgents.mockResolvedValue([agent()]);
+    discoverAgentsWithDirectoryStatus.mockResolvedValue({
+      agents: [agent()],
+      directory: { status: "available" },
+    });
+
+    const output = await run({ query: "book a flight" }, undefined, "coach");
+
+    expect(output).toBe(
+      'No reachable workspace apps matched "book a flight". Try a different query or omit query to list all available apps.',
+    );
+    expect(getAgentCard).not.toHaveBeenCalled();
+  });
+
   it("adds a searchable hint when matching peers exceed the limit", async () => {
     discoverAgents.mockResolvedValue(
       Array.from({ length: 31 }, (_, index) =>

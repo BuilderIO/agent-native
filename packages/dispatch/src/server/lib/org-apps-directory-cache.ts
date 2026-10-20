@@ -56,6 +56,11 @@ export function createOrgDirectorySuccessCache<T>(input?: {
 export const orgAppsDirectoryCache =
   createOrgDirectorySuccessCache<CachedOrgDirectoryAgent[]>();
 
+export const orgAppsDirectoryAccessCache = createOrgDirectorySuccessCache<
+  Set<string>
+>({ ttlMs: 15_000 });
+
 export function invalidateOrgAppsDirectoryCache(): void {
   orgAppsDirectoryCache.clear();
+  orgAppsDirectoryAccessCache.clear();
 }

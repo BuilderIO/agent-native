@@ -8,6 +8,29 @@ const activeContext = vi.hoisted(() => ({
 const discoverOrgDirectoryAgentsMock = vi.hoisted(() => vi.fn());
 const listOrganizationVisibleWorkspaceAppsMock = vi.hoisted(() => vi.fn());
 const listWorkspaceAppsMock = vi.hoisted(() => vi.fn());
+const orgAppsDirectoryAccessCacheMock = vi.hoisted(() => {
+  const values = new Map<string, unknown>();
+  const inFlight = new Map<string, Promise<unknown>>();
+  return {
+    async get(key: string, load: () => Promise<unknown>) {
+      if (values.has(key)) return values.get(key);
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+      const refresh = load()
+        .then((value) => {
+          values.set(key, value);
+          return value;
+        })
+        .finally(() => inFlight.delete(key));
+      inFlight.set(key, refresh);
+      return refresh;
+    },
+    clear() {
+      values.clear();
+      inFlight.clear();
+    },
+  };
+});
 const orgAppsDirectoryCacheMock = vi.hoisted(() => {
   const values = new Map<string, unknown>();
   const inFlight = new Map<string, Promise<unknown>>();
@@ -74,6 +97,7 @@ vi.mock("@agent-native/core/server/agent-discovery", () => ({
 }));
 
 vi.mock("@agent-native/dispatch/server", () => ({
+  orgAppsDirectoryAccessCache: orgAppsDirectoryAccessCacheMock,
   listOrganizationVisibleWorkspaceApps:
     listOrganizationVisibleWorkspaceAppsMock,
   listWorkspaceApps: listWorkspaceAppsMock,
@@ -240,6 +264,11 @@ describe("org apps directory handler", () => {
     ).toEqual(["qr"]);
     expect(listOrganizationVisibleWorkspaceAppsMock).toHaveBeenCalledOnce();
     expect(listWorkspaceAppsMock).not.toHaveBeenCalled();
+    expect(verifyA2ATokenMock).toHaveBeenCalledWith(
+      "org-only",
+      expect.anything(),
+      { routePrefix: "/_agent-native/org/apps", requireAudience: true },
+    );
     expect(runWithRequestContextMock).toHaveBeenCalledWith(
       { orgId: "org-123" },
       expect.any(Function),
@@ -250,7 +279,7 @@ describe("org apps directory handler", () => {
     );
   });
 
-  it("rechecks workspace access before reusing a cached directory", async () => {
+  it("caches allowed app ids per principal and refreshes after invalidation", async () => {
     const qr = {
       id: "qr",
       status: "ready",
@@ -290,6 +319,20 @@ describe("org apps directory handler", () => {
     );
     expect(
       (await afterAccessRevoked.json()).apps.map(
+        (app: { id: string }) => app.id,
+      ),
+    ).toEqual(["qr"]);
+    expect(listOrganizationVisibleWorkspaceAppsMock).toHaveBeenCalledOnce();
+
+    orgAppsDirectoryAccessCacheMock.clear();
+    orgAppsDirectoryCacheMock.clear();
+    const afterInvalidation = await request(
+      "https://dispatch.example.test/_agent-native/org/apps",
+      {},
+      "org-only",
+    );
+    expect(
+      (await afterInvalidation.json()).apps.map(
         (app: { id: string }) => app.id,
       ),
     ).toEqual([]);
