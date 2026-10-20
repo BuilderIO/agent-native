@@ -5,7 +5,6 @@ import { getRequestContext } from "@agent-native/core/server/request-context";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { eq } from "drizzle-orm";
-import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
@@ -329,14 +328,16 @@ export default defineAction({
       if (failure.failureCode === "storage_setup_required") {
         failStorageSetupRequired();
       }
-      throw createError({
-        statusCode: 503,
-        statusMessage: reason,
-        data: {
+      fail(
+        failure.failureCode === "hosted_storage_unavailable"
+          ? HOSTED_STORAGE_UNAVAILABLE_REASON
+          : "Video storage could not start an upload. Refresh and try again.",
+        {
           errorCode: failure.failureCode,
-          retryable: true,
+          statusCode: 503,
+          details: { retryable: true },
         },
-      });
+      );
     };
 
     if (

@@ -256,6 +256,7 @@ export function recordingStartErrorMessage(
   error: unknown,
   messages: {
     storageStatusUnavailable: string;
+    hostedStorageUnavailable: string;
     couldNotStartRecording: string;
   },
 ): string {
@@ -267,6 +268,8 @@ export function recordingStartErrorMessage(
         return "SESSION_EXPIRED";
       case "storage_status_unavailable":
         return messages.storageStatusUnavailable;
+      case "hosted_storage_unavailable":
+        return messages.hostedStorageUnavailable;
       case "upload_target_unavailable":
         return messages.couldNotStartRecording;
     }
@@ -1924,6 +1927,7 @@ export default function RecordRoute() {
         if (isStale()) return;
         const message = recordingStartErrorMessage(err, {
           storageStatusUnavailable: t("storageSetup.statusUnavailable"),
+          hostedStorageUnavailable: t("storageSetup.hostedStorageUnavailable"),
           couldNotStartRecording: t("recordRoute.couldNotStartRecording"),
         });
         const pickerDismissed = isDismissedCapturePicker(err, message);

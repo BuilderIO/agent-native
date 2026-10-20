@@ -91,10 +91,24 @@ describe("record route lifecycle shell", () => {
         new UploadTargetError("upload_target_unavailable"),
         {
           storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
           couldNotStartRecording: "Could not start recording.",
         },
       ),
     ).toBe("Could not start recording.");
+  });
+
+  it("preserves hosted storage outage copy when recording cannot start", () => {
+    expect(
+      recordingStartErrorMessage(
+        new UploadTargetError("hosted_storage_unavailable"),
+        {
+          storageStatusUnavailable: "Storage status could not be checked.",
+          hostedStorageUnavailable: "Hosted storage is unavailable.",
+          couldNotStartRecording: "Could not start recording.",
+        },
+      ),
+    ).toBe("Hosted storage is unavailable.");
   });
 
   it("does not redirect a queued upload when storage is already configured", () => {

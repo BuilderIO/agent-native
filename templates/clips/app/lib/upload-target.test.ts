@@ -153,6 +153,32 @@ describe("openUploadTarget", () => {
     await expect(result).rejects.toMatchObject({ code: "session_expired" });
   });
 
+  it("preserves hosted storage outages as a distinct upload-target error", async () => {
+    const onCreateFailed = vi.fn();
+    const { result, dropRow } = open(
+      async () =>
+        Response.json(
+          {
+            error: "Clips hosted storage is temporarily unavailable.",
+            errorCode: "hosted_storage_unavailable",
+            details: { retryable: true },
+          },
+          { status: 503 },
+        ),
+      "me@example.com",
+      onCreateFailed,
+    );
+
+    await expect(result).rejects.toMatchObject({
+      code: "hosted_storage_unavailable",
+    });
+    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(onCreateFailed).toHaveBeenCalledWith({
+      kind: "http",
+      status: 503,
+    });
+  });
+
   it("does not prepare capture when upload-target creation rejects", async () => {
     const failure = new UploadTargetError("storage_setup_required");
     const resolveTarget = async (): Promise<typeof target | null> => {

@@ -303,8 +303,10 @@ describe("create-recording policy", () => {
         { userEmail: "owner@example.com" },
       ),
     ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "multipart_start_failed",
       statusCode: 503,
-      data: { retryable: true },
+      details: { retryable: true },
     });
 
     expect(calls.update).toHaveBeenCalledOnce();
@@ -356,12 +358,11 @@ describe("create-recording policy", () => {
         { userEmail: "owner@example.com" },
       ),
     ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "hosted_storage_unavailable",
       statusCode: 503,
-      data: {
-        errorCode: "hosted_storage_unavailable",
-        retryable: true,
-      },
-      statusMessage:
+      details: { retryable: true },
+      message:
         "Clips hosted storage is temporarily unavailable. Try again later.",
     });
 

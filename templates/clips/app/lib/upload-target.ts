@@ -40,6 +40,7 @@ export type UploadTargetErrorCode =
   | "session_expired"
   | "storage_setup_required"
   | "storage_status_unavailable"
+  | "hosted_storage_unavailable"
   | "upload_target_unavailable";
 
 export class UploadTargetError extends Error {
@@ -178,6 +179,9 @@ export async function openUploadTarget(options: {
   options.dropRow(serverId!);
   if (storageSetupRequired) {
     throw new UploadTargetError("storage_setup_required");
+  }
+  if (denialCode === "hosted_storage_unavailable") {
+    throw new UploadTargetError("hosted_storage_unavailable");
   }
   if (res.status === 401 || res.status === 403) {
     throw new UploadTargetError("session_expired");
