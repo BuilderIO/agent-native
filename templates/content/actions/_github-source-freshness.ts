@@ -274,6 +274,7 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
             syncGitHubSource({
               sourceId: link.sourceId,
               budgetMs: Math.min(SWEEP_SYNC_BUDGET_MS, remaining - 1_000),
+              signal: context.signal,
             }),
         );
         await announceSync(link, owner, result);

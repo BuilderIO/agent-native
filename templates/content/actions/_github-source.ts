@@ -941,6 +941,8 @@ interface SyncRun {
   actor: string;
   /** Aborts GitHub requests once the sync's time budget runs out. */
   signal: AbortSignal;
+  /** The lease this run holds; each write checks the link still has it. */
+  claimId: string;
 }
 
 function documentIdForNewFile(run: SyncRun, repoPath: string) {
@@ -1494,16 +1496,29 @@ async function applyFile(
  * disconnect that lands while this sync reads GitHub has made the pages
  * ordinary again, so the sync stops instead of writing to them.
  */
+/**
+ * Locks the collection for one write and checks the link is still this run's.
+ * Relinking the same folder makes the same source id, so the source alone
+ * can't tell; the lease can, and it also stops a run whose lease ran out and
+ * another sync took over.
+ */
 async function lockLinkedCollection(tx: Db, run: SyncRun) {
   await lockContentDatabaseMutation(tx, run.database.id);
   const [source] = await tx
-    .select({ id: schema.contentDatabaseSources.id })
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.id, run.sourceId));
   if (!source) {
     throw new ActionContractError(
       "This collection isn't linked to a GitHub folder.",
       { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
+    );
+  }
+  const state = readGitHubSourceState(parseJsonObject(source.metadataJson));
+  if (state?.claim?.id !== run.claimId) {
+    throw new ActionContractError(
+      "This sync stopped because the folder was linked again or another sync took over, which brings the collection up to date.",
+      { errorCode: "SYNC_SUPERSEDED", statusCode: 409 },
     );
   }
 }
@@ -1598,10 +1613,12 @@ export interface SyncGitHubSourceOptions {
   /** Rethrow a missing GitHub connection so an interactive caller can offer to connect. */
   throwConnectionErrors?: boolean;
   /**
-   * Rethrow a failure the sync can't name, like a dropped socket, once it's
+   * Rethrow a failure the sync can't name, like a database error, once it's
    * on the link, for a caller that reports failures as errors.
    */
   throwUnexpectedErrors?: boolean;
+  /** Ends the sync early, as its time budget would, such as when the server stops. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -1659,6 +1676,10 @@ export async function syncGitHubSource(
     renamed: result.renamed,
     trashed: result.trashed,
   });
+  const endBudget = () => budget.abort();
+  if (options.signal?.aborted) endBudget();
+  options.signal?.addEventListener("abort", endBudget, { once: true });
+  const outOfTime = () => Date.now() >= deadline || budget.signal.aborted;
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
@@ -1774,6 +1795,7 @@ export async function syncGitHubSource(
       now,
       actor: state.linkedBy,
       signal: budget.signal,
+      claimId,
     };
 
     const planned: PlannedFile[] = [];
@@ -1836,7 +1858,7 @@ export async function syncGitHubSource(
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
     let done = 0;
     for (const file of work) {
-      if (Date.now() >= deadline) break;
+      if (outOfTime()) break;
       let outcome: Awaited<ReturnType<typeof applyFile>>;
       try {
         if (!file.row && !file.renamedFrom && goneById.size > 0) {
@@ -1879,7 +1901,7 @@ export async function syncGitHubSource(
     const remainingFiles = work.length - done;
     if (remainingFiles === 0) {
       for (const [, row] of gone) {
-        if (Date.now() >= deadline) break;
+        if (outOfTime()) break;
         await trashRow(run, row);
         gone.delete(rowState(row)?.path ?? "");
         result.trashed += 1;
@@ -2009,6 +2031,7 @@ export async function syncGitHubSource(
     return failed(problem);
   } finally {
     clearTimeout(budgetTimer);
+    options.signal?.removeEventListener("abort", endBudget);
   }
 }
 

@@ -203,6 +203,7 @@ let bindSourceField: typeof import("./bind-content-database-source-field.js").de
 let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
 let deleteDocument: typeof import("./delete-document.js").default;
 let restoreDocument: typeof import("./restore-document.js").default;
+let moveDocument: typeof import("./move-document.js").default;
 let deleteCollection: typeof import("./delete-content-database.js").default;
 let restoreCollection: typeof import("./restore-content-database.js").default;
 let restoreVersion: typeof import("./restore-document-version.js").default;
@@ -242,6 +243,7 @@ beforeAll(async () => {
   ({ syncGitHubSource } = await import("./_github-source.js"));
   deleteDocument = (await import("./delete-document.js")).default;
   restoreDocument = (await import("./restore-document.js")).default;
+  moveDocument = (await import("./move-document.js")).default;
   deleteCollection = (await import("./delete-content-database.js")).default;
   restoreCollection = (await import("./restore-content-database.js")).default;
   restoreVersion = (await import("./restore-document-version.js")).default;
@@ -832,6 +834,50 @@ describe("GitHub folder source", () => {
     });
   });
 
+  it("lets a page restored out of its collection keep its own edits when its file changes", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    // A page put under an ordinary one before moves were refused goes to
+    // Trash with it, and comes back released from the collection.
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+    await as(() => restoreDocument.run({ id: holderId }));
+    expect(await page(faq.documentId)).toMatchObject({
+      trashedAt: null,
+      sourceMode: null,
+    });
+    await as(() =>
+      updateDocument.run({ id: faq.documentId, title: "My own FAQ" }),
+    );
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(await page(faq.documentId)).toMatchObject({ title: "My own FAQ" });
+    const followed = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    );
+    expect(followed?.documentId).not.toBe(faq.documentId);
+    expect(followed?.content).toContain("Answers moved to the forum.");
+  });
+
   it("restores a page whose file left as an ordinary page outside the collection, with its sub-pages", async () => {
     const { database } = await linkBaseFolder();
     const notes = (await liveRows(database.id)).find(
@@ -1151,6 +1197,67 @@ describe("GitHub folder source", () => {
     const after = await liveRows(database.id);
     expect(bodies(after)).toEqual(bodies(before));
     expect(after.every((row) => row.sourceMode === null)).toBe(true);
+  });
+
+  it("stops a sync that a relink of the same folder overtakes", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+    });
+    github.state.duringBlobRead = async () => {
+      await as(() => disconnectSource.run({ databaseId: database.id }));
+      for (const row of await liveRows(database.id)) {
+        await as(() => deleteDocument.run({ id: row.documentId }));
+      }
+      await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+    };
+
+    await expect(
+      as(() => syncFolder.run({ databaseId: database.id })),
+    ).rejects.toThrow("the folder was linked again");
+    const live = await liveRows(database.id);
+    expect(live).toHaveLength(3);
+    expect(
+      live.find((row) => row.sourcePath === "docs/faq.md")!.content,
+    ).toContain("Answers moved to the forum.");
+    // Every file's record points at its row in the new link, not an old page.
+    const records = await getDb()
+      .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        eq(
+          schema.contentDatabaseSourceRows.sourceId,
+          await sourceId(database.id),
+        ),
+      );
+    expect(records.map((record) => record.documentId).sort()).toEqual(
+      live.map((row) => row.documentId).sort(),
+    );
+  });
+
+  it("keeps a GitHub page in its collection when someone tries to move it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const elsewhere = await newCollection();
+    await expect(
+      as(() =>
+        moveDocument.run({
+          id: faq.documentId,
+          parentId: elsewhere.documentId,
+        }),
+      ),
+    ).rejects.toThrow("so it stays in its collection");
+    await expect(
+      as(() => moveDocument.run({ id: faq.documentId, parentId: null })),
+    ).rejects.toThrow("so it stays in its collection");
+    expect(
+      (await liveRows(database.id)).map((row) => row.documentId),
+    ).toContain(faq.documentId);
   });
 
   it("skips a file that isn't UTF-8 text and syncs the rest", async () => {
@@ -1793,6 +1900,49 @@ describe("GitHub folder freshness", () => {
         (row) => row.sourcePath === "docs/faq.md",
       )!.content,
     ).toContain("forum");
+  });
+
+  it("stops a background sync when the server stops, keeping its progress", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+    // The server starts shutting down while the first file is read.
+    const stopping = new AbortController();
+    github.state.duringBlobRead = async () => stopping.abort();
+
+    const started = Date.now();
+    await runGitHubSourceSweep({
+      deadlineAt: Date.now() + 60_000,
+      signal: stopping.signal,
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
+      "Two",
+      "Three",
+    ]);
+    const [link] = await getDb()
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    expect(JSON.parse(link!.metadataJson).github).toMatchObject({
+      claim: null,
+      progress: { done: 1, total: 3 },
+    });
   });
 
   it("tells every reader of the collection when a sync changes rows", async () => {
