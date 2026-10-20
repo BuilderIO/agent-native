@@ -31,6 +31,7 @@ import {
   toolInputsMatch,
 } from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
+import { isAgentInternalContinuationPrompt } from "./continuation-prompt.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
@@ -1393,7 +1394,10 @@ export function lastUserPromptIndex(messages: EngineMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (
       messages[index]!.role === "user" &&
-      messages[index]!.content.some((part) => part.type === "text")
+      messages[index]!.content.some(
+        (part) =>
+          part.type === "text" && !isAgentInternalContinuationPrompt(part.text),
+      )
     ) {
       return index;
     }

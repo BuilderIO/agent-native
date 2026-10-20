@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./continuation-prompt.js";
 import type { EngineMessage } from "./engine/types.js";
 import { buildTurnResumeContext } from "./turn-resume-context.js";
 import type { AgentChatEvent } from "./types.js";
@@ -95,6 +96,71 @@ describe("buildTurnResumeContext", () => {
       "Earlier record written",
       "Current record written",
     ]);
+  });
+
+  it("does not duplicate completed calls from the same turn after continuation", () => {
+    const executionStepId = "completed-write";
+    const resumed = buildTurnResumeContext({
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Write the record." }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "provider-call",
+              name: "write-record",
+              input: { value: "saved" },
+              executionStepId,
+            },
+            {
+              type: "tool-result",
+              toolCallId: "provider-call",
+              toolName: "write-record",
+              toolInput: '{"value":"saved"}',
+              content: "Record saved",
+              executionStepId,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      journal: null,
+      events: [
+        {
+          type: "tool_start",
+          id: "provider-call",
+          tool: "write-record",
+          input: { value: "saved" },
+          executionStepId,
+        },
+        {
+          type: "tool_done",
+          id: "provider-call",
+          tool: "write-record",
+          input: { value: "saved" },
+          result: "Record saved",
+          executionStepId,
+        },
+      ],
+    });
+    const calls = resumed.messages.flatMap(({ content }) =>
+      content.flatMap((part) => (part.type === "tool-call" ? [part] : [])),
+    );
+    const results = resumed.messages.flatMap(({ content }) =>
+      content.flatMap((part) => (part.type === "tool-result" ? [part] : [])),
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.executionStepId).toBe(executionStepId);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.content).toBe("Record saved");
   });
 
   it("preserves a legacy call when a step-identified ledger call reuses its id", () => {
