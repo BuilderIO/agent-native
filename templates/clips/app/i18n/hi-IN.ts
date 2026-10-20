@@ -669,6 +669,14 @@ const messages = {
     errorOutOfOrder: "पंक्ति {{line}}: यह समय पिछले समय से पहले का है।",
     errorPastEnd: "पंक्ति {{line}}: यह समय वीडियो के समाप्त होने के बाद का है।",
   },
+  transcriptHistory: {
+    title: "पिछले प्रतिलेख",
+    automatic: "स्वचालित",
+    restore: "पुनर्स्थापित करें",
+    restored: "प्रतिलेख पुनर्स्थापित किया गया",
+    restoreFailed: "प्रतिलेख पुनर्स्थापित नहीं किया जा सका",
+    undo: "पूर्ववत करें",
+  },
   thumbnailPicker: {
     failedCapture: "फ़्रेम कैप्चर करने में विफल",
     failedGif: "GIF उत्पन्न करने में विफल - छोटी रेंज का प्रयास करें",
@@ -1358,6 +1366,15 @@ const messages = {
     playClip: "क्लिप चलाएं",
     unsupportedFormat:
       "यह ब्राउज़र यह वीडियो नहीं चला सकता। कृपया लिंक को Chrome, Edge या Firefox में खोलकर देखें।",
+    youtubeLoading: "YouTube प्लेयर लोड हो रहा है",
+    youtubeUnavailable: "यह YouTube वीडियो निजी है या हटा दिया गया है।",
+    youtubeEmbedBlocked:
+      "इस वीडियो के मालिक ने इसे YouTube के बाहर चलाने की अनुमति नहीं दी है।",
+    youtubeInvalid: "यह YouTube लिंक किसी चलाने योग्य वीडियो का नहीं है।",
+    youtubePlaybackFailed: "YouTube इस वीडियो को यहाँ नहीं चला सका।",
+    youtubeApiUnavailable:
+      "YouTube प्लेयर लोड नहीं हुआ। अपना कनेक्शन या कंटेंट ब्लॉकर जाँचें, फिर पेज रीलोड करें।",
+    watchOnYouTube: "YouTube पर देखें",
   },
   searchBar: {
     placeholder: "रिकॉर्डिंग खोजें…",
@@ -1625,15 +1642,31 @@ const messages = {
     placeholder: "Clip title (स्थानीयकृत)",
     editLabel: "Edit clip title (स्थानीयकृत)",
   },
+  chapterList: {
+    add: "अध्याय जोड़ें",
+    editLabel: "अध्याय संपादित करें",
+    placeholder: "0:00 परिचय\n1:30 अगला भाग",
+    errorLineShape:
+      'पंक्ति {{line}}: पहले समय, फिर शीर्षक लिखें, जैसे "0:48 नोट की तारीखें सहेजी गईं"।',
+    errorBadTime: 'पंक्ति {{line}}: "{{value}}" 0:48 जैसा समय नहीं है।',
+    errorDuplicate: "पंक्ति {{line}}: {{value}} पर पहले से एक अध्याय है।",
+    errorPastEnd: "पंक्ति {{line}}: {{value}} क्लिप के अंत के बाद है।",
+    changedWhileEditing:
+      "आपके संपादन के दौरान अध्याय बदल गए। अपनी पंक्तियाँ जाँचें, फिर बदलने के लिए दोबारा सहेजें।",
+  },
   chapters: {
-    title: "Chapters (स्थानीयकृत)",
-    addHere: "Add here (स्थानीयकृत)",
-    empty: "No chapters yet. (स्थानीयकृत)",
-    remove: "Remove chapter (स्थानीयकृत)",
-    saveFailed: "Failed to save chapters (स्थानीयकृत)",
-    duplicateAtPoint: "A chapter already exists at this point (स्थानीयकृत)",
-    defaultTitle: "Chapter {{count}} (स्थानीयकृत)",
-    seekTo: "Seek to {{time}} (स्थानीयकृत)",
+    title: "अध्याय",
+    addHere: "यहाँ जोड़ें",
+    empty: "अभी कोई अध्याय नहीं है।",
+    remove: "अध्याय हटाएँ",
+    saveFailed: "अध्याय सहेजे नहीं जा सके",
+    changedElsewhere:
+      "अध्याय कहीं और बदल दिए गए, इसलिए आपका पिछला बदलाव सहेजा नहीं गया।",
+    unreadable:
+      "कुछ सहेजे गए अध्याय पढ़े नहीं जा सकते, इसलिए यहाँ बदलाव सहेजे नहीं जा सकते। एजेंट से अध्याय बदलने को कहें।",
+    duplicateAtPoint: "इस बिंदु पर पहले से एक अध्याय है",
+    defaultTitle: "अध्याय {{count}}",
+    seekTo: "{{time}} पर जाएँ",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (स्थानीयकृत)",
@@ -1761,7 +1794,7 @@ const messages = {
     unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
     takeScreenshot: "स्क्रीनशॉट लें",
-    importLoom: "Import Loom (स्थानीयकृत)",
+    importLoom: "वीडियो आयात करें",
     importing: "Importing... (स्थानीयकृत)",
     import: "Import (स्थानीयकृत)",
     recordNew: "नई रिकॉर्डिंग",
@@ -1908,6 +1941,8 @@ const messages = {
       "Storage needed to finish Loom import (स्थानीयकृत)",
     loomImported: "Loom imported (स्थानीयकृत)",
     couldNotImportLoom: "उस Loom को आयात नहीं किया जा सका।",
+    youtubeImported: "YouTube वीडियो जोड़ा गया",
+    couldNotImportVideo: "उस वीडियो को आयात नहीं किया जा सका।",
     recordingReadyToUpload: "Recording is ready to upload (स्थानीयकृत)",
     recordingSaved: "Recording saved (स्थानीयकृत)",
     linkCopied: "लिंक कॉपी हो गया",
@@ -2008,12 +2043,12 @@ const messages = {
       "यह रिकॉर्डिंग अभी प्रोसेस हो रही है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है। इंतज़ार करें या इसे फिर से अपलोड करें।",
   },
   importRoute: {
-    pageTitle: "Loom आयात करें — Clips",
-    title: "Loom आयात करें",
+    pageTitle: "वीडियो आयात करें — Clips",
+    title: "वीडियो आयात करें",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "आयात करें",
     helperText:
-      "यह Loom के साथ बहुत अच्छे से काम करता है। आप किसी भी अन्य स्क्रीन रिकॉर्डिंग या वीडियो फ़ाइल का लिंक भी पेस्ट कर सकते हैं।",
+      "यह Loom और YouTube के साथ बहुत अच्छे से काम करता है। आप किसी भी अन्य स्क्रीन रिकॉर्डिंग या वीडियो फ़ाइल का लिंक भी पेस्ट कर सकते हैं।",
     stageFetching: "आपका वीडियो लाया जा रहा है…",
     stageUploading: "मूल फ़ुटेज अपलोड हो रहा है…",
     stageTranscript: "बोली और स्क्रीन के दृश्य को एजेंट-पठनीय बनाया जा रहा है…",

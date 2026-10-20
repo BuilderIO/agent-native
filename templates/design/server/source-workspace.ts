@@ -319,6 +319,22 @@ export async function resolveSourceWorkspace(
   };
 }
 
+export async function loadSelectedSourceWorkspaceFile(
+  file: SourceWorkspaceFile,
+): Promise<SourceWorkspaceFile | null> {
+  const [selected] = await getDb()
+    .select({ content: schema.designFiles.content })
+    .from(schema.designFiles)
+    .where(
+      and(
+        eq(schema.designFiles.id, file.id),
+        eq(schema.designFiles.designId, file.designId),
+      ),
+    )
+    .limit(1);
+  return selected ? { ...file, content: selected.content } : null;
+}
+
 export function findSourceWorkspaceFile(
   files: SourceWorkspaceFile[],
   target: { fileId?: string; path?: string },
@@ -383,8 +399,9 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
  * and the live document is either the persisted base it was derived from or
  * the working copy itself (for callers that already published it to Yjs).
  * Any third live value is a genuine concurrent edit and fails closed. The
- * returned live hash must be passed to `writeInlineSourceFile`, whose
- * read-check-write lock closes the race after this preparation step.
+ * returned live hash must be passed to `writeInlineSourceFile`. A caller may
+ * also supply the working-copy hash, accepted only when live source now
+ * exactly matches that copy.
  */
 export class SourceWorkspaceEditConflictError extends Error {
   readonly statusCode = 409;
@@ -506,11 +523,17 @@ export async function writeInlineSourceFile(args: {
   file: SourceWorkspaceFile;
   content: string;
   expectedVersionHash?: string;
+  expectedWorkingCopyHash?: string;
   identityOnly?: boolean;
   operationSource?: string;
   operationRevision?: number;
   allowUrlBackedTransition?: boolean;
-}): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
+}): Promise<{
+  content: string;
+  versionHash: string;
+  changed: boolean;
+  updatedAt: string;
+}> {
   return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
     withDesignSourceMutationTransaction(args.designId, async (tx) => {
       await assertAccess("design", args.designId, "editor");
@@ -578,11 +601,17 @@ export async function writeInlineSourceFile(args: {
       let identityOnlyOperationSource: string | undefined;
       let identityOnlyOperationRevision: number | undefined;
       const liveBaseHash = current.versionHash;
+      const liveMatchesPreparedWorkingCopy =
+        !identityOnly &&
+        args.expectedVersionHash !== undefined &&
+        args.expectedWorkingCopyHash !== undefined &&
+        args.expectedWorkingCopyHash === current.versionHash;
 
       if (
-        args.expectedVersionHash &&
+        args.expectedVersionHash !== undefined &&
         !identityOnly &&
-        args.expectedVersionHash !== current.versionHash
+        args.expectedVersionHash !== current.versionHash &&
+        !liveMatchesPreparedWorkingCopy
       ) {
         throw new SourceWorkspaceEditConflictError(
           "Source file changed since it was read. Re-read the file and retry.",
@@ -637,6 +666,7 @@ export async function writeInlineSourceFile(args: {
         if (exactPersistedOperation) {
           await validatePreparedNoop();
           return {
+            content: current.content,
             versionHash: candidateHash,
             changed: false,
             updatedAt: currentFile.updatedAt ?? new Date().toISOString(),
@@ -685,6 +715,7 @@ export async function writeInlineSourceFile(args: {
       if (!changed && !identityOnly) {
         await validatePreparedNoop();
         return {
+          content: current.content,
           versionHash: current.versionHash,
           changed: false,
           updatedAt: currentFile.updatedAt ?? updatedAt,
@@ -713,9 +744,10 @@ export async function writeInlineSourceFile(args: {
       assertCandidateIntegrity(args.content);
 
       const liveBeforeApply = readPreparedSourceText(lease);
-      const expectedLiveHash = identityOnly
-        ? liveBaseHash
-        : args.expectedVersionHash;
+      const expectedLiveHash =
+        identityOnly || liveMatchesPreparedWorkingCopy
+          ? liveBaseHash
+          : args.expectedVersionHash;
       if (
         expectedLiveHash &&
         expectedLiveHash !== sourceContentHash(liveBeforeApply)
@@ -855,6 +887,7 @@ export async function writeInlineSourceFile(args: {
         .where(eq(schema.designs.id, args.designId));
 
       return {
+        content: authoritativeContent,
         versionHash: sourceContentHash(authoritativeContent),
         changed: authoritativeContent !== current.content,
         updatedAt,

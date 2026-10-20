@@ -97,7 +97,7 @@ export function runModeChange(
     /** A screen change made from inside Interact keeps the chosen device. */
     keepInteractDevice?: boolean;
   },
-) {
+): boolean {
   const next = resolveModeForAnnotateLab(requested, annotateLab);
   const interactEntry =
     next === "interact"
@@ -120,7 +120,7 @@ export function runModeChange(
     : options?.targetFileId
       ? files.find((file) => file.id === options.targetFileId)
       : activeFile;
-  if (!canEditDesign && next === "annotate") return;
+  if (!canEditDesign && next === "annotate") return false;
   if (interactEntry && !nextActiveFile) {
     toast.error(
       t(
@@ -129,9 +129,9 @@ export function runModeChange(
           : "designEditor.responsiveInteract.unknownScreen",
       ),
     );
-    return;
+    return false;
   }
-  if (next === "annotate" && !nextActiveFile) return;
+  if (next === "annotate" && !nextActiveFile) return false;
   if (
     next === "interact" &&
     hasPendingVisualEdits &&
@@ -140,7 +140,7 @@ export function runModeChange(
   ) {
     onPendingVisualEditsBlocked();
     toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
-    return;
+    return false;
   }
   if (options?.discardPendingLiveEdits) {
     requestPendingVisualStyleRevert(pendingVisualStyleEdits);
@@ -155,13 +155,17 @@ export function runModeChange(
   if (routing === "enter-single-interact") {
     rememberOverviewScreenSelection(nextActiveFile!.id);
     setOverviewInteractScreenId(nextActiveFile!.id);
-    enterSingleScreen(nextActiveFile?.id);
-    return;
+    if (options?.keepInteractDevice) {
+      enterSingleScreen(nextActiveFile?.id, { keepInteractDevice: true });
+    } else {
+      enterSingleScreen(nextActiveFile?.id);
+    }
+    return true;
   }
   if (routing === "enter-overview") {
     if (options?.targetFileId) setActiveFileId(options.targetFileId);
     enterOverviewFromZoom(next);
-    return;
+    return true;
   }
   if (next === "interact" && overviewInteractScreenId) {
     setOverviewInteractScreenId(nextActiveFile!.id);
@@ -175,7 +179,7 @@ export function runModeChange(
       } else {
         enterSingleScreen(nextActiveFile!.id);
       }
-      return;
+      return true;
     }
   }
   if (options?.targetFileId) setActiveFileId(options.targetFileId);
@@ -202,4 +206,5 @@ export function runModeChange(
     setDrawMode(false);
     setPinMode(false);
   }
+  return true;
 }

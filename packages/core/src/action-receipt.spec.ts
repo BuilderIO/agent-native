@@ -41,6 +41,23 @@ function adapter(log: string[]): ActionAtomicAdapter<{ writes: string[] }> {
 }
 
 describe("action receipt atomic seam", () => {
+  it.each(["mcp-widget", "mcp-widget-write"] as const)(
+    "accepts %s caller provenance",
+    async (caller) => {
+      const receipt = await commitAction({
+        adapter: adapter([]),
+        action: "create-lead",
+        source: "urn:agent-native:test",
+        context: { caller },
+        now: () => NOW,
+        idFactory: sequence("receipt-1"),
+        mutate: () => ({ created: true }),
+      });
+
+      expect(receipt.provenance.caller).toBe(caller);
+    },
+  );
+
   it("stages mutation events before commit and returns only references", async () => {
     const log: string[] = [];
     const result = await commitAction({

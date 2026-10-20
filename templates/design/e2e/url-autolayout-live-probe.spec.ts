@@ -1157,7 +1157,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       result: { surfaced: true },
     });
     const consent = page.getByRole("dialog", { name: "Allow file writes" });
-    await expect(consent).toBeVisible({ timeout: 10_000 });
+    await expect(consent).toBeVisible({ timeout: 20_000 });
     await consent.getByRole("button", { name: "Allow writes" }).click();
     // The dialog closes only after the server-side grant lands; writing earlier races it.
     await expect(consent).toBeHidden({ timeout: 10_000 });

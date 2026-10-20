@@ -9,9 +9,11 @@
  *   - Gated to org owners/admins (see service-token-access.ts).
  *   - The token value appears ONLY in this action's response — it is never
  *     stored (only its `jti`) and never logged.
- *   - Not callable by the sandboxed agent tool loop (`toolCallable: false`):
- *     minting a long-lived credential must be an explicit human/HTTP/CLI act,
- *     never a prompt-injection target.
+ *   - Not an agent or MCP tool (`agentTool: false`), and not callable from
+ *     extensions or run-code (`toolCallable: false`): minting a long-lived
+ *     credential must be an explicit human/HTTP/CLI act, never a
+ *     prompt-injection target. `toolCallable: false` alone does not keep it
+ *     out of the agent's tool list.
  *   - Revocable via `revoke-org-service-token` — same `revoked_at` gate the
  *     personal-token revocation path uses.
  *
@@ -81,6 +83,7 @@ export default defineAction({
     allowedActions: allowedActionsSchema.nullable().optional(),
   }),
   requiresAuth: true,
+  agentTool: false,
   toolCallable: false,
   audit: orgAdminAudit({
     targetType: "service-principal",

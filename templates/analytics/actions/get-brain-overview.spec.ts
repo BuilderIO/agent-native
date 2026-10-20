@@ -178,4 +178,22 @@ describe("get-brain-overview", () => {
     expect(overview.sources.every((s) => s.status === "error")).toBe(true);
     expect(overview.sources[0]?.detail).toBe("Status check failed.");
   });
+
+  it("reports source health as unknown when workspace inventory is unavailable", async () => {
+    mocks.statusRun.mockResolvedValue({
+      providers: [],
+      workspaceConnections: {
+        appId: "analytics",
+        available: false,
+        error: "Workspace connection inventory unavailable",
+        providers: [],
+      },
+    });
+
+    const overview = await action.run();
+
+    expect(
+      overview.sources.every((source) => source.status === "unknown"),
+    ).toBe(true);
+  });
 });

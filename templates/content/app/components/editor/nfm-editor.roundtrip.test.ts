@@ -452,3 +452,79 @@ describe("NFM ⇄ real TipTap editor round-trip: editor-typed toggle summaries",
     expect(nfm2).toBe(nfm);
   });
 });
+
+describe("NFM ⇄ real TipTap editor round-trip: table header edits", () => {
+  const headerRowTable = L(
+    '<table header-row="true">',
+    "<tr>",
+    "<td>H1</td>",
+    "<td>H2</td>",
+    "</tr>",
+    "<tr>",
+    "<td>a</td>",
+    "<td>b</td>",
+    "</tr>",
+    "</table>",
+  );
+
+  function saveAfterEdit(nfm: string, edit: (editor: Editor) => void) {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(nfm),
+    });
+    edit(editor);
+    const out = docToNfm(editor.getJSON() as any);
+    editor.destroy();
+    return out;
+  }
+
+  function setCellTypes(
+    editor: Editor,
+    pick: (rowIndex: number, columnIndex: number) => string | null,
+  ) {
+    const { state } = editor;
+    const tr = state.tr;
+    state.doc.descendants((node, pos, parent) => {
+      if (node.type.name !== "tableRow") return true;
+      let rowIndex = 0;
+      parent?.forEach((row, _offset, i) => {
+        if (row === node) rowIndex = i;
+      });
+      node.forEach((cell, offset, columnIndex) => {
+        const typeName = pick(rowIndex, columnIndex);
+        if (typeName && typeName !== cell.type.name) {
+          tr.setNodeMarkup(pos + 1 + offset, state.schema.nodes[typeName]);
+        }
+      });
+      return false;
+    });
+    editor.view.dispatch(tr);
+  }
+
+  it("saves turning the header row off", () => {
+    const out = saveAfterEdit(headerRowTable, (editor) =>
+      setCellTypes(editor, () => "tableCell"),
+    );
+    expect(out).toContain("<table>");
+    expect(out).not.toContain("header-row");
+  });
+
+  it("saves turning the header column on", () => {
+    const out = saveAfterEdit(headerRowTable, (editor) =>
+      setCellTypes(editor, (_rowIndex, columnIndex) =>
+        columnIndex === 0 ? "tableHeader" : null,
+      ),
+    );
+    expect(out).toContain('<table header-row="true" header-column="true">');
+  });
+
+  it("doesn't turn the next row into headers after the header row is deleted", () => {
+    const out = saveAfterEdit(headerRowTable, (editor) => {
+      editor.commands.setTextSelection(4);
+      editor.commands.deleteRow();
+    });
+    expect(out).toContain("<td>a</td>");
+    expect(out).not.toContain("H1");
+    expect(out).not.toContain("header-row");
+  });
+});

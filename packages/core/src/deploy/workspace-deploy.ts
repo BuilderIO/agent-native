@@ -892,11 +892,18 @@ function vercelImmutableAssetHeaderRoutes(
 ): Array<Record<string, any>> {
   return apps.flatMap((app) => {
     const staticDir = path.join(outputDir, "static", app);
-    return collectImmutableAssetPaths(staticDir).map((assetPath) => ({
-      src: vercelRouteSrc(`/${app}${assetPath}`),
-      headers: IMMUTABLE_ASSET_CACHE_HEADERS,
-      continue: true,
-    }));
+    const assetPaths = collectImmutableAssetPaths(staticDir);
+    if (assetPaths.length === 0) return [];
+
+    return [
+      {
+        src: `^(?:${assetPaths
+          .map((assetPath) => vercelRouteSrc(`/${app}${assetPath}`))
+          .join("|")})$`,
+        headers: IMMUTABLE_ASSET_CACHE_HEADERS,
+        continue: true,
+      },
+    ];
   });
 }
 

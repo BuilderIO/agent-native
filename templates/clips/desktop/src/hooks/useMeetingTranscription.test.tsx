@@ -1,93 +1,65 @@
 // @vitest-environment jsdom
-import { act, createElement } from "react";
+
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  listeners: new Map<string, Set<(event: { payload?: unknown }) => void>>(),
-  finalListeners: new Set<
-    (event: {
-      text: string;
-      source: "mic" | "system";
-      segments: Array<{ startMs: number; endMs: number; text: string }>;
-      runId?: number;
-    }) => void
-  >(),
-  invoke: vi.fn(),
-  emit: vi.fn(),
-  startTranscriptionEngine: vi.fn(),
-  stopTranscriptionEngine: vi.fn(),
-  restartTranscriptionEngine: vi.fn(),
-  actions: [] as Array<{ name: string; body: Record<string, unknown> }>,
-}));
-
-vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("@tauri-apps/api/event", () => ({
-  emit: mocks.emit,
-  listen: async (
-    name: string,
-    handler: (event: { payload?: unknown }) => void,
-  ) => {
-    const handlers = mocks.listeners.get(name) ?? new Set();
-    handlers.add(handler);
-    mocks.listeners.set(name, handlers);
-    return () => handlers.delete(handler);
-  },
-}));
-vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn() }));
-vi.mock("../lib/silence-events", () => ({
-  subscribeAutoStop: async () => () => {},
-}));
-vi.mock("../lib/transcription-engine", async () => {
-  const actual = await vi.importActual<
-    typeof import("../lib/transcription-engine")
-  >("../lib/transcription-engine");
+const tauri = vi.hoisted(() => {
+  const listeners = new Map<
+    string,
+    Set<(event: { payload: unknown }) => void>
+  >();
   return {
-    ...actual,
-    onFinalTranscript: async (listener: (event: unknown) => void) => {
-      mocks.finalListeners.add(listener as never);
-      return () => mocks.finalListeners.delete(listener as never);
-    },
-    startTranscriptionEngine: mocks.startTranscriptionEngine,
-    stopTranscriptionEngine: mocks.stopTranscriptionEngine,
-    restartTranscriptionEngine: mocks.restartTranscriptionEngine,
+    listeners,
+    invoke: vi.fn(
+      async (_command: string, _args?: unknown): Promise<unknown> => null,
+    ),
+    emit: vi.fn(async (name: string, payload: unknown) => {
+      for (const listener of listeners.get(name) ?? []) listener({ payload });
+    }),
+    listen: vi.fn(
+      async (name: string, listener: (event: { payload: unknown }) => void) => {
+        const handlers = listeners.get(name) ?? new Set();
+        handlers.add(listener);
+        listeners.set(name, handlers);
+        return () => handlers.delete(listener);
+      },
+    ),
   };
 });
 
+const transcription = vi.hoisted(() => ({
+  start: vi.fn(async () => "whisper" as const),
+  stop: vi.fn(
+    async (_engine?: string, _runId?: number): Promise<void> => undefined,
+  ),
+  restart: vi.fn(async () => undefined),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: tauri.emit,
+  listen: tauri.listen,
+}));
+vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn(async () => {}) }));
+vi.mock("../lib/meeting-call-app", () => ({
+  callAppBundleIdsForJoinUrl: vi.fn(() => []),
+}));
+vi.mock("../lib/silence-events", () => ({
+  subscribeAutoStop: vi.fn(() => () => {}),
+}));
+vi.mock("../lib/transcription-engine", () => ({
+  appendFinalTranscript: vi.fn(() => false),
+  onFinalTranscript: vi.fn(async () => () => {}),
+  restartTranscriptionEngine: transcription.restart,
+  startTranscriptionEngine: transcription.start,
+  stopTranscriptionEngine: transcription.stop,
+  transcriptFullText: vi.fn(() => ""),
+  transcriptLineFromSegment: vi.fn(),
+  transcriptSegments: vi.fn(() => []),
+}));
+
 import { useMeetingTranscription } from "./useMeetingTranscription";
-
-function Harness() {
-  useMeetingTranscription({
-    callClipsAction: async <T,>(
-      name: string,
-      body: Record<string, unknown>,
-    ) => {
-      mocks.actions.push({ name, body });
-      if (name === "start-meeting-recording") {
-        return {
-          meetingId: "meeting-1",
-          recording: { id: "recording-1" },
-        } as T;
-      }
-      if (name === "get-meeting") {
-        return { meeting: {}, transcript: null } as T;
-      }
-      if (name === "stop-meeting-recording") {
-        return { actualEnd: "2026-10-17T03:00:00.000Z" } as T;
-      }
-      return undefined as T;
-    },
-    serverUrl: "https://clips.test",
-    selectedMicId: null,
-    selectedMicLabel: null,
-    enabled: true,
-  });
-  return null;
-}
-
-async function settle() {
-  for (let index = 0; index < 30; index++) await Promise.resolve();
-}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -99,306 +71,722 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-async function dispatch(name: string, payload: unknown = {}) {
-  await act(async () => {
-    for (const handler of mocks.listeners.get(name) ?? []) {
-      handler({ payload });
-    }
-    await settle();
-  });
-}
-
-function emitFinal(runId: number, text: string) {
-  for (const listener of mocks.finalListeners) {
-    listener({
-      runId,
-      text,
-      source: "mic",
-      segments: [{ startMs: 0, endMs: 100, text }],
-    });
+async function waitFor(predicate: () => boolean) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
+  throw new Error("Timed out waiting for the meeting hook.");
 }
 
-describe("meeting transcription pause and resume", () => {
+function Probe({
+  callClipsAction,
+}: {
+  callClipsAction: (name: string) => unknown;
+}) {
+  useMeetingTranscription({
+    callClipsAction: callClipsAction as never,
+    serverUrl: "https://clips.example",
+    selectedMicId: null,
+    selectedMicLabel: null,
+    enabled: true,
+  });
+  return null;
+}
+
+describe("useMeetingTranscription quit coordination", () => {
   let host: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
-    vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    mocks.listeners.clear();
-    mocks.finalListeners.clear();
-    mocks.actions.length = 0;
-    mocks.invoke.mockReset().mockResolvedValue(undefined);
-    mocks.emit.mockReset().mockResolvedValue(undefined);
-    mocks.startTranscriptionEngine.mockReset().mockResolvedValue("whisper");
-    mocks.stopTranscriptionEngine.mockReset().mockResolvedValue(undefined);
-    mocks.restartTranscriptionEngine.mockReset().mockResolvedValue(undefined);
+    tauri.listeners.clear();
+    tauri.invoke.mockReset();
+    tauri.invoke.mockImplementation(async () => null);
+    tauri.emit.mockClear();
+    tauri.listen.mockClear();
+    transcription.start.mockReset();
+    transcription.stop.mockReset();
+    transcription.restart.mockReset();
+    transcription.stop.mockResolvedValue(undefined);
+    transcription.restart.mockResolvedValue(undefined);
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
   });
 
-  afterEach(async () => {
-    await act(async () => root.unmount());
+  afterEach(() => {
+    act(() => root.unmount());
     host.remove();
-    vi.clearAllTimers();
-    vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("accepts paused-run finals through the settle window after resume", async () => {
-    await act(async () => {
-      root.render(createElement(Harness));
-      await settle();
+  it("waits for start-failure teardown before acknowledging app quit", async () => {
+    const engineStart = deferred<"whisper">();
+    const startRecording = deferred<{
+      meetingId: string;
+      recording: { id: string };
+    }>();
+    const stopRecording = deferred<{ actualEnd: string }>();
+    transcription.start.mockReturnValue(engineStart.promise);
+
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") return startRecording.promise;
+      if (name === "stop-meeting-recording") return stopRecording.promise;
+      if (name === "get-meeting")
+        return Promise.resolve({ meeting: { title: "Meeting" } });
+      return Promise.resolve({});
     });
-    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
 
-    const pausedRunId = mocks.startTranscriptionEngine.mock.calls[0][0]
-      .runId as number;
-    expect(pausedRunId).toEqual(expect.any(Number));
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
 
-    await dispatch("clips:recorder-pause");
-    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "start-meeting-recording",
+        ),
+      );
+    });
+
+    await act(async () => {
+      startRecording.reject(new Error("Recording could not start."));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await Promise.resolve();
+    });
+
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      );
+    });
+
+    expect(transcription.stop).toHaveBeenCalledWith(
       "whisper",
-      pausedRunId,
+      expect.any(Number),
     );
 
-    await act(async () => {
-      emitFinal(pausedRunId, "late paused engine final");
-      vi.setSystemTime(Date.now() + 1_501);
-      emitFinal(pausedRunId, "stale during long pause");
-      await settle();
-    });
-
-    await dispatch("clips:recorder-resume");
-    const resumedRunId = mocks.restartTranscriptionEngine.mock
-      .calls[0][5] as number;
-    expect(resumedRunId).toEqual(expect.any(Number));
-    expect(resumedRunId).not.toBe(pausedRunId);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
 
     await act(async () => {
-      emitFinal(pausedRunId, "stale after resume");
-      emitFinal(resumedRunId, "after resume");
-      await settle();
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
-      await settle();
+      stopRecording.resolve({ actualEnd: new Date().toISOString() });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(([name]) => name === "quit_teardown_done"),
+      );
     });
 
-    const savedTranscripts = mocks.actions.filter(
-      (action) => action.name === "save-browser-transcript",
-    );
-    expect(savedTranscripts).toHaveLength(1);
-    expect(savedTranscripts[0].body.fullText).toBe(
-      "Me: late paused engine final\n\nMe: after resume",
-    );
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-      emitFinal(pausedRunId, "stale paused engine final");
-      await vi.advanceTimersByTimeAsync(1_500);
-      await settle();
-    });
-    expect(
-      mocks.actions.filter(
-        (action) => action.name === "save-browser-transcript",
-      ),
-    ).toHaveLength(1);
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
   });
 
-  it("accepts resumed-run finals while the new engine is starting", async () => {
-    const resumeStart = deferred<void>();
-    mocks.restartTranscriptionEngine.mockReturnValueOnce(resumeStart.promise);
+  it("waits for a pre-session start check before acknowledging quit", async () => {
+    const historyStatus = deferred<{ available: boolean }>();
+    tauri.invoke.mockImplementation(async (command) => {
+      if (command === "rewind_meeting_history_status") {
+        return historyStatus.promise;
+      }
+      return null;
+    });
+    const callClipsAction = vi.fn(async () => ({}));
 
     await act(async () => {
-      root.render(createElement(Harness));
-      await settle();
+      root.render(<Probe callClipsAction={callClipsAction} />);
     });
-    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
-
-    const pausedRunId = mocks.startTranscriptionEngine.mock.calls[0][0]
-      .runId as number;
-    await dispatch("clips:recorder-pause");
-    await dispatch("clips:recorder-resume");
-
-    const resumedRunId = mocks.restartTranscriptionEngine.mock
-      .calls[0][5] as number;
-    expect(resumedRunId).not.toBe(pausedRunId);
-    emitFinal(resumedRunId, "final during resume startup");
-    resumeStart.resolve();
-    await act(async () => settle());
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
-      await settle();
-    });
-
-    const savedTranscript = mocks.actions.find(
-      (action) => action.name === "save-browser-transcript",
-    );
-    expect(savedTranscript?.body.fullText).toBe(
-      "Me: final during resume startup",
-    );
-  });
-
-  it("pauses the engine selected after startup fallback", async () => {
-    const engineStart = deferred<"whisper" | "macos-native">();
-    mocks.startTranscriptionEngine.mockReturnValueOnce(engineStart.promise);
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
 
     await act(async () => {
-      root.render(createElement(Harness));
-      await settle();
+      startListener!({
+        payload: {
+          meetingId: "meeting-1",
+          reason: "user",
+          scheduledStart: new Date().toISOString(),
+        },
+      });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "rewind_meeting_history_status",
+        ),
+      );
     });
-    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
-
-    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
-      .runId as number;
-    await dispatch("clips:recorder-pause");
-    expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
 
     await act(async () => {
-      engineStart.resolve("macos-native");
-      await settle();
+      quitListener!({ payload: undefined });
+      await Promise.resolve();
     });
-
-    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
-      "macos-native",
-      runId,
-    );
-  });
-
-  it("cancels a pending engine start immediately when stopping", async () => {
-    const engineStart = deferred<"whisper" | "macos-native">();
-    mocks.startTranscriptionEngine.mockReturnValueOnce(engineStart.promise);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
 
     await act(async () => {
-      root.render(createElement(Harness));
-      await settle();
-    });
-    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
-
-    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
-      .runId as number;
-    await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
-
-    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
-      "whisper",
-      runId,
-    );
-    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
-      "macos-native",
-      runId,
-    );
-
-    await act(async () => {
-      engineStart.reject(new Error("speech-engine-start-superseded"));
-      await settle();
-      await vi.advanceTimersByTimeAsync(1_500);
-      await settle();
+      historyStatus.resolve({ available: false });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
     });
 
-    expect(
-      mocks.actions.filter(
-        (action) =>
-          action.name === "stop-meeting-recording" &&
-          action.body.reason === "start-failed",
-      ),
-    ).toHaveLength(0);
-    expect(mocks.actions).toContainEqual({
-      name: "stop-meeting-recording",
-      body: { meetingId: "meeting-1", reason: "manual" },
-    });
-    expect(mocks.emit).not.toHaveBeenCalledWith(
-      "meetings:transcription-error",
+    expect(transcription.start).not.toHaveBeenCalled();
+    expect(callClipsAction).not.toHaveBeenCalled();
+    expect(tauri.invoke).not.toHaveBeenCalledWith(
+      "rewind_meeting_history_prepare",
       expect.anything(),
     );
   });
 
-  it("keeps the paused-run listener through its settle deadline on stop", async () => {
-    await act(async () => {
-      root.render(createElement(Harness));
-      await settle();
+  it("lets startup continue when quit is cancelled while checking history", async () => {
+    const historyStatus = deferred<{ available: boolean }>();
+    tauri.invoke.mockImplementation(async (command) => {
+      if (command === "rewind_meeting_history_status") {
+        return historyStatus.promise;
+      }
+      return null;
     });
-    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
-
-    const pausedRunId = mocks.startTranscriptionEngine.mock.calls[0][0]
-      .runId as number;
-    await dispatch("clips:recorder-pause");
-    await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
-    expect(mocks.finalListeners.size).toBeGreaterThan(0);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500);
-      emitFinal(pausedRunId, "final before paused-run deadline");
-      await settle();
-      await vi.advanceTimersByTimeAsync(1_000);
-      await settle();
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") {
+        return Promise.resolve({
+          meetingId: "meeting-1",
+          recording: { id: "recording-1" },
+        });
+      }
+      if (name === "get-meeting") {
+        return Promise.resolve({ meeting: { title: "Meeting" } });
+      }
+      return Promise.resolve({});
     });
 
-    const savedTranscript = mocks.actions.find(
-      (action) => action.name === "save-browser-transcript",
-    );
-    expect(savedTranscript?.body.fullText).toBe(
-      "Me: final before paused-run deadline",
-    );
-    expect(mocks.finalListeners.size).toBe(0);
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    const cancelQuitListener = [
+      ...(tauri.listeners.get("meetings:quit-cancelled") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+    expect(cancelQuitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({
+        payload: {
+          meetingId: "meeting-1",
+          reason: "user",
+          scheduledStart: new Date().toISOString(),
+        },
+      });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "rewind_meeting_history_status",
+        ),
+      );
+    });
+
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      cancelQuitListener!({ payload: undefined });
+      historyStatus.resolve({ available: false });
+      await waitFor(() => transcription.start.mock.calls.length > 0);
+    });
+
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "start-meeting-recording",
+      ),
+    ).toBe(true);
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
   });
 
-  it("keeps the active-run listener through the final stop window", async () => {
+  it("waits for engine startup and stop before closing an app-quit session", async () => {
+    const engineStart = deferred<"whisper">();
     const engineStop = deferred<void>();
-    mocks.stopTranscriptionEngine.mockReturnValueOnce(engineStop.promise);
-
-    await act(async () => {
-      root.render(createElement(Harness));
-      await settle();
-    });
-    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
-
-    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
-      .runId as number;
-    await dispatch("clips:pill-stop", { meetingId: "meeting-1" });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-      engineStop.resolve();
-      await settle();
-    });
-    expect(mocks.finalListeners.size).toBeGreaterThan(0);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(500);
-      emitFinal(runId, "final phrase at stop");
-      await settle();
-      await vi.advanceTimersByTimeAsync(1_000);
-      await settle();
+    const stopRecording = deferred<{ actualEnd: string }>();
+    transcription.start.mockReturnValue(engineStart.promise);
+    transcription.stop.mockReturnValue(engineStop.promise);
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") {
+        return Promise.resolve({
+          meetingId: "meeting-1",
+          recording: { id: "recording-1" },
+        });
+      }
+      if (name === "stop-meeting-recording") return stopRecording.promise;
+      if (name === "get-meeting") {
+        return Promise.resolve({ meeting: { title: "Meeting" } });
+      }
+      return Promise.resolve({});
     });
 
-    const savedTranscript = mocks.actions.find(
-      (action) => action.name === "save-browser-transcript",
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(([name]) => name === "get-meeting"),
+      );
+    });
+
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await Promise.resolve();
+    });
+
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "whisper",
+      expect.any(Number),
     );
-    expect(savedTranscript?.body.fullText).toBe("Me: final phrase at stop");
-    expect(mocks.finalListeners.size).toBe(0);
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "macos-native",
+      expect.any(Number),
+    );
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(() => transcription.stop.mock.calls.length === 2);
+    });
+
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "macos-native",
+      expect.any(Number),
+    );
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      engineStop.resolve();
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      );
+    });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      stopRecording.resolve({ actualEnd: new Date().toISOString() });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
+    });
+
+    expect(
+      callClipsAction.mock.calls.filter(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toHaveLength(1);
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
   });
 
-  it.each(["speech-engine-busy-dictation", "speech-engine-start-superseded"])(
-    "hides internal meeting startup error %s",
-    async (errorCode) => {
-      mocks.startTranscriptionEngine.mockRejectedValueOnce(
-        new Error(errorCode),
-      );
+  it("stops the resolved native engine after delayed startup before acknowledging quit", async () => {
+    const engineStart = deferred<"whisper">();
+    const engineStop = deferred<void>();
+    const stopRecording = deferred<{ actualEnd: string }>();
+    const events: string[] = [];
+    transcription.start.mockImplementation(async () => {
+      const engine = await engineStart.promise;
+      events.push("startup-settled");
+      return engine;
+    });
+    transcription.stop.mockImplementation(async (engine) => {
+      events.push(`stop:${engine}`);
+      if (engine === "whisper" && events.includes("startup-settled")) {
+        return engineStop.promise;
+      }
+    });
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") {
+        return Promise.resolve({
+          meetingId: "meeting-1",
+          recording: { id: "recording-1" },
+        });
+      }
+      if (name === "stop-meeting-recording") return stopRecording.promise;
+      if (name === "get-meeting") {
+        return Promise.resolve({ meeting: { title: "Meeting" } });
+      }
+      return Promise.resolve({});
+    });
 
-      await act(async () => {
-        root.render(createElement(Harness));
-        await settle();
-      });
-      await dispatch("meetings:start-transcription", {
-        meetingId: "meeting-1",
-      });
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
 
-      expect(mocks.emit).toHaveBeenCalledWith(
-        "meetings:transcription-error",
-        expect.objectContaining({ error: "Could not start notes." }),
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() => transcription.start.mock.calls.length > 0);
+    });
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await waitFor(() => transcription.stop.mock.calls.length === 2);
+    });
+
+    expect(events).not.toContain("startup-settled");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(
+        () => events.filter((event) => event === "stop:whisper").length === 2,
       );
-    },
-  );
+    });
+
+    expect(events.indexOf("startup-settled")).toBeLessThan(
+      events.lastIndexOf("stop:whisper"),
+    );
+    expect(transcription.stop).toHaveBeenLastCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      engineStop.resolve();
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      );
+    });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      stopRecording.resolve({ actualEnd: new Date().toISOString() });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
+    });
+
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
+  });
+
+  it("keeps quit pending and retries when stopping the resolved native engine fails", async () => {
+    const engineStart = deferred<"whisper">();
+    const retryEngineStop = deferred<void>();
+    const stopRecording = deferred<{ actualEnd: string }>();
+    const events: string[] = [];
+    let postStartWhisperStops = 0;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    transcription.start.mockImplementation(async () => {
+      const engine = await engineStart.promise;
+      events.push("startup-settled");
+      return engine;
+    });
+    transcription.stop.mockImplementation(async (engine) => {
+      events.push(`stop:${engine}`);
+      if (engine === "whisper" && events.includes("startup-settled")) {
+        postStartWhisperStops += 1;
+        if (postStartWhisperStops === 1) {
+          throw new Error("Native stop failed once.");
+        }
+        return retryEngineStop.promise;
+      }
+    });
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") {
+        return Promise.resolve({
+          meetingId: "meeting-1",
+          recording: { id: "recording-1" },
+        });
+      }
+      if (name === "stop-meeting-recording") return stopRecording.promise;
+      if (name === "get-meeting") {
+        return Promise.resolve({ meeting: { title: "Meeting" } });
+      }
+      return Promise.resolve({});
+    });
+
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() => transcription.start.mock.calls.length > 0);
+    });
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await waitFor(() => transcription.stop.mock.calls.length === 2);
+    });
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(() =>
+        warning.mock.calls.some(
+          ([message]) =>
+            message ===
+            "[clips-popover] meeting stop is incomplete; preserving session for retry:",
+        ),
+      );
+    });
+
+    expect(postStartWhisperStops).toBe(1);
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await waitFor(() => transcription.stop.mock.calls.length === 4);
+    });
+    expect(transcription.stop).toHaveBeenLastCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+
+    await act(async () => {
+      retryEngineStop.resolve();
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      );
+    });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      stopRecording.resolve({ actualEnd: new Date().toISOString() });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
+    });
+
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
+  });
+
+  it("keeps quit attached to the active stop when startup fails", async () => {
+    const engineStart = deferred<"whisper">();
+    const startRecording = deferred<{
+      meetingId: string;
+      recording: { id: string };
+    }>();
+    const stopRecording = deferred<{ actualEnd: string }>();
+    transcription.start.mockReturnValue(engineStart.promise);
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") return startRecording.promise;
+      if (name === "stop-meeting-recording") return stopRecording.promise;
+      return Promise.resolve({});
+    });
+
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "start-meeting-recording",
+        ),
+      );
+    });
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await Promise.resolve();
+    });
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "whisper",
+      expect.any(Number),
+    );
+    expect(transcription.stop).toHaveBeenCalledWith(
+      "macos-native",
+      expect.any(Number),
+    );
+    startRecording.reject(new Error("Recording could not start."));
+
+    expect(
+      callClipsAction.mock.calls.some(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toBe(false);
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      );
+    });
+    expect(
+      callClipsAction.mock.calls.filter(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toHaveLength(1);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      stopRecording.resolve({ actualEnd: new Date().toISOString() });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
+    });
+
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
+    expect(
+      callClipsAction.mock.calls.filter(
+        ([name]) => name === "stop-meeting-recording",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a failed start stop retryable instead of acknowledging quit", async () => {
+    const engineStart = deferred<"whisper">();
+    const startRecording = deferred<{
+      meetingId: string;
+      recording: { id: string };
+    }>();
+    const stopError = new Error("Temporary stop failure.");
+    let stopAttempts = 0;
+    transcription.start.mockReturnValue(engineStart.promise);
+    const callClipsAction = vi.fn((name: string) => {
+      if (name === "start-meeting-recording") return startRecording.promise;
+      if (name === "stop-meeting-recording") {
+        stopAttempts += 1;
+        if (stopAttempts === 1) return Promise.reject(stopError);
+        return Promise.resolve({ actualEnd: new Date().toISOString() });
+      }
+      return Promise.resolve({});
+    });
+
+    await act(async () => {
+      root.render(<Probe callClipsAction={callClipsAction} />);
+    });
+    const startListener = [
+      ...(tauri.listeners.get("meetings:start-transcription") ?? []),
+    ][0];
+    const quitListener = [
+      ...(tauri.listeners.get("meetings:quit-requested") ?? []),
+    ][0];
+    expect(startListener).toBeDefined();
+    expect(quitListener).toBeDefined();
+
+    await act(async () => {
+      startListener!({ payload: { meetingId: "meeting-1" } });
+      await waitFor(() =>
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "start-meeting-recording",
+        ),
+      );
+    });
+    startRecording.reject(new Error("Recording could not start."));
+    await act(async () => {
+      engineStart.resolve("whisper");
+      await waitFor(() => stopAttempts === 1);
+    });
+    expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
+
+    await act(async () => {
+      quitListener!({ payload: undefined });
+      await waitFor(() =>
+        tauri.invoke.mock.calls.some(
+          ([command]) => command === "quit_teardown_done",
+        ),
+      );
+    });
+
+    expect(stopAttempts).toBe(2);
+    expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
+  });
 });

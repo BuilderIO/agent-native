@@ -21,6 +21,7 @@ import {
   IconSend,
 } from "@tabler/icons-react";
 import {
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -91,6 +92,23 @@ export function ReviewCommentComposer({
 }: ReviewCommentComposerProps) {
   const canSubmit = Boolean(value.trim()) && !disabled;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    // A menu item that opens this composer (Edit, say) mounts it while the
+    // menu still traps focus, so keep trying for a few frames until it lands.
+    let attempts = 0;
+    let frame = 0;
+    const focusTextarea = () => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      if (document.activeElement !== textarea && ++attempts < 10)
+        frame = requestAnimationFrame(focusTextarea);
+    };
+    focusTextarea();
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
   const [mentionSearch, setMentionSearch] = useState("");
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
   const [mentionTriggerIndex, setMentionTriggerIndex] = useState<number | null>(
@@ -309,7 +327,6 @@ export function ReviewCommentComposer({
       <Textarea
         {...textareaProps}
         ref={textareaRef}
-        autoFocus={autoFocus}
         value={value}
         disabled={disabled}
         onChange={(event) => {

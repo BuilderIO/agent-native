@@ -36,7 +36,7 @@ Reach for this skill any time you modify how recordings are edited: new edit ope
 
 1. **Non-destructive.** Never re-encode on edit. The original webm/mp4 stays intact at `recordings.video_url`. Edits only change the JSON.
 2. **Single source of truth.** The player renders edits at playback time — read `edits_json`, compute the virtual timeline, and skip excluded ranges via `HTMLVideoElement.currentTime` seeks. Do not fork the edit model for the editor vs the player.
-3. **Export is explicit.** The user must click Export to render a new file. That call goes through `export-video` and kicks off ffmpeg.wasm (or server-side ffmpeg if the recording is long).
+3. **Export is explicit.** The user must click Export to render a new file. MP4 export runs in the browser with ffmpeg.wasm; long recordings get a warning and an option to download the original or continue exporting.
 4. **Use edit actions.** Agents must use the recording actions below instead of writing `edits_json` directly.
 
 ## Timestamp-based editing actions
@@ -58,22 +58,16 @@ Users love editing by text — click a filler word in the transcript, remove it.
 
 ## Export
 
-```ts
-// actions/export-video.ts
-export default defineAction({
-  schema: z.object({ id: z.string(), format: z.enum(["mp4", "webm"]).default("mp4") }),
-  run: async ({ id, format }) => {
-    await assertAccess("recording", id, "editor");
-    const rec = await getRecordingOrThrow(id);
-    const edits = JSON.parse(rec.editsJson || "{}");
-    // Short clips (< 2 min) render client-side via ffmpeg.wasm.
-    // Longer ones are queued for server-side ffmpeg.
-    return { exportId: enqueueExport({ recordingId: id, edits, format }) };
-  },
-});
-```
+The editor toolbar calls `exportMp4()` from `app/lib/ffmpeg-export.ts` in the
+browser. It loads ffmpeg.wasm on the first export, processes the source video
+and kept ranges, then downloads the resulting MP4. There is no server-side
+export queue or automatic fallback for long recordings.
 
-For **short recordings**, load ffmpeg.wasm in a web worker, feed it the source blob + the edit list, and return the rendered file. For **long recordings**, enqueue a background job and have the UI poll `export-status` every 2s.
+When the edited duration exceeds `LONG_EXPORT_THRESHOLD_MS` (10 minutes), the
+toolbar warns that browser export may run out of memory and offers **Download
+original** or **Export anyway**. Choosing **Export anyway** runs the same
+browser export path. Export errors are surfaced to the user; do not report a
+failed export as queued or continuing elsewhere.
 
 ## Player integration
 
@@ -178,6 +172,17 @@ The player team may have its own copy of some of these. If so, consolidate on
 | `clear-edits`        | `editsJson`                              | Reset to defaults (chapters/thumbnailUrl kept)    |
 
 Every mutation ends with `writeAppState("refresh-signal", { ts: Date.now() })`.
+
+Chapter writes go through `actions/lib/save-chapters.ts`, which only writes
+over the list it was checked against: `set-chapters` needs `expectedChapters`
+(as `get-recording-player-data` returns them) or `expectedVersion`, and always
+needs `expectedMediaUpdatedAt` from that same response. Pass `expectedCuts`
+when times were mapped through cuts. `update-recording --chaptersJson` needs
+`expectedChapters` and `expectedMediaUpdatedAt`. A new writer of
+`chaptersJson` must check both values, or match the row it read in its update's
+WHERE, as `apply-rewind-extension` does. Stored chapters that can't be read
+refuse every save (`chapters_unreadable`); `set-chapters --discardUnreadable`
+replaces them, and only when the user asked to.
 
 ### ffmpeg.wasm usage
 

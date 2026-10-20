@@ -67,7 +67,6 @@ function hasPlanEdit(
     return (
       record?.type === "tool_done" &&
       record.completedSideEffect === true &&
-      record.isError !== true &&
       typeof record.tool === "string" &&
       PLAN_EDIT_TOOLS.has(record.tool) &&
       (input?.planId ?? input?.id) === planId

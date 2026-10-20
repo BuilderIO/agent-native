@@ -133,10 +133,21 @@ describe("designScreenSourceTypeFromData", () => {
   it("keeps an unmarked screen inline in a localhost design", () => {
     const data = {
       sourceType: "localhost",
-      screenMetadata: { local: { sourceType: "localhost" }, seeded: {} },
+      screenMetadata: {
+        local: { sourceType: "localhost" },
+        seeded: {},
+        withSourceFile: { sourceFile: "app/routes/home.tsx" },
+      },
+      localhostScreens: {
+        legacy: { sourceFile: "app/routes/legacy.tsx" },
+      },
     };
     expect(designScreenSourceTypeFromData(data, "local")).toBe("localhost");
     expect(designScreenSourceTypeFromData(data, "seeded")).toBe("inline");
+    expect(designScreenSourceTypeFromData(data, "withSourceFile")).toBe(
+      "inline",
+    );
+    expect(designScreenSourceTypeFromData(data, "legacy")).toBe("localhost");
     expect(designScreenSourceTypeFromData(data, "missing")).toBe("inline");
   });
 });

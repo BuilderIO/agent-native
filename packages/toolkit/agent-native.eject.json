@@ -1123,6 +1123,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/builder-frame",
         "@agent-native/core/client/feature-flags/use-feature-flag",

@@ -11,7 +11,7 @@ export const IMMUTABLE_ASSET_CACHE_HEADERS = {
 } as const;
 
 export const IMMUTABLE_ASSET_PATH_PATTERN =
-  "^/assets/[^/]+-[A-Za-z0-9_-]{8}\\.[a-z0-9]+$";
+  "^/assets/(?:[^/]+/)*[^/]+-[A-Za-z0-9_-]{8}\\.[a-z0-9]+$";
 
 const IMMUTABLE_ASSET_PATH_RE = new RegExp(IMMUTABLE_ASSET_PATH_PATTERN);
 

@@ -23,6 +23,10 @@ import { toast } from "sonner";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import {
+  PRESENTER_WINDOW_FEATURES,
+  presenterWindowName,
+} from "@/lib/deck-present-url";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import {
   isInteractiveKeyboardEvent,
@@ -68,6 +72,8 @@ interface PresentationViewProps {
   designSystem?: DesignSystemData;
   pdfExportTitle?: string;
   pdfExportToken?: string;
+  /** Present inside the tab as it is, without asking the browser for fullscreen. */
+  windowed?: boolean;
 }
 
 function PdfExportStage({
@@ -108,6 +114,7 @@ export default function PresentationView({
   designSystem,
   pdfExportTitle,
   pdfExportToken,
+  windowed = false,
 }: PresentationViewProps) {
   const t = useT();
   const safeSlides = useMemo(
@@ -498,8 +505,8 @@ export default function PresentationView({
     );
     window.open(
       url.toString(),
-      `slides-presenter-${deckId}`,
-      "width=1200,height=760",
+      presenterWindowName(deckId),
+      PRESENTER_WINDOW_FEATURES,
     );
   }, [deckId, toRawIndex]);
 
@@ -559,7 +566,7 @@ export default function PresentationView({
   }, []);
 
   useEffect(() => {
-    enterFullscreen();
+    if (!windowed) enterFullscreen();
     const handleFullscreenChange = () => {
       if (enteredFullscreenRef.current && !document.fullscreenElement) {
         enteredFullscreenRef.current = false;

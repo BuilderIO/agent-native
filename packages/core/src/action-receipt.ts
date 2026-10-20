@@ -363,18 +363,24 @@ function assertProvenance(
     "causationId",
     "idempotencyKey",
   ]);
-  const callers: readonly ActionCaller[] = [
-    "tool",
-    "http",
-    "frontend",
-    "cli",
-    "mcp",
-    "webmcp",
-    "a2a",
-    "automation",
-  ];
-  if (!callers.includes(record.caller as ActionCaller))
+  const callers: Record<ActionCaller, true> = {
+    tool: true,
+    http: true,
+    frontend: true,
+    "mcp-widget": true,
+    "mcp-widget-write": true,
+    cli: true,
+    mcp: true,
+    webmcp: true,
+    a2a: true,
+    automation: true,
+  };
+  if (
+    typeof record.caller !== "string" ||
+    !Object.prototype.hasOwnProperty.call(callers, record.caller)
+  ) {
     invalid("provenance caller");
+  }
   for (const key of Object.keys(record)) {
     if (key !== "caller") assertNonEmpty(record[key], `provenance ${key}`);
   }

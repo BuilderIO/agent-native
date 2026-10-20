@@ -4,6 +4,7 @@ import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
+import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import {
   isCategoryAxis,
   planCategoryAxis,
@@ -56,6 +57,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -143,6 +145,18 @@ import type {
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
+
+import {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
+
+export {
+  DashboardPanelDescription,
+  renderDashboardMarkdownLink,
+  safeDashboardLinkHref,
+} from "./DashboardPanelDescription";
 
 import {
   usePanelDataNotes,
@@ -1599,9 +1613,30 @@ interface SqlChartProps {
    * calls this instead of `onSaveColumns`, and null resets the column.
    */
   onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  /** Passing this makes a table's rows clickable; it gets the row and the rows in shown order. */
+  onTableRowClick?: TableRowClickHandler;
+  isTableRowActive?: (row: Record<string, unknown>) => boolean;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
+
+/**
+ * `rows` are the table's rows in display order; `resultRows` are every row
+ * the query returned, before `config.limit`, and `resultTruncated` says the
+ * query itself returned only part of its rows.
+ */
+export type TableRowClickHandler = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+  resultTruncated: boolean,
+) => void;
+
+type TableRendererRowClick = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+) => void;
 
 export function SqlChart({
   panel,
@@ -1620,6 +1655,8 @@ export function SqlChart({
   onSaveColumns,
   columnWidths,
   onColumnWidthChange,
+  onTableRowClick,
+  isTableRowActive,
   dashboardId,
   extensionContext,
   onDatumClick,
@@ -1793,11 +1830,10 @@ export function SqlChart({
   if (isSection) {
     return (
       <div className="px-1 py-2">
-        {panel.config?.description && (
-          <p className="text-sm text-muted-foreground">
-            {panel.config.description}
-          </p>
-        )}
+        <DashboardPanelDescription
+          description={panel.config?.description}
+          className="text-sm text-muted-foreground"
+        />
       </div>
     );
   }
@@ -1873,8 +1909,9 @@ export function SqlChart({
 
   const missingConfigKeys = plan.missingKeys;
   const withConfigBanners = (node: ReactNode) => {
+    let content = node;
     if (refreshError) {
-      return (
+      content = (
         <div className="flex h-full min-h-0 flex-col gap-2">
           <div
             className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
@@ -1899,20 +1936,36 @@ export function SqlChart({
               {t("sqlDashboard.refresh")}
             </Button>
           </div>
-          {missingConfigKeys.length > 0 && (
+          {missingConfigKeys.length > 0 ? (
             <ConfigWarning keys={missingConfigKeys} />
-          )}
+          ) : null}
           <div className="min-h-0 flex-1">{node}</div>
         </div>
       );
+    } else if (missingConfigKeys.length > 0) {
+      content = (
+        <div className="space-y-2">
+          <ConfigWarning keys={missingConfigKeys} />
+          {node}
+        </div>
+      );
     }
-    return missingConfigKeys.length > 0 ? (
-      <div className="space-y-2">
-        <ConfigWarning keys={missingConfigKeys} />
-        {node}
+
+    if (
+      typeof panel.config?.description !== "string" ||
+      !panel.config.description
+    ) {
+      return content;
+    }
+
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <DashboardPanelDescription
+          description={panel.config.description}
+          className="text-sm text-muted-foreground"
+        />
+        <div className="min-h-0 flex-1">{content}</div>
       </div>
-    ) : (
-      node
     );
   };
 
@@ -1992,6 +2045,20 @@ export function SqlChart({
         onSaveColumns={onSaveColumns}
         columnWidths={columnWidths}
         onColumnWidthChange={onColumnWidthChange}
+        // Rows kept from the previous filters while new ones load belong to
+        // no current scope, so they open nothing.
+        onRowClick={
+          onTableRowClick && !isShowingPreviousFilters
+            ? (row, displayRows, resultRows) =>
+                onTableRowClick(
+                  row,
+                  displayRows,
+                  resultRows,
+                  result?.truncated === true,
+                )
+            : undefined
+        }
+        isRowActive={isTableRowActive}
       />,
     );
   }
@@ -2195,11 +2262,6 @@ function MetricRenderer({
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
       <div className="text-3xl font-bold">{value}</div>
-      {panel.config?.description && (
-        <p className="text-xs text-muted-foreground mt-1">
-          {panel.config.description}
-        </p>
-      )}
     </div>
   );
 }
@@ -2337,24 +2399,6 @@ export function buildTableClipboardText(
   return tableRows.map((row) => row.map(clipboardCell).join("\t")).join("\n");
 }
 
-export function safeDashboardLinkHref(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const href = value.trim();
-  if (!href) return null;
-  if (href.startsWith("//")) return null;
-
-  try {
-    const parsed = href.startsWith("/")
-      ? new URL(href, "https://agent-native.local")
-      : new URL(href);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? href
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function renderDeltaCell(value: unknown): ReactNode {
   const numeric = numericTableValue(value);
   if (numeric === null) {
@@ -2415,7 +2459,9 @@ function isSessionColumn(key: string): boolean {
   return key === "session_id" || key === "sessionId";
 }
 
-function isNumericColumnFormat(format: ColumnFormat | undefined): boolean {
+export function isNumericColumnFormat(
+  format: ColumnFormat | undefined,
+): boolean {
   return (
     format === "number" ||
     format === "currency" ||
@@ -2470,6 +2516,8 @@ function TableRenderer({
   onSaveColumns,
   columnWidths,
   onColumnWidthChange,
+  onRowClick,
+  isRowActive,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
@@ -2478,6 +2526,8 @@ function TableRenderer({
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
   columnWidths?: Record<string, number>;
   onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  onRowClick?: TableRendererRowClick;
+  isRowActive?: (row: Record<string, unknown>) => boolean;
 }) {
   const t = useT();
   const config = panel.config;
@@ -2945,7 +2995,57 @@ function TableRenderer({
           </thead>
           <tbody>
             {displayRows.map((row, i) => (
-              <tr key={i} className="border-b border-border/50">
+              <tr
+                key={i}
+                className={cn(
+                  "border-b border-border/50",
+                  onRowClick && "cursor-pointer focus-visible:outline-none",
+                  isRowActive?.(row)
+                    ? "bg-foreground/10"
+                    : onRowClick &&
+                        "hover:bg-accent/60 focus-visible:bg-accent/60",
+                )}
+                {...(onRowClick
+                  ? {
+                      tabIndex: 0,
+                      "data-no-panel-chat-select": "",
+                      onClick: (event: ReactMouseEvent<HTMLElement>) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest("a, button")
+                        ) {
+                          return;
+                        }
+                        onRowClick(row, sortedRows, rows);
+                      },
+                      onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+                        // Keys on a link or button inside the row are theirs.
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onRowClick(row, sortedRows, rows);
+                          return;
+                        }
+                        if (
+                          event.key !== "ArrowDown" &&
+                          event.key !== "ArrowUp"
+                        )
+                          return;
+                        const offset = event.key === "ArrowDown" ? 1 : -1;
+                        const next = displayRows[i + offset];
+                        const sibling =
+                          offset === 1
+                            ? event.currentTarget.nextElementSibling
+                            : event.currentTarget.previousElementSibling;
+                        if (!next || !(sibling instanceof HTMLElement)) return;
+                        event.preventDefault();
+                        sibling.focus();
+                        if (isRowActive?.(row))
+                          onRowClick(next, sortedRows, rows);
+                      },
+                    }
+                  : {})}
+              >
                 {columns.map((col) => {
                   const raw = row[col.key];
                   const truncated = truncatedColumns.has(col.key);
@@ -4480,7 +4580,13 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
             className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${wrapper}`}
           >
             <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-            <span className="break-words">{message}</span>
+            <InlineMarkdown
+              inline
+              content={message}
+              className="min-w-0 flex-1 break-words"
+              linkClassName="text-current underline underline-offset-2 hover:opacity-80"
+              renderLink={renderDashboardMarkdownLink}
+            />
           </div>
         );
       })}

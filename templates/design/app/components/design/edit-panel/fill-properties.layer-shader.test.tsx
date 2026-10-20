@@ -2,12 +2,15 @@
 
 /**
  * Choosing Gradient on a solid fill turns it into a gradient layer row. That
- * row's paint row must still offer Solid, Gradient, Image, Shader and None,
- * and Shader must work from it: the shader takes the layer's place in the same
- * source write, so the Fill list shows one fill, the shader.
+ * row's paint row must still offer Solid, Gradient, Image, Shader and None.
+ * Native shaders occupy their own saved Fill slots above existing paints.
  */
 
-import { listShaderMounts } from "@shared/shader-fills";
+import {
+  editNativeEffectHtml,
+  type NativeEffectEdit,
+} from "@shared/native-effect-edits";
+import { parseEffectsFromHtml } from "@shared/native-effects";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,12 +26,25 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
-  callAction: (name: string) => {
+  callAction: (name: string, params: Record<string, unknown>) => {
     if (name === "read-source-file") {
       return Promise.resolve({
         content: mocks.source,
         versionHash: "v1",
         fileId: "f1",
+      });
+    }
+    if (name === "edit-native-shader") {
+      mocks.applied.push({ name, params });
+      const result = editNativeEffectHtml(
+        mocks.source,
+        params.operation as NativeEffectEdit,
+      );
+      if (result.errors.length) throw new Error(result.errors.join("; "));
+      mocks.source = result.html;
+      return Promise.resolve({
+        content: result.html,
+        instanceIds: result.instanceIds,
       });
     }
     throw new Error(`unexpected callAction: ${name}`);
@@ -65,6 +81,15 @@ vi.mock("@agent-native/core/client/uploads", async (importOriginal) => ({
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
+vi.mock("../inspector/NativeShaderCatalogPreview", () => ({
+  NativeShaderCatalogPreview: () => null,
+  NativeShaderCatalogPreviewProvider: ({
+    children,
+  }: {
+    children: React.ReactNode;
+  }) => children,
+}));
 
 vi.mock("./field-primitives", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./field-primitives")>();
@@ -121,11 +146,17 @@ function elementFromSource(html: string): ElementInfo {
   });
 }
 
-function Editor({ initial }: { initial: string }) {
+function Editor({
+  initial,
+  selectedElement,
+}: {
+  initial: string;
+  selectedElement?: ElementInfo;
+}) {
   const [content, setContent] = useState(initial);
   return (
     <FillProperties
-      element={elementFromSource(content)}
+      element={selectedElement ?? elementFromSource(content)}
       onStyleChange={styleChange}
       glslShaderContext={{
         designId: "d1",
@@ -240,47 +271,45 @@ describe("a gradient layer's paint row", () => {
     ]);
   });
 
-  it("replaces the layer with the shader in one source write", async () => {
+  it("appends a native shader above the layer in one version-checked source write", async () => {
     mocks.source = documentWith(LAYER_STYLE);
     render(<Editor initial={mocks.source} />);
     openLayerPicker();
-
     act(() => paint("Shader").click());
     expect(
-      document.querySelector('[data-shader-pane="browse"]'),
+      document.querySelector('[data-native-shader-panel="fill"]'),
     ).not.toBeNull();
-    // Nothing is written until a shader is picked.
     expect(mocks.applied).toHaveLength(0);
-
-    await act(async () => paint("Clouds").click());
-
+    await act(async () =>
+      paint("editPanel.shaders.nativeCatalog.definitions.liquid-metal").click(),
+    );
     expect(mocks.applied).toHaveLength(1);
-    expect(mocks.applied[0]!.name).toBe("apply-source-edit");
-    const written = (mocks.applied[0]!.params.edit as { content: string })
-      .content;
-    expect(listShaderMounts(written)).toMatchObject([
-      { nodeId: "hero", mode: "fill" },
+    expect(mocks.applied[0]).toEqual({
+      name: "edit-native-shader",
+      params: {
+        designId: "d1",
+        fileId: "f1",
+        expectedVersionHash: "v1",
+        operation: expect.objectContaining({
+          kind: "apply",
+          nodeId: "hero",
+          placement: "fill",
+          definitionId: "an-native-liquid-metal",
+        }),
+      },
+    });
+    expect(mocks.source).toContain(LAYER_STYLE);
+    expect(
+      parseEffectsFromHtml(mocks.source).document?.instances,
+    ).toMatchObject([
+      {
+        nodeId: "hero",
+        placement: "fill",
+        definitionId: "an-native-liquid-metal",
+      },
     ]);
-    for (const property of [
-      "background-image",
-      "background-size",
-      "background-repeat",
-      "background-position",
-    ]) {
-      expect(written).not.toContain(property);
-    }
-    // The layer goes with the shader, not through a second style write.
     expect(styleChange).not.toHaveBeenCalled();
-
-    // The Fill list now shows the one fill, the shader, and its picker is open on it.
-    expect(layerRows()).toHaveLength(0);
-    expect(
-      container.querySelectorAll('button[aria-label="Open color picker"]'),
-    ).toHaveLength(1);
-    expect(paint("Shader").getAttribute("aria-pressed")).toBe("true");
-    expect(
-      document.querySelector('[data-shader-pane="controls"]'),
-    ).not.toBeNull();
+    expect(container.querySelectorAll("[data-native-fill-id]")).toHaveLength(1);
   });
 
   it("leaves the layer alone when the user goes back to Gradient without picking a shader", () => {
@@ -333,6 +362,94 @@ describe("Shader beside other fills", () => {
     openLayerPicker(0);
 
     expect(paintLabels()).toEqual(["Solid", "Gradient", "Image", "None"]);
+  });
+});
+
+describe("SVG native fill", () => {
+  it("persists a root SVG fill and appends a second shader without changing the artwork", async () => {
+    const svg = `<svg data-agent-native-node-id="hero" viewBox="0 0 40 20" style="width:80px;height:40px;fill:red"><path d="M0 0h15v20H0z"/><path d="M25 0h15v20H25z" fill="blue" fill-opacity="0.5"/></svg>`;
+    mocks.source = `<html><body>${svg}</body></html>`;
+    render(
+      <Editor
+        initial={mocks.source}
+        selectedElement={element({
+          tagName: "svg",
+          primitiveKind: "path",
+          computedStyles: { fill: "rgb(255, 0, 0)" },
+          inlineStyles: { fill: "red" },
+        })}
+      />,
+    );
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click(),
+    );
+    act(() => paint("Shader").click());
+    await act(async () =>
+      paint("editPanel.shaders.nativeCatalog.definitions.liquid-metal").click(),
+    );
+    const first = parseEffectsFromHtml(mocks.source).document!.instances[0];
+    expect(first).toMatchObject({
+      nodeId: "hero",
+      placement: "fill",
+      definitionId: "an-native-liquid-metal",
+    });
+    expect(container.querySelectorAll("[data-native-fill-id]")).toHaveLength(1);
+    act(() =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="editPanel.labels.addFill"]',
+        )!
+        .click(),
+    );
+    await act(async () =>
+      paint("editPanel.shaders.nativeCatalog.definitions.liquid-metal").click(),
+    );
+    const saved = parseEffectsFromHtml(mocks.source).document!;
+    expect(saved.instances).toHaveLength(2);
+    expect(saved.instances[0]).toEqual(first);
+    expect(saved.instances[1]).toMatchObject({
+      nodeId: "hero",
+      placement: "fill",
+      definitionId: "an-native-liquid-metal",
+    });
+    expect(saved.instances[1].id).not.toBe(first.id);
+    expect(mocks.source).toContain(svg);
+    expect(container.querySelectorAll("[data-native-fill-id]")).toHaveLength(2);
+    expect(mocks.applied).toHaveLength(2);
+    expect(styleChange).not.toHaveBeenCalled();
+  });
+
+  it("offers native Shader alongside a root SVG's solid and gradient paints", () => {
+    render(
+      <FillProperties
+        element={element({
+          tagName: "svg",
+          primitiveKind: "path",
+          computedStyles: { fill: "rgb(255, 0, 0)" },
+          inlineStyles: { fill: "#ff0000" },
+        })}
+        onStyleChange={styleChange}
+        glslShaderContext={{ designId: "d1", fileId: "f1", nodeId: "hero" }}
+      />,
+    );
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click(),
+    );
+
+    expect(paintLabels()).toEqual(["Solid", "Gradient", "Shader"]);
   });
 });
 

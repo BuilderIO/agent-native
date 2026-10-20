@@ -211,6 +211,15 @@ describe("mutate-dashboard", () => {
     mocks.seedFromText.mockClear();
   });
 
+  it("advertises the returnTypes help-only call without a dashboard id", () => {
+    expect(
+      (mutateDashboard.tool.parameters as any).required ?? [],
+    ).not.toContain("dashboardId");
+    expect(
+      (mutateDashboard.tool.parameters as any).properties.returnTypes.type,
+    ).toBe("boolean");
+  });
+
   it.each([[], ""])(
     "ignores an empty auto-serialized operations sibling (%j) when code is present",
     async (emptyOperations) => {
@@ -578,8 +587,9 @@ describe("mutate-dashboard", () => {
       "dryRun",
       "allowEmptyResult",
       "returnConfig",
+      "returnTypes",
     ]);
-    expect(parameters.required).toEqual(["dashboardId"]);
+    expect(parameters.required ?? []).not.toContain("dashboardId");
     expect(parameters.properties.dashboardId.minLength).toBe(1);
     expect(parameters.properties.code.maxLength).toBe(12_000);
     expect(parameters.properties.operations).toBeDefined();

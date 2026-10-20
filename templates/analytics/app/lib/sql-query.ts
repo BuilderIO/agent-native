@@ -1,6 +1,7 @@
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import {
+  confirmedScanBytes,
   isConfirmedPreQueryFailure,
   isSqlQueryAccessDenied,
   SqlQueryRefusalError,
@@ -40,7 +41,12 @@ export interface SqlQueryResult extends Omit<
   rows: Record<string, unknown>[];
   error?: string;
   schema?: { name: string; type: string }[];
+  /** Bytes this request scanned, present only when both cache layers missed. */
+  bytesRead?: number;
 }
+
+/** Why a query runs; the server applies the matching billed-byte cap. */
+export type SqlQueryPurpose = "row-breakdown";
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;
@@ -216,7 +222,11 @@ export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
-  options?: { reportScreenshot?: boolean; forceRefresh?: boolean },
+  options?: {
+    reportScreenshot?: boolean;
+    forceRefresh?: boolean;
+    purpose?: SqlQueryPurpose;
+  },
 ): Promise<SqlQueryResult> {
   const startedAt = performance.now();
   const forceRefresh = Boolean(
@@ -243,6 +253,7 @@ export async function executeSqlQuery(
         query: sql,
         source,
         ...(forceRefresh ? { forceRefresh: true } : {}),
+        ...(options?.purpose ? { purpose: options.purpose } : {}),
       },
       {
         signal: deadline.signal,
@@ -328,10 +339,15 @@ export async function executeSqlQuery(
     totalMs: performance.now() - startedAt,
   });
 
+  const bytesRead = confirmedScanBytes({
+    ...metadata,
+    bytesProcessed: data.bytesProcessed,
+  });
   return {
     rows: data.rows ?? [],
     schema: data.schema,
     ...metadata,
+    ...(bytesRead !== null ? { bytesRead } : {}),
   };
 }
 
@@ -368,6 +384,7 @@ export function useSqlQuery(
      * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
      */
     reuseCompletedOnEnable?: boolean;
+    purpose?: SqlQueryPurpose;
     /**
      * Saves each successful result in this tab's session storage and, after a
      * reload, shows the saved copy for this exact account, SQL and source while
@@ -458,6 +475,7 @@ export function useSqlQuery(
         result = await executeSqlQuery(sql, source, signal, {
           reportScreenshot: options?.reportScreenshot,
           forceRefresh,
+          ...(options?.purpose ? { purpose: options.purpose } : {}),
         });
       } catch (error) {
         if (isSqlQueryAccessDenied(error)) {

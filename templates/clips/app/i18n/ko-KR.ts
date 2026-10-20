@@ -678,6 +678,14 @@ const messages = {
     errorOutOfOrder: "{{line}}번째 줄: 이 시간이 바로 앞의 시간보다 이릅니다.",
     errorPastEnd: "{{line}}번째 줄: 이 시간이 동영상 끝보다 늦습니다.",
   },
+  transcriptHistory: {
+    title: "이전 스크립트",
+    automatic: "자동",
+    restore: "복원",
+    restored: "스크립트를 복원했습니다",
+    restoreFailed: "스크립트를 복원하지 못했습니다",
+    undo: "실행 취소",
+  },
   thumbnailPicker: {
     failedCapture: "프레임을 캡처하지 못했습니다.",
     failedGif: "GIF 생성 실패 — 더 짧은 범위를 시도해보세요",
@@ -1371,6 +1379,16 @@ const messages = {
     playClip: "클립 재생",
     unsupportedFormat:
       "이 브라우저에서는 이 동영상을 재생할 수 없습니다. Chrome, Edge 또는 Firefox에서 링크를 열어 보세요.",
+    youtubeLoading: "YouTube 플레이어를 불러오는 중",
+    youtubeUnavailable: "이 YouTube 동영상은 비공개이거나 삭제되었습니다.",
+    youtubeEmbedBlocked:
+      "이 동영상의 소유자가 YouTube 외부에서의 재생을 허용하지 않습니다.",
+    youtubeInvalid: "이 YouTube 링크는 재생 가능한 동영상을 가리키지 않습니다.",
+    youtubePlaybackFailed:
+      "YouTube에서 이 동영상을 여기서 재생하지 못했습니다.",
+    youtubeApiUnavailable:
+      "YouTube 플레이어를 불러오지 못했습니다. 연결 상태나 콘텐츠 차단기를 확인한 다음 새로고침하세요.",
+    watchOnYouTube: "YouTube에서 보기",
   },
   searchBar: {
     placeholder: "녹화 검색…",
@@ -1647,15 +1665,32 @@ const messages = {
     placeholder: "Clip title (현지화됨)",
     editLabel: "Edit clip title (현지화됨)",
   },
+  chapterList: {
+    add: "챕터 추가",
+    editLabel: "챕터 편집",
+    placeholder: "0:00 소개\n1:30 다음 섹션",
+    errorLineShape:
+      '{{line}}번째 줄: 시간 다음에 제목을 입력하세요. 예: "0:48 메모 날짜 저장".',
+    errorBadTime:
+      '{{line}}번째 줄: "{{value}}"은(는) 0:48 같은 시간이 아닙니다.',
+    errorDuplicate: "{{line}}번째 줄: {{value}}에 이미 챕터가 있습니다.",
+    errorPastEnd: "{{line}}번째 줄: {{value}}은(는) 클립이 끝난 뒤입니다.",
+    changedWhileEditing:
+      "편집하는 동안 챕터가 변경되었습니다. 줄을 확인한 뒤 다시 저장하면 대체됩니다.",
+  },
   chapters: {
-    title: "Chapters (현지화됨)",
-    addHere: "Add here (현지화됨)",
-    empty: "No chapters yet. (현지화됨)",
-    remove: "Remove chapter (현지화됨)",
-    saveFailed: "Failed to save chapters (현지화됨)",
-    duplicateAtPoint: "A chapter already exists at this point (현지화됨)",
-    defaultTitle: "Chapter {{count}} (현지화됨)",
-    seekTo: "Seek to {{time}} (현지화됨)",
+    title: "챕터",
+    addHere: "여기에 추가",
+    empty: "아직 챕터가 없습니다.",
+    remove: "챕터 삭제",
+    saveFailed: "챕터를 저장하지 못했습니다",
+    changedElsewhere:
+      "챕터가 다른 곳에서 변경되어 마지막 변경 사항이 저장되지 않았습니다.",
+    unreadable:
+      "저장된 일부 챕터를 읽을 수 없어 여기서는 변경 사항을 저장할 수 없습니다. 에이전트에게 챕터를 교체해 달라고 요청하세요.",
+    duplicateAtPoint: "이 위치에 이미 챕터가 있습니다",
+    defaultTitle: "챕터 {{count}}",
+    seekTo: "{{time}}(으)로 이동",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
@@ -1785,7 +1820,7 @@ const messages = {
     unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
     takeScreenshot: "스크린샷 찍기",
-    importLoom: "Import Loom (현지화됨)",
+    importLoom: "동영상 가져오기",
     importing: "Importing... (현지화됨)",
     import: "Import (현지화됨)",
     recordNew: "새로 녹화",
@@ -1930,6 +1965,8 @@ const messages = {
       "Storage needed to finish Loom import (현지화됨)",
     loomImported: "Loom imported (현지화됨)",
     couldNotImportLoom: "이 Loom을 가져오지 못했습니다.",
+    youtubeImported: "YouTube 동영상을 추가했습니다",
+    couldNotImportVideo: "이 동영상을 가져오지 못했습니다.",
     recordingReadyToUpload: "Recording is ready to upload (현지화됨)",
     recordingSaved: "Recording saved (현지화됨)",
     linkCopied: "링크가 복사되었습니다",
@@ -2029,12 +2066,12 @@ const messages = {
       "이 녹화는 아직 처리 중이므로 Clips가 사본을 여기에 보관했습니다. 기다리거나 다시 업로드하세요.",
   },
   importRoute: {
-    pageTitle: "Loom 가져오기 — Clips",
-    title: "Loom 가져오기",
+    pageTitle: "동영상 가져오기 — Clips",
+    title: "동영상 가져오기",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "가져오기",
     helperText:
-      "Loom과 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
+      "Loom 및 YouTube와 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
     stageFetching: "동영상을 가져오는 중…",
     stageUploading: "원본 영상을 업로드하는 중…",
     stageTranscript:

@@ -280,7 +280,9 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return <div className="notion-editor">{renderMarkdownBlocks(content)}</div>;
+    return (
+      <div className="content-editor">{renderMarkdownBlocks(content)}</div>
+    );
   }
 
   return (

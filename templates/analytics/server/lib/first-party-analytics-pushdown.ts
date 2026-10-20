@@ -20,7 +20,7 @@ const CONSTANT_WORDS = new Set([
   "null",
 ]);
 
-function safePredicate(tokens: AgentSqlToken[], alias: string): string | null {
+function unwrapPredicate(tokens: AgentSqlToken[]): AgentSqlToken[] {
   while (tokens[0]?.text === "(" && tokens[tokens.length - 1]?.text === ")") {
     let depth = 0;
     const encloses = tokens.every((token, index) => {
@@ -31,6 +31,99 @@ function safePredicate(tokens: AgentSqlToken[], alias: string): string | null {
     if (!encloses) break;
     tokens = tokens.slice(1, -1);
   }
+  return tokens;
+}
+
+function splitPredicate(
+  tokens: AgentSqlToken[],
+  operator: "and" | "or",
+): AgentSqlToken[][] {
+  const parts: AgentSqlToken[][] = [];
+  let start = 0;
+  let depth = 0;
+  let cases = 0;
+  let between = false;
+  tokens.forEach((token, index) => {
+    if (token.text === "(" || token.text === "[") depth++;
+    if (token.text === ")" || token.text === "]") depth--;
+    if (depth !== 0 || token.kind !== "word") return;
+    if (token.value === "case") cases++;
+    if (token.value === "end") cases--;
+    if (cases !== 0) return;
+    if (token.value === "between") between = true;
+    if (token.value === "and" && between) {
+      between = false;
+      return;
+    }
+    if (token.value === operator) {
+      parts.push(tokens.slice(start, index));
+      start = index + 1;
+    }
+  });
+  parts.push(tokens.slice(start));
+  return parts;
+}
+
+function plainStringLiteral(token: AgentSqlToken | undefined): string | null {
+  // Escaped/prefixed literals require dialect-specific decoding; leave them opaque.
+  return token?.kind === "string" && /^'[^'\\]*'$/s.test(token.text)
+    ? token.text.slice(1, -1)
+    : null;
+}
+
+type FoldedPredicate = boolean | AgentSqlToken[][];
+
+function foldPredicate(input: AgentSqlToken[]): FoldedPredicate {
+  const tokens = unwrapPredicate(input);
+  for (const operator of ["or", "and"] as const) {
+    const parts = splitPredicate(tokens, operator);
+    if (parts.length === 1) continue;
+    const folded = parts.map(foldPredicate);
+    const absorbing = operator === "or";
+    if (folded.some((part) => part === absorbing)) return absorbing;
+    const remaining = folded.filter(
+      (part): part is AgentSqlToken[][] => typeof part !== "boolean",
+    );
+    if (remaining.length === 0) return !absorbing;
+    if (operator === "and") return remaining.flat();
+    return remaining.length === 1 ? remaining[0] : [tokens];
+  }
+  if (tokens.length === 1 && tokens[0].kind === "word") {
+    if (tokens[0].value === "true") return true;
+    if (tokens[0].value === "false") return false;
+  }
+  const left = plainStringLiteral(tokens[0]);
+  if (left === null) return [tokens];
+  if (tokens.length === 3 && tokens[1].text === "=") {
+    const right = plainStringLiteral(tokens[2]);
+    if (right !== null) return left === right;
+  }
+  if (
+    tokens[1]?.kind === "word" &&
+    tokens[1].value === "in" &&
+    tokens[2]?.text === "(" &&
+    tokens[tokens.length - 1]?.text === ")"
+  ) {
+    const values = tokens.slice(3, -1);
+    if (
+      values.length > 0 &&
+      values.every((token, index) =>
+        index % 2 === 0
+          ? plainStringLiteral(token) !== null
+          : token.text === ",",
+      ) &&
+      values.length % 2 === 1
+    ) {
+      return values.some(
+        (token, index) => index % 2 === 0 && plainStringLiteral(token) === left,
+      );
+    }
+  }
+  return [tokens];
+}
+
+function safePredicate(tokens: AgentSqlToken[], alias: string): string | null {
+  tokens = unwrapPredicate(tokens);
   let offset = 0;
   if (tokens[1]?.text === ".") {
     if (tokens[0].value.toLowerCase() !== alias.toLowerCase()) return null;
@@ -193,8 +286,7 @@ export function firstPartyEventPushdownPredicates(
     return [];
   const sourceAlias = alias?.value;
   if (!sourceAlias) return [];
-  const predicates: AgentSqlToken[][] = [[]];
-  let between = false;
+  const predicate: AgentSqlToken[] = [];
   for (let index = where + 1; index < tokens.length; index++) {
     const token = tokens[index];
     if (
@@ -215,31 +307,11 @@ export function firstPartyEventPushdownPredicates(
         ].includes(token.value))
     )
       break;
-    if (
-      depths[index] === depth &&
-      token.kind === "word" &&
-      token.value === "or"
-    )
-      return [];
-    if (
-      depths[index] === depth &&
-      token.kind === "word" &&
-      token.value === "between"
-    )
-      between = true;
-    if (
-      depths[index] === depth &&
-      token.kind === "word" &&
-      token.value === "and"
-    ) {
-      if (between) between = false;
-      else {
-        predicates.push([]);
-        continue;
-      }
-    }
-    predicates[predicates.length - 1].push(token);
+    predicate.push(token);
   }
+  // Fold only the copied predicate; the original WHERE remains authoritative.
+  const predicates = foldPredicate(predicate);
+  if (typeof predicates === "boolean") return [];
   return predicates.flatMap((predicate) => {
     const safe = safePredicate(predicate, sourceAlias);
     return safe === null ? [] : [safe];

@@ -114,6 +114,42 @@ describe("resolveOverviewScreenSourceType", () => {
       }),
     ).toBe("inline");
   });
+
+  it("keeps an unannotated markup screen inline in a localhost design", () => {
+    expect(
+      resolveOverviewScreenSourceType(
+        { content: "<main>Inline design</main>" },
+        "localhost",
+      ),
+    ).toBe("inline");
+  });
+
+  it("uses the localhost fallback for an unannotated empty screen", () => {
+    expect(resolveOverviewScreenSourceType({ content: "" }, "localhost")).toBe(
+      "localhost",
+    );
+  });
+
+  it("keeps an unannotated URL screen on the localhost fallback", () => {
+    expect(
+      resolveOverviewScreenSourceType(
+        { content: " https://127.0.0.1:3000/ " },
+        "localhost",
+      ),
+    ).toBe("localhost");
+  });
+
+  it("preserves URL metadata when content contains inline markup", () => {
+    expect(
+      resolveOverviewScreenSourceType(
+        {
+          url: "http://127.0.0.1:3000/",
+          content: "<main>Preview</main>",
+        },
+        "localhost",
+      ),
+    ).toBe("localhost");
+  });
 });
 
 describe("relative selected-screen style intent", () => {

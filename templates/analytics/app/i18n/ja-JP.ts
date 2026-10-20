@@ -110,64 +110,20 @@ export default {
     sigmaRetryConnection: "接続を確認して、もう一度お試しください。",
     sigmaRetry: "再試行",
     sigmaNoWorkbooks: "利用できる Sigma ワークブックはありません。",
-    sigmaWorkbook: "ワークブック",
-    sigmaChooseWorkbook: "ワークブックを選択",
-    sigmaStatusNotImported: "未インポート",
-    sigmaStatusImporting: "インポート中",
-    sigmaStatusImported: "インポート済み",
-    sigmaStatusFailed: "インポートに失敗しました",
+    sigmaSearchWorkbooks: "ワークブックを検索…",
+    sigmaNoMatchingWorkbooks: "一致するワークブックはありません",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "一致するワークブックはまだ読み込まれていません。残りを検索するには、さらにワークブックを読み込んでください。",
+    sigmaOpenMigratedDashboard:
+      "インポートしたダッシュボードを新しいタブで開く",
+    sigmaOwnedBy: "所有者",
+    sigmaMigratingTooltip: "{{name}} さんが移行中",
+    sigmaMigrate: "移行",
+    sigmaMigrateComingSoon: "近日公開",
     sigmaArchived: "アーカイブ済み",
-    sigmaPreviewTitle: "ワークブックの内容",
-    sigmaPreviewFailed: "このワークブックをプレビューできませんでした",
-    sigmaRetryPreview: "ワークブックのプレビューを再読み込みしてください。",
-    sigmaImportableCount: "インポート可能 {{count}} 件",
-    sigmaUnsupportedCount: "未対応 {{count}} 件",
-    sigmaImportable: "インポート可能",
-    sigmaUnsupported: "未対応",
-    sigmaNoElements: "ワークブックに要素が見つかりませんでした。",
-    sigmaPreviewOnly:
-      "現在はプレビューのみです。Sigma は Analytics が検証できる BigQuery プロジェクトの対応関係を公開していないため、その情報が利用可能になるまでインポートは無効です。",
-    sigmaPreviewTruncated: "{{total}} 件中 {{shown}} 件を表示しています。",
-    sigmaImportWorkbook: "ワークブックをインポート",
-    sigmaImporting: "ワークブックをインポート中…",
-    sigmaImportInProgress: "このワークブックはすでにインポート中です。",
-    sigmaMigrationFailed:
-      "ワークブックをインポートできませんでした。もう一度お試しください。",
-    sigmaMigrationResultInvalid:
-      "インポートの応答が不完全でした。状態を確認するため、ワークブック一覧を再読み込みしてください。",
-    sigmaImportComplete: "ダッシュボードを作成しました",
-    sigmaImportSummary:
-      "{{imported}} 件をインポートしました。未対応の {{unsupported}} 件は確認用の注意パネルとして残しました。",
-    sigmaAlreadyImported: "このワークブックはすでにインポートされています。",
-    sigmaImportedNoDashboard:
-      "ダッシュボードはインポートされましたが、このアカウントからは開けません。",
-    sigmaReviewRequiredCount: "{{count}} 件の確認が必要",
-    sigmaBetaRepresentationWarning:
-      "ベータ版のインポートでは、一部の可視化が Sigma と異なる表示になる場合があります。",
-    sigmaReasonUnsupportedElement:
-      "この要素タイプはインポートに対応していません。",
-    sigmaReasonUnsupportedSource:
-      "この要素のソースはインポートに対応していません。",
-    sigmaReasonSourceMappingRequired:
-      "Sigma は Analytics が検証できる BigQuery プロジェクトの対応情報を提供していないため、この SQL はまだインポートできません。",
-    sigmaReasonSourceUnavailable:
-      "Sigma がこのソース接続へのアクセスを許可しませんでした。権限を確認してください。",
-    sigmaReasonQueryUnavailable:
-      "この要素のインポート可能なクエリが Sigma から返されませんでした。",
-    sigmaReasonUnsafeSql: "このクエリ形式は安全にインポートできません。",
-    sigmaReasonVisualizationReview:
-      "データはインポートできますが、インポート後に可視化を確認してください。",
-    sigmaRetryOwnerOnly: "このインポートを開始したユーザーのみ再試行できます。",
-    sigmaImportedByTeammate: "チームメンバーがインポート済み",
-    sigmaFlaggedCount: "{{count}} 件を要確認としてマーク",
     sigmaMoreWorkbooksFailed: "追加のワークブックを読み込めませんでした",
     sigmaLoadingMore: "ワークブックを読み込み中…",
     sigmaLoadMore: "ワークブックをさらに読み込む",
-    sigmaOpenDashboard: "ダッシュボードを開く",
-    sigmaReviewWithAgent: "エージェントとレビュー",
-    sigmaReviewContext: "インポートした Sigma ダッシュボード",
-    sigmaReviewPrompt:
-      "インポートした Sigma ダッシュボード {{name}} をレビューしてください。インポート済みのパネルと未対応の要素を確認し、修正案を提示してください。",
   },
   sidebar: {
     collapseSidebar: "サイドバーを折りたたむ",
@@ -645,6 +601,7 @@ export default {
     notConnected: "未接続",
     needsReauth: "再認証が必要",
     error: "エラー",
+    unknown: "不明",
     indexNotImported: "生成されたインデックスはまだインポートされていません。",
     indexUnreadable:
       "保存されたインデックスを読み取れません。有効なインデックスをアップロードしてください。",
@@ -732,6 +689,47 @@ export default {
     sameNameCheckFailed: "この指標の既存のエントリを確認できませんでした。",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "コンテンツビュー用の、ページごとの日次クリック数と表示回数。",
+      serviceAccount: "サービスアカウント",
+      copyEmail: "メールをコピー",
+      grantHint:
+        "Search Console の各プロパティで、[設定] → [ユーザーと権限] からこのメールをユーザーとして追加してください。",
+      noServiceAccount:
+        "先に Google サービスアカウントのキーを追加してください。",
+      openGoogleCloud: "Google Cloud を開く",
+      invalidServiceAccount:
+        "保存されたサービスアカウントのキーを読み取れません。",
+      properties: "プロパティ",
+      siteLabel: "プロパティ",
+      pathLabel: "パスのプレフィックス",
+      pathInvalid: "パスのプレフィックスは / で始めてください。",
+      addProperty: "プロパティを追加",
+      removeProperty: "プロパティを削除",
+      save: "保存",
+      collectDaily: "毎日収集",
+      adminOnly: "組織のオーナーと管理者だけが変更できます。",
+      statusCollecting: "収集中",
+      statusNeedsAccess: "アクセスが必要",
+      statusFailed: "前回の実行は失敗",
+      runSucceeded: "{{when}} に収集",
+      runNeedsAccess: "{{when}} 時点でアクセスなし",
+      runRunning: "{{when}} から収集中",
+      runFailed: "{{when}} に失敗",
+      unavailable: "収集状況を取得できません: {{message}}",
+      keyUnreadable:
+        "保存されたサービスアカウントのキーを読み取れませんでした。Google Cloud で保存し直してください。",
+      propertyBareDomain:
+        "ドメイン プロパティには {{suggestion}} を使用してください。",
+      propertyInvalidDomain:
+        "sc-domain: の後にはドメインだけを入力します（例: {{suggestion}}）。",
+      propertyMissingSlash:
+        "URL プレフィックス プロパティは / で終わります。{{suggestion}} を使用してください。",
+      propertyUnrecognized:
+        "sc-domain:example.com、または / で終わる URL プレフィックス プロパティを使用してください。",
+    },
     uploadFile: "ファイルをアップロードする",
     googleSheetsExport: "Google スプレッドシートへのエクスポート",
     googleSheetsExportDescription:
@@ -830,6 +828,7 @@ export default {
     bigQueryHealthUnavailable:
       "ファーストパーティ Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
     analyticsEventCount: "観測イベント",
+    analyticsRecentEventCount: "観測イベント（過去30日間）",
     slowQueries24h: "遅いクエリ（24 時間）",
     maxQueryDuration: "最大クエリ時間",
     defaultKeyName: "ホストされたテンプレート",
@@ -1231,6 +1230,8 @@ export default {
     addEventToSeeResults: "イベントを追加し、選択して結果を確認します",
     queryError: "Query error: {{message}}",
     noDataReturned: "データが返されませんでした",
+    incompleteResultsWarning:
+      "この結果は不完全な可能性があります。行やソースデータの欠落により合計値が変わる場合があります。",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "フィルター条件",
     pickPropertyToFilter: "フィルタリングするプロパティを選択してください",
@@ -1313,6 +1314,13 @@ export default {
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",
     saveFailed: "ダッシュボードを保存できませんでした",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "「{{title}}」の BigQuery コスト",
+    panelCostOverTitle: "「{{title}}」は更新コストが高いです",
+    panelCostScheduled:
+      "約 {{size}} をスキャン · 更新 1 回あたり {{perRun}} · メールレポートで月約 {{perMonth}}",
+    panelCostUnscheduled:
+      "約 {{size}} をスキャン · 更新 1 回あたり {{perRun}} · メールレポートなし",
+    panelCostOverHint: "期間を短くするか列を減らすと、スキャン量が減ります。",
     archived: "「{{name}}」をアーカイブしました",
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "ダッシュボードをアーカイブできませんでした",
@@ -1321,6 +1329,10 @@ export default {
     dashboardActions: "ダッシュボードの詳細とアクション",
     certifyForAi: "AI クエリ用に認定",
     certifiedForAi: "AI クエリ用に認定済み",
+    duplicateToCustomize: "複製してカスタマイズ",
+    duplicateToCustomizeHint:
+      "組み込みダッシュボードは Analytics のリリースごとに更新されます。変更するには自分用のコピーを作成してください。",
+    duplicateFailed: "このダッシュボードを複製できませんでした。",
     certificationSaved: "ダッシュボードを AI クエリ用に認定しました",
     certificationFailed: "ダッシュボードを認定できませんでした: {{message}}",
     details: "Details",
@@ -1448,6 +1460,23 @@ export default {
     columnShowHidden: "非表示の列を表示",
     columnName: "列名",
     columnResize: "列の幅を変更",
+    rowBreakdownBy: "内訳の基準",
+    rowBreakdownAll: "すべて",
+    rowBreakdownOther: "その他",
+    rowBreakdownOtherHint: "小さなグループと、このパネルの SQL が除外する人",
+    rowBreakdownSmallGroup: "{{count}} 未満：率の解釈に注意してください",
+    rowBreakdownNoValue: "(なし)",
+    rowBreakdownEmpty: "この内訳には行がありません。",
+    rowBreakdownUnavailable:
+      "このパネルの SQL には {{column}} の内訳がありません。",
+    rowBreakdownFromPanel: "このパネルの行から表示。読み取りはありません。",
+    rowBreakdownFromCache: "キャッシュから表示。読み取りはありません。",
+    rowBreakdownAlreadyLoaded: "読み込み済み。読み取りはありません。",
+    rowBreakdownBytesRead: "{{bytes}} を読み取りました",
+    rowBreakdownOverByteCap:
+      "この内訳は {{gib}} GiB を超えて読み込むため、実行しませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
+    rowBreakdownTruncated:
+      "結果が途中で切れたため、一部のグループが表示されていないか「その他」に含まれています。",
     deleteSectionTitle: "セクションを削除しますか?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "パネルを削除しますか?",
@@ -2141,10 +2170,6 @@ export default {
     noMatches: "検索に一致する定義はありません。",
     searchPlaceholder: "定義を検索",
     sourceIndex: "ソースインデックス",
-    statusApproved: "承認済み",
-    statusSuggested: "提案",
-    statusUnreviewed: "未確認",
-    unsourced: "ソースなし",
   },
   indexPanel: {
     presetDaily: "毎日 06:00",

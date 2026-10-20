@@ -25,8 +25,8 @@ const instance: MotionNativeStyleInstance = {
   },
 };
 
-describe("native Figma Motion style instances", () => {
-  it("round-trips the native discriminator, raw IDs, timing, target, and unknown props", () => {
+describe("imported Motion style instances", () => {
+  it("round-trips the source discriminator, raw IDs, timing, target, and unknown props", () => {
     const json = JSON.stringify(instance);
     const parsed: unknown = JSON.parse(json);
 

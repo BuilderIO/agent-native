@@ -42,6 +42,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestContext.mockReturnValue({
     requestOrigin: "https://clips.example",
+    authUserId: "user-1",
   });
   mocks.createRecordingRun.mockResolvedValue({
     id: "rec-1",
@@ -80,6 +81,7 @@ describe("create-recording-upload", () => {
         title: "PR 7419 chart fixes",
         visibility: "private",
         mimeType: "video/mp4",
+        sizeBytes: 7 * MIB,
         width: 1920,
         height: 1080,
         hasAudio: true,
@@ -92,6 +94,7 @@ describe("create-recording-upload", () => {
     expect(mocks.createRecordingUploadTicket).toHaveBeenCalledWith(
       "owner@example.com",
       "rec-1",
+      "user-1",
     );
     expect(
       mocks.createRecordingUploadTicket.mock.invocationCallOrder[0],

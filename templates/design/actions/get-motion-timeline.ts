@@ -967,12 +967,20 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    const sourceType = designSourceTypeFromData(design.data);
+    const designSourceType = designSourceTypeFromData(design.data);
+    const usesLocalScreenSource =
+      designSourceType === "localhost" &&
+      (!managedSourceRef || screenIsLocalhost(design.data, managedSourceRef));
+    const sourceType =
+      designSourceType === "localhost" &&
+      managedSourceRef &&
+      !usesLocalScreenSource
+        ? "inline"
+        : designSourceType;
     const useLocalSource =
-      Boolean(timelines[0]?.filePath) ||
-      (sourceType === "localhost" &&
-        (!managedSourceRef ||
-          screenIsLocalhost(design.data, managedSourceRef)));
+      designSourceType === "localhost"
+        ? usesLocalScreenSource
+        : Boolean(timelines[0]?.filePath);
     let sourceReadCapability: MotionSourceReadCapability | null = null;
     type InlineManagedSourceRead =
       | { kind: "readable"; managedCss: ManagedCssSource | null }
@@ -984,6 +992,14 @@ export default defineAction({
       string,
       Promise<InlineManagedSourceRead>
     >();
+    const inlineTimelines =
+      designSourceType === "localhost"
+        ? timelines.filter(
+            (timeline) =>
+              timeline.sourceRef !== null &&
+              !screenIsLocalhost(design.data, timeline.sourceRef),
+          )
+        : timelines;
     const readInlineManagedSource = (inlineSourceRef: string) => {
       let result = inlineManagedSourceCache.get(inlineSourceRef);
       if (!result) {
@@ -1058,8 +1074,11 @@ export default defineAction({
         });
       }
     }
-    if (sourceType === "inline" && !useLocalSource) {
-      for (const timeline of timelines) {
+    if (
+      (sourceType === "inline" && !useLocalSource) ||
+      (designSourceType === "localhost" && inlineTimelines.length > 0)
+    ) {
+      for (const timeline of inlineTimelines) {
         const sourceRead = timeline.sourceRef
           ? await readInlineManagedSource(timeline.sourceRef)
           : null;
