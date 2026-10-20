@@ -1,6 +1,6 @@
 // What an open editor publishes in its collaboration awareness state about its
-// own edits. The server reads it before asking the editor to save: an editor
-// whose last acknowledged save is already in SQL has nothing to flush.
+// own edits. Persisted awareness is a save hint; only a fresh per-client
+// challenge can establish that no newer local input is waiting to save.
 export type EditorSaveState =
   | {
       unsavedEdits: true;

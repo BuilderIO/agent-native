@@ -49,7 +49,7 @@ describe("get-blocks-field-word-count action", () => {
       },
     });
     mocks.resolveDatabase.mockResolvedValue({ id: "database-1" });
-    mocks.flush.mockResolvedValue(undefined);
+    mocks.flush.mockResolvedValue({ status: "no_open_editor" });
   });
 
   it("fails closed when a database primary field becomes hidden during flush", async () => {
@@ -63,6 +63,45 @@ describe("get-blocks-field-word-count action", () => {
     expect(mocks.flush).toHaveBeenCalledWith({
       documentId: "doc-1",
       ownerEmail: "owner@example.com",
+    });
+  });
+  it("counts the captured exact additional field rather than a later field or primary body", async () => {
+    const additional = (value: string) => ({
+      definition: {
+        id: "notes",
+        name: "Notes",
+        type: "blocks",
+        visibility: "always_show",
+        options: { blocks: { primary: false } },
+      },
+      value,
+    });
+    mocks.listProperties.mockResolvedValue([
+      primary("wrong primary body"),
+      additional("later extra words must not replace capture"),
+    ]);
+    mocks.flush.mockResolvedValue({
+      status: "flushed",
+      editors: [],
+      snapshot: {
+        kind: "property",
+        propertyId: "notes",
+        content: "Captured field",
+        title: "Page",
+        updatedAt: "2026-10-19T12:00:00Z",
+        contentHash: "hash",
+      },
+    });
+    expect(
+      await getBlocksFieldWordCount.run({
+        documentId: "doc-1",
+        propertyId: "notes",
+      }),
+    ).toMatchObject({ propertyId: "notes", primary: false, wordCount: 2 });
+    expect(mocks.flush).toHaveBeenCalledWith({
+      documentId: "doc-1",
+      ownerEmail: "owner@example.com",
+      propertyId: "notes",
     });
   });
 });

@@ -1733,6 +1733,7 @@ export function resolveVisualEditorSelection(
 
 export interface VisualEditorPersistenceController {
   flushLatest: () => Promise<boolean>;
+  readonly version: object;
 }
 
 export function shouldFlushVisualEditorDraft({
@@ -3397,6 +3398,9 @@ export function VisualEditor({
 
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
   const draftEmissionGenerationRef = useRef(0);
+  // Parent draft emissions are deferred; verification must see document changes synchronously.
+  const documentVersionRef = useRef<object>({});
+  const observedDocumentRef = useRef<ProseMirrorNode | null>(null);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
@@ -3666,6 +3670,10 @@ export function VisualEditor({
     },
     editable,
     onTransaction: ({ editor }) => {
+      if (observedDocumentRef.current !== editor.state.doc) {
+        observedDocumentRef.current = editor.state.doc;
+        documentVersionRef.current = {};
+      }
       notifyHistoryStateChange({
         canUndo: editor.can().undo(),
         canRedo: editor.can().redo(),
@@ -3778,7 +3786,14 @@ export function VisualEditor({
       onPersistenceControllerChange?.(null);
       return;
     }
+    if (observedDocumentRef.current !== editor.state.doc) {
+      observedDocumentRef.current = editor.state.doc;
+      documentVersionRef.current = {};
+    }
     onPersistenceControllerChange?.({
+      get version() {
+        return documentVersionRef.current;
+      },
       flushLatest: async () => {
         if (
           !shouldFlushVisualEditorDraft({

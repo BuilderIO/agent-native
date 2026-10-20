@@ -63,7 +63,9 @@ export default defineAction({
     ) {
       throw new Error(`Document "${id}" not found`);
     }
-    const doc = fresh.resource;
+    const snapshot =
+      editorFlush.status === "flushed" ? editorFlush.snapshot : undefined;
+    const doc = snapshot ? { ...fresh.resource, ...snapshot } : fresh.resource;
     const markdown = (doc.content as string) ?? "";
     const content = formatDocumentContent(markdown, format);
 
@@ -73,7 +75,10 @@ export default defineAction({
       description: (doc.description as string | null | undefined) ?? "",
       content,
       format,
-      editorFlush,
+      editorFlush:
+        editorFlush.status === "flushed"
+          ? { status: editorFlush.status, editors: editorFlush.editors }
+          : editorFlush,
       deepLink: buildDeepLink({
         app: "content",
         view: "editor",

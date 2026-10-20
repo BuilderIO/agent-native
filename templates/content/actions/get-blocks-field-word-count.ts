@@ -42,7 +42,7 @@ export default defineAction({
       requireValueVisibility: false,
     });
 
-    await flushOpenDocumentEditorToSql({
+    const editorFlush = await flushOpenDocumentEditorToSql({
       documentId,
       ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
       ...(selected && !selected.primary
@@ -50,6 +50,8 @@ export default defineAction({
         : {}),
     });
 
+    const snapshot =
+      editorFlush.status === "flushed" ? editorFlush.snapshot : undefined;
     const fresh = await resolveReadableDocument(documentId);
     const freshContext = await readableFieldContext(fresh.resource);
     const freshSelected = selectReadableBlocksField(
@@ -66,7 +68,10 @@ export default defineAction({
         propertyId: null,
         name: DEFAULT_BLOCKS_FIELD_NAME,
         primary: true,
-        content: (fresh.resource.content as string | null | undefined) ?? "",
+        content:
+          snapshot?.content ??
+          (fresh.resource.content as string | null | undefined) ??
+          "",
       });
     }
 
@@ -77,9 +82,11 @@ export default defineAction({
         : freshSelected.property.definition.id,
       name: freshSelected.property.definition.name,
       primary: freshSelected.primary,
-      content: freshSelected.primary
-        ? ((fresh.resource.content as string | null | undefined) ?? "")
-        : (freshSelected.property.value as string),
+      content:
+        snapshot?.content ??
+        (freshSelected.primary
+          ? ((fresh.resource.content as string | null | undefined) ?? "")
+          : (freshSelected.property.value as string)),
     });
   },
   link: ({ result }) => {
