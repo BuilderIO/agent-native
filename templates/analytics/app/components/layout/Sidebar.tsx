@@ -2450,7 +2450,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             collapsed={true}
           />
           <nav className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 py-3">
-            <div className="my-auto flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-3">
               {collapsedNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
