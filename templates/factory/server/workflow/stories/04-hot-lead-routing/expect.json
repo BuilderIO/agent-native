@@ -1,0 +1,1210 @@
+{
+  "owner-replies-in-the-thread-and-nothing-escalates": {
+    "ticks": [
+      {
+        "label": "the lead arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } },
+          "score": { "in": 1, "ports": { "out": 1 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": { "in": 1, "ports": { "route:hot": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "score", "mode": "perItem", "items": ["lead-hot"] },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "nobody has answered yet",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the owner's reply is seen",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "replied": 1 } },
+          "done": { "in": 1, "ports": {} }
+        },
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "resolved" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:replied",
+        "ended@done:done"
+      ]
+    }
+  },
+  "the-ack-reaction-counts-as-an-answer": {
+    "ticks": [
+      {
+        "label": "the lead arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } },
+          "score": { "in": 1, "ports": { "out": 1 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": { "in": 1, "ports": { "route:hot": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "score", "mode": "perItem", "items": ["lead-hot"] },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "the reaction is seen",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "replied": 1 } },
+          "done": { "in": 1, "ports": {} }
+        },
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "resolved" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:replied",
+        "ended@done:done"
+      ]
+    }
+  },
+  "a-late-tick-still-counts-an-answer-given-in-time": {
+    "ticks": [
+      {
+        "label": "the lead arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } },
+          "score": { "in": 1, "ports": { "out": 1 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": { "in": 1, "ports": { "route:hot": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "score", "mode": "perItem", "items": ["lead-hot"] },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "a late look, past the two hours",
+        "at": "2026-10-19T14:10:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "replied": 1 } },
+          "done": { "in": 1, "ports": {} }
+        },
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "resolved" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:replied",
+        "ended@done:done"
+      ]
+    }
+  },
+  "nobody-answers-so-the-manager-is-told-and-then-the-sales-channel": {
+    "ticks": [
+      {
+        "label": "the lead arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } },
+          "score": { "in": 1, "ports": { "out": 1 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": { "in": 1, "ports": { "route:hot": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "score", "mode": "perItem", "items": ["lead-hot"] },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "still waiting",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "two hours: the manager is told",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "modelCalls": 1, "parked": 1, "woke": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "timedOut": 1 } },
+          "ack2": { "in": 1, "ports": { "parked": 1 } },
+          "mgrEmail": { "in": 1, "ports": { "out": 1 } },
+          "mgrSlack": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "mgrSlack",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "manager@example.test",
+              "text": "pat@prospect.example.test was not acknowledged in 2 hours."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0MANAGER/p1760001000000002"
+            }
+          },
+          {
+            "node": "mgrEmail",
+            "item": "lead-hot",
+            "operation": "email.send",
+            "fields": {
+              "to": "manager@example.test",
+              "subject": "Hot lead not acknowledged: pat@prospect.example.test",
+              "body": "The hot lead pat@prospect.example.test was assigned to Riley two hours ago and nobody has acknowledged it. A HubSpot task exists and the owner was messaged in Slack."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [{ "node": "mgrEmail", "mode": "perItem", "items": ["lead-hot"] }]
+      },
+      {
+        "label": "the manager's wait is checked",
+        "at": "2026-10-19T14:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "four hours: the sales channel is told",
+        "at": "2026-10-19T16:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "woke": 1 }
+        },
+        "nodes": {
+          "ack2": { "in": 0, "ports": { "timedOut": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "salesChannel": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "hubspot.newLeads": 1, "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "salesChannel",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0SALES",
+              "text": "Nobody picked up pat@prospect.example.test."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000003",
+              "url": "https://slack.example.test/archives/C0SALES/p1760001000000003"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "needs_manual" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:timedOut",
+        "effect@mgrSlack",
+        "effect@mgrEmail",
+        "parked@ack2",
+        "woke@ack2:timedOut",
+        "effect@salesChannel",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "the-manager-answers-the-second-wait": {
+    "ticks": [
+      {
+        "label": "the lead arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } },
+          "score": { "in": 1, "ports": { "out": 1 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": { "in": 1, "ports": { "route:hot": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "score", "mode": "perItem", "items": ["lead-hot"] },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "the manager is told",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "modelCalls": 1, "parked": 1, "woke": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "timedOut": 1 } },
+          "ack2": { "in": 1, "ports": { "parked": 1 } },
+          "mgrEmail": { "in": 1, "ports": { "out": 1 } },
+          "mgrSlack": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "mgrSlack",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "manager@example.test",
+              "text": "pat@prospect.example.test was not acknowledged in 2 hours."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0MANAGER/p1760001000000002"
+            }
+          },
+          {
+            "node": "mgrEmail",
+            "item": "lead-hot",
+            "operation": "email.send",
+            "fields": {
+              "to": "manager@example.test",
+              "subject": "Hot lead not acknowledged: pat@prospect.example.test",
+              "body": "The hot lead pat@prospect.example.test was assigned to Riley two hours ago and nobody has acknowledged it. A HubSpot task exists and the owner was messaged in Slack."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [{ "node": "mgrEmail", "mode": "perItem", "items": ["lead-hot"] }]
+      },
+      {
+        "label": "the manager's reply is seen",
+        "at": "2026-10-19T14:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "ack2": { "in": 0, "ports": { "replied": 1 } },
+          "done": { "in": 1, "ports": {} }
+        },
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "resolved" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:timedOut",
+        "effect@mgrSlack",
+        "effect@mgrEmail",
+        "parked@ack2",
+        "woke@ack2:replied",
+        "ended@done:done"
+      ]
+    }
+  },
+  "strangers-and-bots-do-not-count-as-an-answer": {
+    "ticks": [
+      {
+        "label": "the lead arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } },
+          "score": { "in": 1, "ports": { "out": 1 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": { "in": 1, "ports": { "route:hot": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "score", "mode": "perItem", "items": ["lead-hot"] },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "only a stranger and a bot have written",
+        "at": "2026-10-19T12:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "two hours: the manager is told",
+        "at": "2026-10-19T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "modelCalls": 1, "parked": 1, "woke": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "timedOut": 1 } },
+          "ack2": { "in": 1, "ports": { "parked": 1 } },
+          "mgrEmail": { "in": 1, "ports": { "out": 1 } },
+          "mgrSlack": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "slack.postMessage": 1,
+          "email.send": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "mgrSlack",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "manager@example.test",
+              "text": "pat@prospect.example.test was not acknowledged in 2 hours."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/D0MANAGER/p1760001000000002"
+            }
+          },
+          {
+            "node": "mgrEmail",
+            "item": "lead-hot",
+            "operation": "email.send",
+            "fields": {
+              "to": "manager@example.test",
+              "subject": "Hot lead not acknowledged: pat@prospect.example.test",
+              "body": "The hot lead pat@prospect.example.test was assigned to Riley two hours ago and nobody has acknowledged it. A HubSpot task exists and the owner was messaged in Slack."
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          }
+        ],
+        "ai": [{ "node": "mgrEmail", "mode": "perItem", "items": ["lead-hot"] }]
+      },
+      {
+        "label": "still only a stranger",
+        "at": "2026-10-19T14:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "four hours: the sales channel is told",
+        "at": "2026-10-19T16:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "woke": 1 }
+        },
+        "nodes": {
+          "ack2": { "in": 0, "ports": { "timedOut": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "salesChannel": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "hubspot.newLeads": 1, "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "salesChannel",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0SALES",
+              "text": "Nobody picked up pat@prospect.example.test."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000003",
+              "url": "https://slack.example.test/archives/C0SALES/p1760001000000003"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "needs_manual" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:timedOut",
+        "effect@mgrSlack",
+        "effect@mgrEmail",
+        "parked@ack2",
+        "woke@ack2:timedOut",
+        "effect@salesChannel",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "three-leads-take-three-routes": {
+    "ticks": [
+      {
+        "label": "three new leads",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 3,
+            "done": 1,
+            "dismissed": 1,
+            "modelCalls": 2,
+            "parked": 1
+          }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "dismissed": { "in": 1, "ports": {} },
+          "done": { "in": 1, "ports": {} },
+          "enrich": { "in": 3, "ports": { "out": 3 } },
+          "leads": { "in": 0, "ports": { "out": 3 } },
+          "nurture": { "in": 1, "ports": { "out": 1 } },
+          "owner": { "in": 3, "ports": { "out": 3 } },
+          "ownerRecord": { "in": 3, "ports": { "out": 3 } },
+          "score": { "in": 3, "ports": { "out": 3 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": {
+            "in": 3,
+            "ports": { "route:hot": 1, "route:warm": 1, "otherwise": 1 }
+          }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 3,
+          "hubspot.ownerById": 3,
+          "slack.findUserByEmail": 3,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1,
+          "hubspot.addToList": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          },
+          {
+            "node": "nurture",
+            "item": "lead-warm",
+            "operation": "hubspot.addToList",
+            "fields": { "listId": "list-1", "leadId": "lead-warm" },
+            "receipt": { "status": "done", "externalRef": "lead-warm" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "score",
+            "mode": "perItem",
+            "items": ["lead-hot", "lead-warm", "lead-cold"]
+          },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "the owner answers",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "replied": 1 } },
+          "done": { "in": 1, "ports": {} }
+        },
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {
+      "lead-warm": "resolved",
+      "lead-cold": "dismissed",
+      "lead-hot": "resolved"
+    },
+    "cursors": { "leads": "1003" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:replied",
+        "ended@done:done"
+      ],
+      "lead-warm": [
+        "decision@tier:route:warm",
+        "effect@nurture",
+        "ended@done:done"
+      ],
+      "lead-cold": ["decision@tier:otherwise", "ended@dismissed:dismissed"]
+    }
+  },
+  "a-lead-offered-again-is-not-processed-twice": {
+    "ticks": [
+      {
+        "label": "the lead arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ack1": { "in": 1, "ports": { "parked": 1 } },
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": { "in": 1, "ports": { "out": 1 } },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } },
+          "score": { "in": 1, "ports": { "out": 1 } },
+          "task": { "in": 1, "ports": { "out": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "tier": { "in": 1, "ports": { "route:hot": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1,
+          "hubspot.createTask": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "task",
+            "item": "lead-hot",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "ownerId": "owner-1",
+              "contactId": "lead-hot",
+              "title": "Follow up: pat@prospect.example.test",
+              "due": "today"
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "lead-hot",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "U0OWNER",
+              "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0OWNER/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "score", "mode": "perItem", "items": ["lead-hot"] },
+          { "node": "tellOwner", "mode": "perItem", "items": ["lead-hot"] }
+        ]
+      },
+      {
+        "label": "offered again while it waits",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the reply is seen; offered again in the same run",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "woke": 1 } },
+        "nodes": {
+          "ack1": { "in": 0, "ports": { "replied": 1 } },
+          "done": { "in": 1, "ports": {} }
+        },
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "offered again after it ended",
+        "at": "2026-10-19T12:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "past the two hours the owner would have been escalated",
+        "at": "2026-10-19T14:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "resolved" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "decision@tier:route:hot",
+        "effect@task",
+        "effect@tellOwner",
+        "parked@ack1",
+        "woke@ack1:replied",
+        "ended@done:done"
+      ]
+    }
+  },
+  "a-failed-slack-lookup-is-a-failure-and-not-no-owner": {
+    "ticks": [
+      {
+        "label": "the lookup fails, a person is told",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "needsManual": 1, "itemFailures": 1 }
+        },
+        "nodes": {
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 1
+        },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "offered again, not tried again",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "offered again, still not tried again",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "hubspot.newLeads": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "needs_manual" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": ["error@owner:provider_error", "ended@owner:needsManual"]
+    }
+  },
+  "a-failed-lead-behind-a-cursor-is-retried-and-then-handed-to-a-person": {
+    "ticks": [
+      {
+        "label": "the first try fails",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "itemFailures": 1, "retryParked": 1 }
+        },
+        "nodes": {
+          "enrich": { "in": 1, "ports": { "out": 1 } },
+          "leads": { "in": 0, "ports": { "out": 1 } },
+          "owner": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "ownerRecord": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "hubspot.newLeads": 1,
+          "hubspot.companyActivity": 1,
+          "hubspot.ownerById": 1,
+          "slack.findUserByEmail": 3
+        },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the second try",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "retryParked": 1, "retried": 1 }
+        },
+        "nodes": {
+          "owner": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "hubspot.newLeads": 1, "slack.findUserByEmail": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the third try",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "itemFailures": 1, "retried": 1 }
+        },
+        "nodes": {
+          "owner": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "hubspot.newLeads": 1, "slack.findUserByEmail": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "lead-hot": "needs_manual" },
+    "cursors": { "leads": "1001" },
+    "journeys": {
+      "lead-hot": [
+        "error@owner:provider_error",
+        "parked@owner",
+        "woke@owner:?",
+        "error@owner:provider_error",
+        "parked@owner",
+        "woke@owner:?",
+        "error@owner:provider_error",
+        "ended@owner:needsManual"
+      ]
+    }
+  }
+}

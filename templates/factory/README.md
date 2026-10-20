@@ -11,12 +11,12 @@ PRD -> design -> engineering -> release.
 - Polls a configured Slack channel and records new messages with thread and
   coverage metadata.
 - Ingests read-only pull-request evidence from GitHub.
-- Evaluates editable prompt rules with hard structured guards and stores every
-  decision append-only.
-- Lets a human correct a decision or tune a rule from the Factory UI or the
-  generic Agent-Native Slack bot.
-- Starts clear-bug work in Slack feedback threads and sends grouped GitHub issue
-  or Sentry findings to `#qa-agent-native`.
+- Stores every dispatch and pull-request decision append-only, behind hard
+  structured guards.
+- Lets a human correct a decision from the Factory UI or the generic
+  Agent-Native Slack bot.
+- Hands clear Slack bugs to Builder through a workflow whose Builder step
+  enforces the dispatch gate in code.
 - Surfaces incomplete evidence and timeouts as explicit states rather than
   plausible success.
 
@@ -59,7 +59,7 @@ installation tokens server-side. Do not send a static token or private key to
 developers. During migration, an existing `GITHUB_TOKEN` remains supported
 when no App keys are configured.
 
-For Factory pull-request polling and babysitting, scope a fine-grained token to
+For Factory pull-request polling, scope a fine-grained token to
 the target repository and grant these repository permissions:
 
 - `Pull requests: Read` for pull requests, reviews, comments, and changed files.
@@ -80,7 +80,7 @@ coverage is required.
 
 Factory's observer keeps **per-factory** source metadata — Slack channel,
 repository, Sentry project, and related polling settings — for its normalized
-queue adapters. Each factory has its own inbox, rules, automations, and activity.
+queue adapters. Each factory has its own inbox, automations, and activity.
 Reusable agents and workspace credentials stay shared. Each factory's observation
 settings live on its Settings tab in the factory detail view. That metadata is
 not a credential or a per-factory
@@ -94,11 +94,10 @@ them through `provider-api-request`. Scheduled Factory runs also receive the
 workspace's connected MCP tools, subject to the same workspace and request
 scope gates. The three normalized pollers are compatibility adapters scoped by
 `factoryId`, not the agent's capability limit.
-GitHub and Sentry findings always go to `#qa-agent-native`; Slack source
-channels remain separate observation inputs.
+Slack source channels are observation inputs.
 
 The generic Slack bot is wired to Factory. Mention `@agent-native` in a feedback
-thread to inspect the linked item, explain its decision, or tune a rule. The
+thread to inspect the linked item or explain its decision. The
 bot replies with an inspectable Factory link when a human decision is required.
 
 ## Hosting
@@ -109,10 +108,6 @@ optional and is only needed when the deployment owner cannot reach the existing
 Dispatch vault organization through membership. Factory automations use
 workspace Slack and GitHub connections, or the org vault. They do not read Builder AI
 services credentials, so this template is not locked to that vendor API.
-Eligible Sentry findings and GitHub issue findings are grouped into one message
-per automation run in `#qa-agent-native`. The report keeps
-the original source link and bounded stored issue evidence; this automated
-finding path does not create or comment on GitHub issues.
 
 ## Agents and agentic apps
 
@@ -129,11 +124,6 @@ imports remain subject to Dispatch approval policy.
 The page uses the same two-column library treatment for mounted apps and
 reusable agents. Empty states keep creation actions in the content area, and
 agent-specific secondary actions live behind each row's overflow menu.
-
-When editing a factory flow, an agent step can bind to either a shared reusable
-agent or a ready mounted agentic app from the same workspace database. The map
-stores the selected target type and id, while the graph remains a reviewable
-blueprint and does not silently change runtime routing.
 
 Use **Build app** on an agent row when the agent needs a full workspace face.
 The handoff carries the profile and every pack resource id into app creation;

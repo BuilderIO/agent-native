@@ -1,0 +1,314 @@
+{
+  "nodes": [
+    {
+      "id": "every30",
+      "name": "every30",
+      "position": {
+        "x": 0,
+        "y": 48
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "30m"
+        }
+      }
+    },
+    {
+      "id": "calls",
+      "name": "calls",
+      "position": {
+        "x": 344,
+        "y": 48
+      },
+      "kind": "source",
+      "settings": {
+        "source": "window",
+        "operation": "gong.newCalls",
+        "args": {},
+        "maxItems": 50
+      }
+    },
+    {
+      "id": "external",
+      "name": "external",
+      "position": {
+        "x": 688,
+        "y": 20
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.extras.scope",
+            "op": "equals",
+            "right": "External"
+          }
+        ]
+      }
+    },
+    {
+      "id": "internalOnly",
+      "name": "internalOnly",
+      "position": {
+        "x": 1032,
+        "y": 0
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "dismissed",
+        "reason": "Internal-only call"
+      }
+    },
+    {
+      "id": "transcript",
+      "name": "transcript",
+      "position": {
+        "x": 1032,
+        "y": 96
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "gong.transcript",
+        "args": {
+          "callId": {
+            "mode": "path",
+            "path": "item.externalId"
+          }
+        }
+      }
+    },
+    {
+      "id": "extract",
+      "name": "extract",
+      "position": {
+        "x": 1376,
+        "y": 96
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Summarize the customer call from its transcript: a short summary, the action items, the risks, and the next step. Never copy transcript passages into any field. Use your own words: reuse no more than five consecutive transcript words and no quotation marks.",
+        "result": {
+          "summary": {
+            "type": "string"
+          },
+          "actionItems": {
+            "type": "array",
+            "description": "One object per action item with text (what to do), owner (who, as said on the call: a name or email, never an id) and due (when, as said on the call). An empty list when there are none."
+          },
+          "risks": {
+            "type": "array",
+            "description": "Short statements of what could stop the customer succeeding. An empty list when there are none."
+          },
+          "nextStep": {
+            "type": "string"
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10,
+        "inputBudgetTokens": 20000
+      }
+    },
+    {
+      "id": "post",
+      "name": "post",
+      "position": {
+        "x": 2064,
+        "y": 144
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.callsChannel"
+          },
+          "text": {
+            "mode": "ai",
+            "instruction": "Write a short Slack post from the extracted fields only (nodes.extract): the call title, the summary, the action items, the risks and the next step. Summaries only: never quote or paste anything from the transcript (nodes.transcript)."
+          }
+        }
+      }
+    },
+    {
+      "id": "splitItems",
+      "name": "splitItems",
+      "position": {
+        "x": 1720,
+        "y": 48
+      },
+      "kind": "split",
+      "settings": {
+        "field": "nodes.extract.actionItems"
+      }
+    },
+    {
+      "id": "task",
+      "name": "task",
+      "position": {
+        "x": 2064,
+        "y": 48
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "hubspot.createTask",
+        "args": {
+          "title": {
+            "mode": "path",
+            "path": "item.text"
+          },
+          "body": {
+            "mode": "fixed",
+            "value": "Likely owner: {{ item.owner }}. Suggested due date: {{ item.due }}. From the call: {{ nodes.extract.summary }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 2408,
+        "y": 96
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "every30",
+        "port": "out"
+      },
+      "to": {
+        "node": "calls"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "calls",
+        "port": "out"
+      },
+      "to": {
+        "node": "external"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "external",
+        "port": "match"
+      },
+      "to": {
+        "node": "transcript"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "external",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "internalOnly"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "transcript",
+        "port": "out"
+      },
+      "to": {
+        "node": "extract"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "extract",
+        "port": "out"
+      },
+      "to": {
+        "node": "post"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "extract",
+        "port": "out"
+      },
+      "to": {
+        "node": "splitItems"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "post",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "splitItems",
+        "port": "out"
+      },
+      "to": {
+        "node": "task"
+      }
+    },
+    {
+      "id": "e10",
+      "from": {
+        "node": "task",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

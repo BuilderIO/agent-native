@@ -369,6 +369,41 @@ Send the digest.`);
     ).toBe(false);
   });
 
+  it("refuses an execution host on an automation that names a job runner", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(`---
+schedule: "0 9 * * *"
+timezone: UTC
+enabled: true
+triggerType: schedule
+mode: agentic
+runner: workflow
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+runAs: creator
+---
+
+Send the digest.`),
+    );
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          executionHostId: "remote-device-laptop",
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("cannot also target an execution host"),
+    });
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
   it("lets an org admin update or delete without retargeting the creator", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
     resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));

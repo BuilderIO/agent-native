@@ -578,7 +578,235 @@ const migrations = [
     name: "factory-items-confidence-column",
     sql: "ALTER TABLE factory_items ADD COLUMN confidence TEXT NOT NULL DEFAULT 'unknown'",
   },
+  {
+    version: 31,
+    name: "factory-workflow-tables",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_workflows (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        automation_id TEXT,
+        name TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        last_clean_dry_run_version INTEGER,
+        last_trigger_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_workflows_automation_idx
+        ON factory_workflows (org_id, factory_id, automation_id);
+      CREATE INDEX IF NOT EXISTS factory_workflows_factory_updated_idx
+        ON factory_workflows (org_id, factory_id, updated_at);
+
+      CREATE TABLE IF NOT EXISTS factory_workflow_versions (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        graph_json TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'save',
+        summary TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_workflow_versions_unique_idx
+        ON factory_workflow_versions (workflow_id, version);
+
+      CREATE TABLE IF NOT EXISTS factory_workflow_runs (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        graph_version INTEGER NOT NULL,
+        mode TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tick_key TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        counts_json TEXT NOT NULL DEFAULT '{}',
+        error_code TEXT,
+        error_message TEXT,
+        history_row_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_workflow_runs_tick_key_idx
+        ON factory_workflow_runs (workflow_id, tick_key);
+      CREATE INDEX IF NOT EXISTS factory_workflow_runs_started_idx
+        ON factory_workflow_runs (workflow_id, started_at);
+
+      CREATE TABLE IF NOT EXISTS factory_workflow_steps (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        node_id TEXT NOT NULL,
+        workflow_id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        ports_json TEXT NOT NULL DEFAULT '{}',
+        fields_json TEXT,
+        total_available INTEGER,
+        input_truncated INTEGER,
+        error_code TEXT,
+        error_message TEXT,
+        receipt_keys_json TEXT,
+        agent_thread_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_workflow_steps_run_node_idx
+        ON factory_workflow_steps (run_id, node_id);
+      CREATE INDEX IF NOT EXISTS factory_workflow_steps_node_started_idx
+        ON factory_workflow_steps (workflow_id, node_id, started_at);
+
+      CREATE TABLE IF NOT EXISTS factory_workflow_item_state (
+        workflow_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        graph_version INTEGER NOT NULL,
+        parked_at_node TEXT,
+        wake_json TEXT,
+        due_at TEXT,
+        next_check_at TEXT,
+        context_json TEXT NOT NULL DEFAULT '{}',
+        counters_json TEXT NOT NULL DEFAULT '{}',
+        leased_by TEXT,
+        lease_until TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (workflow_id, item_id)
+      );
+      CREATE INDEX IF NOT EXISTS factory_workflow_item_state_due_idx
+        ON factory_workflow_item_state (workflow_id, due_at)
+        WHERE due_at IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS factory_workflow_item_state_check_idx
+        ON factory_workflow_item_state (workflow_id, next_check_at)
+        WHERE next_check_at IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS factory_workflow_item_state_lease_idx
+        ON factory_workflow_item_state (workflow_id, lease_until)
+        WHERE lease_until IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS factory_workflow_item_events (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        node_id TEXT,
+        kind TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        port TEXT,
+        receipt_key TEXT,
+        thread_id TEXT,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS factory_workflow_item_events_item_idx
+        ON factory_workflow_item_events (workflow_id, item_id, occurred_at);
+
+      CREATE TABLE IF NOT EXISTS factory_workflow_receipts (
+        receipt_key TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        external_ref TEXT,
+        url TEXT,
+        summary TEXT,
+        recorded_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS factory_workflow_receipts_workflow_idx
+        ON factory_workflow_receipts (workflow_id);
+
+      ALTER TABLE factory_poll_cursors ADD COLUMN IF NOT EXISTS cursor_value TEXT;
+      ALTER TABLE factory_items ADD COLUMN IF NOT EXISTS payload_json TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE factory_items ADD COLUMN IF NOT EXISTS text_ref TEXT;
+    `,
+  },
+  {
+    version: 32,
+    name: "factory-workflow-run-starter-and-event-outcome",
+    sql: `
+      ALTER TABLE factory_workflow_runs ADD COLUMN IF NOT EXISTS trigger_kind TEXT;
+      ALTER TABLE factory_workflow_runs ADD COLUMN IF NOT EXISTS started_by TEXT;
+      ALTER TABLE factory_workflow_item_events ADD COLUMN IF NOT EXISTS outcome TEXT;
+      ALTER TABLE factory_workflow_item_events ADD COLUMN IF NOT EXISTS code TEXT;
+
+      CREATE INDEX IF NOT EXISTS factory_workflow_runs_factory_started_idx
+        ON factory_workflow_runs (org_id, factory_id, started_at, id);
+      CREATE INDEX IF NOT EXISTS factory_workflow_item_state_updated_idx
+        ON factory_workflow_item_state (org_id, factory_id, workflow_id, updated_at);
+      CREATE INDEX IF NOT EXISTS factory_workflow_item_state_factory_updated_idx
+        ON factory_workflow_item_state (org_id, factory_id, updated_at, workflow_id, item_id);
+      CREATE INDEX IF NOT EXISTS factory_workflow_item_events_needs_you_idx
+        ON factory_workflow_item_events (org_id, factory_id, occurred_at, id)
+        WHERE kind = 'ended' AND outcome = 'needsManual';
+    `,
+  },
+  {
+    version: 33,
+    name: "factory-workflow-run-requests",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_workflow_run_requests (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        workflow_id TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        test_node_id TEXT,
+        sample_item_ids_json TEXT NOT NULL DEFAULT '[]',
+        requested_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        claimed_at TEXT,
+        claimed_by_history_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS factory_workflow_run_requests_pending_idx
+        ON factory_workflow_run_requests (workflow_id, created_at, id)
+        WHERE claimed_at IS NULL;
+    `,
+  },
+  {
+    version: 34,
+    name: "factory-tripwires",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_tripwires (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        factory_id TEXT NOT NULL,
+        workflow_id TEXT,
+        run_id TEXT,
+        node_id TEXT,
+        area TEXT NOT NULL,
+        code TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        details_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS factory_tripwires_factory_created_idx
+        ON factory_tripwires (org_id, factory_id, created_at);
+      CREATE INDEX IF NOT EXISTS factory_tripwires_workflow_created_idx
+        ON factory_tripwires (org_id, workflow_id, created_at);
+    `,
+  },
+  {
+    version: 35,
+    name: "factory-workflow-receipt-output",
+    sql: `
+      ALTER TABLE factory_workflow_receipts ADD COLUMN IF NOT EXISTS output_json TEXT;
+      ALTER TABLE factory_workflow_receipts ADD COLUMN IF NOT EXISTS output_truncated INTEGER;
+    `,
+  },
 ];
+
+/** Exposed so the PGlite specs build the schema from the same DDL a fresh install runs. */
+export const factoryMigrations = migrations;
 
 export const runFactoryMigrations = runMigrations(migrations, {
   table: "factory_migrations",

@@ -1,0 +1,590 @@
+{
+  "nodes": [
+    {
+      "id": "every15",
+      "name": "every15",
+      "position": {
+        "x": 0,
+        "y": 40
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "15m"
+        }
+      }
+    },
+    {
+      "id": "leads",
+      "name": "leads",
+      "position": {
+        "x": 344,
+        "y": 40
+      },
+      "kind": "source",
+      "settings": {
+        "source": "provider-query",
+        "operation": "hubspot.newLeads",
+        "args": {},
+        "memory": "inbox",
+        "maxItems": 50
+      }
+    },
+    {
+      "id": "enrich",
+      "name": "enrich",
+      "position": {
+        "x": 688,
+        "y": 40
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "hubspot.companyActivity",
+        "args": {
+          "leadId": {
+            "mode": "path",
+            "path": "item.externalId"
+          }
+        }
+      }
+    },
+    {
+      "id": "ownerRecord",
+      "name": "ownerRecord",
+      "position": {
+        "x": 1032,
+        "y": 40
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "hubspot.ownerById",
+        "args": {
+          "ownerId": {
+            "mode": "path",
+            "path": "item.extras.ownerId"
+          }
+        }
+      }
+    },
+    {
+      "id": "owner",
+      "name": "owner",
+      "position": {
+        "x": 1376,
+        "y": 40
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "slack.findUserByEmail",
+        "args": {
+          "email": {
+            "mode": "path",
+            "path": "nodes.ownerRecord.email"
+          }
+        }
+      }
+    },
+    {
+      "id": "score",
+      "name": "score",
+      "position": {
+        "x": 1720,
+        "y": 40
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Score this lead against the ideal customer profile.",
+        "result": {
+          "tier": {
+            "type": "enum",
+            "enum": ["hot", "warm", "cold"]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "tier",
+      "name": "tier",
+      "position": {
+        "x": 2064,
+        "y": 0
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "hot",
+            "label": "Hot",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.score.tier",
+                "op": "equals",
+                "right": "hot"
+              }
+            ]
+          },
+          {
+            "id": "warm",
+            "label": "Warm",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.score.tier",
+                "op": "equals",
+                "right": "warm"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "task",
+      "name": "task",
+      "position": {
+        "x": 2408,
+        "y": 193
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "hubspot.createTask",
+        "args": {
+          "ownerId": {
+            "mode": "path",
+            "path": "item.extras.ownerId"
+          },
+          "contactId": {
+            "mode": "path",
+            "path": "item.externalId"
+          },
+          "title": {
+            "mode": "fixed",
+            "value": "Follow up: {{ item.title }}"
+          },
+          "due": {
+            "mode": "fixed",
+            "value": "today"
+          }
+        }
+      }
+    },
+    {
+      "id": "tellOwner",
+      "name": "tellOwner",
+      "position": {
+        "x": 2752,
+        "y": 193
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "nodes.owner.user.id"
+          },
+          "text": {
+            "mode": "ai",
+            "instruction": "Say why this lead is hot."
+          }
+        }
+      }
+    },
+    {
+      "id": "ack1",
+      "name": "ack1",
+      "position": {
+        "x": 3096,
+        "y": 165
+      },
+      "kind": "wait",
+      "settings": {
+        "wait": "reply",
+        "limitHours": 2,
+        "acceptFrom": "owner",
+        "watch": {
+          "fromNode": "tellOwner"
+        }
+      }
+    },
+    {
+      "id": "mgrSlack",
+      "name": "mgrSlack",
+      "position": {
+        "x": 3440,
+        "y": 193
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.managerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "{{ item.title }} was not acknowledged in 2 hours."
+          }
+        }
+      }
+    },
+    {
+      "id": "mgrEmail",
+      "name": "mgrEmail",
+      "position": {
+        "x": 3784,
+        "y": 193
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "email.send",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.managerEmail"
+          },
+          "subject": {
+            "mode": "fixed",
+            "value": "Hot lead not acknowledged: {{ item.title }}"
+          },
+          "body": {
+            "mode": "ai",
+            "instruction": "Explain the lead and the missed acknowledgement."
+          }
+        }
+      }
+    },
+    {
+      "id": "ack2",
+      "name": "ack2",
+      "position": {
+        "x": 4128,
+        "y": 165
+      },
+      "kind": "wait",
+      "settings": {
+        "wait": "reply",
+        "limitHours": 2,
+        "acceptFrom": {
+          "emails": ["owner@example.test", "manager@example.test"]
+        },
+        "watch": {
+          "fromNode": "mgrSlack"
+        }
+      }
+    },
+    {
+      "id": "salesChannel",
+      "name": "salesChannel",
+      "position": {
+        "x": 4472,
+        "y": 269
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.salesChannel"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Nobody picked up {{ item.title }}."
+          }
+        }
+      }
+    },
+    {
+      "id": "nurture",
+      "name": "nurture",
+      "position": {
+        "x": 4128,
+        "y": 69
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "hubspot.addToList",
+        "args": {
+          "listId": {
+            "mode": "path",
+            "path": "settings.extras.nurtureListId"
+          },
+          "leadId": {
+            "mode": "path",
+            "path": "item.externalId"
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 4472,
+        "y": 136
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done"
+      }
+    },
+    {
+      "id": "manual",
+      "name": "manual",
+      "position": {
+        "x": 4816,
+        "y": 269
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual"
+      }
+    },
+    {
+      "id": "dismissed",
+      "name": "dismissed",
+      "position": {
+        "x": 2408,
+        "y": 11
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "dismissed",
+        "reason": "{{ nodes.score.reason }}"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "every15",
+        "port": "out"
+      },
+      "to": {
+        "node": "leads"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "leads",
+        "port": "out"
+      },
+      "to": {
+        "node": "enrich"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "enrich",
+        "port": "out"
+      },
+      "to": {
+        "node": "ownerRecord"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "ownerRecord",
+        "port": "out"
+      },
+      "to": {
+        "node": "owner"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "owner",
+        "port": "out"
+      },
+      "to": {
+        "node": "score"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "score",
+        "port": "out"
+      },
+      "to": {
+        "node": "tier"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "tier",
+        "port": "route:hot"
+      },
+      "to": {
+        "node": "task"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "task",
+        "port": "out"
+      },
+      "to": {
+        "node": "tellOwner"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "tellOwner",
+        "port": "out"
+      },
+      "to": {
+        "node": "ack1"
+      }
+    },
+    {
+      "id": "e10",
+      "from": {
+        "node": "ack1",
+        "port": "replied"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e11",
+      "from": {
+        "node": "ack1",
+        "port": "timedOut"
+      },
+      "to": {
+        "node": "mgrSlack"
+      }
+    },
+    {
+      "id": "e12",
+      "from": {
+        "node": "mgrSlack",
+        "port": "out"
+      },
+      "to": {
+        "node": "mgrEmail"
+      }
+    },
+    {
+      "id": "e13",
+      "from": {
+        "node": "mgrEmail",
+        "port": "out"
+      },
+      "to": {
+        "node": "ack2"
+      }
+    },
+    {
+      "id": "e14",
+      "from": {
+        "node": "ack2",
+        "port": "replied"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e15",
+      "from": {
+        "node": "ack2",
+        "port": "timedOut"
+      },
+      "to": {
+        "node": "salesChannel"
+      }
+    },
+    {
+      "id": "e16",
+      "from": {
+        "node": "salesChannel",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e17",
+      "from": {
+        "node": "tier",
+        "port": "route:warm"
+      },
+      "to": {
+        "node": "nurture"
+      }
+    },
+    {
+      "id": "e18",
+      "from": {
+        "node": "nurture",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e19",
+      "from": {
+        "node": "tier",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "dismissed"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

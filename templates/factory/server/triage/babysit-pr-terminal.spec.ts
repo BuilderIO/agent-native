@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  babysitSkipSummaryForClosedPullRequest,
-  babysitStateLeavesReviewWindow,
   closedPullRequestKind,
   closedPullRequestTerminalMetadataPatch,
   isTerminalBabysitMetadata,
@@ -60,24 +58,9 @@ describe("terminal resolution", () => {
       ).prBabysitPendingReopen,
     ).toBe(false);
   });
-
-  it("uses specific audit summaries", () => {
-    expect(babysitSkipSummaryForClosedPullRequest(4988, "merged")).toBe(
-      "#4988 merged on GitHub; no further babysitting.",
-    );
-    expect(babysitSkipSummaryForClosedPullRequest(4988, "closed")).toBe(
-      "#4988 skipped; pull request is closed.",
-    );
-  });
 });
 
 describe("review window helpers", () => {
-  it("treats merged and closed-or-draft as leaving the review window", () => {
-    expect(babysitStateLeavesReviewWindow("merged")).toBe(true);
-    expect(babysitStateLeavesReviewWindow("closed-or-draft")).toBe(true);
-    expect(babysitStateLeavesReviewWindow("queued")).toBe(false);
-  });
-
   it("detects terminal metadata for list guards", () => {
     expect(
       isTerminalBabysitMetadata(

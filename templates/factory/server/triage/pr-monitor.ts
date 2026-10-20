@@ -11,6 +11,10 @@ export interface PullRequestReviewObservation {
   author: string;
   state: PullRequestReviewState;
   commitSha?: string | null;
+  /** GitHub's `author_association` for the reviewer (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE`, ...), as given. */
+  authorAssociation?: string;
+  /** GitHub's `user.type` of the reviewer (`User`, `Bot`, ...), as given. */
+  authorType?: string;
   htmlUrl?: string | null;
   body?: string | null;
   observedAt: string;

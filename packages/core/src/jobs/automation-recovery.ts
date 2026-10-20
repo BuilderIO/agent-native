@@ -228,6 +228,13 @@ export async function inspectAutomationRecovery(
       lastQueueTouch > now.getTime() - automationRunClaimLeaseMs()
     )
       return { state: "active" };
+    // A runner's row never gets a run or thread, so it stays live until its
+    // hard deadline instead of being settled as stopped.
+    if (
+      meta.runner &&
+      now.getTime() < lastRun + resolveBackgroundRunHardTimeoutMs()
+    )
+      return { state: "active" };
     return {
       state: "settle",
       status: "error",

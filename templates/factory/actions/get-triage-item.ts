@@ -10,7 +10,7 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
 import {
   factoryIdSchema,
   orgFactoryAuditEventFilter,

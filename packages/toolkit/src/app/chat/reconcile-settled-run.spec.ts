@@ -3,7 +3,10 @@
 import type { AgentThreadState } from "@agent-native/agentkit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { reconcileSettledRun } from "./reconcile-settled-run.js";
+import {
+  isWaitingOnConnectionRequest,
+  reconcileSettledRun,
+} from "./reconcile-settled-run.js";
 
 function thread(
   activeRunIds: string[],
@@ -108,5 +111,57 @@ describe("reconcileSettledRun", () => {
 
     expect(toolDone).toEqual([]);
     expect(refreshes).toBe(0);
+  });
+});
+
+describe("isWaitingOnConnectionRequest", () => {
+  const waiting = (
+    runStatus: string,
+    requestStatus: string,
+    requestRunId = "run-1",
+  ) =>
+    ({
+      activeRunIds: ["run-1"],
+      runs: { "run-1": { status: runStatus } },
+      connectionRequests: { "connection-1": { status: requestStatus } },
+      connectionRequestRunIds: { "connection-1": requestRunId },
+    }) as unknown as AgentThreadState;
+
+  it("is true while an input-paused run has an open request", () => {
+    expect(
+      isWaitingOnConnectionRequest(waiting("awaiting_input", "requested")),
+    ).toBe(true);
+    expect(
+      isWaitingOnConnectionRequest(waiting("awaiting_input", "connecting")),
+    ).toBe(true);
+  });
+
+  it("is false for a run that is working, or whose request is answered or missing", () => {
+    expect(isWaitingOnConnectionRequest(waiting("running", "requested"))).toBe(
+      false,
+    );
+    expect(
+      isWaitingOnConnectionRequest(waiting("awaiting_input", "connected")),
+    ).toBe(false);
+    expect(
+      isWaitingOnConnectionRequest(
+        waiting("awaiting_input", "requested", "run-0"),
+      ),
+    ).toBe(false);
+    expect(
+      isWaitingOnConnectionRequest({
+        ...waiting("awaiting_input", "requested"),
+        connectionRequests: {},
+      }),
+    ).toBe(false);
+  });
+
+  it("is false when no run is active", () => {
+    expect(
+      isWaitingOnConnectionRequest({
+        ...waiting("awaiting_input", "requested"),
+        activeRunIds: [],
+      }),
+    ).toBe(false);
   });
 });

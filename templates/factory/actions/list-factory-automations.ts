@@ -2,7 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { listAutomationRuns } from "@agent-native/core/triggers";
 import { z } from "zod";
 
-import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
   normalizeUserPrompt,
   previewAutomationInstructions,
@@ -11,6 +10,8 @@ import {
   readPromptVersion,
 } from "../server/lib/factory-automation-config.js";
 import { listFactoryAutomationDefinitions } from "../server/lib/factory-automation-resources.js";
+import { readFactoryDefinition } from "../server/lib/factory-definitions.js";
+import { retireLegacyAgentJobs } from "../server/lib/factory-legacy-agent-jobs.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryAutomationRunHistoryKey,
@@ -18,6 +19,7 @@ import {
   readAutomationFactoryId,
   resolveAutomationDisplayName,
 } from "../server/lib/factory-scope.js";
+import { isWorkflowJob } from "../server/lib/factory-workflow-runner.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -31,14 +33,21 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ factoryId }, context) => {
-    const { orgId } = await requireWorkspaceMember(
+    const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const factory = await readFactoryDefinition(orgId, factoryId);
     if (!factory && factoryId !== DEFAULT_FACTORY_ID) {
       throw new Error("Factory not found.");
     }
-    const scoped = await listFactoryAutomationDefinitions(orgId, factoryId);
+    // Pauses the seeded agent jobs that workflows replaced, once each.
+    const { definitions } = await retireLegacyAgentJobs({
+      identity: { userEmail, orgId },
+      factoryId,
+      definitions: await listFactoryAutomationDefinitions(orgId, factoryId),
+    });
+    // Workflows have their own list; this one is for agent-run jobs.
+    const scoped = definitions.filter(({ meta }) => !isWorkflowJob(meta));
     return Promise.all(
       scoped.map(async ({ resource, name, meta }) => {
         const runs = await listAutomationRuns({
@@ -69,6 +78,8 @@ export default defineAction({
           reasoningEffort: meta.reasoningEffort ?? null,
           schedule: meta.schedule || null,
           enabled: meta.enabled,
+          pausedReason: meta.pausedReason ?? null,
+          pausedAt: meta.pausedAt ?? null,
           triggerType: meta.triggerType,
           event: meta.event ?? null,
           timezone: config.timezone ?? meta.timezone ?? null,

@@ -35,6 +35,22 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
+  /* Node icon tiles tint these at 15%: each light value stays dark enough, and each dark value light enough, for a 4.5:1 glyph. */
+  --provider-slack: 305 40% 43%;
+  --provider-github: 215 14% 41%;
+  --provider-hubspot: 30 65% 35%;
+  --provider-pylon: 175 50% 29%;
+  --provider-stripe: 250 55% 56%;
+  --provider-posthog: 52 80% 24%;
+  --provider-bigquery: 205 70% 36%;
+  --provider-notion: 32 10% 39%;
+  --provider-jira: 226 62% 52%;
+  --provider-gong: 145 35% 32%;
+  --provider-sentry: 330 50% 45%;
+  --provider-email: 190 16% 37%;
+  --provider-builder: 100 40% 31%;
+  --provider-factory: 62 14% 35%;
+  --accent-ai: 280 50% 49%;
 }
 
 .dark {
@@ -66,6 +82,39 @@
   --sidebar-accent-foreground: 0 0% 90%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
+  --provider-slack: 305 40% 70%;
+  --provider-github: 215 14% 68%;
+  --provider-hubspot: 30 65% 64%;
+  --provider-pylon: 175 50% 62%;
+  --provider-stripe: 250 55% 76%;
+  --provider-posthog: 52 80% 64%;
+  --provider-bigquery: 205 70% 68%;
+  --provider-notion: 32 10% 72%;
+  --provider-jira: 226 62% 72%;
+  --provider-gong: 145 35% 62%;
+  --provider-sentry: 330 50% 72%;
+  --provider-email: 190 16% 72%;
+  --provider-builder: 100 40% 64%;
+  --provider-factory: 62 14% 70%;
+  --accent-ai: 280 50% 74%;
+}
+
+@theme inline {
+  --color-provider-slack: hsl(var(--provider-slack));
+  --color-provider-github: hsl(var(--provider-github));
+  --color-provider-hubspot: hsl(var(--provider-hubspot));
+  --color-provider-pylon: hsl(var(--provider-pylon));
+  --color-provider-stripe: hsl(var(--provider-stripe));
+  --color-provider-posthog: hsl(var(--provider-posthog));
+  --color-provider-bigquery: hsl(var(--provider-bigquery));
+  --color-provider-notion: hsl(var(--provider-notion));
+  --color-provider-jira: hsl(var(--provider-jira));
+  --color-provider-gong: hsl(var(--provider-gong));
+  --color-provider-sentry: hsl(var(--provider-sentry));
+  --color-provider-email: hsl(var(--provider-email));
+  --color-provider-builder: hsl(var(--provider-builder));
+  --color-provider-factory: hsl(var(--provider-factory));
+  --color-accent-ai: hsl(var(--accent-ai));
 }
 
 @layer base {
@@ -73,73 +122,6 @@
     @apply bg-background text-foreground;
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  }
-}
-
-@keyframes factory-inbox-from-end {
-  from {
-    opacity: 0;
-    transform: translateX(1rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes factory-inbox-from-end-rtl {
-  from {
-    opacity: 0;
-    transform: translateX(-1rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes factory-inbox-from-start {
-  from {
-    opacity: 0;
-    transform: translateX(-0.75rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes factory-inbox-from-start-rtl {
-  from {
-    opacity: 0;
-    transform: translateX(0.75rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.factory-inbox-pane-detail {
-  animation: factory-inbox-from-end 260ms var(--ease-drawer);
-}
-
-.factory-inbox-pane-list-return {
-  animation: factory-inbox-from-start 260ms var(--ease-drawer);
-}
-
-[dir="rtl"] .factory-inbox-pane-detail {
-  animation-name: factory-inbox-from-end-rtl;
-}
-
-[dir="rtl"] .factory-inbox-pane-list-return {
-  animation-name: factory-inbox-from-start-rtl;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .factory-inbox-pane-detail,
-  .factory-inbox-pane-list-return {
-    animation: none;
   }
 }
 
@@ -156,43 +138,4 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.34);
-}
-
-.factory-audit-split {
-  display: grid;
-  gap: 1rem;
-}
-
-.factory-audit-split > * {
-  min-width: 0;
-}
-
-@container agent-native-main (min-width: 50rem) {
-  .factory-audit-split {
-    grid-template-columns: minmax(16rem, 0.4fr) minmax(0, 1fr);
-  }
-}
-
-.factory-audit-run-list {
-  container: audit-run / inline-size;
-  min-width: 0;
-}
-
-.factory-audit-run-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.25rem;
-}
-
-.factory-audit-run-fields > :nth-child(2) {
-  justify-self: end;
-}
-
-@container audit-run (min-width: 20rem) {
-  .factory-audit-run-fields {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-    column-gap: 0.75rem;
-    row-gap: 0.25rem;
-  }
 }

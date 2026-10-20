@@ -16,6 +16,11 @@ export default mergeConfig(
       },
     },
     test: {
+      // A spec that reaches the app's own database (the default tripwire
+      // recorder, an action that calls `getDb()`) opens an in-memory PGlite, never
+      // `data/pglite`, which the dev server holds open. Core reads this URL only
+      // in a test process.
+      env: { DATABASE_URL: "pglite:memory" },
       exclude: [
         "**/node_modules/**",
         "**/.git/**",

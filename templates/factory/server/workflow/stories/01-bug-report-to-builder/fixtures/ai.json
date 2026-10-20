@@ -1,0 +1,182 @@
+{
+  "assess": {
+    "clear": {
+      "perItem": {
+        "*": {
+          "clearBug": true,
+          "enoughContext": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Reproducible from the report: Pay does nothing when clicked."
+        }
+      }
+    },
+    "needsInfo": {
+      "perItem": {
+        "*": {
+          "clearBug": true,
+          "enoughContext": false,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "There are no steps to reproduce it yet.",
+          "question": "Which browser are you using?"
+        }
+      }
+    },
+    "mixed": {
+      "perItem": {
+        "m1": {
+          "clearBug": false,
+          "enoughContext": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "A question about pricing, not a defect."
+        },
+        "m2": {
+          "clearBug": true,
+          "enoughContext": true,
+          "risk": "high",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Touches the payment flow; a person should look first."
+        },
+        "m3": {
+          "clearBug": true,
+          "enoughContext": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": true,
+          "categories": [],
+          "reason": "A person already reacted to this report, so it is theirs."
+        }
+      }
+    },
+    "checkout": {
+      "perItem": {
+        "*": {
+          "clearBug": true,
+          "enoughContext": true,
+          "risk": "low",
+          "confidence": "high",
+          "productUxImplications": false,
+          "alreadyClaimed": false,
+          "categories": [],
+          "reason": "Reproducible from the report: Pay does nothing when clicked."
+        }
+      }
+    }
+  },
+  "ask": {
+    "q1": { "perItem": { "*": { "text": "Which browser are you using?" } } },
+    "q2": {
+      "perItem": {
+        "*": {
+          "text": "Which version of Chrome, and on which operating system?"
+        }
+      }
+    }
+  },
+  "group": {
+    "solo": {
+      "wholeList": {
+        "groups": [
+          {
+            "id": "m1",
+            "groupId": "m1",
+            "title": "Checkout button does nothing",
+            "thread": {
+              "channelId": "C0FEEDBACK",
+              "threadTs": "1760000000.000100"
+            },
+            "author": "reporter-1@example.test",
+            "clearBug": true,
+            "risk": "low",
+            "confidence": "high",
+            "productUxImplications": false,
+            "alreadyClaimed": false,
+            "categories": [],
+            "reason": "Only report about the Pay button."
+          }
+        ]
+      }
+    },
+    "related": {
+      "wholeList": {
+        "groups": [
+          {
+            "id": "m1",
+            "groupId": "m1",
+            "title": "Checkout button does nothing",
+            "thread": {
+              "channelId": "C0FEEDBACK",
+              "threadTs": "1760000000.000100"
+            },
+            "author": "reporter-1@example.test",
+            "clearBug": true,
+            "risk": "low",
+            "confidence": "high",
+            "productUxImplications": false,
+            "alreadyClaimed": false,
+            "categories": [],
+            "reason": "Same Pay button defect as m2."
+          },
+          {
+            "id": "m2",
+            "groupId": "m1",
+            "title": "Pay button dead on checkout",
+            "thread": {
+              "channelId": "C0FEEDBACK",
+              "threadTs": "1760000000.000200"
+            },
+            "author": "reporter-2@example.test",
+            "clearBug": true,
+            "risk": "low",
+            "confidence": "high",
+            "productUxImplications": false,
+            "alreadyClaimed": false,
+            "categories": [],
+            "reason": "Same Pay button defect as m1."
+          },
+          {
+            "id": "m3",
+            "groupId": "m3",
+            "title": "Export to CSV downloads an empty file",
+            "thread": {
+              "channelId": "C0FEEDBACK",
+              "threadTs": "1760000000.000300"
+            },
+            "author": "reporter-3@example.test",
+            "clearBug": true,
+            "risk": "low",
+            "confidence": "high",
+            "productUxImplications": false,
+            "alreadyClaimed": false,
+            "categories": [],
+            "reason": "A different defect: the CSV export, in another screen."
+          }
+        ]
+      }
+    }
+  },
+  "startBuilder": {
+    "prompt": {
+      "perItem": {
+        "*": {
+          "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+        }
+      }
+    }
+  }
+}

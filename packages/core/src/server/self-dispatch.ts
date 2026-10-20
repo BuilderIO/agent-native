@@ -55,8 +55,8 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
  * Resolve this deployment's own address. Prefer the URL for this exact deploy
  * before stable app URLs: a preview or in-flight deploy must not send a token
  * minted by its function fleet to a different deploy that happens to serve the
- * same public hostname. Fall back to the inbound request headers and finally
- * localhost in dev.
+ * same public hostname. Fall back to the inbound request headers, then the
+ * origin the current request was served on, and finally localhost in dev.
  *
  * Throws in production / shared deployments when no env var is set — a silent
  * fallback to a bad host there would drop background work invisibly.
@@ -78,8 +78,16 @@ export function resolveDeploymentBaseUrl(event?: any): string {
     );
   }
 
-  const host =
-    readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
+  const inboundHost = readHeader(event, "host");
+  // An agent turn or a CLI call forwarded to the dev server has no inbound
+  // event, but its request context remembers where this server was reached.
+  // Without it the guess below is port 3000, which is not where Vite serves.
+  const contextOrigin = inboundHost
+    ? undefined
+    : getRequestContext()?.requestOrigin;
+  if (contextOrigin) return withConfiguredAppBasePath(contextOrigin);
+
+  const host = inboundHost || `localhost:${process.env.PORT || 3000}`;
   const hostName = (
     host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0]
   ).toLowerCase();
@@ -123,17 +131,62 @@ export interface FireInternalDispatchOptions {
 export class SelfDispatchHttpError extends Error {
   readonly httpStatus: number;
   readonly retryAfterMs?: number;
-  constructor(message: string, httpStatus: number, retryAfterMs?: number) {
+  /** Origin the request went to; never a path, query, or credentials. */
+  readonly target?: string;
+  constructor(
+    message: string,
+    httpStatus: number,
+    retryAfterMs?: number,
+    target?: string,
+  ) {
     super(message);
     this.name = "SelfDispatchHttpError";
     this.httpStatus = httpStatus;
     this.retryAfterMs = retryAfterMs;
+    this.target = target;
   }
+}
+
+/**
+ * A dispatch that never got an HTTP answer: the connection was refused, DNS
+ * failed, or the response timer ran out. `fetch` reports all of these as an
+ * opaque `fetch failed` with the real code one `cause` down, so this names
+ * where the request went (`target`, an origin) and why (`causeCode`, such as
+ * `ECONNREFUSED`, `ENOTFOUND` or `TimeoutError`).
+ */
+export class SelfDispatchNetworkError extends Error {
+  readonly target: string;
+  readonly causeCode?: string;
+  constructor(path: string, target: string, cause: unknown) {
+    const causeCode = networkCauseCode(cause);
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(
+      `Self-dispatch to ${path} at ${target} failed: ${detail}${causeCode ? ` (${causeCode})` : ""}`,
+      { cause },
+    );
+    this.name = "SelfDispatchNetworkError";
+    this.target = target;
+    this.causeCode = causeCode;
+  }
+}
+
+function networkCauseCode(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const nested = (error as { cause?: unknown }).cause as
+    | { code?: unknown; errors?: Array<{ code?: unknown }> }
+    | undefined;
+  // A dual-stack `localhost` refusal arrives as an AggregateError.
+  const code = nested?.code ?? nested?.errors?.[0]?.code;
+  if (typeof code === "string") return code;
+  return error.name === "TimeoutError" || error.name === "AbortError"
+    ? error.name
+    : undefined;
 }
 
 async function dispatchResponseError(
   path: string,
   res: Response,
+  target: string,
 ): Promise<SelfDispatchHttpError> {
   let body = "";
   try {
@@ -150,6 +203,7 @@ async function dispatchResponseError(
     `Self-dispatch to ${path} returned HTTP ${res.status} ${res.statusText}${detail}`,
     res.status,
     retryAfterMs ?? undefined,
+    target,
   );
 }
 
@@ -210,6 +264,7 @@ export async function fireInternalDispatch(
   }
 
   const awaitResponse = options.awaitResponse === true;
+  const target = URL.canParse(url) ? new URL(url).origin : "an unparseable URL";
   const dispatchPromise = fetch(url, {
     method: "POST",
     headers,
@@ -217,11 +272,17 @@ export async function fireInternalDispatch(
     ...(awaitResponse
       ? { signal: AbortSignal.timeout(options.responseTimeoutMs ?? 15_000) }
       : {}),
-  }).then(async (res) => {
-    if (!res.ok) {
-      throw await dispatchResponseError(options.path, res);
-    }
-  });
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        throw await dispatchResponseError(options.path, res, target);
+      }
+    })
+    .catch((err: unknown) => {
+      throw err instanceof SelfDispatchHttpError
+        ? err
+        : new SelfDispatchNetworkError(options.path, target, err);
+    });
   dispatchPromise.catch((err) => {
     console.error(
       `[self-dispatch] dispatch to ${options.path} (base ${baseUrl}) failed:`,

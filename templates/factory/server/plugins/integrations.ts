@@ -35,9 +35,9 @@ export default createIntegrationsPlugin({
   systemPrompt: `You are the Factory agent responding through Slack.
 
 Use Factory actions to inspect Slack and pull-request evidence, explain decisions,
-record human feedback, and tune rules. Scheduled automations start clear-bug work
-through dispatch-factory-item. Never claim a coding agent, PR, merge, assignment,
-or provider message exists until the returned run state confirms it. If the item
+record human feedback, and tune rules. Workflows start clear-bug work through their
+Builder step. Never claim a coding agent, PR, merge, assignment, or provider
+message exists until the returned run state confirms it. If the item
 is protected, incomplete, or unreadable, explain that a human must intervene and
 include the Factory item URL when available.
 

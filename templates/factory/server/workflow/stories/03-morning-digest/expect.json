@@ -1,0 +1,444 @@
+{
+  "monday-reads-friday-to-monday-and-posts-once": {
+    "ticks": [
+      {
+        "label": "Monday 08:00",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 3, "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "commits": { "in": 0, "ports": { "out": 3 } },
+          "digest": { "in": 3, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1, "slack.postMessage": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-16T12:00:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "list:digest:78eba2ce58923",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0DIGEST",
+              "text": "TL;DR: three changes landed. Search got faster (grace), the export button works again (ada), docs are current."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0DIGEST/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:78eba2ce58923"]
+          }
+        ]
+      },
+      {
+        "label": "the same tick, delivered again",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "nothing_due",
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:digest:78eba2ce58923": ["effect@post", "ended@done:done"]
+    }
+  },
+  "tuesday-starts-where-monday-ended": {
+    "ticks": [
+      {
+        "label": "Monday 08:00",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 3, "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "commits": { "in": 0, "ports": { "out": 3 } },
+          "digest": { "in": 3, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1, "slack.postMessage": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-16T12:00:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "list:digest:78eba2ce58923",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0DIGEST",
+              "text": "TL;DR: three changes landed. Search got faster (grace), the export button works again (ada), docs are current."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0DIGEST/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:78eba2ce58923"]
+          }
+        ]
+      },
+      {
+        "label": "Tuesday 08:00",
+        "at": "2026-10-20T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "commits": { "in": 0, "ports": { "out": 1 } },
+          "digest": { "in": 1, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1, "slack.postMessage": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-19T12:00:00.000Z",
+            "to": "2026-10-20T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "list:digest:35af2a78ce492",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0DIGEST",
+              "text": "TL;DR: one change landed. Billing copy is tighter (grace)."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0DIGEST/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:35af2a78ce492"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:digest:78eba2ce58923": ["effect@post", "ended@done:done"],
+      "list:digest:35af2a78ce492": ["effect@post", "ended@done:done"]
+    }
+  },
+  "a-quiet-morning-still-posts-a-count-of-zero": {
+    "ticks": [
+      {
+        "label": "Monday 08:00",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "digest": { "in": 0, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1, "slack.postMessage": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-16T12:00:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "list:digest:b15b406bfeed6",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0DIGEST",
+              "text": "No commits since the last digest."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0DIGEST/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:b15b406bfeed6"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:digest:b15b406bfeed6": ["effect@post", "ended@done:done"]
+    }
+  },
+  "a-cut-off-list-says-how-much-was-cut": {
+    "ticks": [
+      {
+        "label": "Monday 08:00",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 100, "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "commits": { "in": 0, "ports": { "out": 100 }, "truncatedFrom": 340 },
+          "digest": { "in": 100, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1, "slack.postMessage": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-16T12:00:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "list:digest:97285a38cb9d2",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0DIGEST",
+              "text": "TL;DR: a busy weekend. Showing 100 of 340 commits; most are small fixes by ada."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0DIGEST/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:97285a38cb9d2"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:digest:97285a38cb9d2": ["effect@post", "ended@done:done"]
+    }
+  },
+  "github-down-then-back-covers-the-missed-morning": {
+    "ticks": [
+      {
+        "label": "Friday 08:00",
+        "at": "2026-10-16T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "digest": { "in": 0, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1, "slack.postMessage": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-15T12:00:00.000Z",
+            "to": "2026-10-16T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "list:digest:2f781eb63d565",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0DIGEST",
+              "text": "No commits since the last digest."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0DIGEST/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:2f781eb63d565"]
+          }
+        ]
+      },
+      {
+        "label": "Monday 08:00, GitHub is down",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "failed", "counts": {}, "error": "provider_error" },
+        "nodes": {
+          "commits": {
+            "in": 0,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "digest": { "in": 0, "ports": {}, "status": "skipped" },
+          "done": { "in": 0, "ports": {}, "status": "skipped" },
+          "post": { "in": 0, "ports": {}, "status": "skipped" }
+        },
+        "calls": { "github.listCommits": 3 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-16T12:00:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "Tuesday 08:00",
+        "at": "2026-10-20T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 3, "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "commits": { "in": 0, "ports": { "out": 3 } },
+          "digest": { "in": 3, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1, "slack.postMessage": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-16T12:00:00.000Z",
+            "to": "2026-10-20T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "list:digest:78eba2ce58923",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0DIGEST",
+              "text": "TL;DR: three changes landed. Search got faster (grace), the export button works again (ada), docs are current."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0DIGEST/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:78eba2ce58923"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:digest:2f781eb63d565": ["effect@post", "ended@done:done"],
+      "list:digest:78eba2ce58923": ["effect@post", "ended@done:done"]
+    }
+  },
+  "a-dry-run-posts-nothing": {
+    "ticks": [
+      {
+        "label": "dry run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "dry",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 3, "done": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "commits": { "in": 0, "ports": { "out": 3 } },
+          "digest": { "in": 3, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "github.listCommits": 1 },
+        "windows": {
+          "github.listCommits": {
+            "from": "2026-10-16T12:00:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": [
+          {
+            "node": "post",
+            "mode": "perItem",
+            "items": ["list:digest:78eba2ce58923"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "list:digest:78eba2ce58923": ["effect@post", "ended@done:done"]
+    }
+  }
+}

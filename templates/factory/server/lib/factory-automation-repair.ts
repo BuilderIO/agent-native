@@ -1,9 +1,7 @@
 import { getDb } from "../db/index.js";
-import {
-  DEFAULT_FACTORY_ID,
-  readFactoryDefinition,
-} from "../factory-graph/store.js";
 import { ensureFactoryAutomations } from "../plugins/factory-scheduler-job.js";
+import { readFactoryDefinition } from "./factory-definitions.js";
+import { DEFAULT_FACTORY_ID } from "./factory-ids.js";
 import { readTriageConfigRow } from "./factory-scope.js";
 
 export async function repairFactoryAutomationsFromConfig(

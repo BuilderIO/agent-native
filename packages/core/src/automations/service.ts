@@ -3,6 +3,7 @@ import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   assertDelegatedPolicyId,
+  assertJobRunnerTarget,
   buildJobResourceContent,
   isRecoveredFactoryJob,
   jobBelongsToApp,
@@ -660,6 +661,14 @@ export async function updateAutomation(
       "execution_host_id",
       { opaque: true },
     );
+    try {
+      assertJobRunnerTarget(meta);
+    } catch (error) {
+      throw httpError(
+        error instanceof Error ? error.message : String(error),
+        400,
+      );
+    }
     fields.executionHostId = meta.executionHostId;
   }
   if (input.executionEngine !== undefined) {

@@ -1,0 +1,512 @@
+{
+  "nodes": [
+    {
+      "id": "daily7",
+      "name": "daily7",
+      "position": {
+        "x": 0,
+        "y": 186
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "daily": {
+            "at": "07:00"
+          }
+        },
+        "timezone": "America/Los_Angeles"
+      }
+    },
+    {
+      "id": "billing",
+      "name": "billing",
+      "position": {
+        "x": 344,
+        "y": 186
+      },
+      "kind": "source",
+      "settings": {
+        "source": "window",
+        "operation": "bigquery.billingQuery",
+        "args": {
+          "table": {
+            "mode": "path",
+            "path": "settings.extras.billingTable"
+          }
+        },
+        "maxItems": 100
+      }
+    },
+    {
+      "id": "byService",
+      "name": "byService",
+      "position": {
+        "x": 688,
+        "y": 186
+      },
+      "kind": "combine",
+      "settings": {
+        "mode": "summarize",
+        "summarize": {
+          "group": "item.extras.service",
+          "value": "item.extras.cost",
+          "agg": "sum",
+          "baseline": {
+            "window": 7,
+            "bucket": "day"
+          },
+          "compare": "latestVsAverage"
+        }
+      }
+    },
+    {
+      "id": "spike",
+      "name": "spike",
+      "position": {
+        "x": 1376,
+        "y": 48
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.increasePercent",
+            "op": "gt",
+            "right": "{{ settings.extras.spikePercent }}"
+          },
+          {
+            "left": "item.increaseAmount",
+            "op": "gt",
+            "right": "{{ settings.extras.spikeDollars }}"
+          }
+        ]
+      }
+    },
+    {
+      "id": "quiet",
+      "name": "quiet",
+      "position": {
+        "x": 2408,
+        "y": 124
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done",
+        "reason": "no spikes"
+      }
+    },
+    {
+      "id": "spikes",
+      "name": "spikes",
+      "position": {
+        "x": 1720,
+        "y": 28
+      },
+      "kind": "combine",
+      "settings": {
+        "mode": "list",
+        "field": "item"
+      }
+    },
+    {
+      "id": "anySpikes",
+      "name": "anySpikes",
+      "position": {
+        "x": 2064,
+        "y": 0
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.count",
+            "op": "gt",
+            "right": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "recent",
+      "name": "recent",
+      "position": {
+        "x": 2408,
+        "y": 28
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "github.mergedPullRequests",
+        "args": {
+          "repo": {
+            "mode": "path",
+            "path": "settings.extras.repository"
+          },
+          "since": {
+            "mode": "path",
+            "path": "run.windowStart"
+          }
+        }
+      }
+    },
+    {
+      "id": "explain",
+      "name": "explain",
+      "position": {
+        "x": 2752,
+        "y": 28
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Write one message about the spiking services in the list: for each, its name, yesterday's cost against its average and the percent increase, and the pull requests from the recently merged list that most likely caused it, each with its link. Name no cause you have no link for; say the cause is unknown instead.",
+        "result": {
+          "suspects": {
+            "type": "array"
+          },
+          "confidence": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "notifyOwners",
+      "name": "notifyOwners",
+      "position": {
+        "x": 3096,
+        "y": 28
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.ownersChannel"
+          },
+          "text": {
+            "mode": "path",
+            "path": "nodes.explain.message"
+          }
+        }
+      }
+    },
+    {
+      "id": "emailOwners",
+      "name": "emailOwners",
+      "position": {
+        "x": 3440,
+        "y": 28
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "email.send",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.managerEmail"
+          },
+          "subject": {
+            "mode": "fixed",
+            "value": "Cloud spend spike"
+          },
+          "body": {
+            "mode": "path",
+            "path": "nodes.explain.message"
+          }
+        }
+      }
+    },
+    {
+      "id": "waitReply",
+      "name": "waitReply",
+      "position": {
+        "x": 3784,
+        "y": 0
+      },
+      "kind": "wait",
+      "settings": {
+        "wait": "reply",
+        "limitHours": 4,
+        "acceptFrom": "anyone",
+        "watch": {
+          "fromNode": "notifyOwners"
+        }
+      }
+    },
+    {
+      "id": "escalate",
+      "name": "escalate",
+      "position": {
+        "x": 4128,
+        "y": 57
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.escalationEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Nobody answered the cloud spend spike."
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 4472,
+        "y": 28
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done"
+      }
+    },
+    {
+      "id": "noBaseline",
+      "name": "noBaseline",
+      "position": {
+        "x": 1032,
+        "y": 158
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.baselineMissing",
+            "op": "isTrue"
+          }
+        ]
+      }
+    },
+    {
+      "id": "baselineEnd",
+      "name": "baselineEnd",
+      "position": {
+        "x": 1376,
+        "y": 200
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done",
+        "reason": "{{ item.baselineMissingReason }}"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "daily7",
+        "port": "out"
+      },
+      "to": {
+        "node": "billing"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "billing",
+        "port": "out"
+      },
+      "to": {
+        "node": "byService"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "spike",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "quiet"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "spike",
+        "port": "match"
+      },
+      "to": {
+        "node": "spikes"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "spikes",
+        "port": "out"
+      },
+      "to": {
+        "node": "anySpikes"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "anySpikes",
+        "port": "match"
+      },
+      "to": {
+        "node": "recent"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "anySpikes",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "quiet"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "recent",
+        "port": "out"
+      },
+      "to": {
+        "node": "explain"
+      }
+    },
+    {
+      "id": "e10",
+      "from": {
+        "node": "explain",
+        "port": "out"
+      },
+      "to": {
+        "node": "notifyOwners"
+      }
+    },
+    {
+      "id": "e11",
+      "from": {
+        "node": "notifyOwners",
+        "port": "out"
+      },
+      "to": {
+        "node": "emailOwners"
+      }
+    },
+    {
+      "id": "e12",
+      "from": {
+        "node": "emailOwners",
+        "port": "out"
+      },
+      "to": {
+        "node": "waitReply"
+      }
+    },
+    {
+      "id": "e13",
+      "from": {
+        "node": "waitReply",
+        "port": "replied"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e14",
+      "from": {
+        "node": "waitReply",
+        "port": "timedOut"
+      },
+      "to": {
+        "node": "escalate"
+      }
+    },
+    {
+      "id": "e15",
+      "from": {
+        "node": "escalate",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "byService",
+        "port": "out"
+      },
+      "to": {
+        "node": "noBaseline"
+      }
+    },
+    {
+      "id": "e16",
+      "from": {
+        "node": "noBaseline",
+        "port": "match"
+      },
+      "to": {
+        "node": "baselineEnd"
+      }
+    },
+    {
+      "id": "e17",
+      "from": {
+        "node": "noBaseline",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "spike"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

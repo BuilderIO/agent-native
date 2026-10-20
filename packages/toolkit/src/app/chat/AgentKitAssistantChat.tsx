@@ -210,7 +210,10 @@ import { ExternalAgentNudge } from "./external-agent-host.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
-import { reconcileSettledRun } from "./reconcile-settled-run.js";
+import {
+  isWaitingOnConnectionRequest,
+  reconcileSettledRun,
+} from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
@@ -4992,7 +4995,9 @@ const AgentKitAssistantChatBody = forwardRef<
             (activity) => activity.status === "running",
           )
         }
-        isAwaitingResponse={() => isRunning}
+        isAwaitingResponse={() =>
+          isRunning && !isWaitingOnConnectionRequest(thread)
+        }
         onServerSettled={reconcileServerSettled}
         onRetry={(runId) => {
           const lastUserMessage = [...thread.messages]

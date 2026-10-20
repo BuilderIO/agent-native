@@ -5,6 +5,7 @@ import type {
   AgentCapabilitiesDiscovery,
   AgentCapabilityDescriptor,
   AgentCapabilityId,
+  AgentConnectionRequest,
   AgentError,
   AgentEvent,
   AgentMessage,
@@ -1670,6 +1671,31 @@ function persistedAnnotation(annotation: AgentAnnotation): AgentAnnotation {
   };
 }
 
+function persistedConnectionRequest(
+  request: AgentConnectionRequest,
+): AgentConnectionRequest {
+  return {
+    id: request.id,
+    provider: request.provider,
+    reason: request.reason,
+    status: request.status,
+    ...(request.appId ? { appId: request.appId } : {}),
+    ...(request.detail ? { detail: request.detail } : {}),
+    ...(request.source
+      ? {
+          source: {
+            id: request.source.id,
+            ...(request.source.kind ? { kind: request.source.kind } : {}),
+            ...(request.source.label ? { label: request.source.label } : {}),
+            ...(request.source.uri ? { uri: request.source.uri } : {}),
+          },
+        }
+      : {}),
+    ...(request.createdAt ? { createdAt: request.createdAt } : {}),
+    ...(request.updatedAt ? { updatedAt: request.updatedAt } : {}),
+  };
+}
+
 function persistedAnnotations(
   annotations: AgentAnnotationSnapshot[] = [],
   messageIds: ReadonlySet<string>,
@@ -1895,6 +1921,18 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
             ? { completedAt: activity.completedAt }
             : {}),
         },
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "connection.requested" ||
+      event.type === "connection.updated"
+    ) {
+      persisted.push({
+        ...base(),
+        type: event.type,
+        request: persistedConnectionRequest(event.request),
       });
       lastOmissionByRun.delete(event.runId);
       continue;

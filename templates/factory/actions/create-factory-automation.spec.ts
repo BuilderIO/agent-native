@@ -31,7 +31,7 @@ vi.mock("@agent-native/core/action", () => ({
   },
 }));
 
-vi.mock("../server/factory-graph/store.js", () => ({
+vi.mock("../server/lib/factory-definitions.js", () => ({
   readFactoryDefinition: readFactoryDefinitionMock,
 }));
 
@@ -110,65 +110,77 @@ describe("create-factory-automation", () => {
     expect(createFactoryAutomationMock).not.toHaveBeenCalled();
   });
 
-  it("routes reportable GitHub jobs to the fixed QA channel", async () => {
+  it("does not force a findings channel onto GitHub or Sentry jobs", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     await action.run(
       {
         factoryId: "support-triage",
-        displayName: "GitHub issue triage",
+        displayName: "GitHub issue watch",
         source: "github",
-        template: "github-issues",
         repository: "BuilderIO/agent-native",
       },
       { userEmail: "owner@example.com" },
     );
-
-    expect(createFactoryAutomationMock.mock.calls[0]?.[3]).toMatchObject({
-      config: {
-        slackWorkspace: "primary",
-        slackChannelId: "C0C4U4XRT6X",
-        slackChannelName: "#qa-agent-native",
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "Sentry watch",
+        source: "sentry",
+        sentryOrgSlug: "acme",
+        sentryProjectSlug: "web",
       },
-    });
+      { userEmail: "owner@example.com" },
+    );
+
+    for (const call of createFactoryAutomationMock.mock.calls) {
+      expect(call[3]).toMatchObject({
+        config: { slackChannelId: null, slackChannelName: null },
+      });
+    }
   });
 
-  it("requires both GitHub and Slack connections for enabled issue reporting", async () => {
+  it("checks only the source's connection for an enabled GitHub job", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     await action.run(
       {
         factoryId: "support-triage",
-        displayName: "GitHub issue triage",
+        displayName: "GitHub issue watch",
         source: "github",
-        template: "github-issues",
         repository: "BuilderIO/agent-native",
-        slackChannelId: "CQA123",
         enabled: true,
       },
       { userEmail: "owner@example.com" },
     );
-    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
-      1,
+
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalledTimes(1);
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalledWith(
       "github",
       "owner@example.com",
       expect.objectContaining({ orgId: "org-1", verb: "creating" }),
     );
-    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
-      2,
-      "slack",
-      "owner@example.com",
-      expect.objectContaining({
-        orgId: "org-1",
-        slackWorkspace: "primary",
-        verb: "creating",
-      }),
-    );
-    expect(createFactoryAutomationMock.mock.calls[0]?.[3]).toMatchObject({
-      config: {
-        slackWorkspace: "primary",
-        slackChannelId: "C0C4U4XRT6X",
-        slackChannelName: "#qa-agent-native",
-      },
-    });
+  });
+
+  it("no longer offers the templates that were retired with their jobs", async () => {
+    const { default: action } = await import("./create-factory-automation.js");
+    const base = {
+      factoryId: "support-triage",
+      displayName: "Watch",
+      source: "slack",
+    };
+
+    for (const template of [
+      "slack-feedback",
+      "github-issues",
+      "pr-babysit",
+      "sentry-errors",
+    ]) {
+      expect(action.schema.safeParse({ ...base, template }).success).toBe(
+        false,
+      );
+    }
+    for (const template of ["blank", "pr-governance"]) {
+      expect(action.schema.safeParse({ ...base, template }).success).toBe(true);
+    }
   });
 
   it("does not require a findings destination for PR governance jobs", async () => {
@@ -193,7 +205,6 @@ describe("create-factory-automation", () => {
         factoryId: "support-triage",
         displayName: "Slack feedback",
         source: "slack",
-        template: "slack-feedback",
         slackChannelId: "C123",
         workLimit: 3,
       },
@@ -271,7 +282,7 @@ describe("create-factory-automation", () => {
     expect(createFactoryAutomationMock).not.toHaveBeenCalled();
   });
 
-  it("opens Automations when the agent creates a job", async () => {
+  it("opens Settings, where scheduler health shows, when the agent creates a job", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     await action.run(
       {
@@ -284,7 +295,7 @@ describe("create-factory-automation", () => {
     );
     expect(writeAppStateForCurrentTabMock).toHaveBeenCalledWith("navigate", {
       view: "factory",
-      path: "/factory?factoryId=support-triage&tab=automations&automationId=resource-1",
+      path: "/factory?factoryId=support-triage&tab=settings",
       _writeId: expect.any(String),
     });
   });

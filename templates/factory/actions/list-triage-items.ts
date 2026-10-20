@@ -4,39 +4,28 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems, triageDecisions } from "../server/db/schema.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
+import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
 import {
-  readFactoryPollCursor,
-  writeFactoryPollCursor,
-} from "../server/lib/factory-poll-cursors.js";
-import { factoryRepositoryFromSources } from "../server/lib/factory-repository-scope.js";
-import {
-  factoryAutomationLeafName,
   factoryIdSchema,
   orgFactoryDecisionFilter,
   orgFactoryItemFilter,
-  readTriageConfigRow,
 } from "../server/lib/factory-scope.js";
-
-const FACTORY_PR_BABYSIT_AUTOMATION = "factory-pr-babysit";
 import {
   decodeInboxCursor,
   encodeInboxCursor,
 } from "../server/lib/inbox-cursor.js";
+import {
+  isWorkflowJobContent,
+  requireFactoryAutomation,
+} from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { isTerminalBabysitMetadata } from "../server/triage/babysit-pr-terminal.js";
-import {
-  nextBabysitQueueCursor,
-  parseBabysitQueueCursor,
-  serializeBabysitQueueCursor,
-  sortBabysitQueueRows,
-} from "../server/triage/babysit-queue.js";
 import {
   triageConfidenceSchema,
   triageItemStatusSchema,
@@ -87,6 +76,14 @@ export default defineAction({
       userEmail,
       orgId,
     });
+    if (calling && isWorkflowJobContent(calling.content)) {
+      await requireFactoryAutomation(
+        context,
+        { userEmail, orgId },
+        "workflow",
+        factoryId,
+      );
+    }
     const workLimit =
       context?.caller === "automation"
         ? (calling?.config.workLimit ?? 3)
@@ -102,34 +99,6 @@ export default defineAction({
     const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
     const updatedAfterBound = parseUpdatedAfter(updatedAfter);
     const db = getDb();
-    const usesBabysitFairQueue =
-      context?.caller === "automation" &&
-      calling?.name !== undefined &&
-      factoryAutomationLeafName(calling.name) ===
-        FACTORY_PR_BABYSIT_AUTOMATION &&
-      needsReview &&
-      source === "github";
-    let babysitQueueCursor = null;
-    let babysitRepositoryKey: string | null = null;
-    if (usesBabysitFairQueue) {
-      const config = await readTriageConfigRow(db, orgId, factoryId);
-      babysitRepositoryKey = factoryRepositoryFromSources(
-        calling?.config.repository,
-        config?.repository,
-      );
-      if (babysitRepositoryKey) {
-        const storedCursor = await readFactoryPollCursor(
-          db,
-          orgId,
-          factoryId,
-          "pr-babysit",
-          babysitRepositoryKey,
-        );
-        babysitQueueCursor = parseBabysitQueueCursor(
-          storedCursor?.babysitQueueCursor,
-        );
-      }
-    }
     const reviewStatuses = source === "github" ? ["pr_observed"] : ["received"];
     const filterReviewPage =
       (context?.caller === "automation" &&
@@ -210,12 +179,12 @@ export default defineAction({
         }
         eligible.push(item);
         lastKept = item;
-        if (!usesBabysitFairQueue && eligible.length === effectiveLimit) {
+        if (eligible.length === effectiveLimit) {
           filledPage = true;
           break;
         }
       }
-      if (filledPage && !usesBabysitFairQueue) {
+      if (filledPage) {
         if (lastKept) {
           moreRaw = moreRaw || batch.indexOf(lastKept) < batch.length - 1;
         }
@@ -226,26 +195,7 @@ export default defineAction({
         scanCursor = { updatedAt: lastExamined.updatedAt, id: lastExamined.id };
       }
     }
-    const fairSorted = usesBabysitFairQueue
-      ? sortBabysitQueueRows(eligible, babysitQueueCursor)
-      : eligible;
-    const page = fairSorted.slice(0, effectiveLimit);
-    if (usesBabysitFairQueue) {
-      moreRaw = fairSorted.length > effectiveLimit;
-    }
-    if (usesBabysitFairQueue && babysitRepositoryKey) {
-      const nextCursor = nextBabysitQueueCursor(page);
-      if (nextCursor) {
-        await writeFactoryPollCursor(db, {
-          orgId,
-          factoryId,
-          source: "pr-babysit",
-          destinationKey: babysitRepositoryKey,
-          ownerEmail: userEmail,
-          babysitQueueCursor: serializeBabysitQueueCursor(nextCursor),
-        });
-      }
-    }
+    const page = eligible;
     const hasMore = moreRaw;
     const cursorRow = filledPage && lastKept ? lastKept : lastExamined;
 

@@ -1,0 +1,1960 @@
+{
+  "a-clear-bug-goes-to-builder-and-the-reporter-is-told": {
+    "ticks": [
+      {
+        "label": "the report arrives",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "m1": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
+    }
+  },
+  "missing-info-asks-waits-is-woken-and-assessed-again": {
+    "ticks": [
+      {
+        "label": "the report arrives, a question is asked",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which browser are you using?"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "nothing to do yet",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still waiting",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the reply is seen",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 3, "woke": 1, "sentBack": 1 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 0, "ports": { "replied": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:needsInfo",
+        "effect@ask",
+        "parked@waitReply",
+        "woke@waitReply:replied",
+        "decision@waitReply:replied",
+        "decision@route:route:clear",
+        "effect@tell",
+        "ended@handed:done"
+      ],
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ]
+    }
+  },
+  "gives-up-after-two-questions": {
+    "ticks": [
+      {
+        "label": "the report arrives, question one",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which browser are you using?"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "the first reply, question two",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "modelCalls": 2, "parked": 1, "woke": 1, "sentBack": 1 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "replied": 1, "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which version of Chrome, and on which operating system?"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "the second reply, the owner is told",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "woke": 1, "loopLimited": 1 }
+        },
+        "nodes": {
+          "manual": { "in": 1, "ports": {} },
+          "notifyOwner": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 0, "ports": { "replied": 1, "limitReached": 1 } }
+        },
+        "calls": { "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notifyOwner",
+            "item": "m1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Needs a person: Checkout button does nothing (There are no steps to reproduce it yet.)"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "nothing more happens",
+        "at": "2026-10-19T12:45:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:needsInfo",
+        "effect@ask",
+        "parked@waitReply",
+        "woke@waitReply:replied",
+        "decision@waitReply:replied",
+        "decision@route:route:needsInfo",
+        "effect@ask",
+        "parked@waitReply",
+        "woke@waitReply:replied",
+        "decision@waitReply:limitReached",
+        "effect@notifyOwner",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "nobody-answers-for-24-hours": {
+    "ticks": [
+      {
+        "label": "the report arrives, a question is asked",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which browser are you using?"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "checked, no reply",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "checked, no reply",
+        "at": "2026-10-20T11:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "24 hours have passed",
+        "at": "2026-10-20T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "woke": 1 }
+        },
+        "nodes": {
+          "manual": { "in": 1, "ports": {} },
+          "notifyOwner": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 0, "ports": { "timedOut": 1 } }
+        },
+        "calls": { "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notifyOwner",
+            "item": "m1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Needs a person: Checkout button does nothing (There are no steps to reproduce it yet.)"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "nothing more happens",
+        "at": "2026-10-20T12:20:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:needsInfo",
+        "effect@ask",
+        "parked@waitReply",
+        "woke@waitReply:timedOut",
+        "effect@notifyOwner",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "a-bot-message-is-not-a-reply": {
+    "ticks": [
+      {
+        "label": "the report arrives, a question is asked",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which browser are you using?"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "only a bot has written",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "stillWaiting": 1 } },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "a person answered",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 3, "woke": 1, "sentBack": 1 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 0, "ports": { "replied": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:needsInfo",
+        "effect@ask",
+        "parked@waitReply",
+        "woke@waitReply:replied",
+        "decision@waitReply:replied",
+        "decision@route:route:clear",
+        "effect@tell",
+        "ended@handed:done"
+      ],
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ]
+    }
+  },
+  "a-thread-that-cannot-be-read-is-not-an-empty-thread": {
+    "ticks": [
+      {
+        "label": "the report arrives, a question is asked",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which browser are you using?"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "the deadline, and Slack is down",
+        "at": "2026-10-20T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "stillWaiting": 1 }
+        },
+        "nodes": {
+          "waitReply": {
+            "in": 0,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "Slack is back, nobody answered",
+        "at": "2026-10-20T12:20:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "woke": 1 }
+        },
+        "nodes": {
+          "manual": { "in": 1, "ports": {} },
+          "notifyOwner": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 0, "ports": { "timedOut": 1 } }
+        },
+        "calls": { "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notifyOwner",
+            "item": "m1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Needs a person: Checkout button does nothing (There are no steps to reproduce it yet.)"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:needsInfo",
+        "effect@ask",
+        "parked@waitReply",
+        "error@waitReply:provider_error",
+        "woke@waitReply:timedOut",
+        "effect@notifyOwner",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "each-route-ends-where-the-story-says": {
+    "ticks": [
+      {
+        "label": "three reports arrive",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 3,
+            "dismissed": 2,
+            "needsManual": 1,
+            "modelCalls": 1
+          }
+        },
+        "nodes": {
+          "assess": { "in": 3, "ports": { "out": 3 } },
+          "dismissed": { "in": 2, "ports": {} },
+          "feedback": { "in": 0, "ports": { "out": 3 } },
+          "manual": { "in": 1, "ports": {} },
+          "notifyOwner": { "in": 1, "ports": { "out": 1 } },
+          "route": {
+            "in": 3,
+            "ports": { "route:claimed": 1, "route:notBug": 1, "otherwise": 1 }
+          },
+          "thread": { "in": 3, "ports": { "out": 3 } }
+        },
+        "calls": { "slack.readThread": 3, "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "notifyOwner",
+            "item": "m2",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Needs a person: Pay button dead on checkout (Touches the payment flow; a person should look first.)"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1", "m2", "m3"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "dismissed", "m3": "dismissed", "m2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": ["decision@route:route:notBug", "ended@dismissed:dismissed"],
+      "m2": [
+        "decision@route:otherwise",
+        "effect@notifyOwner",
+        "ended@manual:needsManual"
+      ],
+      "m3": ["decision@route:route:claimed", "ended@dismissed:dismissed"]
+    }
+  },
+  "two-related-reports-become-one-task": {
+    "ticks": [
+      {
+        "label": "three reports arrive",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 3, "done": 3, "modelCalls": 4 }
+        },
+        "nodes": {
+          "accepted": { "in": 2, "ports": { "match": 2 } },
+          "assess": { "in": 3, "ports": { "out": 3 } },
+          "byGroup": { "in": 3, "ports": { "out": 2 } },
+          "feedback": { "in": 0, "ports": { "out": 3 } },
+          "group": { "in": 3, "ports": { "out": 1 } },
+          "handed": { "in": 3, "ports": {} },
+          "openTasks": { "in": 3, "ports": { "out": 3 } },
+          "reports": { "in": 2, "ports": { "out": 3 } },
+          "route": { "in": 3, "ports": { "route:clear": 3 } },
+          "split": { "in": 1, "ports": { "out": 3 } },
+          "startBuilder": { "in": 2, "ports": { "out": 2 } },
+          "tell": { "in": 3, "ports": { "out": 3 } },
+          "thread": { "in": 3, "ports": { "out": 3 } }
+        },
+        "calls": {
+          "slack.readThread": 3,
+          "factory.listItems": 3,
+          "builder.start": 2,
+          "slack.replyInThread": 3
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:1fcf204acef9ad",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m3",
+              "userEmail": "reporter-3@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m3",
+              "url": "https://builder.example.test/branches/factory-m3"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000200",
+              "text": "Builder has started work on m2. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m3",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000300",
+              "text": "Builder has started work on m3. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000003",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000003"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1", "m2", "m3"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1", "m2", "m3"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:1fcf204acef9ad"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {
+      "m1": "automation_started",
+      "m2": "automation_started",
+      "m3": "automation_started"
+    },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      },
+      "m2": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      },
+      "m3": {
+        "builderTaskId": "project-1:factory-m3",
+        "projectId": "project-1",
+        "branchName": "factory-m3",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "group:byGroup:1fcf204acef9ad": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "m1": ["decision@route:route:clear", "effect@tell", "ended@handed:done"],
+      "m2": ["decision@route:route:clear", "effect@tell", "ended@handed:done"],
+      "m3": ["decision@route:route:clear", "effect@tell", "ended@handed:done"]
+    }
+  },
+  "a-start-confirmed-on-another-branch-is-never-announced": {
+    "ticks": [
+      {
+        "label": "Builder answers with another branch",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "needsManual": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "otherwise": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "manual": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "unconfirmed": { "in": 1, "ports": { "out": 1 } },
+          "warnOwner": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-renamed-by-builder",
+              "url": "https://builder.example.test/branches/factory-renamed-by-builder"
+            }
+          },
+          {
+            "node": "warnOwner",
+            "item": "m1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Builder answered with the branch factory-renamed-by-builder, which is not the one Factory asked for, so Checkout button does nothing was not announced. Check Builder before anything is started again."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:otherwise"
+      ],
+      "m1": [
+        "decision@route:route:clear",
+        "effect@warnOwner",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "a-failed-tell-is-retried-without-starting-builder-again": {
+    "ticks": [
+      {
+        "label": "Builder started, Slack is down",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "itemFailures": 1,
+            "modelCalls": 3,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 3
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": { "status": "failed" }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      },
+      {
+        "label": "the report is offered again",
+        "at": "2026-10-19T12:06:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "retried": 1 } },
+        "nodes": {
+          "handed": { "in": 1, "ports": {} },
+          "tell": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000004",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000004"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "m1": [
+        "decision@route:route:clear",
+        "error@tell:provider_error",
+        "parked@tell",
+        "woke@tell:?",
+        "effect@tell",
+        "ended@handed:done"
+      ]
+    }
+  },
+  "a-refused-start-fails-the-item-and-nobody-is-told": {
+    "ticks": [
+      {
+        "label": "refused, a person is told",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 3
+          }
+        },
+        "nodes": {
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "operation_not_allowed"
+          },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": { "status": "failed" }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      },
+      {
+        "label": "offered again, not tried again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "offered again, still not tried again",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": ["decision@route:route:clear", "ended@startBuilder:needsManual"],
+      "group:byGroup:99c7d8bd1db30": [
+        "error@startBuilder:operation_not_allowed",
+        "ended@startBuilder:needsManual"
+      ]
+    }
+  },
+  "a-timed-out-start-is-never-retried-blind": {
+    "ticks": [
+      {
+        "label": "the start times out",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 3
+          }
+        },
+        "nodes": {
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": {
+            "in": 1,
+            "ports": {},
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": { "status": "started" }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      },
+      {
+        "label": "the report is offered again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 3
+          }
+        },
+        "nodes": {
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": {
+            "in": 1,
+            "ports": {},
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "factory.listItems": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:clear",
+        "ended@startBuilder:needsManual",
+        "decision@route:route:clear",
+        "ended@startBuilder:needsManual"
+      ],
+      "group:byGroup:99c7d8bd1db30": [
+        "error@startBuilder:effect_needs_check",
+        "ended@startBuilder:needsManual",
+        "error@startBuilder:effect_needs_check",
+        "ended@startBuilder:needsManual"
+      ]
+    }
+  },
+  "a-tick-that-dies-after-asking-never-asks-twice": {
+    "ticks": [
+      {
+        "label": "the tick dies after asking",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "crashed",
+        "nodes": {
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which browser are you using?"
+            },
+            "receipt": { "status": "started" }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ],
+        "crash": "the process died after the call went out"
+      },
+      {
+        "label": "the lease has run out, the report is taken again",
+        "at": "2026-10-19T12:20:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 2
+          }
+        },
+        "nodes": {
+          "ask": {
+            "in": 1,
+            "ports": {},
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.readThread": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:needsInfo",
+        "decision@route:route:needsInfo",
+        "error@ask:effect_needs_check",
+        "ended@ask:needsManual"
+      ]
+    }
+  },
+  "a-parked-report-is-found-again-after-a-restart": {
+    "ticks": [
+      {
+        "label": "the report arrives, a question is asked",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2, "parked": 1 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "ask",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Which browser are you using?"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      },
+      {
+        "label": "the reply is seen",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 3, "woke": 1, "sentBack": 1 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 0, "ports": { "replied": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "m1": [
+        "decision@route:route:needsInfo",
+        "effect@ask",
+        "parked@waitReply",
+        "woke@waitReply:replied",
+        "decision@waitReply:replied",
+        "decision@route:route:clear",
+        "effect@tell",
+        "ended@handed:done"
+      ],
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ]
+    }
+  },
+  "the-same-group-offered-again-is-not-started-twice": {
+    "ticks": [
+      {
+        "label": "handed off",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "slack.readThread": 1,
+          "factory.listItems": 1,
+          "builder.start": 1,
+          "slack.replyInThread": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "startBuilder",
+            "item": "group:byGroup:99c7d8bd1db30",
+            "operation": "builder.start",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userEmail": "reporter-1@example.test",
+              "clearBug": true,
+              "productUxImplications": false,
+              "risk": "low",
+              "confidence": "high",
+              "alreadyClaimed": false,
+              "categories": [],
+              "prompt": "Fix the checkout Pay button: clicking it does nothing. Steps and threads are linked in the reports."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "factory-m1",
+              "url": "https://builder.example.test/branches/factory-m1"
+            }
+          },
+          {
+            "node": "tell",
+            "item": "m1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "Builder has started work on m1. We will report back when it is merged."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      },
+      {
+        "label": "offered again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 3 }
+        },
+        "nodes": {
+          "accepted": { "in": 1, "ports": { "match": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "byGroup": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "group": { "in": 1, "ports": { "out": 1 } },
+          "handed": { "in": 1, "ports": {} },
+          "openTasks": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:clear": 1 } },
+          "split": { "in": 1, "ports": { "out": 1 } },
+          "startBuilder": { "in": 1, "ports": { "out": 1 } },
+          "tell": { "in": 1, "ports": { "out": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.readThread": 1, "factory.listItems": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "group", "mode": "wholeList", "items": ["m1"] },
+          {
+            "node": "startBuilder",
+            "mode": "perItem",
+            "items": ["group:byGroup:99c7d8bd1db30"]
+          }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": { "m1": "automation_started" },
+    "recorded": {
+      "m1": {
+        "builderTaskId": "project-1:factory-m1",
+        "projectId": "project-1",
+        "branchName": "factory-m1",
+        "repository": "example-org/example-repo"
+      }
+    },
+    "cursors": {},
+    "journeys": {
+      "group:byGroup:99c7d8bd1db30": [
+        "effect@startBuilder",
+        "decision@accepted:match",
+        "effect@startBuilder",
+        "decision@accepted:match"
+      ],
+      "m1": [
+        "decision@route:route:clear",
+        "effect@tell",
+        "ended@handed:done",
+        "decision@route:route:clear",
+        "effect@tell",
+        "ended@handed:done"
+      ]
+    }
+  },
+  "a-dry-run-asks-nothing-and-parks-nothing": {
+    "ticks": [
+      {
+        "label": "dry run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "dry",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "ask": { "in": 1, "ports": { "out": 1 } },
+          "assess": { "in": 1, "ports": { "out": 1 } },
+          "feedback": { "in": 0, "ports": { "out": 1 } },
+          "route": { "in": 1, "ports": { "route:needsInfo": 1 } },
+          "thread": { "in": 1, "ports": { "out": 1 } },
+          "waitReply": { "in": 1, "ports": { "parked": 1 } }
+        },
+        "calls": { "slack.readThread": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [
+          { "node": "assess", "mode": "perItem", "items": ["m1"] },
+          { "node": "ask", "mode": "perItem", "items": ["m1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "m1": ["decision@route:route:needsInfo", "effect@ask", "parked@waitReply"]
+    }
+  }
+}

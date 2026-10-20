@@ -3373,6 +3373,107 @@ Respond to the event.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("pauses an event automation that names a job runner instead of running its placeholder body as a prompt", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-runner-event",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/runner-event.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          "event: qa.event.runner",
+          "mode: agentic",
+          "runner: workflow",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Runs the saved workflow.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    await busEventHandler("qa.event.runner")(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-runner",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-runner");
+
+    const persisted = parseTriggerFrontmatter(
+      resourcePutMock.mock.calls.at(-1)![2],
+    ).meta;
+    expect(persisted).toMatchObject({
+      enabled: false,
+      runner: "workflow",
+      lastStatus: "paused",
+      lastErrorCode: "config_invalid",
+      lastError: expect.stringContaining('Job runner "workflow"'),
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("settles a webhook for a job runner automation as refused instead of running it as a prompt", async () => {
+    const owner = "alice+triggers@agent-native.test";
+    const path = "jobs/runner-webhook.md";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-runner-webhook",
+        owner,
+        path,
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: webhook",
+          "mode: agentic",
+          "runner: workflow",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Runs the saved workflow.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    await expect(
+      dispatchAutomationWebhookTask({
+        kind: "automation-webhook",
+        automationId: "resource-runner-webhook",
+        owner,
+        path,
+        eventId: "runner-webhook-event",
+        payload: { messageId: "message-1" },
+      }),
+    ).resolves.toBe("completed");
+
+    expect(
+      parseTriggerFrontmatter(resourcePutMock.mock.calls.at(-1)![2]).meta,
+    ).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "config_invalid",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
   it("does not run a shared event automation for a mismatched event owner", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {

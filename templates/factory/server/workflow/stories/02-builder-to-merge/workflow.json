@@ -1,0 +1,1113 @@
+{
+  "nodes": [
+    {
+      "id": "every5",
+      "name": "every5",
+      "position": {
+        "x": 0,
+        "y": 135
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "5m"
+        }
+      }
+    },
+    {
+      "id": "inFlight",
+      "name": "inFlight",
+      "position": {
+        "x": 344,
+        "y": 135
+      },
+      "kind": "source",
+      "settings": {
+        "source": "status",
+        "status": "automation_started",
+        "takeLimit": 50
+      }
+    },
+    {
+      "id": "byTask",
+      "name": "byTask",
+      "position": {
+        "x": 688,
+        "y": 135
+      },
+      "kind": "combine",
+      "settings": {
+        "mode": "groupBy",
+        "key": "item.extras.builderTaskId"
+      }
+    },
+    {
+      "id": "check",
+      "name": "check",
+      "position": {
+        "x": 1032,
+        "y": 135
+      },
+      "kind": "agent",
+      "settings": {
+        "agent": "builder",
+        "op": "check",
+        "args": {
+          "projectId": {
+            "mode": "path",
+            "path": "item.extras.projectId"
+          },
+          "branchName": {
+            "mode": "path",
+            "path": "item.extras.branchName"
+          }
+        }
+      }
+    },
+    {
+      "id": "state",
+      "name": "state",
+      "position": {
+        "x": 1376,
+        "y": 83
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "hasPr",
+            "label": "Pull request exists",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.check.hasPullRequest",
+                "op": "isTrue"
+              }
+            ]
+          },
+          {
+            "id": "stuck",
+            "label": "Stuck",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.check.state",
+                "op": "equals",
+                "right": "stuck"
+              }
+            ]
+          },
+          {
+            "id": "ended",
+            "label": "Ended with no pull request",
+            "combinator": "any",
+            "rules": [
+              {
+                "left": "nodes.check.state",
+                "op": "equals",
+                "right": "failed"
+              },
+              {
+                "left": "nodes.check.state",
+                "op": "equals",
+                "right": "completed"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "keep",
+      "name": "keep",
+      "position": {
+        "x": 4472,
+        "y": 532
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "released"
+      }
+    },
+    {
+      "id": "nudgedTwice",
+      "name": "nudgedTwice",
+      "position": {
+        "x": 2752,
+        "y": 150
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.nudges",
+            "op": "gt",
+            "right": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "alert",
+      "name": "alert",
+      "position": {
+        "x": 3096,
+        "y": 240
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Builder is stuck on {{ item.title }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "manual",
+      "name": "manual",
+      "position": {
+        "x": 3440,
+        "y": 274
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual"
+      }
+    },
+    {
+      "id": "nudge",
+      "name": "nudge",
+      "position": {
+        "x": 3096,
+        "y": 144
+      },
+      "kind": "agent",
+      "settings": {
+        "agent": "builder",
+        "op": "followUp",
+        "args": {
+          "projectId": {
+            "mode": "path",
+            "path": "item.extras.projectId"
+          },
+          "branchName": {
+            "mode": "path",
+            "path": "item.extras.branchName"
+          },
+          "userMessage": {
+            "mode": "fixed",
+            "value": "status? continue"
+          }
+        }
+      }
+    },
+    {
+      "id": "readPr",
+      "name": "readPr",
+      "position": {
+        "x": 1720,
+        "y": 911
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "github.readPullRequest",
+        "args": {
+          "repo": {
+            "mode": "path",
+            "path": "item.extras.repository"
+          },
+          "number": {
+            "mode": "path",
+            "path": "nodes.check.prNumber"
+          }
+        }
+      }
+    },
+    {
+      "id": "ci",
+      "name": "ci",
+      "position": {
+        "x": 2064,
+        "y": 835
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "merged",
+            "label": "Merged by someone else",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.readPr.state",
+                "op": "equals",
+                "right": "merged"
+              }
+            ]
+          },
+          {
+            "id": "closed",
+            "label": "Closed unmerged",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.readPr.state",
+                "op": "equals",
+                "right": "closed"
+              }
+            ]
+          },
+          {
+            "id": "pending",
+            "label": "Pending checks",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.readPr.checks.pending",
+                "op": "gt",
+                "right": 0
+              }
+            ]
+          },
+          {
+            "id": "failing",
+            "label": "Failing checks",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.readPr.checks.failed",
+                "op": "gt",
+                "right": 0
+              }
+            ]
+          },
+          {
+            "id": "green",
+            "label": "Green",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.readPr.checks.allPassing",
+                "op": "isTrue"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "fix",
+      "name": "fix",
+      "position": {
+        "x": 3440,
+        "y": 623
+      },
+      "kind": "agent",
+      "settings": {
+        "agent": "builder",
+        "op": "followUp",
+        "args": {
+          "projectId": {
+            "mode": "path",
+            "path": "item.extras.projectId"
+          },
+          "branchName": {
+            "mode": "path",
+            "path": "item.extras.branchName"
+          },
+          "userMessage": {
+            "mode": "ai",
+            "instruction": "Ask Builder to fix the failing checks on this pull request. Name each failing check (from readPr.checks.notPassing) and the head commit they ran on (readPr.headSha)."
+          }
+        }
+      }
+    },
+    {
+      "id": "gate",
+      "name": "gate",
+      "position": {
+        "x": 2408,
+        "y": 370
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "factory.mergeGate",
+        "args": {
+          "repo": {
+            "mode": "path",
+            "path": "item.extras.repository"
+          },
+          "number": {
+            "mode": "path",
+            "path": "nodes.check.prNumber"
+          }
+        }
+      }
+    },
+    {
+      "id": "eligible",
+      "name": "eligible",
+      "position": {
+        "x": 2752,
+        "y": 342
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "nodes.gate.eligible",
+            "op": "isTrue"
+          }
+        ]
+      }
+    },
+    {
+      "id": "merge",
+      "name": "merge",
+      "position": {
+        "x": 3096,
+        "y": 432
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "github.mergePullRequest",
+        "args": {
+          "repo": {
+            "mode": "path",
+            "path": "item.extras.repository"
+          },
+          "number": {
+            "mode": "path",
+            "path": "nodes.check.prNumber"
+          }
+        }
+      }
+    },
+    {
+      "id": "reports",
+      "name": "reports",
+      "position": {
+        "x": 3440,
+        "y": 814
+      },
+      "kind": "split",
+      "settings": {
+        "field": "item.reports"
+      }
+    },
+    {
+      "id": "tellReports",
+      "name": "tellReports",
+      "position": {
+        "x": 4128,
+        "y": 781
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.replyInThread",
+        "args": {
+          "channel": {
+            "mode": "path",
+            "path": "item.thread.channelId"
+          },
+          "threadTs": {
+            "mode": "path",
+            "path": "item.thread.threadTs"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "{{ nodes.readPr.url }} is merged, {{ item.id }} is resolved."
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 4472,
+        "y": 829
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done",
+        "setStatus": "merged"
+      }
+    },
+    {
+      "id": "person",
+      "name": "person",
+      "position": {
+        "x": 3096,
+        "y": 1007
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Needs a person: {{ nodes.readPr.url }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "lost",
+      "name": "lost",
+      "position": {
+        "x": 3096,
+        "y": 0
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Builder's task for {{ item.title }} ended without a pull request ({{ nodes.check.reason }}). Needs a person."
+          }
+        }
+      }
+    },
+    {
+      "id": "byHead",
+      "name": "byHead",
+      "position": {
+        "x": 2752,
+        "y": 556
+      },
+      "kind": "combine",
+      "settings": {
+        "mode": "groupBy",
+        "key": "nodes.readPr.headSha"
+      }
+    },
+    {
+      "id": "askedForHead",
+      "name": "askedForHead",
+      "position": {
+        "x": 3096,
+        "y": 528
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.nudges",
+            "op": "gt",
+            "right": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "refused",
+      "name": "refused",
+      "position": {
+        "x": 3096,
+        "y": 336
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "{{ nodes.readPr.url }} may not merge by itself: {{ nodes.gate.reasonText }} Needs a person."
+          }
+        }
+      }
+    },
+    {
+      "id": "inSlack",
+      "name": "inSlack",
+      "position": {
+        "x": 3784,
+        "y": 786
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.provider",
+            "op": "equals",
+            "right": "slack"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tellFindings",
+      "name": "tellFindings",
+      "position": {
+        "x": 4128,
+        "y": 877
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.findingsChannelId"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "{{ nodes.readPr.url }} is merged, {{ item.id }} ({{ item.title }}) is resolved."
+          }
+        }
+      }
+    },
+    {
+      "id": "builderIdle",
+      "name": "builderIdle",
+      "position": {
+        "x": 2408,
+        "y": 557
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "nodes.check.state",
+            "op": "notEquals",
+            "right": "working"
+          }
+        ]
+      }
+    },
+    {
+      "id": "fixedTask",
+      "name": "fixedTask",
+      "position": {
+        "x": 3784,
+        "y": 623
+      },
+      "kind": "combine",
+      "settings": {
+        "mode": "groupBy",
+        "key": "item.extras.builderTaskId"
+      }
+    },
+    {
+      "id": "roundCap",
+      "name": "roundCap",
+      "position": {
+        "x": 4128,
+        "y": 595
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "item.rounds",
+            "op": "gt",
+            "right": 4
+          }
+        ]
+      }
+    },
+    {
+      "id": "capAlert",
+      "name": "capAlert",
+      "position": {
+        "x": 4472,
+        "y": 708
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "{{ nodes.readPr.url }} still fails after six rounds with Builder. Needs a person."
+          }
+        }
+      }
+    },
+    {
+      "id": "roundsExhausted",
+      "name": "roundsExhausted",
+      "position": {
+        "x": 4816,
+        "y": 708
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual",
+        "reason": "Builder was asked six times to fix the failing checks and the pull request still fails"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "every5",
+        "port": "out"
+      },
+      "to": {
+        "node": "inFlight"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "inFlight",
+        "port": "out"
+      },
+      "to": {
+        "node": "byTask"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "byTask",
+        "port": "out"
+      },
+      "to": {
+        "node": "check"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "check",
+        "port": "out"
+      },
+      "to": {
+        "node": "state"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "state",
+        "port": "route:hasPr"
+      },
+      "to": {
+        "node": "readPr"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "state",
+        "port": "route:stuck"
+      },
+      "to": {
+        "node": "nudgedTwice"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "state",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "keep"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "nudgedTwice",
+        "port": "match"
+      },
+      "to": {
+        "node": "alert"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "alert",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e10",
+      "from": {
+        "node": "nudgedTwice",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "nudge"
+      }
+    },
+    {
+      "id": "e11",
+      "from": {
+        "node": "nudge",
+        "port": "out"
+      },
+      "to": {
+        "node": "keep"
+      }
+    },
+    {
+      "id": "e12",
+      "from": {
+        "node": "readPr",
+        "port": "out"
+      },
+      "to": {
+        "node": "ci"
+      }
+    },
+    {
+      "id": "e13",
+      "from": {
+        "node": "ci",
+        "port": "route:merged"
+      },
+      "to": {
+        "node": "reports"
+      }
+    },
+    {
+      "id": "e14",
+      "from": {
+        "node": "ci",
+        "port": "route:closed"
+      },
+      "to": {
+        "node": "person"
+      }
+    },
+    {
+      "id": "e15",
+      "from": {
+        "node": "ci",
+        "port": "route:pending"
+      },
+      "to": {
+        "node": "keep"
+      }
+    },
+    {
+      "id": "e16",
+      "from": {
+        "node": "ci",
+        "port": "route:failing"
+      },
+      "to": {
+        "node": "builderIdle"
+      }
+    },
+    {
+      "id": "e18",
+      "from": {
+        "node": "ci",
+        "port": "route:green"
+      },
+      "to": {
+        "node": "gate"
+      }
+    },
+    {
+      "id": "e19",
+      "from": {
+        "node": "ci",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "person"
+      }
+    },
+    {
+      "id": "e20",
+      "from": {
+        "node": "gate",
+        "port": "out"
+      },
+      "to": {
+        "node": "eligible"
+      }
+    },
+    {
+      "id": "e21",
+      "from": {
+        "node": "eligible",
+        "port": "match"
+      },
+      "to": {
+        "node": "merge"
+      }
+    },
+    {
+      "id": "e22",
+      "from": {
+        "node": "merge",
+        "port": "out"
+      },
+      "to": {
+        "node": "reports"
+      }
+    },
+    {
+      "id": "e23",
+      "from": {
+        "node": "eligible",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "refused"
+      }
+    },
+    {
+      "id": "e24",
+      "from": {
+        "node": "person",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e25",
+      "from": {
+        "node": "reports",
+        "port": "out"
+      },
+      "to": {
+        "node": "inSlack"
+      }
+    },
+    {
+      "id": "e26",
+      "from": {
+        "node": "tellReports",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e28",
+      "from": {
+        "node": "state",
+        "port": "route:ended"
+      },
+      "to": {
+        "node": "lost"
+      }
+    },
+    {
+      "id": "e29",
+      "from": {
+        "node": "lost",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e30",
+      "from": {
+        "node": "byHead",
+        "port": "out"
+      },
+      "to": {
+        "node": "askedForHead"
+      }
+    },
+    {
+      "id": "e31",
+      "from": {
+        "node": "askedForHead",
+        "port": "match"
+      },
+      "to": {
+        "node": "keep"
+      }
+    },
+    {
+      "id": "e32",
+      "from": {
+        "node": "askedForHead",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "fix"
+      }
+    },
+    {
+      "id": "e33",
+      "from": {
+        "node": "refused",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e34",
+      "from": {
+        "node": "inSlack",
+        "port": "match"
+      },
+      "to": {
+        "node": "tellReports"
+      }
+    },
+    {
+      "id": "e35",
+      "from": {
+        "node": "inSlack",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "tellFindings"
+      }
+    },
+    {
+      "id": "e36",
+      "from": {
+        "node": "tellFindings",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e37",
+      "from": {
+        "node": "builderIdle",
+        "port": "match"
+      },
+      "to": {
+        "node": "byHead"
+      }
+    },
+    {
+      "id": "e38",
+      "from": {
+        "node": "builderIdle",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "keep"
+      }
+    },
+    {
+      "id": "e17",
+      "from": {
+        "node": "fix",
+        "port": "out"
+      },
+      "to": {
+        "node": "fixedTask"
+      }
+    },
+    {
+      "id": "e40",
+      "from": {
+        "node": "fixedTask",
+        "port": "out"
+      },
+      "to": {
+        "node": "roundCap"
+      }
+    },
+    {
+      "id": "e41",
+      "from": {
+        "node": "roundCap",
+        "port": "match"
+      },
+      "to": {
+        "node": "capAlert"
+      }
+    },
+    {
+      "id": "e42",
+      "from": {
+        "node": "capAlert",
+        "port": "out"
+      },
+      "to": {
+        "node": "roundsExhausted"
+      }
+    },
+    {
+      "id": "e43",
+      "from": {
+        "node": "roundCap",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "keep"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

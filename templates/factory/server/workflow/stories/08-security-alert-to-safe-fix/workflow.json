@@ -1,0 +1,440 @@
+{
+  "nodes": [
+    {
+      "id": "hourly",
+      "name": "hourly",
+      "position": {
+        "x": 0,
+        "y": 96
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "60m"
+        }
+      }
+    },
+    {
+      "id": "alerts",
+      "name": "alerts",
+      "position": {
+        "x": 344,
+        "y": 96
+      },
+      "kind": "source",
+      "settings": {
+        "source": "provider-query",
+        "operation": "github.listSecurityAlerts",
+        "args": {
+          "repo": {
+            "mode": "path",
+            "path": "settings.extras.repository"
+          }
+        },
+        "memory": "inbox",
+        "maxItems": 50
+      }
+    },
+    {
+      "id": "assess",
+      "name": "assess",
+      "position": {
+        "x": 688,
+        "y": 96
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Judge this dependency security alert for this repository. Use the read-only repository tools to see whether the vulnerable package is imported and called by our code, then say how severe it is, whether the vulnerable code is reachable, what kind of fix removes it (a patch or minor upgrade, a major upgrade, or a code change), and how sure you are. You can only read: you cannot change anything or run code. Fill the Builder gate fields honestly: a concrete defect with one specific safe fix is a clear bug, and name every sensitive area a fix would touch.",
+        "result": {
+          "severity": {
+            "type": "enum",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "fixKind": {
+            "type": "enum",
+            "enum": ["patch", "minor", "major", "codeChange"]
+          },
+          "confidence": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "clearBug": {
+            "type": "boolean",
+            "description": "True when the alert is a concrete defect with one specific safe fix."
+          },
+          "risk": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "productUxImplications": {
+            "type": "boolean"
+          },
+          "categories": {
+            "type": "array",
+            "description": "Which of these the fix would touch: auth, session, identity, credentials, vault, migration, payments, security, publishable_package. Use only these words; an empty list when none applies."
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "mode": "perItem",
+        "tools": ["github.readFile", "github.searchCode"],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "route",
+      "name": "route",
+      "position": {
+        "x": 1032,
+        "y": 56
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "safe",
+            "label": "Safe fix",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.assess.fixKind",
+                "op": "inList",
+                "right": ["patch", "minor"]
+              },
+              {
+                "left": "nodes.assess.severity",
+                "op": "notEquals",
+                "right": "critical"
+              },
+              {
+                "left": "nodes.assess.confidence",
+                "op": "equals",
+                "right": "high"
+              },
+              {
+                "left": "nodes.assess.clearBug",
+                "op": "isTrue"
+              },
+              {
+                "left": "nodes.assess.risk",
+                "op": "equals",
+                "right": "low"
+              },
+              {
+                "left": "nodes.assess.productUxImplications",
+                "op": "equals",
+                "right": false
+              },
+              {
+                "left": "nodes.assess.categories",
+                "op": "isEmpty"
+              }
+            ]
+          },
+          {
+            "id": "unreachable",
+            "label": "Not reachable",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.assess.reachable",
+                "op": "equals",
+                "right": false
+              },
+              {
+                "left": "nodes.assess.severity",
+                "op": "inList",
+                "right": ["low", "medium"]
+              },
+              {
+                "left": "nodes.assess.confidence",
+                "op": "equals",
+                "right": "high"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "builder",
+      "name": "builder",
+      "position": {
+        "x": 1376,
+        "y": 192
+      },
+      "kind": "agent",
+      "settings": {
+        "agent": "builder",
+        "op": "start",
+        "args": {
+          "projectId": {
+            "mode": "path",
+            "path": "settings.builderProjectId"
+          },
+          "branchName": {
+            "mode": "fixed",
+            "value": "factory-alert-{{ item.externalId }}"
+          },
+          "prompt": {
+            "mode": "ai",
+            "instruction": "Describe the upgrade to make."
+          },
+          "clearBug": {
+            "mode": "path",
+            "path": "nodes.assess.clearBug"
+          },
+          "productUxImplications": {
+            "mode": "path",
+            "path": "nodes.assess.productUxImplications"
+          },
+          "risk": {
+            "mode": "path",
+            "path": "nodes.assess.risk"
+          },
+          "confidence": {
+            "mode": "path",
+            "path": "nodes.assess.confidence"
+          },
+          "alreadyClaimed": {
+            "mode": "fixed",
+            "value": false
+          },
+          "categories": {
+            "mode": "path",
+            "path": "nodes.assess.categories"
+          }
+        }
+      }
+    },
+    {
+      "id": "handed",
+      "name": "handed",
+      "position": {
+        "x": 1720,
+        "y": 192
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done",
+        "setStatus": "automation_started",
+        "record": {
+          "builderTaskId": {
+            "mode": "fixed",
+            "value": "{{ settings.builderProjectId }}:{{ nodes.builder.externalRef }}"
+          },
+          "projectId": {
+            "mode": "path",
+            "path": "settings.builderProjectId"
+          },
+          "branchName": {
+            "mode": "path",
+            "path": "nodes.builder.externalRef"
+          },
+          "repository": {
+            "mode": "path",
+            "path": "settings.extras.repository"
+          }
+        }
+      }
+    },
+    {
+      "id": "notify",
+      "name": "notify",
+      "position": {
+        "x": 1376,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.securityOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Alert needs a person: {{ item.title }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "notifyEmail",
+      "name": "notifyEmail",
+      "position": {
+        "x": 1720,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "email.send",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.securityOwnerEmail"
+          },
+          "subject": {
+            "mode": "fixed",
+            "value": "Security alert: {{ item.title }}"
+          },
+          "body": {
+            "mode": "fixed",
+            "value": "{{ nodes.assess.reason }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "manual",
+      "name": "manual",
+      "position": {
+        "x": 2064,
+        "y": 96
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual"
+      }
+    },
+    {
+      "id": "dismissed",
+      "name": "dismissed",
+      "position": {
+        "x": 1376,
+        "y": 0
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "dismissed",
+        "reason": "{{ nodes.assess.reason }}"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "hourly",
+        "port": "out"
+      },
+      "to": {
+        "node": "alerts"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "alerts",
+        "port": "out"
+      },
+      "to": {
+        "node": "assess"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "assess",
+        "port": "out"
+      },
+      "to": {
+        "node": "route"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "route",
+        "port": "route:safe"
+      },
+      "to": {
+        "node": "builder"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "builder",
+        "port": "out"
+      },
+      "to": {
+        "node": "handed"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "route",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "notify"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "notify",
+        "port": "out"
+      },
+      "to": {
+        "node": "notifyEmail"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "notifyEmail",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "route",
+        "port": "route:unreachable"
+      },
+      "to": {
+        "node": "dismissed"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

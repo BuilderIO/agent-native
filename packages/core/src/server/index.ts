@@ -201,6 +201,10 @@ export {
 } from "../agent/production-agent.js";
 export { approvalKeyWithArguments } from "../agent/approval-key.js";
 export {
+  persistAgentTurnToThread,
+  type PersistAgentTurnToThreadInput,
+} from "../agent/persist-agent-turn.js";
+export {
   isJevEnabled,
   requestJevThroughBuilder,
   type JevResponse,
@@ -466,6 +470,8 @@ export {
 export {
   fireInternalDispatch,
   resolveSelfDispatchBaseUrl,
+  SelfDispatchHttpError,
+  SelfDispatchNetworkError,
   type FireInternalDispatchOptions,
 } from "./self-dispatch.js";
 export {
@@ -798,6 +804,21 @@ export {
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
 export {
+  BuilderBranchError,
+  getBuilderBranchStatus,
+  sendBuilderBranchMessage,
+  type BuilderBranchAgentState,
+  type BuilderBranchErrorCode,
+  type BuilderBranchOperation,
+  type BuilderBranchPrStatus,
+  type BuilderBranchRef,
+  type BuilderBranchState,
+  type BuilderBranchStatus,
+  type GetBuilderBranchStatusOptions,
+  type SendBuilderBranchMessageOptions,
+  type SendBuilderBranchMessageResult,
+} from "./builder-branch.js";
+export {
   ensureFusionContainer,
   sendFusionBranchMessage,
   pushFusionBranch,
@@ -869,6 +890,13 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export {
+  hasJobRunner,
+  registerJobRunner,
+  type JobRunner,
+  type JobRunnerContext,
+  type JobRunnerResult,
+} from "../jobs/job-runner.js";
 export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,

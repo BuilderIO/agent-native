@@ -12,14 +12,7 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import { factoryAutomationTemplatePrompt } from "../server/plugins/factory-scheduler-job.js";
 
-const TEMPLATES: FactoryAutomationTemplateId[] = [
-  "slack-feedback",
-  "github-issues",
-  "pr-governance",
-  "pr-babysit",
-  "sentry-errors",
-  "blank",
-];
+const TEMPLATES: FactoryAutomationTemplateId[] = ["pr-governance", "blank"];
 
 export default defineAction({
   description:

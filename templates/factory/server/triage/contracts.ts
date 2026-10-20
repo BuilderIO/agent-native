@@ -1,11 +1,15 @@
 import { z } from "zod";
 
-export const triageSourceSchema = z.enum([
-  "slack",
-  "github",
-  "github_issue",
-  "sentry",
-]);
+/**
+ * A provider id. The Slack, GitHub, and Sentry pollers write `slack`, `github`,
+ * `github_issue`, and `sentry`; so does any other provider a workflow brings
+ * items in from, such as `hubspot` or `pylon`.
+ */
+export const triageSourceSchema = z
+  .string()
+  .min(1)
+  .max(60)
+  .regex(/^[a-z][a-z0-9_-]*$/, 'use a provider id such as "hubspot"');
 export type TriageSource = z.infer<typeof triageSourceSchema>;
 
 export const triageItemStatusSchema = z.enum([
@@ -22,6 +26,7 @@ export const triageItemStatusSchema = z.enum([
   "auto_approved",
   "merged",
   "resolved",
+  "dismissed",
 ]);
 export type TriageItemStatus = z.infer<typeof triageItemStatusSchema>;
 
@@ -62,9 +67,6 @@ export const triageDecisionOutcomeSchema = z.enum([
 ]);
 export type TriageDecisionOutcome = z.infer<typeof triageDecisionOutcomeSchema>;
 
-export const triageRuleModeSchema = z.enum(["disabled", "shadow"]);
-export type TriageRuleMode = z.infer<typeof triageRuleModeSchema>;
-
 export const executorStateSchema = z.enum([
   "submitted",
   "acknowledged",
@@ -96,41 +98,10 @@ export const triageGuardCodeSchema = z.enum([
 ]);
 export type TriageGuardCode = z.infer<typeof triageGuardCodeSchema>;
 
-export const hardNeverAutomateGuardCodes: TriageGuardCode[] = [
-  "auth",
-  "session",
-  "identity",
-  "credentials",
-  "vault",
-  "migration",
-  "payments",
-  "security",
-  "publishable_package",
-  "owner_owned",
-];
-
-export const triagePolicyGuardsSchema = z.object({
-  allowRepositories: z.array(z.string().min(1)).default([]),
-  denyPathPrefixes: z.array(z.string().min(1)).default([]),
-  maxChangedFiles: z.number().int().positive().nullable().default(30),
-  maxDiffLines: z.number().int().positive().nullable().default(1500),
-  neverAutomate: z
-    .array(triageGuardCodeSchema)
-    .default(hardNeverAutomateGuardCodes),
-});
-
 export interface GuardResult {
   code: TriageGuardCode;
   passed: boolean;
   reason: string;
-}
-
-export interface TriagePolicyGuards {
-  allowRepositories: string[];
-  denyPathPrefixes: string[];
-  maxChangedFiles: number | null;
-  maxDiffLines: number | null;
-  neverAutomate: TriageGuardCode[];
 }
 
 export interface IngestionEnvelope {
@@ -158,33 +129,4 @@ export interface ExecutorTaskContract {
   providerTaskId?: string;
   terminalReason?: string;
   observedAt: string;
-}
-
-export function normalizeTriagePolicyGuards(
-  value: unknown,
-): TriagePolicyGuards {
-  const parsed = triagePolicyGuardsSchema.parse(value);
-  return {
-    ...parsed,
-    neverAutomate: [
-      ...new Set([...hardNeverAutomateGuardCodes, ...parsed.neverAutomate]),
-    ],
-  };
-}
-
-export function defaultTriagePolicyGuards(): TriagePolicyGuards {
-  return normalizeTriagePolicyGuards({
-    allowRepositories: [],
-    denyPathPrefixes: [
-      ".env",
-      "auth",
-      "credentials",
-      "migrations",
-      "payments",
-      "security",
-      "packages/",
-    ],
-    maxChangedFiles: 30,
-    maxDiffLines: 1500,
-  });
 }

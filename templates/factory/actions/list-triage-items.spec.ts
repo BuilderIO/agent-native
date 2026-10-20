@@ -7,7 +7,7 @@ const readCallingFactoryAutomationMock = vi.hoisted(() => vi.fn());
 const recordFactoryAuditMock = vi.hoisted(() => vi.fn());
 const readFactoryPollCursorMock = vi.hoisted(() => vi.fn());
 const writeFactoryPollCursorMock = vi.hoisted(() => vi.fn());
-const readTriageConfigRowMock = vi.hoisted(() => vi.fn());
+const requireFactoryAutomationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -30,19 +30,20 @@ vi.mock("../server/triage/audit.js", () => ({
   recordFactoryAudit: recordFactoryAuditMock,
 }));
 
+vi.mock(
+  "../server/lib/require-factory-automation.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/lib/require-factory-automation.js")
+    >()),
+    requireFactoryAutomation: requireFactoryAutomationMock,
+  }),
+);
+
 vi.mock("../server/lib/factory-poll-cursors.js", () => ({
   readFactoryPollCursor: readFactoryPollCursorMock,
   writeFactoryPollCursor: writeFactoryPollCursorMock,
 }));
-
-vi.mock("../server/lib/factory-scope.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../server/lib/factory-scope.js")>();
-  return {
-    ...actual,
-    readTriageConfigRow: readTriageConfigRowMock,
-  };
-});
 
 function item(id: string, authorId: string) {
   return {
@@ -75,13 +76,11 @@ beforeEach(() => {
     orgId: "org-1",
   });
   recordFactoryAuditMock.mockResolvedValue(undefined);
+  requireFactoryAutomationMock.mockResolvedValue(undefined);
   readFactoryPollCursorMock.mockResolvedValue(null);
   writeFactoryPollCursorMock.mockResolvedValue(undefined);
-  readTriageConfigRowMock.mockResolvedValue({
-    repository: "acme/repo",
-  });
   readCallingFactoryAutomationMock.mockResolvedValue({
-    name: "factory-github-issues",
+    name: "factory-pr-governance",
     content: "",
     config: {
       source: "github",
@@ -201,7 +200,7 @@ describe("list-triage-items automation limits", () => {
         userEmail: "owner@example.com",
         automation: {
           triggerId: "job-1",
-          triggerName: "factory-pr-babysit",
+          triggerName: "factory-pr-governance",
         },
       },
     );
@@ -361,7 +360,7 @@ describe("list-triage-items automation limits", () => {
     ]);
   });
 
-  it("prioritizes re-queued babysit items ahead of newer updated_at rows", async () => {
+  it("lists newest first for a caller named like the retired babysit job, with no queue cursor", async () => {
     readCallingFactoryAutomationMock.mockResolvedValue({
       name: "factory-pr-babysit",
       content: "",
@@ -388,11 +387,6 @@ describe("list-triage-items automation limits", () => {
       ...item("fresh", "99"),
       id: "fresh",
       updatedAt: "2026-09-14T19:00:00.000Z",
-      metadataJson: JSON.stringify({
-        authorId: "99",
-        author: "builder-io-bot",
-        prBabysitBotReviewBodyKeys: ["bot1:fix"],
-      }),
     };
     let selectCalls = 0;
     getDbMock.mockReturnValue({
@@ -430,88 +424,77 @@ describe("list-triage-items automation limits", () => {
       },
     );
     expect(result.items.map((entry: { id: string }) => entry.id)).toEqual([
-      "queued",
+      "fresh",
     ]);
-    expect(writeFactoryPollCursorMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        source: "pr-babysit",
-        destinationKey: "acme/repo",
-        babysitQueueCursor: expect.any(String),
-      }),
+    expect(readFactoryPollCursorMock).not.toHaveBeenCalled();
+    expect(writeFactoryPollCursorMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("list-triage-items workflow gate", () => {
+  const context = {
+    caller: "automation" as const,
+    userEmail: "owner@example.com",
+    automation: { triggerId: "job-1", triggerName: "factories/f1/flow" },
+  };
+
+  function emptyDb() {
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([]) })),
+          })),
+        })),
+      })),
+    });
+  }
+
+  it("asks the workflow gate when the calling job's runner is workflow", async () => {
+    emptyDb();
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factories/f1/flow",
+      content: "---\nrunner: workflow\n---\n",
+      config: { source: "slack", workLimit: 3 },
+    });
+    const { default: action } = await import("./list-triage-items.js");
+
+    await action.run({ factoryId: "f1", limit: 5 }, context);
+
+    expect(requireFactoryAutomationMock).toHaveBeenCalledWith(
+      context,
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      "workflow",
+      "f1",
     );
   });
 
-  it("uses fair queue for nested factory-pr-babysit automation names", async () => {
+  it("stops a workflow whose graph does not name it, before reading the queue", async () => {
     readCallingFactoryAutomationMock.mockResolvedValue({
-      name: "factories/myfact/factory-pr-babysit",
-      content: "",
-      config: {
-        source: "github",
-        authorMode: "include",
-        authorIds: ["99"],
-        workLimit: 3,
-        repository: "acme/repo",
-      },
+      name: "factories/f1/flow",
+      content: "---\nrunner: workflow\n---\n",
+      config: { source: "slack", workLimit: 3 },
     });
-    const queued = {
-      ...item("queued", "99"),
-      id: "queued",
-      updatedAt: "2026-09-14T18:35:19.685Z",
-      metadataJson: JSON.stringify({
-        authorId: "99",
-        author: "builder-io-bot",
-        prBabysitState: "queued",
-        prBabysitPendingReopen: true,
-      }),
-    };
-    const fresh = {
-      ...item("fresh", "99"),
-      id: "fresh",
-      updatedAt: "2026-09-14T19:00:00.000Z",
-      metadataJson: JSON.stringify({
-        authorId: "99",
-        author: "builder-io-bot",
-        prBabysitBotReviewBodyKeys: ["bot1:fix"],
-      }),
-    };
-    let selectCalls = 0;
-    getDbMock.mockReturnValue({
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => {
-            selectCalls += 1;
-            if (selectCalls === 1) {
-              return {
-                orderBy: vi.fn(() => ({
-                  limit: vi.fn().mockResolvedValue([fresh, queued]),
-                })),
-              };
-            }
-            return { orderBy: vi.fn().mockResolvedValue([]) };
-          }),
-        })),
-      })),
-    });
+    requireFactoryAutomationMock.mockRejectedValue(new Error("not named"));
     const { default: action } = await import("./list-triage-items.js");
-    const result = await action.run(
-      {
-        factoryId: "support-triage",
-        source: "github",
-        needsReview: true,
-        limit: 1,
-      },
-      {
-        caller: "automation",
-        userEmail: "owner@example.com",
-        automation: {
-          triggerId: "job-1",
-          triggerName: "factory-pr-babysit",
-        },
-      },
+
+    await expect(
+      action.run({ factoryId: "f1", limit: 5 }, context),
+    ).rejects.toThrow("not named");
+    expect(getDbMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a legacy job, and a person, ungated as before", async () => {
+    emptyDb();
+    const { default: action } = await import("./list-triage-items.js");
+
+    await action.run({ factoryId: "f1", limit: 5 }, context);
+    readCallingFactoryAutomationMock.mockResolvedValue(null);
+    await action.run(
+      { factoryId: "f1", limit: 5 },
+      { caller: "frontend", userEmail: "owner@example.com" },
     );
-    expect(result.items.map((entry: { id: string }) => entry.id)).toEqual([
-      "queued",
-    ]);
+
+    expect(requireFactoryAutomationMock).not.toHaveBeenCalled();
   });
 });

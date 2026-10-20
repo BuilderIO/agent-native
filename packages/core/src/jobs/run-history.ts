@@ -466,25 +466,28 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+/**
+ * Skipped ticks ("nothing due") can outnumber real runs many times over, so
+ * they are evicted ahead of success and error rows rather than by age alone.
+ */
 async function pruneAutomationRuns(
   owner: string,
   automation: string,
 ): Promise<void> {
   await getDbExec().execute({
     sql: `DELETE FROM ${TABLE}
-          WHERE owner = ? AND automation = ?
-            AND finished_at IS NOT NULL
-            AND COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
-            AND started_at < (
-            SELECT MIN(started_at) FROM (
-              SELECT started_at FROM ${TABLE}
+          WHERE id IN (
+            SELECT id FROM (
+              SELECT id, failure_alert_state FROM ${TABLE}
               WHERE owner = ? AND automation = ?
                 AND finished_at IS NOT NULL
-              ORDER BY started_at DESC
-              LIMIT ${RUNS_RETAINED_PER_AUTOMATION}
-            ) recent
+              ORDER BY CASE WHEN status = 'skipped' THEN 1 ELSE 0 END,
+                started_at DESC, id
+              OFFSET ${RUNS_RETAINED_PER_AUTOMATION}
+            ) evictable
+            WHERE COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
           )`,
-    args: [owner, automation, owner, automation],
+    args: [owner, automation],
   });
 }
 

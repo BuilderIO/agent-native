@@ -1,0 +1,682 @@
+{
+  "scenarios": {
+    "an-answered-incident-resolves-into-a-postmortem-draft": {
+      "description": "The on-call person is paged by Slack and email, answers, the issue stays open for three looks and then resolves, and a postmortem draft is written to Notion and announced with its link.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "events"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "high"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "grounded"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "unresolved",
+          "calls": 2
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "resolved"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the spike is paged"
+        },
+        {
+          "kind": "tick",
+          "at": "+5m",
+          "label": "nothing is due yet"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0ONCALL",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+8m",
+          "author": "oncall@example.test",
+          "text": "Looking now."
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the answer is seen: now waiting for the fix"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "still open"
+        },
+        {
+          "kind": "tick",
+          "at": "+45m",
+          "label": "still open"
+        },
+        {
+          "kind": "tick",
+          "at": "+1h",
+          "label": "resolved: the postmortem is written"
+        }
+      ]
+    },
+    "nobody-answers-so-the-escalation-contact-is-told-and-the-issue-still-resolves": {
+      "description": "Fifteen minutes without an answer pages the escalation contact by Slack and email; the issue then resolves without anyone having answered, and the postmortem is written all the same.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "events"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "high"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "grounded"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "resolved"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the spike is paged"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "fifteen minutes: the escalation contact is paged"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "the issue is resolved: the postmortem is written"
+        }
+      ]
+    },
+    "an-issue-with-no-recorded-events-gets-a-postmortem-with-an-empty-timeline": {
+      "description": "Sentry has no events for the issue when it resolves: the model is shown an empty list and writes a postmortem with an empty timeline and no event link, and the draft is created and announced all the same.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "noEvents"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "high"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "noEvents"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "resolved"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the spike is paged"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "fifteen minutes: the escalation contact is paged"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "the issue is resolved: a postmortem is written from no events"
+        }
+      ]
+    },
+    "still-open-after-48-hours-tells-the-incident-owner": {
+      "description": "An answered incident whose issue never resolves is looked at every 15 minutes and, at the 48-hour limit, ends needs_manual with the incident owner told once.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "events"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "high"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "grounded"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "unresolved"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the spike is paged"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0ONCALL",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+8m",
+          "author": "oncall@example.test",
+          "text": "Looking now."
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the answer is seen"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "still open"
+        },
+        {
+          "kind": "tick",
+          "at": "+24h",
+          "label": "a day later, still open"
+        },
+        {
+          "kind": "tick",
+          "at": "+48h",
+          "label": "a minute short of the limit"
+        },
+        {
+          "kind": "tick",
+          "at": "+48h15m",
+          "label": "the 48-hour limit"
+        }
+      ]
+    },
+    "a-failed-status-read-is-neither-resolved-nor-a-timeout": {
+      "description": "A status read that fails (Sentry is unavailable) does not resolve the incident, does not time it out even at the deadline, and spends no attempt: the next look reads again and only then decides.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "events"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "high"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "grounded"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "readFails",
+          "calls": 3
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "unresolved",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "readFails",
+          "calls": 3
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "unresolved"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the spike is paged"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0ONCALL",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+8m",
+          "author": "oncall@example.test",
+          "text": "Looking now."
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the answer is seen"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "the status cannot be read"
+        },
+        {
+          "kind": "tick",
+          "at": "+45m",
+          "label": "still open"
+        },
+        {
+          "kind": "tick",
+          "at": "+48h15m",
+          "label": "at the deadline the status cannot be read"
+        },
+        {
+          "kind": "tick",
+          "at": "+48h30m",
+          "label": "read again: still open, the limit has passed"
+        }
+      ]
+    },
+    "the-model-cannot-summarize-so-nobody-is-paged-and-a-person-is-handed-the-incident": {
+      "description": "If the model cannot write the summary, nothing is sent: the issue fails at that step, is set aside and brought back after 5 and then 10 minutes, and on the third failure goes to a person. Today the page depends on the model.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 3
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "events"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "junk"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "grounded"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "first try"
+        },
+        {
+          "kind": "tick",
+          "at": "+5m",
+          "label": "second try"
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "third try"
+        }
+      ]
+    },
+    "notion-down-leaves-the-incident-for-a-person": {
+      "description": "When Notion is unavailable the postmortem is not announced and nothing claims it is done: the page is set aside for a retry, and three failed tries hand the incident to a person.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 1
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "events"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "down"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "high"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "grounded"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "resolved"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the spike is paged"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0ONCALL",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+8m",
+          "author": "oncall@example.test",
+          "text": "Looking now."
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the answer is seen"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "resolved: Notion fails"
+        },
+        {
+          "kind": "tick",
+          "at": "+45m",
+          "label": "second try"
+        },
+        {
+          "kind": "tick",
+          "at": "+1h",
+          "label": "third try"
+        }
+      ]
+    },
+    "the-same-issue-offered-again-is-paged-once": {
+      "description": "The source offers the same issue on every tick, while it waits for an answer and while it waits for the fix; it is paged once.",
+      "steps": [
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "oneIssue",
+          "calls": 9
+        },
+        {
+          "kind": "offer",
+          "source": "spikes",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueEvents",
+          "recording": "events"
+        },
+        {
+          "kind": "serve",
+          "operation": "notion.createPage",
+          "recording": "created"
+        },
+        {
+          "kind": "ai",
+          "node": "summarize",
+          "recording": "high"
+        },
+        {
+          "kind": "ai",
+          "node": "postmortem",
+          "recording": "grounded"
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "unresolved",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "sentry.issueStatus",
+          "recording": "resolved"
+        },
+        {
+          "kind": "tick",
+          "at": "+0m",
+          "label": "the spike is paged"
+        },
+        {
+          "kind": "tick",
+          "at": "+5m",
+          "label": "offered again while waiting for an answer"
+        },
+        {
+          "kind": "tick",
+          "at": "+10m",
+          "label": "offered again"
+        },
+        {
+          "kind": "reply",
+          "thread": {
+            "channelId": "D0ONCALL",
+            "threadTs": "1760001000.000001"
+          },
+          "at": "+8m",
+          "author": "oncall@example.test",
+          "text": "Looking now."
+        },
+        {
+          "kind": "tick",
+          "at": "+15m",
+          "label": "the answer is seen"
+        },
+        {
+          "kind": "tick",
+          "at": "+20m",
+          "label": "offered again while waiting for the fix"
+        },
+        {
+          "kind": "tick",
+          "at": "+30m",
+          "label": "still open"
+        },
+        {
+          "kind": "tick",
+          "at": "+1h",
+          "label": "resolved: the postmortem is written"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,152 @@
+/* React Flow draws with its own variables; point them at the app's tokens so the canvas follows light and dark. */
+.workflow-canvas .react-flow {
+  --xy-background-color: hsl(var(--background));
+  --xy-background-pattern-color: hsl(var(--border));
+  --xy-edge-stroke: hsl(var(--muted-foreground) / 0.55);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: hsl(var(--foreground));
+  --xy-connectionline-stroke: hsl(var(--primary));
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-minimap-background-color: hsl(var(--card));
+  --xy-minimap-mask-background-color: hsl(var(--background) / 0.7);
+  --xy-minimap-node-background-color: hsl(var(--muted-foreground) / 0.35);
+  --xy-minimap-node-stroke-color: transparent;
+  --xy-selection-background-color: hsl(var(--primary) / 0.06);
+  --xy-selection-border: 1px solid hsl(var(--primary) / 0.5);
+  --xy-attribution-background-color: transparent;
+}
+
+.workflow-canvas .react-flow__attribution {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.workflow-canvas .react-flow__attribution a {
+  color: inherit;
+}
+
+.workflow-canvas .react-flow__minimap {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.workflow-canvas .react-flow__node {
+  cursor: default;
+}
+
+.workflow-canvas .react-flow__edge-interaction {
+  stroke-width: 18;
+}
+
+.workflow-canvas .react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke: hsl(var(--ring));
+}
+
+/* The handle is a generous hit target with a small dot drawn inside it. */
+.workflow-canvas .react-flow__handle.workflow-handle {
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 9999px;
+}
+
+.workflow-canvas .react-flow__handle.workflow-handle::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 9999px;
+  background: hsl(var(--muted-foreground));
+  border: 2px solid hsl(var(--card));
+  box-sizing: border-box;
+  transition: transform 120ms ease-out;
+}
+
+.workflow-canvas .react-flow__handle.workflow-handle:hover::after,
+.workflow-canvas .react-flow__handle.workflow-handle.connectingto::after,
+.workflow-canvas .react-flow__handle.workflow-handle.connectingfrom::after {
+  transform: scale(1.35);
+  background: hsl(var(--primary));
+}
+
+.workflow-canvas
+  .react-flow__handle.workflow-handle[data-unconnected="true"]::after {
+  background: hsl(var(--card));
+  border-color: hsl(var(--muted-foreground));
+}
+
+/* An output nothing leaves yet is also a button: a click opens the step picker. */
+.workflow-canvas .react-flow__handle.workflow-handle[role="button"] {
+  cursor: pointer;
+}
+
+.workflow-canvas
+  .react-flow__handle.workflow-handle[role="button"]:focus-visible {
+  outline: none;
+}
+
+.workflow-canvas
+  .react-flow__handle.workflow-handle[role="button"]:focus-visible::after {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
+.workflow-canvas .react-flow__handle.workflow-handle[data-issue="true"]::after {
+  border-color: hsl(var(--destructive));
+  background: hsl(var(--card));
+}
+
+.workflow-canvas
+  .react-flow__handle.workflow-handle.connectionindicator.valid::after {
+  background: hsl(var(--primary));
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="selected"] {
+  stroke: hsl(var(--foreground));
+  stroke-width: 2;
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="lit"] {
+  stroke: hsl(var(--primary));
+  stroke-width: 2;
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="dimmed"] {
+  stroke: hsl(var(--border));
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-tone="issue"] {
+  stroke: hsl(var(--destructive));
+}
+
+.workflow-canvas .react-flow__edge-path.workflow-edge[data-back] {
+  stroke-dasharray: 6 4;
+}
+
+.workflow-arrow {
+  fill: hsl(var(--muted-foreground) / 0.7);
+}
+
+.workflow-arrow[data-state="selected"] {
+  fill: hsl(var(--foreground));
+}
+
+.workflow-arrow[data-state="lit"] {
+  fill: hsl(var(--primary));
+}
+
+.workflow-arrow[data-state="dimmed"] {
+  fill: hsl(var(--border));
+}
+
+.workflow-arrow[data-state="issue"] {
+  fill: hsl(var(--destructive));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-canvas .react-flow__handle.workflow-handle::after {
+    transition: none;
+  }
+}

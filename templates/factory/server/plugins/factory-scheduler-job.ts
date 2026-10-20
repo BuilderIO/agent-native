@@ -65,17 +65,11 @@ import {
 } from "../lib/factory-scope.js";
 import { persistGitHubRepository } from "../lib/github-repository.js";
 import {
-  BABYSIT_DECISION_INSTRUCTION,
-  BABYSIT_FIXED_PATH,
-  BABYSIT_SCOPE_INSTRUCTION,
-  BABYSIT_WORK_RETRIGGER,
-} from "../lib/pr-babysit-prompt.js";
-import { SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS } from "../lib/slack-feedback-prompt.js";
-import {
   recordFactoryAutomationRunPrompt,
   recordFactoryGovernanceAudit,
 } from "../triage/audit.js";
 import { FACTORY_ALIGNMENT_REVISION } from "../triage/review-skill-alignment.js";
+import { registerWorkflowJobRunner } from "../workflow-host/register-job-runner.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
@@ -158,8 +152,8 @@ async function notifyFactoryAutomationFailure(
 
   const url = factoryPublicUrl();
   const debugTarget = url
-    ? `${url}/factory?factoryId=${encodeURIComponent(factoryId)}&tab=automations`
-    : "Factory > Automations";
+    ? `${url}/factory?factoryId=${encodeURIComponent(factoryId)}&tab=settings`
+    : "Factory > Settings";
   const details = [
     `Automation: ${event.automation}`,
     `Run: ${event.automationRunId}`,
@@ -258,152 +252,6 @@ const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const AUTOMATION_SEEDS: AutomationSeed[] = [
   {
-    name: "factory-slack-feedback",
-    schedule: "*/5 * * * *",
-    legacySchedules: ["* * * * *"],
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory Slack feedback triage
-
-List needsReview Slack items after poll-slack-channel. Call
-get-slack-feedback-context for each one. A truncated or unreadable thread is
-not a clear bug.
-
-A clear bug is a concrete broken behavior, reproducible failure, error,
-regression, stuck run, incorrect result, or a specific failing path with
-enough evidence to investigate — including visual/UI defects such as a
-duplicate control or broken layout. Feature requests, vague questions, and
-incomplete threads are not. A clear bug still only reaches Builder when its
-risk and confidence both clear the bar below — most clear bugs will not.
-
-${SLACK_FEEDBACK_DISPATCH_INSTRUCTIONS}
-Cluster only items listed in this run: one dispatch with relatedItemIds. Do
-not dispatch needs_manual items or items that already started.
-
-Across a run, expect roughly 1 in 10 items to qualify for dispatch. If most
-of what you are seeing lands at risk low and confidence high, you are
-under-weighting uncertainty — re-check the evidence bar before passing those
-values.
-
-Preserve action errors. Do not claim a Builder reply, PR, merge, or fix
-unless an action returned that state.
-`,
-  },
-  {
-    name: "factory-sentry-errors",
-    schedule: "0 9 * * *",
-    timezone: "America/Los_Angeles",
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: 24,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory Sentry error triage
-
-Read the Factory configuration. When Sentry polling is enabled and a Sentry
-organization is configured, call poll-sentry-errors. List at most 3 new or
-changed errors by passing needsReview true, source sentry, and limit 3. Inspect
-the title, culprit, level, event count, and errorReport metadata. Never list the
-full queue or use the action's default page size.
-
-Only classify a concrete unresolved error as a clear bug when the Sentry
-evidence is sufficient to investigate. Do not dispatch on noise, expected
-errors, product ideas, or incomplete provider responses.
-
-Classify risk and confidence on every item, including ones you skip — this
-data is read later even when Builder is never tagged. Risk is how bad it is
-if this item is mishandled, not how likely it is to be real: negligible
-(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
-would be comfortable seeing fixed with no further review), medium (ambiguous
-scope, or touches shared or critical code), high (serious functional or data
-breakage), or critical (security, auth, tenant isolation, payments, or data
-loss). When in doubt, pick the higher tier.
-
-Confidence is how sure you are this can be correctly diagnosed and fixed as
-a code or test change from the evidence already gathered, without
-reproducing it in a browser: high (the stack trace, culprit, and event
-evidence pin down a specific failing path, and correctness does not depend
-on rendering or manually interacting with the UI), medium (a plausible cause
-but real uncertainty — a thin event count, no clear culprit, or more than
-one reasonable fix), or low (needs visual or browser reproduction to
-confirm, or the root cause is genuinely unclear from the Sentry evidence
-alone).
-
-For each item that does not clear the dispatch bar, call
-dispatch-factory-item with clearBug true or false, risk, confidence, and an
-evidence-grounded reason so the skip is recorded. Do not call it for eligible
-items. Collect every eligible item (clearBug true, risk low, confidence high,
-and no product or UX decision) and call report-factory-findings exactly once
-with the complete batch. The action posts one grouped report to
-#qa-agent-native; it does not create or comment on GitHub issues. Do
-not claim a PR exists until GitHub evidence confirms it.
-
-Across your decisions over time, expect roughly 1 in 10 items to qualify for
-dispatch. If most of what you are seeing lands at risk low and confidence
-high, you are under-weighting uncertainty — re-check the evidence bar before
-passing those values.
-`,
-  },
-  {
-    name: "factory-github-issues",
-    schedule: "0 * * * *",
-    legacySchedules: ["* * * * *", "*/5 * * * *"],
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory GitHub issue triage
-
-Call poll-github-sources with includeIssues true and includePullRequests false.
-List at most 3 new or changed issues by passing needsReview true, source
-github_issue, and limit 3. Never list the full queue or use the action's default
-page size.
-
-Treat an issue as a clear bug only when it has a concrete error report,
-reproduction, incorrect behavior, regression, or specific failing path. Do
-not dispatch feature requests, vague questions, or issues without enough
-evidence.
-
-Classify risk and confidence on every item, including ones you skip — this
-data is read later even when Builder is never tagged. Risk is how bad it is
-if this item is mishandled, not how likely it is to be real: negligible
-(cosmetic noise, barely a bug), low (a clear, narrowly scoped defect you
-would be comfortable seeing fixed with no further review), medium (ambiguous
-scope, or touches shared or critical code), high (serious functional or data
-breakage), or critical (security, auth, tenant isolation, payments, or data
-loss). When in doubt, pick the higher tier.
-
-Confidence is how sure you are this can be correctly diagnosed and fixed as
-a code or test change from the evidence already gathered, without
-reproducing it in a browser: high (the issue body pins down a specific
-failing path — an error message, stack trace, log line, or a concrete
-reproducible input and output — and correctness does not depend on
-rendering or manually interacting with the UI), medium (a plausible cause
-but real uncertainty: a thin report, no stack trace, or more than one
-reasonable fix), or low (needs visual or browser reproduction to confirm, or
-the root cause is genuinely unclear).
-
-For each item that does not clear the dispatch bar, call
-dispatch-factory-item with clearBug true or false, risk, confidence, and an
-evidence-grounded reason so the skip is recorded. Do not call it for eligible
-items. Collect every eligible item (clearBug true, risk low, confidence high,
-and no product or UX decision) and call report-factory-findings exactly once
-with the complete batch. The action posts one grouped report to
-#qa-agent-native, preserving each issue link and stored issue body as
-evidence; it never comments on or creates GitHub issues. Preserve failures and
-never report a successful Slack report without its action confirmation.
-
-Across your decisions over time, expect roughly 1 in 10 items to qualify for
-dispatch. If most of what you are seeing lands at risk low and confidence
-high, you are under-weighting uncertainty — re-check the evidence bar before
-passing those values.
-`,
-  },
-  {
     name: "factory-pr-governance",
     schedule: "*/10 * * * *",
     legacySchedules: ["*/5 * * * *"],
@@ -469,28 +317,6 @@ fully owned by their product owners for feedback work, while the verified
 PR-owner exceptions still apply to their own scoped PRs. Do not call GitHub
 write actions directly or claim an approval unless the governance action
 confirms it.
-`,
-  },
-  {
-    name: "factory-pr-babysit",
-    schedule: "*/5 * * * *",
-    legacySchedules: ["*/2 * * * *"],
-    model: FACTORY_DEFAULT_MODEL,
-    reasoningEffort: FACTORY_DEFAULT_REASONING_EFFORT,
-    maxIterations: 12,
-    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
-    body: `
-# Factory PR babysitting
-
-${BABYSIT_FIXED_PATH}
-
-${BABYSIT_SCOPE_INSTRUCTION}
-
-${BABYSIT_WORK_RETRIGGER}
-
-${BABYSIT_DECISION_INSTRUCTION}
-
-Never approve or merge. Preserve action errors.
 `,
   },
 ];
@@ -1058,7 +884,6 @@ async function ensureDefaultTriageConfig(
     slackWorkspace: "primary",
     slackChannelId: null,
     slackChannelName: null,
-    builderSlackUserId: null,
     pollingEnabled: 0,
     githubPollingEnabled,
     sentryPollingEnabled: 0,
@@ -1121,6 +946,8 @@ export default defineNitroPlugin(async () => {
   registerRecurringSweepHandler("factory-automation-repair", () =>
     repairOrganizationAutomationsOnce(),
   );
+  // Before the serverless return: a request function runs queued ticks too.
+  registerWorkflowJobRunner();
   if (isProductionServerlessFunctionRuntime()) return;
   try {
     await repairOrganizationAutomationsOnce();

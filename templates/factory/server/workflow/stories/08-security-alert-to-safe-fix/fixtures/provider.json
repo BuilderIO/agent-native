@@ -1,0 +1,216 @@
+{
+  "github.listSecurityAlerts": {
+    "mixedBatch": {
+      "ok": true,
+      "items": [
+        {
+          "id": "alert-101",
+          "externalId": "101",
+          "kind": "alert",
+          "provider": "github",
+          "title": "lodash: prototype pollution",
+          "text": "Advisory text for alert 101.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/101",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "medium",
+            "package": "lodash",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-101"
+          }
+        },
+        {
+          "id": "alert-102",
+          "externalId": "102",
+          "kind": "alert",
+          "provider": "github",
+          "title": "serialize-javascript: remote code execution",
+          "text": "Advisory text for alert 102.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/102",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "critical",
+            "package": "serialize-javascript",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-102"
+          }
+        },
+        {
+          "id": "alert-103",
+          "externalId": "103",
+          "kind": "alert",
+          "provider": "github",
+          "title": "express: open redirect",
+          "text": "Advisory text for alert 103.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/103",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "high",
+            "package": "express",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-103"
+          }
+        },
+        {
+          "id": "alert-104",
+          "externalId": "104",
+          "kind": "alert",
+          "provider": "github",
+          "title": "minimist: regular expression denial of service",
+          "text": "Advisory text for alert 104.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/104",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "low",
+            "package": "minimist",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-104"
+          }
+        },
+        {
+          "id": "alert-105",
+          "externalId": "105",
+          "kind": "alert",
+          "provider": "github",
+          "title": "ws: crash on malformed header",
+          "text": "Advisory text for alert 105.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/105",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "low",
+            "package": "ws",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-105"
+          }
+        },
+        {
+          "id": "alert-106",
+          "externalId": "106",
+          "kind": "alert",
+          "provider": "github",
+          "title": "webpack: path traversal in dev server",
+          "text": "Advisory text for alert 106.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/106",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "medium",
+            "package": "webpack",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-106"
+          }
+        }
+      ]
+    },
+    "sensitiveFix": {
+      "ok": true,
+      "items": [
+        {
+          "id": "alert-107",
+          "externalId": "107",
+          "kind": "alert",
+          "provider": "github",
+          "title": "jsonwebtoken: weak signature validation",
+          "text": "Advisory text for alert 107.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/107",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "medium",
+            "package": "jsonwebtoken",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-107"
+          }
+        }
+      ]
+    },
+    "oneSafe": {
+      "ok": true,
+      "items": [
+        {
+          "id": "alert-101",
+          "externalId": "101",
+          "kind": "alert",
+          "provider": "github",
+          "title": "lodash: prototype pollution",
+          "text": "Advisory text for alert 101.",
+          "url": "https://github.example.test/example-org/example-repo/security/dependabot/101",
+          "occurredAt": "2026-10-19T09:00:00.000Z",
+          "extras": {
+            "severity": "medium",
+            "package": "lodash",
+            "ecosystem": "npm",
+            "manifestPath": "package.json",
+            "ghsaId": "GHSA-example-101"
+          }
+        }
+      ]
+    },
+    "none": {
+      "ok": true,
+      "items": []
+    },
+    "tokenCannotReadAlerts": {
+      "ok": false,
+      "code": "credential_missing",
+      "message": "GitHub token cannot read security alerts",
+      "retryable": false,
+      "sideEffect": "none"
+    }
+  },
+  "builder.start": {
+    "accepted": {
+      "ok": true,
+      "output": {
+        "accepted": true,
+        "branchName": "{fields.branchName}",
+        "projectId": "{fields.projectId}",
+        "url": "https://builder.example.test/p/{fields.projectId}/{fields.branchName}"
+      },
+      "externalRef": "{fields.branchName}",
+      "url": "https://builder.example.test/p/{fields.projectId}/{fields.branchName}"
+    },
+    "refusedByTheGate": {
+      "ok": false,
+      "code": "operation_not_allowed",
+      "message": "Builder was not started: the dispatch gate refused it (already_claimed)",
+      "retryable": false,
+      "sideEffect": "none"
+    },
+    "timedOut": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "Builder did not answer in time (timeout)",
+      "retryable": true,
+      "sideEffect": "maybe"
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "D0SECURITY",
+        "ts": "1760003000.00000{n}",
+        "permalink": "https://slack.example.test/archives/D0SECURITY/p176000300000000{n}"
+      },
+      "externalRef": "1760003000.00000{n}",
+      "url": "https://slack.example.test/archives/D0SECURITY/p176000300000000{n}"
+    }
+  },
+  "email.send": {
+    "sent": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "messageRef": "mail-{n}"
+      },
+      "externalRef": "mail-{n}"
+    }
+  }
+}

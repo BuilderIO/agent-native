@@ -1,0 +1,158 @@
+{
+  "nodes": [
+    {
+      "id": "weekdays8",
+      "name": "weekdays8",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "weekdays": {
+            "at": "08:00"
+          }
+        },
+        "timezone": "America/New_York"
+      }
+    },
+    {
+      "id": "commits",
+      "name": "commits",
+      "position": {
+        "x": 344,
+        "y": 0
+      },
+      "kind": "source",
+      "settings": {
+        "source": "window",
+        "operation": "github.listCommits",
+        "args": {
+          "repo": {
+            "mode": "path",
+            "path": "settings.extras.repository"
+          }
+        },
+        "maxItems": 100
+      }
+    },
+    {
+      "id": "digest",
+      "name": "digest",
+      "position": {
+        "x": 688,
+        "y": 0
+      },
+      "kind": "combine",
+      "settings": {
+        "mode": "list"
+      }
+    },
+    {
+      "id": "post",
+      "name": "post",
+      "position": {
+        "x": 1032,
+        "y": 0
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.digestChannel"
+          },
+          "text": {
+            "mode": "ai",
+            "instruction": "Write the digest from the commit list: a one-line TL;DR, then at most 5 bullets grouped by area that name notable authors and link the commits. When count is 0, write exactly: No commits since the last digest. When truncated is true, say how many of totalAvailable commits are shown."
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 1376,
+        "y": 0
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "weekdays8",
+        "port": "out"
+      },
+      "to": {
+        "node": "commits"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "commits",
+        "port": "out"
+      },
+      "to": {
+        "node": "digest"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "digest",
+        "port": "out"
+      },
+      "to": {
+        "node": "post"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "post",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

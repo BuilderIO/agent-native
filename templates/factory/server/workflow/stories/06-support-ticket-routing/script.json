@@ -1,0 +1,520 @@
+{
+  "scenarios": {
+    "each-category-lands-where-the-story-says": {
+      "description": "Five tickets in one run: a bug becomes a Jira issue, a note and a reply; a supported billing answer goes to its customer while an unsure one goes to finance as a draft; an urgent ticket goes to the support lead by Slack and email and gets no reply; anything else gets an internal note with a suggested reply.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "all"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "all"
+        },
+        {
+          "kind": "ai",
+          "node": "jira",
+          "recording": "bug"
+        },
+        {
+          "kind": "ai",
+          "node": "answer",
+          "recording": "mixed"
+        },
+        {
+          "kind": "ai",
+          "node": "suggest",
+          "recording": "reply"
+        },
+        {
+          "kind": "tick",
+          "label": "the 10-minute run"
+        }
+      ]
+    },
+    "a-model-claiming-support-for-an-invented-fact-is-believed": {
+      "description": "What no code checks: the model says its answer is supported and sure although the refund it states is not in the Stripe data, and it states it without an amount or a date. The model's own flags are the only guard left, so this answer is sent to the customer. Kept as a scenario so the gap stays visible.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "claimed"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "claimed"
+        },
+        {
+          "kind": "ai",
+          "node": "answer",
+          "recording": "inventedFact"
+        },
+        {
+          "kind": "tick",
+          "label": "the 10-minute run"
+        }
+      ]
+    },
+    "an-answer-that-states-an-amount-or-a-date-goes-to-finance-whatever-the-model-says": {
+      "description": "The same invented refund, this time with an amount and a date, and the same supported-and-sure flags: the answer states figures, so it is handed to finance instead of being sent, whatever the model says about itself.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "claimed"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "claimed"
+        },
+        {
+          "kind": "ai",
+          "node": "answer",
+          "recording": "inventedFigures"
+        },
+        {
+          "kind": "tick",
+          "label": "the 10-minute run"
+        }
+      ]
+    },
+    "a-ticket-whose-classification-cannot-be-read-fails-alone": {
+      "description": "One ticket's classification comes back unreadable: that ticket fails with a typed error and nothing is sent for it, while the other ticket in the run is handled. The provider has moved its cursor on, so the next run does not offer the failed ticket again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "bugAndOther",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "none"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "bugAndUnreadable"
+        },
+        {
+          "kind": "ai",
+          "node": "jira",
+          "recording": "bug"
+        },
+        {
+          "kind": "tick",
+          "label": "the run that fails one ticket"
+        },
+        {
+          "kind": "tick",
+          "at": "+10m",
+          "label": "the next run"
+        }
+      ]
+    },
+    "an-unreadable-ticket-that-is-offered-again-is-handed-to-a-person-on-the-third-try": {
+      "description": "When the provider does offer the ticket again, each unreadable classification spends an attempt and the third hands the ticket to a person, with nothing sent to the customer.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "oneOther"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "oneOtherUnreadable"
+        },
+        {
+          "kind": "tick",
+          "label": "first attempt"
+        },
+        {
+          "kind": "tick",
+          "at": "+10m",
+          "label": "second attempt"
+        },
+        {
+          "kind": "tick",
+          "at": "+20m",
+          "label": "third attempt"
+        }
+      ]
+    },
+    "a-ticket-offered-again-after-it-was-handled-is-not-handled-twice": {
+      "description": "The provider offers a handled ticket again on the next run. It is recognised as already handled: no model call, no second Jira issue, no second reply to the customer.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "oneBug"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "oneBug"
+        },
+        {
+          "kind": "ai",
+          "node": "jira",
+          "recording": "bug"
+        },
+        {
+          "kind": "tick",
+          "label": "the ticket is handled"
+        },
+        {
+          "kind": "tick",
+          "at": "+10m",
+          "label": "the ticket is offered again"
+        }
+      ]
+    },
+    "a-thread-that-returns-nothing-is-a-failed-lookup-not-an-empty-ticket": {
+      "description": "The ticket thread read returns no output at all: the ticket fails as a failed lookup and is never classified from nothing.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "oneBug"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "noOutput"
+        },
+        {
+          "kind": "serve",
+          "operation": "jira.createIssue",
+          "recording": "created"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.addNote",
+          "recording": "added"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.reply",
+          "recording": "replied"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "oneBug"
+        },
+        {
+          "kind": "tick",
+          "label": "the 10-minute run"
+        }
+      ]
+    },
+    "a-test-of-the-classify-node-runs-on-a-sample-ticket-and-sends-nothing": {
+      "description": "The test step runs only the classify node on a pinned sample ticket: the model is asked once, and no ticket is read and nothing is sent.",
+      "steps": [
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "sample"
+        },
+        {
+          "kind": "tick",
+          "mode": "test",
+          "node": "classify",
+          "label": "test classify",
+          "sample": [
+            {
+              "id": "t-sample",
+              "item": {
+                "title": "Sample ticket about an invoice",
+                "author": "sample@customer.example.test",
+                "thread": {
+                  "ticketId": "t-sample"
+                }
+              },
+              "nodes": {
+                "thread": {
+                  "data": [
+                    {
+                      "id": "msg-t-sample"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "a-dry-run-sends-nothing": {
+      "description": "A dry run reads the tickets, threads and Stripe data and has the model judge them, but creates no issue, replies to no one and sends no message.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "pylon.newTickets",
+          "recording": "all"
+        },
+        {
+          "kind": "serve",
+          "operation": "pylon.ticketThread",
+          "recording": "threads"
+        },
+        {
+          "kind": "serve",
+          "operation": "stripe.customerBilling",
+          "recording": "customers"
+        },
+        {
+          "kind": "ai",
+          "node": "classify",
+          "recording": "all"
+        },
+        {
+          "kind": "ai",
+          "node": "jira",
+          "recording": "bug"
+        },
+        {
+          "kind": "ai",
+          "node": "answer",
+          "recording": "mixed"
+        },
+        {
+          "kind": "ai",
+          "node": "suggest",
+          "recording": "reply"
+        },
+        {
+          "kind": "tick",
+          "mode": "dry",
+          "label": "dry run"
+        }
+      ]
+    }
+  }
+}

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  dispatchSkipPreservesItemStatus,
-  dispatchSkipStatusWrite,
   isClaimedSlackReactionName,
   slackFeedbackLeavesReviewWindow,
 } from "./slack-review-window.js";
@@ -29,19 +27,5 @@ describe("slack review window", () => {
       }),
     ).toBe(true);
     expect(slackFeedbackLeavesReviewWindow({ status: "received" })).toBe(false);
-  });
-
-  it("does not rewrite started items to needs_manual on a skip", () => {
-    expect(dispatchSkipPreservesItemStatus("automation_started")).toBe(true);
-    expect(dispatchSkipStatusWrite("automation_started")).toEqual({
-      nextStatus: null,
-      needsManual: false,
-      statusPreserved: true,
-    });
-    expect(dispatchSkipStatusWrite("received")).toEqual({
-      nextStatus: "needs_manual",
-      needsManual: true,
-      statusPreserved: false,
-    });
   });
 });

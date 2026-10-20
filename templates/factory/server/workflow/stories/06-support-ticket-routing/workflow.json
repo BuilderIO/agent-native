@@ -1,0 +1,732 @@
+{
+  "nodes": [
+    {
+      "id": "every10",
+      "name": "every10",
+      "position": {
+        "x": 0,
+        "y": 192
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "10m"
+        }
+      }
+    },
+    {
+      "id": "tickets",
+      "name": "tickets",
+      "position": {
+        "x": 344,
+        "y": 192
+      },
+      "kind": "source",
+      "settings": {
+        "source": "provider-query",
+        "operation": "pylon.newTickets",
+        "args": {},
+        "memory": "inbox",
+        "maxItems": 50
+      }
+    },
+    {
+      "id": "thread",
+      "name": "thread",
+      "position": {
+        "x": 688,
+        "y": 192
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "pylon.ticketThread",
+        "args": {
+          "ticketId": {
+            "mode": "path",
+            "path": "item.externalId"
+          }
+        }
+      }
+    },
+    {
+      "id": "classify",
+      "name": "classify",
+      "position": {
+        "x": 1032,
+        "y": 192
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Classify this support ticket from its messages (nodes.thread): bug (the product misbehaves), billing (a question about invoices, payments, plans or refunds), urgent (the customer is blocked or at risk right now: an outage, data loss or a security problem), or other. Say how severe it is and how confident you are.",
+        "result": {
+          "category": {
+            "type": "enum",
+            "enum": ["bug", "billing", "urgent", "other"]
+          },
+          "severity": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "confidence": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "route",
+      "name": "route",
+      "position": {
+        "x": 1376,
+        "y": 140
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "bug",
+            "label": "Bug",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.classify.category",
+                "op": "equals",
+                "right": "bug"
+              }
+            ]
+          },
+          {
+            "id": "billing",
+            "label": "Billing",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.classify.category",
+                "op": "equals",
+                "right": "billing"
+              }
+            ]
+          },
+          {
+            "id": "urgent",
+            "label": "Urgent",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.classify.category",
+                "op": "equals",
+                "right": "urgent"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "jira",
+      "name": "jira",
+      "position": {
+        "x": 2408,
+        "y": 470
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "jira.createIssue",
+        "args": {
+          "projectKey": {
+            "mode": "path",
+            "path": "settings.extras.jiraProjectKey"
+          },
+          "title": {
+            "mode": "ai",
+            "instruction": "Write the issue title."
+          },
+          "description": {
+            "mode": "ai",
+            "instruction": "Describe the bug and link the ticket."
+          }
+        }
+      }
+    },
+    {
+      "id": "note",
+      "name": "note",
+      "position": {
+        "x": 2752,
+        "y": 470
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "pylon.addNote",
+        "args": {
+          "ticketId": {
+            "mode": "path",
+            "path": "item.externalId"
+          },
+          "bodyHtml": {
+            "mode": "fixed",
+            "value": "Logged in Jira: {{ nodes.jira.externalRef }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "replyCustomer",
+      "name": "replyCustomer",
+      "position": {
+        "x": 3096,
+        "y": 470
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "pylon.reply",
+        "args": {
+          "ticketId": {
+            "mode": "path",
+            "path": "item.externalId"
+          },
+          "messageId": {
+            "mode": "path",
+            "path": "nodes.thread.data[0].id"
+          },
+          "bodyHtml": {
+            "mode": "fixed",
+            "value": "Thanks, we have logged this and will follow up."
+          }
+        }
+      }
+    },
+    {
+      "id": "stripe",
+      "name": "stripe",
+      "position": {
+        "x": 1720,
+        "y": 149
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "stripe.customerBilling",
+        "args": {
+          "email": {
+            "mode": "path",
+            "path": "item.author"
+          }
+        }
+      }
+    },
+    {
+      "id": "answer",
+      "name": "answer",
+      "position": {
+        "x": 2064,
+        "y": 149
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Answer the customer's billing question using only the Stripe data for this customer (nodes.stripe). Use only facts present in that data: every amount, date and plan name in your answer must come from it. Stripe stores amounts in cents: divide by 100 and write dollars (4000 is $40.00), never 4000 USD. Never promise a refund, a credit or a timeline. When the data does not answer the question, say so and set supported to false and confidence to low. Set supported to true only when the data answers the question and every fact in the answer is in it, and confidence to high only when you are certain.",
+        "result": {
+          "answer": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "confidence": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "sure",
+      "name": "sure",
+      "position": {
+        "x": 2408,
+        "y": 121
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "nodes.answer.supported",
+            "op": "isTrue"
+          },
+          {
+            "left": "nodes.answer.confidence",
+            "op": "equals",
+            "right": "high"
+          }
+        ]
+      }
+    },
+    {
+      "id": "hasFigures",
+      "name": "hasFigures",
+      "position": {
+        "x": 2752,
+        "y": 164
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "any",
+        "rules": [
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "0"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "1"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "2"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "3"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "4"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "5"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "6"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "7"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "8"
+          },
+          {
+            "left": "nodes.answer.answer",
+            "op": "contains",
+            "right": "9"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sendAnswer",
+      "name": "sendAnswer",
+      "position": {
+        "x": 3096,
+        "y": 374
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "pylon.reply",
+        "args": {
+          "ticketId": {
+            "mode": "path",
+            "path": "item.externalId"
+          },
+          "messageId": {
+            "mode": "path",
+            "path": "nodes.thread.data[0].id"
+          },
+          "bodyHtml": {
+            "mode": "path",
+            "path": "nodes.answer.answer"
+          }
+        }
+      }
+    },
+    {
+      "id": "finance",
+      "name": "finance",
+      "position": {
+        "x": 3096,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.financeChannel"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Draft for {{ item.title }}: {{ nodes.answer.answer }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "lead",
+      "name": "lead",
+      "position": {
+        "x": 2752,
+        "y": 0
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.supportLeadEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Urgent ticket: {{ item.title }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "leadEmail",
+      "name": "leadEmail",
+      "position": {
+        "x": 3096,
+        "y": 0
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "email.send",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.supportLeadEmail"
+          },
+          "subject": {
+            "mode": "fixed",
+            "value": "Urgent ticket: {{ item.title }}"
+          },
+          "body": {
+            "mode": "fixed",
+            "value": "{{ nodes.classify.summary }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "suggest",
+      "name": "suggest",
+      "position": {
+        "x": 3096,
+        "y": 278
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "pylon.addNote",
+        "args": {
+          "ticketId": {
+            "mode": "path",
+            "path": "item.externalId"
+          },
+          "bodyHtml": {
+            "mode": "ai",
+            "instruction": "Write a suggested reply to the customer as an internal note, in simple HTML. Never promise a refund, a credit or a timeline."
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 3440,
+        "y": 374
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done"
+      }
+    },
+    {
+      "id": "manual",
+      "name": "manual",
+      "position": {
+        "x": 3440,
+        "y": 48
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "every10",
+        "port": "out"
+      },
+      "to": {
+        "node": "tickets"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "tickets",
+        "port": "out"
+      },
+      "to": {
+        "node": "thread"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "thread",
+        "port": "out"
+      },
+      "to": {
+        "node": "classify"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "classify",
+        "port": "out"
+      },
+      "to": {
+        "node": "route"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "route",
+        "port": "route:bug"
+      },
+      "to": {
+        "node": "jira"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "jira",
+        "port": "out"
+      },
+      "to": {
+        "node": "note"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "note",
+        "port": "out"
+      },
+      "to": {
+        "node": "replyCustomer"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "replyCustomer",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "route",
+        "port": "route:billing"
+      },
+      "to": {
+        "node": "stripe"
+      }
+    },
+    {
+      "id": "e10",
+      "from": {
+        "node": "stripe",
+        "port": "out"
+      },
+      "to": {
+        "node": "answer"
+      }
+    },
+    {
+      "id": "e11",
+      "from": {
+        "node": "answer",
+        "port": "out"
+      },
+      "to": {
+        "node": "sure"
+      }
+    },
+    {
+      "id": "e12",
+      "from": {
+        "node": "sure",
+        "port": "match"
+      },
+      "to": {
+        "node": "hasFigures"
+      }
+    },
+    {
+      "id": "e13",
+      "from": {
+        "node": "sendAnswer",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e14",
+      "from": {
+        "node": "sure",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "finance"
+      }
+    },
+    {
+      "id": "e15",
+      "from": {
+        "node": "finance",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e16",
+      "from": {
+        "node": "route",
+        "port": "route:urgent"
+      },
+      "to": {
+        "node": "lead"
+      }
+    },
+    {
+      "id": "e17",
+      "from": {
+        "node": "lead",
+        "port": "out"
+      },
+      "to": {
+        "node": "leadEmail"
+      }
+    },
+    {
+      "id": "e18",
+      "from": {
+        "node": "leadEmail",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e19",
+      "from": {
+        "node": "route",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "suggest"
+      }
+    },
+    {
+      "id": "e20",
+      "from": {
+        "node": "suggest",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e21",
+      "from": {
+        "node": "hasFigures",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "sendAnswer"
+      }
+    },
+    {
+      "id": "e22",
+      "from": {
+        "node": "hasFigures",
+        "port": "match"
+      },
+      "to": {
+        "node": "finance"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

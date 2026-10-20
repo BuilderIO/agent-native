@@ -108,7 +108,7 @@ export async function findFactoryAutomationByResourceId(
   orgId: string,
   resourceId: string,
 ): Promise<(FactoryAutomationDefinition & { factoryId: string }) | null> {
-  const { listFactoryDefinitions } = await import("../factory-graph/store.js");
+  const { listFactoryDefinitions } = await import("./factory-definitions.js");
   const { DEFAULT_FACTORY_ID, readAutomationFactoryId } =
     await import("./factory-scope.js");
   const factories = await listFactoryDefinitions(orgId);

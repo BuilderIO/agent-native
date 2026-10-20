@@ -1,0 +1,130 @@
+{
+  "slack.readThread": {
+    "reportOnly": {
+      "ok": true,
+      "output": {
+        "coverage": "complete",
+        "messages": [
+          {
+            "ts": "1760000000.000100",
+            "user": "reporter-1@example.test",
+            "text": "Clicking Pay does nothing.",
+            "reactions": []
+          }
+        ]
+      }
+    },
+    "withReply": {
+      "ok": true,
+      "output": {
+        "coverage": "complete",
+        "messages": [
+          {
+            "ts": "1760000000.000100",
+            "user": "reporter-1@example.test",
+            "text": "Clicking Pay does nothing.",
+            "reactions": []
+          },
+          {
+            "ts": "1760000100.000100",
+            "user": "factory-bot",
+            "text": "Which browser are you using?",
+            "reactions": []
+          },
+          {
+            "ts": "1760000200.000100",
+            "user": "reporter-1@example.test",
+            "text": "Chrome 118 on a Mac",
+            "reactions": []
+          }
+        ]
+      }
+    }
+  },
+  "slack.replyInThread": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "{fields.channel}",
+        "ts": "1760001000.00000{n}",
+        "threadTs": "{fields.threadTs}",
+        "permalink": "https://slack.example.test/archives/{fields.channel}/p176000100000000{n}"
+      },
+      "externalRef": "1760001000.00000{n}",
+      "url": "https://slack.example.test/archives/{fields.channel}/p176000100000000{n}"
+    },
+    "diesAfterCall": {
+      "crash": "after-call"
+    },
+    "failsOnce": {
+      "ok": false,
+      "code": "provider_error",
+      "retryable": true,
+      "sideEffect": "none",
+      "message": "Slack is down"
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "D0TRIAGE",
+        "ts": "1760002000.00000{n}",
+        "threadTs": null,
+        "permalink": "https://slack.example.test/archives/D0TRIAGE/p176000200000000{n}"
+      },
+      "externalRef": "1760002000.00000{n}",
+      "url": "https://slack.example.test/archives/D0TRIAGE/p176000200000000{n}"
+    }
+  },
+  "factory.listItems": {
+    "none": {
+      "ok": true,
+      "output": {
+        "items": []
+      }
+    }
+  },
+  "builder.start": {
+    "accepted": {
+      "ok": true,
+      "output": {
+        "accepted": true,
+        "projectId": "project-1",
+        "branchName": "{fields.branchName}",
+        "status": "processing",
+        "url": "https://builder.example.test/branches/{fields.branchName}"
+      },
+      "externalRef": "{fields.branchName}",
+      "url": "https://builder.example.test/branches/{fields.branchName}"
+    },
+    "otherBranch": {
+      "ok": true,
+      "output": {
+        "accepted": true,
+        "projectId": "project-1",
+        "branchName": "factory-renamed-by-builder",
+        "status": "processing",
+        "url": "https://builder.example.test/branches/factory-renamed-by-builder"
+      },
+      "externalRef": "factory-renamed-by-builder",
+      "url": "https://builder.example.test/branches/factory-renamed-by-builder"
+    },
+    "refused": {
+      "ok": false,
+      "code": "operation_not_allowed",
+      "retryable": false,
+      "sideEffect": "none",
+      "message": "The Builder dispatch gate refused builder.start: risk_not_low. Risk medium is above the auto-dispatch bar and requires manual review."
+    },
+    "timedOut": {
+      "ok": false,
+      "code": "provider_error",
+      "retryable": false,
+      "sideEffect": "maybe",
+      "message": "Builder may have started the task for builder.start, and Factory could not confirm either way; check the branch before starting again (builder_start_outcome_unknown)."
+    }
+  }
+}

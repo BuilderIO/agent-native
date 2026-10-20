@@ -5155,6 +5155,8 @@ export interface ExecuteAgentToolCallOptions {
   orgId?: string | null;
   appId?: string;
   caller?: ActionCaller;
+  automation?: ActionAutomationContext;
+  runId?: string;
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
@@ -5274,6 +5276,8 @@ export async function executeAgentToolCall(
       orgId: options.orgId,
       appId: options.appId,
       actionCaller: options.caller,
+      automation: options.automation,
+      runId: options.runId,
       networkProtocol: options.networkProtocol,
       networkId: options.networkId,
       networkPeer: options.networkPeer,

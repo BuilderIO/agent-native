@@ -1,0 +1,50 @@
+{
+  "score": {
+    "hot": {
+      "perItem": {
+        "*": {
+          "tier": "hot",
+          "summary": "VP of Engineering at a 400-person software company who asked for a demo.",
+          "reason": "Matches the ideal customer profile: engineering buyer, 400 employees, asked for a demo."
+        }
+      }
+    },
+    "mixed": {
+      "perItem": {
+        "lead-hot": {
+          "tier": "hot",
+          "summary": "VP of Engineering at a 400-person software company who asked for a demo.",
+          "reason": "Matches the ideal customer profile: engineering buyer, 400 employees, asked for a demo."
+        },
+        "lead-warm": {
+          "tier": "warm",
+          "summary": "Owner of a small shop reading the pricing page.",
+          "reason": "Right industry but far below the target company size."
+        },
+        "lead-cold": {
+          "tier": "cold",
+          "summary": "A student asking about a class project.",
+          "reason": "Not a buyer: student project, no company."
+        }
+      }
+    }
+  },
+  "tellOwner": {
+    "message": {
+      "perItem": {
+        "*": {
+          "text": "Hot lead: pat@prospect.example.test (VP of Engineering, 400 people) asked for a demo. A task is waiting in HubSpot; reply here or react with a check mark to take it."
+        }
+      }
+    }
+  },
+  "mgrEmail": {
+    "body": {
+      "perItem": {
+        "*": {
+          "body": "The hot lead pat@prospect.example.test was assigned to Riley two hours ago and nobody has acknowledged it. A HubSpot task exists and the owner was messaged in Slack."
+        }
+      }
+    }
+  }
+}

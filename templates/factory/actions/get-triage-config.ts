@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { resolveFactoryConnectorReadiness } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
 import {
   factoryIdSchema,
   readTriageConfigRow,
@@ -54,7 +54,6 @@ export default defineAction({
         slackWorkspace: "primary",
         slackChannelId: null,
         slackChannelName: null,
-        builderSlackUserId: null,
         pollingEnabled: false,
         lastSlackTs: null,
         slackHistoryCursor: null,
@@ -71,8 +70,9 @@ export default defineAction({
         ...readiness,
       };
     }
+    const { builderSlackUserId: _builderSlackUserId, ...storedRow } = row;
     return {
-      ...row,
+      ...storedRow,
       factoryId,
       pollingEnabled: row.pollingEnabled === 1,
       githubPollingEnabled: row.githubPollingEnabled === 1,

@@ -215,24 +215,3 @@ export function assessThreadDispositions(input: {
     dispositionCounts,
   };
 }
-
-export function builderAddressedReviewThreadsAfterPing(
-  assessment: ThreadDispositionAggregate | null | undefined,
-): boolean {
-  if (!assessment) return false;
-  return assessment.threads.some((thread) => thread.addressedAfterPing);
-}
-
-export function rootCommentsClosedByAssessment(
-  comments: readonly ReviewCommentObservation[],
-  assessment: ThreadDispositionAggregate,
-): readonly ReviewCommentObservation[] {
-  const openRoots = new Set(
-    assessment.threads
-      .filter((thread) => thread.blocksMergeable)
-      .map((thread) => thread.rootCommentId),
-  );
-  return comments.filter(
-    (comment) => comment.inReplyToId === null && openRoots.has(comment.id),
-  );
-}

@@ -600,6 +600,28 @@ describe("manage-jobs tool", () => {
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
+    it("rejects an execution host on a job that names a job runner without rewriting it", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }).replace(
+          "enabled: true",
+          "enabled: true\nrunner: workflow",
+        ),
+      });
+      const out = JSON.parse(
+        await run({
+          action: "update",
+          name: "j",
+          executionHostId: "remote-device-laptop",
+        }),
+      );
+      expect(out.error).toMatch(/cannot also target an execution host/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    });
+
     it("rejects event-triggered resources without rewriting them", async () => {
       resourceGetByPathMock.mockResolvedValueOnce({
         id: "r1",

@@ -173,6 +173,7 @@
     "guard:no-untracked-imports": "node scripts/guard-no-untracked-imports.mjs",
     "guard:no-unbounded-table-reads": "node scripts/guard-no-unbounded-table-reads.mjs",
     "guard:no-bare-error-in-actions": "tsx scripts/guard-no-bare-error-in-actions.ts",
+    "guard:workflow-engine-layering": "tsx scripts/guard-workflow-engine-layering.ts",
     "guard:no-new-legacy-mcp-hints": "tsx scripts/guard-no-new-legacy-mcp-hints.ts",
     "guard:mcp-unredacted-call-boundary": "tsx scripts/guard-mcp-unredacted-call-boundary.ts",
     "check:production-cache-contract": "node scripts/check-production-cache-contract.mjs",

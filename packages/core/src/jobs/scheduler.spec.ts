@@ -1,11 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import type { RunChunkControl } from "../agent/run-manager.js";
 import type { CurrentTurnRunEvent } from "../agent/run-store.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import {
   buildTriggerContent,
   parseTriggerFrontmatter,
 } from "../triggers/dispatcher.js";
+import { registerJobRunner, type JobRunnerContext } from "./job-runner.js";
 import {
   classifyJobResource,
   parseJobResource,
@@ -2094,5 +2100,291 @@ Observe Slack.`,
     expect(resourcePutMock.mock.calls.at(-1)![2]).toContain(
       "lastStatus: success",
     );
+  });
+
+  describe("job runner", () => {
+    const OWNER = "alice+jobs@agent-native.test";
+    const deps = {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    };
+    const DUE = "2026-10-12T08:00:00.000Z";
+    const runnerJob = (
+      extra = "",
+      name = "wf",
+      runner: string | null = "workflow",
+    ) => ({
+      id: `resource-${name}`,
+      owner: OWNER,
+      path: `jobs/${name}.md`,
+      content: `---
+schedule: "*/5 * * * *"
+nextRun: "${DUE}"
+enabled: true
+${runner ? `runner: ${runner}\n` : ""}createdBy: ${OWNER}
+${extra}---
+
+Runs the saved workflow.`,
+    });
+    // Reads see the content the scheduler last wrote, under the job's own id.
+    const serveJob = (resource: ReturnType<typeof runnerJob>) => {
+      resourceListAllOwnersMock.mockResolvedValue([resource]);
+      resourceGetByPathMock.mockImplementation(
+        async (owner: string, path: string) => {
+          const written = resourcePutMock.mock.calls
+            .filter((call) => call[0] === owner && call[1] === path)
+            .at(-1);
+          return written ? { ...resource, content: written[2] } : resource;
+        },
+      );
+    };
+    const finalContent = (path: string): string =>
+      resourcePutMock.mock.calls.filter((call) => call[1] === path).at(-1)![2];
+    const historyFinishes = () =>
+      dbExecuteMock.mock.calls
+        .filter((call) =>
+          String(call[0]?.sql ?? "").includes(
+            "SET status = ?, finished_at = ?",
+          ),
+        )
+        .map((call) => ({
+          status: call[0].args[0],
+          error: call[0].args[2],
+          code: call[0].args[3],
+        }));
+    let disposers: Array<() => void> = [];
+
+    beforeEach(() => {
+      disposers.splice(0).forEach((dispose) => dispose());
+    });
+    afterEach(() => {
+      vi.mocked(resolveBackgroundRunHardTimeoutMs).mockReturnValue(10 * 60_000);
+    });
+
+    it("runs the registered runner instead of the agent loop and settles history, outcome and schedule", async () => {
+      let seen: JobRunnerContext | undefined;
+      let identity: { email?: string; orgId?: string } = {};
+      disposers.push(
+        registerJobRunner("workflow", async (ctx) => {
+          seen = ctx;
+          identity = { email: getRequestUserEmail(), orgId: getRequestOrgId() };
+          return { status: "success" };
+        }),
+      );
+      serveJob(runnerJob());
+
+      await processRecurringJobs(deps);
+
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(createThreadMock).not.toHaveBeenCalled();
+      expect(seen).toMatchObject({
+        name: "wf",
+        path: "jobs/wf.md",
+        ownerEmail: OWNER,
+        manual: false,
+        scheduledFor: DUE,
+        actionAutomation: { triggerId: "resource-wf", triggerName: "wf" },
+      });
+      expect(seen!.historyId).toBe(seen!.meta.lastHistoryId);
+      expect(seen!.hardDeadlineAt - seen!.deadlineAt).toBe(20_000);
+      expect(seen!.signal.aborted).toBe(false);
+      expect(identity).toEqual({ email: OWNER, orgId: undefined });
+      expect(historyFinishes()).toEqual([
+        { status: "success", error: null, code: null },
+      ]);
+      const content = finalContent("jobs/wf.md");
+      const { meta } = parseJobResource(content);
+      expect(meta.lastStatus).toBe("success");
+      expect(meta.runner).toBe("workflow");
+      expect(new Date(meta.nextRun!).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it("keeps a thrown error's errorCode on the history row and the job, and starts the streak", async () => {
+      disposers.push(
+        registerJobRunner("workflow", async () => {
+          throw Object.assign(new Error("Slack token missing"), {
+            errorCode: "workflow_connection_missing",
+          });
+        }),
+      );
+      serveJob(runnerJob());
+
+      await processRecurringJobs(deps);
+
+      expect(historyFinishes()).toEqual([
+        {
+          status: "error",
+          error: expect.stringContaining("Slack token missing"),
+          code: "workflow_connection_missing",
+        },
+      ]);
+      const { meta } = parseJobResource(finalContent("jobs/wf.md"));
+      expect(meta).toMatchObject({
+        lastStatus: "error",
+        lastErrorCode: "workflow_connection_missing",
+        consecutiveFailures: 1,
+        enabled: true,
+      });
+    });
+
+    it("pauses the job on the fifth consecutive failure and says so on the history row", async () => {
+      disposers.push(
+        registerJobRunner("workflow", async () => {
+          throw Object.assign(new Error("boom"), {
+            errorCode: "workflow_failed",
+          });
+        }),
+      );
+      serveJob(
+        runnerJob("lastErrorCode: workflow_failed\nconsecutiveFailures: 4\n"),
+      );
+
+      await processRecurringJobs(deps);
+
+      const { meta } = parseJobResource(finalContent("jobs/wf.md"));
+      expect(meta).toMatchObject({
+        enabled: false,
+        lastStatus: "paused",
+        pausedReason: "workflow_failed",
+      });
+      expect(historyFinishes()[0]!.error).toMatch(
+        /^Paused after 5 consecutive/,
+      );
+    });
+
+    it("fails an unregistered runner id loudly instead of running the stub body as a prompt", async () => {
+      serveJob(runnerJob("", "ghost", "ghost"));
+
+      await processRecurringJobs(deps);
+
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(createThreadMock).not.toHaveBeenCalled();
+      expect(historyFinishes()[0]).toMatchObject({
+        status: "error",
+        code: "job_runner_unavailable",
+      });
+      expect(
+        parseJobResource(finalContent("jobs/ghost.md")).meta,
+      ).toMatchObject({
+        lastStatus: "error",
+        lastErrorCode: "job_runner_unavailable",
+      });
+    });
+
+    it("refuses a runner job that also names an execution host, without dispatching or running", async () => {
+      const runner = vi.fn(async () => ({ status: "success" as const }));
+      disposers.push(registerJobRunner("workflow", runner));
+      serveJob(runnerJob("executionHostId: remote-device-laptop\n"));
+
+      await processRecurringJobs(deps);
+
+      expect(dispatchRemoteAutomationMock).not.toHaveBeenCalled();
+      expect(runner).not.toHaveBeenCalled();
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(historyFinishes()[0]).toMatchObject({
+        status: "error",
+        code: "config_invalid",
+      });
+    });
+
+    it("records a tick with nothing due as skipped with its reason and still advances the schedule", async () => {
+      disposers.push(
+        registerJobRunner("workflow", async () => ({
+          status: "skipped",
+          reason: "nothing due",
+        })),
+      );
+      serveJob(runnerJob());
+
+      await processRecurringJobs(deps);
+
+      expect(historyFinishes()).toEqual([
+        { status: "skipped", error: "nothing due", code: null },
+      ]);
+      const { meta } = parseJobResource(finalContent("jobs/wf.md"));
+      expect(meta).toMatchObject({
+        lastStatus: "skipped",
+        lastError: "nothing due",
+      });
+      expect(new Date(meta.nextRun!).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it("hands a manual run to the runner with manual=true and no scheduledFor, and never moves the schedule or the streak", async () => {
+      let seen: JobRunnerContext | undefined;
+      disposers.push(
+        registerJobRunner("workflow", async (ctx) => {
+          seen = ctx;
+          throw Object.assign(new Error("manual boom"), {
+            errorCode: "workflow_failed",
+          });
+        }),
+      );
+      serveJob(runnerJob());
+
+      const result = await runJobNow(OWNER, "wf", deps);
+
+      expect(result.status).toBe("error");
+      expect(seen).toMatchObject({ manual: true, scheduledFor: null });
+      const { meta } = parseJobResource(finalContent("jobs/wf.md"));
+      expect(meta.lastStatus).toBe("error");
+      expect(meta.lastErrorCode).toBe("workflow_failed");
+      expect(meta.consecutiveFailures).toBeUndefined();
+      expect(meta.nextRun).toBe(DUE);
+    });
+
+    it("aborts the runner's signal at the hard deadline and records a timeout", async () => {
+      vi.mocked(resolveBackgroundRunHardTimeoutMs).mockReturnValue(60);
+      let aborted = false;
+      disposers.push(
+        registerJobRunner(
+          "workflow",
+          (ctx) =>
+            new Promise(() => {
+              ctx.signal.addEventListener("abort", () => {
+                aborted = true;
+              });
+            }),
+        ),
+      );
+      serveJob(runnerJob());
+
+      await processRecurringJobs(deps);
+
+      expect(aborted).toBe(true);
+      expect(historyFinishes()).toHaveLength(1);
+      expect(historyFinishes()[0]).toMatchObject({
+        status: "error",
+        code: "background_automation_hard_timeout",
+      });
+    });
+
+    it("leaves a job without a runner on the agent loop", async () => {
+      const runner = vi.fn(async () => ({ status: "success" as const }));
+      disposers.push(registerJobRunner("workflow", runner));
+      serveJob(runnerJob("", "plain", null));
+
+      await processRecurringJobs(deps);
+
+      expect(runner).not.toHaveBeenCalled();
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+      expect(createThreadMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not reconcile a running runner job against a remote host", async () => {
+      const runner = vi.fn(async () => ({ status: "success" as const }));
+      disposers.push(registerJobRunner("workflow", runner));
+      serveJob(
+        runnerJob(
+          `executionHostId: remote-device-laptop\nlastStatus: running\nlastRun: "${new Date().toISOString()}"\nlastHistoryId: history-1\n`,
+        ),
+      );
+
+      await processRecurringJobs(deps);
+
+      expect(getRemoteAutomationStatusMock).not.toHaveBeenCalled();
+      expect(finishRemoteAutomationHistoryMock).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,0 +1,227 @@
+{
+  "stripe.newSubscriptions": {
+    "nadia": {
+      "ok": true,
+      "cursor": "1760875100",
+      "items": [
+        {
+          "id": "sub_nadia",
+          "externalId": "sub_nadia",
+          "kind": "lead",
+          "provider": "stripe",
+          "title": "nadia@acme-labs.example.test",
+          "author": "nadia@acme-labs.example.test",
+          "occurredAt": "2026-10-19T11:58:20.000Z",
+          "extras": {
+            "customerId": "cus_nadia",
+            "customerEmail": "nadia@acme-labs.example.test",
+            "subscriptionId": "sub_nadia"
+          }
+        }
+      ]
+    },
+    "nadiaAgain": {
+      "ok": true,
+      "cursor": "1760875100",
+      "items": [
+        {
+          "id": "sub_nadia",
+          "externalId": "sub_nadia",
+          "kind": "lead",
+          "provider": "stripe",
+          "title": "nadia@acme-labs.example.test",
+          "author": "nadia@acme-labs.example.test",
+          "occurredAt": "2026-10-19T11:58:20.000Z",
+          "extras": {
+            "customerId": "cus_nadia",
+            "customerEmail": "nadia@acme-labs.example.test",
+            "subscriptionId": "sub_nadia"
+          }
+        }
+      ]
+    },
+    "nothingNew": {
+      "ok": true,
+      "items": []
+    },
+    "threeCustomers": {
+      "ok": true,
+      "items": [
+        {
+          "id": "sub_noresults",
+          "externalId": "sub_noresults",
+          "kind": "lead",
+          "provider": "stripe",
+          "title": "no-results@acme-labs.example.test",
+          "author": "no-results@acme-labs.example.test",
+          "occurredAt": "2026-10-19T11:55:00.000Z",
+          "extras": {
+            "customerId": "cus_noresults",
+            "customerEmail": "no-results@acme-labs.example.test",
+            "subscriptionId": "sub_noresults"
+          }
+        },
+        {
+          "id": "sub_empty",
+          "externalId": "sub_empty",
+          "kind": "lead",
+          "provider": "stripe",
+          "title": "empty@acme-labs.example.test",
+          "author": "empty@acme-labs.example.test",
+          "occurredAt": "2026-10-19T11:56:00.000Z",
+          "extras": {
+            "customerId": "cus_empty",
+            "customerEmail": "empty@acme-labs.example.test",
+            "subscriptionId": "sub_empty"
+          }
+        },
+        {
+          "id": "sub_text",
+          "externalId": "sub_text",
+          "kind": "lead",
+          "provider": "stripe",
+          "title": "text@acme-labs.example.test",
+          "author": "text@acme-labs.example.test",
+          "occurredAt": "2026-10-19T11:57:00.000Z",
+          "extras": {
+            "customerId": "cus_text",
+            "customerEmail": "text@acme-labs.example.test",
+            "subscriptionId": "sub_text"
+          }
+        }
+      ]
+    },
+    "afterNadia": {
+      "match": [
+        {
+          "when": {
+            "since": "1760875100"
+          },
+          "answer": {
+            "ok": true,
+            "items": []
+          }
+        }
+      ]
+    },
+    "primed": {
+      "ok": true,
+      "items": [],
+      "cursor": "1760874000"
+    },
+    "afterPriming": {
+      "match": [
+        {
+          "when": {
+            "since": "1760874000"
+          },
+          "answer": {
+            "ok": true,
+            "cursor": "1760875100",
+            "items": [
+              {
+                "id": "sub_nadia",
+                "externalId": "sub_nadia",
+                "kind": "lead",
+                "provider": "stripe",
+                "title": "nadia@acme-labs.example.test",
+                "author": "nadia@acme-labs.example.test",
+                "occurredAt": "2026-10-19T11:58:20.000Z",
+                "extras": {
+                  "customerId": "cus_nadia",
+                  "customerEmail": "nadia@acme-labs.example.test",
+                  "subscriptionId": "sub_nadia"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "posthog.usage": {
+    "inactive": {
+      "ok": true,
+      "output": {
+        "results": [[1]]
+      }
+    },
+    "active": {
+      "ok": true,
+      "output": {
+        "results": [[12]]
+      }
+    },
+    "down": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "PostHog is unavailable",
+      "retryable": true,
+      "sideEffect": "none"
+    },
+    "unusable": {
+      "match": [
+        {
+          "when": {
+            "customerId": "cus_noresults"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "columns": ["keyEvents"]
+            }
+          }
+        },
+        {
+          "when": {
+            "customerId": "cus_empty"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "columns": ["keyEvents"],
+              "results": []
+            }
+          }
+        },
+        {
+          "when": {
+            "customerId": "cus_text"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "results": [["lots"]]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "email.send": {
+    "sent": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "messageRef": "msg-{n}"
+      },
+      "externalRef": "msg-{n}"
+    },
+    "diesAfterSending": {
+      "crash": "after-call"
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "D0ACCOUNT",
+        "ts": "1760001000.00000{n}",
+        "permalink": "https://slack.example.test/archives/D0ACCOUNT/p176000100000000{n}"
+      },
+      "externalRef": "1760001000.00000{n}",
+      "url": "https://slack.example.test/archives/D0ACCOUNT/p176000100000000{n}"
+    }
+  }
+}

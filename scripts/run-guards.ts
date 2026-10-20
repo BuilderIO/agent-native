@@ -96,6 +96,7 @@ const guards = [
   "guard:e2e-quarantine",
   "guard:design-e2e-regression-pins",
   "guard:e2e-harness",
+  "guard:workflow-engine-layering",
 ] as const;
 
 type GuardName = (typeof guards)[number];

@@ -1,0 +1,194 @@
+{
+  "scenarios": {
+    "monday-reads-friday-to-monday-and-posts-once": {
+      "description": "Monday 08:00 in New York reads from Friday 08:00, posts one AI-written digest, and a second delivery of the same tick posts nothing.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "weekend"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "digest"
+        },
+        {
+          "kind": "tick",
+          "label": "Monday 08:00"
+        },
+        {
+          "kind": "tick",
+          "label": "the same tick, delivered again"
+        }
+      ]
+    },
+    "tuesday-starts-where-monday-ended": {
+      "description": "Tuesday's window opens at Monday's instant, so no commit is read twice or missed.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "weekend",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "tuesday"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "digest",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "tuesday"
+        },
+        {
+          "kind": "tick",
+          "label": "Monday 08:00"
+        },
+        {
+          "kind": "tick",
+          "at": "+1d",
+          "label": "Tuesday 08:00"
+        }
+      ]
+    },
+    "a-quiet-morning-still-posts-a-count-of-zero": {
+      "description": "With no commits the digest still goes out, so the team can tell a quiet day from a broken workflow.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "quiet"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "quiet"
+        },
+        {
+          "kind": "tick",
+          "label": "Monday 08:00"
+        }
+      ]
+    },
+    "a-cut-off-list-says-how-much-was-cut": {
+      "description": "150 commits arrive of 340: the step records the cut and the writer is told it is looking at a partial list.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "busy"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "cutOff"
+        },
+        {
+          "kind": "tick",
+          "label": "Monday 08:00"
+        }
+      ]
+    },
+    "github-down-then-back-covers-the-missed-morning": {
+      "description": "A failed morning posts nothing and does not move the window, so the next digest reads from the last successful one.",
+      "start": "2026-10-16T12:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "quiet",
+          "calls": 1
+        },
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "down",
+          "calls": 3
+        },
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "weekend"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "quiet",
+          "calls": 1
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "digest"
+        },
+        {
+          "kind": "tick",
+          "label": "Friday 08:00"
+        },
+        {
+          "kind": "tick",
+          "at": "+3d",
+          "label": "Monday 08:00, GitHub is down"
+        },
+        {
+          "kind": "tick",
+          "at": "+4d",
+          "label": "Tuesday 08:00"
+        }
+      ]
+    },
+    "a-dry-run-posts-nothing": {
+      "description": "A dry run reads and writes the message but sends nothing and does not move the window.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listCommits",
+          "recording": "weekend"
+        },
+        {
+          "kind": "ai",
+          "node": "post",
+          "recording": "digest"
+        },
+        {
+          "kind": "tick",
+          "mode": "dry",
+          "label": "dry run"
+        }
+      ]
+    }
+  }
+}

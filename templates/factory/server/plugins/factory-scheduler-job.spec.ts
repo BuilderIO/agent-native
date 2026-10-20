@@ -20,6 +20,11 @@ const insertAutomationVersionValuesMock = vi.hoisted(() =>
 );
 const getDbMock = vi.hoisted(() => vi.fn());
 const registerRecurringSweepHandlerMock = vi.hoisted(() => vi.fn());
+const registerJobRunnerMock = vi.hoisted(() => vi.fn(() => () => {}));
+const jobRunnerModuleLoadedMock = vi.hoisted(() => vi.fn());
+const legacyJobsModuleLoadedMock = vi.hoisted(() => vi.fn());
+const retireLegacyAgentJobsMock = vi.hoisted(() => vi.fn());
+const createWorkflowJobRunnerMock = vi.hoisted(() => vi.fn());
 const isProductionServerlessFunctionRuntimeMock = vi.hoisted(() =>
   vi.fn(() => false),
 );
@@ -63,6 +68,7 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
 vi.mock("@agent-native/core/server", () => ({
   defineNitroPlugin: (def: unknown) => def,
   registerRecurringSweepHandler: registerRecurringSweepHandlerMock,
+  registerJobRunner: registerJobRunnerMock,
   runWithRequestContext: (_context: unknown, callback: () => unknown) =>
     callback(),
 }));
@@ -117,18 +123,106 @@ describe("ensureFactoryAutomations", () => {
     expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 
-  it("repairs a suffixed PR babysit copy back to GitHub", async () => {
-    const copyPath = "jobs/factories/support-triage/factory-pr-babysit-2.md";
+  it("leaves a workflow's job file alone, so a repair never rewrites its schedule", async () => {
+    const path = "jobs/factories/support-triage/workflow-digest-1a2b3c4d.md";
+    const content = `---
+schedule: "0 8 * * 1-5"
+enabled: true
+triggerType: schedule
+domain: factory
+appId: factory
+orgId: org-1
+createdBy: owner@example.com
+runAs: creator
+runner: workflow
+timezone: America/New_York
+slackChannelId: C0DIGEST
+---
+Placeholder.
+`;
+    resourceListContentMock.mockResolvedValue([
+      { id: "wf", owner: "__organization__:org-1", path, content },
+    ]);
+    resourceGetByPathMock.mockImplementation((_owner: string, p: string) =>
+      p === path
+        ? {
+            id: "wf",
+            owner: "__organization__:org-1",
+            path,
+            content,
+            updatedAt: 1,
+          }
+        : null,
+    );
+
+    await ensureFactoryAutomations(
+      "owner@example.com",
+      "org-1",
+      "support-triage",
+    );
+
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("never repairs or revives a retired seed job", async () => {
+    for (const leaf of [
+      "factory-slack-feedback",
+      "factory-sentry-errors",
+      "factory-github-issues",
+      "factory-pr-babysit",
+      "factory-pr-babysit-2",
+    ]) {
+      const path = `jobs/factories/support-triage/${leaf}.md`;
+      const content = `---
+schedule: "*/5 * * * *"
+enabled: false
+pausedReason: replaced_by_workflows
+orgId: org-1
+appId: factory
+template: slack-feedback
+source: slack
+---
+Retired prompt.
+`;
+      resourceListContentMock.mockResolvedValue([
+        { id: leaf, owner: "__organization__:org-1", path, content },
+      ]);
+      resourceGetByPathMock.mockImplementation((_owner: string, p: string) =>
+        p === path
+          ? {
+              id: leaf,
+              owner: "__organization__:org-1",
+              path,
+              content,
+              updatedAt: 1,
+            }
+          : null,
+      );
+
+      await ensureFactoryAutomations(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+      );
+    }
+
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("repairs a suffixed PR governance copy back to GitHub", async () => {
+    const copyPath = "jobs/factories/support-triage/factory-pr-governance-2.md";
     const copyContent = `---
 schedule: "*/5 * * * *"
 enabled: false
 orgId: org-1
 appId: factory
-template: pr-babysit
+template: pr-governance
 repository: acme/widgets
 source: slack
 ---
-Babysit pull requests.
+Review pull requests.
 `;
     resourceListContentMock.mockResolvedValue([
       {
@@ -160,32 +254,33 @@ Babysit pull requests.
       (call) => call[0]?.path === copyPath,
     )?.[0]?.content as string | undefined;
     expect(saved).toMatch(/^source: github$/m);
-    expect(saved).toMatch(/^template: pr-babysit$/m);
+    expect(saved).toMatch(/^template: pr-governance$/m);
   });
 
   it("preserves automation display name, channel, and author filter during repair", async () => {
-    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
+    const path = "jobs/factories/product-an-feedback/factory-pr-governance.md";
     const content = `---
 schedule: "* * * * *"
 enabled: true
 orgId: org-1
 appId: factory
-template: slack-feedback
-source: slack
+template: pr-governance
+source: github
+repository: acme/widgets
 displayName: Product feedback
 slackChannelId: C0ATH3CCZT4
 slackChannelName: product-feedback
 authorMode: exclude
-authorIds: U096KN3EL2Y
+authorIds: 2721089
 model: claude-sonnet-4-20250514
 maxIterations: 20
 maxRunInputTokens: 200000
 ---
-Classify Slack feedback.
+Review pull requests.
 `;
     resourceListContentMock.mockResolvedValue([
       {
-        id: "slack-feedback",
+        id: "governance",
         owner: "__organization__:org-1",
         path,
         content,
@@ -194,14 +289,14 @@ Classify Slack feedback.
     resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
       if (p !== path) return null;
       return {
-        id: "slack-feedback",
+        id: "governance",
         owner: "__organization__:org-1",
         path,
         content,
         updatedAt: 1,
       };
     });
-    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "governance" });
 
     await ensureFactoryAutomations(
       "owner@example.com",
@@ -215,8 +310,8 @@ Classify Slack feedback.
     expect(saved).toBeDefined();
     expect(saved).toContain("displayName: Product feedback");
     expect(saved).toContain("slackChannelId: C0ATH3CCZT4");
-    expect(saved).toContain("authorIds: U096KN3EL2Y");
-    expect(saved).toContain("Classify Slack feedback.");
+    expect(saved).toContain("authorIds: 2721089");
+    expect(saved).toContain("Review pull requests.");
     expect(recordFactoryGovernanceAuditMock).toHaveBeenCalledWith(
       { userEmail: "owner@example.com", orgId: "org-1" },
       expect.objectContaining({
@@ -228,15 +323,16 @@ Classify Slack feedback.
   });
 
   it("does not rewrite the automation prompt body during metadata repair", async () => {
-    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
-    const customPrompt = "Only triage messages from paying customers.";
+    const path = "jobs/factories/product-an-feedback/factory-pr-governance.md";
+    const customPrompt = "Only review pull requests from the docs team.";
     const content = `---
 schedule: "* * * * *"
 enabled: true
 orgId: org-1
 appId: factory
-template: slack-feedback
-source: slack
+template: pr-governance
+source: github
+repository: acme/widgets
 displayName: Product feedback
 slackChannelId: C0ATH3CCZT4
 model: claude-sonnet-4-20250514
@@ -247,7 +343,7 @@ ${customPrompt}
 `;
     resourceListContentMock.mockResolvedValue([
       {
-        id: "slack-feedback",
+        id: "governance",
         owner: "__organization__:org-1",
         path,
         content,
@@ -256,14 +352,14 @@ ${customPrompt}
     resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
       if (p !== path) return null;
       return {
-        id: "slack-feedback",
+        id: "governance",
         owner: "__organization__:org-1",
         path,
         content,
         updatedAt: 1,
       };
     });
-    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "governance" });
 
     await ensureFactoryAutomations(
       "owner@example.com",
@@ -276,11 +372,11 @@ ${customPrompt}
     )?.[0]?.content as string | undefined;
     expect(saved).toBeDefined();
     expect(saved).toContain(customPrompt);
-    expect(saved).not.toContain("# Factory Slack feedback triage");
+    expect(saved).not.toContain("# Factory pull-request governance");
   });
 
   it("recomposes duplicate alignment blocks while preserving identity and user prompt", async () => {
-    const path = "jobs/factories/product-an-feedback/factory-slack-feedback.md";
+    const path = "jobs/factories/product-an-feedback/factory-pr-governance.md";
     const { managedReviewSkillAlignmentMarkers } =
       await import("../triage/review-skill-alignment.js");
     const { start, end } = managedReviewSkillAlignmentMarkers();
@@ -290,11 +386,12 @@ schedule: "* * * * *"
 enabled: true
 orgId: org-1
 appId: factory
-template: slack-feedback
-source: slack
+template: pr-governance
+source: github
+repository: acme/widgets
 displayName: Product feedback
 slackChannelId: C0ATH3CCZT4
-authorIds: U096KN3EL2Y
+authorIds: 2721089
 model: claude-sonnet-4-20250514
 maxIterations: 20
 maxRunInputTokens: 200000
@@ -311,7 +408,7 @@ ${userPrompt}
 `;
     resourceListContentMock.mockResolvedValue([
       {
-        id: "slack-feedback",
+        id: "governance",
         owner: "__organization__:org-1",
         path,
         content,
@@ -320,14 +417,14 @@ ${userPrompt}
     resourceGetByPathMock.mockImplementation((_owner: string, p: string) => {
       if (p !== path) return null;
       return {
-        id: "slack-feedback",
+        id: "governance",
         owner: "__organization__:org-1",
         path,
         content,
         updatedAt: 1,
       };
     });
-    resourcePutIfCurrentMock.mockResolvedValue({ id: "slack-feedback" });
+    resourcePutIfCurrentMock.mockResolvedValue({ id: "governance" });
 
     await ensureFactoryAutomations(
       "owner@example.com",
@@ -341,7 +438,7 @@ ${userPrompt}
     expect(saved).toBeDefined();
     expect(saved).toContain("displayName: Product feedback");
     expect(saved).toContain("slackChannelId: C0ATH3CCZT4");
-    expect(saved).toContain("authorIds: U096KN3EL2Y");
+    expect(saved).toContain("authorIds: 2721089");
     expect(saved).toContain(userPrompt);
     expect(saved!.split(start).length - 1).toBe(1);
     expect(insertAutomationVersionValuesMock).toHaveBeenCalled();
@@ -353,32 +450,16 @@ ${userPrompt}
     );
   });
 
-  it("keeps the Slack template prompt lean and names the reaction argument", () => {
-    const prompt = factoryAutomationTemplatePrompt("slack-feedback", "slack");
-    expect(prompt).toContain("MUST pass reaction eyes");
-    expect(prompt).toContain("get-slack-feedback-context");
-    expect(prompt).toContain("productUxImplications false");
-    expect(prompt).toContain("visual/UI defects");
-    expect(prompt).toContain("already has eyes 👀");
-    expect(prompt).toContain("alreadyClaimed true");
-    expect(prompt).toContain("clearBug may be omitted");
-    expect(prompt).toContain("omit reaction");
-    expect(prompt).not.toContain("robot_face");
-    expect(prompt).not.toContain("limit 20");
-    expect(prompt).not.toContain("that action adds 👀");
-  });
-
-  it("keeps the PR babysit prompt as a thin action playbook", () => {
-    const prompt = factoryAutomationTemplatePrompt("pr-babysit", "github");
-    expect(prompt).toContain("propose-pr-babysit-status");
-    expect(prompt).toContain("babysit-factory-pull-request");
-    expect(prompt).toContain("already_asked");
-    expect(prompt).toContain("stuck");
-    expect(prompt).toContain("mergeability alone do not");
-    expect(prompt).not.toContain("It owns GitHub");
-    expect(prompt).not.toContain("A changed commit, new unresolved");
-    expect(prompt).not.toContain("2 minutes");
-    expect(prompt).not.toContain("Do not ask the bot to poll");
+  it("offers no prompt for a template that was retired with its job", () => {
+    for (const [template, source] of [
+      ["slack-feedback", "slack"],
+      ["github-issues", "github"],
+      ["sentry-errors", "sentry"],
+      ["pr-babysit", "github"],
+    ] as const) {
+      const prompt = factoryAutomationTemplatePrompt(template as never, source);
+      expect(prompt).toBe(`# Factory ${source} automation\n`);
+    }
   });
 
   it("binds the scheduled PR governance exception to Shomix's immutable ID", () => {
@@ -587,6 +668,16 @@ describe("factory scheduler plugin", () => {
 
   async function loadPlugin() {
     vi.resetModules();
+    // Registered fresh with each load, so a module the plugin pulls in at
+    // import or init time is counted, not served from an earlier test's cache.
+    vi.doMock("../workflow-host/job-runner.js", () => {
+      jobRunnerModuleLoadedMock();
+      return { createWorkflowJobRunner: createWorkflowJobRunnerMock };
+    });
+    vi.doMock("../lib/factory-legacy-agent-jobs.js", () => {
+      legacyJobsModuleLoadedMock();
+      return { retireLegacyAgentJobs: retireLegacyAgentJobsMock };
+    });
     const plugin = await import("./factory-scheduler-job.js");
     const { repairFactoryAutomationsFromConfig } =
       await import("../lib/factory-automation-repair.js");
@@ -621,6 +712,86 @@ describe("factory scheduler plugin", () => {
       expect.any(Function),
     );
     expect(getDbMock).not.toHaveBeenCalled();
+  });
+
+  it("registers the workflow runner once, before the serverless return, and does nothing else at init", async () => {
+    isProductionServerlessFunctionRuntimeMock.mockReturnValue(true);
+    const { plugin } = await loadPlugin();
+
+    await plugin();
+
+    expect(registerJobRunnerMock).toHaveBeenCalledTimes(1);
+    expect(registerJobRunnerMock).toHaveBeenCalledWith(
+      "workflow",
+      expect.any(Function),
+    );
+    expect(registerRecurringSweepHandlerMock).toHaveBeenCalledTimes(1);
+    // Registering touched no database, listed no job file, and did not load the engine.
+    expect(getDbMock).not.toHaveBeenCalled();
+    expect(resourceListMock).not.toHaveBeenCalled();
+    expect(resourceListContentMock).not.toHaveBeenCalled();
+    expect(jobRunnerModuleLoadedMock).not.toHaveBeenCalled();
+    expect(createWorkflowJobRunnerMock).not.toHaveBeenCalled();
+  });
+
+  it("never retires the legacy agent jobs at init, on either runtime", async () => {
+    for (const serverless of [true, false]) {
+      vi.clearAllMocks();
+      isProductionServerlessFunctionRuntimeMock.mockReturnValue(serverless);
+      const { plugin } = await loadPlugin();
+      getDbMock.mockReturnValue(
+        configDb(
+          [{ id: "org-1", ownerEmail: "owner@example.com", orgId: "org-1" }],
+          [{ id: "org-1:product-feedback" }],
+        ),
+      );
+
+      await plugin();
+
+      expect(legacyJobsModuleLoadedMock).not.toHaveBeenCalled();
+      expect(retireLegacyAgentJobsMock).not.toHaveBeenCalled();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it("registers it on a long-lived server too, still exactly once", async () => {
+    isProductionServerlessFunctionRuntimeMock.mockReturnValue(false);
+    const { plugin } = await loadPlugin();
+    getDbMock.mockReturnValue(
+      configDb(
+        [{ id: "org-1", ownerEmail: "owner@example.com", orgId: "org-1" }],
+        [{ id: "org-1:product-feedback" }],
+      ),
+    );
+
+    await plugin();
+
+    expect(registerJobRunnerMock).toHaveBeenCalledTimes(1);
+    expect(registerJobRunnerMock).toHaveBeenCalledWith(
+      "workflow",
+      expect.any(Function),
+    );
+  });
+
+  it("loads the engine on the first tick and hands it the scheduler's context", async () => {
+    isProductionServerlessFunctionRuntimeMock.mockReturnValue(true);
+    const { plugin } = await loadPlugin();
+    await plugin();
+    const tick = vi.fn(async () => ({ status: "success" as const }));
+    createWorkflowJobRunnerMock.mockReturnValue(tick);
+    const registered = registerJobRunnerMock.mock.calls[0] as unknown as [
+      string,
+      (ctx: unknown) => Promise<unknown>,
+    ];
+    const ctx = { historyId: "history-1" };
+
+    const result = await registered[1](ctx);
+
+    expect(result).toEqual({ status: "success" });
+    expect(jobRunnerModuleLoadedMock).toHaveBeenCalledTimes(1);
+    expect(createWorkflowJobRunnerMock).toHaveBeenCalledWith(undefined);
+    expect(tick).toHaveBeenCalledWith(ctx);
   });
 
   it("retries a failed sweep repair and stops once it succeeds", async () => {

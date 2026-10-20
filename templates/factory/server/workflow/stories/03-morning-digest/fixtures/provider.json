@@ -1,0 +1,97 @@
+{
+  "github.listCommits": {
+    "weekend": {
+      "ok": true,
+      "items": [
+        {
+          "id": "sha1",
+          "externalId": "sha1",
+          "kind": "commit",
+          "provider": "github",
+          "title": "Fix export button",
+          "author": "ada",
+          "url": "https://github.example.test/example-org/example-repo/commit/sha1",
+          "occurredAt": "2026-10-17T15:00:00.000Z",
+          "extras": { "sha": "sha1" }
+        },
+        {
+          "id": "sha2",
+          "externalId": "sha2",
+          "kind": "commit",
+          "provider": "github",
+          "title": "Speed up search",
+          "author": "grace",
+          "url": "https://github.example.test/example-org/example-repo/commit/sha2",
+          "occurredAt": "2026-10-18T09:30:00.000Z",
+          "extras": { "sha": "sha2" }
+        },
+        {
+          "id": "sha3",
+          "externalId": "sha3",
+          "kind": "commit",
+          "provider": "github",
+          "title": "Update docs",
+          "author": "ada",
+          "url": "https://github.example.test/example-org/example-repo/commit/sha3",
+          "occurredAt": "2026-10-19T08:15:00.000Z",
+          "extras": { "sha": "sha3" }
+        }
+      ]
+    },
+    "tuesday": {
+      "ok": true,
+      "items": [
+        {
+          "id": "sha4",
+          "externalId": "sha4",
+          "kind": "commit",
+          "provider": "github",
+          "title": "Tighten billing copy",
+          "author": "grace",
+          "url": "https://github.example.test/example-org/example-repo/commit/sha4",
+          "occurredAt": "2026-10-19T17:00:00.000Z",
+          "extras": { "sha": "sha4" }
+        }
+      ]
+    },
+    "quiet": { "ok": true, "items": [] },
+    "busy": {
+      "ok": true,
+      "totalAvailable": 340,
+      "items": {
+        "count": 150,
+        "template": {
+          "id": "sha-{i}",
+          "externalId": "sha-{i}",
+          "kind": "commit",
+          "provider": "github",
+          "title": "Change {i}",
+          "author": "ada",
+          "url": "https://github.example.test/example-org/example-repo/commit/sha-{i}",
+          "occurredAt": "2026-10-18T12:00:00.000Z",
+          "extras": { "sha": "sha-{i}" }
+        }
+      }
+    },
+    "down": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "GitHub is unavailable",
+      "retryable": true,
+      "sideEffect": "none"
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "C0DIGEST",
+        "ts": "1760001000.00000{n}",
+        "permalink": "https://slack.example.test/archives/C0DIGEST/p176000100000000{n}"
+      },
+      "externalRef": "1760001000.00000{n}",
+      "url": "https://slack.example.test/archives/C0DIGEST/p176000100000000{n}"
+    }
+  }
+}

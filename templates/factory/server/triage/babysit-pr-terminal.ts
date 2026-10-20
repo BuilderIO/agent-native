@@ -1,7 +1,6 @@
 import type { TriageItemStatus } from "./contracts.js";
 import type { GitHubPullRequestSummary } from "./github-client.js";
 import { metadataString, parseTriageMetadata } from "./metadata.js";
-import { babysitLeavesReviewWindow } from "./pr-babysit.js";
 
 export type ClosedPullRequestKind = "merged" | "draft" | "closed";
 
@@ -29,23 +28,6 @@ export function terminalBabysitStateForClosedPullRequest(
   kind: ClosedPullRequestKind,
 ): string {
   return kind === "merged" ? "merged" : "closed-or-draft";
-}
-
-export function babysitSkipSummaryForClosedPullRequest(
-  pullRequestNumber: number | null | undefined,
-  kind: ClosedPullRequestKind,
-): string {
-  const label =
-    typeof pullRequestNumber === "number" && pullRequestNumber > 0
-      ? `#${pullRequestNumber} `
-      : "";
-  if (kind === "merged") {
-    return `${label}merged on GitHub; no further babysitting.`.trim();
-  }
-  if (kind === "draft") {
-    return `${label}skipped; pull request is a draft.`.trim();
-  }
-  return `${label}skipped; pull request is closed.`.trim();
 }
 
 export function closedPullRequestTerminalMetadataPatch(
@@ -104,14 +86,6 @@ export function isTerminalBabysitMetadata(
     "prBabysitState",
   );
   return isTerminalBabysitState(babysitState);
-}
-
-export function babysitStateLeavesReviewWindow(
-  state: string | null | undefined,
-): boolean {
-  if (!state) return babysitLeavesReviewWindow(state);
-  if (isTerminalBabysitState(state)) return true;
-  return babysitLeavesReviewWindow(state);
 }
 
 export function readGitHubTerminalFromAuditDetails(

@@ -1,0 +1,542 @@
+{
+  "nodes": [
+    {
+      "id": "every5",
+      "name": "every5",
+      "position": {
+        "x": 0,
+        "y": 48
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "5m"
+        }
+      }
+    },
+    {
+      "id": "spikes",
+      "name": "spikes",
+      "position": {
+        "x": 344,
+        "y": 48
+      },
+      "kind": "source",
+      "settings": {
+        "source": "inbox-poll",
+        "poller": "sentry",
+        "takeLimit": 5
+      }
+    },
+    {
+      "id": "summarize",
+      "name": "summarize",
+      "position": {
+        "x": 688,
+        "y": 48
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Summarize the incident.",
+        "result": {
+          "severity": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "suspectedArea": {
+            "type": "string"
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "pageSlack",
+      "name": "pageSlack",
+      "position": {
+        "x": 1032,
+        "y": 48
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.oncallEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "{{ nodes.summarize.summary }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "pageEmail",
+      "name": "pageEmail",
+      "position": {
+        "x": 1376,
+        "y": 48
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "email.send",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.oncallEmail"
+          },
+          "subject": {
+            "mode": "fixed",
+            "value": "Incident: {{ item.title }}"
+          },
+          "body": {
+            "mode": "fixed",
+            "value": "{{ nodes.summarize.summary }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "ack",
+      "name": "ack",
+      "position": {
+        "x": 1720,
+        "y": 20
+      },
+      "kind": "wait",
+      "settings": {
+        "wait": "reply",
+        "limitHours": 0.25,
+        "acceptFrom": "anyone",
+        "watch": {
+          "fromNode": "pageSlack"
+        }
+      }
+    },
+    {
+      "id": "escalate",
+      "name": "escalate",
+      "position": {
+        "x": 2064,
+        "y": 19
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.escalationEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Nobody answered: {{ item.title }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "escalateEmail",
+      "name": "escalateEmail",
+      "position": {
+        "x": 2408,
+        "y": 19
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "email.send",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.escalationEmail"
+          },
+          "subject": {
+            "mode": "fixed",
+            "value": "Unanswered incident: {{ item.title }}"
+          },
+          "body": {
+            "mode": "fixed",
+            "value": "{{ nodes.summarize.summary }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "resolved",
+      "name": "resolved",
+      "position": {
+        "x": 2752,
+        "y": 20
+      },
+      "kind": "wait",
+      "settings": {
+        "wait": "condition",
+        "operation": "sentry.issueStatus",
+        "args": {
+          "issueId": {
+            "mode": "path",
+            "path": "item.externalId"
+          }
+        },
+        "rule": {
+          "left": "item.status",
+          "op": "equals",
+          "right": "resolved"
+        },
+        "everyMinutes": 15,
+        "limitHours": 48
+      }
+    },
+    {
+      "id": "gather",
+      "name": "gather",
+      "position": {
+        "x": 3096,
+        "y": 96
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "sentry.issueEvents",
+        "args": {
+          "issueId": {
+            "mode": "path",
+            "path": "item.externalId"
+          }
+        }
+      }
+    },
+    {
+      "id": "postmortem",
+      "name": "postmortem",
+      "position": {
+        "x": 3440,
+        "y": 96
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Write a postmortem from the recorded Sentry events in nodes.gather and nothing else. Each timeline entry is one object {at, what, eventId, link} for one of those events, with at, eventId and link copied from it (its dateCreated, eventID and url). The issue is not an event: never cite the issue's id or link as one. When there are no events, leave timeline empty, say in the summary that no events were recorded, and leave the Timeline section out of body. State a cause or impact only when a recorded event supports it. Put the whole page in body as markdown, with the event link on every timeline line.",
+        "result": {
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "timeline": {
+            "type": "array",
+            "description": "One object {at, what, eventId, link} per recorded event used: at, eventId and link are copied from that event (dateCreated, eventID, url) and what says what happened. An empty list when there are no events."
+          },
+          "impact": {
+            "type": "string"
+          },
+          "causes": {
+            "type": "string"
+          },
+          "followUps": {
+            "type": "array",
+            "description": "Follow-up actions, each tied to a cause the events support."
+          },
+          "body": {
+            "type": "string",
+            "description": "The full postmortem page in markdown: summary, timeline with a link on every line, impact, causes, follow-ups."
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "notion",
+      "name": "notion",
+      "position": {
+        "x": 3784,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "notion.createPage",
+        "args": {
+          "parentPageId": {
+            "mode": "path",
+            "path": "settings.extras.postmortemParentPageId"
+          },
+          "title": {
+            "mode": "fixed",
+            "value": "[Draft] {{ nodes.postmortem.title }}"
+          },
+          "body": {
+            "mode": "path",
+            "path": "nodes.postmortem.body"
+          }
+        }
+      }
+    },
+    {
+      "id": "announce",
+      "name": "announce",
+      "position": {
+        "x": 4128,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.oncallEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Postmortem draft: {{ nodes.notion.url }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "owner",
+      "name": "owner",
+      "position": {
+        "x": 3096,
+        "y": 0
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.incidentOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "{{ item.title }} is still open after 48 hours."
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 4472,
+        "y": 96
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done"
+      }
+    },
+    {
+      "id": "manual",
+      "name": "manual",
+      "position": {
+        "x": 3440,
+        "y": 0
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "every5",
+        "port": "out"
+      },
+      "to": {
+        "node": "spikes"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "spikes",
+        "port": "out"
+      },
+      "to": {
+        "node": "summarize"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "summarize",
+        "port": "out"
+      },
+      "to": {
+        "node": "pageSlack"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "pageSlack",
+        "port": "out"
+      },
+      "to": {
+        "node": "pageEmail"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "pageEmail",
+        "port": "out"
+      },
+      "to": {
+        "node": "ack"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "ack",
+        "port": "replied"
+      },
+      "to": {
+        "node": "resolved"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "ack",
+        "port": "timedOut"
+      },
+      "to": {
+        "node": "escalate"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "escalate",
+        "port": "out"
+      },
+      "to": {
+        "node": "escalateEmail"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "escalateEmail",
+        "port": "out"
+      },
+      "to": {
+        "node": "resolved"
+      }
+    },
+    {
+      "id": "e10",
+      "from": {
+        "node": "resolved",
+        "port": "met"
+      },
+      "to": {
+        "node": "gather"
+      }
+    },
+    {
+      "id": "e11",
+      "from": {
+        "node": "gather",
+        "port": "out"
+      },
+      "to": {
+        "node": "postmortem"
+      }
+    },
+    {
+      "id": "e12",
+      "from": {
+        "node": "postmortem",
+        "port": "out"
+      },
+      "to": {
+        "node": "notion"
+      }
+    },
+    {
+      "id": "e13",
+      "from": {
+        "node": "notion",
+        "port": "out"
+      },
+      "to": {
+        "node": "announce"
+      }
+    },
+    {
+      "id": "e14",
+      "from": {
+        "node": "announce",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e15",
+      "from": {
+        "node": "resolved",
+        "port": "timedOut"
+      },
+      "to": {
+        "node": "owner"
+      }
+    },
+    {
+      "id": "e16",
+      "from": {
+        "node": "owner",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   defaultFactoryDefinition,
   listFactoryDefinitions,
-} from "../server/factory-graph/store.js";
+} from "../server/lib/factory-definitions.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -30,7 +30,6 @@ export default defineAction({
         name: defaultFactoryDefinition().name,
         description: defaultFactoryDefinition().description,
         prompt: defaultFactoryDefinition().prompt,
-        graphVersion: 1,
         updatedAt: null,
         virtual: true,
       },

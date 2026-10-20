@@ -29,3 +29,25 @@ export function itemDedupeKey(
     input.headSha ?? "",
   );
 }
+
+/**
+ * The id of an item a provider operation brought in. One record keeps one id
+ * across ticks of a factory, and gets a different id in every other factory
+ * and organization: `factory_items.id` is a primary key shared by all of them,
+ * so the same HubSpot contact in two factories must not map to one row.
+ */
+export function operationItemId(
+  scope: { orgId: string; factoryId: string },
+  operationId: string,
+  externalId: string,
+): string {
+  return `${operationId}:${stableId("operation-item", scope.orgId, scope.factoryId, operationId, externalId)}`;
+}
+
+/** What `operationItemId` was before ids carried a scope; rows stored under it keep it. */
+export function unscopedOperationItemId(
+  operationId: string,
+  externalId: string,
+): string {
+  return `${operationId}:${externalId}`;
+}

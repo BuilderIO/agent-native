@@ -16,19 +16,11 @@ export const FACTORY_INBOX_LIMIT_MAX = 50;
 export const FACTORY_WORK_LIMIT_MAX = 10;
 export const FACTORY_INBOX_LIMIT_DEFAULT = 25;
 export const FACTORY_INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
-export const QA_AGENT_NATIVE_SLACK_CHANNEL_ID = "C0C4U4XRT6X";
-export const QA_AGENT_NATIVE_SLACK_CHANNEL_NAME = "#qa-agent-native";
 
 export type FactoryAutomationSource = "slack" | "github" | "sentry";
 export type FactoryAutomationAuthorMode = "include" | "exclude";
 export type FactoryAutomationScheduleMode = "interval" | "daily";
-export type FactoryAutomationTemplateId =
-  | "blank"
-  | "slack-feedback"
-  | "github-issues"
-  | "pr-governance"
-  | "pr-babysit"
-  | "sentry-errors";
+export type FactoryAutomationTemplateId = "blank" | "pr-governance";
 
 export const GUARDRAILS_START = "<!-- factory-guardrails:start -->";
 export const GUARDRAILS_END = "<!-- factory-guardrails:end -->";
@@ -54,35 +46,16 @@ export type FactoryAutomationConfig = {
   workLimit: number;
 };
 
-export function requiresSlackFindingsDestination(
-  config: Pick<FactoryAutomationConfig, "source" | "template">,
-): boolean {
-  if (config.source === "sentry") return true;
-  return (
-    config.source === "github" &&
-    config.template !== "pr-governance" &&
-    config.template !== "pr-babysit"
-  );
-}
-
 const SLACK_MEMBER_ID = /^[UW][A-Z0-9]+$/i;
 const GITHUB_USER_ID = /^[1-9][0-9]*$/;
 const LEAF_SOURCE: Record<string, FactoryAutomationSource> = {
-  "factory-slack-feedback": "slack",
-  "factory-sentry-errors": "sentry",
-  "factory-github-issues": "github",
   "factory-pr-governance": "github",
-  "factory-pr-babysit": "github",
 };
 const TEMPLATE_SOURCE: Record<
   Exclude<FactoryAutomationTemplateId, "blank">,
   FactoryAutomationSource
 > = {
-  "slack-feedback": "slack",
-  "github-issues": "github",
   "pr-governance": "github",
-  "pr-babysit": "github",
-  "sentry-errors": "sentry",
 };
 const NUMERIC_LEAF_SUFFIX = /-\d+$/;
 const SLUG_SOURCE_PREFIX = /^factory-(slack|github|sentry)-/;
@@ -245,14 +218,8 @@ export function defaultAutomationConfig(
   template: FactoryAutomationTemplateId = "blank",
 ): FactoryAutomationConfig {
   const schedule = parseScheduleFromCron(
-    template === "sentry-errors"
-      ? "0 9 * * *"
-      : template === "pr-governance"
-        ? "*/10 * * * *"
-        : template === "github-issues"
-          ? "0 * * * *"
-          : "*/5 * * * *",
-    template === "sentry-errors" ? "America/Los_Angeles" : null,
+    template === "pr-governance" ? "*/10 * * * *" : "*/5 * * * *",
+    null,
   );
   return {
     source,
@@ -418,16 +385,8 @@ export function readFactoryAutomationConfig(
 ): FactoryAutomationConfig {
   const source = inferAutomationSource(nameOrPath ?? "", content) ?? "slack";
   const templateRaw = readFrontmatterValue(content, "template");
-  const template = (
-    templateRaw === "slack-feedback" ||
-    templateRaw === "github-issues" ||
-    templateRaw === "pr-governance" ||
-    templateRaw === "pr-babysit" ||
-    templateRaw === "sentry-errors" ||
-    templateRaw === "blank"
-      ? templateRaw
-      : "blank"
-  ) as FactoryAutomationTemplateId;
+  const template: FactoryAutomationTemplateId =
+    templateRaw === "pr-governance" ? templateRaw : "blank";
   const defaults = defaultAutomationConfig(source, template);
   const schedule = parseScheduleFromCron(
     readFrontmatterValue(content, "schedule") ?? scheduleCron(defaults),
@@ -623,21 +582,8 @@ export function buildGuardrailsText(
       "Call poll-sentry-errors before listing Sentry items. Never use the default page size.",
     );
   }
-  if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
-    if (config.source === "github" || config.source === "sentry") {
-      lines.push(
-        "Classify every item. Record non-eligible items as skips with dispatch-factory-item. Group all eligible GitHub issue or Sentry findings into one report-factory-findings call per run; it posts one message to #qa-agent-native and never writes to GitHub issues.",
-      );
-    } else {
-      lines.push(
-        "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
-      );
-    }
-  }
   if (config.source === "slack") {
-    lines.push(
-      "Never post Slack messages, reactions, or plaintext @handles. Pass reaction on dispatch-factory-item only when the prompt says to mark that item; omit it on skips. That action adds it on the source when possible.",
-    );
+    lines.push("Never post Slack messages, reactions, or plaintext @handles.");
   }
   const extraText = extra?.trim();
   if (extraText) lines.push(extraText);
@@ -729,18 +675,9 @@ export function needsAutomationBodyRepair(content: string): boolean {
 function resolveManagedAutomationName(
   automationName: string,
 ): FactoryAutomationName | null {
-  const seed = canonicalSeedLeafName(automationName);
-  if (!seed) return null;
-  if (
-    seed === "factory-slack-feedback" ||
-    seed === "factory-sentry-errors" ||
-    seed === "factory-github-issues" ||
-    seed === "factory-pr-governance" ||
-    seed === "factory-pr-babysit"
-  ) {
-    return seed;
-  }
-  return null;
+  return canonicalSeedLeafName(automationName) === "factory-pr-governance"
+    ? "factory-pr-governance"
+    : null;
 }
 
 export function buildSkillAlignmentBlock(automationName: string): string {
@@ -809,65 +746,18 @@ export function replaceAutomationContentWithUserPrompt(
   return assembleAutomationContent(frontmatter, body);
 }
 
-function inferAutomationNameFromContent(content: string): string {
-  const templateRaw = readFrontmatterValue(content, "template");
-  if (
-    templateRaw === "slack-feedback" ||
-    templateRaw === "github-issues" ||
-    templateRaw === "pr-governance" ||
-    templateRaw === "pr-babysit" ||
-    templateRaw === "sentry-errors"
-  ) {
-    return seedNameForTemplate(templateRaw) ?? "factory-slack-feedback";
-  }
-  return "factory-slack-feedback";
-}
-
-/** @deprecated Use replaceAutomationContentWithUserPrompt */
-export function replaceUserPrompt(content: string, prompt: string): string {
-  return replaceAutomationContentWithUserPrompt(
-    content,
-    prompt,
-    inferAutomationNameFromContent(content),
-  );
-}
-
 export function templateIdForSeedName(
   name: string,
 ): FactoryAutomationTemplateId {
-  switch (canonicalSeedLeafName(name) ?? factoryAutomationLeafName(name)) {
-    case "factory-slack-feedback":
-      return "slack-feedback";
-    case "factory-github-issues":
-      return "github-issues";
-    case "factory-pr-governance":
-      return "pr-governance";
-    case "factory-pr-babysit":
-      return "pr-babysit";
-    case "factory-sentry-errors":
-      return "sentry-errors";
-    default:
-      return "blank";
-  }
+  return canonicalSeedLeafName(name) === "factory-pr-governance"
+    ? "pr-governance"
+    : "blank";
 }
 
 export function seedNameForTemplate(
   template: FactoryAutomationTemplateId,
 ): string | null {
-  switch (template) {
-    case "slack-feedback":
-      return "factory-slack-feedback";
-    case "github-issues":
-      return "factory-github-issues";
-    case "pr-governance":
-      return "factory-pr-governance";
-    case "pr-babysit":
-      return "factory-pr-babysit";
-    case "sentry-errors":
-      return "factory-sentry-errors";
-    default:
-      return null;
-  }
+  return template === "pr-governance" ? "factory-pr-governance" : null;
 }
 
 export function sourceForTemplate(

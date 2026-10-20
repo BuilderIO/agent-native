@@ -1246,7 +1246,114 @@ describe("automation run history", () => {
     );
     const prune = statements.find((sql) => sql.startsWith("DELETE FROM"));
     expect(prune).toBeDefined();
-    expect(prune).toContain("LIMIT 50");
+    expect(prune).toContain("OFFSET 50");
     expect(prune).toContain("NOT IN ('evaluating', 'pending', 'sending')");
+  });
+
+  it("evicts skipped ticks before success and error rows and never drops unfinished or alerting rows", async () => {
+    await startAutomationRun({
+      owner: "alice@example.com",
+      automation: "digest",
+      path: "jobs/digest.md",
+    });
+    const prune = executeMock.mock.calls
+      .map((call) => call[0] as DbExecStatement)
+      .find((statement) => statement.sql.startsWith("DELETE FROM"))!;
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY, owner TEXT NOT NULL, automation TEXT NOT NULL,
+        status TEXT NOT NULL, started_at BIGINT NOT NULL, finished_at BIGINT,
+        failure_alert_state TEXT
+      )`);
+      const insert = (
+        id: string,
+        status: string,
+        startedAt: number,
+        finishedAt: number | null,
+        alertState: string | null = null,
+        automation = "digest",
+      ) =>
+        pglite.query(
+          `INSERT INTO automation_runs (id, owner, automation, status, started_at, finished_at, failure_alert_state)
+           VALUES ($1, 'alice@example.com', $2, $3, $4, $5, $6)`,
+          [id, automation, status, startedAt, finishedAt, alertState],
+        );
+      // Oldest first: one unfinished row, the oldest real run (still alerting),
+      // then 50 newer real runs and 30 skipped ticks newer than every real run.
+      await insert("running", "running", 1, null);
+      await insert("real-oldest", "error", 2, 2, "pending");
+      for (let n = 1; n <= 50; n++)
+        await insert(`real-${n}`, "success", 2 + n, 2 + n);
+      for (let n = 1; n <= 30; n++)
+        await insert(`skipped-${n}`, "skipped", 100 + n, 100 + n);
+      await insert("other", "skipped", 1, 1, null, "other-automation");
+
+      await pglite.query(prune.sql, prune.args);
+
+      const kept = (
+        await pglite.query<{ id: string }>(
+          `SELECT id FROM automation_runs WHERE automation = 'digest' ORDER BY id`,
+        )
+      ).rows.map((row) => row.id);
+      // Real runs fill the 50-row budget, so every skipped tick goes. The
+      // alerting row is past the budget but is not deleted while it alerts.
+      expect(kept).toContain("running");
+      expect(kept).toContain("real-oldest");
+      expect(kept.filter((id) => id.startsWith("real-"))).toHaveLength(51);
+      expect(kept.some((id) => id.startsWith("skipped-"))).toBe(false);
+      const other = await pglite.query(
+        `SELECT id FROM automation_runs WHERE automation = 'other-automation'`,
+      );
+      expect(other.rows).toHaveLength(1);
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("keeps the newest skipped ticks when real runs leave room in the retention budget", async () => {
+    await startAutomationRun({
+      owner: "alice@example.com",
+      automation: "digest",
+      path: "jobs/digest.md",
+    });
+    const prune = executeMock.mock.calls
+      .map((call) => call[0] as DbExecStatement)
+      .find((statement) => statement.sql.startsWith("DELETE FROM"))!;
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY, owner TEXT NOT NULL, automation TEXT NOT NULL,
+        status TEXT NOT NULL, started_at BIGINT NOT NULL, finished_at BIGINT,
+        failure_alert_state TEXT
+      )`);
+      for (let n = 1; n <= 40; n++)
+        await pglite.query(
+          `INSERT INTO automation_runs VALUES ($1, 'alice@example.com', 'digest', 'success', $2, $2, NULL)`,
+          [`real-${n}`, n],
+        );
+      for (let n = 1; n <= 30; n++)
+        await pglite.query(
+          `INSERT INTO automation_runs VALUES ($1, 'alice@example.com', 'digest', 'skipped', $2, $2, NULL)`,
+          [`skipped-${n}`, 100 + n],
+        );
+
+      await pglite.query(prune.sql, prune.args);
+
+      const kept = (
+        await pglite.query<{ id: string }>(
+          `SELECT id FROM automation_runs ORDER BY started_at`,
+        )
+      ).rows.map((row) => row.id);
+      expect(kept).toHaveLength(50);
+      expect(kept.filter((id) => id.startsWith("real-"))).toHaveLength(40);
+      expect(kept.filter((id) => id.startsWith("skipped-"))).toEqual(
+        Array.from({ length: 10 }, (_, n) => `skipped-${n + 21}`),
+      );
+    } finally {
+      await pglite.close();
+    }
   });
 });

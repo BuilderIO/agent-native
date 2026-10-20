@@ -1,0 +1,791 @@
+{
+  "nodes": [
+    {
+      "id": "every5",
+      "name": "every5",
+      "position": {
+        "x": 0,
+        "y": 173
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "5m"
+        }
+      }
+    },
+    {
+      "id": "feedback",
+      "name": "feedback",
+      "position": {
+        "x": 344,
+        "y": 173
+      },
+      "kind": "source",
+      "settings": {
+        "source": "inbox-poll",
+        "poller": "slack",
+        "takeLimit": 5,
+        "filter": {
+          "claimReaction": "eyes"
+        }
+      }
+    },
+    {
+      "id": "thread",
+      "name": "thread",
+      "position": {
+        "x": 688,
+        "y": 173
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "slack.readThread",
+        "args": {
+          "channel": {
+            "mode": "path",
+            "path": "item.thread.channelId"
+          },
+          "threadTs": {
+            "mode": "path",
+            "path": "item.thread.threadTs"
+          }
+        }
+      }
+    },
+    {
+      "id": "assess",
+      "name": "assess",
+      "position": {
+        "x": 1032,
+        "y": 173
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Assess whether this report is a clear bug.",
+        "result": {
+          "clearBug": {
+            "type": "boolean"
+          },
+          "enoughContext": {
+            "type": "boolean"
+          },
+          "question": {
+            "type": "string",
+            "optional": true
+          },
+          "risk": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "confidence": {
+            "type": "enum",
+            "enum": ["low", "medium", "high"]
+          },
+          "productUxImplications": {
+            "type": "boolean"
+          },
+          "alreadyClaimed": {
+            "type": "boolean",
+            "description": "True when a person already reacted to the report, so it is theirs."
+          },
+          "categories": {
+            "type": "array",
+            "description": "Which of these the fix would touch: auth, session, identity, credentials, vault, migration, payments, security, publishable_package. Use only these words; an empty list when none applies."
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "mode": "perItem",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "route",
+      "name": "route",
+      "position": {
+        "x": 1376,
+        "y": 109
+      },
+      "kind": "switch",
+      "settings": {
+        "routes": [
+          {
+            "id": "claimed",
+            "label": "Already claimed by a person",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.assess.alreadyClaimed",
+                "op": "isTrue"
+              }
+            ]
+          },
+          {
+            "id": "needsInfo",
+            "label": "Needs info",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.assess.enoughContext",
+                "op": "equals",
+                "right": false
+              }
+            ]
+          },
+          {
+            "id": "notBug",
+            "label": "Not a bug",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.assess.clearBug",
+                "op": "equals",
+                "right": false
+              }
+            ]
+          },
+          {
+            "id": "clear",
+            "label": "Clear and safe",
+            "combinator": "all",
+            "rules": [
+              {
+                "left": "nodes.assess.clearBug",
+                "op": "isTrue"
+              },
+              {
+                "left": "nodes.assess.risk",
+                "op": "equals",
+                "right": "low"
+              },
+              {
+                "left": "nodes.assess.confidence",
+                "op": "equals",
+                "right": "high"
+              },
+              {
+                "left": "nodes.assess.productUxImplications",
+                "op": "equals",
+                "right": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ask",
+      "name": "ask",
+      "position": {
+        "x": 1720,
+        "y": 300
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.replyInThread",
+        "args": {
+          "channel": {
+            "mode": "path",
+            "path": "item.thread.channelId"
+          },
+          "threadTs": {
+            "mode": "path",
+            "path": "item.thread.threadTs"
+          },
+          "text": {
+            "mode": "ai",
+            "instruction": "Ask one short question that unblocks the report."
+          }
+        }
+      }
+    },
+    {
+      "id": "waitReply",
+      "name": "waitReply",
+      "position": {
+        "x": 2064,
+        "y": 260
+      },
+      "kind": "wait",
+      "settings": {
+        "wait": "reply",
+        "limitHours": 24,
+        "acceptFrom": "anyone"
+      }
+    },
+    {
+      "id": "notifyOwner",
+      "name": "notifyOwner",
+      "position": {
+        "x": 2408,
+        "y": 251
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Needs a person: {{ item.title }} ({{ nodes.assess.reason }})"
+          }
+        }
+      }
+    },
+    {
+      "id": "manual",
+      "name": "manual",
+      "position": {
+        "x": 4472,
+        "y": 222
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "needsManual"
+      }
+    },
+    {
+      "id": "dismissed",
+      "name": "dismissed",
+      "position": {
+        "x": 1720,
+        "y": 144
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "dismissed",
+        "reason": "{{ nodes.assess.reason }}"
+      }
+    },
+    {
+      "id": "openTasks",
+      "name": "openTasks",
+      "position": {
+        "x": 1720,
+        "y": 48
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "factory.listItems",
+        "args": {
+          "status": {
+            "mode": "fixed",
+            "value": "automation_started"
+          }
+        }
+      }
+    },
+    {
+      "id": "group",
+      "name": "group",
+      "position": {
+        "x": 2064,
+        "y": 48
+      },
+      "kind": "ai",
+      "settings": {
+        "instruction": "Group related bugs. Answer with one entry per report, in the same order, each with the report's id. Reports are related when they describe the same defect or the same root cause (the same feature, screen or error text, in the same repository); related reports share a groupId, at most 5 to a group, and every other report gets a groupId of its own. A groupId is the id of the first report in the group, so the same report is always started on the same branch. In each entry also repeat the report's title, thread and author, say in reason why it joined its group, and for the Builder gate give the strictest of its group: clearBug (true only when every report in the group is), risk (the highest), confidence (the lowest), productUxImplications (true if any), alreadyClaimed (true if any), categories (all of theirs).",
+        "result": {
+          "groups": {
+            "type": "array"
+          }
+        },
+        "mode": "wholeList",
+        "tools": [],
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "split",
+      "name": "split",
+      "position": {
+        "x": 2408,
+        "y": 48
+      },
+      "kind": "split",
+      "settings": {
+        "field": "nodes.group.groups"
+      }
+    },
+    {
+      "id": "startBuilder",
+      "name": "startBuilder",
+      "position": {
+        "x": 3096,
+        "y": 48
+      },
+      "kind": "agent",
+      "settings": {
+        "agent": "builder",
+        "op": "start",
+        "args": {
+          "projectId": {
+            "mode": "path",
+            "path": "settings.builderProjectId"
+          },
+          "branchName": {
+            "mode": "fixed",
+            "value": "factory-{{ item.groupId }}"
+          },
+          "userEmail": {
+            "mode": "path",
+            "path": "item.author"
+          },
+          "prompt": {
+            "mode": "ai",
+            "instruction": "Summarize the bug for Builder."
+          },
+          "clearBug": {
+            "mode": "path",
+            "path": "item.clearBug"
+          },
+          "productUxImplications": {
+            "mode": "path",
+            "path": "item.productUxImplications"
+          },
+          "risk": {
+            "mode": "path",
+            "path": "item.risk"
+          },
+          "confidence": {
+            "mode": "path",
+            "path": "item.confidence"
+          },
+          "alreadyClaimed": {
+            "mode": "path",
+            "path": "item.alreadyClaimed"
+          },
+          "categories": {
+            "mode": "path",
+            "path": "item.categories"
+          }
+        }
+      }
+    },
+    {
+      "id": "accepted",
+      "name": "accepted",
+      "position": {
+        "x": 3440,
+        "y": 20
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "nodes.startBuilder.externalRef",
+            "op": "equals",
+            "right": "factory-{{ item.groupId }}"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tell",
+      "name": "tell",
+      "position": {
+        "x": 4128,
+        "y": 0
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.replyInThread",
+        "args": {
+          "channel": {
+            "mode": "path",
+            "path": "item.thread.channelId"
+          },
+          "threadTs": {
+            "mode": "path",
+            "path": "item.thread.threadTs"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Builder has started work on {{ item.id }}. We will report back when it is merged."
+          }
+        }
+      }
+    },
+    {
+      "id": "handed",
+      "name": "handed",
+      "position": {
+        "x": 4472,
+        "y": 0
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done",
+        "setStatus": "automation_started",
+        "record": {
+          "builderTaskId": {
+            "mode": "fixed",
+            "value": "{{ settings.builderProjectId }}:{{ nodes.startBuilder.externalRef }}"
+          },
+          "projectId": {
+            "mode": "path",
+            "path": "settings.builderProjectId"
+          },
+          "branchName": {
+            "mode": "path",
+            "path": "nodes.startBuilder.externalRef"
+          },
+          "repository": {
+            "mode": "path",
+            "path": "settings.extras.repository"
+          }
+        }
+      }
+    },
+    {
+      "id": "byGroup",
+      "name": "byGroup",
+      "position": {
+        "x": 2752,
+        "y": 48
+      },
+      "kind": "combine",
+      "settings": {
+        "mode": "groupBy",
+        "key": "item.groupId"
+      }
+    },
+    {
+      "id": "reports",
+      "name": "reports",
+      "position": {
+        "x": 3784,
+        "y": 0
+      },
+      "kind": "split",
+      "settings": {
+        "field": "item.reports"
+      }
+    },
+    {
+      "id": "unconfirmed",
+      "name": "unconfirmed",
+      "position": {
+        "x": 3784,
+        "y": 96
+      },
+      "kind": "split",
+      "settings": {
+        "field": "item.reports"
+      }
+    },
+    {
+      "id": "warnOwner",
+      "name": "warnOwner",
+      "position": {
+        "x": 4128,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.triageOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Builder answered with the branch {{ nodes.startBuilder.externalRef }}, which is not the one Factory asked for, so {{ item.title }} was not announced. Check Builder before anything is started again."
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "every5",
+        "port": "out"
+      },
+      "to": {
+        "node": "feedback"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "feedback",
+        "port": "out"
+      },
+      "to": {
+        "node": "thread"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "thread",
+        "port": "out"
+      },
+      "to": {
+        "node": "assess"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "assess",
+        "port": "out"
+      },
+      "to": {
+        "node": "route"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "route",
+        "port": "route:needsInfo"
+      },
+      "to": {
+        "node": "ask"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "ask",
+        "port": "out"
+      },
+      "to": {
+        "node": "waitReply"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "waitReply",
+        "port": "replied"
+      },
+      "to": {
+        "node": "thread"
+      },
+      "back": {
+        "maxIterations": 1
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "waitReply",
+        "port": "timedOut"
+      },
+      "to": {
+        "node": "notifyOwner"
+      }
+    },
+    {
+      "id": "e9",
+      "from": {
+        "node": "waitReply",
+        "port": "limitReached"
+      },
+      "to": {
+        "node": "notifyOwner"
+      }
+    },
+    {
+      "id": "e10",
+      "from": {
+        "node": "route",
+        "port": "route:notBug"
+      },
+      "to": {
+        "node": "dismissed"
+      }
+    },
+    {
+      "id": "e11",
+      "from": {
+        "node": "route",
+        "port": "route:clear"
+      },
+      "to": {
+        "node": "openTasks"
+      }
+    },
+    {
+      "id": "e12",
+      "from": {
+        "node": "route",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "notifyOwner"
+      }
+    },
+    {
+      "id": "e13",
+      "from": {
+        "node": "notifyOwner",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    },
+    {
+      "id": "e14",
+      "from": {
+        "node": "openTasks",
+        "port": "out"
+      },
+      "to": {
+        "node": "group"
+      }
+    },
+    {
+      "id": "e15",
+      "from": {
+        "node": "group",
+        "port": "out"
+      },
+      "to": {
+        "node": "split"
+      }
+    },
+    {
+      "id": "e16",
+      "from": {
+        "node": "split",
+        "port": "out"
+      },
+      "to": {
+        "node": "byGroup"
+      }
+    },
+    {
+      "id": "e17",
+      "from": {
+        "node": "startBuilder",
+        "port": "out"
+      },
+      "to": {
+        "node": "accepted"
+      }
+    },
+    {
+      "id": "e18",
+      "from": {
+        "node": "accepted",
+        "port": "match"
+      },
+      "to": {
+        "node": "reports"
+      }
+    },
+    {
+      "id": "e19",
+      "from": {
+        "node": "accepted",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "unconfirmed"
+      }
+    },
+    {
+      "id": "e20",
+      "from": {
+        "node": "tell",
+        "port": "out"
+      },
+      "to": {
+        "node": "handed"
+      }
+    },
+    {
+      "id": "e21",
+      "from": {
+        "node": "byGroup",
+        "port": "out"
+      },
+      "to": {
+        "node": "startBuilder"
+      }
+    },
+    {
+      "id": "e22",
+      "from": {
+        "node": "reports",
+        "port": "out"
+      },
+      "to": {
+        "node": "tell"
+      }
+    },
+    {
+      "id": "e23",
+      "from": {
+        "node": "route",
+        "port": "route:claimed"
+      },
+      "to": {
+        "node": "dismissed"
+      }
+    },
+    {
+      "id": "e24",
+      "from": {
+        "node": "unconfirmed",
+        "port": "out"
+      },
+      "to": {
+        "node": "warnOwner"
+      }
+    },
+    {
+      "id": "e25",
+      "from": {
+        "node": "warnOwner",
+        "port": "out"
+      },
+      "to": {
+        "node": "manual"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

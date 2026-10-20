@@ -1,0 +1,121 @@
+{
+  "assess": {
+    "mixedBatch": {
+      "perItem": {
+        "alert-101": {
+          "severity": "medium",
+          "reachable": true,
+          "fixKind": "patch",
+          "confidence": "high",
+          "clearBug": true,
+          "risk": "low",
+          "productUxImplications": false,
+          "categories": [],
+          "reason": "lodash 4.17.20 is imported by the export code; the patch release 4.17.21 removes the pollution."
+        },
+        "alert-102": {
+          "severity": "critical",
+          "reachable": true,
+          "fixKind": "patch",
+          "confidence": "high",
+          "clearBug": true,
+          "risk": "low",
+          "productUxImplications": false,
+          "categories": [],
+          "reason": "Critical severity: a person decides even when the fix is a patch."
+        },
+        "alert-103": {
+          "severity": "high",
+          "reachable": false,
+          "fixKind": "codeChange",
+          "confidence": "high",
+          "clearBug": true,
+          "risk": "low",
+          "productUxImplications": false,
+          "categories": [],
+          "reason": "express is only used by the dev server in this repository, so it looks unreachable, but the severity is high and the fix is a code change."
+        },
+        "alert-104": {
+          "severity": "low",
+          "reachable": false,
+          "fixKind": "codeChange",
+          "confidence": "high",
+          "clearBug": false,
+          "risk": "low",
+          "productUxImplications": false,
+          "categories": [],
+          "reason": "minimist is only a transitive dependency of a build script that never parses user input."
+        },
+        "alert-105": {
+          "severity": "low",
+          "reachable": false,
+          "fixKind": "patch",
+          "confidence": "low",
+          "clearBug": false,
+          "risk": "low",
+          "productUxImplications": false,
+          "categories": [],
+          "reason": "ws is used in a websocket helper; it is unclear whether the malformed header can reach it."
+        },
+        "alert-106": {
+          "severity": "medium",
+          "reachable": true,
+          "fixKind": "major",
+          "confidence": "high",
+          "clearBug": false,
+          "risk": "medium",
+          "productUxImplications": false,
+          "categories": [],
+          "reason": "The fix needs a major webpack upgrade, which changes the build."
+        }
+      }
+    },
+    "sensitiveFix": {
+      "perItem": {
+        "alert-107": {
+          "severity": "medium",
+          "reachable": true,
+          "fixKind": "patch",
+          "confidence": "high",
+          "clearBug": true,
+          "risk": "low",
+          "productUxImplications": false,
+          "categories": ["auth"],
+          "reason": "The patch touches token verification, which is an auth area."
+        }
+      }
+    },
+    "oneSafe": {
+      "perItem": {
+        "alert-101": {
+          "severity": "medium",
+          "reachable": true,
+          "fixKind": "patch",
+          "confidence": "high",
+          "clearBug": true,
+          "risk": "low",
+          "productUxImplications": false,
+          "categories": [],
+          "reason": "lodash 4.17.20 is imported by the export code; the patch release 4.17.21 removes the pollution."
+        }
+      }
+    },
+    "cannotDecide": {
+      "perItem": {
+        "*": {
+          "fail": "timeout",
+          "reason": "The model did not answer in time."
+        }
+      }
+    }
+  },
+  "builder": {
+    "upgrade": {
+      "perItem": {
+        "*": {
+          "prompt": "Upgrade lodash from 4.17.20 to 4.17.21 in package.json and the lockfile, run the tests, and open a pull request. Change nothing else."
+        }
+      }
+    }
+  }
+}

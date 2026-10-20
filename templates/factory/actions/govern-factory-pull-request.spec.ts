@@ -9,9 +9,6 @@ vi.mock("../server/db/schema.js", () => ({
   triageItems: {},
   triageRuns: {},
 }));
-vi.mock("../server/factory-graph/store.js", () => ({
-  DEFAULT_FACTORY_ID: "product-feedback",
-}));
 vi.mock("../server/lib/factory-repository-scope.js", () => ({
   resolveFactoryRepository: vi.fn(),
 }));

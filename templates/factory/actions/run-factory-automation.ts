@@ -1,9 +1,13 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { queueAutomationRunNow } from "@agent-native/core/triggers";
 import { z } from "zod";
 
 import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
 import { factoryIdSchema } from "../server/lib/factory-scope.js";
+import {
+  isWorkflowJob,
+  workflowJobRefusal,
+} from "../server/lib/factory-workflow-runner.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -28,6 +32,10 @@ export default defineAction({
       automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
+    if (isWorkflowJob(definition.meta)) {
+      const { message, errorCode } = workflowJobRefusal("run");
+      fail(message, { errorCode, statusCode: 409 });
+    }
     return queueAutomationRunNow({
       userEmail,
       orgId,

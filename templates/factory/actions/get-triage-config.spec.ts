@@ -88,7 +88,6 @@ describe("get-triage-config", () => {
 
     expect(result).toMatchObject({
       factoryId: "support-triage",
-      builderSlackUserId: "U123",
       pollingEnabled: true,
       readinessError: "vault timeout",
     });
@@ -105,7 +104,6 @@ describe("get-triage-config", () => {
 
     expect(result).toMatchObject({
       factoryId: "support-triage",
-      builderSlackUserId: "U123",
       connections: {
         slack: true,
         slackSecondary: false,
@@ -114,5 +112,6 @@ describe("get-triage-config", () => {
       },
     });
     expect(result).not.toHaveProperty("readinessError");
+    expect(result).not.toHaveProperty("builderSlackUserId");
   });
 });

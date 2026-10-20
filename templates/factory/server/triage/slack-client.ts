@@ -1,9 +1,9 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
   getChannelHistory as readChannelHistory,
-  addReaction as writeReaction,
+  findUserByEmail as readUserByEmail,
+  getMessagePermalink as readMessagePermalink,
   authTest as readAuthTest,
-  hasReaction as readReaction,
   getThread as readThread,
   getTeamInfo as readTeamInfo,
   getUserInfo as readUserInfo,
@@ -13,10 +13,9 @@ import {
   type SlackAuthTestResult,
   type SlackMessage,
   type SlackPostMessageResult,
-  type SlackReactionResult,
-  type SlackReactionState,
   type SlackTeamInfo,
   type SlackUserInfo,
+  type SlackUserLookup,
   type SlackTokenResolver,
   type ThreadRepliesResult,
   type Workspace,
@@ -121,21 +120,6 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         tokenResolver,
       );
     },
-    async addReaction(
-      workspace: Workspace,
-      channelId: string,
-      timestamp: string,
-      name: string,
-    ): Promise<SlackReactionResult> {
-      await verifyAgentNativeIdentity(workspace);
-      return writeReaction(
-        workspace,
-        channelId,
-        timestamp,
-        name,
-        tokenResolver,
-      );
-    },
     async postThreadReply(
       workspace: Workspace,
       channelId: string,
@@ -158,15 +142,6 @@ export function createSlackReader(identity: SlackReaderIdentity) {
     ): Promise<SlackPostMessageResult> {
       await verifyAgentNativeIdentity(workspace);
       return writeChannelMessage(workspace, channelId, text, tokenResolver);
-    },
-    async hasReaction(
-      workspace: Workspace,
-      channelId: string,
-      timestamp: string,
-      name: string,
-    ): Promise<SlackReactionState> {
-      await verifyAgentNativeIdentity(workspace);
-      return readReaction(workspace, channelId, timestamp, name, tokenResolver);
     },
     async getCompleteThread(
       workspace: Workspace,
@@ -196,5 +171,38 @@ export function createSlackReader(identity: SlackReaderIdentity) {
     },
     verifyAgentNativeIdentity,
     getAgentNativeIdentity,
+  };
+}
+
+/**
+ * The reader plus what a workflow's Slack writes need: resolving an email to a
+ * member and linking the posted message. Each call keeps the @agent-native
+ * identity check the reader makes.
+ */
+export function createSlackWorkflowClient(identity: SlackReaderIdentity) {
+  const reader = createSlackReader(identity);
+  const tokenResolver = createTokenResolver(identity);
+  return {
+    ...reader,
+    async findUserByEmail(
+      workspace: Workspace,
+      email: string,
+    ): Promise<SlackUserLookup | null> {
+      await reader.verifyAgentNativeIdentity(workspace);
+      return readUserByEmail(workspace, email, tokenResolver);
+    },
+    async getMessagePermalink(
+      workspace: Workspace,
+      channelId: string,
+      messageTs: string,
+    ): Promise<string> {
+      await reader.verifyAgentNativeIdentity(workspace);
+      return readMessagePermalink(
+        workspace,
+        channelId,
+        messageTs,
+        tokenResolver,
+      );
+    },
   };
 }

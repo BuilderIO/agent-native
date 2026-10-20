@@ -1,6 +1,7 @@
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
+import { factoryNavigationState } from "@/lib/factory-tab-params";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -8,12 +9,13 @@ export interface NavigationState {
   path?: string;
   threadId?: string;
   factoryId?: string;
+  /** `workflows`, `items`, `activity`, `settings`, or `agents`. */
   factoryTab?: string;
-  factoryAutomationId?: string;
-  factoryCreatingAutomation?: boolean;
-  factoryAuditRunId?: string;
-  factoryNodeId?: string;
-  factoryEdgeId?: string;
+  /** The workflow open on the canvas, and what is selected or replayed on it. */
+  workflowId?: string;
+  nodeId?: string;
+  edgeId?: string;
+  runId?: string;
   factoryItemId?: string;
   creatingFactory?: boolean;
 }
@@ -28,37 +30,8 @@ export function useNavigationState() {
         view: viewForPath(pathname),
         path: appPath(pathname),
         ...(threadId ? { threadId } : {}),
-        ...(pathname === "/factory" && searchParams.get("factoryId")
-          ? { factoryId: searchParams.get("factoryId") ?? undefined }
-          : {}),
-        ...(pathname === "/factory" && searchParams.get("factoryId")
-          ? { factoryTab: searchParams.get("tab") ?? "inbox" }
-          : pathname === "/factory" && searchParams.get("tab")
-            ? { factoryTab: searchParams.get("tab") ?? undefined }
-            : {}),
-        ...(pathname === "/factory" && searchParams.get("automationId")
-          ? {
-              factoryAutomationId:
-                searchParams.get("automationId") ?? undefined,
-            }
-          : {}),
-        ...(pathname === "/factory" &&
-        searchParams.get("createAutomation") === "1"
-          ? { factoryCreatingAutomation: true }
-          : {}),
-        ...(pathname === "/factory" && searchParams.get("auditRunId")
-          ? {
-              factoryAuditRunId: searchParams.get("auditRunId") ?? undefined,
-            }
-          : {}),
-        ...(pathname === "/factory" && searchParams.get("node")
-          ? { factoryNodeId: searchParams.get("node") ?? undefined }
-          : {}),
-        ...(pathname === "/factory" && searchParams.get("edge")
-          ? { factoryEdgeId: searchParams.get("edge") ?? undefined }
-          : {}),
-        ...(pathname === "/factory" && searchParams.get("itemId")
-          ? { factoryItemId: searchParams.get("itemId") ?? undefined }
+        ...(pathname === "/factory"
+          ? factoryNavigationState(searchParams)
           : {}),
         ...(pathname === "/new-factory" ? { creatingFactory: true } : {}),
       };

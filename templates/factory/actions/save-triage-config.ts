@@ -3,14 +3,11 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig } from "../server/db/schema.js";
-import {
-  readFactoryDefinition,
-  DEFAULT_FACTORY_ID,
-} from "../server/factory-graph/store.js";
 import { isFactorySlackChannelConflict } from "../server/lib/factory-automation-plan.js";
+import { readFactoryDefinition } from "../server/lib/factory-definitions.js";
+import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
 import {
   assertUniqueSlackChannelForFactory,
-  builderSlackUserIdSchema,
   factoryConfigRowId,
   factoryIdSchema,
   readTriageConfigRow,
@@ -24,13 +21,12 @@ const workspaceSchema = z.enum(["primary", "secondary"]);
 
 export default defineAction({
   description:
-    "Save Factory observation and automation alert settings for the selected factory. Provider credentials live in shared workspace integrations; source routing metadata including the Builder Slack member id is stored on Factory config.",
+    "Save Factory observation and automation alert settings for the selected factory. Provider credentials live in shared workspace integrations; source routing metadata such as the Slack channel and repository is stored on Factory config.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     slackWorkspace: workspaceSchema.optional(),
     slackChannelId: z.string().trim().max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
-    builderSlackUserId: builderSlackUserIdSchema.optional(),
     pollingEnabled: z.boolean().optional(),
     githubPollingEnabled: z.boolean().optional(),
     sentryPollingEnabled: z.boolean().optional(),
@@ -44,13 +40,14 @@ export default defineAction({
       .optional(),
   }),
   http: { method: "POST" },
+  // An upsert of one row per factory: a repeat writes the same values.
+  retrySafe: true,
   run: async (
     {
       factoryId,
       slackWorkspace,
       slackChannelId,
       slackChannelName,
-      builderSlackUserId,
       pollingEnabled,
       githubPollingEnabled,
       sentryPollingEnabled,
@@ -92,12 +89,6 @@ export default defineAction({
     const persistedSlackChannelName = persistText(
       slackChannelName,
       existing?.slackChannelName,
-    );
-    const persistedBuilderSlackUserId = persistText(
-      builderSlackUserId === undefined
-        ? undefined
-        : builderSlackUserId.toUpperCase(),
-      existing?.builderSlackUserId,
     );
     const persistedRepository =
       repository === undefined
@@ -153,7 +144,6 @@ export default defineAction({
           slackWorkspace: persistedSlackWorkspace,
           slackChannelId: persistedSlackChannelId,
           slackChannelName: persistedSlackChannelName,
-          builderSlackUserId: persistedBuilderSlackUserId,
           pollingEnabled: persistedPollingEnabled,
           githubPollingEnabled: persistedGithubPollingEnabled,
           sentryPollingEnabled: persistedSentryPollingEnabled,
@@ -176,7 +166,6 @@ export default defineAction({
             slackWorkspace: persistedSlackWorkspace,
             slackChannelId: persistedSlackChannelId,
             slackChannelName: persistedSlackChannelName,
-            builderSlackUserId: persistedBuilderSlackUserId,
             pollingEnabled: persistedPollingEnabled,
             githubPollingEnabled: persistedGithubPollingEnabled,
             sentryPollingEnabled: persistedSentryPollingEnabled,
@@ -207,7 +196,6 @@ export default defineAction({
       githubPollingEnabled: persistedGithubPollingEnabled === 1,
       sentryPollingEnabled: persistedSentryPollingEnabled === 1,
       slackChannelId: persistedSlackChannelId,
-      builderSlackUserId: persistedBuilderSlackUserId,
       automationFailureAlertsEnabled:
         persistedAutomationFailureAlertsEnabled === 1,
       automationFailureAlertEmail: persistedAutomationFailureAlertEmail,

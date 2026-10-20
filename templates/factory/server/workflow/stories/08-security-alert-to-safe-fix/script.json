@@ -1,0 +1,293 @@
+{
+  "scenarios": {
+    "each-alert-lands-where-the-story-says": {
+      "description": "Six alerts in one run: a safe patch goes to Builder; a critical one, a high-severity one the model thinks is unreachable, an unreachable one it is unsure of, and a major upgrade go to the security owner; a confidently unreachable low-severity one is dismissed with the reason.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "mixedBatch"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "mixedBatch"
+        },
+        {
+          "kind": "ai",
+          "node": "builder",
+          "recording": "upgrade"
+        },
+        {
+          "kind": "tick",
+          "label": "the hourly run"
+        }
+      ]
+    },
+    "a-fix-that-touches-a-sensitive-area-goes-to-a-person": {
+      "description": "A patch the model rates safe but that touches an auth area never reaches Builder: the route requires no sensitive category, so the security owner is told.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "sensitiveFix"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "sensitiveFix"
+        },
+        {
+          "kind": "ai",
+          "node": "builder",
+          "recording": "upgrade"
+        },
+        {
+          "kind": "tick",
+          "label": "the hourly run"
+        }
+      ]
+    },
+    "an-ai-turn-that-fails-never-dismisses-the-alert": {
+      "description": "The model times out: the alert is not decided, not dismissed and not sent anywhere, and nothing is written for it.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "oneSafe"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "cannotDecide"
+        },
+        {
+          "kind": "tick",
+          "label": "the hourly run"
+        }
+      ]
+    },
+    "a-start-that-timed-out-is-never-sent-twice": {
+      "description": "Builder does not answer: the start may have gone through, so the engine marks it for checking and never sends a second start for the same alert, even on a later tick that offers the alert again.",
+      "start": "2026-10-19T12:00:00.000Z",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "oneSafe"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "timedOut"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "oneSafe"
+        },
+        {
+          "kind": "ai",
+          "node": "builder",
+          "recording": "upgrade"
+        },
+        {
+          "kind": "tick",
+          "label": "the start times out"
+        },
+        {
+          "kind": "tick",
+          "at": "+60m",
+          "label": "the alert is offered again"
+        }
+      ]
+    },
+    "a-token-that-cannot-read-alerts-fails-the-run-loudly": {
+      "description": "The GitHub token lacks the scope for security alerts: the run fails with a clear error and no alert is judged, rather than looking like an hour with no alerts.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "tokenCannotReadAlerts"
+        },
+        {
+          "kind": "tick",
+          "label": "the hourly run"
+        }
+      ]
+    },
+    "a-dry-run-hands-nothing-to-builder-and-tells-no-one": {
+      "description": "A dry run reads the alerts and has the model judge them, but starts no Builder task and sends no message.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "mixedBatch"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "mixedBatch"
+        },
+        {
+          "kind": "ai",
+          "node": "builder",
+          "recording": "upgrade"
+        },
+        {
+          "kind": "tick",
+          "mode": "dry",
+          "label": "dry run"
+        }
+      ]
+    },
+    "an-alert-handed-to-builder-is-listed-again-and-builder-is-not-started-twice": {
+      "description": "GitHub keeps the alert open until the fix merges, so the next hourly run lists it again. The alert is assessed again, but its Builder start is found already done under its receipt and no second task is created.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "oneSafe"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "accepted"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "oneSafe"
+        },
+        {
+          "kind": "ai",
+          "node": "builder",
+          "recording": "upgrade"
+        },
+        {
+          "kind": "tick",
+          "label": "the alert is handed to Builder"
+        },
+        {
+          "kind": "tick",
+          "at": "+60m",
+          "label": "the alert is listed again"
+        }
+      ]
+    },
+    "a-refused-start-hands-the-alert-to-a-person-at-once": {
+      "description": "The dispatch gate refuses the start (for example a duplicate): the alert fails at the Builder node and becomes needs_manual at once, since the same start would be refused again. No message is sent about it, and the hourly runs after it do not try it again.",
+      "steps": [
+        {
+          "kind": "serve",
+          "operation": "github.listSecurityAlerts",
+          "recording": "oneSafe"
+        },
+        {
+          "kind": "serve",
+          "operation": "builder.start",
+          "recording": "refusedByTheGate"
+        },
+        {
+          "kind": "serve",
+          "operation": "slack.postMessage",
+          "recording": "posted"
+        },
+        {
+          "kind": "serve",
+          "operation": "email.send",
+          "recording": "sent"
+        },
+        {
+          "kind": "ai",
+          "node": "assess",
+          "recording": "oneSafe"
+        },
+        {
+          "kind": "ai",
+          "node": "builder",
+          "recording": "upgrade"
+        },
+        {
+          "kind": "tick",
+          "label": "the gate refuses, a person is told"
+        },
+        {
+          "kind": "tick",
+          "at": "+60m",
+          "label": "an hour on, not tried again"
+        },
+        {
+          "kind": "tick",
+          "at": "+120m",
+          "label": "two hours on, not tried again"
+        }
+      ]
+    }
+  }
+}

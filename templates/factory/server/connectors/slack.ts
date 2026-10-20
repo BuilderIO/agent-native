@@ -35,6 +35,14 @@ export interface SlackUserInfo {
   id: string;
   name: string | null;
   displayName: string | null;
+  /** From Slack's `is_bot` and `is_app_user`; absent when a stored profile predates the flag. */
+  isBot?: boolean;
+}
+
+export interface SlackUserLookup {
+  id: string;
+  isBot: boolean;
+  deleted: boolean;
 }
 
 export interface ChannelHistoryResult {
@@ -47,15 +55,6 @@ export interface ThreadRepliesResult {
   messages: SlackMessage[];
   has_more: boolean;
   next_cursor?: string;
-}
-
-export interface SlackReactionResult {
-  added: boolean;
-  already_present: boolean;
-}
-
-export interface SlackReactionState {
-  present: boolean;
 }
 
 export interface SlackPostMessageResult {
@@ -292,52 +291,6 @@ export async function authTest(
   };
 }
 
-export async function hasReaction(
-  workspace: Workspace,
-  channelId: string,
-  timestamp: string,
-  name: string,
-  tokenResolver?: SlackTokenResolver,
-): Promise<SlackReactionState> {
-  const data = await slackApi<{
-    message?: { reactions?: Array<{ name?: string; count?: number }> };
-  }>(
-    workspace,
-    "reactions.get",
-    { channel: channelId, timestamp },
-    tokenResolver,
-  );
-  if (!data.message) {
-    throw new Error("Slack reaction response is missing the message.");
-  }
-  return {
-    present: (data.message.reactions ?? []).some(
-      (reaction) => reaction.name === name && (reaction.count ?? 0) > 0,
-    ),
-  };
-}
-
-export async function addReaction(
-  workspace: Workspace,
-  channelId: string,
-  timestamp: string,
-  name: string,
-  tokenResolver?: SlackTokenResolver,
-): Promise<SlackReactionResult> {
-  try {
-    await slackWrite(
-      workspace,
-      "reactions.add",
-      { channel: channelId, timestamp, name },
-      tokenResolver,
-    );
-    return { added: true, already_present: false };
-  } catch (error) {
-    if (!String(error).includes("already_reacted")) throw error;
-    return { added: false, already_present: true };
-  }
-}
-
 export async function postThreadReply(
   workspace: Workspace,
   channelId: string,
@@ -392,6 +345,8 @@ export async function getUserInfo(
     user?: {
       id?: string;
       name?: string;
+      is_bot?: boolean;
+      is_app_user?: boolean;
       profile?: { display_name?: string };
     };
   }>(workspace, "users.info", { user: id }, tokenResolver);
@@ -408,5 +363,61 @@ export async function getUserInfo(
     id: user.id.trim(),
     name: name || null,
     displayName: displayName || null,
+    isBot: user.is_bot === true || user.is_app_user === true,
   };
+}
+
+/**
+ * Resolves an email to a Slack member. Null means Slack looked and found no
+ * one; any other failure (a missing `users:read.email` scope, a revoked token)
+ * throws, so "no such person" is never confused with "could not ask".
+ */
+export async function findUserByEmail(
+  workspace: Workspace,
+  email: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackUserLookup | null> {
+  const address = email.trim();
+  if (!address) throw new Error("An email address is required.");
+  let data: {
+    user?: { id?: string; is_bot?: boolean; deleted?: boolean };
+  };
+  try {
+    data = await slackApi(
+      workspace,
+      "users.lookupByEmail",
+      { email: address },
+      tokenResolver,
+    );
+  } catch (error) {
+    if (String(error).includes("users_not_found")) return null;
+    throw error;
+  }
+  const user = data.user;
+  if (!user || typeof user.id !== "string" || !user.id.trim()) {
+    throw new Error("Slack user lookup response is missing a user id.");
+  }
+  return {
+    id: user.id.trim(),
+    isBot: user.is_bot === true,
+    deleted: user.deleted === true,
+  };
+}
+
+export async function getMessagePermalink(
+  workspace: Workspace,
+  channelId: string,
+  messageTs: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<string> {
+  const data = await slackApi<{ permalink?: string }>(
+    workspace,
+    "chat.getPermalink",
+    { channel: channelId, message_ts: messageTs },
+    tokenResolver,
+  );
+  if (typeof data.permalink !== "string" || !data.permalink) {
+    throw new Error("Slack permalink response is missing the link.");
+  }
+  return data.permalink;
 }

@@ -1,0 +1,18 @@
+{
+  "fix": {
+    "headA": {
+      "perItem": {
+        "*": {
+          "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+        }
+      }
+    },
+    "headB": {
+      "perItem": {
+        "*": {
+          "userMessage": "The unit tests still fail, now on headB. Please look at the failure and push a fix."
+        }
+      }
+    }
+  }
+}

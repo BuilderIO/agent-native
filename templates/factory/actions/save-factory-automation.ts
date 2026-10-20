@@ -19,9 +19,6 @@ import {
   clampInboxLimit,
   clampWorkLimit,
   normalizeUserPrompt,
-  QA_AGENT_NATIVE_SLACK_CHANNEL_ID,
-  QA_AGENT_NATIVE_SLACK_CHANNEL_NAME,
-  requiresSlackFindingsDestination,
   readConfigSavedAt,
   readFactoryAutomationConfig,
   readPromptVersion,
@@ -46,6 +43,10 @@ import {
   resolveAutomationDisplayName,
   setAutomationFrontmatterField,
 } from "../server/lib/factory-scope.js";
+import {
+  isWorkflowJob,
+  workflowJobRefusal,
+} from "../server/lib/factory-workflow-runner.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -115,6 +116,10 @@ export default defineAction({
       input.automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
+    if (isWorkflowJob(definition.meta)) {
+      const { message, errorCode } = workflowJobRefusal("edit");
+      fail(message, { errorCode, statusCode: 409 });
+    }
     if (definition.name !== input.name) {
       throw new Error(
         "Factory automation id and name do not refer to the same automation.",
@@ -151,15 +156,11 @@ export default defineAction({
     if (scheduleMode === "daily" && !timezone) {
       throw new Error("Choose a timezone for a daily schedule.");
     }
-    const reportsFindings = requiresSlackFindingsDestination(current);
-    const nextSlackChannelId = reportsFindings
-      ? QA_AGENT_NATIVE_SLACK_CHANNEL_ID
-      : input.slackChannelId !== undefined
+    const nextSlackChannelId =
+      input.slackChannelId !== undefined
         ? input.slackChannelId.trim()
         : current.slackChannelId;
-    const nextSlackWorkspace = reportsFindings
-      ? "primary"
-      : (input.slackWorkspace ?? current.slackWorkspace);
+    const nextSlackWorkspace = input.slackWorkspace ?? current.slackWorkspace;
     const nextRepository =
       input.repository !== undefined
         ? input.repository.trim()
@@ -195,13 +196,6 @@ export default defineAction({
           slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
           verb: "saving",
         });
-        if (requiresSlackFindingsDestination(current)) {
-          await assertFactoryConnectorReady("slack", userEmail, {
-            orgId,
-            slackWorkspace: nextSlackWorkspace,
-            verb: "saving",
-          });
-        }
       } catch (error) {
         if (error instanceof VaultUnavailableError) fail(error.message);
         fail(
@@ -224,9 +218,8 @@ export default defineAction({
       ...current,
       slackWorkspace: nextSlackWorkspace,
       slackChannelId: nextSlackChannelId,
-      slackChannelName: reportsFindings
-        ? QA_AGENT_NATIVE_SLACK_CHANNEL_NAME
-        : input.slackChannelName !== undefined
+      slackChannelName:
+        input.slackChannelName !== undefined
           ? input.slackChannelName.trim()
           : current.slackChannelName,
       repository: nextRepository,

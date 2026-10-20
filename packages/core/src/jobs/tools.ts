@@ -30,6 +30,7 @@ import {
 } from "./cron.js";
 import {
   assertJobExecutionTargetFields,
+  assertJobRunnerTarget,
   classifyJobResource,
   jobBelongsToApp,
   type JobFrontmatterPatch,
@@ -438,6 +439,7 @@ async function runUpdate(
   ) {
     try {
       assertJobExecutionTargetFields(meta);
+      assertJobRunnerTarget(meta);
     } catch (err) {
       return JSON.stringify({ error: (err as Error).message });
     }

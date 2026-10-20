@@ -1,0 +1,617 @@
+{
+  "an-external-call-gets-one-post-and-one-task-per-action-item": {
+    "ticks": [
+      {
+        "label": "30 minutes after the calls",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "done": 3, "dismissed": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 2 } },
+          "done": { "in": 3, "ports": {} },
+          "external": { "in": 2, "ports": { "match": 1, "otherwise": 1 } },
+          "extract": { "in": 1, "ports": { "out": 1 } },
+          "internalOnly": { "in": 1, "ports": {} },
+          "post": { "in": 1, "ports": { "out": 1 } },
+          "splitItems": { "in": 1, "ports": { "out": 2 } },
+          "task": { "in": 2, "ports": { "out": 2 } },
+          "transcript": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "gong.newCalls": 1,
+          "gong.transcript": 1,
+          "slack.postMessage": 1,
+          "hubspot.createTask": 2
+        },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "call-1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0CALLS",
+              "text": "Quarterly planning with Example Co: a company-wide rollout is planned for November. Action items: send the pricing sheet (Friday); share the security questionnaire answers (next week). Risk: the security review is unfinished. Next step: follow up on the pricing sheet by Friday."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/C0CALLS/p1760002000000001"
+            }
+          },
+          {
+            "node": "task",
+            "item": "call-1#0",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "due": "today",
+              "title": "Send the pricing sheet",
+              "body": "Likely owner: account-owner@example.test. Suggested due date: Friday. From the call: Example Co plans a company-wide rollout in November, pending their security review."
+            },
+            "receipt": { "status": "done", "externalRef": "task-1" }
+          },
+          {
+            "node": "task",
+            "item": "call-1#1",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "due": "today",
+              "title": "Share the security questionnaire answers",
+              "body": "Likely owner: solutions@example.test. Suggested due date: next week. From the call: Example Co plans a company-wide rollout in November, pending their security review."
+            },
+            "receipt": { "status": "done", "externalRef": "task-2" }
+          }
+        ],
+        "ai": [
+          { "node": "extract", "mode": "perItem", "items": ["call-1"] },
+          { "node": "post", "mode": "perItem", "items": ["call-1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": ["decision@external:match", "effect@post", "ended@done:done"],
+      "call-2": ["decision@external:otherwise", "ended@internalOnly:dismissed"],
+      "call-1#0": ["effect@task", "ended@done:done"],
+      "call-1#1": ["effect@task", "ended@done:done"]
+    }
+  },
+  "a-call-with-no-action-items-posts-and-creates-no-task": {
+    "ticks": [
+      {
+        "label": "30 minutes after the call",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "extract": { "in": 1, "ports": { "out": 1 } },
+          "post": { "in": 1, "ports": { "out": 1 } },
+          "splitItems": { "in": 1, "ports": {} },
+          "transcript": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "gong.newCalls": 1,
+          "gong.transcript": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "call-1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0CALLS",
+              "text": "Quarterly planning with Example Co: a courtesy check-in. No action items. Next step: check in again next month."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/C0CALLS/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "extract", "mode": "perItem", "items": ["call-1"] },
+          { "node": "post", "mode": "perItem", "items": ["call-1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": ["decision@external:match", "effect@post", "ended@done:done"]
+    }
+  },
+  "a-transcript-that-cannot-be-read-fails-the-call-and-sends-nothing": {
+    "ticks": [
+      {
+        "label": "30 minutes after the call, Gong is down",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "itemFailures": 1, "retryParked": 1 }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "transcript": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "gong.newCalls": 1, "gong.transcript": 3 },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the next window",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "retryParked": 1, "retried": 1 }
+        },
+        "nodes": {
+          "transcript": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "gong.newCalls": 1, "gong.transcript": 3 },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T12:00:00.000Z",
+            "to": "2026-10-19T12:30:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [
+      {
+        "item": "call-1",
+        "node": "transcript",
+        "wait": "retry",
+        "dueAt": "2026-10-19T12:40:05.000Z",
+        "counters": { "attempts": 2 }
+      }
+    ],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": [
+        "decision@external:match",
+        "error@transcript:provider_error",
+        "parked@transcript",
+        "woke@transcript:?",
+        "error@transcript:provider_error",
+        "parked@transcript"
+      ]
+    }
+  },
+  "an-empty-transcript-response-is-a-failure-not-an-empty-call": {
+    "ticks": [
+      {
+        "label": "30 minutes after the call",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "needsManual": 1, "itemFailures": 1 }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "transcript": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "lookup_failed"
+          }
+        },
+        "calls": { "gong.newCalls": 1, "gong.transcript": 1 },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": [
+        "decision@external:match",
+        "error@transcript:lookup_failed",
+        "ended@transcript:needsManual"
+      ]
+    }
+  },
+  "a-run-that-dies-while-creating-tasks-creates-no-task-twice": {
+    "ticks": [
+      {
+        "label": "11:30, a quiet half hour",
+        "at": "2026-10-19T11:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "gong.newCalls": 1 },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:00:00.000Z",
+            "to": "2026-10-19T11:30:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "12:00, dies after the first task",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "crashed",
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "extract": { "in": 1, "ports": { "out": 1 } },
+          "post": { "in": 1, "ports": { "out": 1 } },
+          "splitItems": { "in": 1, "ports": { "out": 2 } },
+          "transcript": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "gong.newCalls": 1,
+          "gong.transcript": 1,
+          "slack.postMessage": 1,
+          "hubspot.createTask": 1
+        },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "call-1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0CALLS",
+              "text": "Quarterly planning with Example Co: a company-wide rollout is planned for November. Action items: send the pricing sheet (Friday); share the security questionnaire answers (next week). Risk: the security review is unfinished. Next step: follow up on the pricing sheet by Friday."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/C0CALLS/p1760002000000001"
+            }
+          },
+          {
+            "node": "task",
+            "item": "call-1#0",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "due": "today",
+              "title": "Send the pricing sheet",
+              "body": "Likely owner: account-owner@example.test. Suggested due date: Friday. From the call: Example Co plans a company-wide rollout in November, pending their security review."
+            },
+            "receipt": { "status": "started" }
+          }
+        ],
+        "ai": [
+          { "node": "extract", "mode": "perItem", "items": ["call-1"] },
+          { "node": "post", "mode": "perItem", "items": ["call-1"] }
+        ],
+        "crash": "the process died after the call went out"
+      },
+      {
+        "label": "12:30, the window reaches back to 11:30",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "done": 2,
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 2
+          }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "done": { "in": 2, "ports": {} },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "extract": { "in": 1, "ports": { "out": 1 } },
+          "post": { "in": 1, "ports": { "out": 1 } },
+          "splitItems": { "in": 1, "ports": { "out": 2 } },
+          "task": {
+            "in": 2,
+            "ports": { "out": 1 },
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "transcript": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "gong.newCalls": 1,
+          "gong.transcript": 1,
+          "hubspot.createTask": 1
+        },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:30:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "task",
+            "item": "call-1#1",
+            "operation": "hubspot.createTask",
+            "fields": {
+              "due": "today",
+              "title": "Share the security questionnaire answers",
+              "body": "Likely owner: solutions@example.test. Suggested due date: next week. From the call: Example Co plans a company-wide rollout in November, pending their security review."
+            },
+            "receipt": { "status": "done", "externalRef": "task-2" }
+          }
+        ],
+        "ai": [
+          { "node": "extract", "mode": "perItem", "items": ["call-1"] },
+          { "node": "post", "mode": "perItem", "items": ["call-1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": [
+        "decision@external:match",
+        "effect@post",
+        "decision@external:match",
+        "effect@post",
+        "ended@done:done"
+      ],
+      "call-1#0": ["error@task:effect_needs_check", "ended@task:needsManual"],
+      "call-1#1": ["effect@task", "ended@done:done"]
+    }
+  },
+  "a-quiet-half-hour-calls-nothing": {
+    "ticks": [
+      {
+        "label": "30 minutes, no calls",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "gong.newCalls": 1 },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {}
+  },
+  "a-dry-run-creates-nothing": {
+    "ticks": [
+      {
+        "label": "dry run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "dry",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 3, "modelCalls": 2 }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "done": { "in": 3, "ports": {} },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "extract": { "in": 1, "ports": { "out": 1 } },
+          "post": { "in": 1, "ports": { "out": 1 } },
+          "splitItems": { "in": 1, "ports": { "out": 2 } },
+          "task": { "in": 2, "ports": { "out": 2 } },
+          "transcript": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "gong.newCalls": 1, "gong.transcript": 1 },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [],
+        "ai": [
+          { "node": "extract", "mode": "perItem", "items": ["call-1"] },
+          { "node": "post", "mode": "perItem", "items": ["call-1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": ["decision@external:match", "effect@post", "ended@done:done"],
+      "call-1#0": ["effect@task", "ended@done:done"],
+      "call-1#1": ["effect@task", "ended@done:done"]
+    }
+  },
+  "an-action-item-the-model-left-incomplete-fails-only-itself": {
+    "ticks": [
+      {
+        "label": "30 minutes after the call",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 1,
+            "done": 1,
+            "needsManual": 1,
+            "itemFailures": 1,
+            "modelCalls": 2
+          }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "extract": { "in": 1, "ports": { "out": 1 } },
+          "post": { "in": 1, "ports": { "out": 1 } },
+          "splitItems": { "in": 1, "ports": { "out": 1 } },
+          "task": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "expression_failed"
+          },
+          "transcript": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "gong.newCalls": 1,
+          "gong.transcript": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "call-1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0CALLS",
+              "text": "Quarterly planning with Example Co: a rollout is planned for November. Action item: send the pricing sheet (Friday). Next step: send the pricing sheet."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/C0CALLS/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "extract", "mode": "perItem", "items": ["call-1"] },
+          { "node": "post", "mode": "perItem", "items": ["call-1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": ["decision@external:match", "effect@post", "ended@done:done"],
+      "call-1#0": ["error@task:expression_failed", "ended@task:needsManual"]
+    }
+  },
+  "a-post-that-quotes-the-transcript-is-sent-because-no-code-reads-the-text": {
+    "ticks": [
+      {
+        "label": "30 minutes after the call",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 1, "done": 1, "modelCalls": 2 }
+        },
+        "nodes": {
+          "calls": { "in": 0, "ports": { "out": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "external": { "in": 1, "ports": { "match": 1 } },
+          "extract": { "in": 1, "ports": { "out": 1 } },
+          "post": { "in": 1, "ports": { "out": 1 } },
+          "splitItems": { "in": 1, "ports": {} },
+          "transcript": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "gong.newCalls": 1,
+          "gong.transcript": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {
+          "gong.newCalls": {
+            "from": "2026-10-19T11:30:00.000Z",
+            "to": "2026-10-19T12:00:00.000Z"
+          }
+        },
+        "effects": [
+          {
+            "node": "post",
+            "item": "call-1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0CALLS",
+              "text": "Quarterly planning with Example Co. Transcript: TRANSCRIPT-LINE: We want to roll out to the whole team in November. TRANSCRIPT-LINE: Our security review is not finished and might block us."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/C0CALLS/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          { "node": "extract", "mode": "perItem", "items": ["call-1"] },
+          { "node": "post", "mode": "perItem", "items": ["call-1"] }
+        ]
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "call-1": ["decision@external:match", "effect@post", "ended@done:done"]
+    }
+  }
+}

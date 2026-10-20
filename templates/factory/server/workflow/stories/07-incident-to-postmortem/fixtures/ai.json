@@ -1,0 +1,71 @@
+{
+  "summarize": {
+    "high": {
+      "perItem": {
+        "*": {
+          "severity": "high",
+          "summary": "Checkout throws a TypeError on every order since 11:40; the error rate is above 40%.",
+          "suspectedArea": "checkout"
+        }
+      }
+    },
+    "junk": {
+      "perItem": {
+        "*": {
+          "fail": "result_invalid",
+          "reason": "The model answered in prose instead of the fields."
+        }
+      }
+    }
+  },
+  "postmortem": {
+    "grounded": {
+      "perItem": {
+        "*": {
+          "title": "Checkout TypeError on release 2026.10.19-1",
+          "summary": "Checkout threw a TypeError for about fifty minutes. Three recorded events show it starting on release web@2026.10.19-1 and last appearing on web@2026.10.19-2.",
+          "timeline": [
+            {
+              "at": "2026-10-19T11:40:12.000Z",
+              "what": "First TypeError on release web@2026.10.19-1.",
+              "eventId": "e1",
+              "link": "https://sentry.example.test/organizations/example/issues/4821/events/e1/"
+            },
+            {
+              "at": "2026-10-19T11:52:40.000Z",
+              "what": "The same error repeated on the same release.",
+              "eventId": "e2",
+              "link": "https://sentry.example.test/organizations/example/issues/4821/events/e2/"
+            },
+            {
+              "at": "2026-10-19T12:31:05.000Z",
+              "what": "The error appeared once on release web@2026.10.19-2.",
+              "eventId": "e3",
+              "link": "https://sentry.example.test/organizations/example/issues/4821/events/e3/"
+            }
+          ],
+          "impact": "Orders failed at checkout while the error was open; the events do not say how many.",
+          "causes": "The events show the error began on release web@2026.10.19-1; they do not show why.",
+          "followUps": [
+            "Add a test for an empty cart total.",
+            "Find out why the error appeared once on web@2026.10.19-2."
+          ],
+          "body": "## Summary\nCheckout threw a TypeError for about fifty minutes.\n\n## Timeline\n- 11:40 First TypeError on release web@2026.10.19-1 ([e1](https://sentry.example.test/organizations/example/issues/4821/events/e1/))\n- 11:52 The same error repeated ([e2](https://sentry.example.test/organizations/example/issues/4821/events/e2/))\n- 12:31 Seen once on web@2026.10.19-2 ([e3](https://sentry.example.test/organizations/example/issues/4821/events/e3/))\n\n## Impact\nOrders failed at checkout while the error was open; the events do not say how many.\n\n## Causes\nThe events show the error began on web@2026.10.19-1; they do not show why.\n\n## Follow-ups\n- Add a test for an empty cart total.\n- Find out why the error appeared once on web@2026.10.19-2."
+        }
+      }
+    },
+    "noEvents": {
+      "perItem": {
+        "*": {
+          "title": "Checkout TypeError with no recorded events",
+          "summary": "Sentry recorded no events for this issue, so there is no timeline.",
+          "timeline": [],
+          "impact": "No recorded event states the impact.",
+          "causes": "No recorded event shows a cause.",
+          "followUps": [],
+          "body": "## Summary\nSentry recorded no events for this issue, so there is no timeline.\n\n## Impact\nNo recorded event states the impact.\n\n## Causes\nNo recorded event shows a cause."
+        }
+      }
+    }
+  }
+}

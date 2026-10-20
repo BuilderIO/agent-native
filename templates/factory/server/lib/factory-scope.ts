@@ -10,10 +10,9 @@ import {
   triageDecisions,
   triageFeedback,
   triageItems,
-  triageRules,
   triageRuns,
 } from "../db/schema.js";
-import { DEFAULT_FACTORY_ID } from "../factory-graph/store.js";
+import { DEFAULT_FACTORY_ID } from "./factory-ids.js";
 
 export { DEFAULT_FACTORY_ID };
 
@@ -23,14 +22,6 @@ export const factoryIdSchema = z
   .min(1)
   .max(120)
   .regex(/^[a-z0-9][a-z0-9-]*$/);
-
-export const builderSlackUserIdSchema = z
-  .string()
-  .trim()
-  .max(32)
-  .refine((value) => value === "" || /^[UW][A-Z0-9]+$/i.test(value), {
-    message: "Builder Slack member id must look like U01234567.",
-  });
 
 export function factoryConfigRowId(orgId: string, factoryId: string): string {
   return `${orgId}:${factoryId}`;
@@ -105,6 +96,8 @@ async function factoryIdTaken(
   )[0];
   if (config) return true;
 
+  // Nothing writes graph versions anymore; older factories still have them, and
+  // their ids must never be handed out again.
   const graphVersion = (
     await db
       .select({ factoryId: factoryGraphVersions.factoryId })
@@ -226,10 +219,6 @@ export function orgFactoryScopedItemWhere(
     eq(triageItems.id, itemId),
     orgFactoryItemFilter(orgId, factoryId),
   )!;
-}
-
-export function orgFactoryRuleFilter(orgId: string, factoryId: string): SQL {
-  return orgFactoryFilter(triageRules, orgId, factoryId);
 }
 
 export function orgFactoryDecisionFilter(

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
+  GitHubMergeNotCompletedError,
   createGitHubClient,
   reviewCommentsFromGraphqlThreads,
 } from "./github-client.js";
@@ -241,15 +242,6 @@ describe("GitHub triage client", () => {
           },
           201,
         );
-      if (path.endsWith("/comments"))
-        return response(
-          {
-            id: 10,
-            html_url: "https://github.test/comment/10",
-            user: { login: "factory-bot" },
-          },
-          201,
-        );
       if (path.endsWith("/merge"))
         return response({ sha: "merge-sha", merged: true, message: "Merged" });
       throw new Error(`unexpected ${path} ${init?.method ?? "GET"}`);
@@ -291,24 +283,6 @@ describe("GitHub triage client", () => {
       event: "APPROVE",
       body: "Factory approval",
       commit_id: "head-sha",
-    });
-    await expect(
-      client.createPullRequestComment(
-        repository,
-        2,
-        "@builderio-bot please fix",
-      ),
-    ).resolves.toEqual({
-      id: 10,
-      htmlUrl: "https://github.test/comment/10",
-      author: "factory-bot",
-    });
-    const pullRequestComment = fetchImpl.mock.calls.find(([input]) =>
-      new URL(String(input)).pathname.endsWith("/issues/2/comments"),
-    );
-    expect(pullRequestComment?.[1]?.method).toBe("POST");
-    expect(JSON.parse(String(pullRequestComment?.[1]?.body))).toEqual({
-      body: "@builderio-bot please fix",
     });
     await expect(client.mergePullRequest(repository, 2)).resolves.toEqual({
       sha: "merge-sha",
@@ -511,6 +485,76 @@ describe("GitHub triage client", () => {
       "later feedback",
     );
     expect(evidence.reviewsTruncated).toBe(false);
+  });
+
+  it("reads each review's commit and the reviewer's association and type from every page, so an approval after the first 100 reviews is seen", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      const page = url.searchParams.get("page");
+      if (!url.pathname.endsWith("/reviews")) {
+        throw new Error(`unexpected ${url.pathname}`);
+      }
+      if (page === "1") {
+        return response(
+          Array.from({ length: 100 }, (_, index) => ({
+            user: {
+              login: `commenter-${index}`,
+              id: 100 + index,
+              type: index === 0 ? "Bot" : "User",
+            },
+            state: "COMMENTED",
+            author_association: "NONE",
+            commit_id: "sha-6",
+            submitted_at: "2026-08-28T12:00:00Z",
+          })),
+        );
+      }
+      if (page === "2") {
+        return response([
+          {
+            user: { login: "maintainer", id: 2, type: "User" },
+            state: "APPROVED",
+            author_association: "MEMBER",
+            commit_id: "sha-7",
+            html_url: "https://github.example.test/review/1",
+            submitted_at: "2026-08-28T13:00:00Z",
+          },
+          {
+            user: { login: "ghost", id: 3 },
+            state: "APPROVED",
+            submitted_at: "2026-08-28T13:01:00Z",
+          },
+        ]);
+      }
+      throw new Error(`unexpected review page ${page}`);
+    });
+
+    const { reviews, reviewsTruncated } = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).listPullRequestReviews(repository, 7);
+
+    expect(reviewsTruncated).toBe(false);
+    expect(reviews).toHaveLength(102);
+    expect(reviews[0]).toMatchObject({
+      state: "commented",
+      authorAssociation: "NONE",
+      authorType: "Bot",
+      commitSha: "sha-6",
+    });
+    expect(reviews[100]).toEqual({
+      author: "maintainer",
+      state: "approved",
+      authorAssociation: "MEMBER",
+      authorType: "User",
+      commitSha: "sha-7",
+      htmlUrl: "https://github.example.test/review/1",
+      observedAt: "2026-08-28T13:00:00Z",
+    });
+    // A review GitHub gives no association for is passed on without one, never with a made-up value.
+    expect(reviews[101]).not.toHaveProperty("authorAssociation");
+    expect(reviews[101]).not.toHaveProperty("authorType");
+    expect(reviews[101]).not.toHaveProperty("commitSha");
   });
 
   it("preserves GraphQL completeness when a full page has exactly 100 comments", async () => {
@@ -854,5 +898,230 @@ describe("GitHub triage client", () => {
       isResolved: false,
       threadId: "PRRT_kwDOABC",
     });
+  });
+});
+
+describe("GitHub client reads and merges for workflows", () => {
+  const checkRun = {
+    name: "ci",
+    status: "completed",
+    conclusion: "success",
+    completed_at: "2026-08-28T12:02:00Z",
+  };
+
+  it("reads the checks on a head commit, and says when it could only see workflow runs", async () => {
+    const complete = vi.fn<typeof fetch>(async () =>
+      response({ total_count: 1, check_runs: [checkRun] }),
+    );
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl: complete,
+    });
+
+    await expect(
+      client.getPullRequestChecks(repository, "sha-7"),
+    ).resolves.toEqual({
+      checks: [
+        { name: "ci", state: "passed", observedAt: "2026-08-28T12:02:00Z" },
+      ],
+      checksCoverage: "complete",
+    });
+    expect(new URL(String(complete.mock.calls[0]?.[0])).pathname).toBe(
+      "/repos/builder/factory/commits/sha-7/check-runs",
+    );
+
+    const fallback = vi.fn<typeof fetch>(async (input) =>
+      new URL(String(input)).pathname.endsWith("/check-runs")
+        ? response(
+            { message: "Resource not accessible by personal access token" },
+            403,
+          )
+        : response({
+            total_count: 1,
+            workflow_runs: [
+              {
+                name: "CI",
+                status: "completed",
+                conclusion: "success",
+                updated_at: "2026-08-28T12:03:00Z",
+              },
+            ],
+          }),
+    );
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl: fallback,
+      }).getPullRequestChecks(repository, "sha-7"),
+    ).resolves.toMatchObject({ checksCoverage: "partial" });
+  });
+
+  it("refuses to call a truncated check list complete", async () => {
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl: vi.fn<typeof fetch>(async () =>
+        response({ total_count: 150, check_runs: [checkRun] }),
+      ),
+    });
+
+    await expect(
+      client.getPullRequestChecks(repository, "sha-7"),
+    ).rejects.toThrow("cannot treat CI as complete");
+  });
+
+  it("reads which merge methods the repository allows", async () => {
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl: vi.fn<typeof fetch>(async () =>
+        response({
+          allow_merge_commit: false,
+          allow_squash_merge: true,
+          allow_rebase_merge: false,
+        }),
+      ),
+    });
+
+    await expect(
+      client.getRepositoryMergeSettings(repository),
+    ).resolves.toEqual({
+      allowMergeCommit: false,
+      allowSquashMerge: true,
+      allowRebaseMerge: false,
+    });
+  });
+
+  it("does not read a missing merge setting as false", async () => {
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl: vi.fn<typeof fetch>(async () =>
+        response({ allow_squash_merge: true }),
+      ),
+    });
+
+    await expect(client.getRepositoryMergeSettings(repository)).rejects.toThrow(
+      "missing repository merge-commit setting",
+    );
+  });
+
+  it("pins the merge to a head sha and sends the chosen method", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response({ merged: true, sha: "merge-sha", message: "Merged" }),
+    );
+    const client = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    });
+
+    await client.mergePullRequest(
+      repository,
+      2,
+      undefined,
+      "head-sha",
+      "rebase",
+    );
+
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
+      sha: "head-sha",
+      merge_method: "rebase",
+    });
+  });
+
+  it("raises a typed error when GitHub answers merged: false, and keeps the pull request's merge commit", async () => {
+    const refused = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl: vi.fn<typeof fetch>(async () =>
+        response({ merged: false, message: "not clean" }),
+      ),
+    });
+    await expect(
+      refused.mergePullRequest(repository, 2),
+    ).rejects.toBeInstanceOf(GitHubMergeNotCompletedError);
+
+    const summary = createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl: vi.fn<typeof fetch>(async () =>
+        response({
+          number: 7,
+          title: "t",
+          body: null,
+          state: "closed",
+          draft: false,
+          merged: true,
+          merged_at: "2026-08-28T12:00:00Z",
+          merge_commit_sha: "merge-commit-sha",
+          html_url: "https://github.test/pr/7",
+          user: { id: 1, login: "builder-io-integration[bot]" },
+          head: { sha: "h", ref: "r", repo: { full_name: "acme/app" } },
+          base: {
+            ref: "main",
+            repo: { full_name: "acme/app", default_branch: "main" },
+          },
+          created_at: "2026-08-28T10:00:00Z",
+          updated_at: "2026-08-28T12:00:00Z",
+          additions: 1,
+          deletions: 1,
+          changed_files: 1,
+          mergeable: null,
+          mergeable_state: null,
+          review_comments: 0,
+        }),
+      ),
+    });
+    await expect(
+      summary.getPullRequestSummary(repository, 7),
+    ).resolves.toMatchObject({
+      merged: true,
+      mergeCommitSha: "merge-commit-sha",
+    });
+  });
+});
+
+describe("getPullRequestSummary: where the pull request comes from", () => {
+  const payload = (head: unknown, base: unknown) => ({
+    number: 7,
+    title: "t",
+    body: null,
+    state: "open",
+    draft: false,
+    html_url: "https://github.test/pr/7",
+    user: { id: 1, login: "builder-io-integration[bot]" },
+    head: { sha: "h", ref: "r", repo: head },
+    base: { ref: "main", repo: base },
+    created_at: "2026-08-28T10:00:00Z",
+    updated_at: "2026-08-28T12:00:00Z",
+    additions: 1,
+    deletions: 1,
+    changed_files: 1,
+    mergeable: true,
+    mergeable_state: "clean",
+    review_comments: 0,
+  });
+  const summaryOf = (body: unknown) =>
+    createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl: vi.fn<typeof fetch>(async () => response(body)),
+    }).getPullRequestSummary(repository, 7);
+  const base = { full_name: "acme/app", default_branch: "trunk" };
+
+  it("reads the head and base repositories and the base's default branch from the pull request itself", async () => {
+    await expect(
+      summaryOf(payload({ full_name: "someone/app" }, base)),
+    ).resolves.toMatchObject({
+      headRepository: "someone/app",
+      baseRepository: "acme/app",
+      baseDefaultBranch: "trunk",
+    });
+  });
+
+  it("reads a deleted fork as no head repository, and an unreadable answer as an error", async () => {
+    await expect(summaryOf(payload(null, base))).resolves.toMatchObject({
+      headRepository: null,
+    });
+    await expect(summaryOf(payload(undefined, base))).rejects.toThrow(
+      /not an object/,
+    );
+    await expect(
+      summaryOf(payload({ full_name: "acme/app" }, { full_name: "acme/app" })),
+    ).rejects.toThrow(/base default branch/);
   });
 });

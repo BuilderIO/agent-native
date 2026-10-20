@@ -1,0 +1,275 @@
+{
+  "nodes": [
+    {
+      "id": "hourly",
+      "name": "hourly",
+      "position": {
+        "x": 0,
+        "y": 48
+      },
+      "kind": "trigger",
+      "settings": {
+        "schedule": {
+          "every": "60m"
+        }
+      }
+    },
+    {
+      "id": "subs",
+      "name": "subs",
+      "position": {
+        "x": 344,
+        "y": 48
+      },
+      "kind": "source",
+      "settings": {
+        "source": "provider-query",
+        "operation": "stripe.newSubscriptions",
+        "args": {},
+        "memory": "inbox",
+        "maxItems": 50
+      }
+    },
+    {
+      "id": "pause",
+      "name": "pause",
+      "position": {
+        "x": 688,
+        "y": 32
+      },
+      "kind": "wait",
+      "settings": {
+        "wait": "time",
+        "duration": {
+          "amount": 3,
+          "unit": "days"
+        }
+      }
+    },
+    {
+      "id": "usage",
+      "name": "usage",
+      "position": {
+        "x": 1032,
+        "y": 48
+      },
+      "kind": "lookup",
+      "settings": {
+        "operation": "posthog.usage",
+        "args": {
+          "customerId": {
+            "mode": "path",
+            "path": "item.extras.customerId"
+          },
+          "days": {
+            "mode": "fixed",
+            "value": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "inactive",
+      "name": "inactive",
+      "position": {
+        "x": 1376,
+        "y": 20
+      },
+      "kind": "filter",
+      "settings": {
+        "combinator": "all",
+        "rules": [
+          {
+            "left": "nodes.usage.results[0][0]",
+            "op": "lt",
+            "right": "{{ settings.extras.minKeyEvents }}"
+          }
+        ]
+      }
+    },
+    {
+      "id": "mail",
+      "name": "mail",
+      "position": {
+        "x": 1720,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "email.send",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "item.extras.customerEmail"
+          },
+          "subject": {
+            "mode": "fixed",
+            "value": "Getting started with {{ item.title }}"
+          },
+          "body": {
+            "mode": "ai",
+            "instruction": "Write a short, friendly nudge: greet them by the name in their email, suggest the one first thing to try, and link the docs. Do not mention pricing, discounts or their plan."
+          }
+        }
+      }
+    },
+    {
+      "id": "tellOwner",
+      "name": "tellOwner",
+      "position": {
+        "x": 2064,
+        "y": 96
+      },
+      "kind": "action",
+      "settings": {
+        "operation": "slack.postMessage",
+        "args": {
+          "to": {
+            "mode": "path",
+            "path": "settings.extras.accountOwnerEmail"
+          },
+          "text": {
+            "mode": "fixed",
+            "value": "Sent an activation nudge to {{ item.title }}."
+          }
+        }
+      }
+    },
+    {
+      "id": "done",
+      "name": "done",
+      "position": {
+        "x": 2408,
+        "y": 96
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "done"
+      }
+    },
+    {
+      "id": "activated",
+      "name": "activated",
+      "position": {
+        "x": 1720,
+        "y": 0
+      },
+      "kind": "end",
+      "settings": {
+        "outcome": "dismissed",
+        "reason": "activated"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": {
+        "node": "hourly",
+        "port": "out"
+      },
+      "to": {
+        "node": "subs"
+      }
+    },
+    {
+      "id": "e2",
+      "from": {
+        "node": "subs",
+        "port": "out"
+      },
+      "to": {
+        "node": "pause"
+      }
+    },
+    {
+      "id": "e3",
+      "from": {
+        "node": "pause",
+        "port": "done"
+      },
+      "to": {
+        "node": "usage"
+      }
+    },
+    {
+      "id": "e4",
+      "from": {
+        "node": "usage",
+        "port": "out"
+      },
+      "to": {
+        "node": "inactive"
+      }
+    },
+    {
+      "id": "e5",
+      "from": {
+        "node": "inactive",
+        "port": "match"
+      },
+      "to": {
+        "node": "mail"
+      }
+    },
+    {
+      "id": "e6",
+      "from": {
+        "node": "mail",
+        "port": "out"
+      },
+      "to": {
+        "node": "tellOwner"
+      }
+    },
+    {
+      "id": "e7",
+      "from": {
+        "node": "tellOwner",
+        "port": "out"
+      },
+      "to": {
+        "node": "done"
+      }
+    },
+    {
+      "id": "e8",
+      "from": {
+        "node": "inactive",
+        "port": "otherwise"
+      },
+      "to": {
+        "node": "activated"
+      }
+    }
+  ],
+  "settings": {
+    "checkCadenceMinutes": 15,
+    "modelCallCap": 50,
+    "builderProjectId": "project-1",
+    "triageOwnerEmail": "triage-owner@example.test",
+    "findingsChannelId": "C0FINDINGS",
+    "extras": {
+      "repository": "example-org/example-repo",
+      "digestChannel": "C0DIGEST",
+      "callsChannel": "C0CALLS",
+      "salesChannel": "C0SALES",
+      "managerEmail": "manager@example.test",
+      "escalationEmail": "escalation@example.test",
+      "oncallEmail": "oncall@example.test",
+      "incidentOwnerEmail": "incident-owner@example.test",
+      "financeChannel": "C0FINANCE",
+      "supportLeadEmail": "support-lead@example.test",
+      "securityOwnerEmail": "security-owner@example.test",
+      "ownersChannel": "C0OWNERS",
+      "nurtureListId": "list-1",
+      "jiraProjectKey": "EXAMPLE",
+      "postmortemParentPageId": "page-1",
+      "billingTable": "example-project.billing.gcp_billing_export_example",
+      "accountOwnerEmail": "account-owner@example.test",
+      "minKeyEvents": 3,
+      "spikePercent": 40,
+      "spikeDollars": 50
+    }
+  }
+}

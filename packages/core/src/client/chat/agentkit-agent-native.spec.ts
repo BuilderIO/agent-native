@@ -3126,6 +3126,122 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
+  it("keeps an open connection request through a save and reload", async () => {
+    let threadData = JSON.stringify({
+      messages: [],
+      agentKit: { messages: [] },
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/runs/active?threadId=thread-connect")) {
+          return json({ active: false, status: "idle" });
+        }
+        if (url.endsWith("/threads/thread-connect") && init?.method === "PUT") {
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
+          return json({ ok: true });
+        }
+        if (url.endsWith("/threads/thread-connect")) {
+          return json({
+            id: "thread-connect",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+      adapter: { now: () => "2026-09-26T00:01:00.000Z" },
+    });
+    const event = (sequence: number, rest: object) =>
+      ({
+        id: `connect-${sequence}`,
+        threadId: "thread-connect",
+        runId: "run-connect",
+        sequence,
+        occurredAt: "2026-09-26T00:00:01.000Z",
+        ...rest,
+      }) as AgentEvent;
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "thread-connect",
+      snapshot: {
+        id: "thread-connect",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [],
+        events: [
+          event(1, { type: "run.started" }),
+          event(2, { type: "run.status", status: "awaiting_input" }),
+          event(3, {
+            type: "connection.requested",
+            request: {
+              id: "connection-1",
+              provider: "hubspot",
+              reason: "connect",
+              status: "requested",
+              appId: "factory",
+              detail: "HubSpot is not connected.",
+              source: {
+                id: "hubspot",
+                kind: "workspace_connection",
+                label: "HubSpot",
+              },
+              metadata: { private: "do not persist request metadata" },
+            },
+          }),
+        ],
+        runs: [
+          {
+            id: "run-connect",
+            threadId: "thread-connect",
+            status: "awaiting_input",
+            lastSequence: 3,
+            startedAt: "2026-09-26T00:00:01.000Z",
+          },
+        ],
+        activeRunIds: ["run-connect"],
+      },
+    });
+
+    const saved = JSON.parse(threadData);
+    expect(
+      saved.agentKit.events.map((entry: AgentEvent) => entry.type),
+    ).toEqual(["run.started", "run.status", "connection.requested"]);
+    expect(JSON.stringify(saved.agentKit)).not.toContain(
+      "do not persist request metadata",
+    );
+
+    const client = new AgentKitClient({ transport });
+    try {
+      const thread = await client.loadThread("thread-connect");
+      expect(thread.connectionRequests["connection-1"]).toEqual({
+        id: "connection-1",
+        provider: "hubspot",
+        reason: "connect",
+        status: "requested",
+        appId: "factory",
+        detail: "HubSpot is not connected.",
+        source: {
+          id: "hubspot",
+          kind: "workspace_connection",
+          label: "HubSpot",
+        },
+      });
+      expect(thread.connectionRequestRunIds["connection-1"]).toBe(
+        "run-connect",
+      );
+    } finally {
+      await client.dispose();
+    }
+  });
+
   it("persists compact completed activity history without replacing messages", async () => {
     const repository = {
       queuedMessages: [{ id: "queued-after-snapshot-read", text: "Later" }],
