@@ -97,13 +97,24 @@ const ctx: DriveContext = {
       waitUntil: "load",
       timeout: 120_000,
     });
-    // First load of a cold Vite app compiles for a long time behind these.
-    await page
+    // A cold Vite app re-optimizes deps on first load (504 Outdated Optimize
+    // Dep) and reloads itself with ?__an_vite_dev_recovery=, so the loading
+    // state can vanish and come back; require it to stay gone for a while.
+    const loading = page
       .getByRole("status", { name: "Loading application" })
-      .waitFor({ state: "detached", timeout: 180_000 });
-    await page
-      .getByRole("heading", { name: /Dev server is (restarting|starting)/ })
-      .waitFor({ state: "detached", timeout: 180_000 });
+      .or(page.getByRole("heading", { name: /Dev server is (restarting|starting)/ }));
+    const deadline = Date.now() + 240_000;
+    let clearSince: number | null = null;
+    while (Date.now() < deadline) {
+      if ((await loading.count()) > 0) {
+        clearSince = null;
+      } else {
+        clearSince ??= Date.now();
+        if (Date.now() - clearSince >= 3_000) return;
+      }
+      await page.waitForTimeout(250);
+    }
+    throw new Error(`${base}${pathname} still loading after 240s`);
   },
   async shot(name) {
     const label = `${String(++shotIndex).padStart(2, "0")}-${name}`;
