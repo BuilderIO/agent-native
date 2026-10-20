@@ -446,10 +446,15 @@ export default defineAction({
     // A capped account holds only the newest slice of Gmail's inbox, so its
     // totals are lower bounds even when nothing is syncing.
     const syncCapped = statuses.some((status) => status.reachedCap);
+    // Failing ids (due or waiting out a backoff) and unreadable stored state
+    // mean some threads may be stale or missing, so the list is not complete.
     const backfillIncomplete =
       syncCapped ||
       statuses.some(
-        (status) => status.state === "initial" || status.backfillPending,
+        (status) =>
+          status.state === "initial" ||
+          status.backfillPending ||
+          status.degraded,
       );
     const cachedAllInboxCount = cachedInboxCount(
       syncAccounts,

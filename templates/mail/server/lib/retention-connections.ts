@@ -23,7 +23,9 @@ async function readConnectionFingerprint(
   owner: string,
   orgIds: readonly string[],
 ): Promise<string> {
-  const parts: string[] = [];
+  // Membership is part of the fingerprint: joining an org adds a scope in which
+  // a managed connection could now resolve.
+  const parts: string[] = [`orgs=${[...orgIds].sort().join(",")}`];
   const read = async (sql: string, args: unknown[]) => {
     try {
       const { rows } = await getDbExec().execute({ sql, args });
@@ -43,6 +45,17 @@ async function readConnectionFingerprint(
   await read(
     `SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), 0) AS u, 0 AS r
       FROM public.workspace_connections
+      WHERE provider = 'gmail'
+        AND (LOWER(owner_email) = $1${
+          placeholders.length > 0
+            ? ` OR org_id IN (${placeholders.join(", ")})`
+            : ""
+        })`,
+    [owner, ...orgIds],
+  );
+  await read(
+    `SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), 0) AS u, 0 AS r
+      FROM public.workspace_connection_grants
       WHERE provider = 'gmail'
         AND (LOWER(owner_email) = $1${
           placeholders.length > 0
@@ -128,7 +141,11 @@ export async function resolveConnectedAccountsForRetention(
   // lookup (or a failure to tell) aborts the clear.
   const stillCurrent = async () => {
     try {
-      return (await readConnectionFingerprint(owner, orgIds)) === fingerprint;
+      // Membership is re-read fresh, not taken from the lookup.
+      const currentOrgIds = await readOrgIds(owner);
+      return (
+        (await readConnectionFingerprint(owner, currentOrgIds)) === fingerprint
+      );
     } catch (error) {
       // Fail closed: not being able to tell counts as changed, so no clear.
       console.warn("[inbox-retention] connection re-check failed", {

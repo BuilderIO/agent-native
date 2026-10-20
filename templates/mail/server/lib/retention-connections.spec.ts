@@ -165,4 +165,32 @@ describe("resolveConnectedAccountsForRetention", () => {
     tokenStamp = 200;
     await expect(result.stillCurrent?.()).resolves.toBe(false);
   });
+  it("aborts the clear when a new grant or a new org membership appears after the lookup", async () => {
+    let grantStamp = 100;
+    let orgs = ["org-a"];
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (/FROM org_members/.test(sql)) {
+        return { rows: orgs.map((org_id) => ({ org_id })) };
+      }
+      if (/FROM public\.workspace_connection_grants/.test(sql)) {
+        return { rows: [{ n: 1, u: grantStamp, r: 0 }] };
+      }
+      return { rows: [] };
+    });
+
+    const unchanged = await resolveConnectedAccountsForRetention(OWNER);
+    expect(unchanged.verified).toBe(true);
+    await expect(unchanged.stillCurrent?.()).resolves.toBe(true);
+
+    // A grant row changed since the lookup.
+    grantStamp = 200;
+    await expect(unchanged.stillCurrent?.()).resolves.toBe(false);
+
+    // A new org membership, read fresh, even with every stamp back as it was.
+    grantStamp = 100;
+    const second = await resolveConnectedAccountsForRetention(OWNER);
+    await expect(second.stillCurrent?.()).resolves.toBe(true);
+    orgs = ["org-a", "org-b"];
+    await expect(second.stillCurrent?.()).resolves.toBe(false);
+  });
 });

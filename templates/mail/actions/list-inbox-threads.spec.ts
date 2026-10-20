@@ -467,6 +467,41 @@ describe("list-inbox-threads action", () => {
     });
   });
 
+  it("treats degraded threads as an incomplete list even while no retry is due", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        fullSyncPhase: null,
+        degraded: {
+          hydrate: ["bad"],
+          verify: [],
+          kind: "http_500",
+          attempts: { "h:bad": { count: 4, nextAt: Date.now() + 3_600_000 } },
+        },
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.accounts[0].degraded).toMatchObject({ count: 1 });
+    expect(result.syncing).toBe(false);
+    expect(result.complete).toBe(false);
+    expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
+      { totalIsLowerBound: true },
+    );
+  });
+
   it("reports a capped inbox as a lower bound that is not complete", async () => {
     mocks.readSyncAccounts.mockResolvedValue([
       {
