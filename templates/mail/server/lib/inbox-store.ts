@@ -76,14 +76,16 @@ function readStateJson<T>(
   empty: T,
 ): T {
   if (!raw) return empty;
+  const record = () => {
+    corrupt[column] = raw.slice(0, CORRUPT_RAW_MAX);
+    return empty;
+  };
   try {
     const value = read(JSON.parse(raw));
-    if (value !== null) return value;
+    return value !== null ? value : record();
   } catch {
-    // fall through to the corrupt record
+    return record();
   }
-  corrupt[column] = raw.slice(0, CORRUPT_RAW_MAX);
-  return empty;
 }
 
 const readIdList = (parsed: unknown): string[] | null =>
