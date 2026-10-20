@@ -186,6 +186,7 @@ let createDatabase: typeof import("./create-content-database.js").default;
 let linkFolder: typeof import("./link-github-folder.js").default;
 let syncFolder: typeof import("./sync-github-folder.js").default;
 let getSource: typeof import("./get-content-database-source.js").default;
+let refreshSource: typeof import("./refresh-content-database-source.js").default;
 let editDocument: typeof import("./edit-document.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let duplicateItem: typeof import("./duplicate-database-item.js").default;
@@ -220,6 +221,8 @@ beforeAll(async () => {
   linkFolder = (await import("./link-github-folder.js")).default;
   syncFolder = (await import("./sync-github-folder.js")).default;
   getSource = (await import("./get-content-database-source.js")).default;
+  refreshSource = (await import("./refresh-content-database-source.js"))
+    .default;
   editDocument = (await import("./edit-document.js")).default;
   updateDocument = (await import("./update-document.js")).default;
   duplicateItem = (await import("./duplicate-database-item.js")).default;
@@ -1790,6 +1793,24 @@ describe("GitHub folder freshness", () => {
     const again = await as(() => syncFolder.run({ databaseId: database.id }));
     expect(
       syncFolder.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
+  });
+
+  it("tells every reader when a refresh changes rows, and no one when it doesn't", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    const refresh = () =>
+      as(() => refreshSource.run({ databaseId: database.id }));
+    const refreshed = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, refreshed),
+    ).toEqual({
+      resourceType: "document",
+      resourceId: database.documentId,
+    });
+    const again = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, again),
     ).toBeNull();
   });
 });
