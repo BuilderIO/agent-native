@@ -9863,7 +9863,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (focusedInteractRef.current) return;
-      if (isCanvasOverlayInteractionTarget(e.target)) return;
+      // Middle-button pan may start on the comment click plane, but never on a popover over the canvas.
+      if (isCanvasOverlayInteractionTarget(e.target)) {
+        const onClickPlane =
+          e.target instanceof Element &&
+          !!e.target.closest("[data-review-click-plane]");
+        if (e.button !== 1 || !onClickPlane) return;
+        // Claiming canvas focus here would blur the open composer.
+        beginPan(e);
+        return;
+      }
       claimKeyboardFocus();
       suppressNextPick.current = false;
       setAltHoverMeasurement(null);
@@ -10086,6 +10095,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      // Popover mouse moves bubble here through React; they must not measure the design underneath.
+      if (isCanvasOverlayInteractionTarget(e.target)) {
+        setAltHoverMeasurement(null);
+        return;
+      }
       updateAltHoverMeasurement(e);
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
       if (tool !== "pen" || dragState.current?.type === "pen-node") return;
@@ -10650,12 +10664,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
+    // The comment click plane is portaled to body, so wheels over it never reach the surface.
+    const handlePlaneWheel = (event: WheelEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-review-click-plane]")
+      ) {
+        handleWheelEvent(event);
+      }
+    };
     surface.addEventListener("wheel", handleWheelEvent, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener("wheel", handlePlaneWheel, {
       capture: true,
       passive: false,
     });
     return () => {
       surface.removeEventListener("wheel", handleWheelEvent, {
+        capture: true,
+      });
+      document.removeEventListener("wheel", handlePlaneWheel, {
         capture: true,
       });
     };

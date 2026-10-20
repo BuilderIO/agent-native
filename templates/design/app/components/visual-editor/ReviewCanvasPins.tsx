@@ -28,6 +28,14 @@ import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+  buildSourceEquivalentSelector,
+  isSourceLocationMatch,
+  resolveSourceEquivalentSelector,
+  resolveSourceEquivalentSelectorResult,
+  type SourceEquivalentSelectorStatus,
+} from "@shared/source-equivalent-selector";
+import {
   IconChevronDown,
   IconCircleCheck,
   IconDots,
@@ -79,6 +87,7 @@ import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   formatNodeSelectionQuestion,
   formatNodeRepromptSubmission,
+  NODE_REPROMPT_PREVIEW_FAILED_EVENT,
   inferNodeRepromptSendMode,
   NODE_REPROMPT_PRESENTED_EVENT,
   NODE_REPROMPT_RESOLVED_EVENT,
@@ -96,6 +105,7 @@ import {
   type ReviewBoardGeometry,
   type ReviewAnchorRegion,
   type ReviewAnchorPoint,
+  type ReviewAnchorSelectorResolution,
   type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
 import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
@@ -166,6 +176,11 @@ interface ReviewFrameNodeGeometry {
   viewportHeight: number;
 }
 
+interface ReviewSelectorBoxReply {
+  box: ReviewFrameNodeGeometry | null;
+  selectorStatus: SourceEquivalentSelectorStatus;
+}
+
 interface ReviewImageAttachment {
   url: string;
   name: string;
@@ -182,7 +197,7 @@ interface PendingReviewReaction {
 const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "👀"];
 const REVIEW_IDENTITY_SELECTOR =
-  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]";
+  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]";
 
 interface ReviewPopoverAnchor {
   clientPoint: ReviewCanvasPoint;
@@ -277,29 +292,41 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
     const document = iframe?.contentDocument;
     if (!document) return null;
     const escape = globalThis.CSS?.escape;
-    if (escape) {
-      return document.querySelector(
-        `[data-agent-native-node-id="${escape(nodeId)}"],` +
-          `[data-code-layer-id="${escape(nodeId)}"],` +
-          `[data-layer-id="${escape(nodeId)}"],` +
-          `[data-builder-id="${escape(nodeId)}"],#${escape(nodeId)}`,
-      );
-    }
-    return (
-      Array.from(
-        document.querySelectorAll(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
-        ),
-      ).find((element) =>
-        [
-          "data-agent-native-node-id",
-          "data-code-layer-id",
-          "data-layer-id",
-          "data-builder-id",
-          "id",
-        ].some((attribute) => element.getAttribute(attribute) === nodeId),
-      ) ?? null
+    const matches = escape
+      ? Array.from(
+          document.querySelectorAll(
+            `[data-agent-native-node-id="${escape(nodeId)}"],` +
+              `[data-code-layer-id="${escape(nodeId)}"],` +
+              `[data-layer-id="${escape(nodeId)}"],` +
+              `[data-builder-id="${escape(nodeId)}"],` +
+              `[data-loc="${escape(nodeId)}"],#${escape(nodeId)}`,
+          ),
+        )
+      : Array.from(
+          document.querySelectorAll(
+            "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
+          ),
+        ).filter((element) =>
+          [
+            "data-agent-native-node-id",
+            "data-code-layer-id",
+            "data-layer-id",
+            "data-builder-id",
+            "data-loc",
+            "id",
+          ].some((attribute) => element.getAttribute(attribute) === nodeId),
+        );
+    // Repeated identities are ambiguous; returning null lets the click-specific selector
+    // keep the pin on the instance the bridge actually hit.
+    const sourceMatches = matches.filter((element) =>
+      isSourceLocationMatch(element, nodeId),
     );
+    if (sourceMatches.length > 1) return null;
+    if (sourceMatches.length > 0 && matches.length > sourceMatches.length) {
+      return null;
+    }
+    if (matches.length > 1) return null;
+    return sourceMatches[0] ?? matches[0] ?? null;
   } catch {
     return null;
   }
@@ -351,49 +378,213 @@ function nodePoint(
   return elementPoint(canvas, findNodeElement(canvas, nodeId), frameGeometry);
 }
 
-function selectorPoint(
+interface ReviewClientRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * What the pointer is over: the node id, the selector that finds the element
+ * again, and the box it had when the bridge reported it.
+ */
+interface ReviewHoverTarget {
+  nodeId: string | null;
+  selector: string | null;
+  box: ReviewFrameNodeGeometry | null;
+  selectorStatus?: SourceEquivalentSelectorStatus;
+}
+
+function sameHoverTarget(
+  left: ReviewHoverTarget | null,
+  right: ReviewHoverTarget | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.nodeId !== right.nodeId) return false;
+  if (left.selector !== right.selector) return false;
+  if (left.selectorStatus !== right.selectorStatus) return false;
+  if (!left.box || !right.box) return left.box === right.box;
+  return (
+    left.box.viewportWidth === right.box.viewportWidth &&
+    left.box.viewportHeight === right.box.viewportHeight &&
+    left.box.rect.left === right.box.rect.left &&
+    left.box.rect.top === right.box.rect.top &&
+    left.box.rect.width === right.box.rect.width &&
+    left.box.rect.height === right.box.rect.height
+  );
+}
+
+/** The box a bridge reply carries, or null when the element was not found. */
+function frameBoxFromPayload(
+  payload: Record<string, unknown>,
+): ReviewFrameNodeGeometry | null {
+  const rect = payload.rect as Record<string, unknown> | undefined;
+  if (!rect || typeof rect !== "object") return null;
+  const box = {
+    left: Number(rect.left),
+    top: Number(rect.top),
+    width: Number(rect.width),
+    height: Number(rect.height),
+  };
+  const viewportWidth = Number(payload.viewportWidth);
+  const viewportHeight = Number(payload.viewportHeight);
+  if (
+    ![...Object.values(box), viewportWidth, viewportHeight].every(
+      Number.isFinite,
+    )
+  ) {
+    return null;
+  }
+  return { rect: box, viewportWidth, viewportHeight };
+}
+
+function hoverTargetFromPayload(
+  payload: Record<string, unknown>,
+): ReviewHoverTarget | null {
+  const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : null;
+  const box = frameBoxFromPayload(payload);
+  if (!nodeId && !box) return null;
+  return {
+    nodeId,
+    selector:
+      typeof payload.hitSelector === "string" ? payload.hitSelector : null,
+    box,
+  };
+}
+
+/** A frame-viewport rect in client coordinates, mapped the same way as elementPoint. */
+function frameRectToClient(
   canvas: HTMLElement,
-  selector: string,
-): ReviewAnchorPoint | null {
+  frameRect: ReviewClientRect,
+  viewport?: { width: number; height: number },
+): ReviewClientRect | null {
   const iframe = canvas.querySelector<HTMLIFrameElement>(
     "iframe[data-design-preview-iframe]",
   );
+  if (!iframe) return null;
+  const iframeRect = iframe.getBoundingClientRect();
+  const scaleX =
+    iframeRect.width / Math.max(1, viewport?.width ?? iframe.clientWidth);
+  const scaleY =
+    iframeRect.height / Math.max(1, viewport?.height ?? iframe.clientHeight);
+  return {
+    left: iframeRect.left + frameRect.left * scaleX,
+    top: iframeRect.top + frameRect.top * scaleY,
+    width: frameRect.width * scaleX,
+    height: frameRect.height * scaleY,
+  };
+}
+
+/** A node's box in client coordinates, from its live element or the last reported frame rect. */
+function nodeClientRect(
+  canvas: HTMLElement,
+  nodeId: string,
+  frameGeometry?: ReviewFrameNodeGeometry,
+): ReviewClientRect | null {
+  const elementRect =
+    findNodeElement(canvas, nodeId)?.getBoundingClientRect() ??
+    frameGeometry?.rect;
+  if (!elementRect) return null;
+  return frameRectToClient(
+    canvas,
+    elementRect,
+    frameGeometry
+      ? {
+          width: frameGeometry.viewportWidth,
+          height: frameGeometry.viewportHeight,
+        }
+      : undefined,
+  );
+}
+
+/**
+ * Where a hover target is drawn. The box is the element the bridge actually hit, so it
+ * wins: a node-id lookup returns the first of any repeated clones. The node lookup covers
+ * a target that has no box.
+ */
+function hoverTargetClientRect(
+  canvas: HTMLElement,
+  target: ReviewHoverTarget,
+  nodeGeometry: Record<string, ReviewFrameNodeGeometry>,
+): ReviewClientRect | null {
+  if (target.box) {
+    return frameRectToClient(canvas, target.box.rect, {
+      width: target.box.viewportWidth,
+      height: target.box.viewportHeight,
+    });
+  }
+  return target.nodeId
+    ? nodeClientRect(canvas, target.nodeId, nodeGeometry[target.nodeId])
+    : null;
+}
+
+/**
+ * The overlay portals to body but is a React child of the design frame, so its
+ * mouse-down and click would bubble into the frame's select handlers. Only
+ * those two: stopping native propagation for mouse move or up would starve the
+ * window listeners that finish a canvas pan started over the plane.
+ */
+function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
+  event.stopPropagation();
+}
+
+/**
+ * Preview-frame elements belong to another realm, so instanceof against this window's
+ * HTMLElement or SVGElement is false for them. Check the shape instead.
+ */
+function isRenderedElement(value: unknown): value is HTMLElement | SVGElement {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Element).nodeType === 1 &&
+    typeof (value as HTMLElement).style === "object"
+  );
+}
+
+/**
+ * Resolves versioned source paths with their matching sibling rules and leaves
+ * unversioned persisted selectors on their original native CSS semantics.
+ */
+function selectorElement(
+  canvas: HTMLElement,
+  selector: string,
+): Element | null {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  if (!doc) return null;
   try {
-    return elementPoint(
-      canvas,
-      iframe?.contentDocument?.querySelector(selector) ?? null,
-    );
-  } catch {
-    return null;
+    return resolveSourceEquivalentSelector(doc, selector);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "SyntaxError"
+    ) {
+      return null;
+    }
+    throw error;
   }
 }
 
-function structuralSelector(element: Element, document: Document): string {
-  if (element === document.body || element === document.documentElement) {
-    return "";
+function selectorPoint(
+  canvas: HTMLElement,
+  selector: string,
+): ReviewAnchorSelectorResolution {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  if (!doc) return { status: "unavailable" };
+  const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+  if (resolution.status !== "matched") {
+    return { status: resolution.status };
   }
-  const parts: string[] = [];
-  let current: Element | null = element;
-  while (
-    current &&
-    current !== document.body &&
-    current !== document.documentElement
-  ) {
-    const tag = current.tagName.toLowerCase();
-    const siblings = current.parentElement
-      ? Array.from(current.parentElement.children).filter(
-          (candidate) => candidate.tagName === current?.tagName,
-        )
-      : [];
-    const index = siblings.indexOf(current);
-    parts.unshift(
-      siblings.length > 1 && index >= 0
-        ? `${tag}:nth-of-type(${index + 1})`
-        : tag,
-    );
-    current = current.parentElement;
-  }
-  return parts.length > 0 ? `body > ${parts.join(" > ")}` : "";
+  const point = elementPoint(canvas, resolution.element);
+  return point ? { status: "matched", point } : { status: "unavailable" };
 }
 
 function elementAnchorAtPoint(
@@ -456,6 +647,7 @@ function elementAnchorAtPoint(
       anchor.getAttribute("data-code-layer-id") ??
       anchor.getAttribute("data-layer-id") ??
       anchor.getAttribute("data-builder-id") ??
+      anchor.getAttribute("data-loc") ??
       anchor.getAttribute("id") ??
       undefined;
     const layerName =
@@ -463,7 +655,7 @@ function elementAnchorAtPoint(
         ?.value ?? undefined;
     const targetSelector = nodeId
       ? undefined
-      : structuralSelector(anchor, document) || undefined;
+      : buildSourceEquivalentSelector(anchor) || undefined;
     return {
       ...(nodeId ? { nodeId } : {}),
       ...(targetSelector ? { targetSelector } : {}),
@@ -957,6 +1149,14 @@ export function ReviewCanvasPins({
   const [frameNodeGeometry, setFrameNodeGeometry] = useState<
     Record<string, ReviewFrameNodeGeometry>
   >({});
+  const [hoverTarget, setHoverTarget] = useState<ReviewHoverTarget | null>(
+    null,
+  );
+  const hoverTargetRef = useRef<ReviewHoverTarget | null>(null);
+  const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverFrameRef = useRef<number | null>(null);
+  const hoverRequestRef = useRef(0);
+  const selectorRequestRef = useRef(0);
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
@@ -994,6 +1194,33 @@ export function ReviewCanvasPins({
     };
     window.addEventListener(NODE_REPROMPT_PRESENTED_EVENT, onRepromptSettled);
     window.addEventListener(NODE_REPROMPT_RESOLVED_EVENT, onRepromptSettled);
+    const onRepromptPreviewFailed = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          fileId?: string;
+          reason?: string;
+          repromptId?: string;
+        }>
+      ).detail;
+      if (
+        detail?.repromptId !== pendingRepromptId ||
+        detail.fileId !== targetId
+      ) {
+        return;
+      }
+      setPendingRepromptId(null);
+      toast.error(
+        t(
+          detail.reason === "target-unresolved"
+            ? "designEditor.nodeRewrite.previewTargetUnavailable"
+            : "designEditor.nodeRewrite.previewFailed",
+        ),
+      );
+    };
+    window.addEventListener(
+      NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+      onRepromptPreviewFailed,
+    );
     return () => {
       window.removeEventListener(
         NODE_REPROMPT_PRESENTED_EVENT,
@@ -1003,8 +1230,12 @@ export function ReviewCanvasPins({
         NODE_REPROMPT_RESOLVED_EVENT,
         onRepromptSettled,
       );
+      window.removeEventListener(
+        NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+        onRepromptPreviewFailed,
+      );
     };
-  }, [cancelDraft, onClose, pendingRepromptId]);
+  }, [cancelDraft, onClose, pendingRepromptId, t, targetId]);
 
   const threads = useMemo(
     () => buildReviewThreads(comments.data?.comments ?? []),
@@ -1029,34 +1260,22 @@ export function ReviewCanvasPins({
           ? materializeBoardReviewAnchor(effectiveAnchor, boardGeometry)
           : parseReviewAnchor(effectiveAnchor);
       if (parsed?.relativePoint && canvas) {
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : parsed.selector
-            ? (() => {
-                const iframe = canvas.querySelector<HTMLIFrameElement>(
-                  "iframe[data-design-preview-iframe]",
-                );
-                try {
-                  return (
-                    iframe?.contentDocument?.querySelector(parsed.selector) ??
-                    null
-                  );
-                  // coercion-ok: cross-origin preview frames make selector lookup unavailable.
-                } catch {
-                  return null;
-                }
-              })()
-            : null;
+        const nodeId = parsed.nodeId;
+        const nodeElement = nodeId ? findNodeElement(canvas, nodeId) : null;
+        // A repeated data-loc resolves to no node element; the saved selector names this instance.
+        const element =
+          nodeElement ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const point = relativeElementCanvasPoint(
           canvas,
           element,
           parsed.relativePoint,
-          parsed.nodeId ? frameNodeGeometry[parsed.nodeId] : undefined,
+          nodeElement && nodeId ? frameNodeGeometry[nodeId] : undefined,
         );
         if (point) {
           return {
             point,
-            source: parsed.nodeId ? ("node" as const) : ("selector" as const),
+            source: nodeElement ? ("node" as const) : ("selector" as const),
           };
         }
       }
@@ -1334,6 +1553,87 @@ export function ReviewCanvasPins({
     return () => window.removeEventListener("message", handleMessage);
   }, [canvas]);
 
+  // An open composer or thread keeps its element highlighted; otherwise the highlight follows the pointer.
+  const popoverNodeId = useMemo(() => {
+    if (draftPin) {
+      return (
+        resolveReviewAnchor(draftPin.anchor, () => null)?.anchor.nodeId ?? null
+      );
+    }
+    const thread = threads.find(
+      (candidate) => candidate.root.threadId === activeThreadId,
+    );
+    return thread
+      ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor.nodeId ??
+          null)
+      : null;
+  }, [activeThreadId, draftPin, threads]);
+  const popoverKey = draftPin
+    ? `draft:${draftPin.id}`
+    : activeThreadId
+      ? `thread:${activeThreadId}`
+      : null;
+  const popoverOpen = popoverKey !== null;
+  // The pointer moves onto the popover, which clears the hover; keep what it was over when this popover opened.
+  const [popoverHover, setPopoverHover] = useState<{
+    key: string;
+    target: ReviewHoverTarget | null;
+  } | null>(null);
+  // The popover is about its anchor, so a stored selector wins over the pointer; the
+  // hover is the fallback for a draft that has not saved one yet.
+  const popoverAnchorSelector = draftPin
+    ? (draftPin.anchor.selector ?? null)
+    : (() => {
+        const thread = threads.find(
+          (candidate) => candidate.root.threadId === activeThreadId,
+        );
+        return thread
+          ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor
+              .selector ?? null)
+          : null;
+      })();
+  useEffect(() => {
+    // Closing drops the snapshot, so reopening the same thread takes a fresh one.
+    if (!popoverKey) {
+      setPopoverHover(null);
+      return;
+    }
+    // A bridge-corrected anchor selector replaces the snapshot's, so the highlight re-measures from it.
+    setPopoverHover((current) =>
+      current?.key === popoverKey &&
+      (!popoverAnchorSelector ||
+        current.target?.selector === popoverAnchorSelector)
+        ? current
+        : {
+            key: popoverKey,
+            target: popoverAnchorSelector
+              ? { nodeId: null, selector: popoverAnchorSelector, box: null }
+              : hoverTargetRef.current,
+          },
+    );
+  }, [popoverAnchorSelector, popoverKey]);
+  const popoverSnapshot =
+    popoverHover?.key === popoverKey ? popoverHover.target : null;
+  // A layout change re-measures the snapshot's box from this selector.
+  const snapshotSelector = popoverSnapshot?.selector ?? null;
+  const highlightTarget: ReviewHoverTarget | null = popoverOpen
+    ? popoverNodeId
+      ? {
+          nodeId: popoverNodeId,
+          selector: snapshotSelector,
+          // Node IDs can be shared by repeated instances, so only a selector identifies this box's instance.
+          box:
+            popoverSnapshot &&
+            popoverAnchorSelector !== null &&
+            popoverSnapshot.selector === popoverAnchorSelector
+              ? popoverSnapshot.box
+              : null,
+        }
+      : popoverSnapshot
+    : hoverTarget;
+  const highlightNodeId = highlightTarget?.nodeId ?? null;
+  const highlightHasBox = Boolean(highlightTarget?.box);
+
   const anchoredNodeIds = useMemo(() => {
     const nodeIds = new Set<string>();
     for (const thread of threads) {
@@ -1344,8 +1644,10 @@ export function ReviewCanvasPins({
       ? resolveReviewAnchor(draftPin.anchor, () => null)
       : null;
     if (draft?.anchor.nodeId) nodeIds.add(draft.anchor.nodeId);
+    // A box already measured for the highlight needs no node rect, and asking for one re-renders on every hover.
+    if (highlightNodeId && !highlightHasBox) nodeIds.add(highlightNodeId);
     return [...nodeIds].sort();
-  }, [draftPin, threads]);
+  }, [draftPin, highlightHasBox, highlightNodeId, threads]);
 
   useEffect(() => {
     if (!canvas || anchoredNodeIds.length === 0) {
@@ -1480,23 +1782,15 @@ export function ReviewCanvasPins({
         }
       }
       if (resolved.anchor.nodeId || resolved.anchor.selector) {
-        const element = resolved.anchor.nodeId
-          ? findNodeElement(canvas, resolved.anchor.nodeId)
-          : (() => {
-              const iframe = canvas.querySelector<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              );
-              try {
-                return (
-                  iframe?.contentDocument?.querySelector(
-                    resolved.anchor.selector!,
-                  ) ?? null
-                );
-              } catch {
-                return null;
-              }
-            })();
-        if (element instanceof HTMLElement || element instanceof SVGElement) {
+        // A repeated data-loc resolves to no node; the saved selector names the instance.
+        const element =
+          (resolved.anchor.nodeId
+            ? findNodeElement(canvas, resolved.anchor.nodeId)
+            : null) ??
+          (resolved.anchor.selector
+            ? selectorElement(canvas, resolved.anchor.selector)
+            : null);
+        if (isRenderedElement(element)) {
           element.scrollIntoView({ block: "center", inline: "center" });
           const previousBoxShadow = element.style.boxShadow;
           element.style.boxShadow =
@@ -1765,7 +2059,27 @@ export function ReviewCanvasPins({
           typeof payload.layerName === "string" ? payload.layerName : undefined;
         const tagName =
           typeof payload.tagName === "string" ? payload.tagName : undefined;
-        if (!nodeId && !targetSelector && !layerName && !tagName) return;
+        // The bridge's hit selector is the one that re-finds this element, so it replaces
+        // the parent's structural guess made when the pin was dropped.
+        const hitSelector =
+          typeof payload.hitSelector === "string"
+            ? payload.hitSelector
+            : undefined;
+        const bridgeSelector = hitSelector ?? targetSelector;
+        // Source-location IDs can become repeated after a render, so retain the hit path as their
+        // instance discriminator. Plain IDs remain anchored by their unique identity.
+        const nodeElement =
+          canvas && nodeId ? findNodeElement(canvas, nodeId) : null;
+        const nodeFoundById = Boolean(nodeElement);
+        const anchorSelector = nodeFoundById
+          ? nodeElement &&
+            nodeId &&
+            isSourceLocationMatch(nodeElement, nodeId) &&
+            bridgeSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+            ? bridgeSelector
+            : undefined
+          : (hitSelector ?? targetSelector);
+        if (!nodeId && !anchorSelector && !layerName && !tagName) return;
         setDraftPin((current) => {
           if (
             !current ||
@@ -1774,19 +2088,44 @@ export function ReviewCanvasPins({
           ) {
             return current;
           }
+          const anchor = { ...current.anchor, point: current.anchor.point };
+          const cannotResolveNodeIdentity = Boolean(
+            nodeId && !nodeFoundById && !anchorSelector,
+          );
+          const sourceSelectorKeepsIdentity = Boolean(
+            nodeId === current.anchor.nodeId &&
+            anchorSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX),
+          );
+          if (nodeFoundById && nodeId) {
+            anchor.nodeId = nodeId;
+            if (anchorSelector) anchor.selector = anchorSelector;
+            else delete anchor.selector;
+          } else if (anchorSelector) {
+            if (nodeId) anchor.nodeId = nodeId;
+            else delete anchor.nodeId;
+            anchor.selector = anchorSelector;
+          } else if (cannotResolveNodeIdentity && nodeId) {
+            anchor.nodeId = nodeId;
+            delete anchor.selector;
+            delete anchor.relativePoint;
+          }
+          if (
+            anchor.nodeId !== current.anchor.nodeId ||
+            anchor.selector !== current.anchor.selector
+          ) {
+            if (!sourceSelectorKeepsIdentity) delete anchor.relativePoint;
+          }
+          const metadata = { ...current.metadata };
+          if (nodeFoundById) delete metadata.targetSelector;
+          else if (anchorSelector) metadata.targetSelector = anchorSelector;
+          else if (cannotResolveNodeIdentity) delete metadata.targetSelector;
           return {
             ...current,
-            anchor: {
-              ...current.anchor,
-              ...(nodeId ? { nodeId } : {}),
-              ...(targetSelector ? { selector: targetSelector } : {}),
-              point: current.anchor.point,
-            },
+            anchor,
             metadata: {
-              ...current.metadata,
+              ...metadata,
               ...(layerName ? { layerName } : {}),
               ...(tagName ? { tagName } : {}),
-              ...(targetSelector ? { targetSelector } : {}),
             },
           };
         });
@@ -1826,6 +2165,140 @@ export function ReviewCanvasPins({
     },
     [canvas],
   );
+
+  const clearHoverNode = useCallback(() => {
+    hoverRequestRef.current += 1;
+    if (hoverFrameRef.current !== null) {
+      window.cancelAnimationFrame(hoverFrameRef.current);
+      hoverFrameRef.current = null;
+    }
+    hoverPointerRef.current = null;
+    hoverTargetRef.current = null;
+    setHoverTarget(null);
+  }, []);
+
+  // The click plane covers the frame, so the frame never gets hover of its own;
+  // ask the bridge which node is under the pointer instead.
+  const scheduleHoverNode = useCallback(
+    (clientX: number, clientY: number) => {
+      hoverPointerRef.current = { x: clientX, y: clientY };
+      if (hoverFrameRef.current !== null) return;
+      hoverFrameRef.current = window.requestAnimationFrame(() => {
+        hoverFrameRef.current = null;
+        const point = hoverPointerRef.current;
+        const iframe = canvas?.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        const iframeRect = iframe?.getBoundingClientRect();
+        if (!point || !iframe?.contentWindow || !iframeRect?.width) return;
+        const correlationId = crypto.randomUUID();
+        const request = ++hoverRequestRef.current;
+        frameCallbacksRef.current.set(correlationId, (payload) => {
+          // A newer move or a leave has superseded this reply.
+          if (request !== hoverRequestRef.current) return;
+          const target = hoverTargetFromPayload(payload);
+          const unchanged = sameHoverTarget(hoverTargetRef.current, target);
+          hoverTargetRef.current = target;
+          if (unchanged) return;
+          setHoverTarget(target);
+        });
+        window.setTimeout(
+          () => frameCallbacksRef.current.delete(correlationId),
+          2_000,
+        );
+        iframe.contentWindow.postMessage(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId,
+            x:
+              (point.x - iframeRect.left) *
+              (iframe.clientWidth / iframeRect.width),
+            y:
+              (point.y - iframeRect.top) *
+              (iframe.clientHeight / iframeRect.height),
+          },
+          "*",
+        );
+      });
+    },
+    [canvas],
+  );
+
+  const requestSelectorBox = useCallback(
+    (selector: string, onBox: (reply: ReviewSelectorBoxReply) => void) => {
+      const iframe = canvas?.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe?.contentWindow) return;
+      const correlationId = crypto.randomUUID();
+      const request = ++selectorRequestRef.current;
+      frameCallbacksRef.current.set(correlationId, (payload) => {
+        // A newer layout change has re-measured since this request went out.
+        if (request !== selectorRequestRef.current) return;
+        const rawStatus = payload.selectorStatus;
+        const selectorStatus: SourceEquivalentSelectorStatus =
+          rawStatus === "matched" ||
+          rawStatus === "not-found" ||
+          rawStatus === "invalid-selector"
+            ? rawStatus
+            : payload.rect
+              ? "matched"
+              : "not-found";
+        onBox({ box: frameBoxFromPayload(payload), selectorStatus });
+      });
+      window.setTimeout(
+        () => frameCallbacksRef.current.delete(correlationId),
+        2_000,
+      );
+      iframe.contentWindow.postMessage(
+        { type: "agent-native:review-selector-rects", correlationId, selector },
+        "*",
+      );
+    },
+    [canvas],
+  );
+
+  // Panning or zooming moves what sits under a still pointer, and moves the boxes
+  // already reported: re-measure both on every layout change.
+  const layoutTickRef = useRef(layoutTick);
+  useEffect(() => {
+    const layoutMoved = layoutTickRef.current !== layoutTick;
+    layoutTickRef.current = layoutTick;
+    const point = hoverPointerRef.current;
+    if (point) scheduleHoverNode(point.x, point.y);
+    if (!popoverKey) return;
+    if (!snapshotSelector) {
+      // A box with no selector cannot be measured again. Once the layout has moved, drop it
+      // rather than draw it where the element used to be.
+      if (layoutMoved) {
+        setPopoverHover((current) =>
+          current?.key === popoverKey && current.target?.box
+            ? { key: popoverKey, target: { ...current.target, box: null } }
+            : current,
+        );
+      }
+      return;
+    }
+    requestSelectorBox(snapshotSelector, (reply) => {
+      setPopoverHover((current) => {
+        if (current?.key !== popoverKey || !current.target) return current;
+        const target = {
+          ...current.target,
+          box: reply.box,
+          selectorStatus: reply.selectorStatus,
+        };
+        return sameHoverTarget(current.target, target)
+          ? current
+          : { key: popoverKey, target };
+      });
+    });
+  }, [
+    layoutTick,
+    popoverKey,
+    requestSelectorBox,
+    scheduleHoverNode,
+    snapshotSelector,
+  ]);
 
   const handlePlacementPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1951,7 +2424,7 @@ export function ReviewCanvasPins({
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : resolved?.anchor.selector;
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
@@ -1978,26 +2451,19 @@ export function ReviewCanvasPins({
         createdAt: new Date().toISOString(),
       };
       let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
+      if (!element && targetSelector && canvas) {
+        element = selectorElement(canvas, targetSelector);
       }
       setAgentSubmitting(true);
       try {
         await callAction("begin-node-rewrite-request", pending);
+        setDraftMode("reprompt");
+        setPendingRepromptId(repromptId);
         const submission = formatNodeRepromptSubmission({
           ...pending,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
+          subtreeHtml: isRenderedElement(element)
+            ? element.outerHTML
+            : undefined,
         });
         const delivery = await sendToDesignAgentChatAndConfirm(
           {
@@ -2013,11 +2479,11 @@ export function ReviewCanvasPins({
         if (!delivery.delivered) {
           throw new Error(delivery.reason ?? "Reprompt was not delivered.");
         }
-        setDraftMode("reprompt");
-        setPendingRepromptId(repromptId);
         setDraftComposerOpen(false);
         toast.success(t("designEditor.nodeRewrite.sent"));
       } catch (error) {
+        setPendingRepromptId(null);
+        setDraftMode("comment");
         await callAction("cancel-node-rewrite-request", {
           designId: resourceId,
           fileId: targetId,
@@ -2062,7 +2528,7 @@ export function ReviewCanvasPins({
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : resolved?.anchor.selector;
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
@@ -2077,16 +2543,8 @@ export function ReviewCanvasPins({
         ...(targetSelector ? { selector: targetSelector } : {}),
       };
       let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
+      if (!element && targetSelector && canvas) {
+        element = selectorElement(canvas, targetSelector);
       }
       setAgentSubmitting(true);
       try {
@@ -2095,10 +2553,9 @@ export function ReviewCanvasPins({
           fileId: targetId,
           target,
           instruction,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
+          subtreeHtml: isRenderedElement(element)
+            ? element.outerHTML
+            : undefined,
         });
         const delivery = await sendToDesignAgentChatAndConfirm(
           {
@@ -2167,9 +2624,10 @@ export function ReviewCanvasPins({
         const canvasRect = canvas.getBoundingClientRect();
         const clientX = canvasRect.left + (point.xPct / 100) * canvasRect.width;
         const clientY = canvasRect.top + (point.yPct / 100) * canvasRect.height;
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : null;
+        // A repeated source location has no node element; the saved selector still names the instance.
+        const element =
+          (parsed.nodeId ? findNodeElement(canvas, parsed.nodeId) : null) ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const relativePoint = element
           ? elementRelativePoint(canvas, element, clientX, clientY)
           : null;
@@ -2222,6 +2680,18 @@ export function ReviewCanvasPins({
       updateComment,
     ],
   );
+
+  // Unmounting the plane fires no pointerleave, so a hover from before would survive toggling pin mode back on.
+  const planeMounted =
+    Boolean(canvas) &&
+    !hidden &&
+    active &&
+    canPost &&
+    !pendingRepromptId &&
+    showPlacementPlane;
+  useEffect(() => {
+    if (!planeMounted) clearHoverNode();
+  }, [clearHoverNode, planeMounted]);
 
   if (hidden || !canvas) return null;
   if (
@@ -2320,9 +2790,18 @@ export function ReviewCanvasPins({
     !draftComposerOpen &&
     !activeThreadId &&
     !repromptDraftRequest;
+  const highlightRect =
+    placementPlaneVisible && canvas && highlightTarget
+      ? hoverTargetClientRect(canvas, highlightTarget, frameNodeGeometry)
+      : null;
 
   return createPortal(
-    <>
+    <div
+      data-review-overlay-root
+      className="contents"
+      onMouseDown={stopReviewOverlayEvent}
+      onClick={stopReviewOverlayEvent}
+    >
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
@@ -2337,9 +2816,11 @@ export function ReviewCanvasPins({
             height: placementRect.height,
           }}
           onPointerDown={handlePlacementPointerDown}
-          onPointerMove={(event) =>
-            updateRegionPreview(event.clientX, event.clientY)
-          }
+          onPointerMove={(event) => {
+            updateRegionPreview(event.clientX, event.clientY);
+            scheduleHoverNode(event.clientX, event.clientY);
+          }}
+          onPointerLeave={clearHoverNode}
           onPointerUp={handlePlacementPointerUp}
           onPointerCancel={handlePlacementPointerUp}
           onClick={(event) => {
@@ -2358,6 +2839,18 @@ export function ReviewCanvasPins({
         className="pointer-events-none fixed inset-0 z-[45]"
         style={{ clipPath: reviewRegionClipPath(region) }}
       >
+        {highlightRect ? (
+          <div
+            data-review-hover-highlight
+            className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
+            style={{
+              left: highlightRect.left,
+              top: highlightRect.top,
+              width: highlightRect.width,
+              height: highlightRect.height,
+            }}
+          />
+        ) : null}
         {pinPlacementEnabled && regionPreview ? (
           <div
             data-review-region-preview
@@ -2658,7 +3151,13 @@ export function ReviewCanvasPins({
           if (!open && !deleteComment.isPending) setDeleteCandidate(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          data-review-popover
+          overlayProps={{
+            "data-review-popover": "",
+            "data-review-confirmation-overlay": "",
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("review.deleteCommentTitle")}
@@ -2694,7 +3193,7 @@ export function ReviewCanvasPins({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>,
+    </div>,
     document.body,
   );
 }
@@ -3369,6 +3868,7 @@ function ReviewReactionControls({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
+            data-review-popover
             data-review-reaction-menu
             align="end"
             onClick={(event) => event.stopPropagation()}

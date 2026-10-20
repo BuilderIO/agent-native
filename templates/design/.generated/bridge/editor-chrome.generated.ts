@@ -921,6 +921,101 @@ export const editorChromeBridgeScript: string = `"use strict";
     return void 0;
   }
 
+  // shared/source-equivalent-selector.ts
+  var SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
+  function sourceEquivalentSelectorPath(selector) {
+    return selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX) ? selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length) : selector;
+  }
+  function alpineGeneratedChildrenOf(parent) {
+    const generated = [];
+    const children = parent.children;
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i];
+      if (!child.tagName || child.tagName.toLowerCase() !== "template") {
+        continue;
+      }
+      if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
+      const lookup = child._x_lookup;
+      if (lookup) {
+        const map = lookup;
+        if (typeof map.forEach === "function" && typeof map.get === "function") {
+          map.forEach((item) => {
+            if (item) generated.push(item);
+          });
+        } else {
+          const record = lookup;
+          for (const key in record) {
+            if (Object.prototype.hasOwnProperty.call(record, key)) {
+              const item = record[key];
+              if (item) generated.push(item);
+            }
+          }
+        }
+      }
+    }
+    return generated;
+  }
+  function isEditorInjectedElement(el) {
+    return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
+  }
+  function resolveSourceEquivalentSelector(doc, selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      return doc.querySelector(selector);
+    }
+    const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+    return resolution.status === "matched" ? resolution.element : null;
+  }
+  function resolveSourceEquivalentSelectorResult(doc, selector) {
+    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      try {
+        const element = doc.querySelector(selector);
+        return element ? { status: "matched", element } : { status: "not-found" };
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "name" in error && error.name === "SyntaxError") {
+          return { status: "invalid-selector", format: "legacy-css" };
+        }
+        throw error;
+      }
+    }
+    const sourcePath = sourceEquivalentSelectorPath(selector);
+    const parts = sourcePath.split(" > ");
+    if (parts.length < 2 || parts[0] !== "body") {
+      return { status: "invalid-selector", format: "source-path" };
+    }
+    const path = [];
+    for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
+      const match = /^([^\\s:()>]+)(?::nth-of-type\\((\\d+)\\))?$/.exec(
+        parts[partIndex] ?? ""
+      );
+      if (!match) return { status: "invalid-selector", format: "source-path" };
+      const index = match[2] === void 0 ? 1 : Number(match[2]);
+      if (!Number.isSafeInteger(index) || index < 1) {
+        return { status: "invalid-selector", format: "source-path" };
+      }
+      path.push({ tag: match[1] ?? "", index });
+    }
+    let current = doc.body;
+    for (const step of path) {
+      if (!current) return { status: "not-found" };
+      const generated = alpineGeneratedChildrenOf(current);
+      let seen = 0;
+      let found2 = null;
+      for (let i = 0; i < current.children.length; i += 1) {
+        const sib = current.children[i];
+        if (!sib || sib.tagName.toLowerCase() !== step.tag) continue;
+        if (generated.indexOf(sib) !== -1) continue;
+        if (isEditorInjectedElement(sib)) continue;
+        seen += 1;
+        if (seen === step.index) {
+          found2 = sib;
+          break;
+        }
+      }
+      current = found2;
+    }
+    return current && current !== doc.body ? { status: "matched", element: current } : { status: "not-found" };
+  }
+
   // shared/spacing-handle-rule.ts
   function isAutoLayoutDisplay(display) {
     return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -12013,32 +12108,73 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function resolveNodeHtmlPreviewTarget(target) {
       if (!target || typeof target !== "object") return null;
+      var selector = target.selector;
+      var isSourceEquivalentSelector = typeof selector === "string" && selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0;
+      var selectorMatch = null;
+      if (isSourceEquivalentSelector) {
+        selectorMatch = resolveSourceEquivalentSelector(
+          document,
+          selector
+        );
+      }
       var nodeId = target.nodeId;
       if (typeof nodeId === "string" && nodeId) {
-        try {
-          var nodeMatch = document.querySelector(
-            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
-          );
-          if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
-            return nodeMatch;
+        var nodeMatches = document.querySelectorAll(
+          [
+            '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+            '[data-loc="' + escapeAttribute(nodeId) + '"]',
+            '[id="' + escapeAttribute(nodeId) + '"]'
+          ].join(",")
+        );
+        if (nodeMatches.length === 1) {
+          var uniqueNodeMatch = nodeMatches[0];
+          return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch) ? uniqueNodeMatch : null;
+        }
+        if (nodeMatches.length > 1) {
+          if (!selectorMatch && typeof selector === "string" && selector && !isSourceEquivalentSelector) {
+            try {
+              selectorMatch = document.querySelector(selector);
+            } catch (error) {
+              if (typeof error === "object" && error !== null && "name" in error && error.name !== "SyntaxError") {
+                throw error;
+              }
+            }
           }
-        } catch (_err) {
+          if (selectorMatch && Array.prototype.indexOf.call(nodeMatches, selectorMatch) !== -1 && !isLayerInteractionBlocked(selectorMatch)) {
+            return selectorMatch;
+          }
+          return null;
         }
       }
-      var selector = target.selector;
-      if (typeof selector !== "string" || !selector) return null;
-      try {
-        var selectorMatch = document.querySelector(selector);
-        return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
-      } catch (_err) {
-        return null;
+      if (!selectorMatch && typeof selector === "string" && selector && !isSourceEquivalentSelector) {
+        try {
+          selectorMatch = document.querySelector(selector);
+        } catch (error) {
+          if (typeof error === "object" && error !== null && "name" in error && error.name !== "SyntaxError") {
+            throw error;
+          }
+        }
       }
+      return selectorMatch && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
     }
     function postNodeHtmlPreviewApplied(proposalId) {
       window.parent.postMessage(
         {
           type: "agent-native:node-html-preview-applied",
           proposalId
+        },
+        "*"
+      );
+    }
+    function postNodeHtmlPreviewFailed(proposalId, reason) {
+      window.parent.postMessage(
+        {
+          type: "agent-native:node-html-preview-failed",
+          proposalId,
+          reason
         },
         "*"
       );
@@ -12094,16 +12230,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var nextElement = parseNodeHtmlPreviewElement(data.html);
-      if (!nextElement) return;
+      if (!nextElement) {
+        postNodeHtmlPreviewFailed(proposalId, "preview-invalid");
+        return;
+      }
       if (activeNodeHtmlPreview && activeNodeHtmlPreview.proposalId === proposalId) {
         if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
           postNodeHtmlPreviewApplied(proposalId);
+        } else {
+          postNodeHtmlPreviewFailed(proposalId, "preview-replacement-failed");
         }
         return;
       }
       if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
       var target = resolveNodeHtmlPreviewTarget(data.target);
       if (!target || !target.parentNode || target === document.documentElement) {
+        postNodeHtmlPreviewFailed(proposalId, "target-unresolved");
         return;
       }
       var originalOuterHTML = target.outerHTML;
@@ -12175,7 +12317,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           } catch (_err) {
           }
         }
-        if (matches.size > 1) return null;
+        var hasSourceEquivalentSelector = typeof selector === "string" && selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX);
+        if (matches.size > 1 && !hasSourceEquivalentSelector) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
           return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
@@ -12183,6 +12326,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (typeof selector !== "string" || !selector) {
         return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
+      }
+      if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        var sourceMatch = resolveSourceEquivalentSelector(document, selector);
+        return sourceMatch && (matches.size === 0 || matches.has(sourceMatch)) && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
       }
       try {
         var selectorMatches = document.querySelectorAll(selector);
@@ -23299,7 +23446,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
         var measureSelector = typeof e.data.selector === "string" ? e.data.selector : "";
         var measureTarget = null;
-        if (measureSelector) {
+        if (measureSelector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+          measureTarget = resolveSourceEquivalentSelector(
+            document,
+            measureSelector
+          );
+        } else if (measureSelector) {
           try {
             measureTarget = document.querySelector(measureSelector);
           } catch (_err) {
