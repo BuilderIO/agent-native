@@ -87,6 +87,40 @@ function trackImportedIntoDeck(
   );
 }
 
+type ImportPostCommitWarning =
+  | "client_notification_failed"
+  | "refresh_signal_failed";
+
+async function notifyImportedDeckAfterCommit(args: {
+  deckId: string;
+  timestamp: string;
+  source: string;
+}): Promise<ImportPostCommitWarning[]> {
+  const outcomes = await Promise.allSettled([
+    Promise.resolve().then(() => notifyClients(args.deckId)),
+    Promise.resolve().then(() =>
+      writeAppState("refresh-signal", {
+        ts: args.timestamp,
+        source: args.source,
+      }),
+    ),
+  ]);
+  const warnings: ImportPostCommitWarning[] = [];
+  if (outcomes[0]?.status === "rejected") {
+    warnings.push("client_notification_failed");
+  }
+  if (outcomes[1]?.status === "rejected") {
+    warnings.push("refresh_signal_failed");
+  }
+  if (warnings.length > 0) {
+    console.warn(
+      "[slides-2] File import committed with post-commit refresh failures.",
+      warnings,
+    );
+  }
+  return warnings;
+}
+
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
 function rasterImageMediaType(
@@ -377,7 +411,7 @@ export default defineAction({
                   presentation.slides[0].heightEmu,
                 )
               : undefined;
-          const importedTitle = await appendDeckSlides(
+          const imported = await appendDeckSlides(
             deckId,
             title,
             slides,
@@ -392,13 +426,16 @@ export default defineAction({
           trackImportedIntoDeck(deckId, "pptx", slides.length, ctx);
           return {
             format: "pptx",
-            title: importedTitle,
+            title: imported.title,
             slideCount: slides.length,
             theme: presentation.theme,
             deckId,
             imported: true,
             ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
             ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+            ...(imported.postCommitWarnings.length > 0
+              ? { postCommitWarnings: imported.postCommitWarnings }
+              : {}),
           };
         });
       }
@@ -455,7 +492,7 @@ export default defineAction({
           layout: "content",
           notes: "",
         }));
-        const importedTitle = await appendDeckSlides(
+        const imported = await appendDeckSlides(
           deckId,
           title,
           slides,
@@ -468,12 +505,15 @@ export default defineAction({
         trackImportedIntoDeck(deckId, "docx", slides.length, ctx);
         return {
           format: "docx",
-          title: importedTitle,
+          title: imported.title,
           sectionCount: doc.sections.length,
           slideCount: slides.length,
           textLength: doc.text.length,
           deckId,
           imported: true,
+          ...(imported.postCommitWarnings.length > 0
+            ? { postCommitWarnings: imported.postCommitWarnings }
+            : {}),
         };
       }
 
@@ -616,7 +656,7 @@ async function importPdfFromSidecar(args: {
     ? (sidecar.aspectRatio as AspectRatio)
     : undefined;
 
-  const importedTitle = await appendDeckSlides(
+  const imported = await appendDeckSlides(
     deckId,
     sidecar.title?.trim() || "",
     slides,
@@ -629,13 +669,16 @@ async function importPdfFromSidecar(args: {
 
   return {
     format: "pdf",
-    title: importedTitle,
+    title: imported.title,
     pageCount: slides.length,
     slideCount: slides.length,
     aspectRatio,
     deckId,
     imported: true,
     restoredFromExport: true,
+    ...(imported.postCommitWarnings.length > 0
+      ? { postCommitWarnings: imported.postCommitWarnings }
+      : {}),
   };
 }
 
@@ -868,7 +911,7 @@ async function importPdfPagesWithFidelity(args: {
       ? ""
       : firstPageText;
 
-    const importedTitle = await appendDeckSlides(
+    const imported = await appendDeckSlides(
       deckId,
       title,
       slides,
@@ -883,7 +926,7 @@ async function importPdfPagesWithFidelity(args: {
 
     return {
       format: "pdf",
-      title: importedTitle,
+      title: imported.title,
       pageCount: slides.length,
       slideCount: slides.length,
       aspectRatio,
@@ -891,6 +934,9 @@ async function importPdfPagesWithFidelity(args: {
       imported: true,
       ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
       ...(sidecarWarning ? { warning: sidecarWarning } : {}),
+      ...(imported.postCommitWarnings.length > 0
+        ? { postCommitWarnings: imported.postCommitWarnings }
+        : {}),
     };
   });
 }
@@ -1113,7 +1159,7 @@ async function appendDeckSlides(
   fallbackTitle?: unknown,
   theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
   assetBatch?: ImportedAssetBatch,
-): Promise<string> {
+): Promise<{ title: string; postCommitWarnings: ImportPostCommitWarning[] }> {
   await assertAccess("deck", deckId, "editor");
 
   let resolvedTitle = title;
@@ -1195,9 +1241,12 @@ async function appendDeckSlides(
     return writeNow;
   });
 
-  await notifyClients(deckId);
-  await writeAppState("refresh-signal", { ts: now, source });
-  return resolvedTitle;
+  const postCommitWarnings = await notifyImportedDeckAfterCommit({
+    deckId,
+    timestamp: now,
+    source,
+  });
+  return { title: resolvedTitle, postCommitWarnings };
 }
 
 function safeParseDeckData(raw: string): Record<string, unknown> {

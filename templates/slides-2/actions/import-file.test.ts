@@ -36,6 +36,8 @@ const mockCanvasFactory = vi.hoisted(() => ({
 }));
 const mockGetDb = vi.hoisted(() => vi.fn());
 const mockAssertAccess = vi.hoisted(() => vi.fn(async () => undefined));
+const mockNotifyClients = vi.hoisted(() => vi.fn());
+const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockCompileSlideSource = vi.hoisted(() =>
   vi.fn(async (sourceTsx: string) => ({
     content: sourceTsx.includes("data-fidelity")
@@ -142,11 +144,11 @@ vi.mock("@agent-native/core/tracking", () => ({
 }));
 
 vi.mock("../server/handlers/decks.js", () => ({
-  notifyClients: vi.fn(),
+  notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: vi.fn(),
+  writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -193,6 +195,8 @@ import action from "./import-file";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockNotifyClients.mockReset();
+  mockWriteAppState.mockReset();
   mockPdfParseOptions.mockReset();
   mockPdfSetWorker.mockReset();
   mockPdfDestroy.mockClear();
@@ -641,6 +645,74 @@ describe("import-file PDF source extraction", () => {
       ]);
     },
   );
+
+  it("returns the committed import when post-commit refresh effects fail", async () => {
+    mockParseDocx.mockResolvedValue({
+      title: "Notes",
+      text: "Notes body",
+      sections: [{ heading: "Notes", body: "Notes body" }],
+    });
+    mockConvertSectionsToSlides.mockReturnValue(["<p>Notes body</p>"]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    mockGetDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Deck",
+                ownerEmail: "owner@example.com",
+                orgId: "org-1",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({ appId: "slides-2", slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    });
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("PK"),
+      filename: "Notes.docx",
+    });
+    mockNotifyClients.mockRejectedValue(new Error("socket unavailable"));
+    mockWriteAppState.mockRejectedValue(new Error("refresh store unavailable"));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const result = (await action.run({
+        filePath: "notes.docx",
+        format: "docx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      })) as any;
+
+      expect(updateWhere).toHaveBeenCalledOnce();
+      expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+      expect(mockWriteAppState).toHaveBeenCalledWith(
+        "refresh-signal",
+        expect.objectContaining({ source: "import-file:docx" }),
+      );
+      expect(result).toMatchObject({
+        format: "docx",
+        imported: true,
+        postCommitWarnings: [
+          "client_notification_failed",
+          "refresh_signal_failed",
+        ],
+      });
+      expect(warning).toHaveBeenCalledWith(
+        "[slides-2] File import committed with post-commit refresh failures.",
+        ["client_notification_failed", "refresh_signal_failed"],
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
 
   it("uses the uploaded filename when the extracted PDF title is corrupted", async () => {
     mockPdfText.mockResolvedValue({

@@ -7942,7 +7942,7 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
+        version: 0.45.2(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9)
       esbuild:
         specifier: 0.28.2
         version: 0.28.2

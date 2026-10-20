@@ -226,7 +226,9 @@ interface ZipFile {
   async(type: "string"): Promise<string>;
   async(type: "nodebuffer"): Promise<Buffer>;
   nodeStream(type: "nodebuffer"): {
-    [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
+    on(event: "data", listener: (chunk: Uint8Array) => void): unknown;
+    on(event: "end", listener: () => void): unknown;
+    on(event: "error", listener: (error: unknown) => void): unknown;
     destroy(error?: Error): unknown;
   };
 }
@@ -2540,29 +2542,54 @@ async function readPptxImageWithinBudget(
   budget: PptxImageByteBudget,
 ): Promise<Buffer> {
   const stream = imageFile.nodeStream("nodebuffer");
-  const chunks: Buffer[] = [];
-  let imageBytes = 0;
-  for await (const chunk of stream) {
-    const nextImageBytes = imageBytes + chunk.byteLength;
-    if (nextImageBytes > budget.limits.maxImageBytes) {
+  return await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let imageBytes = 0;
+    let settled = false;
+
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
       stream.destroy();
-      throw new PptxImageByteLimitError(
-        "per-image",
-        budget.limits.maxImageBytes,
-      );
-    }
-    if (budget.totalBytes + nextImageBytes > budget.limits.maxTotalImageBytes) {
-      stream.destroy();
-      throw new PptxImageByteLimitError(
-        "aggregate",
-        budget.limits.maxTotalImageBytes,
-      );
-    }
-    imageBytes = nextImageBytes;
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  budget.totalBytes += imageBytes;
-  return Buffer.concat(chunks, imageBytes);
+      reject(error);
+    };
+
+    stream.on("data", (chunk) => {
+      if (settled) return;
+      const nextImageBytes = imageBytes + chunk.byteLength;
+      if (nextImageBytes > budget.limits.maxImageBytes) {
+        fail(
+          new PptxImageByteLimitError("per-image", budget.limits.maxImageBytes),
+        );
+        return;
+      }
+      if (
+        budget.totalBytes + nextImageBytes >
+        budget.limits.maxTotalImageBytes
+      ) {
+        fail(
+          new PptxImageByteLimitError(
+            "aggregate",
+            budget.limits.maxTotalImageBytes,
+          ),
+        );
+        return;
+      }
+      imageBytes = nextImageBytes;
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    stream.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    stream.on("end", () => {
+      if (settled) return;
+      settled = true;
+      budget.totalBytes += imageBytes;
+      resolve(Buffer.concat(chunks, imageBytes));
+    });
+  });
 }
 
 function flattenElementText(
