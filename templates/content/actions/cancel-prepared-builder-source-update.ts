@@ -62,13 +62,32 @@ function isLivePreflightBlocked(payload: Record<string, unknown>) {
   );
 }
 
+function isDefinitivelyRejectedWrite(payload: Record<string, unknown>) {
+  const response = payload.response;
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    return false;
+  }
+  const record = response as Record<string, unknown>;
+  return (
+    record.ok === false &&
+    typeof record.status === "number" &&
+    Number.isInteger(record.status) &&
+    record.status >= 400 &&
+    record.status < 500
+  );
+}
+
 function assertProvablyPreDispatch(execution: {
   state: string;
   summary: string;
   payloadJson: string;
   attemptToken: string | null;
 }) {
-  if (!PRE_DISPATCH_STATES.has(execution.state)) {
+  const payload = parseExecutionPayload(execution.payloadJson);
+  const definitiveRejectedWrite =
+    (execution.state === "failed" || execution.state === "blocked") &&
+    isDefinitivelyRejectedWrite(payload);
+  if (!PRE_DISPATCH_STATES.has(execution.state) && !definitiveRejectedWrite) {
     throw new Error(
       `Cannot cancel a Builder execution in state ${execution.state}. Its outcome must be preserved.`,
     );
@@ -79,11 +98,11 @@ function assertProvablyPreDispatch(execution: {
     );
   }
 
-  const payload = parseExecutionPayload(execution.payloadJson);
   if (
     Object.prototype.hasOwnProperty.call(payload, "response") ||
     Object.prototype.hasOwnProperty.call(payload, "dispatch")
   ) {
+    if (definitiveRejectedWrite) return;
     throw new Error(
       "Cannot cancel this Builder update because dispatch or response evidence was recorded.",
     );
@@ -129,7 +148,7 @@ function assertCanonicalClaims(
 
 export default defineAction({
   description:
-    "Cancel one exact prepared Builder update only when every execution is provably pre-dispatch. This never calls Builder or deletes audit history.",
+    "Cancel one exact prepared Builder update only when every execution never dispatched or Builder definitively rejected it. This never calls Builder or deletes audit history.",
   schema: z
     .object({
       databaseId: z.string().optional().describe("Collection ID"),

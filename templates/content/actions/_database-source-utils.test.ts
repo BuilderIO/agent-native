@@ -41,6 +41,7 @@ import {
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
+  latestSnapshotExecutionIds,
   hydrateSnapshotExecutionRows,
   canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
@@ -98,6 +99,16 @@ describe("Builder body hydration failure evidence", () => {
 });
 
 describe("Builder execution snapshot payload hydration", () => {
+  it("selects only the latest execution row from each change set", () => {
+    const ids = latestSnapshotExecutionIds([
+      { id: "old-review", changeSetId: "review" },
+      { id: "old-history", changeSetId: "history" },
+      { id: "new-review", changeSetId: "review" },
+    ]);
+
+    expect(ids).toEqual(new Set(["old-history", "new-review"]));
+  });
+
   it("bounds concurrent reads and isolates unavailable payloads", async () => {
     const rows = Array.from({ length: 9 }, (_, index) => ({
       id: `execution-${index}`,
@@ -519,6 +530,7 @@ describe("database source helpers", () => {
             readMode: "builder-api",
             sourceSpacePublicKey: "selected-space-key",
             sourceConnectionId: "builder-oauth-connection-1",
+            observedCollectionCount: 580,
           },
           sourceFetchState: "fetching",
         }),
@@ -530,6 +542,7 @@ describe("database source helpers", () => {
       lastReadMatchedRowCount: 98,
       lastReadLimit: 500,
       lastReadFetchedEntryCount: 100,
+      lastReadCollectionCount: 580,
       lastReadPartial: true,
       lastReadHasMore: true,
       lastReadNextOffset: 100,
@@ -537,6 +550,30 @@ describe("database source helpers", () => {
       builderSpacePublicKey: "selected-space-key",
       connectionId: "builder-oauth-connection-1",
     });
+  });
+
+  it("clears an old collection count when a new read has no count evidence", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "blog-article",
+        readState: "live",
+        entryCount: 10,
+        matchedRowCount: 10,
+        existingMetadataJson: JSON.stringify({ lastReadCollectionCount: 580 }),
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 10,
+          fetchedEntryCount: 10,
+          hasMore: false,
+          partial: false,
+          readMode: "builder-api",
+        },
+      }),
+    );
+
+    expect(metadata).not.toHaveProperty("lastReadCollectionCount");
   });
 
   it("records suspicious empty Builder reads without calling them healthy", () => {

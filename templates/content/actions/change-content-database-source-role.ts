@@ -134,6 +134,27 @@ function sourceRole(source: SourceRecord): "primary" | "secondary" | null {
   }
 }
 
+function builderSourceReadBinding(source: SourceRecord) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source.metadataJson ?? "{}");
+  } catch {
+    throw new Error("Builder source connection metadata is unreadable.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Builder source connection metadata is unreadable.");
+  }
+  const metadata = parsed as Record<string, unknown>;
+  return {
+    expectedSourceSpace:
+      typeof metadata.builderSpacePublicKey === "string"
+        ? metadata.builderSpacePublicKey
+        : null,
+    expectedSourceConnectionId:
+      typeof metadata.connectionId === "string" ? metadata.connectionId : null,
+  };
+}
+
 async function clearSourceFederation(sourceId: string, now: string) {
   await mutateContentDatabaseSourceMetadata({
     sourceId,
@@ -234,6 +255,8 @@ export async function readBuilderCmsEntriesForRoleChange(
   args: {
     model: string;
     existingFieldPaths?: readonly string[];
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   },
   dependencies: {
     readModelFields?: typeof readBuilderCmsModelFields;
@@ -246,7 +269,11 @@ export async function readBuilderCmsEntriesForRoleChange(
   let modelFields: BuilderCmsModelFieldSummary[] = [];
   let modelFieldsError: unknown = null;
   try {
-    modelFields = await readModelFields({ model: args.model });
+    modelFields = await readModelFields({
+      model: args.model,
+      expectedSourceSpace: args.expectedSourceSpace,
+      expectedSourceConnectionId: args.expectedSourceConnectionId,
+    });
   } catch (error) {
     modelFieldsError = error;
   }
@@ -256,14 +283,23 @@ export async function readBuilderCmsEntriesForRoleChange(
       ...(args.existingFieldPaths ?? []),
       ...modelFields.map((field) => `data.${field.name}`),
     ],
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
+    requireBoundOAuth: true,
   });
   if (modelFieldsError) throw modelFieldsError;
+  if (read.state !== "live") {
+    throw new Error(
+      read.message ??
+        "Builder source could not be read for this role change; no source changes were made.",
+    );
+  }
   return { read, modelFields };
 }
 
 async function readSourceEntries(args: {
   sourceType: ContentDatabaseSourceType;
-  sourceTable: string;
+  source: SourceRecord;
   limit: number;
   offset: number;
 }): Promise<{
@@ -275,7 +311,8 @@ async function readSourceEntries(args: {
 }> {
   if (args.sourceType === "builder-cms") {
     const { read, modelFields } = await readBuilderCmsEntriesForRoleChange({
-      model: args.sourceTable,
+      model: args.source.sourceTable,
+      ...builderSourceReadBinding(args.source),
     });
     return {
       entries: read.state === "live" ? read.entries : [],
@@ -287,7 +324,7 @@ async function readSourceEntries(args: {
   }
   if (args.sourceType === "local-table") {
     const { entries, modelFields } = await readLocalTableEntries(
-      args.sourceTable,
+      args.source.sourceTable,
       { limit: args.limit, offset: args.offset },
     );
     return {
@@ -301,7 +338,7 @@ async function readSourceEntries(args: {
   if (args.sourceType === "notion-database") {
     const read = await getContentDatabaseSourceAdapter("notion-database")!.read(
       {
-        sourceTable: args.sourceTable,
+        sourceTable: args.source.sourceTable,
         limit: args.limit,
         offset: args.offset,
       },
@@ -370,7 +407,7 @@ export default defineAction({
 
       const { entries, modelFields } = await readSourceEntries({
         sourceType: normalizedType,
-        sourceTable: source.sourceTable,
+        source,
         limit: args.limit ?? 100,
         offset: args.offset ?? 0,
       });
@@ -431,6 +468,7 @@ export default defineAction({
           existingFieldPaths: existingSourceFields.map(
             (field) => field.sourceFieldKey,
           ),
+          ...builderSourceReadBinding(source),
         });
       const entries = read.state === "live" ? read.entries : [];
       await db

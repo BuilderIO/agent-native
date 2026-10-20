@@ -333,6 +333,34 @@ describe("cancel-prepared-builder-source-update", () => {
     });
   });
 
+  it("cancels a definitively rejected write while preserving its response evidence", async () => {
+    const seeded = await seed({
+      executions: [
+        {
+          state: "blocked",
+          payload: {
+            request: { method: "PATCH" },
+            response: { ok: false, status: 409, error: "Source changed" },
+          },
+        },
+      ],
+    });
+
+    const response = await cancel(seeded);
+    const persisted = await persistedState(seeded);
+
+    expect(response.cancellation.status).toBe("cancelled");
+    expect(persisted.changeSet.state).toBe("rejected");
+    expect(persisted.executions[0]).toMatchObject({
+      state: "blocked",
+      summary: "Cancelled before Builder dispatch.",
+      attemptToken: null,
+    });
+    expect(JSON.parse(persisted.executions[0]!.payloadJson)).toMatchObject({
+      response: { ok: false, status: 409 },
+    });
+  });
+
   it.each([
     ["running", {}, "running"],
     ["response_received", { response: { status: 200 } }, "response_received"],

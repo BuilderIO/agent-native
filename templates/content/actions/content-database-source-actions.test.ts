@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ContentDatabaseSource } from "../shared/api";
-import type { BuilderCmsReadResult } from "./_builder-cms-read-client";
+import type {
+  BuilderCmsReadResult,
+  readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
+} from "./_builder-cms-read-client";
 import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
 import { normalizeContentDatabasePageOptions } from "./_database-utils";
 import addSourceFieldProperty, {
@@ -503,6 +507,62 @@ describe("content database source actions", () => {
     ).rejects.toThrow("model discovery unavailable");
     expect(calls).toEqual(["model-fields", "entries"]);
     expect(existingMappings).toEqual(["data.topics", "data.tags"]);
+  });
+
+  it("binds role-change Builder reads to the attached source connection", async () => {
+    const expectedSourceSpace = "saved-space-key";
+    const expectedSourceConnectionId = "saved-connection-id";
+    let modelFieldArgs: Parameters<typeof readBuilderCmsModelFields>[0] | null =
+      null;
+    let entryArgs: Parameters<typeof readBuilderCmsContentEntries>[0] | null =
+      null;
+
+    await readBuilderCmsEntriesForRoleChange(
+      {
+        model: "blog-article",
+        existingFieldPaths: ["data.author"],
+        expectedSourceSpace,
+        expectedSourceConnectionId,
+      },
+      {
+        readModelFields: async (args) => {
+          modelFieldArgs = args;
+          return [{ name: "title" } as never];
+        },
+        readEntries: async (args) => {
+          entryArgs = args;
+          return {
+            state: "live",
+            entries: [],
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 0,
+              fetchedEntryCount: 0,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        },
+      },
+    );
+
+    expect(modelFieldArgs).toMatchObject({
+      model: "blog-article",
+      expectedSourceSpace,
+      expectedSourceConnectionId,
+    });
+    expect(entryArgs).toMatchObject({
+      model: "blog-article",
+      fieldPaths: ["data.author", "data.title"],
+      expectedSourceSpace,
+      expectedSourceConnectionId,
+      requireBoundOAuth: true,
+    });
   });
 
   it("marks partial Builder source attachment reads as continuing work", () => {
@@ -1057,6 +1117,36 @@ describe("content database source actions", () => {
     expect(publishReview.rows[0]).toMatchObject({
       effect: "publish",
       fieldChanges: [],
+    });
+
+    const reviewWithUnavailableExecution = buildBuilderSourceReviewPayload({
+      source: {
+        ...source,
+        capabilities: { ...source.capabilities, liveWritesEnabled: true },
+      },
+      changeSets: [
+        {
+          id: "unavailable-change",
+          databaseItemId: "item",
+          documentId: "doc",
+          fieldChanges: [],
+          bodyChange: null,
+          riskLevel: "low",
+          riskReasons: [],
+          conflictState: "none",
+          executions: [
+            {
+              state: "blocked",
+              payloadUnavailable: true,
+              payload: {},
+            },
+          ],
+        } as never,
+      ],
+    });
+    expect(reviewWithUnavailableExecution.result).toMatchObject({
+      status: "blocked",
+      message: expect.stringContaining("payload is unavailable"),
     });
   });
 });

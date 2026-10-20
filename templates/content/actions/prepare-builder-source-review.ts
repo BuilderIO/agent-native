@@ -224,9 +224,10 @@ export function buildBuilderSourceReviewPayload(args: {
     .filter(Boolean);
   const hasExecutionEvidence =
     statuses.length > 0 || executionStates.length > 0;
-  const resultStatus =
-    executionStates.length > 0 &&
-    executionStates.every((state) => state === "succeeded")
+  const resultStatus = rows.some((row) => row.execution?.payloadUnavailable)
+    ? "blocked"
+    : executionStates.length > 0 &&
+        executionStates.every((state) => state === "succeeded")
       ? "succeeded"
       : executionStates.includes("reconciliation_required") ||
           executionStates.includes("response_received")
@@ -278,7 +279,9 @@ export function buildBuilderSourceReviewPayload(args: {
                     : "Ready to send to Builder."
                   : "Push checked successfully. Nothing was sent to Builder."
                 : resultStatus === "blocked"
-                  ? "Push needs attention before anything can be sent to Builder."
+                  ? rows.some((row) => row.execution?.payloadUnavailable)
+                    ? "A prepared Builder payload is unavailable. Retry loading the review before anything can be sent."
+                    : "Push needs attention before anything can be sent to Builder."
                   : resultStatus === "stale"
                     ? "Push needs a fresh review because the plan changed."
                     : "Builder writes are off in this local build. Push will check the update only.",
@@ -643,16 +646,26 @@ async function upsertExecutionGate(args: {
         | typeof schema.contentDatabaseSourceExecutions.$inferSelect
         | null
         | undefined;
+      let readbackCompleted = false;
       try {
         [winner] = await db
           .select()
           .from(schema.contentDatabaseSourceExecutions)
           .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
           .limit(1);
+        readbackCompleted = true;
       } catch {
         // Inconclusive readback retains the new ref.
       }
-      if (!winner) throw error;
+      if (!winner) {
+        if (readbackCompleted && insertedReference) {
+          await cleanupBuilderPrivatePayload(
+            insertedReference,
+            "uncommitted prepared execution",
+          );
+        }
+        throw error;
+      }
       if (winner.payloadJson === insertedPayloadJson) {
         // The insert committed despite an ambiguous acknowledgement.
       } else if (insertedReference) {

@@ -44,6 +44,7 @@ export interface BuilderCmsReadProgress {
   readMode: "builder-api" | "mcp" | "none";
   sourceSpacePublicKey?: string;
   sourceConnectionId?: string;
+  observedCollectionCount?: number;
 }
 
 export interface BuilderCmsEntryLiveState {
@@ -1097,6 +1098,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   maxPages?: number;
   offset?: number;
   startingFetchedEntryCount?: number;
+  expectedCollectionCount?: number;
   fetchImpl: FetchLike;
   privateKey: string;
   endpoint: string;
@@ -1126,6 +1128,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   let pagesRead = 0;
   let hasMore = false;
   let offset = startOffset;
+  let observedCollectionCount: number | null = null;
   while (contentEntries.length < requestedLimit) {
     const pageLimit = Math.min(
       BUILDER_CMS_PAGE_SIZE,
@@ -1174,6 +1177,33 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     pagesRead += 1;
     offset += providerEntryCount;
     const totalCount = builderMcpTotalCount(contentJson);
+    if (observedCollectionCount === null && totalCount !== null) {
+      observedCollectionCount = totalCount;
+      if (
+        args.expectedCollectionCount !== undefined &&
+        totalCount !== args.expectedCollectionCount
+      ) {
+        fail(
+          "Builder MCP collection changed between refresh pages; restart the source refresh before mutating the snapshot.",
+          { errorCode: "builder_source_changed", statusCode: 409 },
+        );
+      }
+    } else if (
+      totalCount !== null &&
+      observedCollectionCount !== null &&
+      totalCount !== observedCollectionCount
+    ) {
+      fail(
+        "Builder MCP collection changed during pagination; refresh the source to restart the observed collection read.",
+        { errorCode: "builder_source_changed", statusCode: 409 },
+      );
+    }
+    if (startOffset > 0 && observedCollectionCount === null) {
+      fail(
+        "Builder MCP continuation has no saved collection count. Start a full refresh before continuing.",
+        { errorCode: "builder_source_continuation_mismatch", statusCode: 409 },
+      );
+    }
     hasMore =
       totalCount !== null
         ? offset < totalCount
@@ -1200,6 +1230,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       hasMore,
       partial: hasMore,
       readMode: "mcp",
+      observedCollectionCount: observedCollectionCount ?? undefined,
     },
   };
 }
@@ -1377,6 +1408,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   authorization: BuilderRequestAuthorization;
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
+  expectedCollectionCount?: number;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const requestedLimit = readLimit(args.limit);
@@ -1403,6 +1435,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   let cursor = startAfterId;
   let pagesRead = 0;
   let expectedRemainingCount: number | null = null;
+  let observedCollectionCount: number | null = null;
   let hasMore = false;
 
   while (entries.length < requestedLimit) {
@@ -1448,6 +1481,28 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     const json = (await response.json()) as unknown;
     const { results: rawPageEntries, totalCount } =
       parseBuilderGeneralQueryDataResponse(json);
+    const pageCollectionCount = totalCount + startOffset;
+    if (observedCollectionCount === null) {
+      observedCollectionCount = pageCollectionCount;
+      if (startOffset > 0 && args.expectedCollectionCount === undefined) {
+        fail(
+          "Builder source continuation has no saved collection count. Start a full refresh before continuing.",
+          {
+            errorCode: "builder_source_continuation_mismatch",
+            statusCode: 409,
+          },
+        );
+      }
+      if (
+        args.expectedCollectionCount !== undefined &&
+        pageCollectionCount !== args.expectedCollectionCount
+      ) {
+        fail(
+          "Builder query-data collection changed between refresh pages; restart the source refresh before mutating the snapshot.",
+          { errorCode: "builder_source_changed", statusCode: 409 },
+        );
+      }
+    }
     if (
       expectedRemainingCount !== null &&
       totalCount !== expectedRemainingCount
@@ -1517,6 +1572,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
       readMode: "builder-api",
       sourceSpacePublicKey: publicKey,
       sourceConnectionId: args.authorization.oauthConnectionId,
+      observedCollectionCount: observedCollectionCount ?? undefined,
     },
   };
 }
@@ -2157,6 +2213,7 @@ export async function readBuilderCmsContentEntries(args: {
   offset?: number;
   afterId?: string;
   startingFetchedEntryCount?: number;
+  expectedCollectionCount?: number;
   requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsReadResult> {
@@ -2238,6 +2295,7 @@ export async function readBuilderCmsContentEntries(args: {
           maxPages: args.maxPages,
           offset: args.offset,
           afterId: args.afterId,
+          expectedCollectionCount: args.expectedCollectionCount,
           fetchImpl,
           authorization,
           expectedSourceSpace: args.expectedSourceSpace,
@@ -2305,6 +2363,7 @@ export async function readBuilderCmsContentEntries(args: {
           maxPages: args.maxPages,
           offset: args.offset,
           startingFetchedEntryCount: args.startingFetchedEntryCount,
+          expectedCollectionCount: args.expectedCollectionCount,
           fetchImpl,
           privateKey,
           endpoint: builderMcpEndpoint(authorization?.source),

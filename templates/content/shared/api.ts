@@ -961,6 +961,7 @@ export interface ContentDatabaseSource {
     lastReadMatchedRowCount?: number;
     lastReadLimit?: number;
     lastReadFetchedEntryCount?: number;
+    lastReadCollectionCount?: number;
     lastReadPartial?: boolean;
     lastReadHasMore?: boolean;
     lastReadNextOffset?: number;

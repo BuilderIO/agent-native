@@ -1565,6 +1565,67 @@ describe("Builder source review execution gates", () => {
     expect(await readGate()).toEqual(before);
   });
 
+  it("queues a prepared payload when execution insert fails and readback is empty", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const db = getDb();
+    const insertOriginal = db.insert.bind(db);
+    const cleanupBefore = await db
+      .select()
+      .from(schema.contentDatabaseBuilderBlobCleanup);
+    const cleanupReferencesBefore = new Set(
+      cleanupBefore.map((row: { blobReference: string }) => row.blobReference),
+    );
+    const insertSpy = vi.spyOn(db, "insert").mockImplementation((table) => {
+      if (table === schema.contentDatabaseSourceExecutions) {
+        return {
+          values: () => Promise.reject(new Error("simulated insert failure")),
+        } as never;
+      }
+      return insertOriginal(table);
+    });
+
+    try {
+      await expect(
+        asOwner(() =>
+          prepareReview.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetIds: [seeded.changeSetId],
+            pushModeConfirmation: "autosave",
+          }),
+        ),
+      ).rejects.toThrow("simulated insert failure");
+    } finally {
+      insertSpy.mockRestore();
+    }
+
+    const executions = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(
+          schema.contentDatabaseSourceExecutions.changeSetId,
+          seeded.changeSetId,
+        ),
+      );
+    const cleanupAfter = await db
+      .select()
+      .from(schema.contentDatabaseBuilderBlobCleanup);
+    const queued = cleanupAfter.filter(
+      (row: { blobReference: string }) =>
+        !cleanupReferencesBefore.has(row.blobReference),
+    );
+    expect(executions).toHaveLength(0);
+    expect(queued).toHaveLength(1);
+    const blobId = (
+      JSON.parse(queued[0]!.blobReference) as { handle: { id: string } }
+    ).handle.id;
+    expect(privateBlobs.blobs.has(blobId)).toBe(true);
+  });
+
   it("records reconciliation in SQL when ambiguous-outcome payload storage fails", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,

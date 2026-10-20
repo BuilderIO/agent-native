@@ -411,6 +411,74 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  it("rejects a refresh continuation when the observed collection count changed", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      const continuation = input.searchParams.has("query.id.$gt");
+      return new Response(
+        JSON.stringify(
+          continuation
+            ? { results: [], totalCount: 0 }
+            : {
+                results: [
+                  { id: "entry-1", modelId: "model-uuid", data: {} },
+                  { id: "entry-2", modelId: "model-uuid", data: {} },
+                ],
+                totalCount: 3,
+              },
+        ),
+        { status: 200 },
+      );
+    });
+    const fetch = fetchImpl as unknown as typeof globalThis.fetch;
+
+    const firstPage = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 2,
+      fetchImpl: fetch,
+    });
+    expect(firstPage).toMatchObject({
+      state: "live",
+      progress: {
+        observedCollectionCount: 3,
+        nextOffset: 2,
+        nextCursor: "entry-2",
+        partial: true,
+      },
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        limit: 2,
+        offset: 2,
+        afterId: "entry-2",
+        expectedCollectionCount: 3,
+        fetchImpl: fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      message: expect.stringContaining(
+        "collection changed between refresh pages",
+      ),
+    });
+  });
+
   it("requires a saved source binding before an unbound OAuth refresh", async () => {
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({

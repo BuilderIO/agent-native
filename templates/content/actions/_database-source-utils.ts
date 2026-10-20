@@ -203,6 +203,7 @@ type SourceMetadataRecord = {
   lastReadMatchedRowCount?: number;
   lastReadLimit?: number;
   lastReadFetchedEntryCount?: number;
+  lastReadCollectionCount?: number;
   lastReadPartial?: boolean;
   lastReadHasMore?: boolean;
   lastReadNextOffset?: number;
@@ -4530,6 +4531,14 @@ async function hydrateSnapshotExecutionRow(
 
 const SNAPSHOT_EXECUTION_HYDRATION_CONCURRENCY = 4;
 
+export function latestSnapshotExecutionIds(
+  rows: Array<{ id: string; changeSetId: string }>,
+) {
+  const latestIds = new Map<string, string>();
+  for (const row of rows) latestIds.set(row.changeSetId, row.id);
+  return new Set(latestIds.values());
+}
+
 export async function hydrateSnapshotExecutionRows(
   rows: ContentDatabaseSourceExecutionRowDb[],
   hydrate: (
@@ -4697,20 +4706,21 @@ async function loadSourceSnapshot(
     string,
     ContentDatabaseSourceExecution[]
   >();
-  const hydrateAllExecutionPayloads =
-    options.documentIds !== undefined || options.hydrateExecutionPayloads;
+  const hydrateAllExecutionPayloads = options.hydrateExecutionPayloads === true;
   const hydrateChangeSetIds =
     options.hydrateExecutionPayloadsForChangeSetIds !== undefined
       ? new Set(options.hydrateExecutionPayloadsForChangeSetIds)
       : null;
+  const executionIdsToHydrate = latestSnapshotExecutionIds(executionRows);
   const hydratedExecutionRows =
     hydrateAllExecutionPayloads || hydrateChangeSetIds !== null
       ? await hydrateSnapshotExecutionRows(
           executionRows,
           undefined,
           (row) =>
-            hydrateAllExecutionPayloads ||
-            hydrateChangeSetIds?.has(row.changeSetId) === true,
+            executionIdsToHydrate.has(row.id) &&
+            (hydrateAllExecutionPayloads ||
+              hydrateChangeSetIds?.has(row.changeSetId) === true),
         )
       : executionRows.map((row) => ({
           ...row,
@@ -5073,6 +5083,10 @@ async function loadSourceSnapshot(
         typeof metadata.lastReadFetchedEntryCount === "number"
           ? metadata.lastReadFetchedEntryCount
           : undefined,
+      lastReadCollectionCount:
+        typeof metadata.lastReadCollectionCount === "number"
+          ? metadata.lastReadCollectionCount
+          : undefined,
       lastReadPartial:
         typeof metadata.lastReadPartial === "boolean"
           ? metadata.lastReadPartial
@@ -5294,6 +5308,7 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     lastReadMatchedRowCount: args.matchedRowCount,
     lastReadLimit: args.progress?.requestedLimit,
     lastReadFetchedEntryCount: args.progress?.fetchedEntryCount,
+    lastReadCollectionCount: args.progress?.observedCollectionCount,
     lastReadPartial: args.progress?.partial,
     lastReadHasMore: args.progress?.hasMore,
     lastReadNextOffset: args.progress?.nextOffset,
@@ -7122,6 +7137,8 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     requireBoundOAuth: true,
     startingFetchedEntryCount:
       continueOffset > 0 ? activeReadSourceRowIds.length : 0,
+    expectedCollectionCount:
+      continueOffset > 0 ? sourceMetadata.lastReadCollectionCount : undefined,
   });
   if (builderRead.state === "error") {
     throw new Error(
