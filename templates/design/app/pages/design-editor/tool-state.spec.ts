@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DESIGN_EDITOR_TOOLS,
   areCommentPinsHidden,
+  commentModeReturnOptions,
   commandRequestsAnnotate,
   getDesignBottomToolbarMode,
   normalizeDesignLeftPanel,
@@ -13,6 +14,7 @@ import {
   resolveSpaceForwardTransition,
   resolveToolAfterSelection,
   resolveAvailableTool,
+  resolveCommentModeExit,
   shouldAskOnNewDesignArrival,
   shouldRevealLayersOnFirstCreate,
 } from "./tool-state";
@@ -44,6 +46,56 @@ describe("resolveModeChangeView", () => {
     expect(
       resolveModeChangeView({ next: "interact", viewMode: "single" }),
     ).toBe("stay");
+  });
+});
+
+describe("commentModeReturnOptions", () => {
+  it("restores the screen and device when comments are opened from Interact", () => {
+    expect(commentModeReturnOptions("interact", "screen-1")).toEqual({
+      targetFileId: "screen-1",
+      keepInteractDevice: true,
+    });
+  });
+
+  it("returns to Design for comments opened from other modes", () => {
+    expect(commentModeReturnOptions("edit", "screen-1")).toBeNull();
+    expect(commentModeReturnOptions("annotate", "screen-1")).toBeNull();
+    expect(commentModeReturnOptions("interact", null)).toBeNull();
+  });
+});
+
+describe("resolveCommentModeExit", () => {
+  const returnOptions = {
+    targetFileId: "screen-1",
+    keepInteractDevice: true,
+  } as const;
+
+  it("returns to the saved Interact screen while it still exists", () => {
+    expect(
+      resolveCommentModeExit(
+        returnOptions,
+        new Set(["screen-1"]),
+        new Set(["screen-1"]),
+      ),
+    ).toEqual({ mode: "interact", options: returnOptions });
+  });
+
+  it.each([
+    [new Set<string>(), new Set(["screen-1"])],
+    [new Set(["screen-1"]), new Set<string>()],
+  ])(
+    "falls back to Design when the saved screen was removed",
+    (screens, files) => {
+      expect(resolveCommentModeExit(returnOptions, screens, files)).toEqual({
+        mode: "edit",
+      });
+    },
+  );
+
+  it("returns to Design when Comments did not come from Interact", () => {
+    expect(resolveCommentModeExit(null, new Set(), new Set())).toEqual({
+      mode: "edit",
+    });
   });
 });
 
