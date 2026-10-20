@@ -272,6 +272,37 @@ describe("create-recording policy", () => {
     expect(calls.writeState).not.toHaveBeenCalled();
   });
 
+  it("returns the inserted row id when upload-state initialization fails", async () => {
+    calls.writeState
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("state store unavailable"));
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", recordingPlatform: "web" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "upload_state_initialization_failed",
+      statusCode: 503,
+      details: { recordingId: "rec-1", retryable: false },
+    });
+    expect(calls.insert).toHaveBeenCalledOnce();
+    expect(calls.updateSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "upload_state_initialization_failed",
+      }),
+    );
+  });
+
   it("keeps a transient Builder signed-URL authorization failure retryable", async () => {
     calls.bufferedFallbackAvailable = false;
     calls.streamingEnabled = true;

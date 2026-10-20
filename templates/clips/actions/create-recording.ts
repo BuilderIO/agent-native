@@ -260,7 +260,7 @@ export default defineAction({
         progress: 0,
         startedAt: now,
       });
-    } catch (error) {
+    } catch {
       await releaseHostedReservation();
       await db
         .update(schema.recordings)
@@ -271,7 +271,11 @@ export default defineAction({
           updatedAt: new Date().toISOString(),
         })
         .where(eq(schema.recordings.id, id));
-      throw error;
+      fail("Recording upload state could not be initialized.", {
+        errorCode: "upload_state_initialization_failed",
+        statusCode: 503,
+        details: { recordingId: id, retryable: false },
+      });
     }
 
     console.log(`Created recording "${title}" (${id})`);
