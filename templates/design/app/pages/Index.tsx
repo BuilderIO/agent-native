@@ -1357,6 +1357,12 @@ export default function Index() {
       />
     </div>
   );
+  const showHomeSuggestions =
+    quickActionsEnabled &&
+    (homeSuggestionsLoading ||
+      homeSuggestionsUnavailable ||
+      readyHomeSuggestions !== null ||
+      homeSuggestionsSnapshot !== null);
 
   return (
     <>
@@ -1453,77 +1459,77 @@ export default function Index() {
           </div>
         }
         quickActions={
-          <div
-            data-home-prompt-actions
-            className="flex w-full min-w-0 items-center justify-between gap-1"
-          >
-            {quickActionsEnabled &&
-            (homeSuggestionsLoading ||
-              homeSuggestionsUnavailable ||
-              readyHomeSuggestions !== null ||
-              homeSuggestionsSnapshot !== null) ? (
-              <AgentSuggestionBar
-                loading={homeSuggestionsLoading}
-                announceUpdates
-                layout="single-line"
-                suggestions={homeSuggestions.map((suggestion, index) => ({
-                  ...suggestion,
-                  id: suggestion.id ?? `design-home-${index}`,
-                  disabled:
-                    !quickActionsEnabled ||
-                    newDesignHandoffPending ||
-                    quickStartPending,
-                }))}
-                ariaLabel={t("home.suggestedPrompts")}
-                className="min-w-0 flex-1 px-0 py-0"
-                onSelect={async (suggestion) => {
-                  if (
-                    !quickActionsEnabled ||
-                    quickStartRef.current ||
-                    !composerRef.current
-                  )
-                    return;
-                  quickStartRef.current = true;
-                  submissionErrorRef.current = false;
-                  setQuickStartPending(true);
-                  try {
-                    const accepted = await composerRef.current.submitWithText(
-                      agentSuggestionPrompt(suggestion),
-                    );
-                    if (!accepted && !submissionErrorRef.current) {
-                      toast.error(t("homeContext.notReady"));
+          showHomeSuggestions || !selectedTemplate ? (
+            <div
+              data-home-prompt-actions
+              className="flex w-full min-w-0 items-center justify-between gap-1"
+            >
+              {showHomeSuggestions ? (
+                <AgentSuggestionBar
+                  loading={homeSuggestionsLoading}
+                  announceUpdates
+                  layout="single-line"
+                  suggestions={homeSuggestions.map((suggestion, index) => ({
+                    ...suggestion,
+                    id: suggestion.id ?? `design-home-${index}`,
+                    disabled:
+                      !quickActionsEnabled ||
+                      newDesignHandoffPending ||
+                      quickStartPending,
+                  }))}
+                  ariaLabel={t("home.suggestedPrompts")}
+                  className="min-w-0 flex-1 px-0 py-0"
+                  onSelect={async (suggestion) => {
+                    if (
+                      !quickActionsEnabled ||
+                      quickStartRef.current ||
+                      !composerRef.current
+                    )
+                      return;
+                    quickStartRef.current = true;
+                    submissionErrorRef.current = false;
+                    setQuickStartPending(true);
+                    try {
+                      const accepted = await composerRef.current.submitWithText(
+                        agentSuggestionPrompt(suggestion),
+                      );
+                      if (!accepted && !submissionErrorRef.current) {
+                        toast.error(t("homeContext.notReady"));
+                      }
+                    } finally {
+                      quickStartRef.current = false;
+                      setQuickStartPending(false);
                     }
-                  } finally {
-                    quickStartRef.current = false;
-                    setQuickStartPending(false);
-                  }
-                }}
-              />
-            ) : (
-              <span className="min-w-0 flex-1" />
-            )}
-            {!selectedTemplate ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                disabled={newDesignHandoffPending}
-                className="h-7 shrink-0 px-2 font-normal text-muted-foreground hover:text-foreground"
-                data-testid="design-home-skip-prompt"
-                onClick={() => {
-                  // startBlankDesign shows the failure toast before rejecting.
-                  void handleSkipToEditor().catch((error: unknown) => {
-                    trace("persist", "skip-to-editor-failed", {
-                      message:
-                        error instanceof Error ? error.message : String(error),
+                  }}
+                />
+              ) : (
+                <span className="min-w-0 flex-1" />
+              )}
+              {!selectedTemplate ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  disabled={newDesignHandoffPending}
+                  className="h-7 shrink-0 px-2 font-normal text-muted-foreground hover:text-foreground"
+                  data-testid="design-home-skip-prompt"
+                  onClick={() => {
+                    // startBlankDesign shows the failure toast before rejecting.
+                    void handleSkipToEditor().catch((error: unknown) => {
+                      trace("persist", "skip-to-editor-failed", {
+                        message:
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                      });
                     });
-                  });
-                }}
-              >
-                {t("promptDialog.skipPrompt")}
-              </Button>
-            ) : null}
-          </div>
+                  }}
+                >
+                  {t("promptDialog.skipPrompt")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null
         }
       >
         {accessibleDesignsSummary.isError ? (

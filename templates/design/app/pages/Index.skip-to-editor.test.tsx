@@ -658,6 +658,22 @@ describe("Index skip to editor", () => {
     expect(container.textContent).toContain("Generated dashboard");
   });
 
+  it("does not reserve quick actions space for a selected template without suggestions", async () => {
+    mocks.agentEngine = { state: "missing", missing: true, canChat: false };
+    await act(async () => root.render(<Index />));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
+    expect(container.querySelector("[data-home-prompt-actions]")).toBeNull();
+    expect(
+      container.querySelectorAll(
+        ".agent-prompt-home-hero > .agent-prompt-home-composer",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
     const suggestion = Array.from(container.querySelectorAll("button")).find(
