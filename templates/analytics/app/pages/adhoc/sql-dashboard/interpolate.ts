@@ -81,12 +81,14 @@ export type PanelTimeRange =
  * already in `vars`, as its SQL gets it.
  */
 export function panelTimeRange(
-  panel: Pick<SqlPanel, "sql">,
+  panel: { sql: SqlPanel["sql"]; source?: SqlPanel["source"] },
   vars: Record<string, string>,
   now: number = Date.now(),
 ): PanelTimeRange {
   // A placeholder in a comment doesn't bound the query.
-  const sql = stripSqlComments(serializePanelSql(panel.sql));
+  const sql = stripSqlComments(serializePanelSql(panel.sql), {
+    hashComments: panel.source === "bigquery",
+  });
   if (sql === null) return { kind: "unreadable" };
   const readsPreset =
     vars.timeRange !== undefined && sql.includes("{{timeRange}}");

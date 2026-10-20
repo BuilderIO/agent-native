@@ -694,6 +694,30 @@ describe("dataNoteInRange", () => {
     ).toEqual(panelTimeRange(funnel, { timeRange: "90d" }, december));
   });
 
+  it("reads past PostgreSQL's #>> operator, and takes # as a comment only in BigQuery", () => {
+    const vars = { signupStart: "2026-10-13", signupEnd: "2026-10-31" };
+    const plans = {
+      sql: "SELECT payload #>> '{plan}' AS plan, count(*) FROM signups WHERE signup_date >= '{{signupStart}}' AND signup_date <= '{{signupEnd}}' GROUP BY 1",
+      source: "first-party" as const,
+    };
+    expect(panelTimeRange(plans, vars, december)).toEqual({
+      kind: "days",
+      start: Date.parse("2026-10-13"),
+      end: Date.parse("2026-11-01"),
+    });
+    expect(
+      panelTimeRange(
+        {
+          sql: `${funnel.sql}
+# by {{signupStart}} to {{signupEnd}}`,
+          source: "bigquery",
+        },
+        { ...vars, timeRange: "90d" },
+        december,
+      ),
+    ).toEqual(panelTimeRange(funnel, { timeRange: "90d" }, december));
+  });
+
   it("reads timeRange's own start and end when the SQL uses only those", () => {
     const bounded = {
       sql: "SELECT step, count(*) FROM events WHERE event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}' GROUP BY step",

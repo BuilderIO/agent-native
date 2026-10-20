@@ -220,7 +220,7 @@ export function SqlChartCard({
   const timeChart = isKeyDateChartType(panel.chartType);
   const dataNoteRange = useMemo(
     () => panelTimeRange(panel, filters ?? {}),
-    [panel.sql, filters],
+    [panel.sql, panel.source, filters],
   );
   // Other charts list the notes in their time range under the card. A time
   // chart shades notes over its dates and lists, under its plot, the ones it

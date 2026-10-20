@@ -1,8 +1,13 @@
 /**
  * The SQL with its `--`, `#` and block comments blanked, keeping quoted
- * text and line breaks; null when a block comment never closes.
+ * text and line breaks; null when a block comment never closes. Only BigQuery
+ * reads `#` as a comment: in PostgreSQL `#>` and `#>>` are JSON operators,
+ * so its SQL passes `hashComments: false`.
  */
-export function stripSqlComments(sql: string): string | null {
+export function stripSqlComments(
+  sql: string,
+  { hashComments = true }: { hashComments?: boolean } = {},
+): string | null {
   const output: string[] = [];
   let quote: "'" | '"' | "`" | null = null;
   let blockComment = false;
@@ -41,7 +46,7 @@ export function stripSqlComments(sql: string): string | null {
     } else if (character === "-" && sql[index + 1] === "-") {
       while (index < sql.length && sql[index] !== "\n") index += 1;
       if (sql[index] === "\n") output.push("\n");
-    } else if (character === "#") {
+    } else if (hashComments && character === "#") {
       while (index < sql.length && sql[index] !== "\n") index += 1;
       if (sql[index] === "\n") output.push("\n");
     } else if (character === "/" && sql[index + 1] === "*") {
