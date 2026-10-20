@@ -7,17 +7,29 @@ const github = vi.hoisted(() => ({
   hang: false,
   /** Holds requests past their signal, as the client's rate-limit queue can. */
   stall: false,
-  /** Requests to end as if another caller's signal ended a shared read. */
+  /** Requests to end as if another caller's deadline ended a shared read. */
   endedElsewhere: 0,
-  /** Requests to end at the provider client's own timeout, once it's passed. */
+  /** The reason the client gave another caller's request when its time ran out. */
+  elsewhere: undefined as unknown,
+  /** How long a request ended elsewhere waited first, as in the client's queue. */
+  waitedMs: 0,
+  /** Requests to end at the provider client's own timeout. */
   ranOutItself: 0,
   failure: null as Error | null,
   /** What GitHub answers instead of an empty folder, when set. */
   response: null as null | { status: number; json: unknown },
-  /** How the provider client reports a request a signal ended. */
-  timedOut: () =>
+  /**
+   * How the provider client reports a request a signal ended: the signal's
+   * reason, or a plain abort at its own timeout.
+   */
+  timedOut: (
+    reason: unknown = new DOMException(
+      "This operation was aborted",
+      "AbortError",
+    ),
+  ) =>
     Object.assign(new Error("Provider API request timed out after 30000ms"), {
-      cause: new DOMException("This operation was aborted", "AbortError"),
+      cause: reason,
     }),
 }));
 vi.mock("./provider-api.js", () => ({
@@ -31,16 +43,18 @@ vi.mock("./provider-api.js", () => ({
     if (github.stall) await new Promise(() => {});
     if (github.endedElsewhere > 0) {
       github.endedElsewhere -= 1;
-      throw github.timedOut();
+      if (github.waitedMs) vi.setSystemTime(Date.now() + github.waitedMs);
+      throw github.timedOut(github.elsewhere);
     }
     if (github.ranOutItself > 0) {
       github.ranOutItself -= 1;
-      vi.setSystemTime(Date.now() + (args.timeoutMs ?? 0));
       throw github.timedOut();
     }
     if (github.hang) {
       await new Promise((_, reject) =>
-        args.signal?.addEventListener("abort", () => reject(github.timedOut())),
+        args.signal?.addEventListener("abort", () =>
+          reject(github.timedOut(args.signal?.reason)),
+        ),
       );
     }
     const status = github.response?.status ?? 200;
@@ -70,11 +84,23 @@ import {
 
 const target = { owner: "acme", repo: "site" };
 
+/** The reason the client ends a request with when its caller's time runs out. */
+async function callerDeadlineReason(): Promise<unknown> {
+  const budget = new AbortController();
+  budget.abort();
+  await readGitHubBlob({ ...target, sha: "elsewhere", signal: budget.signal })
+    .then(() => undefined)
+    .catch(() => undefined);
+  return requests.pop()!.signal!.reason;
+}
+
 beforeEach(() => {
   requests.length = 0;
   github.hang = false;
   github.stall = false;
   github.endedElsewhere = 0;
+  github.elsewhere = undefined;
+  github.waitedMs = 0;
   github.ranOutItself = 0;
   github.failure = null;
   github.response = null;
@@ -117,8 +143,9 @@ describe("GitHub request deadlines", () => {
       signal: budget.signal,
     });
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0]!.signal).toBe(budget.signal);
+    expect(requests[0]!.signal?.aborted).toBe(false);
     budget.abort();
+    expect(requests[0]!.signal?.aborted).toBe(true);
     await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
     expect(requests).toHaveLength(1);
   });
@@ -155,6 +182,7 @@ describe("GitHub request deadlines", () => {
   });
 
   it("asks again, once, when another caller's deadline ended a read it shared, then counts as out of time", async () => {
+    github.elsewhere = await callerDeadlineReason();
     github.endedElsewhere = 1;
     const head = await readGitHubBranchHead({
       ...target,
@@ -177,36 +205,44 @@ describe("GitHub request deadlines", () => {
   });
 
   it("asks again when a read without a deadline shared one that another caller's deadline ended", async () => {
+    github.elsewhere = await callerDeadlineReason();
     github.endedElsewhere = 1;
     const head = await readGitHubBranchHead({ ...target, branch: "main" });
     expect(head).toMatchObject({ status: "ok", sha: "c0ffee" });
     expect(requests).toHaveLength(2);
   });
 
-  it("doesn't ask again when a read ran out the provider client's own timeout", async () => {
+  it("asks again when another caller's deadline ended a shared read that waited longer than the client's timeout", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
-      github.ranOutItself = 1;
-      await expect(
-        readGitHubBranchHead({ ...target, branch: "main" }),
-      ).rejects.toThrow("timed out after 30000ms");
-      expect(requests).toEqual([
-        expect.objectContaining({ timeoutMs: 30_000 }),
-      ]);
-
-      requests.length = 0;
-      github.ranOutItself = 1;
-      await expect(
-        readGitHubBranchHead({
-          ...target,
-          branch: "main",
-          signal: new AbortController().signal,
-        }),
-      ).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
-      expect(requests).toHaveLength(1);
+      github.elsewhere = await callerDeadlineReason();
+      github.endedElsewhere = 1;
+      github.waitedMs = 45_000;
+      const head = await readGitHubBranchHead({ ...target, branch: "main" });
+      expect(head).toMatchObject({ status: "ok", sha: "c0ffee" });
+      expect(requests).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("doesn't ask again when the provider client's own timeout ended a read, however soon", async () => {
+    github.ranOutItself = 1;
+    await expect(
+      readGitHubBranchHead({ ...target, branch: "main" }),
+    ).rejects.toThrow("timed out after 30000ms");
+    expect(requests).toEqual([expect.objectContaining({ timeoutMs: 30_000 })]);
+
+    requests.length = 0;
+    github.ranOutItself = 1;
+    await expect(
+      readGitHubBranchHead({
+        ...target,
+        branch: "main",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+    expect(requests).toHaveLength(1);
   });
 
   it("keeps other failures as they are", async () => {
