@@ -729,7 +729,11 @@ describe.skipIf(!databaseUrl)(
                 { requireInserted: true },
               ),
             ),
-          ).rejects.toMatchObject({ code: "stale_execution_fence" });
+          ).rejects.toMatchObject({
+            name: "AgentRunEventNotPersistedError",
+            terminalRun: true,
+            cause: { code: "stale_execution_fence" },
+          });
         } finally {
           await sql`SELECT pg_advisory_unlock(${gateKey})`;
           await Promise.allSettled([claim, cancel]);
