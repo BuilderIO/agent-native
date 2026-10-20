@@ -521,6 +521,28 @@ describe("prepareSlidesChatAttachments", () => {
     ).toBeUndefined();
   });
 
+  it("keeps a URL-only image visible when its MIME metadata is missing", async () => {
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "add this image",
+      attachments: [
+        {
+          type: "image",
+          name: "editor-ai.jpeg",
+          url: "https://cdn.example.com/editor-ai.jpeg",
+        },
+      ],
+    });
+
+    expect(result?.message).toContain("editor-ai.jpeg");
+    expect(result?.message).toContain(
+      "embeddable URL: https://cdn.example.com/editor-ai.jpeg",
+    );
+    expect(result?.message).not.toContain(
+      "path: https://cdn.example.com/editor-ai.jpeg",
+    );
+  });
+
   it("ignores an already-hosted attachment whose extension isn't a supported reference type", async () => {
     const result = await prepareSlidesChatAttachments({
       ownerEmail: "adam@builder.io",

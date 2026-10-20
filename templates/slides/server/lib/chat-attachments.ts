@@ -214,6 +214,7 @@ export async function prepareSlidesChatAttachments(args: {
     path?: string;
     url?: string;
     type: string;
+    isVisual?: boolean;
     size?: number;
   }> = [];
   const failed: Array<{ name: string; reason: string }> = [];
@@ -244,6 +245,7 @@ export async function prepareSlidesChatAttachments(args: {
             originalName: attachment.name,
             url: attachment.url,
             type: attachment.contentType || "application/octet-stream",
+            isVisual: true,
           });
         } else {
           try {
@@ -333,7 +335,10 @@ export async function prepareSlidesChatAttachments(args: {
     (file): file is typeof file & { path: string } => Boolean(file.path),
   );
   const urlOnlyImages = uploaded.filter(
-    (file) => !file.path && Boolean(file.url) && file.type.startsWith("image/"),
+    (file) =>
+      !file.path &&
+      Boolean(file.url) &&
+      (file.isVisual || file.type.startsWith("image/")),
   );
   const fileList = filesWithPaths
     .map(
