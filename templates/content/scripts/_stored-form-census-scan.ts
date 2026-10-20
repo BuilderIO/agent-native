@@ -12,7 +12,7 @@ import {
   classifyBody,
   commentAnchorText,
   withinParserLimits,
-} from "./stored-form-census-kinds.js";
+} from "./_stored-form-census-kinds.js";
 
 type CensusQuery = (
   sql: string,
