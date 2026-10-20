@@ -21,6 +21,12 @@ const clipsWorkflow = parse(
 const docsWorkflow = parse(
   readFileSync(".github/workflows/deploy-docs-production.yml", "utf8"),
 ) as Workflow;
+const productionWorkflow = parse(
+  readFileSync(
+    ".github/workflows/deploy-production-sites-prebuilt.yml",
+    "utf8",
+  ),
+) as Workflow;
 const trigger = workflow.on as Workflow;
 const schedules = trigger.schedule as Workflow[];
 const dispatch = trigger.workflow_dispatch as Workflow;
@@ -56,6 +62,192 @@ describe("release everything workflow", () => {
       contents: "write",
       "pull-requests": "read",
     });
+  });
+
+  it("reconciles transient workflow dispatch failures before retrying", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const start = source.indexOf("let dispatchSequence = 0;");
+    const end = source.indexOf("\n\nasync function getRun", start);
+    assert(start >= 0 && end > start);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createDispatch = new AsyncFunction(
+      "github",
+      "context",
+      "owner",
+      "repo",
+      "apiVersion",
+      "core",
+      "sleep",
+      "pollIntervalMs",
+      `${source.slice(start, end)}\nreturn dispatch;`,
+    );
+    const warnings: string[] = [];
+    const core = {
+      info: () => {},
+      warning: (message: string) => warnings.push(message),
+    };
+    const sleep = async () => {};
+
+    let postAttempts = 0;
+    let lookups = 0;
+    const acceptedGithub = {
+      request: async () => {
+        postAttempts += 1;
+        throw Object.assign(new Error("Failed to run workflow dispatch"), {
+          status: 500,
+        });
+      },
+      rest: {
+        actions: {
+          listWorkflowRuns: async () => {
+            lookups += 1;
+            return {
+              data: {
+                workflow_runs:
+                  lookups < 3
+                    ? []
+                    : [
+                        {
+                          id: 123,
+                          html_url:
+                            "https://github.com/BuilderIO/agent-native/actions/runs/123",
+                          event: "workflow_dispatch",
+                          head_branch: "main",
+                          display_title: "Publish packages [release:456-1]",
+                        },
+                      ],
+              },
+            };
+          },
+        },
+      },
+    };
+    const acceptedDispatch = await createDispatch(
+      acceptedGithub,
+      { runId: 456 },
+      "BuilderIO",
+      "agent-native",
+      "2026-03-10",
+      core,
+      sleep,
+      15_000,
+    );
+    const recovered = await acceptedDispatch("auto-publish.yml", "main", {
+      releaseType: "patch",
+    });
+    assert.deepEqual(recovered, {
+      id: 123,
+      url: "https://github.com/BuilderIO/agent-native/actions/runs/123",
+    });
+    assert.equal(postAttempts, 1);
+    assert.equal(lookups, 3);
+    assert.match(warnings[0] ?? "", /Recovered auto-publish\.yml/);
+
+    const requestInputs: Workflow[] = [];
+    let retryPostAttempts = 0;
+    const retryGithub = {
+      request: async (_route: string, options: Workflow) => {
+        retryPostAttempts += 1;
+        requestInputs.push(options.inputs as Workflow);
+        if (retryPostAttempts < 3) {
+          throw Object.assign(new Error("GitHub is temporarily unavailable"), {
+            status: 503,
+          });
+        }
+        return {
+          status: 200,
+          data: { workflow_run_id: 789 },
+        };
+      },
+      rest: {
+        actions: {
+          listWorkflowRuns: async () => ({ data: { workflow_runs: [] } }),
+        },
+      },
+    };
+    const retryDispatch = await createDispatch(
+      retryGithub,
+      { runId: 456 },
+      "BuilderIO",
+      "agent-native",
+      "2026-03-10",
+      core,
+      sleep,
+      15_000,
+    );
+    assert.deepEqual(
+      await retryDispatch("deploy-docs-production.yml", "main", {
+        source_ref: "a".repeat(40),
+        smoke: "true",
+      }),
+      {
+        id: 789,
+        url: "https://github.com/BuilderIO/agent-native/actions/runs/789",
+      },
+    );
+    assert.equal(retryPostAttempts, 3);
+    assert.deepEqual(
+      requestInputs.map((inputs) => inputs.coordinator_run_id),
+      ["456-1", "456-1", "456-1"],
+    );
+
+    let invalidStatusLookups = 0;
+    const invalidGithub = {
+      request: async () => {
+        throw Object.assign(new Error("Validation failed"), { status: 422 });
+      },
+      rest: {
+        actions: {
+          listWorkflowRuns: async () => {
+            invalidStatusLookups += 1;
+            return { data: { workflow_runs: [] } };
+          },
+        },
+      },
+    };
+    const invalidDispatch = await createDispatch(
+      invalidGithub,
+      { runId: 456 },
+      "BuilderIO",
+      "agent-native",
+      "2026-03-10",
+      core,
+      sleep,
+      15_000,
+    );
+    await assert.rejects(
+      invalidDispatch("deploy-docs-production.yml", "main", {}),
+      /Validation failed/,
+    );
+    assert.equal(invalidStatusLookups, 0);
+  });
+
+  it("adds correlation inputs and run titles to coordinated child workflows", () => {
+    for (const child of [
+      autoPublishWorkflow,
+      desktopWorkflow,
+      clipsWorkflow,
+      productionWorkflow,
+      docsWorkflow,
+    ]) {
+      const childDispatch = (child.on as Workflow)
+        .workflow_dispatch as Workflow;
+      const childInputs = childDispatch.inputs as Workflow;
+      const coordinatorRunId = childInputs.coordinator_run_id as Workflow;
+      assert.equal(coordinatorRunId.required, false);
+      assert.equal(coordinatorRunId.type, "string");
+      assert.equal(coordinatorRunId.default, "");
+      assert.match(String(child["run-name"]), /coordinator_run_id/);
+    }
+    const source = String((coordinator.with as Workflow).script);
+    assert.match(source, /coordinator_run_id: coordinatorRunId/);
+    assert.match(
+      source,
+      /run\.display_title\?\.includes\(`\[release:\$\{coordinatorRunId\}\]`\)/,
+    );
+    assert.match(source, /run\.head_branch === ref/);
   });
 
   it("waits for package publication before dispatching stable downstream releases", () => {
@@ -263,6 +455,13 @@ describe("release everything workflow", () => {
         required: true,
         type: "boolean",
         default: true,
+      },
+      coordinator_run_id: {
+        description:
+          "Release coordinator ID used to reconcile a transient dispatch failure",
+        required: false,
+        type: "string",
+        default: "",
       },
     });
   });

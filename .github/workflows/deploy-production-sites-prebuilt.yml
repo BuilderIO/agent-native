@@ -1,5 +1,6 @@
 name: Deploy Agent-Native production sites from GitHub
-run-name: Deploy Agent-Native production sites `${{ inputs.sites }}`
+run-name: >-
+  ${{ github.event.inputs.coordinator_run_id && format('Deploy Agent-Native production sites `{0}` [release:{1}]', github.event.inputs.sites, github.event.inputs.coordinator_run_id) || format('Deploy Agent-Native production sites `{0}`', github.event.inputs.sites) }}
 
 on:
   workflow_dispatch:
@@ -24,6 +25,11 @@ on:
         required: true
         type: boolean
         default: true
+      coordinator_run_id:
+        description: Release coordinator ID used to reconcile a transient dispatch failure
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read

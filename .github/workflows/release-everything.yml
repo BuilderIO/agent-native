@@ -60,6 +60,49 @@ jobs:
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const phaseDeadline = (timeoutMs) =>
               Math.min(coordinatorDeadline, Date.now() + timeoutMs);
+            let dispatchSequence = 0;
+            const dispatchAttempts = 3;
+            const dispatchReconciliationPolls = 5;
+
+            function isTransientDispatchFailure(error) {
+              const status = error?.status ?? error?.response?.status;
+              return !Number.isInteger(status) || (status >= 500 && status <= 599);
+            }
+
+            async function findDispatchedRun(workflow, ref, coordinatorRunId) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow,
+                per_page: 100,
+              });
+              const runs = response.data?.workflow_runs;
+              if (!Array.isArray(runs)) {
+                throw new Error(`GitHub returned no workflow runs while reconciling ${workflow}.`);
+              }
+              return runs.find(
+                (run) =>
+                  run.event === "workflow_dispatch" &&
+                  run.head_branch === ref &&
+                  run.display_title?.includes(`[release:${coordinatorRunId}]`),
+              );
+            }
+
+            async function waitForDispatchedRun(workflow, ref, coordinatorRunId) {
+              for (let poll = 0; poll < dispatchReconciliationPolls; poll += 1) {
+                const run = await findDispatchedRun(workflow, ref, coordinatorRunId);
+                if (run) {
+                  if (!Number.isInteger(run.id) || typeof run.html_url !== "string") {
+                    throw new Error(`GitHub returned an incomplete workflow run for ${workflow}.`);
+                  }
+                  return { id: run.id, url: run.html_url };
+                }
+                if (poll + 1 < dispatchReconciliationPolls) {
+                  await sleep(pollIntervalMs);
+                }
+              }
+              return null;
+            }
 
             async function readJsonAt(ref, path) {
               const response = await github.rest.repos.getContent({
@@ -76,30 +119,70 @@ jobs:
             }
 
             async function dispatch(workflow, ref, inputs) {
-              const response = await github.request(
-                "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
-                {
-                  owner,
-                  repo,
-                  workflow_id: workflow,
-                  ref,
-                  inputs,
-                  return_run_details: true,
-                  headers: {
-                    accept: "application/vnd.github+json",
-                    "X-GitHub-Api-Version": apiVersion,
-                  },
-                },
-              );
-              const runId = response.data?.workflow_run_id;
-              if (!Number.isInteger(runId)) {
-                throw new Error(
-                  `GitHub did not return a workflow run id for ${workflow} (HTTP ${response.status}).`,
-                );
+              const coordinatorRunId = `${context.runId}-${++dispatchSequence}`;
+              const dispatchInputs = {
+                ...inputs,
+                coordinator_run_id: coordinatorRunId,
+              };
+              for (let attempt = 1; attempt <= dispatchAttempts; attempt += 1) {
+                let response;
+                try {
+                  response = await github.request(
+                    "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+                    {
+                      owner,
+                      repo,
+                      workflow_id: workflow,
+                      ref,
+                      inputs: dispatchInputs,
+                      return_run_details: true,
+                      headers: {
+                        accept: "application/vnd.github+json",
+                        "X-GitHub-Api-Version": apiVersion,
+                      },
+                    },
+                  );
+                } catch (error) {
+                  if (!isTransientDispatchFailure(error)) throw error;
+                  const recovered = await waitForDispatchedRun(
+                    workflow,
+                    ref,
+                    coordinatorRunId,
+                  );
+                  if (recovered) {
+                    core.warning(
+                      `Recovered ${workflow} after an ambiguous GitHub dispatch response: ${recovered.url}`,
+                    );
+                    return recovered;
+                  }
+                  if (attempt === dispatchAttempts) {
+                    const status = error?.status ?? error?.response?.status ?? "unknown";
+                    throw new Error(
+                      `GitHub did not confirm ${workflow} after ${dispatchAttempts} transient dispatch failures (last HTTP status: ${status}).`,
+                    );
+                  }
+                  core.warning(
+                    `GitHub's transient response for ${workflow} did not create a matching run; retrying dispatch (${attempt + 1}/${dispatchAttempts}).`,
+                  );
+                  continue;
+                }
+
+                const runId = response.data?.workflow_run_id;
+                if (!Number.isInteger(runId)) {
+                  const recovered = await waitForDispatchedRun(
+                    workflow,
+                    ref,
+                    coordinatorRunId,
+                  );
+                  if (recovered) return recovered;
+                  throw new Error(
+                    `GitHub did not return a workflow run id or matching run for ${workflow} (HTTP ${response.status}).`,
+                  );
+                }
+                const url = `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
+                core.info(`Dispatched ${workflow}: ${url}`);
+                return { id: runId, url };
               }
-              const url = `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
-              core.info(`Dispatched ${workflow}: ${url}`);
-              return { id: runId, url };
             }
 
             async function getRun(runId) {

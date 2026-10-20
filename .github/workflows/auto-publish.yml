@@ -1,4 +1,6 @@
 name: Publish packages
+run-name: >-
+  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
 
 # npm packages have two separate release trains:
 #
@@ -68,6 +70,11 @@ on:
         default: false
       devTag:
         description: "Dev snapshot: publish a testable version from this branch under npm dist-tag dev-<value> (leave empty for a normal stable dispatch)"
+        required: false
+        type: string
+        default: ""
+      coordinator_run_id:
+        description: Release coordinator ID used to reconcile a transient dispatch failure
         required: false
         type: string
         default: ""
