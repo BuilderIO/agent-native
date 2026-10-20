@@ -238,7 +238,7 @@ describe("an automatic continuation request", () => {
     expect(seen).toEqual([]);
   });
 
-  it("resumes with the finished delegation in context and never sends it again", async () => {
+  it("runs a new delegation step when its arguments match a prior completion", async () => {
     claimRunSlot.mockReset();
     mockClaimedRunSlot();
     turnLedger.mockResolvedValue(FINISHED_DELEGATION);
@@ -277,8 +277,13 @@ describe("an automatic continuation request", () => {
         ),
       ),
     ).toBe(true);
-    expect(sendAgain).not.toHaveBeenCalled();
-    expect(stream).toContain('"replayed":true');
+    expect(sendAgain).toHaveBeenCalledOnce();
+    expect(sendAgain.mock.calls[0]?.[1]).toMatchObject({
+      toolCallId: "call-again",
+      turnId: "turn-auto",
+    });
+    expect(stream).not.toContain('"replayed":true');
+    expect(stream).toContain("a second remote task");
     expect(stream).toContain("There were 412 signups.");
   });
 
