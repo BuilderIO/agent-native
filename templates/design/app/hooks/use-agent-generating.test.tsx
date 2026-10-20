@@ -367,6 +367,226 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("bounds restored polling when the active run is unrelated", async () => {
+    const onComplete = vi.fn();
+    const onRunConfirmed = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: true,
+        status: "running",
+        runId: "unrelated-run",
+        turnId: "turn-b",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onRunConfirmed={onRunConfirmed}
+          onStale={onStale}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        currentRunId: "restored-run",
+        currentTurnId: "turn-a",
+        resumingStoredRun: true,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onStale).not.toHaveBeenCalled();
+    expect(onRunConfirmed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+
+    expect(latest!.generating).toBe(false);
+    expect(onStale).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onRunConfirmed).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("bounds restored polling when the terminal run is unrelated", async () => {
+    const onComplete = vi.fn();
+    const onRunConfirmed = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: false,
+        status: "completed",
+        runId: "unrelated-run",
+        turnId: "turn-b",
+        terminalReason: "done",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onRunConfirmed={onRunConfirmed}
+          onStale={onStale}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        currentRunId: "restored-run",
+        currentTurnId: "turn-a",
+        resumingStoredRun: true,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onStale).not.toHaveBeenCalled();
+    expect(onRunConfirmed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+
+    expect(latest!.generating).toBe(false);
+    expect(onStale).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onRunConfirmed).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("bounds restored polling when idle status carries an unrelated run ID", async () => {
+    const onComplete = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: false,
+        status: "idle",
+        runId: "unrelated-run",
+        turnId: "turn-b",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe onComplete={onComplete} onStale={onStale} onStopped={vi.fn()} />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        currentRunId: "restored-run",
+        currentTurnId: "turn-a",
+        resumingStoredRun: true,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onStale).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+
+    expect(latest!.generating).toBe(false);
+    expect(onStale).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("clears restored-run resolution timeout when the tracked run appears", async () => {
+    const onRunConfirmed = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active: true,
+          status: "running",
+          runId: "unrelated-run",
+          turnId: "turn-b",
+        }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          active: true,
+          status: "running",
+          runId: "restored-run",
+          turnId: "turn-a",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={vi.fn()}
+          onRunConfirmed={onRunConfirmed}
+          onStale={onStale}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", {
+        currentRunId: "restored-run",
+        currentTurnId: "turn-a",
+        resumingStoredRun: true,
+      });
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onRunConfirmed).toHaveBeenCalledWith(
+      "design_tab",
+      "restored-run",
+      "turn-a",
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onStale).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("clears the restored-run status failure timeout on unmount", async () => {
     const onStale = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue({ ok: false });
@@ -904,6 +1124,55 @@ describe("useAgentGenerating", () => {
     });
 
     expect(latest!.generating).toBe(false);
+    expect(onFailed).toHaveBeenCalledOnce();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("does not complete a legacy run_timeout status normalized as completed", async () => {
+    const onComplete = vi.fn();
+    const onFailed = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          active: false,
+          status: "completed",
+          runId: "legacy-timeout-run",
+          terminalReason: "run_timeout",
+        }),
+      }),
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={onComplete}
+          onFailed={onFailed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest!.submit("Make a landing page", "Design id: design-1");
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    expect(latest!.generating).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+
+    expect(latest!.generating).toBe(false);
+    expect(onComplete).not.toHaveBeenCalled();
     expect(onFailed).toHaveBeenCalledOnce();
 
     await act(async () => root.unmount());

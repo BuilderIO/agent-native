@@ -37,14 +37,20 @@ interface UseQuestionFlowOptions {
   continuationTabId?: string | null;
   onContinue?: (
     tabId: string,
-    previousRunBaseline?: { runId: string | null; verified: boolean } | null,
+    previousRunBaseline?: {
+      runId: string | null;
+      verified: boolean;
+      turnId?: string;
+    } | null,
   ) => void;
-  getPreviousRunBaseline?: (
-    tabId: string | null | undefined,
-  ) =>
-    | { runId: string | null; verified: boolean }
+  getPreviousRunBaseline?: (tabId: string | null | undefined) =>
+    | { runId: string | null; verified: boolean; turnId?: string }
     | null
-    | Promise<{ runId: string | null; verified: boolean } | null>;
+    | Promise<{
+        runId: string | null;
+        verified: boolean;
+        turnId?: string;
+      } | null>;
   getModelSelection?: () => QuestionFlowModelSelection | null | undefined;
   getGenerationBrief?: () => QuestionFlowGenerationBrief | null | undefined;
 }

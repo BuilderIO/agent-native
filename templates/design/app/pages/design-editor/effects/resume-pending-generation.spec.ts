@@ -18,6 +18,9 @@ const mocks = vi.hoisted(() => ({
   formatUploadedFileContext: vi.fn(() => ""),
   imageAttachmentsFromUploadedFiles: vi.fn((): string[] => []),
   patchPendingGeneration: vi.fn(),
+  snapshotGenerationOutputBaseline: vi.fn(
+    (): Array<{ id: string; contentHash: string }> => [],
+  ),
   loadDesignSystemGenerationContext: vi.fn(),
 }));
 
@@ -28,6 +31,7 @@ vi.mock("@/lib/pending-generation", () => ({
   isPendingGenerationStale: mocks.isPendingGenerationStale,
   patchPendingGeneration: mocks.patchPendingGeneration,
   readPendingGeneration: mocks.readPendingGeneration,
+  snapshotGenerationOutputBaseline: mocks.snapshotGenerationOutputBaseline,
   shouldSkipPendingGenerationResume: mocks.shouldSkipPendingGenerationResume,
 }));
 
@@ -256,6 +260,17 @@ describe("runResumePendingGeneration", () => {
       );
       expect(mocks.formatUploadedFileContext).toHaveBeenCalledWith(files);
       expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
+      if (templateId) {
+        expect(mocks.snapshotGenerationOutputBaseline).not.toHaveBeenCalled();
+      } else {
+        expect(mocks.snapshotGenerationOutputBaseline).toHaveBeenCalledWith(
+          args.files,
+        );
+        expect(mocks.patchPendingGeneration).toHaveBeenCalledWith(
+          "design-1",
+          expect.objectContaining({ outputBaselineFiles: [] }),
+        );
+      }
     },
   );
 

@@ -117,17 +117,95 @@ describe("continuation run baseline", () => {
     ).toEqual({ runId: null, verified: true });
   });
 
-  it("fails closed when refreshing a missing baseline fails", () => {
+  it("preserves the known current run and turn when refreshing fails", () => {
     expect(
       resolvePreviousRunBaseline(
         { runId: null, verified: false },
         {
           currentRunId: "stale-current-run",
+          currentTurnId: "known-current-turn",
           previousRunId: "old-run",
           previousRunBaselineVerified: true,
         },
       ),
-    ).toEqual({ runId: null, verified: false });
+    ).toEqual({
+      runId: "stale-current-run",
+      verified: true,
+      turnId: "known-current-turn",
+    });
+  });
+
+  it("falls back to the known previous run when no current run is stored", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: null, verified: false },
+        {
+          previousRunId: "known-previous-run",
+          previousRunBaselineVerified: false,
+        },
+      ),
+    ).toEqual({ runId: "known-previous-run", verified: true });
+  });
+
+  it("keeps a known turn when the verified baseline identifies the same run", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: "current-run", verified: true },
+        {
+          currentRunId: "current-run",
+          currentTurnId: "current-turn",
+        },
+      ),
+    ).toEqual({
+      runId: "current-run",
+      verified: true,
+      turnId: "current-turn",
+    });
+  });
+
+  it("does not attach a stored turn to a different verified run", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: "new-run", verified: true, turnId: "new-turn" },
+        {
+          currentRunId: "old-run",
+          currentTurnId: "old-turn",
+        },
+      ),
+    ).toEqual({ runId: "new-run", verified: true, turnId: "new-turn" });
+  });
+
+  it("keeps the resolved continuation turn in session storage", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+
+    const baseline = resolvePreviousRunBaseline(
+      { runId: null, verified: false },
+      {
+        currentRunId: "current-run",
+        currentTurnId: "current-turn",
+      },
+    );
+    writePendingGeneration("design-1", {
+      runTabId: "thread-1",
+      previousRunId: baseline.runId ?? undefined,
+      previousRunBaselineVerified: baseline.verified,
+      currentTurnId: baseline.turnId,
+    });
+
+    expect(
+      readPendingGeneration("design-1", { allowUntimestamped: true }),
+    ).toMatchObject({
+      previousRunId: "current-run",
+      previousRunBaselineVerified: true,
+      currentTurnId: "current-turn",
+    });
   });
 });
 

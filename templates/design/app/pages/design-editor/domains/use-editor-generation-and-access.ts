@@ -381,6 +381,21 @@ export function useEditorGenerationAndAccess({
     if (generationOutputReadyRef.current === null) return;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
+    const pending = readPendingGeneration(id, { allowUntimestamped: true });
+    const hasPersistedOutputBaseline = pending?.templateId
+      ? pending.templateBaselineFiles !== undefined
+      : pending?.outputBaselineFiles !== undefined;
+    if (
+      generationOutputReadyRef.current === true &&
+      hasPersistedOutputBaseline
+    ) {
+      clearPendingGeneration(id);
+      setHasPendingGeneration(false);
+      setGenerationIssue(null);
+      setRetryablePrompt(null);
+      staleToastShownRef.current = false;
+      return;
+    }
     const preservedForRetry = rememberPendingGenerationForRetry();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
@@ -465,16 +480,27 @@ export function useEditorGenerationAndAccess({
   const handleQuestionFlowContinue = useCallback(
     (
       runTabId: string,
-      previousRunBaseline?: { runId: string | null; verified: boolean } | null,
+      previousRunBaseline?: {
+        runId: string | null;
+        verified: boolean;
+        turnId?: string;
+      } | null,
     ) => {
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
       setRetryablePrompt(null);
       setGenerationChatTabId(runTabId);
       const pending = readPendingGeneration(id, { allowUntimestamped: true });
-      const baseline = resolvePreviousRunBaseline(previousRunBaseline, pending);
+      const baselinePending =
+        pending?.runTabId && pending.runTabId !== runTabId ? null : pending;
+      const baseline = resolvePreviousRunBaseline(
+        previousRunBaseline,
+        baselinePending,
+      );
       const previousRunId = baseline.runId ?? undefined;
       const previousRunBaselineVerified = baseline.verified;
+      const outputBaselineFiles =
+        generationOutputBaselineRef.current ?? pending?.outputBaselineFiles;
       patchPendingGeneration(id, {
         prompt: pending?.prompt ?? "Continue from answered design questions.",
         files: pending?.files ?? [],
@@ -488,17 +514,17 @@ export function useEditorGenerationAndAccess({
         previousRunId,
         previousRunBaselineVerified,
         currentRunId: undefined,
-        currentTurnId: undefined,
+        currentTurnId: baseline.turnId,
         attempt: pending?.attempt ?? 1,
         startedAt: Date.now(),
-        outputBaselineFiles: generationOutputBaselineRef.current ?? [],
+        ...(outputBaselineFiles !== undefined ? { outputBaselineFiles } : {}),
       });
       setHasPendingGeneration(true);
       trackAgentGeneration(runTabId, {
         ignorePreviousRun: true,
         previousRunId,
         previousRunBaselineVerified,
-        currentTurnId: pending?.currentTurnId,
+        currentTurnId: baseline.turnId,
       });
     },
     [clearGenerationCompleteTimer, id, trackAgentGeneration],
@@ -1494,7 +1520,9 @@ export function useEditorGenerationAndAccess({
           setGenerationIssue,
           setHasPendingGeneration,
           setRetryablePrompt,
-          outputBaselineFiles: generationOutputBaselineRef.current ?? [],
+          outputBaselineFiles:
+            generationOutputBaselineRef.current ??
+            promptState.outputBaselineFiles,
         },
         promptState,
         attempt,

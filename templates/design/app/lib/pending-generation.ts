@@ -36,19 +36,30 @@ export interface PendingGeneration {
 export interface PreviousRunBaseline {
   runId: string | null;
   verified: boolean;
+  turnId?: string;
 }
 
 export function resolvePreviousRunBaseline(
   baseline: PreviousRunBaseline | null | undefined,
   pending: Pick<
     PendingGeneration,
-    "currentRunId" | "previousRunId" | "previousRunBaselineVerified"
+    | "currentRunId"
+    | "currentTurnId"
+    | "previousRunId"
+    | "previousRunBaselineVerified"
   > | null,
 ): PreviousRunBaseline {
-  if (baseline) {
+  if (baseline && (baseline.verified || baseline.runId)) {
+    const turnId =
+      baseline.runId &&
+      (baseline.turnId ||
+        (baseline.runId === pending?.currentRunId
+          ? pending.currentTurnId
+          : undefined));
     return {
       runId: baseline.runId,
       verified: baseline.verified || Boolean(baseline.runId),
+      ...(turnId ? { turnId } : {}),
     };
   }
 
@@ -56,6 +67,9 @@ export function resolvePreviousRunBaseline(
   return {
     runId,
     verified: Boolean(runId) || pending?.previousRunBaselineVerified === true,
+    ...(pending?.currentRunId && pending.currentTurnId
+      ? { turnId: pending.currentTurnId }
+      : {}),
   };
 }
 

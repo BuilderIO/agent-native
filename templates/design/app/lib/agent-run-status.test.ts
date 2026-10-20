@@ -51,6 +51,7 @@ describe("readPreviousRunBaseline", () => {
           active: false,
           status: "completed",
           runId: "latest-run",
+          turnId: "latest-turn",
         }),
       }),
     );
@@ -62,7 +63,7 @@ describe("readPreviousRunBaseline", () => {
         currentRunId: "stale-run",
         previousRunBaselineVerified: true,
       }),
-    ).toEqual({ runId: "latest-run", verified: true });
+    ).toEqual({ runId: "latest-run", verified: true, turnId: "latest-turn" });
   });
 
   it("fails closed when the latest status cannot be read", async () => {
@@ -73,8 +74,13 @@ describe("readPreviousRunBaseline", () => {
     expect(
       resolvePreviousRunBaseline(baseline, {
         currentRunId: "stale-run",
+        currentTurnId: "stale-turn",
         previousRunBaselineVerified: true,
       }),
-    ).toEqual({ runId: null, verified: false });
+    ).toEqual({
+      runId: "stale-run",
+      verified: true,
+      turnId: "stale-turn",
+    });
   });
 });
