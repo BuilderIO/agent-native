@@ -38,6 +38,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  and: (...conditions: unknown[]) => ({ and: conditions }),
 }));
 
 vi.mock("../../server/db", () => ({
@@ -84,7 +85,7 @@ describe("public deck route", () => {
   });
 
   it("serves a public deck for every viewer without speaker notes", async () => {
-    resultQueue.current = [deckRows("public")];
+    resultQueue.current = [deckVisibilityRows("public"), publicDeckRows()];
 
     const result = unwrapLoaderData(await loader(requestFor()));
 
@@ -113,6 +114,20 @@ describe("public deck route", () => {
       },
     ]);
     expect(where).toHaveBeenCalledWith({ column: "id_col", value: "deck-1" });
+    expect(select).toHaveBeenNthCalledWith(1, {
+      id: "id_col",
+      visibility: "visibility_col",
+    });
+    expect(select).toHaveBeenNthCalledWith(2, {
+      title: "title_col",
+      data: "data_col",
+    });
+    expect(where).toHaveBeenNthCalledWith(2, {
+      and: [
+        { column: "id_col", value: "deck-1" },
+        { column: "visibility_col", value: "public" },
+      ],
+    });
   });
 
   it("prefixes agent-readable deck context URLs with the app base path", () => {
@@ -130,7 +145,7 @@ describe("public deck route", () => {
 
   it("returns the configured app base path for public deck discovery", async () => {
     configuredBasePath.current = "/slides";
-    resultQueue.current = [deckRows("public")];
+    resultQueue.current = [deckVisibilityRows("public"), publicDeckRows()];
 
     const result = unwrapLoaderData(await loader(requestFor()));
 
@@ -143,18 +158,23 @@ describe("public deck route", () => {
   it.each(["private", "org"] as const)(
     "routes a %s deck to the guarded editor for client-side access resolution",
     async (visibility) => {
-      resultQueue.current = [deckRows(visibility)];
+      resultQueue.current = [deckVisibilityRows(visibility)];
 
       const result = unwrapLoaderData(await loader(requestFor()));
 
       if (result.deck !== null) throw new Error("expected a restricted deck");
       expect(result.error).toBe("restricted");
       expect(result.restricted).toEqual({ id: "deck-1", basePath: "" });
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(select).toHaveBeenCalledWith({
+        id: "id_col",
+        visibility: "visibility_col",
+      });
     },
   );
 
   it("keeps token-authorized private deck content out of server loader data", async () => {
-    resultQueue.current = [deckRows("private")];
+    resultQueue.current = [deckVisibilityRows("private")];
 
     const result = unwrapLoaderData(
       await loader(requestFor("deck-1", "tok+1")),
@@ -167,6 +187,11 @@ describe("public deck route", () => {
     });
     expect(JSON.stringify(result)).not.toContain("internal talking points");
     expect(JSON.stringify(result)).not.toContain("tok+1");
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledWith({
+      id: "id_col",
+      visibility: "visibility_col",
+    });
   });
 
   it("scrubs the private access token before forwarding it to the client deck view", async () => {
@@ -223,11 +248,14 @@ describe("public deck route", () => {
   });
 });
 
-function deckRows(visibility: "public" | "private" | "org") {
+function deckVisibilityRows(visibility: "public" | "private" | "org") {
+  return [{ id: "deck-1", visibility }];
+}
+
+function publicDeckRows() {
   return [
     {
       title: "Launch review",
-      visibility,
       data: JSON.stringify({
         aspectRatio: "16:9",
         slides: [

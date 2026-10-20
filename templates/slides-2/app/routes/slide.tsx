@@ -9,7 +9,7 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import SlideRenderer from "@/components/deck/SlideRenderer";
+import SlideContentRenderer from "@/components/slides-2-runtime/SlideContentRenderer";
 import type { Slide } from "@/context/DeckContext";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import messages from "@/i18n/en-US";
@@ -154,7 +154,7 @@ export default function SlideRoute() {
     );
   }
 
-  if (error || !slide) {
+  if (error || !slide || !deckId) {
     return <SlideError message={error ?? t("raw.slideNotFound")} />;
   }
 
@@ -168,10 +168,10 @@ export default function SlideRoute() {
         /* guard:allow-raw-color — shared slide preview uses a theme-independent black stage. */ "relative h-screen w-screen overflow-hidden bg-black"
       }
     >
-      <SlideRenderer
+      <SlideContentRenderer
         slide={slide}
         slidePosition={slidePosition}
-        thumbnail={false}
+        sourceDeckId={deckId}
         aspectRatio={aspectRatio}
         designSystem={designSystem}
       />

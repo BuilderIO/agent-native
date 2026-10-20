@@ -13,7 +13,7 @@ const source = readFileSync(
 const editorSource = readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),
-    "OpenSlideEditorPage.tsx",
+    "Slides2EditorPage.tsx",
   ),
   "utf8",
 );

@@ -33,7 +33,9 @@ const assetListSchema = z
         .string()
         .min(1)
         .optional()
-        .describe('Deck ID, required when scope is "slide" or "deck"'),
+        .describe(
+          'Deck ID, required when scope is "slide" or "deck"; optional with "global" to limit results to assets that deck can resolve',
+        ),
       slideId: z
         .string()
         .min(1)
@@ -60,20 +62,11 @@ const assetListSchema = z
         message: "Only slide scope accepts slideId.",
       });
     }
-    if (scope === "global" && deckId !== undefined) {
-      context.addIssue({
-        code: "custom",
-        message: "Global scope does not accept deckId.",
-      });
-    }
   });
 
 function imageAssetWorkspaceScope(orgId: string | null | undefined) {
   if (!orgId) return isNull(schema.uploadedAssets.orgId);
-  return or(
-    eq(schema.uploadedAssets.orgId, orgId),
-    isNull(schema.uploadedAssets.orgId),
-  );
+  return eq(schema.uploadedAssets.orgId, orgId);
 }
 
 function assetScopeForDeck(ownerEmail: string, orgId: string | null) {
@@ -101,7 +94,7 @@ function requireSlideId(slideId: string | undefined): string {
 export default defineAction({
   title: "List uploaded media",
   description:
-    "List uploaded images or supported MP4/WebM videos referenced by one accessible slide, from its full deck catalog, or from the global collection. Slide scope requires deckId and slideId. Defaults to images for existing image-library callers.",
+    "List uploaded images or supported MP4/WebM videos referenced by one accessible slide, from its full deck catalog, or from the global collection. Pass deckId with global scope when selecting for a deck to limit results to the current user's assets that deck can resolve. Global results without a deck are limited to the current workspace. Slide scope requires deckId and slideId. Defaults to images for existing image-library callers.",
   schema: assetListSchema,
   readOnly: true,
   retrySafe: true,
@@ -139,7 +132,8 @@ export default defineAction({
             );
     const filters = [mediaFilter];
 
-    if (scope === "deck" || scope === "slide") {
+    const deckScoped = scope === "deck" || scope === "slide" || Boolean(deckId);
+    if (deckScoped) {
       if (!deckId) {
         fail("Deck scope requires deckId.", {
           errorCode: "asset_deck_scope_invalid",
@@ -148,6 +142,16 @@ export default defineAction({
       }
       if (scope === "deck") {
         filters.push(eq(schema.uploadedAssets.deckId, deckId));
+      } else if (scope === "global") {
+        const ownerEmail = getRequestUserEmail();
+        if (!ownerEmail) {
+          fail("Sign in to view uploaded images.", {
+            errorCode: "asset_list_auth_required",
+            statusCode: 401,
+          });
+        }
+        filters.push(isNull(schema.uploadedAssets.deckId));
+        filters.push(eq(schema.uploadedAssets.ownerEmail, ownerEmail));
       }
       try {
         await assertAccess("deck", deckId, "editor");

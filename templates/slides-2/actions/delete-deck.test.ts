@@ -27,6 +27,8 @@ const { mocks, tables } = vi.hoisted(() => ({
       createdAt: "createdAt",
     },
     slideComments: { deckId: "deckId" },
+    deckEvents: { deckId: "deckId" },
+    deckAccessRequestLimits: { deckId: "deckId" },
     uploadedAssets: {
       deckId: "deckId",
       id: "id",
@@ -44,7 +46,12 @@ const { mocks, tables } = vi.hoisted(() => ({
       providerObjectId: "cleanup.providerObjectId",
       url: "cleanup.url",
     },
-    decks: { id: "id", data: "data" },
+    decks: {
+      id: "id",
+      data: "data",
+      ownerEmail: "ownerEmail",
+      orgId: "orgId",
+    },
   },
 }));
 
@@ -70,6 +77,23 @@ let assetRows: Array<{
 let deleteWhereCalls: Array<{ table: unknown; condition: unknown }> = [];
 let lockedDeckData = JSON.stringify({ appId: "slides-2" });
 let uploadedAssetSelectCount = 0;
+let deckSelectCount = 0;
+let selectTableOrder: unknown[] = [];
+let assetRegisteredOnDeckLock: {
+  id: string;
+  url: string;
+  provider: string | null;
+  providerObjectId: string | null;
+  orgId: string | null;
+  ownerEmail: string;
+  deckId: string | null;
+} | null = null;
+let otherDeckRows: Array<{
+  id: string;
+  data: unknown;
+  ownerEmail: string;
+  orgId: string | null;
+}> = [];
 
 function selectBuilder() {
   let value: unknown[] = shareRows;
@@ -77,9 +101,19 @@ function selectBuilder() {
   const builder = {
     from: vi.fn((table: unknown) => {
       selectedTable = table;
+      selectTableOrder.push(table);
       value =
         table === tables.decks
-          ? [{ id: "deck-1", data: lockedDeckData }]
+          ? deckSelectCount++ === 0
+            ? [
+                {
+                  id: "deck-1",
+                  data: lockedDeckData,
+                  ownerEmail: "Owner@Example.com",
+                  orgId: "org-1",
+                },
+              ]
+            : otherDeckRows
           : table === tables.deckShares
             ? shareRows
             : table === tables.deckShareLinks
@@ -104,7 +138,18 @@ function selectBuilder() {
       }
       return builder;
     }),
-    for: vi.fn(() => builder),
+    orderBy: vi.fn(() => builder),
+    for: vi.fn((mode: string) => {
+      if (
+        selectedTable === tables.decks &&
+        mode === "update" &&
+        assetRegisteredOnDeckLock
+      ) {
+        assetRows.push(assetRegisteredOnDeckLock);
+        assetRegisteredOnDeckLock = null;
+      }
+      return builder;
+    }),
     limit: vi.fn(async (count = 1) => value.slice(0, count)),
     then: (
       resolve: (nextValue: unknown[]) => unknown,
@@ -160,9 +205,36 @@ const mockDb = {
   transaction: vi.fn(async (run: (tx: typeof mockDb) => Promise<unknown>) =>
     run(mockDb),
   ),
-  update: vi.fn(() => ({
-    set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })),
-  })),
+  update: vi.fn((table: unknown) => {
+    let values: Record<string, unknown> = {};
+    let rows: Array<{ id: string }> = [];
+    const returning = vi.fn(async () => rows);
+    const where = vi.fn((condition: unknown) => {
+      if (table === tables.uploadedAssets && values.deckId === null) {
+        const conditions = Array.isArray(condition) ? condition : [condition];
+        const idCondition = conditions.find(
+          (part): part is { left: unknown; right: unknown } =>
+            typeof part === "object" &&
+            part !== null &&
+            "left" in part &&
+            part.left === tables.uploadedAssets.id &&
+            "right" in part,
+        );
+        const asset = assetRows.find((item) => item.id === idCondition?.right);
+        if (asset) {
+          asset.deckId = null;
+          rows = [{ id: asset.id }];
+        }
+      }
+      return { returning };
+    });
+    return {
+      set: vi.fn((nextValues: Record<string, unknown>) => {
+        values = nextValues;
+        return { where };
+      }),
+    };
+  }),
 };
 
 vi.mock("@agent-native/core/action", () => ({
@@ -192,7 +264,9 @@ vi.mock("@agent-native/core/file-upload", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => conditions,
+  asc: (column: unknown) => ({ asc: column }),
   eq: (left: unknown, right: unknown) => ({ left, right }),
+  inArray: (column: unknown, values: unknown[]) => ({ column, values }),
   isNull: (column: unknown) => ({ isNull: column }),
   ne: (left: unknown, right: unknown) => ({ not: { left, right } }),
   or: (...conditions: unknown[]) => ({ or: conditions }),
@@ -225,6 +299,48 @@ vi.mock("../server/lib/uploaded-asset-cleanup-outbox.js", () => ({
     mocks.scheduleUploadedAssetDeletion(...args),
 }));
 
+vi.mock("../server/lib/uploaded-asset-object-lifecycle.js", () => ({
+  deleteUploadedAssetObject: async (args: {
+    identity: {
+      url: string;
+      provider: string | null;
+      providerObjectId: string | null;
+    };
+    excludeAssetId?: string;
+    deleteObject: () => Promise<boolean>;
+    onShared?: (transaction: typeof mockDb) => Promise<void>;
+    onAlreadyDeleted?: (transaction: typeof mockDb) => Promise<void>;
+    onDeleted?: (transaction: typeof mockDb) => Promise<void>;
+  }) => {
+    const hasAlias = assetRows.some(
+      (asset) =>
+        asset.id !== args.excludeAssetId &&
+        (asset.url === args.identity.url ||
+          (args.identity.provider !== null &&
+            args.identity.providerObjectId !== null &&
+            asset.provider === args.identity.provider &&
+            asset.providerObjectId === args.identity.providerObjectId)),
+    );
+    const callback = hasAlias ? args.onShared : args.onDeleted;
+    if (hasAlias) {
+      await callback?.(mockDb);
+      return { status: "shared" };
+    }
+    try {
+      if (!(await args.deleteObject())) {
+        return {
+          status: "failed",
+          error: new Error("Storage deletion failed."),
+        };
+      }
+      await callback?.(mockDb);
+      return { status: "deleted" };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  },
+}));
+
 import { getSharedDeck } from "../server/handlers/share.js";
 import deleteDeck from "./delete-deck.js";
 
@@ -235,6 +351,10 @@ describe("deleteDeck", () => {
     assetRows = [];
     deleteWhereCalls = [];
     uploadedAssetSelectCount = 0;
+    deckSelectCount = 0;
+    selectTableOrder = [];
+    assetRegisteredOnDeckLock = null;
+    otherDeckRows = [];
     lockedDeckData = JSON.stringify({ appId: "slides-2" });
     mocks.assertAccess.mockReset();
     mocks.notifyClients.mockReset();
@@ -310,6 +430,8 @@ describe("deleteDeck", () => {
     expect(mockDb.delete.mock.calls.map(([table]) => table)).toEqual([
       tables.deckShares,
       tables.deckShareLinks,
+      tables.deckEvents,
+      tables.deckAccessRequestLimits,
       tables.deckVersions,
       tables.uploadedAssets,
       tables.slideComments,
@@ -318,6 +440,17 @@ describe("deleteDeck", () => {
     expect(deleteWhereCalls).toContainEqual({
       table: tables.deckShareLinks,
       condition: { left: tables.deckShareLinks.deckId, right: "deck-1" },
+    });
+    expect(deleteWhereCalls).toContainEqual({
+      table: tables.deckEvents,
+      condition: { left: tables.deckEvents.deckId, right: "deck-1" },
+    });
+    expect(deleteWhereCalls).toContainEqual({
+      table: tables.deckAccessRequestLimits,
+      condition: {
+        left: tables.deckAccessRequestLimits.deckId,
+        right: "deck-1",
+      },
     });
   });
 
@@ -415,6 +548,68 @@ describe("deleteDeck", () => {
       "cleanup-1",
     );
     expect(assetRows).toEqual([]);
+  });
+
+  it("locks the deck before collecting assets registered by an in-flight upload", async () => {
+    assetRegisteredOnDeckLock = {
+      id: "late-asset",
+      url: "https://cdn.example.com/late-image.png",
+      provider: "s3",
+      providerObjectId: "objects/late-image.png",
+      orgId: "org-1",
+      ownerEmail: "asset-owner@example.com",
+      deckId: "deck-1",
+    };
+
+    await deleteDeck.run({ id: "deck-1" });
+
+    expect(selectTableOrder.indexOf(tables.decks)).toBeLessThan(
+      selectTableOrder.indexOf(tables.uploadedAssets),
+    );
+    expect(mocks.scheduleUploadedAssetDeletion).toHaveBeenCalledWith(
+      mockDb,
+      expect.objectContaining({ assetId: "late-asset" }),
+    );
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("s3", {
+      id: "objects/late-image.png",
+      url: "https://cdn.example.com/late-image.png",
+    });
+    expect(assetRows).toEqual([]);
+  });
+
+  it("keeps a deck asset when another saved slide references its handle", async () => {
+    const asset = {
+      id: "asset-1",
+      url: "https://cdn.example.com/deck-image.png",
+      provider: "s3",
+      providerObjectId: "objects/deck-image.png",
+      orgId: "org-1",
+      ownerEmail: "asset-owner@example.com",
+      deckId: "deck-1",
+    };
+    assetRows = [asset];
+    otherDeckRows = [
+      {
+        id: "other-deck",
+        ownerEmail: "other-owner@example.com",
+        orgId: "org-1",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              sourceTsx: String.raw`<img src={"asset:\u002f\u002fasset-1"} />`,
+            },
+          ],
+        }),
+      },
+    ];
+
+    await deleteDeck.run({ id: "deck-1" });
+
+    expect(assetRows).toEqual([{ ...asset, deckId: null }]);
+    expect(mockDb.update).toHaveBeenCalledWith(tables.uploadedAssets);
+    expect(mocks.scheduleUploadedAssetDeletion).not.toHaveBeenCalled();
+    expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
   });
 
   it("deletes one provider object for duplicate deck assets with no surviving alias", async () => {

@@ -829,6 +829,18 @@ const messages = {
     generate: "スライドを生成",
   },
   deckResult: { saved: "保存済み" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "エディターでは、ポインターを合わせたオブジェクトが強調表示され、キャンバス上で画像の置換とトリミングを実行できます。",
+    deckEditingControls:
+      "スライド一覧の切り替え、プレゼンテーション名、［発表］ボタンがワークスペース共通のコントロールに揃いました。",
+    googleSlidesMissingImageData:
+      "Google スライドのインポートで、空の画像を追加する代わりに画像データが欠落していることを通知するようになりました。",
+    globalMediaPickerScope:
+      "グローバルメディアの選択肢には、現在のプレゼンテーションで解決できるアセットだけが表示されます。",
+    savedSlideImages:
+      "保存済みスライドで使われている画像は、ライブラリで引き続き利用できます。",
+  },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -893,7 +905,7 @@ const messages = {
     collaboratorTooltip: "{{name}}（{{email}}）がこのスライドにいます",
     applyUpdates: "更新を適用（{{count}}）",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "現在",
     preview: "プレビュー",
     edit: "編集",
@@ -952,7 +964,7 @@ const messages = {
     noVideosYet: "動画はまだありません。",
     noAssetsMatch: "検索に一致するメディアはありません。",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "Google Fontsを閲覧",
     title: "Google Fonts",
     searchPlaceholder: "フォントファミリーを検索",
@@ -969,7 +981,7 @@ const messages = {
     importFailed: "選択したフォントをインポートできませんでした。",
     chooseFont: "プレビューするフォントを選択してください。",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "デザイントークン",
     colors: "色",
     background: "背景",
@@ -984,7 +996,7 @@ const messages = {
     radius: "角丸",
     shuffle: "デザインをシャッフル",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "デッキを切り替え",
     searchDecks: "アクセス可能なデッキを検索",
     loadingDecks: "デッキを読み込み中…",
@@ -1075,6 +1087,8 @@ const messages = {
     generationStalledDescription:
       "保存済みのスライドはそのまま残っています。チャットでこのデッキの続きを作成できます。",
     continueInChat: "チャットで続ける",
+    applyResult: "適用",
+    regenerateResult: "再生成",
     continueGenerationPrompt:
       "このデッキのスライド生成を続けてください。最初に現在のスライドと保存済みの生成コンテキストを確認してください。完成済みのスライドは残し、不足分だけ追加してください。",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",

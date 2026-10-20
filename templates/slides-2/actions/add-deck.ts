@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { withSlideAssetReferencesLocked } from "../server/lib/slide-asset-references.js";
 import { assertHumanReadableDeckTitle } from "../shared/deck-title.js";
 import {
   ensureUniqueSlideIds,
@@ -84,18 +85,24 @@ export default defineAction({
     const designSystemId = deckDesignSystemId(deck);
     await assertDesignSystemReadable(designSystemId);
 
-    await getDb()
-      .insert(schema.decks)
-      .values({
-        id,
-        title: deckTitle(deck),
-        data: JSON.stringify(deck),
-        designSystemId,
-        ownerEmail,
-        orgId: getRequestOrgId() ?? null,
-        createdAt: now,
-        updatedAt: now,
-      });
+    const orgId = getRequestOrgId() ?? null;
+    await withSlideAssetReferencesLocked(
+      getDb(),
+      deck,
+      { ownerEmail, orgId },
+      async (tx) => {
+        await tx.insert(schema.decks).values({
+          id,
+          title: deckTitle(deck),
+          data: JSON.stringify(deck),
+          designSystemId,
+          ownerEmail,
+          orgId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
 
     const slideCount = Array.isArray(deck.slides) ? deck.slides.length : 0;
     trackDeckCreated(

@@ -1,7 +1,7 @@
 import { parse } from "@babel/parser";
 
-const OPEN_SLIDE_CANVAS_WIDTH = 1920;
-const OPEN_SLIDE_CANVAS_HEIGHT = 1080;
+const SLIDES_2_CANVAS_WIDTH = 1920;
+const SLIDES_2_CANVAS_HEIGHT = 1080;
 
 type AstNode = {
   type?: string;
@@ -25,18 +25,18 @@ type AstNode = {
 
 type LocatedJsx = { node: AstNode; jsxAncestors: AstNode[] };
 
-export type OpenSlideObjectKind = "text" | "rectangle" | "ellipse" | "line";
+export type Slides2ObjectKind = "text" | "rectangle" | "ellipse" | "line";
 
-export type OpenSlideObjectGeometry = {
+export type Slides2ObjectGeometry = {
   left: number;
   top: number;
   width: number;
   height: number;
 };
 
-export type OpenSlideObjectInsertion = {
-  kind: OpenSlideObjectKind;
-  geometry?: Partial<OpenSlideObjectGeometry>;
+export type Slides2ObjectInsertion = {
+  kind: Slides2ObjectKind;
+  geometry?: Partial<Slides2ObjectGeometry>;
   text?: string;
   id?: string;
 };
@@ -49,7 +49,7 @@ export type SourceStructureResult = {
   createdObjectId?: string;
 };
 
-const OBJECT_LAYER_ATTRIBUTE = "data-open-slide-object-layer";
+const OBJECT_LAYER_ATTRIBUTE = "data-slides-2-object-layer";
 const JSX_TYPES = new Set(["JSXElement", "JSXFragment"]);
 const SKIPPED_KEYS = new Set([
   "comments",
@@ -63,7 +63,7 @@ const SKIPPED_KEYS = new Set([
   "trailingComments",
 ]);
 
-const defaultGeometry: Record<OpenSlideObjectKind, OpenSlideObjectGeometry> = {
+const defaultGeometry: Record<Slides2ObjectKind, Slides2ObjectGeometry> = {
   text: { left: 760, top: 390, width: 400, height: 120 },
   rectangle: { left: 760, top: 390, width: 400, height: 300 },
   ellipse: { left: 760, top: 390, width: 300, height: 300 },
@@ -321,9 +321,9 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 function normalizeGeometry(
-  kind: OpenSlideObjectKind,
-  geometry: Partial<OpenSlideObjectGeometry> | undefined,
-): OpenSlideObjectGeometry | null {
+  kind: Slides2ObjectKind,
+  geometry: Partial<Slides2ObjectGeometry> | undefined,
+): Slides2ObjectGeometry | null {
   const fallback = defaultGeometry[kind];
   const left = geometry?.left ?? fallback.left;
   const top = geometry?.top ?? fallback.top;
@@ -333,17 +333,17 @@ function normalizeGeometry(
 
   const normalizedLeft = inputWidth < 0 ? left + inputWidth : left;
   const normalizedTop = inputHeight < 0 ? top + inputHeight : top;
-  const width = clamp(Math.abs(inputWidth), 1, OPEN_SLIDE_CANVAS_WIDTH);
-  const height = clamp(Math.abs(inputHeight), 1, OPEN_SLIDE_CANVAS_HEIGHT);
+  const width = clamp(Math.abs(inputWidth), 1, SLIDES_2_CANVAS_WIDTH);
+  const height = clamp(Math.abs(inputHeight), 1, SLIDES_2_CANVAS_HEIGHT);
   return {
-    left: clamp(normalizedLeft, 0, OPEN_SLIDE_CANVAS_WIDTH - width),
-    top: clamp(normalizedTop, 0, OPEN_SLIDE_CANVAS_HEIGHT - height),
+    left: clamp(normalizedLeft, 0, SLIDES_2_CANVAS_WIDTH - width),
+    top: clamp(normalizedTop, 0, SLIDES_2_CANVAS_HEIGHT - height),
     width,
     height,
   };
 }
 
-function nextObjectId(sourceTsx: string, kind: OpenSlideObjectKind): string {
+function nextObjectId(sourceTsx: string, kind: Slides2ObjectKind): string {
   const ids = sourceIds(sourceTsx);
   if (hasDynamicSourceIdentity(sourceTsx)) {
     let id = dynamicObjectId(kind);
@@ -360,7 +360,7 @@ function nextObjectId(sourceTsx: string, kind: OpenSlideObjectKind): string {
   return id;
 }
 
-function dynamicObjectId(kind: OpenSlideObjectKind): string {
+function dynamicObjectId(kind: Slides2ObjectKind): string {
   const nonce =
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -416,8 +416,8 @@ function sourceIds(sourceTsx: string): Set<string> {
 }
 
 function createObjectSource(
-  kind: OpenSlideObjectKind,
-  geometry: OpenSlideObjectGeometry,
+  kind: Slides2ObjectKind,
+  geometry: Slides2ObjectGeometry,
   id: string,
   text: string | undefined,
 ): string {
@@ -472,7 +472,7 @@ function createCanvasLayer(
     .split(/\r?\n/)
     .map((line) => `${childIndent}${line}`)
     .join(newline);
-  const layer = `<div ${OBJECT_LAYER_ATTRIBUTE}="true" style={{ position: "relative", width: ${jsxString(pixels(OPEN_SLIDE_CANVAS_WIDTH))}, height: ${jsxString(pixels(OPEN_SLIDE_CANVAS_HEIGHT))}, boxSizing: "border-box", overflow: "hidden" }}>${newline}${indentedRoot}${newline}${childIndent}${objectSource}${newline}${indent}</div>`;
+  const layer = `<div ${OBJECT_LAYER_ATTRIBUTE}="true" style={{ position: "relative", width: ${jsxString(pixels(SLIDES_2_CANVAS_WIDTH))}, height: ${jsxString(pixels(SLIDES_2_CANVAS_HEIGHT))}, boxSizing: "border-box", overflow: "hidden" }}>${newline}${indentedRoot}${newline}${childIndent}${objectSource}${newline}${indent}</div>`;
   const nextSource =
     sourceTsx.slice(0, range.start) + layer + sourceTsx.slice(range.end);
   const objectStart = range.start + layer.lastIndexOf(objectSource);
@@ -511,7 +511,7 @@ function appendToCanvasLayer(
 
 export function insertSourceObject(
   sourceTsx: string,
-  insertion: OpenSlideObjectInsertion,
+  insertion: Slides2ObjectInsertion,
 ): SourceStructureResult | null {
   if (!parseFile(sourceTsx)) return null;
   if (!Object.hasOwn(defaultGeometry, insertion.kind)) return null;
@@ -692,7 +692,7 @@ function duplicateId(
     return null;
   }
 
-  const id = nextObjectId(sourceTsx, match[1] as OpenSlideObjectKind);
+  const id = nextObjectId(sourceTsx, match[1] as Slides2ObjectKind);
   const relativeStart = idStart - selected.range.start;
   const relativeEnd = idEnd - selected.range.start;
   const raw = sourceTsx.slice(selected.range.start, selected.range.end);
@@ -720,7 +720,7 @@ export function duplicateSourceElement(
   const raw = sourceTsx.slice(selected.range.start, selected.range.end);
   if (selected.located.jsxAncestors.length === 0) {
     const clonedRoot = `<div style={{ position: "absolute", left: "24px", top: "24px" }}>${clone.source}</div>`;
-    const wrapper = `<div style={{ position: "relative", width: "${OPEN_SLIDE_CANVAS_WIDTH}px", height: "${OPEN_SLIDE_CANVAS_HEIGHT}px", boxSizing: "border-box" }}>${raw}${clonedRoot}</div>`;
+    const wrapper = `<div style={{ position: "relative", width: "${SLIDES_2_CANVAS_WIDTH}px", height: "${SLIDES_2_CANVAS_HEIGHT}px", boxSizing: "border-box" }}>${raw}${clonedRoot}</div>`;
     const nextSource = sourceSplice(
       sourceTsx,
       selected.range.start,
@@ -774,7 +774,7 @@ export function deleteSourceElement(
         sourceTsx,
         selected.range.start,
         selected.range.end,
-        `<div style={{ width: "${OPEN_SLIDE_CANVAS_WIDTH}px", height: "${OPEN_SLIDE_CANVAS_HEIGHT}px", boxSizing: "border-box" }} />`,
+        `<div style={{ width: "${SLIDES_2_CANVAS_WIDTH}px", height: "${SLIDES_2_CANVAS_HEIGHT}px", boxSizing: "border-box" }} />`,
       ),
     };
   }

@@ -816,6 +816,18 @@ const messages = {
     generate: "Generate Slides",
   },
   deckResult: { saved: "Saved" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "The editor highlights hovered objects and keeps image replace and crop actions on the canvas.",
+    deckEditingControls:
+      "The slide-list toggle, deck title, and Present button now match the shared workspace controls.",
+    googleSlidesMissingImageData:
+      "Google Slides imports now report missing image data instead of adding empty images.",
+    globalMediaPickerScope:
+      "Scope global media picks to assets the current deck can resolve.",
+    savedSlideImages:
+      "Images used by saved slides stay available in your library.",
+  },
   history: {
     unknownTime: "Unknown time",
     justNow: "Just now",
@@ -881,7 +893,7 @@ const messages = {
     collaboratorTooltip: "{{name}} ({{email}}) is on this slide",
     applyUpdates: "Apply Updates ({{count}})",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "NOW",
     preview: "Preview",
     edit: "Edit",
@@ -939,7 +951,7 @@ const messages = {
     noVideosYet: "No videos yet.",
     noAssetsMatch: "No media matches your search.",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "Browse Google Fonts",
     title: "Google Fonts",
     searchPlaceholder: "Search font families",
@@ -956,7 +968,7 @@ const messages = {
     importFailed: "The selected font couldn't be imported.",
     chooseFont: "Choose a font to preview.",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "Design tokens",
     colors: "Colors",
     background: "Background",
@@ -971,7 +983,7 @@ const messages = {
     radius: "Radius",
     shuffle: "Shuffle design",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "Switch deck",
     searchDecks: "Search accessible decks",
     loadingDecks: "Loading decks…",
@@ -1059,6 +1071,8 @@ const messages = {
     generationStalledDescription:
       "Your saved slides are still here. Continue from this deck in chat.",
     continueInChat: "Continue in chat",
+    applyResult: "Apply",
+    regenerateResult: "Regenerate",
     continueGenerationPrompt:
       "Continue generating slides for this deck. Check its current slides and saved generation context first. Keep completed slides and add only the missing slides.",
     checkingSharedAccess:

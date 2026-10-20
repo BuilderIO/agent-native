@@ -108,6 +108,19 @@ vi.mock("@/context/DeckContext", () => ({
   useSaveState: () => ({ saving: mocks.saving.value }),
 }));
 
+vi.mock("@/hooks/use-slide-file-storage-status", () => ({
+  SLIDE_FILE_STORAGE_STATUS_KEY: [
+    "action",
+    "get-slides-2-upload-storage-status",
+    {},
+  ],
+  useSlideFileStorageStatus: () => ({
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+  }),
+}));
+
 vi.mock("@/lib/utils", () => ({
   cn: (...classes: unknown[]) =>
     classes
@@ -310,7 +323,10 @@ describe("<EditorToolbar>", () => {
   });
 
   const widgetToolbar = (
-    props: { onTitleChange?: (title: string) => void } = {},
+    props: {
+      onTitleChange?: (title: string) => void;
+      onToggleSidebar?: () => void;
+    } = {},
   ) => (
     <TooltipProvider>
       <EditorToolbar
@@ -322,7 +338,7 @@ describe("<EditorToolbar>", () => {
         currentSlideIndex={0}
         currentSlide={deckWithSlides.slides[0]}
         sidebarOpen
-        onToggleSidebar={vi.fn()}
+        onToggleSidebar={props.onToggleSidebar ?? vi.fn()}
         onGenerateImage={vi.fn()}
         onOpenAssetLibrary={vi.fn()}
         onShowHistory={vi.fn()}
@@ -342,6 +358,7 @@ describe("<EditorToolbar>", () => {
     render(widgetToolbar({ onTitleChange }));
 
     const title = screen.getByDisplayValue("Test deck");
+    expect(title.getAttribute("data-slot")).toBe("input");
     expect(title).toHaveProperty("readOnly", false);
     fireEvent.change(title, { target: { value: "Renamed" } });
     expect(onTitleChange).toHaveBeenCalledWith("Renamed");
@@ -379,6 +396,19 @@ describe("<EditorToolbar>", () => {
     expect(screen.queryByRole("menuitem", { name: "appMenu.file" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "appMenu.help" })).toBeNull();
     expect(mocks.exportSubmenu).not.toHaveBeenCalled();
+  });
+
+  it("uses the shared Button for the mobile slide-list toggle", () => {
+    const onToggleSidebar = vi.fn();
+    render(widgetToolbar({ onToggleSidebar }));
+
+    const toggle = screen.getByRole("button", {
+      name: "editorToolbar.toggleSlideList",
+    });
+    expect(toggle.getAttribute("data-slot")).toBe("button");
+
+    fireEvent.click(toggle);
+    expect(onToggleSidebar).toHaveBeenCalledOnce();
   });
 
   it("keeps the export handle mounted while the app menu is closed", () => {
@@ -1181,6 +1211,7 @@ describe("<EditorToolbar>", () => {
 
     const presentLink = screen.getByText("editorToolbar.present").closest("a");
     expect(presentLink).not.toBeNull();
+    expect(presentLink?.getAttribute("data-slot")).toBe("button");
     fireEvent.click(presentLink!);
 
     expect(onPresent).toHaveBeenCalledTimes(1);

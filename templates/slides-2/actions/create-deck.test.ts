@@ -1146,13 +1146,14 @@ describe("create-deck — aspectRatio", () => {
     expect(data.slides[0].content).toBe("<div>Slide</div>");
   });
 
-  it("splits a static source page array into ordered persisted slides", async () => {
+  it("splits a static Page array alias into ordered persisted slides", async () => {
     const sourceTsx = `
 function Cover() { return <main><h1>Cover</h1></main>; }
 function Body() { return <main><h1>Body</h1></main>; }
 export const meta = { theme: "aero" };
+const pages: Page[] = [Cover, Body];
 export const notes = ["Cover notes", "Body notes"];
-export default [Cover, Body] satisfies Page[];
+export default pages;
 `;
     mockGetOrgId.mockReturnValue("org-1");
 

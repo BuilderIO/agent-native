@@ -784,6 +784,16 @@ const messages = {
     generate: "產生投影片",
   },
   deckResult: { saved: "已儲存" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "編輯器會反白游標懸停的物件，並在畫布上提供圖片替換與裁切操作。",
+    deckEditingControls:
+      "投影片清單切換鈕、簡報標題和「簡報」按鈕現在與工作區共用控制項一致。",
+    googleSlidesMissingImageData:
+      "Google 簡報匯入現在會回報缺少的圖片資料，而不會加入空白圖片。",
+    globalMediaPickerScope: "全域媒體選取器現在只顯示目前簡報可解析的素材。",
+    savedSlideImages: "已儲存投影片使用的圖片會繼續保留在你的素材庫中。",
+  },
   history: {
     unknownTime: "未知時間",
     justNow: "剛剛",
@@ -847,7 +857,7 @@ const messages = {
     collaboratorTooltip: "{{name}}（{{email}}）正在查看這張投影片",
     applyUpdates: "套用更新（{{count}}）",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "現在",
     preview: "預覽",
     edit: "編輯",
@@ -901,7 +911,7 @@ const messages = {
     noVideosYet: "目前沒有影片。",
     noAssetsMatch: "沒有符合搜尋條件的媒體。",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "瀏覽 Google Fonts",
     title: "Google 字型",
     searchPlaceholder: "搜尋字型家族",
@@ -918,7 +928,7 @@ const messages = {
     importFailed: "無法匯入所選字型。",
     chooseFont: "選擇字型以預覽。",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "設計代碼",
     colors: "色彩",
     background: "背景",
@@ -933,7 +943,7 @@ const messages = {
     radius: "圓角",
     shuffle: "隨機設計",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "切換簡報",
     searchDecks: "搜尋可存取的簡報",
     loadingDecks: "正在載入簡報…",
@@ -1019,6 +1029,8 @@ const messages = {
     generationStalledDescription:
       "已儲存的投影片仍會保留。你可以在聊天中繼續這份簡報。",
     continueInChat: "在聊天中繼續",
+    applyResult: "套用",
+    regenerateResult: "重新產生",
     continueGenerationPrompt:
       "繼續為這份簡報產生投影片。請先檢查現有投影片和已儲存的產生背景。保留已完成的投影片，只新增缺少的內容。",
     checkingSharedAccess: "正在檢查此簡報是否與你的帳戶共用。",

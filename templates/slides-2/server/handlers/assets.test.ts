@@ -31,6 +31,7 @@ const mockRetryOwnedUploadedAssetCleanup = vi.hoisted(() => vi.fn());
 const mockListDueUploadedAssetCleanups = vi.hoisted(() => vi.fn());
 const mockListRegisteredUploadedAssetCleanups = vi.hoisted(() => vi.fn());
 const mockClaimDueUploadedAssetCleanup = vi.hoisted(() => vi.fn());
+const mockRegisterUploadedAssetObjectIdentities = vi.hoisted(() => vi.fn());
 const mockUploadedAssets = vi.hoisted(() => ({
   id: "uploaded_assets.id",
   filename: "uploaded_assets.filename",
@@ -118,6 +119,46 @@ vi.mock("../lib/deck-asset-scope.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/deck-asset-scope.js")>()),
   assertDeckAssetUploadScope: vi.fn().mockResolvedValue(undefined),
   registerDeckUploadedAsset: mockRegisterDeckUploadedAsset,
+}));
+
+vi.mock("../lib/uploaded-asset-object-lifecycle.js", () => ({
+  registerUploadedAssetObjectIdentities: (...args: unknown[]) =>
+    mockRegisterUploadedAssetObjectIdentities(...args),
+  deleteUploadedAssetObject: async (args: {
+    identity: {
+      url: string;
+      provider: string | null;
+      providerObjectId: string | null;
+    };
+    excludeAssetId?: string;
+    deleteObject: () => Promise<boolean>;
+    onShared?: (transaction: unknown) => Promise<void>;
+    onAlreadyDeleted?: (transaction: unknown) => Promise<void>;
+    onDeleted?: (transaction: unknown) => Promise<void>;
+  }) => {
+    const aliases = (
+      (await mockSelectLimit()) as Array<{ id?: string }>
+    ).filter((asset) => asset.id !== args.excludeAssetId);
+    const transaction = {
+      delete: () => ({ where: mockDeleteWhere }),
+    };
+    if (aliases.length > 0) {
+      await args.onShared?.(transaction);
+      return { status: "shared" };
+    }
+    try {
+      if (!(await args.deleteObject())) {
+        return {
+          status: "failed",
+          error: new Error("Storage deletion failed."),
+        };
+      }
+      await args.onDeleted?.(transaction);
+      return { status: "deleted" };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  },
 }));
 
 vi.mock("../lib/chunked-upload-session.js", () => ({

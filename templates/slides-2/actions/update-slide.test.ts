@@ -6,6 +6,9 @@ const mockTrack = vi.fn();
 const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 const mockCreateDeckVersionSnapshot = vi.fn(async () => ({ created: true }));
+const mockLockSlideAssetReferences = vi.fn(
+  async (..._args: unknown[]) => undefined,
+);
 
 let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
 let updateRowsAffected = 1;
@@ -38,7 +41,7 @@ const mockDb = {
       }),
     }),
   }),
-  update: () => ({
+  update: vi.fn(() => ({
     set: (values: { data?: string; updatedAt?: string }) => {
       lastUpdateSet = values;
       return {
@@ -53,7 +56,7 @@ const mockDb = {
         },
       };
     },
-  }),
+  })),
   transaction: async (callback: (tx: any) => Promise<unknown>) =>
     callback(mockDb),
 };
@@ -66,6 +69,7 @@ vi.mock("../server/db/index.js", () => ({
       title: "decks.title",
       data: "decks.data",
       ownerEmail: "decks.ownerEmail",
+      orgId: "decks.orgId",
       designSystemId: "decks.designSystemId",
       updatedAt: "decks.updatedAt",
     },
@@ -119,6 +123,11 @@ vi.mock("@agent-native/creative-context/server", () => ({
 
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
+}));
+
+vi.mock("../server/lib/slide-asset-references.js", () => ({
+  lockSlideAssetReferences: (...args: unknown[]) =>
+    mockLockSlideAssetReferences(...args),
 }));
 
 const mockAgentTouchDocument = vi.fn();
@@ -184,6 +193,7 @@ beforeEach(() => {
     id: "deck-1",
     title: "Deck",
     ownerEmail: "owner@example.com",
+    orgId: null,
     updatedAt: "2026-01-01T00:00:00.000Z",
     data: JSON.stringify({
       appId: "slides-2",
@@ -363,6 +373,33 @@ describe("update-slide", () => {
         }),
       }),
     );
+  });
+
+  it("locks new legacy HTML asset references in the deck scope before writing", async () => {
+    mockDeckRow!.orgId = "org-1";
+
+    const result = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: '<div><img src="asset://asset-a" /></div>',
+      baseContentHash: hashSlideContent("<div>Old</div>"),
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(mockLockSlideAssetReferences).toHaveBeenCalledWith(
+      mockDb,
+      expect.objectContaining({
+        slides: [
+          expect.objectContaining({
+            content: '<div><img src="asset://asset-a" /></div>',
+          }),
+        ],
+      }),
+      { ownerEmail: "owner@example.com", orgId: "org-1" },
+    );
+    expect(
+      mockLockSlideAssetReferences.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockDb.update.mock.invocationCallOrder[0]);
   });
 
   it("reports only the hygiene problems an edit introduced", async () => {

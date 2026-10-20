@@ -1,4 +1,5 @@
 import { captureError, trackEvent } from "@agent-native/core/client/analytics";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { isSourceRuntimeExportError } from "@shared/source-runtime-export";
 import {
@@ -17,11 +18,18 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  type CSSProperties,
 } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import {
+  buildSlideFontFaceCss,
+  isSlideRenderArtifact,
+  type SlideRenderArtifact,
+} from "@/components/slides-2-runtime/protocol";
+import { renderSlideArtifactInSandbox } from "@/components/slides-2-runtime/SandboxedSlide";
 import type { Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
@@ -67,6 +75,7 @@ const NO_BUILD_STEPS: BuildSteps = { steps: [], unresolved: [] };
 interface PresentationViewProps {
   slides: Slide[];
   deckId: string;
+  sourceDeckId?: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
@@ -74,11 +83,105 @@ interface PresentationViewProps {
   pdfExportToken?: string;
 }
 
+type PdfSourceSlideRender = Awaited<
+  ReturnType<typeof renderSlideArtifactInSandbox>
+>;
+
+type PdfExportRequest = {
+  deckId: string;
+  title: string;
+  slides: Slide[];
+  sourceRenders: ReadonlyMap<string, PdfSourceSlideRender>;
+  aspectRatio?: AspectRatio;
+  shareToken?: string;
+};
+
+function requiresSourcePdfRender(slide: Slide): boolean {
+  return (
+    slide.sourceRuntimeRequired === true ||
+    (typeof slide.sourceTsx === "string" &&
+      Boolean(slide.sourceTsx.trim()) &&
+      !slide.content.trim())
+  );
+}
+
+function pdfSourceCanvasStyle(render: PdfSourceSlideRender): CSSProperties {
+  const style: Record<string, string | number> = {
+    position: "relative",
+    width: `${render.width}px`,
+    height: `${render.height}px`,
+    overflow: "hidden",
+  };
+
+  const tokens = render.designTokens;
+  if (tokens) {
+    style.backgroundColor = tokens.background;
+    style.color = tokens.text;
+    style["--deck-bg"] = tokens.background;
+    style["--deck-ink"] = tokens.text;
+    style["--deck-accent"] = tokens.accent;
+    style["--deck-heading-font"] = tokens.displayFont;
+    style["--deck-body-font"] = tokens.bodyFont;
+    style["--deck-hero-scale"] = String(tokens.heroScale);
+    style["--deck-body-scale"] = String(tokens.bodyScale);
+    style["--deck-radius"] = `${tokens.radius}px`;
+  }
+
+  const design = render.design;
+  if (design) {
+    style["--slides2-bg"] = design.palette.bg;
+    style["--slides2-text"] = design.palette.text;
+    style["--slides2-accent"] = design.palette.accent;
+    style["--slides2-font-display"] = design.fonts.display;
+    style["--slides2-font-body"] = design.fonts.body;
+    style["--slides2-size-hero"] = `${design.typeScale.hero}px`;
+    style["--slides2-size-body"] = `${design.typeScale.body}px`;
+    style["--slides2-radius"] = `${design.radius}px`;
+  }
+
+  return style as CSSProperties;
+}
+
+function PdfSourceSlideCanvas({
+  slide,
+  index,
+  render,
+}: {
+  slide: Slide;
+  index: number;
+  render: PdfSourceSlideRender;
+}) {
+  const pdfSlideRoot = String(index);
+  const scopedSelector = `[data-pdf-slide-root="${pdfSlideRoot}"]`;
+  const fontFaceCss = buildSlideFontFaceCss(render.fontAssets ?? []);
+
+  return (
+    <div
+      data-slide-canvas={slide.id}
+      data-pdf-slide-root={pdfSlideRoot}
+      className="relative overflow-hidden bg-white text-black"
+      style={pdfSourceCanvasStyle(render)}
+    >
+      {fontFaceCss ? <style>{fontFaceCss}</style> : null}
+      {render.styles.map((css, styleIndex) => (
+        <style key={styleIndex}>
+          {css.replaceAll("#slide-root", scopedSelector)}
+        </style>
+      ))}
+      {/* The sandbox helper validates this markup and its asset origins before PDF capture. */}
+      <div dangerouslySetInnerHTML={{ __html: render.html }} />
+    </div>
+  );
+}
+
 function PdfExportStage({
   slides,
+  sourceRenders,
   aspectRatio,
   designSystem,
-}: Pick<PresentationViewProps, "slides" | "aspectRatio" | "designSystem">) {
+}: Pick<PresentationViewProps, "slides" | "aspectRatio" | "designSystem"> & {
+  sourceRenders: ReadonlyMap<string, PdfSourceSlideRender>;
+}) {
   const dims = getAspectRatioDims(aspectRatio);
 
   return (
@@ -88,18 +191,32 @@ function PdfExportStage({
       data-pdf-export-stage="true"
       style={{ left: "-10000px", width: dims.width }}
     >
-      {slides.map((slide, index) => (
-        <div key={slide.id} style={{ width: dims.width, height: dims.height }}>
-          <SlideRenderer
-            slide={slide}
-            slidePosition={{ number: index + 1, count: slides.length }}
-            thumbnail={false}
-            disableVideoAutoplay
-            aspectRatio={aspectRatio}
-            designSystem={designSystem}
-          />
-        </div>
-      ))}
+      {slides.map((slide, index) => {
+        const sourceRender = sourceRenders.get(slide.id);
+        return (
+          <div
+            key={slide.id}
+            style={{ width: dims.width, height: dims.height }}
+          >
+            {sourceRender ? (
+              <PdfSourceSlideCanvas
+                slide={slide}
+                index={index}
+                render={sourceRender}
+              />
+            ) : (
+              <SlideRenderer
+                slide={slide}
+                slidePosition={{ number: index + 1, count: slides.length }}
+                thumbnail={false}
+                disableVideoAutoplay
+                aspectRatio={aspectRatio}
+                designSystem={designSystem}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -107,6 +224,7 @@ function PdfExportStage({
 export default function PresentationView({
   slides,
   deckId,
+  sourceDeckId,
   startIndex = 0,
   aspectRatio,
   designSystem,
@@ -211,14 +329,10 @@ export default function PresentationView({
   const [showControls, setShowControls] = useState(false);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
-  const [pdfExportRequest, setPdfExportRequest] = useState<{
-    deckId: string;
-    title: string;
-    slides: Slide[];
-    aspectRatio?: AspectRatio;
-    shareToken?: string;
-  } | null>(null);
-  const pdfExporting = pdfExportRequest !== null;
+  const [pdfExportRequest, setPdfExportRequest] =
+    useState<PdfExportRequest | null>(null);
+  const [pdfExportPreparing, setPdfExportPreparing] = useState(false);
+  const pdfExporting = pdfExportPreparing || pdfExportRequest !== null;
   const enteredFullscreenRef = useRef(false);
   const navigate = useNavigate();
 
@@ -624,13 +738,59 @@ export default function PresentationView({
 
   const handleDownloadPdf = useCallback(() => {
     if (!pdfExportTitle || pdfExporting || safeSlides.length === 0) return;
-    setPdfExportRequest({
-      deckId,
-      title: pdfExportTitle,
-      slides: safeSlides,
-      aspectRatio,
-      shareToken: pdfExportToken,
-    });
+    setPdfExportPreparing(true);
+    void (async () => {
+      const sourceRenders = new Map<string, PdfSourceSlideRender>();
+      for (const slide of safeSlides) {
+        if (!sourceDeckId || !requiresSourcePdfRender(slide)) continue;
+
+        const artifact = await callAction<SlideRenderArtifact>(
+          "get-slide-render",
+          { deckId: sourceDeckId, slideId: slide.id },
+          { method: "GET" },
+        );
+        if (
+          !isSlideRenderArtifact(artifact, window.location.origin) ||
+          artifact.deckId !== sourceDeckId ||
+          artifact.slideId !== slide.id ||
+          !artifact.runtime
+        ) {
+          throw new Error("invalid-slide-render-artifact");
+        }
+
+        const rendered = await renderSlideArtifactInSandbox(
+          artifact,
+          window.location.origin,
+          500,
+        );
+        sourceRenders.set(slide.id, rendered);
+      }
+
+      const exportSlides = safeSlides.map((slide) => {
+        const rendered = sourceRenders.get(slide.id);
+        return rendered
+          ? {
+              ...slide,
+              content: rendered.html,
+              sourceTsx: undefined,
+              sourceRuntimeRequired: undefined,
+            }
+          : slide;
+      });
+
+      setPdfExportRequest({
+        deckId,
+        title: pdfExportTitle,
+        slides: exportSlides,
+        sourceRenders,
+        aspectRatio,
+        shareToken: pdfExportToken,
+      });
+    })()
+      .catch(() => {
+        toast.error(t("deckEditor.pdfRenderFailed"));
+      })
+      .finally(() => setPdfExportPreparing(false));
   }, [
     aspectRatio,
     deckId,
@@ -638,6 +798,8 @@ export default function PresentationView({
     pdfExportToken,
     pdfExporting,
     safeSlides,
+    sourceDeckId,
+    t,
   ]);
 
   useEffect(() => {
@@ -760,6 +922,7 @@ export default function PresentationView({
           }}
           incomingPosition={{ number: flight.to + 1, count: safeSlides.length }}
           motion={flightMotion}
+          sourceDeckId={sourceDeckId}
           aspectRatio={aspectRatio}
           designSystem={designSystem}
           onFinished={() =>
@@ -785,6 +948,7 @@ export default function PresentationView({
               number: nav.displayedIndex + 1,
               count: safeSlides.length,
             }}
+            sourceDeckId={sourceDeckId}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
           />
@@ -940,6 +1104,7 @@ export default function PresentationView({
       {pdfExportRequest && (
         <PdfExportStage
           slides={pdfExportRequest.slides}
+          sourceRenders={pdfExportRequest.sourceRenders}
           aspectRatio={pdfExportRequest.aspectRatio}
           designSystem={designSystem}
         />

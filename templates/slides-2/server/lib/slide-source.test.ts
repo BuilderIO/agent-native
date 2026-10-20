@@ -225,6 +225,25 @@ export default [Cover, Body, Closing] satisfies Page[];
     );
   });
 
+  it("splits a static Page array exported through a local const", () => {
+    const source = `
+function Cover() { return <main><h1>Cover</h1></main>; }
+function Body() { return <main><h1>Body</h1></main>; }
+const pages: Page[] = [Cover, Body];
+export const notes = ["Cover notes", "Body notes"];
+export default pages;
+`;
+    const pages = splitSlideSourcePages(source);
+
+    expect(pages).toHaveLength(2);
+    expect(pages[0]?.sourceTsx).toContain("export default Cover;");
+    expect(pages[1]?.sourceTsx).toContain("export default Body;");
+    expect(pages.map((page) => page.notes)).toEqual([
+      "Cover notes",
+      "Body notes",
+    ]);
+  });
+
   it("keeps note array positions and rejects extra or dynamic speaker notes", () => {
     expect(() =>
       splitSlideSourcePages(

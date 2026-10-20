@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   uploadFile: vi.fn(),
   deleteUploadedFile: vi.fn(),
   insertAsset: vi.fn(),
+  registerObjectIdentities: vi.fn(),
+  transactionObject: null as unknown,
   reserveUploadedAssetRegistration: vi.fn(),
   recordUploadedAssetCleanupObject: vi.fn(),
   cancelUploadedAssetRegistration: vi.fn(),
@@ -34,8 +36,13 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     insert: () => ({ values: mocks.insertAsset }),
-    transaction: (callback: (transaction: unknown) => unknown) =>
-      callback({ insert: () => ({ values: mocks.insertAsset }) }),
+    transaction: (callback: (transaction: unknown) => unknown) => {
+      const transaction = {
+        insert: () => ({ values: mocks.insertAsset }),
+      };
+      mocks.transactionObject = transaction;
+      return callback(transaction);
+    },
   }),
   schema: { uploadedAssets: {} },
 }));
@@ -71,6 +78,11 @@ vi.mock("../lib/chunked-upload-session.js", () => ({
   recordOrphanedVideoAssetCleanup: vi.fn(),
 }));
 
+vi.mock("../lib/uploaded-asset-object-lifecycle.js", () => ({
+  registerUploadedAssetObjectIdentities: (...args: unknown[]) =>
+    mocks.registerObjectIdentities(...args),
+}));
+
 vi.mock("../lib/deck-asset-scope.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../lib/deck-asset-scope.js")>();
@@ -102,6 +114,8 @@ import {
 } from "./assets";
 
 beforeEach(() => {
+  mocks.transactionObject = null;
+  mocks.registerObjectIdentities.mockReset();
   mocks.deleteUploadedFile.mockReset();
   mocks.deleteUploadedFile.mockResolvedValue(true);
   mocks.uploadFile.mockReset();
@@ -191,6 +205,19 @@ it("accepts a PNG multipart upload after enforcing the request size limit", asyn
   expect(mocks.insertAsset).toHaveBeenCalledWith(
     expect.objectContaining({ deckId: null }),
   );
+  expect(mocks.registerObjectIdentities).toHaveBeenCalledWith(
+    mocks.transactionObject,
+    [
+      {
+        url: "https://files.example.test/sample.png",
+        provider: "test-storage",
+        providerObjectId: null,
+      },
+    ],
+  );
+  expect(
+    mocks.registerObjectIdentities.mock.invocationCallOrder[0],
+  ).toBeLessThan(mocks.insertAsset.mock.invocationCallOrder[0]!);
 });
 
 it("associates an image upload with an editor-authorized deck catalog", async () => {

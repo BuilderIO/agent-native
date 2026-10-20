@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   deleteUploadedFile: vi.fn(),
+  findDeckReferencingAsset: vi.fn(),
   finishCleanup: vi.fn(),
   getDb: vi.fn(),
   getQuery: vi.fn(),
@@ -32,6 +33,31 @@ vi.mock("../lib/uploaded-asset-cleanup-outbox.js", () => ({
     mocks.retryCleanup(...args),
   scheduleUploadedAssetDeletion: (...args: unknown[]) =>
     mocks.scheduleCleanup(...args),
+}));
+
+vi.mock("../lib/slide-asset-references.js", () => ({
+  findDeckReferencingAsset: (...args: unknown[]) =>
+    mocks.findDeckReferencingAsset(...args),
+}));
+
+vi.mock("../lib/uploaded-asset-object-lifecycle.js", () => ({
+  deleteUploadedAssetObject: async (args: {
+    deleteObject: () => Promise<boolean>;
+    onDeleted?: (transaction: unknown) => Promise<void>;
+  }) => {
+    try {
+      if (!(await args.deleteObject())) {
+        return {
+          status: "failed",
+          error: new Error("Storage deletion failed."),
+        };
+      }
+      await args.onDeleted?.(mocks.getDb());
+      return { status: "deleted" };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  },
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -96,6 +122,7 @@ function assetDatabase(asset: Record<string, unknown> | null) {
 describe("discardUploadedVideoAsset", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.findDeckReferencingAsset.mockResolvedValue(undefined);
     mocks.getQuery.mockReturnValue({ id: "asset-1" });
     mocks.resolveAuth.mockResolvedValue({
       ok: true,
@@ -198,6 +225,35 @@ describe("discardUploadedVideoAsset", () => {
       error: "Uploaded video asset was not found",
     });
     expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 404);
+    expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("does not discard a global video asset referenced by a saved slide", async () => {
+    const { db } = assetDatabase({
+      id: "asset-1",
+      providerObjectId: "provider-object-1",
+      url: "https://media.example.com/clip.mp4",
+      provider: "builder",
+      type: "video/mp4",
+      deckId: null,
+    });
+    mocks.getDb.mockReturnValue(db);
+    mocks.findDeckReferencingAsset.mockResolvedValueOnce({ id: "deck-1" });
+
+    await expect(discardUploadedVideoAsset({} as never)).resolves.toEqual({
+      error: "Video asset is used by a saved slide",
+    });
+
+    expect(mocks.findDeckReferencingAsset).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        id: "asset-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+      }),
+    );
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
     expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
   });
 

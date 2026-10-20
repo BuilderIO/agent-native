@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import type {
+  FileUploadDeleteInput,
+  FileUploadProvider,
+} from "@agent-native/core/file-upload";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -11,6 +16,7 @@ import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import { isHostedSlidesRuntime, tenantFileKey } from "./tenant-files.js";
 
 const IMPORT_ASSET_PREFIX = "slides-import-asset:v1:";
+export const LOCAL_IMPORTED_ASSET_PROVIDER_ID = "slides-import-local";
 
 export interface LocalImportedAssetDescriptor {
   kind: "slides-import-asset";
@@ -30,7 +36,7 @@ export async function storeLocalImportedAsset(args: {
   filename: string;
   mimeType: string;
   data: Uint8Array;
-}): Promise<string | null> {
+}): Promise<{ url: string; id: string; provider: string } | null> {
   if (!isLocalImportAssetFallbackAvailable()) return null;
 
   const id = randomUUID();
@@ -43,21 +49,38 @@ export async function storeLocalImportedAsset(args: {
     "import-assets",
     tenantFileKey(args.email),
   );
-  await mkdir(directory, { recursive: true });
-  await writeFile(path.join(directory, `${id}-${safeFilename}`), args.data);
+  const filepath = path.join(directory, `${id}-${safeFilename}`);
+  try {
+    await mkdir(directory, { recursive: true });
+    await writeFile(filepath, args.data);
 
-  const descriptor: LocalImportedAssetDescriptor = {
-    kind: "slides-import-asset",
-    version: 1,
-    ownerKey: tenantFileKey(args.email),
-    id,
-    filename: safeFilename,
-    mimeType: args.mimeType,
-  };
-  const token = `${IMPORT_ASSET_PREFIX}${encryptSecretValue(
-    JSON.stringify(descriptor),
-  )}`;
-  return `${getConfiguredAppBasePath()}/api/import-assets/${encodeURIComponent(token)}`;
+    const descriptor: LocalImportedAssetDescriptor = {
+      kind: "slides-import-asset",
+      version: 1,
+      ownerKey: tenantFileKey(args.email),
+      id,
+      filename: safeFilename,
+      mimeType: args.mimeType,
+    };
+    const token = `${IMPORT_ASSET_PREFIX}${encryptSecretValue(
+      JSON.stringify(descriptor),
+    )}`;
+    return {
+      url: `${getConfiguredAppBasePath()}/api/import-assets/${encodeURIComponent(token)}`,
+      id,
+      provider: LOCAL_IMPORTED_ASSET_PROVIDER_ID,
+    };
+  } catch (error) {
+    try {
+      await rm(filepath, { force: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Local imported asset creation failed and its partial file could not be removed.",
+      );
+    }
+    throw error;
+  }
 }
 
 export function decodeLocalImportedAssetToken(
@@ -122,5 +145,72 @@ export async function readLocalImportedAsset(args: {
     return null;
   }
 }
+
+function descriptorFromLocalImportedAssetUrl(
+  url: string,
+): LocalImportedAssetDescriptor | null {
+  let pathname: string;
+  try {
+    pathname = new URL(url, "http://localhost").pathname;
+  } catch {
+    return null;
+  }
+  const match = pathname.match(/\/api\/import-assets\/([^/]+)$/);
+  if (!match?.[1]) return null;
+  try {
+    return decodeLocalImportedAssetToken(decodeURIComponent(match[1]));
+  } catch {
+    return null;
+  }
+}
+
+export function localImportedAssetIdentity(url: string): {
+  provider: string;
+  providerObjectId: string;
+} | null {
+  const descriptor = descriptorFromLocalImportedAssetUrl(url);
+  if (!descriptor) return null;
+  return {
+    provider: LOCAL_IMPORTED_ASSET_PROVIDER_ID,
+    providerObjectId: descriptor.id,
+  };
+}
+
+async function deleteLocalImportedAsset(
+  input: FileUploadDeleteInput,
+): Promise<boolean> {
+  const descriptor = descriptorFromLocalImportedAssetUrl(input.url);
+  if (!descriptor || (input.id && input.id !== descriptor.id)) return false;
+  const directory = path.resolve(
+    process.cwd(),
+    "data",
+    "import-assets",
+    descriptor.ownerKey,
+  );
+  const filepath = path.resolve(
+    directory,
+    `${descriptor.id}-${descriptor.filename}`,
+  );
+  if (!filepath.startsWith(directory + path.sep)) return false;
+
+  try {
+    await rm(filepath, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const localImportedAssetFileUploadProvider: FileUploadProvider = {
+  id: LOCAL_IMPORTED_ASSET_PROVIDER_ID,
+  name: "Slides local imports",
+  isConfigured: () => false,
+  upload: async () => {
+    throw new Error("This provider only deletes local imported assets.");
+  },
+  delete: deleteLocalImportedAsset,
+};
+
+registerFileUploadProvider(localImportedAssetFileUploadProvider);
 
 export { IMPORT_ASSET_PREFIX };

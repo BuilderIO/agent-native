@@ -1,3 +1,4 @@
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -93,6 +94,28 @@ describe("control-deck-history", () => {
       }),
     );
   });
+
+  it.each(["undo", "redo"] as const)(
+    "does not queue a viewer %s command without editor access",
+    async (operation) => {
+      mocks.assertAccess.mockRejectedValueOnce(
+        new ForbiddenError("Viewer access cannot edit this deck."),
+      );
+
+      await expect(action.run({ ...input, operation })).rejects.toMatchObject({
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
+
+      expect(mocks.assertAccess).toHaveBeenCalledWith(
+        "deck",
+        input.deckId,
+        "editor",
+      );
+      expect(mocks.readAppStateForCurrentTab).not.toHaveBeenCalled();
+      expect(mocks.compareAndSetAppStateForCurrentTab).not.toHaveBeenCalled();
+    },
+  );
 
   it("fails closed without the active editor tab or when navigation is stale", async () => {
     mocks.getCurrentRequestBrowserTabId.mockReturnValue(null);

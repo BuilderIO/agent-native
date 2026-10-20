@@ -71,6 +71,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -862,15 +863,18 @@ export default function EditorToolbar({
       {/* Slide-list toggle (mobile only — desktop uses the app sidebar rail) */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={onToggleSidebar}
-            className={`${TOOLBAR_ICON_BUTTON_CLASS} md:hidden hover:bg-accent ${
+            className={`md:hidden hover:bg-accent ${
               sidebarOpen ? "text-muted-foreground" : "text-muted-foreground/70"
             }`}
             aria-label={t("editorToolbar.toggleSlideList")}
           >
             <IconLayoutSidebar className="size-4" />
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
@@ -895,13 +899,13 @@ export default function EditorToolbar({
       >
         {deckTitle || " "}
       </span>
-      <input
+      <Input
         type="text"
         value={deckTitle}
         readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
-        className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
+        className="h-8 w-auto min-w-0 max-w-[500px] shrink-0 rounded-none border-0 bg-transparent px-0 py-0 text-sm font-medium text-foreground/90 shadow-none focus-visible:ring-offset-0 focus:text-foreground"
         spellCheck={false}
       />
 
@@ -1220,15 +1224,22 @@ export default function EditorToolbar({
       )}
       {/* Present button — matches Share trigger height (h-9) */}
       {hasSlides ? (
-        <Link
-          to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-          onClick={onPresent ? handlePresentClick : undefined}
-          onAuxClick={onPresent ? handlePresentClick : undefined}
-          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        <Button
+          asChild
+          variant="default"
+          className="h-9 shrink-0 gap-1.5 border border-border px-3"
         >
-          <IconPlayerPlay className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-        </Link>
+          <Link
+            to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+            onClick={onPresent ? handlePresentClick : undefined}
+            onAuxClick={onPresent ? handlePresentClick : undefined}
+          >
+            <IconPlayerPlay className="size-3.5" />
+            <span className="hidden sm:inline">
+              {t("editorToolbar.present")}
+            </span>
+          </Link>
+        </Button>
       ) : (
         <Button
           type="button"

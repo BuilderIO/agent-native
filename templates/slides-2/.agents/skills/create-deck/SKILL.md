@@ -16,7 +16,12 @@ prompt open instead of leaving an empty deck looking like a generated result.
 ## Workflow
 
 1. Read `creative-context` and retrieve factual evidence separately from visual
-   structure. Respect `contextMode: "off"`.
+   structure. Respect `contextMode: "off"`. For a new deck, call
+   `list-slide-themes` once unless Home already supplied a selected design
+   system or a reference controls the style. If themes are available, offer
+   their names and short descriptions plus “none” with a topic-specific
+   recommendation; resolve a theme the prompt already names without asking
+   again. Read the selected guide with `get-slide-theme` before authoring.
 2. Unless Home already supplied a user-selected system or a reference controls
    the visual style, call `get-workspace-defaults` once. A normal
    `create-deck` call resolves and links its effective default. Home's
@@ -29,9 +34,9 @@ prompt open instead of leaving an empty deck looking like a generated result.
    page, visual direction, approximate page count, text density, motion, and
    known fit risks. If the prompt lacks its topic or audience, ask for those
    essentials before drafting. Bundle any other missing high-impact choices,
-   such as visual direction, page count, text density, or motion, into one
-   concise, topic-specific follow-up with a recommended direction. Do not ask
-   for details the user already supplied.
+   including visual direction, page count, text density, motion, and a pending
+   theme choice, into one concise, topic-specific follow-up with a recommended
+   direction. Do not ask for details the user already supplied.
 4. When all pages can be authored before any deck exists, call `create-deck`
    once with every ordered page so the deck is saved atomically. In the Home
    prompt flow, an empty deck may already be persisted before the agent starts;
@@ -53,13 +58,17 @@ prompt open instead of leaving an empty deck looking like a generated result.
    so keep their IDs distinct. Omitting
    `slideId` remains supported, but the action generates an ID that cannot be
    reused safely after an unclear result.
-5. For source files using `export default [Cover, Body]`, `create-deck` splits
-   the local static components into separate ordered SQL slides (maximum 40).
+5. For source files using `export default [Cover, Body]` or a local const such
+   as `const pages: Page[] = [Cover, Body]; export default pages;`, `create-deck`
+   splits the local static components into separate ordered SQL slides
+   (maximum 40).
    An optional static `export const notes = [...]` maps by page index; missing
    entries remain empty. A static `Cover.transition = {...}` is preserved as
    that page's transition override, with the module `transition` export as the
    default. Module-level static exports such as `meta` remain in each split
-   page's source. For live `add-slide`, send one component per call.
+   page's source. For live `add-slide`, send one component per call; a named
+   default component may use `Slide.transition = {...}` for its static page
+   override, which takes precedence over the module `transition` export.
 6. Read the first new page with `get-slide-source` and inspect its derived
    preview with `get-deck`. Reuse the visual contract on later pages. After all
    writes, call `get-deck` once with `compact=true` and the created slide IDs to
@@ -92,10 +101,9 @@ and a mismatched owner, organization, template version, or original title is a
 conflict. If readback fails, use the returned `deckId` to inspect the saved
 deck before starting another copy.
 
-If the user selects a bundled visual theme, read it with `list-slide-themes`
-and `get-slide-theme` before authoring. Apply its guide through the
-`design-systems` skill; it is distinct from a copyable deck template and a
-linked SQL design system. Include `export const meta = { theme: "<theme-id>" };`
+Apply a selected bundled visual theme through the `design-systems` skill; it is
+distinct from a copyable deck template and a linked SQL design system. Include
+`export const meta = { theme: "<theme-id>" };`
 in every generated slide module so each saved slide retains the selected theme
 ID in its static metadata. A `create-deck` page array preserves that module
 export on every split page.
@@ -129,12 +137,16 @@ eleven Worker-supported values from `@open-slide/core`: `CANVAS_WIDTH`,
 `useSlidePageNumber`, `useIsActivePage`, `ImagePlaceholder`, `MorphElement`, and
 `cssVarsToString`. `cssVarsToString` is a pure, bounded serializer for safe CSS
 custom-property maps; its output is text and does not enable runtime stylesheet
-injection. Use the `ImagePlaceholder` props `hint` and optional `width` and
-`height`; the Worker renders a static image slot, and asset replacement uses
-the editor's image actions. For videos, use a static React `<video>` element
-with an uploaded asset handle; see `slide-editing/references/video.md` for the
-source and editing workflow. Use inline style objects or static CSS blocks to
-style the slide.
+injection. Use the `ImagePlaceholder` prop `hint` to name the real image the
+user needs, with optional pixel `width` and `height`. Each supplied dimension
+sets that CSS dimension directly; the Worker does not infer an aspect ratio,
+and it shows the size caption only when both dimensions are supplied. The
+Worker renders the static image-slot treatment; it does not load media into the
+placeholder. Put uploaded image `asset://` handles on `<img src>` and use the
+editor's image actions to replace a placeholder. For videos, use a static React
+`<video>` element with an uploaded asset handle; see
+`slide-editing/references/video.md` for the source and editing workflow. Use
+inline style objects or static CSS blocks to style the slide.
 `defaultDesign` is frozen in the Worker, and
 `designToCssVars(defaultDesign)` can be spread into an inline `style` object.
 The module may also export static `design`, `meta`, and `transition` objects.
@@ -146,13 +158,16 @@ substituting a blank success.
 
 Slide components render to static markup in a bounded Worker, so React effects
 do not run. For motion, use sanitized CSS `@keyframes` or the existing
-`<Steps>`/`<Step>` reveals.
+`<Steps>`/`<Step>` reveals. Step fades honor
+`prefers-reduced-motion: reduce` and become instant cuts automatically.
 
 The Worker supports `Steps`/`Step`, `useSlidePageNumber()`, and
 `useIsActivePage()`. These provide page context and reveal state in static
 markup. A render artifact carries validated module or page transition metadata
-for the presenter host. `MorphElement` adds the stable `data-osd-morph` marker
-used by cross-page matching.
+for the presenter host. `MorphElement` adds the stable `data-slides2-morph` marker
+used by cross-page matching. With one native DOM child, it places the marker on
+that child and merges `className` and `style` without adding a wrapper; other
+child shapes use a wrapper.
 
 Use standard JSX and inline `style` objects. `className` works when paired with
 a static CSS string in a local `const` whose name includes `style`, `css`, or
@@ -163,7 +178,9 @@ frame, so they render unstyled. Do not use CSS imports, `<style>` elements,
 handles only. Videos use uploaded MP4 or WebM `asset://` handles only. Use the
 editor's asset browser to upload a video, then call `list-assets` with
 `media: "video"` or `media: "all"` to find registered uploads; the action
-defaults to images. In new `sourceTsx`, use the returned `assetId` as the
+defaults to images. When selecting media for an existing deck, include its
+`deckId` with global scope so results are limited to assets the deck can use.
+In new `sourceTsx`, use the returned `assetId` as the
 `<video>` `src` handle, and use an uploaded image handle for an optional
 `poster`. Do not invent or embed remote media URLs, or use image-generation
 actions for video. When changing an existing source-backed slide, read it with

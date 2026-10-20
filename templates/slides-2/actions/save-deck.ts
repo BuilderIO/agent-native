@@ -13,6 +13,10 @@ import {
   deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
 import {
+  lockSlideAssetReferences,
+  withSlideAssetReferencesLocked,
+} from "../server/lib/slide-asset-references.js";
+import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
@@ -135,18 +139,26 @@ export default defineAction({
         deck.appId = "slides-2";
         await assertDesignSystemReadable(deckDesignSystemId(deck));
         assertNoDeckRenderArtifacts(null, deck);
+        const orgId = getRequestOrgId() ?? null;
         try {
-          await db.insert(schema.decks).values({
-            id: deckId,
-            title,
-            data: JSON.stringify(deck),
-            designSystemId: deckDesignSystemId(deck),
-            ...deckClientWriteFields(clientWrite, now),
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            createdAt: now,
-            updatedAt: now,
-          });
+          await withSlideAssetReferencesLocked(
+            db,
+            deck,
+            { ownerEmail, orgId },
+            async (tx) => {
+              await tx.insert(schema.decks).values({
+                id: deckId,
+                title,
+                data: JSON.stringify(deck),
+                designSystemId: deckDesignSystemId(deck),
+                ...deckClientWriteFields(clientWrite, now),
+                ownerEmail,
+                orgId,
+                createdAt: now,
+                updatedAt: now,
+              });
+            },
+          );
         } catch {
           throw deckHttpError(404, "Deck not found");
         }
@@ -190,6 +202,15 @@ export default defineAction({
           return { ...deck, updatedAt: access.resource.updatedAt };
         }
         await db.transaction(async (tx: any) => {
+          await lockSlideAssetReferences(
+            tx,
+            deck,
+            {
+              ownerEmail: access.resource.ownerEmail as string,
+              orgId: access.resource.orgId,
+            },
+            deckId,
+          );
           if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
             await createDeckVersionSnapshot(
               {

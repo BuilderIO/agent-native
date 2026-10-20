@@ -125,6 +125,22 @@ export const uploadedAssetCleanupOutbox = table(
   }),
 );
 
+export const uploadedAssetObjectLifecycle = table(
+  "uploaded_asset_object_lifecycle",
+  {
+    identityKey: text("identity_key").primaryKey(),
+    state: text("state").notNull(),
+    deletionLeaseToken: text("deletion_lease_token"),
+    deletionLeaseExpiresAt: text("deletion_lease_expires_at"),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (object) => ({
+    stateUpdatedIdx: index(
+      "uploaded_asset_object_lifecycle_state_updated_idx",
+    ).on(object.state, object.updatedAt),
+  }),
+);
+
 export const slideComments = table(
   "slide_comments",
   {

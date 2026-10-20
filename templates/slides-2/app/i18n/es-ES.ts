@@ -841,6 +841,18 @@ const messages = {
     generate: "Generar diapositivas",
   },
   deckResult: { saved: "Guardado" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "El editor resalta los objetos al pasar el cursor y mantiene las acciones para reemplazar y recortar imágenes en el lienzo.",
+    deckEditingControls:
+      "El control de la lista de diapositivas, el título de la presentación y el botón Presentar ahora coinciden con los controles compartidos del espacio de trabajo.",
+    googleSlidesMissingImageData:
+      "Las importaciones de Google Slides ahora informan cuando faltan datos de imagen en lugar de añadir imágenes vacías.",
+    globalMediaPickerScope:
+      "El selector global de medios ahora muestra solo los recursos que la presentación actual puede resolver.",
+    savedSlideImages:
+      "Las imágenes que usan las diapositivas guardadas siguen disponibles en tu biblioteca.",
+  },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -908,7 +920,7 @@ const messages = {
     collaboratorTooltip: "{{name}} ({{email}}) está en esta diapositiva",
     applyUpdates: "Aplicar actualizaciones ({{count}})",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "AHORA",
     preview: "Vista previa",
     edit: "Editar",
@@ -970,7 +982,7 @@ const messages = {
     noVideosYet: "Aún no hay vídeos.",
     noAssetsMatch: "Ningún contenido multimedia coincide con la búsqueda.",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "Explorar Google Fonts",
     title: "Fuentes de Google",
     searchPlaceholder: "Buscar familias tipográficas",
@@ -987,7 +999,7 @@ const messages = {
     importFailed: "No se pudo importar la fuente seleccionada.",
     chooseFont: "Elige una fuente para obtener una vista previa.",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "Tokens de diseño",
     colors: "Colores",
     background: "Fondo",
@@ -1002,7 +1014,7 @@ const messages = {
     radius: "Radio",
     shuffle: "Aleatorizar diseño",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "Cambiar de presentación",
     searchDecks: "Buscar presentaciones accesibles",
     loadingDecks: "Cargando presentaciones…",
@@ -1092,6 +1104,8 @@ const messages = {
     generationStalledDescription:
       "Tus diapositivas guardadas siguen aquí. Continúa desde este deck en el chat.",
     continueInChat: "Continuar en el chat",
+    applyResult: "Aplicar",
+    regenerateResult: "Regenerar",
     continueGenerationPrompt:
       "Continúa generando las diapositivas de este deck. Primero revisa sus diapositivas actuales y el contexto de generación guardado. Conserva las diapositivas completadas y añade solo las que faltan.",
     checkingSharedAccess:

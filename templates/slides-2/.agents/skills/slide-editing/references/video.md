@@ -4,8 +4,10 @@ Slides 2 videos use uploaded MP4 or WebM assets. In the visual editor, upload a
 video from the asset browser, then insert it or replace the selected video.
 Uploads are limited to 50 MB. For agent-authored source, call `list-assets`
 with `media: "video"` (or `media: "all"`) and use the returned `assetId` as an
-`asset://` handle. `list-assets` defaults to images. A video poster must also
-use an uploaded image asset handle.
+`asset://` handle. When selecting media for an existing deck, include its
+`deckId` with global scope so results are limited to assets the deck can use.
+`list-assets` defaults to images. A video poster must also use an uploaded image
+asset handle.
 
 Generated slides store canonical React in `sourceTsx`; do not add HTTPS media
 URLs or edit generated slides through legacy HTML fields. Read the source with

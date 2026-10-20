@@ -822,6 +822,18 @@ const messages = {
     generate: "إنشاء الشرائح",
   },
   deckResult: { saved: "تم الحفظ" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "يبرز المحرر العناصر عند تمرير المؤشر عليها، وتبقى إجراءات استبدال الصور واقتصاصها على اللوحة.",
+    deckEditingControls:
+      "أصبح زر قائمة الشرائح وعنوان العرض وزر التقديم متوافقة مع عناصر التحكم المشتركة في مساحة العمل.",
+    googleSlidesMissingImageData:
+      "تُبلغ عمليات استيراد Google Slides الآن عن بيانات الصور المفقودة بدلاً من إضافة صور فارغة.",
+    globalMediaPickerScope:
+      "تعرض مجموعة الوسائط العامة الآن الأصول التي يمكن للعرض الحالي حلّها فقط.",
+    savedSlideImages:
+      "تظل الصور المستخدمة في الشرائح المحفوظة متاحة في مكتبتك.",
+  },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -891,7 +903,7 @@ const messages = {
     collaboratorTooltip: "{{name}} ({{email}}) على هذه الشريحة",
     applyUpdates: "تطبيق التحديثات ({{count}})",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "الآن",
     preview: "معاينة",
     edit: "تحرير",
@@ -946,7 +958,7 @@ const messages = {
     noVideosYet: "لا توجد فيديوهات بعد.",
     noAssetsMatch: "لا توجد وسائط تطابق بحثك.",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "تصفح Google Fonts",
     title: "خطوط Google",
     searchPlaceholder: "ابحث عن عائلات الخطوط",
@@ -963,7 +975,7 @@ const messages = {
     importFailed: "تعذر استيراد الخط المحدد.",
     chooseFont: "اختر خطًا لمعاينته.",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "رموز التصميم",
     colors: "الألوان",
     background: "الخلفية",
@@ -978,7 +990,7 @@ const messages = {
     radius: "استدارة الزوايا",
     shuffle: "تبديل التصميم",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "تبديل المجموعة",
     searchDecks: "البحث في المجموعات المتاحة",
     loadingDecks: "جارٍ تحميل المجموعات…",
@@ -1064,6 +1076,8 @@ const messages = {
     generationStalledDescription:
       "لا تزال الشرائح المحفوظة موجودة. يمكنك متابعة هذا العرض التقديمي في الدردشة.",
     continueInChat: "المتابعة في الدردشة",
+    applyResult: "تطبيق",
+    regenerateResult: "إعادة الإنشاء",
     continueGenerationPrompt:
       "تابع إنشاء الشرائح لهذا العرض التقديمي. افحص الشرائح الحالية وسياق الإنشاء المحفوظ أولًا. احتفظ بالشرائح المكتملة وأضف الشرائح الناقصة فقط.",
     checkingSharedAccess:

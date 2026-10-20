@@ -6,28 +6,28 @@ import postcss from "postcss";
 import {
   SlideTransitionSchema,
   type SlideTransition,
-} from "../../shared/open-slide-transition.js";
+} from "../../shared/slides-2-transition.js";
 import { parseSource, walkAll } from "./slide-source-editing/babel-walk.js";
 import {
   isSlideSourceWithinByteLimit,
   MAX_SLIDE_SOURCE_BYTES,
   SLIDE_SOURCE_BYTE_LIMIT_MESSAGE,
 } from "./slide-source-limits.js";
-import { SlideSourceError } from "./slide-source.js";
+import { findStaticLocalPageArray, SlideSourceError } from "./slide-source.js";
 
 export const MAX_REACT_SLIDE_SOURCE_BYTES = MAX_SLIDE_SOURCE_BYTES;
 export const MAX_REACT_SLIDE_AST_NODES = 50_000;
 export const MAX_REACT_SLIDE_WORKER_SOURCE_LENGTH = 4 * 1024 * 1024;
 export const REACT_SLIDE_WORKER_TIMEOUT_MS = 2_500;
 
-export type OpenSlideDesign = {
+export type Slides2Design = {
   palette: { bg: string; text: string; accent: string };
   fonts: { display: string; body: string };
   typeScale: { hero: number; body: number };
   radius: number;
 };
 
-export type OpenSlideMeta = {
+export type Slides2Meta = {
   title?: string;
   theme?: string;
   createdAt?: string;
@@ -39,16 +39,16 @@ export type SlideWorkerRuntime = {
   page: { current: number; total: number };
   assetUrls: Record<string, string>;
   styles: string[];
-  design?: OpenSlideDesign;
-  meta?: OpenSlideMeta;
+  design?: Slides2Design;
+  meta?: Slides2Meta;
   transition?: SlideTransition;
   timeoutMs: typeof REACT_SLIDE_WORKER_TIMEOUT_MS;
 };
 
 type PreparedModule = {
   source: string;
-  design?: OpenSlideDesign;
-  meta?: OpenSlideMeta;
+  design?: Slides2Design;
+  meta?: Slides2Meta;
   transition?: SlideTransition;
   styles: string[];
 };
@@ -57,6 +57,8 @@ const MAX_STYLE_LENGTH = 64 * 1024;
 const MAX_TOTAL_STYLE_LENGTH = 128 * 1024;
 const MAX_STATIC_VALUE_DEPTH = 16;
 const MAX_STATIC_VALUE_NODES = 5_000;
+const REDUCED_MOTION_STEPS_CSS =
+  "@media (prefers-reduced-motion: reduce) { [data-slides2-step] { transition-duration: 0ms !important; } }";
 const SAFE_CSS_FUNCTIONS = new Set([
   "calc",
   "clamp",
@@ -343,6 +345,7 @@ const SAFE_HTML_ATTRIBUTES = new Set([
   "preload",
   "preserveaspectratio",
   "r",
+  "rx",
   "rel",
   "role",
   "rowspan",
@@ -378,7 +381,7 @@ const SAFE_HTML_ATTRIBUTES = new Set([
   "y1",
   "y2",
   "data-slide-loc",
-  "data-osd-step",
+  "data-slides2-step",
 ]);
 
 const WORKER_ENTRY = String.raw`
@@ -387,7 +390,7 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { parseFragment, serialize } from "parse5";
 import postcss from "postcss";
 import SlidePage from "virtual:slide-page";
-import * as OpenSlideCore from "virtual:slide-page-shim";
+import * as Slides2Core from "virtual:slide-page-shim";
 
 const RenderContext = createContext(null);
 const LIMITS = { values: 0, bytes: 0, stepCount: 0, remainingSteps: Infinity };
@@ -524,7 +527,7 @@ export function useIsActivePage() {
 export function Step({ children, duration = 180, _revealed }) {
   const revealed = _revealed ?? true;
   return React.createElement("div", {
-    "data-osd-step": revealed ? "revealed" : "pending",
+    "data-slides2-step": revealed ? "revealed" : "pending",
     style: {
       opacity: revealed ? 1 : 0,
       visibility: revealed ? "visible" : "hidden",
@@ -558,7 +561,7 @@ export function ImagePlaceholder({ label = "Image placeholder", children, ...pro
   }, children ?? label);
 }
 export function MorphElement({ id, children, as = "div", ...props }) {
-  return React.createElement(as, { ...props, "data-osd-morph": id }, children);
+  return React.createElement(as, { ...props, "data-slides2-morph": id }, children);
 }
 
 function safeStyle(value) {
@@ -580,7 +583,7 @@ function safeStyle(value) {
     }
     const variables = [...text.matchAll(/var\(\s*(--[a-z0-9_-]+)/gi)];
     if (/\bvar\s*\(/i.test(text.replace(/var\(\s*--[a-z0-9_-]+\s*(?:,\s*[^()]*)?\)/gi, ""))) { child.remove(); continue; }
-    if (variables.some((match) => !/^(?:--deck-|--ds-|--osd-|--d$)/i.test(match[1]))) { child.remove(); continue; }
+    if (variables.some((match) => !/^(?:--deck-|--ds-|--slides2-|--d$)/i.test(match[1]))) { child.remove(); continue; }
     let unsafeFunction = false;
     for (const match of text.matchAll(/([a-z][a-z0-9-]*)\s*\(/gi)) {
       const name = match[1].toLowerCase();
@@ -594,6 +597,27 @@ function safeStyle(value) {
 function sanitizeHtml(html) {
   if (typeof html !== "string" || html.length > MAX_HTML) fail("Slide HTML is too large.");
   const fragment = parseFragment(html);
+  const topLevelChildren = fragment.childNodes || [];
+  for (let index = topLevelChildren.length - 1; index >= 0; index--) {
+    const node = topLevelChildren[index];
+    if (node.tagName?.toLowerCase() !== "link") continue;
+    const attributes = new Map(
+      (node.attrs || []).map((attribute) => [
+        attribute.name.toLowerCase(),
+        attribute.value,
+      ]),
+    );
+    // React's server renderer prepends this hint; the host resolves the handle on the image itself.
+    if (
+      attributes.get("rel")?.toLowerCase() === "preload" &&
+      attributes.get("as")?.toLowerCase() === "image" &&
+      /^asset:\/\/[A-Za-z0-9_-]{1,200}$/.test(
+        attributes.get("href") || "",
+      )
+    ) {
+      topLevelChildren.splice(index, 1);
+    }
+  }
   const stack = [...(fragment.childNodes || [])].map((node) => ({ node, depth: 1, parent: null }));
   const videos = [];
   let count = 0;
@@ -623,11 +647,11 @@ function sanitizeHtml(html) {
       }
       if (name === "poster" && (tagName !== "video" || !/^asset:\/\/[A-Za-z0-9_-]{1,200}$/.test(value))) fail("Video posters must use uploaded asset handles.");
       if (name === "preload" && !["none", "metadata", "auto"].includes(value.toLowerCase())) fail("Video preload must be none, metadata, or auto.");
-      if (name === "href" && !/^#[A-Za-z][A-Za-z0-9_.:-]{0,200}$/.test(value)) {
+      if (name === "href" && !/^#[A-Za-z_][A-Za-z0-9_.:-]{0,200}$/.test(value)) {
         node.attrs.splice(node.attrs.indexOf(attribute), 1);
         continue;
       }
-      if (name === "id" && !/^[A-Za-z][A-Za-z0-9_.:-]{0,200}$/.test(value)) node.attrs.splice(node.attrs.indexOf(attribute), 1);
+      if (name === "id" && !/^[A-Za-z_][A-Za-z0-9_.:-]{0,200}$/.test(value)) node.attrs.splice(node.attrs.indexOf(attribute), 1);
       if (name === "data-slide-loc" && !/^\d{1,6}:\d{1,6}$/.test(value)) node.attrs.splice(node.attrs.indexOf(attribute), 1);
     }
     if (tagName === "source" && !(node.attrs || []).some((attribute) => attribute.name.toLowerCase() === "src")) fail("Video sources need an uploaded asset handle.");
@@ -647,11 +671,11 @@ function handleMessage(event) {
   const requestId = request && typeof request.requestId === "string" ? request.requestId.slice(0, 80) : "";
   try {
     if (!request || request.type !== "render" || !requestId || !request.page || !Number.isSafeInteger(request.page.current) || !Number.isSafeInteger(request.page.total) || request.page.current < 1 || request.page.total < request.page.current || (request.revealedSteps !== null && (!Number.isInteger(request.revealedSteps) || request.revealedSteps < 0 || request.revealedSteps > 500)) || typeof request.isActivePage !== "boolean") fail("Slide render request is invalid.");
-    OpenSlideCore.__slideRuntimeReset(request.revealedSteps);
+    Slides2Core.__slideRuntimeReset(request.revealedSteps);
     const context = { page: request.page, isActivePage: request.isActivePage, revealedSteps: request.revealedSteps };
-    const markup = renderToStaticMarkup(React.createElement(OpenSlideCore.SlideRuntimeProvider, { value: context }, React.createElement(SlidePage)));
+    const markup = renderToStaticMarkup(React.createElement(Slides2Core.SlideRuntimeProvider, { value: context }, React.createElement(SlidePage)));
     const html = sanitizeHtml(markup);
-    postMessage({ type: "rendered", requestId, html, stepCount: Math.min(500, OpenSlideCore.__slideRuntimeStepCount()) });
+    postMessage({ type: "rendered", requestId, html, stepCount: Math.min(500, Slides2Core.__slideRuntimeStepCount()) });
   } catch (error) {
     postMessage({ type: "error", requestId, message: error instanceof Error ? error.message.slice(0, 300) : "Slide rendering failed." });
   }
@@ -667,6 +691,15 @@ export function prepareReactSlideSource(sourceTsx: string): PreparedModule {
   const staticBindings = collectStaticBindings(original);
   const exportValues = readModuleMetadata(original, staticBindings);
   const extractedStyles = collectModuleStyles(original, staticBindings);
+  const styles = sanitizeStyles(extractedStyles);
+  const reducedMotionStepStyle = sanitizeStyles([REDUCED_MOTION_STEPS_CSS])[0];
+  if (styles.length === 0) {
+    if (reducedMotionStepStyle) styles.push(reducedMotionStepStyle);
+  } else if (reducedMotionStepStyle) {
+    const lastStyleIndex = styles.length - 1;
+    styles[lastStyleIndex] =
+      `${styles[lastStyleIndex] ?? ""}\n${reducedMotionStepStyle}`;
+  }
   const guardedRanges = findDocumentGuards(original, sourceTsx);
   let safeSource = replaceRangesWithSpaces(sourceTsx, guardedRanges);
   const ast = parseModule(safeSource);
@@ -678,7 +711,7 @@ export function prepareReactSlideSource(sourceTsx: string): PreparedModule {
   return {
     source: safeSource,
     ...exportValues,
-    styles: sanitizeStyles(extractedStyles),
+    styles,
   };
 }
 
@@ -730,7 +763,7 @@ export async function buildReactSlideRuntime(
               }),
             );
             builder.onResolve(
-              { filter: /^(?:@open-slide\/core|virtual:slide-page-shim)$/ },
+              { filter: /^(?:@Slides 2\/core|virtual:slide-page-shim)$/ },
               () => ({
                 path: "slide-page-shim",
                 namespace: "slides-2-worker",
@@ -833,18 +866,81 @@ function readModuleMetadata(
   const metaValue = exports.has("meta")
     ? evaluateStatic(exports.get("meta")!, bindings)
     : undefined;
-  const transitionValue = exports.has("transition")
-    ? evaluateStatic(exports.get("transition")!, bindings)
+  const exportedTransitionValue = exports.has("transition")
+    ? validateTransition(evaluateStatic(exports.get("transition")!, bindings))
     : undefined;
+  const pageTransitionValue = readDefaultPageTransition(ast, bindings);
+  const transitionValue = pageTransitionValue ?? exportedTransitionValue;
   return {
     ...(designValue === undefined
       ? {}
       : { design: validateDesign(designValue) }),
     ...(metaValue === undefined ? {} : { meta: validateMeta(metaValue) }),
-    ...(transitionValue === undefined
-      ? {}
-      : { transition: validateTransition(transitionValue) }),
+    ...(transitionValue === undefined ? {} : { transition: transitionValue }),
   };
+}
+
+function readDefaultPageTransition(
+  ast: t.File,
+  bindings: Map<string, t.Node>,
+): SlideTransition | undefined {
+  const componentName = defaultComponentName(ast);
+  if (!componentName) return undefined;
+
+  const assignments = ast.program.body.flatMap((statement) => {
+    const assignment = defaultPageTransitionAssignment(
+      statement,
+      componentName,
+    );
+    return assignment ? [assignment] : [];
+  });
+  if (assignments.length > 1) {
+    throw new SlideSourceError(
+      "A page may only declare one transition override.",
+    );
+  }
+  const assignment = assignments[0];
+  if (!assignment) return undefined;
+  return validateTransition(evaluateStatic(assignment.right, bindings));
+}
+
+function defaultComponentName(ast: t.File): string | null {
+  const declaration = ast.program.body.find(
+    t.isExportDefaultDeclaration,
+  )?.declaration;
+  if (t.isIdentifier(declaration)) return declaration.name;
+  if (
+    (t.isFunctionDeclaration(declaration) ||
+      t.isFunctionExpression(declaration)) &&
+    declaration.id
+  ) {
+    return declaration.id.name;
+  }
+  return null;
+}
+
+function defaultPageTransitionAssignment(
+  statement: t.Statement,
+  componentName: string,
+): t.AssignmentExpression | null {
+  if (
+    !t.isExpressionStatement(statement) ||
+    !t.isAssignmentExpression(statement.expression)
+  ) {
+    return null;
+  }
+  const assignment = statement.expression;
+  const left = assignment.left;
+  if (
+    assignment.operator !== "=" ||
+    !t.isMemberExpression(left) ||
+    left.computed ||
+    !t.isIdentifier(left.object, { name: componentName }) ||
+    !t.isIdentifier(left.property, { name: "transition" })
+  ) {
+    return null;
+  }
+  return assignment;
 }
 
 function evaluateStatic(
@@ -945,7 +1041,7 @@ function evaluateStatic(
   throw new SlideSourceError("Slide module metadata must be a static object.");
 }
 
-function validateDesign(value: unknown): OpenSlideDesign {
+function validateDesign(value: unknown): Slides2Design {
   if (!isRecord(value))
     throw new SlideSourceError("The design export must be a static object.");
   const palette = value.palette;
@@ -955,7 +1051,7 @@ function validateDesign(value: unknown): OpenSlideDesign {
     throw new SlideSourceError(
       "Design must include palette, fonts, and typeScale objects.",
     );
-  const design: OpenSlideDesign = {
+  const design: Slides2Design = {
     palette: {
       bg: validateCssScalar(palette.bg, "design.palette.bg"),
       text: validateCssScalar(palette.text, "design.palette.text"),
@@ -974,10 +1070,10 @@ function validateDesign(value: unknown): OpenSlideDesign {
   return design;
 }
 
-function validateMeta(value: unknown): OpenSlideMeta {
+function validateMeta(value: unknown): Slides2Meta {
   if (!isRecord(value))
     throw new SlideSourceError("The meta export must be a static object.");
-  const meta: OpenSlideMeta = {};
+  const meta: Slides2Meta = {};
   for (const key of ["title", "theme", "createdAt"] as const) {
     const candidate = value[key];
     if (candidate === undefined) continue;
@@ -1165,6 +1261,11 @@ function validateReactModule(ast: t.File): void {
       "Slide source must have one default page component.",
     );
   const declaration = defaultExport[0]!.declaration;
+  if (findStaticLocalPageArray(ast, declaration)) {
+    throw new SlideSourceError(
+      "The default export must be a React page component.",
+    );
+  }
   if (
     !t.isIdentifier(declaration) &&
     !t.isFunctionDeclaration(declaration) &&
@@ -1175,6 +1276,7 @@ function validateReactModule(ast: t.File): void {
       "The default export must be a React page component.",
     );
   }
+  const pageComponentName = defaultComponentName(ast);
   for (const statement of ast.program.body) {
     if (t.isImportDeclaration(statement)) {
       validateImport(statement);
@@ -1186,6 +1288,11 @@ function validateReactModule(ast: t.File): void {
       t.isTSTypeAliasDeclaration(statement) ||
       t.isEmptyStatement(statement) ||
       t.isFunctionDeclaration(statement)
+    )
+      continue;
+    if (
+      pageComponentName &&
+      defaultPageTransitionAssignment(statement, pageComponentName)
     )
       continue;
     if (t.isVariableDeclaration(statement) && statement.kind === "const")
@@ -1744,14 +1851,14 @@ export const defaultDesign = Object.freeze({
 });
 export function designToCssVars(design) {
   return {
-    "--osd-bg": design.palette.bg,
-    "--osd-text": design.palette.text,
-    "--osd-accent": design.palette.accent,
-    "--osd-font-display": design.fonts.display,
-    "--osd-font-body": design.fonts.body,
-    "--osd-size-hero": design.typeScale.hero + "px",
-    "--osd-size-body": design.typeScale.body + "px",
-    "--osd-radius": design.radius + "px",
+    "--slides2-bg": design.palette.bg,
+    "--slides2-text": design.palette.text,
+    "--slides2-accent": design.palette.accent,
+    "--slides2-font-display": design.fonts.display,
+    "--slides2-font-body": design.fonts.body,
+    "--slides2-size-hero": design.typeScale.hero + "px",
+    "--slides2-size-body": design.typeScale.body + "px",
+    "--slides2-radius": design.radius + "px",
   };
 }
 export function cssVarsToString(vars) {
@@ -1771,8 +1878,115 @@ export function cssVarsToString(vars) {
 export function SlideRuntimeProvider({ value, children }) { __slideRuntimeReset(value.revealedSteps); return React.createElement(Context.Provider, { value }, children); }
 export function useSlidePageNumber() { const context = useContext(Context); if (!context) fail("useSlidePageNumber must be called from a rendered slide page."); return { current: context.page.current, total: context.page.total }; }
 export function useIsActivePage() { return useContext(Context)?.isActivePage ?? false; }
-export function Step({ children, duration = 180, _revealed }) { const revealed = _revealed ?? true; return React.createElement("div", { "data-osd-step": revealed ? "revealed" : "pending", style: { opacity: revealed ? 1 : 0, visibility: revealed ? "visible" : "hidden", transition: "opacity " + duration + "ms cubic-bezier(0, 0, 0.2, 1)" } }, children); }
+export function Step({ children, duration = 180, _revealed }) { const revealed = _revealed ?? true; return React.createElement("div", { "data-slides2-step": revealed ? "revealed" : "pending", style: { opacity: revealed ? 1 : 0, visibility: revealed ? "visible" : "hidden", transition: "opacity " + duration + "ms cubic-bezier(0, 0, 0.2, 1)" } }, children); }
 export function Steps({ children }) { const childrenArray = Children.toArray(children); let count = 0; for (const child of childrenArray) if (isValidElement(child) && child.type === Step) count++; Budget.stepCount += count; const revealed = Math.min(count, Budget.remainingSteps); Budget.remainingSteps = Math.max(0, Budget.remainingSteps - revealed); let index = 0; return React.createElement(React.Fragment, null, ...childrenArray.map((child, key) => { if (isValidElement(child) && child.type === Step) { const stepIndex = index++; return cloneElement(child, { key: child.key ?? key, _revealed: stepIndex < revealed }); } return child; })); }
-export function ImagePlaceholder({ hint, label, children, width, height, style, className, ...props }) { const description = typeof hint === "string" ? hint : typeof label === "string" ? label : "Image placeholder"; return React.createElement("div", { "data-slide-loc": props["data-slide-loc"], "data-slide-placeholder": description, "data-placeholder-w": width, "data-placeholder-h": height, "aria-label": description, className, style: { width: width ?? "100%", height: height ?? "100%", border: "2px dashed currentColor", display: "flex", alignItems: "center", justifyContent: "center", ...(style && typeof style === "object" ? style : {}) } }, children ?? description); }
-export function MorphElement({ id, children, as = "div", ...props }) { return React.createElement(as, { ...props, "data-osd-morph": id }, children); }
+export function ImagePlaceholder({ hint, label, width, height, style, className, ...props }) {
+  const description =
+    typeof hint === "string"
+      ? hint
+      : typeof label === "string"
+        ? label
+        : "Image placeholder";
+  const dimensions = width && height ? width + " × " + height : null;
+  const icon = React.createElement("svg", {
+    width: 32,
+    height: 32,
+    viewBox: "0 0 32 32",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    style: { opacity: 0.55 },
+    role: "img",
+    "aria-label": "image placeholder",
+  },
+    React.createElement("rect", { x: 4, y: 6, width: 24, height: 20, rx: 2.5 }),
+    React.createElement("circle", { cx: 11, cy: 13, r: 2 }),
+    React.createElement("path", { d: "M4 22l7-7 6 6 4-4 7 7" }),
+  );
+  const detail = React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 6,
+      maxWidth: "85%",
+    },
+  },
+    React.createElement("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        opacity: 0.55,
+      },
+    }, "Image"),
+    React.createElement("span", {
+      style: {
+        fontSize: 16,
+        fontWeight: 500,
+        lineHeight: 1.4,
+        color:
+          "color-mix(in srgb, var(--slides2-text, currentColor) 85%, transparent)",
+      },
+    }, description),
+    dimensions && React.createElement("span", {
+      style: {
+        fontSize: 11,
+        fontVariantNumeric: "tabular-nums",
+        fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+        opacity: 0.5,
+        marginTop: 2,
+      },
+    }, dimensions),
+  );
+  return React.createElement("div", {
+    ...props,
+    "data-slide-loc": props["data-slide-loc"],
+    "data-slide-placeholder": description,
+    "data-placeholder-w": width,
+    "data-placeholder-h": height,
+    role: "img",
+    "aria-label": description,
+    className,
+    style: {
+      position: "relative",
+      width: width ?? "100%",
+      height: height ?? "100%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "column",
+      gap: 14,
+      border:
+        "1px dashed color-mix(in srgb, var(--slides2-text, currentColor) 35%, transparent)",
+      borderRadius: 12,
+      background:
+        "linear-gradient(135deg, color-mix(in srgb, var(--slides2-text, currentColor) 6%, transparent) 0%, color-mix(in srgb, var(--slides2-text, currentColor) 2%, transparent) 50%, color-mix(in srgb, var(--slides2-text, currentColor) 6%, transparent) 100%)",
+      color:
+        "color-mix(in srgb, var(--slides2-text, currentColor) 70%, transparent)",
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif',
+      textAlign: "center",
+      padding: 24,
+      boxSizing: "border-box",
+      overflow: "hidden",
+      ...(style && typeof style === "object" ? style : {}),
+    },
+  }, icon, detail);
+}
+export function MorphElement({ id, children, as = "div", className, style, ...props }) {
+  const child = Children.toArray(children)[0] ?? null;
+  if (Children.count(children) === 1 && isValidElement(child) && typeof child.type === "string") {
+    return cloneElement(child, {
+      ...props,
+      "data-slides2-morph": id,
+      className: [child.props.className, className].filter(Boolean).join(" ") || undefined,
+      style: style ? { ...child.props.style, ...style } : child.props.style,
+    });
+  }
+  return React.createElement(as, { ...props, className, style, "data-slides2-morph": id }, children);
+}
 `;

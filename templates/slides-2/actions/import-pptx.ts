@@ -22,6 +22,11 @@ import {
   type ParsedImage,
   type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
+import {
+  ImportedAssetBatch,
+  withImportedAssetCleanup,
+} from "../server/lib/imported-asset-batch.js";
+import { withSlideAssetReferencesLocked } from "../server/lib/slide-asset-references.js";
 import { trackSlides } from "../server/lib/slides-tracking.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
@@ -168,188 +173,216 @@ export async function importPptxBufferToDeck(args: {
   }
   assertPptxImagesRenderable(presentation.slides);
 
-  const uploadLimit = pLimit(4);
-  const results = await Promise.all(
-    presentation.slides.map((parsedSlide, i) =>
-      uploadLimit(async () => {
-        const uploadedImages = await uploadPptxSlideImages({
-          slide: parsedSlide,
-          slideIndex: i,
-          ownerEmail,
-        });
-        const html = convertToSlideHtml(
-          parsedSlide,
-          uploadedImages.urls,
-          themeFont,
-        );
-        const source = await compileImportedSlideSource(
-          html,
-          { ownerEmail, orgId },
-          (parsedSlide.elements ?? []).flatMap((element) => {
-            if (element.kind !== "image" || !element.image) return [];
-            const url = uploadedImages.urls[element.id];
-            if (!url) return [];
-            return [
-              {
-                url,
-                filename: element.image.name,
-                mimeType: element.image.mimeType,
-                size: element.image.data.byteLength,
-              },
-            ];
-          }),
-        );
-        const id = `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        return {
-          slide: {
-            id,
-            ...source,
-            layout: parsedSlide.layoutHint ?? "content",
-            notes: parsedSlide.notes,
-            ...(parsedSlide.transition
-              ? { transition: parsedSlide.transition }
-              : {}),
-            ...(parsedSlide.splitByParagraph ? { splitByParagraph: true } : {}),
-          },
-          sourceText: parsedSlide.texts.map((text) => text.content).join("\n"),
-          imageUrls: Object.values(uploadedImages.urls),
-          imageSkippedCount: uploadedImages.imageSkippedCount,
-          tablesDegraded: parsedSlide.tablesDegraded ?? 0,
-        };
-      }),
-    ),
-  );
-  const slides = results.map((r) => r.slide);
-  const deckTitle = resolveImportedDeckTitle(
-    requestedTitle,
-    results[0]?.sourceText || slides[0]?.content,
-  );
-  assertHumanReadableDeckTitle(deckTitle);
-  const imagesSkipped = results.reduce(
-    (total, r) => total + r.imageSkippedCount,
-    0,
-  );
-  const tablesDegraded = results.reduce(
-    (total, r) => total + r.tablesDegraded,
-    0,
-  );
-  if (imagesSkipped > 0) {
-    fail(
-      `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No deck was written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
-      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
-    );
-  }
-  const sourceImport = buildSourceImportMetadata({
-    format: "pptx",
-    slides: results.map((result) => ({
-      id: result.slide.id,
-      text: result.sourceText,
-      notes: result.slide.notes ?? "",
-      imageUrls: result.imageUrls,
-      editableText: true,
-    })),
-    imagesSkipped,
-    tablesDegraded,
+  const importDeckId =
+    deckId ?? `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const assetBatch = new ImportedAssetBatch({
+    ownerEmail,
+    orgId: orgId ?? null,
   });
-  const aspectRatio = nearestAspectRatio(
-    presentation.slides[0]?.widthEmu,
-    presentation.slides[0]?.heightEmu,
-  );
+  return withImportedAssetCleanup(assetBatch, async () => {
+    const uploadLimit = pLimit(4);
+    const settledResults = await Promise.allSettled(
+      presentation.slides.map((parsedSlide, i) =>
+        uploadLimit(async () => {
+          const uploadedImages = await uploadPptxSlideImages({
+            slide: parsedSlide,
+            slideIndex: i,
+            ownerEmail,
+            onUploaded: (asset) => assetBatch.track(asset),
+          });
+          const html = convertToSlideHtml(
+            parsedSlide,
+            uploadedImages.urls,
+            themeFont,
+          );
+          const source = await compileImportedSlideSource(
+            html,
+            { ownerEmail, orgId, deckId: importDeckId },
+            Object.values(uploadedImages.assets),
+          );
+          const id = `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          return {
+            slide: {
+              id,
+              ...source,
+              layout: parsedSlide.layoutHint ?? "content",
+              notes: parsedSlide.notes,
+              ...(parsedSlide.transition
+                ? { transition: parsedSlide.transition }
+                : {}),
+              ...(parsedSlide.splitByParagraph
+                ? { splitByParagraph: true }
+                : {}),
+            },
+            sourceText: parsedSlide.texts
+              .map((text) => text.content)
+              .join("\n"),
+            imageUrls: Object.values(uploadedImages.urls),
+            imageSkippedCount: uploadedImages.imageSkippedCount,
+            tablesDegraded: parsedSlide.tablesDegraded ?? 0,
+          };
+        }),
+      ),
+    );
+    const failedSlide = settledResults.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failedSlide) throw failedSlide.reason;
+    const results = settledResults.map((result) => {
+      if (result.status === "rejected") throw result.reason;
+      return result.value;
+    });
+    const slides = results.map((r) => r.slide);
+    const deckTitle = resolveImportedDeckTitle(
+      requestedTitle,
+      results[0]?.sourceText || slides[0]?.content,
+    );
+    assertHumanReadableDeckTitle(deckTitle);
+    const imagesSkipped = results.reduce(
+      (total, r) => total + r.imageSkippedCount,
+      0,
+    );
+    const tablesDegraded = results.reduce(
+      (total, r) => total + r.tablesDegraded,
+      0,
+    );
+    if (imagesSkipped > 0) {
+      fail(
+        `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No deck was written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+        { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+      );
+    }
+    const sourceImport = buildSourceImportMetadata({
+      format: "pptx",
+      slides: results.map((result) => ({
+        id: result.slide.id,
+        text: result.sourceText,
+        notes: result.slide.notes ?? "",
+        imageUrls: result.imageUrls,
+        editableText: true,
+      })),
+      imagesSkipped,
+      tablesDegraded,
+    });
+    const aspectRatio = nearestAspectRatio(
+      presentation.slides[0]?.widthEmu,
+      presentation.slides[0]?.heightEmu,
+    );
 
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-  if (deckId) {
-    return withDeckLock(deckId, async () => {
-      const [latestDeck] = await db
-        .select()
-        .from(schema.decks)
-        .where(eq(schema.decks.id, deckId));
-      if (!latestDeck) {
-        fail(`Deck ${deckId} not found`, {
-          errorCode: "deck_not_found",
-          statusCode: 404,
+    if (deckId) {
+      return withDeckLock(deckId, async () => {
+        const [latestDeck] = await db
+          .select()
+          .from(schema.decks)
+          .where(eq(schema.decks.id, deckId));
+        if (!latestDeck) {
+          fail(`Deck ${deckId} not found`, {
+            errorCode: "deck_not_found",
+            statusCode: 404,
+          });
+        }
+
+        const previousData = safeParseDeckData(latestDeck.data);
+        assertSlides2DeckData(previousData);
+        const writeNow = nextDeckRevision(latestDeck.updatedAt);
+        const data = {
+          ...previousData,
+          title: deckTitle,
+          slides,
+          ...(aspectRatio ? { aspectRatio } : {}),
+          ...(presentation.theme ? { theme: presentation.theme } : {}),
+          sourceImport,
+          updatedAt: writeNow,
+        };
+        const updateResult = await withSlideAssetReferencesLocked(
+          db,
+          data,
+          { ownerEmail: latestDeck.ownerEmail, orgId: latestDeck.orgId },
+          async (tx) =>
+            tx
+              .update(schema.decks)
+              .set({
+                title: deckTitle,
+                data: JSON.stringify(data),
+                ...(designSystemId !== undefined
+                  ? { designSystemId }
+                  : { designSystemId: latestDeck.designSystemId }),
+                updatedAt: writeNow,
+              })
+              .where(
+                deckRevisionWhere(schema.decks, deckId, latestDeck.updatedAt),
+              ),
+          deckId,
+        );
+        assertDeckWriteApplied(updateResult, deckId, "PPTX import");
+        assetBatch.markCommitted();
+
+        await notifyClients(deckId);
+        await writeAppState("refresh-signal", {
+          ts: now,
+          source,
         });
-      }
 
-      const previousData = safeParseDeckData(latestDeck.data);
-      assertSlides2DeckData(previousData);
-      const writeNow = nextDeckRevision(latestDeck.updatedAt);
-      const data = {
-        ...previousData,
-        title: deckTitle,
-        slides,
-        ...(aspectRatio ? { aspectRatio } : {}),
-        ...(presentation.theme ? { theme: presentation.theme } : {}),
-        sourceImport,
-        updatedAt: writeNow,
-      };
-      const updateResult = await db
-        .update(schema.decks)
-        .set({
+        return {
+          id: deckId,
+          title: deckTitle,
+          slideCount: slides.length,
+          theme: presentation.theme,
+          imported: true,
+          url: getDeckUrl(deckId),
+          ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+          ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+        };
+      });
+    }
+
+    const id = importDeckId;
+    const data = {
+      appId: "slides-2",
+      title: deckTitle,
+      slides,
+      ...(aspectRatio ? { aspectRatio } : {}),
+      ...(presentation.theme ? { theme: presentation.theme } : {}),
+      sourceImport,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const deckOrgId = getRequestOrgId() ?? null;
+    await withSlideAssetReferencesLocked(
+      db,
+      data,
+      { ownerEmail, orgId: deckOrgId },
+      async (tx) => {
+        await tx.insert(schema.decks).values({
+          id,
           title: deckTitle,
           data: JSON.stringify(data),
-          ...(designSystemId !== undefined
-            ? { designSystemId }
-            : { designSystemId: latestDeck.designSystemId }),
-          updatedAt: writeNow,
-        })
-        .where(deckRevisionWhere(schema.decks, deckId, latestDeck.updatedAt));
-      assertDeckWriteApplied(updateResult, deckId, "PPTX import");
+          ownerEmail,
+          orgId: deckOrgId,
+          designSystemId: designSystemId ?? undefined,
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
+    assetBatch.markCommitted();
 
-      await notifyClients(deckId);
-      await writeAppState("refresh-signal", {
-        ts: now,
-        source,
-      });
+    await notifyClients(id);
+    await writeAppState("refresh-signal", { ts: now, source });
 
-      return {
-        id: deckId,
-        title: deckTitle,
-        slideCount: slides.length,
-        theme: presentation.theme,
-        imported: true,
-        url: getDeckUrl(deckId),
-        ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-        ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
-      };
-    });
-  }
-
-  const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const data = {
-    appId: "slides-2",
-    title: deckTitle,
-    slides,
-    ...(aspectRatio ? { aspectRatio } : {}),
-    ...(presentation.theme ? { theme: presentation.theme } : {}),
-    sourceImport,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await db.insert(schema.decks).values({
-    id,
-    title: deckTitle,
-    data: JSON.stringify(data),
-    ownerEmail,
-    orgId: getRequestOrgId(),
-    designSystemId: designSystemId ?? undefined,
-    createdAt: now,
-    updatedAt: now,
+    return {
+      id,
+      title: deckTitle,
+      slideCount: slides.length,
+      theme: presentation.theme,
+      imported: true,
+      url: getDeckUrl(id),
+      ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+      ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+    };
   });
-
-  await notifyClients(id);
-  await writeAppState("refresh-signal", { ts: now, source });
-
-  return {
-    id,
-    title: deckTitle,
-    slideCount: slides.length,
-    theme: presentation.theme,
-    imported: true,
-    url: getDeckUrl(id),
-    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-    ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
-  };
 }
 
 export default defineAction({

@@ -139,6 +139,24 @@ vi.mock("../lib/deck-asset-scope.js", async (importOriginal) => ({
     mocks.assertDeckAssetUploadScope(...args),
 }));
 
+vi.mock("./uploaded-asset-object-lifecycle.js", () => ({
+  registerUploadedAssetObjectIdentities: vi.fn(),
+  deleteUploadedAssetObject: async (args: {
+    deleteObject: () => Promise<boolean>;
+  }) => {
+    try {
+      return (await args.deleteObject())
+        ? { status: "deleted" }
+        : {
+            status: "failed",
+            error: new Error("Storage deletion failed."),
+          };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  },
+}));
+
 import {
   importGoogleFontAsset,
   reapOrphanedFontAssetObjects,

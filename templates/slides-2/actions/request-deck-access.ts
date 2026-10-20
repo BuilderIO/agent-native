@@ -29,6 +29,7 @@ import {
   normalizeEmail,
   type AccessRequestPayload,
 } from "../server/lib/deck-access-requests.js";
+import type { SlidesTransaction } from "../server/lib/uploaded-asset-cleanup-outbox.js";
 import {
   SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
   SLIDES_ACCESS_REQUEST_NOTE_MAX_LENGTH,
@@ -44,7 +45,7 @@ const ANONYMOUS_ACCESS_REQUEST_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_ACCESS_REQUEST_MAX = 5;
 
 async function claimAnonymousAccessRequestSlot(
-  db: ReturnType<typeof getDb>,
+  db: SlidesTransaction,
   deckId: string,
 ): Promise<{ windowStartedAt: string }> {
   const now = new Date();
@@ -83,7 +84,7 @@ async function claimAnonymousAccessRequestSlot(
 }
 
 async function refundAnonymousAccessRequestSlot(
-  db: ReturnType<typeof getDb>,
+  db: SlidesTransaction,
   deckId: string,
   windowStartedAt: string,
 ): Promise<void> {
@@ -105,6 +106,37 @@ async function refundAnonymousAccessRequestSlot(
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
+}
+
+function isNotFoundError(error: unknown): error is Error & { statusCode: 404 } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    error.statusCode === 404
+  );
+}
+
+async function lockRequestableDeck(
+  transaction: SlidesTransaction,
+  deckId: string,
+) {
+  const [deck] = await transaction
+    .select({
+      id: schema.decks.id,
+      title: schema.decks.title,
+      ownerEmail: schema.decks.ownerEmail,
+      visibility: schema.decks.visibility,
+      data: schema.decks.data,
+    })
+    .from(schema.decks)
+    .where(eq(schema.decks.id, deckId))
+    .for("update");
+
+  if (!deck) throw httpError(`Deck ${deckId} not found`, 404);
+  assertSlides2DeckData(JSON.parse(deck.data));
+  if ((deck.visibility ?? "private") !== "private") return null;
+  return deck;
 }
 
 function displayNameForEmail(email: string): string {
@@ -364,20 +396,26 @@ export default defineAction({
         notificationClaimToken: randomUUID(),
       };
       try {
-        const [claimed] = await db
-          .update(schema.deckEvents)
-          .set({
-            payload: JSON.stringify(claimedPayload),
-          })
-          .where(
-            and(
-              eq(schema.deckEvents.id, requestId),
-              eq(schema.deckEvents.payload, currentPayloadJson),
-            ),
-          )
-          .returning({ id: schema.deckEvents.id });
-        return claimed ? claimedPayload : null;
+        return await db.transaction(async (tx) => {
+          const lockedDeck = await lockRequestableDeck(tx, deckId);
+          if (!lockedDeck) return null;
+          const [claimed] = await tx
+            .update(schema.deckEvents)
+            .set({
+              payload: JSON.stringify(claimedPayload),
+            })
+            .where(
+              and(
+                eq(schema.deckEvents.id, requestId),
+                eq(schema.deckEvents.deckId, deckId),
+                eq(schema.deckEvents.payload, currentPayloadJson),
+              ),
+            )
+            .returning({ id: schema.deckEvents.id });
+          return claimed ? claimedPayload : null;
+        });
       } catch (error) {
+        if (isNotFoundError(error)) throw error;
         console.warn("[deck-access] notification claim failed:", error);
         return null;
       }
@@ -391,22 +429,28 @@ export default defineAction({
         notificationClaimedAt: new Date().toISOString(),
       };
       try {
-        const [renewed] = await db
-          .update(schema.deckEvents)
-          .set({
-            payload: JSON.stringify(renewedPayload),
-          })
-          .where(
-            and(
-              eq(schema.deckEvents.id, requestId),
-              eq(schema.deckEvents.payload, JSON.stringify(claimedPayload)),
-            ),
-          )
-          .returning({ id: schema.deckEvents.id });
-        return renewed ? renewedPayload : null;
+        return await db.transaction(async (tx) => {
+          const lockedDeck = await lockRequestableDeck(tx, deckId);
+          if (!lockedDeck) return null;
+          const [renewed] = await tx
+            .update(schema.deckEvents)
+            .set({
+              payload: JSON.stringify(renewedPayload),
+            })
+            .where(
+              and(
+                eq(schema.deckEvents.id, requestId),
+                eq(schema.deckEvents.deckId, deckId),
+                eq(schema.deckEvents.payload, JSON.stringify(claimedPayload)),
+              ),
+            )
+            .returning({ id: schema.deckEvents.id });
+          return renewed ? renewedPayload : null;
+        });
       } catch (error) {
+        if (isNotFoundError(error)) throw error;
         console.warn("[deck-access] notification claim renewal failed:", error);
-        return claimedPayload;
+        return null;
       }
     };
     const notifyWithClaimHeartbeat = async (
@@ -470,24 +514,31 @@ export default defineAction({
         ...(delivered ? { notifiedAt: new Date().toISOString() } : {}),
       };
       try {
-        const [persisted] = await db
-          .update(schema.deckEvents)
-          .set({ payload: JSON.stringify(persistedPayload) })
-          .where(
-            and(
-              eq(schema.deckEvents.id, requestId),
-              eq(schema.deckEvents.payload, JSON.stringify(claimedPayload)),
-            ),
-          )
-          .returning({ id: schema.deckEvents.id });
+        const persisted = await db.transaction(async (tx) => {
+          const lockedDeck = await lockRequestableDeck(tx, deckId);
+          if (!lockedDeck) return false;
+          const [row] = await tx
+            .update(schema.deckEvents)
+            .set({ payload: JSON.stringify(persistedPayload) })
+            .where(
+              and(
+                eq(schema.deckEvents.id, requestId),
+                eq(schema.deckEvents.deckId, deckId),
+                eq(schema.deckEvents.payload, JSON.stringify(claimedPayload)),
+              ),
+            )
+            .returning({ id: schema.deckEvents.id });
+          return Boolean(row);
+        });
         if (!persisted) {
           console.warn(
             "[deck-access] notification status update was superseded:",
             requestId,
           );
         }
-        return Boolean(persisted);
+        return persisted;
       } catch (error) {
+        if (isNotFoundError(error)) throw error;
         console.warn("[deck-access] notification status update failed:", error);
         return false;
       }
@@ -629,10 +680,6 @@ export default defineAction({
       };
     }
 
-    const anonymousSlot = sessionEmail
-      ? null
-      : await claimAnonymousAccessRequestSlot(db, deckId);
-
     const requestId =
       reopenedRequest?.id ?? accessRequestEventId(deckId, requesterEmail);
     const requestedAt = new Date().toISOString();
@@ -650,20 +697,26 @@ export default defineAction({
     };
     const initialPayloadJson = JSON.stringify(initialPayload);
 
-    let insertedRequest: { id: string } | undefined;
-    try {
-      [insertedRequest] = reopenedRequest
-        ? await db
+    const writeResult = await db.transaction(async (tx) => {
+      const lockedDeck = await lockRequestableDeck(tx, deckId);
+      if (!lockedDeck) return { kind: "not-private" as const };
+
+      const anonymousSlot = sessionEmail
+        ? null
+        : await claimAnonymousAccessRequestSlot(tx, deckId);
+      const [insertedRequest] = reopenedRequest
+        ? await tx
             .update(schema.deckEvents)
             .set({ payload: initialPayloadJson })
             .where(
               and(
                 eq(schema.deckEvents.id, reopenedRequest.id),
+                eq(schema.deckEvents.deckId, deckId),
                 eq(schema.deckEvents.payload, reopenedRequest.payload ?? ""),
               ),
             )
             .returning({ id: schema.deckEvents.id })
-        : await db
+        : await tx
             .insert(schema.deckEvents)
             .values({
               id: requestId,
@@ -676,25 +729,30 @@ export default defineAction({
             })
             .onConflictDoNothing()
             .returning({ id: schema.deckEvents.id });
-    } catch (error) {
-      if (anonymousSlot) {
-        await refundAnonymousAccessRequestSlot(
-          db,
-          deckId,
-          anonymousSlot.windowStartedAt,
-        );
-      }
-      throw error;
-    }
 
-    if (!insertedRequest) {
-      if (anonymousSlot) {
-        await refundAnonymousAccessRequestSlot(
-          db,
-          deckId,
-          anonymousSlot.windowStartedAt,
-        );
+      if (!insertedRequest) {
+        if (anonymousSlot) {
+          await refundAnonymousAccessRequestSlot(
+            tx,
+            deckId,
+            anonymousSlot.windowStartedAt,
+          );
+        }
+        return { kind: "already-requested" as const };
       }
+      return { kind: "inserted" as const, deck: lockedDeck };
+    });
+
+    if (writeResult.kind === "not-private") {
+      return {
+        ok: true as const,
+        alreadyHasAccess: false,
+        alreadyRequested: false,
+        notifiedOwner: false,
+        message: "Access requests are only available for private decks.",
+      };
+    }
+    if (writeResult.kind === "already-requested") {
       return {
         ok: true as const,
         alreadyHasAccess: false,
@@ -704,9 +762,10 @@ export default defineAction({
       };
     }
 
+    const lockedOwnerEmail = writeResult.deck.ownerEmail?.trim() || null;
     const initialState = notificationStateFor(
       initialPayload,
-      ownerEmail,
+      lockedOwnerEmail,
       requesterEmail,
       emailConfigured,
     );
@@ -716,8 +775,8 @@ export default defineAction({
       () =>
         notifyAccessRequestOwner({
           deckId,
-          deckTitle: deck.title,
-          ownerEmail,
+          deckTitle: writeResult.deck.title,
+          ownerEmail: lockedOwnerEmail,
           requesterEmail,
           requesterName,
           note,

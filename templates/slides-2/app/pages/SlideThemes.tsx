@@ -6,12 +6,12 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { Link } from "react-router";
 
-import type { ElementSnapshot } from "@/components/open-slide-editor/types";
-import { OpenSlideCanvas } from "@/components/open-slide-runtime/OpenSlideCanvas";
+import type { ElementSnapshot } from "@/components/slides-2-editor/types";
 import {
   SandboxedSlide,
   type FramePointer,
-} from "@/components/open-slide-runtime/SandboxedSlide";
+} from "@/components/slides-2-runtime/SandboxedSlide";
+import { Slides2Canvas } from "@/components/slides-2-runtime/Slides2Canvas";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -131,14 +131,14 @@ export function ThemePreview({
       }}
     >
       {artifact ? (
-        <OpenSlideCanvas flat>
+        <Slides2Canvas flat>
           <SandboxedSlide
             artifact={artifact}
             title={theme.name}
             onNodes={ignoreNodes}
             onPointer={ignorePointer}
           />
-        </OpenSlideCanvas>
+        </Slides2Canvas>
       ) : previewQuery.isError ? (
         <div className="grid h-full w-full place-items-center px-4 text-center text-xs text-muted-foreground">
           {t("themesPage.loadFailed")}

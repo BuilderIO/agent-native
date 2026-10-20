@@ -22,7 +22,12 @@ import {
 } from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
+import {
+  ImportedAssetBatch,
+  withImportedAssetCleanup,
+} from "../server/lib/imported-asset-batch.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import { withSlideAssetReferencesLocked } from "../server/lib/slide-asset-references.js";
 import { trackSlides } from "../server/lib/slides-tracking.js";
 import {
   buildSourceImportMetadata,
@@ -305,76 +310,95 @@ export default defineAction({
         const pptxOrgId = getRequestOrgId();
         assertPptxImagesRenderable(presentation.slides);
         const pptxThemeFont = presentation.theme?.fonts?.[0];
-        const uploadLimit = pLimit(4);
-        const pptxResults = await Promise.all(
-          presentation.slides.map((slide, i) =>
-            uploadLimit(() =>
-              buildPptxSlide(
-                slide,
-                i,
-                pptxOwnerEmail,
-                pptxOrgId,
-                pptxThemeFont,
+        const assetBatch = new ImportedAssetBatch({
+          ownerEmail: pptxOwnerEmail,
+          orgId: pptxOrgId ?? null,
+        });
+        return withImportedAssetCleanup(assetBatch, async () => {
+          const uploadLimit = pLimit(4);
+          const settledPptxResults = await Promise.allSettled(
+            presentation.slides.map((slide, i) =>
+              uploadLimit(() =>
+                buildPptxSlide(
+                  slide,
+                  i,
+                  pptxOwnerEmail,
+                  pptxOrgId,
+                  pptxThemeFont,
+                  deckId,
+                  assetBatch,
+                ),
               ),
             ),
-          ),
-        );
-        const slides = pptxResults.map((r) => r.slide);
-        const imagesSkipped = pptxResults.reduce(
-          (total, r) => total + r.imageSkippedCount,
-          0,
-        );
-        const tablesDegraded = presentation.slides.reduce(
-          (total, s) => total + (s.tablesDegraded ?? 0),
-          0,
-        );
-        const sourceImport = buildSourceImportMetadata({
-          format: "pptx",
-          slides: pptxResults.map((result) => ({
-            id: result.slide.id,
-            text: result.sourceText,
-            notes: result.slide.notes ?? "",
-            imageUrls: result.imageUrls,
-            editableText: true,
-          })),
-          imagesSkipped,
-          tablesDegraded,
-        });
-        if (imagesSkipped > 0) {
-          fail(
-            `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
-            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
           );
-        }
-        const aspectRatio =
-          presentation.slides[0]?.widthEmu && presentation.slides[0]?.heightEmu
-            ? nearestAspectRatio(
-                presentation.slides[0].widthEmu,
-                presentation.slides[0].heightEmu,
-              )
-            : undefined;
-        const importedTitle = await appendDeckSlides(
-          deckId,
-          title,
-          slides,
-          "import-file:pptx",
-          aspectRatio,
-          sourceImport,
-          pptxResults[0]?.sourceText,
-          fallbackTitle,
-          presentation.theme,
-        );
-        trackImportedIntoDeck(deckId, "pptx", slides.length, ctx);
-        return {
-          format: "pptx",
-          title: importedTitle,
-          slideCount: slides.length,
-          theme: presentation.theme,
-          deckId,
-          imported: true,
-          ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-          ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
-        };
+          const failedSlide = settledPptxResults.find(
+            (result): result is PromiseRejectedResult =>
+              result.status === "rejected",
+          );
+          if (failedSlide) throw failedSlide.reason;
+          const pptxResults = settledPptxResults.map((result) => {
+            if (result.status === "rejected") throw result.reason;
+            return result.value;
+          });
+          const slides = pptxResults.map((r) => r.slide);
+          const imagesSkipped = pptxResults.reduce(
+            (total, r) => total + r.imageSkippedCount,
+            0,
+          );
+          const tablesDegraded = presentation.slides.reduce(
+            (total, s) => total + (s.tablesDegraded ?? 0),
+            0,
+          );
+          const sourceImport = buildSourceImportMetadata({
+            format: "pptx",
+            slides: pptxResults.map((result) => ({
+              id: result.slide.id,
+              text: result.sourceText,
+              notes: result.slide.notes ?? "",
+              imageUrls: result.imageUrls,
+              editableText: true,
+            })),
+            imagesSkipped,
+            tablesDegraded,
+          });
+          if (imagesSkipped > 0) {
+            fail(
+              `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+              { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+            );
+          }
+          const aspectRatio =
+            presentation.slides[0]?.widthEmu &&
+            presentation.slides[0]?.heightEmu
+              ? nearestAspectRatio(
+                  presentation.slides[0].widthEmu,
+                  presentation.slides[0].heightEmu,
+                )
+              : undefined;
+          const importedTitle = await appendDeckSlides(
+            deckId,
+            title,
+            slides,
+            "import-file:pptx",
+            aspectRatio,
+            sourceImport,
+            pptxResults[0]?.sourceText,
+            fallbackTitle,
+            presentation.theme,
+            assetBatch,
+          );
+          trackImportedIntoDeck(deckId, "pptx", slides.length, ctx);
+          return {
+            format: "pptx",
+            title: importedTitle,
+            slideCount: slides.length,
+            theme: presentation.theme,
+            deckId,
+            imported: true,
+            ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+            ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+          };
+        });
       }
 
       return {
@@ -734,21 +758,72 @@ async function importPdfPagesWithFidelity(args: {
     });
   const orgId = getRequestOrgId();
 
-  const uploadLimit = pLimit(4);
-  const imported = await Promise.all(
-    pages.map((page, index) =>
-      uploadLimit(async () => {
-        const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
+  const assetBatch = new ImportedAssetBatch({
+    ownerEmail,
+    orgId: orgId ?? null,
+  });
+  return withImportedAssetCleanup(assetBatch, async () => {
+    const uploadLimit = pLimit(4);
+    const settledImported = await Promise.allSettled(
+      pages.map((page, index) =>
+        uploadLimit(async () => {
+          const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
 
-        if (!fidelity || fidelity.elements.length === 0) {
-          const firstLine = page.text.split(/\r?\n/)[0]?.trim();
-          const [content] = convertSectionsToSlides([
-            { heading: firstLine || `Page ${page.num}`, content: page.text },
-          ]);
+          if (!fidelity || fidelity.elements.length === 0) {
+            const firstLine = page.text.split(/\r?\n/)[0]?.trim();
+            const [content] = convertSectionsToSlides([
+              { heading: firstLine || `Page ${page.num}`, content: page.text },
+            ]);
+            const id = newSlideId();
+            const source = await compileImportedSlideSource(
+              content ?? '<div class="fmd-slide"></div>',
+              { ownerEmail, orgId },
+            );
+            return {
+              slide: {
+                id,
+                ...source,
+                layout: "content",
+                notes: page.text,
+              },
+              snapshot: {
+                id,
+                text: page.text,
+                notes: page.text,
+                imageUrls: [],
+                editableText: true,
+              } satisfies SourceImportSlideSnapshot,
+            };
+          }
+
+          const slideForUpload = {
+            texts: [],
+            images: [],
+            elements: fidelity.elements,
+          };
+          const uploaded = await uploadPptxSlideImages({
+            slide: slideForUpload,
+            slideIndex: index,
+            ownerEmail,
+            onUploaded: (asset) => assetBatch.track(asset),
+          });
+          const content = convertToSlideHtml(
+            {
+              texts: [],
+              images: [],
+              elements: fidelity.elements,
+              widthEmu: fidelity.widthEmu,
+              heightEmu: fidelity.heightEmu,
+              backgroundColor: fidelity.backgroundColor ?? "#ffffff", // guard:allow-raw-color - fallback plain-paper background, not a design-system token
+            },
+            uploaded.urls,
+          );
+
           const id = newSlideId();
           const source = await compileImportedSlideSource(
-            content ?? '<div class="fmd-slide"></div>',
-            { ownerEmail, orgId },
+            content,
+            { ownerEmail, orgId, deckId },
+            Object.values(uploaded.assets),
           );
           return {
             slide: {
@@ -761,107 +836,61 @@ async function importPdfPagesWithFidelity(args: {
               id,
               text: page.text,
               notes: page.text,
-              imageUrls: [],
+              imageUrls: Object.values(uploaded.urls),
               editableText: true,
             } satisfies SourceImportSlideSnapshot,
           };
-        }
+        }),
+      ),
+    );
+    const failedPage = settledImported.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failedPage) throw failedPage.reason;
+    const imported = settledImported.map((result) => {
+      if (result.status === "rejected") throw result.reason;
+      return result.value;
+    });
+    const slides = imported.map((entry) => entry.slide);
+    const imagesSkipped = fidelityPages.reduce(
+      (total, page) => total + page.imagesSkipped,
+      0,
+    );
+    const sourceImport = buildSourceImportMetadata({
+      format: "pdf",
+      slides: imported.map((entry) => entry.snapshot),
+      imagesSkipped,
+    });
+    const firstPageText = imported[0]?.snapshot.text ?? "";
+    const titleSource = hasLikelyPdfTitleEncodingCorruption(firstPageText)
+      ? ""
+      : firstPageText;
 
-        const slideForUpload = {
-          texts: [],
-          images: [],
-          elements: fidelity.elements,
-        };
-        const uploaded = await uploadPptxSlideImages({
-          slide: slideForUpload,
-          slideIndex: index,
-          ownerEmail,
-        });
-        const content = convertToSlideHtml(
-          {
-            texts: [],
-            images: [],
-            elements: fidelity.elements,
-            widthEmu: fidelity.widthEmu,
-            heightEmu: fidelity.heightEmu,
-            backgroundColor: fidelity.backgroundColor ?? "#ffffff", // guard:allow-raw-color - fallback plain-paper background, not a design-system token
-          },
-          uploaded.urls,
-        );
+    const importedTitle = await appendDeckSlides(
+      deckId,
+      title,
+      slides,
+      "import-file:pdf",
+      aspectRatio,
+      sourceImport,
+      titleSource,
+      fallbackTitle,
+      undefined,
+      assetBatch,
+    );
 
-        const id = newSlideId();
-        const source = await compileImportedSlideSource(
-          content,
-          { ownerEmail, orgId },
-          fidelity.elements.flatMap((element) => {
-            if (element.kind !== "image" || !element.image) return [];
-            const url = uploaded.urls[element.id];
-            if (!url) return [];
-            return [
-              {
-                url,
-                filename: element.image.name,
-                mimeType: element.image.mimeType,
-                size: element.image.data.byteLength,
-              },
-            ];
-          }),
-        );
-        return {
-          slide: {
-            id,
-            ...source,
-            layout: "content",
-            notes: page.text,
-          },
-          snapshot: {
-            id,
-            text: page.text,
-            notes: page.text,
-            imageUrls: Object.values(uploaded.urls),
-            editableText: true,
-          } satisfies SourceImportSlideSnapshot,
-        };
-      }),
-    ),
-  );
-  const slides = imported.map((entry) => entry.slide);
-  const imagesSkipped = fidelityPages.reduce(
-    (total, page) => total + page.imagesSkipped,
-    0,
-  );
-  const sourceImport = buildSourceImportMetadata({
-    format: "pdf",
-    slides: imported.map((entry) => entry.snapshot),
-    imagesSkipped,
+    return {
+      format: "pdf",
+      title: importedTitle,
+      pageCount: slides.length,
+      slideCount: slides.length,
+      aspectRatio,
+      deckId,
+      imported: true,
+      ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+      ...(sidecarWarning ? { warning: sidecarWarning } : {}),
+    };
   });
-  const firstPageText = imported[0]?.snapshot.text ?? "";
-  const titleSource = hasLikelyPdfTitleEncodingCorruption(firstPageText)
-    ? ""
-    : firstPageText;
-
-  const importedTitle = await appendDeckSlides(
-    deckId,
-    title,
-    slides,
-    "import-file:pdf",
-    aspectRatio,
-    sourceImport,
-    titleSource,
-    fallbackTitle,
-  );
-
-  return {
-    format: "pdf",
-    title: importedTitle,
-    pageCount: slides.length,
-    slideCount: slides.length,
-    aspectRatio,
-    deckId,
-    imported: true,
-    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-    ...(sidecarWarning ? { warning: sidecarWarning } : {}),
-  };
 }
 
 function hasLikelyPdfTitleEncodingCorruption(value: string): boolean {
@@ -935,6 +964,8 @@ async function buildPptxSlide(
   ownerEmail: string,
   orgId: string | null | undefined,
   themeFont: string | undefined,
+  deckId: string,
+  assetBatch: ImportedAssetBatch,
 ): Promise<{
   slide: {
     id: string;
@@ -957,25 +988,14 @@ async function buildPptxSlide(
     slide,
     slideIndex,
     ownerEmail,
+    onUploaded: (asset) => assetBatch.track(asset),
   });
   const id = newSlideId();
   const content = convertToSlideHtml(slide, uploadedImages.urls, themeFont);
   const source = await compileImportedSlideSource(
     content,
-    { ownerEmail, orgId },
-    (slide.elements ?? []).flatMap((element) => {
-      if (element.kind !== "image" || !element.image) return [];
-      const url = uploadedImages.urls[element.id];
-      if (!url) return [];
-      return [
-        {
-          url,
-          filename: element.image.name,
-          mimeType: element.image.mimeType,
-          size: element.image.data.byteLength,
-        },
-      ];
-    }),
+    { ownerEmail, orgId, deckId },
+    Object.values(uploadedImages.assets),
   );
   return {
     slide: {
@@ -1090,6 +1110,7 @@ async function appendDeckSlides(
   titleSource?: unknown,
   fallbackTitle?: unknown,
   theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
+  assetBatch?: ImportedAssetBatch,
 ): Promise<string> {
   await assertAccess("deck", deckId, "editor");
 
@@ -1146,15 +1167,28 @@ async function appendDeckSlides(
       updatedAt: writeNow,
     };
 
-    const updateResult = await db
-      .update(schema.decks)
-      .set({
-        title: nextTitle,
-        data: JSON.stringify(data),
-        updatedAt: writeNow,
-      })
-      .where(deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt));
+    const updateResult = await withSlideAssetReferencesLocked(
+      db,
+      data,
+      {
+        ownerEmail: existing[0].ownerEmail,
+        orgId: existing[0].orgId,
+      },
+      async (tx) =>
+        tx
+          .update(schema.decks)
+          .set({
+            title: nextTitle,
+            data: JSON.stringify(data),
+            updatedAt: writeNow,
+          })
+          .where(
+            deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+          ),
+      deckId,
+    );
     assertDeckWriteApplied(updateResult, deckId, "file import");
+    assetBatch?.markCommitted();
 
     return writeNow;
   });

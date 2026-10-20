@@ -51,25 +51,25 @@ const SNAP = 'cubic-bezier(0.16, 1, 0.3, 1)';
 type Tone = 'uv' | 'volt' | 'ink';
 
 const TONES: Record<Tone, { bg: string; fg: string; dim: string; hi: string; hiFg: string }> = {
-  uv: { bg: 'var(--osd-bg)', fg: 'var(--osd-text)', dim: LAV, hi: 'var(--osd-accent)', hiFg: INK },
+  uv: { bg: 'var(--slides2-bg)', fg: 'var(--slides2-text)', dim: LAV, hi: 'var(--slides2-accent)', hiFg: INK },
   volt: {
-    bg: 'var(--osd-accent)',
+    bg: 'var(--slides2-accent)',
     fg: INK,
     dim: 'rgba(11,10,20,0.66)', // guard:allow-raw-color — authored slide theme demo color, not app chrome.
     hi: INK,
-    hiFg: 'var(--osd-accent)',
+    hiFg: 'var(--slides2-accent)',
   },
   ink: {
     bg: INK,
-    fg: 'var(--osd-text)',
+    fg: 'var(--slides2-text)',
     dim: 'rgba(255,255,255,0.6)', // guard:allow-raw-color — authored slide theme demo color, not app chrome.
-    hi: 'var(--osd-accent)',
+    hi: 'var(--slides2-accent)',
     hiFg: INK,
   },
 };
 
 const DISPLAY: CSSProperties = {
-  fontFamily: 'var(--osd-font-display)',
+  fontFamily: 'var(--slides2-font-display)',
   fontStyle: 'italic',
   fontWeight: 900,
   textTransform: 'uppercase',
@@ -85,7 +85,7 @@ const NUM: CSSProperties = {
 };
 
 const LABEL: CSSProperties = {
-  fontFamily: 'var(--osd-font-body)',
+  fontFamily: 'var(--slides2-font-body)',
   fontSize: 20,
   fontWeight: 600,
   letterSpacing: '0.2em',
@@ -94,7 +94,7 @@ const LABEL: CSSProperties = {
 };
 
 const BODY: CSSProperties = {
-  fontFamily: 'var(--osd-font-body)',
+  fontFamily: 'var(--slides2-font-body)',
   fontSize: 30,
   fontWeight: 500,
   lineHeight: 1.4,
@@ -199,7 +199,7 @@ const Stage = ({
       isolation: 'isolate',
       background: TONES[tone].bg,
       color: TONES[tone].fg,
-      fontFamily: 'var(--osd-font-body)',
+      fontFamily: 'var(--slides2-font-body)',
     }}
   >
     {children}
@@ -258,8 +258,8 @@ const Wordmark = ({
   x,
   y,
   brand = 'Tempo',
-  color = 'var(--osd-text)',
-  mark = 'var(--osd-accent)',
+  color = 'var(--slides2-text)',
+  mark = 'var(--slides2-accent)',
 }: {
   x: number;
   y: number;
@@ -330,7 +330,7 @@ const VoltBand = ({ x, y, w }: { x: number; y: number; w: number }) => (
       top: y,
       width: w,
       height: w / BAND_RATIO,
-      background: 'var(--osd-accent)',
+      background: 'var(--slides2-accent)',
       clipPath: BAND_CLIP,
     }}
   />
@@ -367,7 +367,7 @@ const SkewRule = ({
   y,
   h,
   w = 6,
-  color = 'var(--osd-accent)',
+  color = 'var(--slides2-accent)',
 }: {
   x: number;
   y: number;
@@ -418,7 +418,7 @@ const Chip = ({
 
 const SpecChip = ({ children }: { children: ReactNode }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 22 }}>
-    <span style={{ width: 4, height: 22, background: 'var(--osd-accent)', transform: SKEW }} />
+    <span style={{ width: 4, height: 22, background: 'var(--slides2-accent)', transform: SKEW }} />
     {children}
   </span>
 );
@@ -456,14 +456,14 @@ const Cover: Page = () => {
         style={{
           ...DISPLAY,
           ...abs(96, 156),
-          fontSize: 'var(--osd-size-hero)',
+          fontSize: 'var(--slides2-size-hero)',
           lineHeight: 0.8,
           letterSpacing: '-0.02em',
           whiteSpace: 'nowrap',
           ...enter(0.05),
         }}
       >
-        Run <span style={{ color: 'var(--osd-accent)' }}>27</span>
+        Run <span style={{ color: 'var(--slides2-accent)' }}>27</span>
       </h1>
 
       <VoltBand x={60} y={700} w={1800} />
@@ -489,7 +489,7 @@ const Cover: Page = () => {
           fontSize: 22,
           display: 'flex',
           gap: 40,
-          color: 'var(--osd-text)',
+          color: 'var(--slides2-text)',
           fontVariantNumeric: 'tabular-nums',
         })}
       >
@@ -542,7 +542,7 @@ const Content: Page = () => (
 
     <div style={abs(120, 795, { height: 115, display: 'flex', alignItems: 'center' })}>
       <div>
-        <div style={{ ...NUM, fontSize: 52, fontWeight: 800, color: 'var(--osd-accent)' }}>
+        <div style={{ ...NUM, fontSize: 52, fontWeight: 800, color: 'var(--slides2-accent)' }}>
           2027
         </div>
         <div style={{ ...LABEL, fontSize: 15, color: LAV, marginTop: 4 }}>Target</div>
@@ -584,7 +584,7 @@ const StartNum = ({ n }: { n: number }) => (
       width: 120,
       textAlign: 'center',
       fontSize: 120,
-      color: n === 4 ? 'var(--osd-accent)' : WHITE_A(0.9),
+      color: n === 4 ? 'var(--slides2-accent)' : WHITE_A(0.9),
     })}
   >
     {n}
@@ -619,7 +619,7 @@ const Closer: Page = () => {
             fontSize: 72,
             fontWeight: 800,
             marginTop: 6,
-            color: 'var(--osd-accent)',
+            color: 'var(--slides2-accent)',
           }}
         >
           09·04·27
@@ -633,7 +633,7 @@ const Closer: Page = () => {
       {LANES.map((n) => (
         <StartNum key={n} n={n} />
       ))}
-      <div style={abs(-40, 770, { width: 2000, height: 34, background: 'var(--osd-accent)' })} />
+      <div style={abs(-40, 770, { width: 2000, height: 34, background: 'var(--slides2-accent)' })} />
     </Stage>
   );
 };
@@ -1261,9 +1261,9 @@ export const design: DesignSystem = {
   radius: 28,
 };
 
-const CREAM = 'var(--osd-bg)';
-const INK = 'var(--osd-text)';
-const TOMATO = 'var(--osd-accent)';
+const CREAM = 'var(--slides2-bg)';
+const INK = 'var(--slides2-text)';
+const TOMATO = 'var(--slides2-accent)';
 const BUTTER = '#FFD23F'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
 const MINT = '#7EDDB0'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
 const PERI = '#98A6FF'; // guard:allow-raw-color — authored slide theme demo color, not app chrome.
@@ -1276,7 +1276,7 @@ const BORDER = \`4px solid \${INK}\`;
 const shadow = (n = 8) => \`\${n}px \${n}px 0 \${INK}\`;
 
 const DISPLAY: CSSProperties = {
-  fontFamily: 'var(--osd-font-display)',
+  fontFamily: 'var(--slides2-font-display)',
   fontWeight: 900,
   letterSpacing: '-0.035em',
   lineHeight: 1,
@@ -1293,9 +1293,9 @@ const MONO: CSSProperties = {
 };
 
 const BODY: CSSProperties = {
-  fontFamily: 'var(--osd-font-body)',
+  fontFamily: 'var(--slides2-font-body)',
   fontWeight: 500,
-  fontSize: 'var(--osd-size-body)',
+  fontSize: 'var(--slides2-size-body)',
   lineHeight: 1.32,
   margin: 0,
   textWrap: 'pretty',
@@ -1518,7 +1518,7 @@ const Stage = ({ footer = true, children }: { footer?: boolean; children: ReactN
       isolation: 'isolate',
       background: CREAM,
       color: INK,
-      fontFamily: 'var(--osd-font-body)',
+      fontFamily: 'var(--slides2-font-body)',
     }}
   >
     {children}
@@ -2026,7 +2026,7 @@ const Closer: Page = () => {
         <Chip>example.com/deck</Chip>
       </div>
       <div style={{ ...MONO, ...abs(120, 984), color: MUTED, ...rise(live, 1500, 12) }}>
-        Pommi theme · open-slide
+        Pommi theme · Slides 2
       </div>
 
       <div

@@ -95,7 +95,7 @@ interface HopResult {
   discard: () => void;
 }
 
-function requestHop(target: URL): Promise<HopResult> {
+function requestHop(target: URL, signal: AbortSignal): Promise<HopResult> {
   return new Promise<HopResult>((resolve, reject) => {
     const transport = target.protocol === "https:" ? https : http;
     const request = transport.request(
@@ -104,6 +104,7 @@ function requestHop(target: URL): Promise<HopResult> {
         method: "GET",
         headers: { Accept: "image/*" },
         lookup: publicOnlyLookup,
+        signal,
       },
       (response) => {
         resolve({
@@ -114,17 +115,48 @@ function requestHop(target: URL): Promise<HopResult> {
             new Promise<Buffer | "too-large">((resolveBody, rejectBody) => {
               const chunks: Buffer[] = [];
               let total = 0;
+              let settled = false;
+              const cleanup = () => {
+                signal.removeEventListener("abort", onAbort);
+              };
+              const finish = (body: Buffer | "too-large") => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolveBody(body);
+              };
+              const fail = (error: Error) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                rejectBody(error);
+              };
+              const onAbort = () => {
+                const error =
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new Error("Timed out fetching image");
+                response.destroy(error);
+                fail(error);
+              };
+
+              response.on("error", fail);
+              if (signal.aborted) {
+                onAbort();
+                return;
+              }
+              signal.addEventListener("abort", onAbort, { once: true });
               response.on("data", (chunk: Buffer) => {
+                if (settled) return;
                 total += chunk.length;
                 if (total > MAX_PROXIED_IMAGE_BYTES) {
                   response.destroy();
-                  resolveBody("too-large");
+                  finish("too-large");
                   return;
                 }
                 chunks.push(chunk);
               });
-              response.on("end", () => resolveBody(Buffer.concat(chunks)));
-              response.on("error", rejectBody);
+              response.on("end", () => finish(Buffer.concat(chunks)));
             }),
         });
       },
@@ -144,61 +176,70 @@ export async function fetchRemoteImage(
   const firstTarget = parseProxyableImageUrl(raw);
   if (!firstTarget) return { ok: false, reason: "unsupported-url" };
   let target: URL = firstTarget;
+  const controller = new AbortController();
+  const deadline = setTimeout(
+    () => controller.abort(new Error("Timed out fetching image")),
+    REQUEST_TIMEOUT_MS,
+  );
 
-  for (let hop = 0; hop <= MAX_PROXY_REDIRECTS; hop++) {
-    let response: HopResult;
-    try {
-      response = await requestHop(target);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException)?.code;
-      return {
-        ok: false,
-        reason: code === "EBLOCKED" ? "blocked-address" : "fetch-failed",
-      };
+  try {
+    for (let hop = 0; hop <= MAX_PROXY_REDIRECTS; hop++) {
+      let response: HopResult;
+      try {
+        response = await requestHop(target, controller.signal);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code;
+        return {
+          ok: false,
+          reason: code === "EBLOCKED" ? "blocked-address" : "fetch-failed",
+        };
+      }
+
+      if (response.status >= 300 && response.status < 400) {
+        response.discard();
+        const location = response.headers.location;
+        const next: URL | null = location
+          ? parseProxyableImageUrl(new URL(location, target).href)
+          : null;
+        if (!next) return { ok: false, reason: "fetch-failed" };
+        target = next;
+        continue;
+      }
+
+      if (response.status < 200 || response.status >= 300) {
+        response.discard();
+        return { ok: false, reason: "fetch-failed" };
+      }
+
+      const contentType = normalizeRemoteImageContentType(
+        String(response.headers["content-type"] ?? ""),
+      );
+      if (!contentType) {
+        response.discard();
+        return { ok: false, reason: "not-an-image" };
+      }
+
+      const declared = Number(response.headers["content-length"]);
+      if (Number.isFinite(declared) && declared > MAX_PROXIED_IMAGE_BYTES) {
+        response.discard();
+        return { ok: false, reason: "too-large" };
+      }
+
+      let body: Buffer | "too-large";
+      try {
+        body = await response.read();
+      } catch {
+        // coercion-ok: a truncated transfer has no partial-success form here;
+        // the caller answers 502 either way.
+        return { ok: false, reason: "fetch-failed" };
+      }
+      if (body === "too-large") return { ok: false, reason: "too-large" };
+
+      return { ok: true, contentType, body };
     }
 
-    if (response.status >= 300 && response.status < 400) {
-      response.discard();
-      const location = response.headers.location;
-      const next: URL | null = location
-        ? parseProxyableImageUrl(new URL(location, target).href)
-        : null;
-      if (!next) return { ok: false, reason: "fetch-failed" };
-      target = next;
-      continue;
-    }
-
-    if (response.status < 200 || response.status >= 300) {
-      response.discard();
-      return { ok: false, reason: "fetch-failed" };
-    }
-
-    const contentType = normalizeRemoteImageContentType(
-      String(response.headers["content-type"] ?? ""),
-    );
-    if (!contentType) {
-      response.discard();
-      return { ok: false, reason: "not-an-image" };
-    }
-
-    const declared = Number(response.headers["content-length"]);
-    if (Number.isFinite(declared) && declared > MAX_PROXIED_IMAGE_BYTES) {
-      response.discard();
-      return { ok: false, reason: "too-large" };
-    }
-
-    let body: Buffer | "too-large";
-    try {
-      body = await response.read();
-    } catch {
-      // coercion-ok: a truncated transfer has no partial-success form here;
-      // the caller answers 502 either way.
-      return { ok: false, reason: "fetch-failed" };
-    }
-    if (body === "too-large") return { ok: false, reason: "too-large" };
-
-    return { ok: true, contentType, body };
+    return { ok: false, reason: "too-many-redirects" };
+  } finally {
+    clearTimeout(deadline);
   }
-
-  return { ok: false, reason: "too-many-redirects" };
 }

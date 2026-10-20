@@ -23,6 +23,7 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
+import { lockSlideAssetReferences } from "../server/lib/slide-asset-references.js";
 import {
   applySlideContentEdits,
   formatSlideHtml,
@@ -405,6 +406,7 @@ export default defineAction({
           title: schema.decks.title,
           data: schema.decks.data,
           ownerEmail: schema.decks.ownerEmail,
+          orgId: schema.decks.orgId,
           designSystemId: schema.decks.designSystemId,
           updatedAt: schema.decks.updatedAt,
         })
@@ -652,6 +654,15 @@ export default defineAction({
         deck.updatedAt = now;
         assertNoDeckRenderArtifacts(row.data, deck);
         await db.transaction(async (tx: any) => {
+          await lockSlideAssetReferences(
+            tx,
+            deck,
+            {
+              ownerEmail: row.ownerEmail ?? "",
+              orgId: row.orgId,
+            },
+            deckId,
+          );
           await createDeckVersionSnapshot(
             {
               id: row.id,

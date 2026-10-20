@@ -12,6 +12,7 @@ import {
   deckVersionChatContextFromAction,
   deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
+import { lockSlideAssetReferences } from "../server/lib/slide-asset-references.js";
 import { getDeckUrl } from "./_app-url.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 import {
@@ -114,6 +115,15 @@ export default defineAction({
     data.updatedAt = now;
 
     const persisted = await db.transaction(async (tx: any) => {
+      await lockSlideAssetReferences(
+        tx,
+        data,
+        {
+          ownerEmail,
+          orgId: current.orgId,
+        },
+        current.id,
+      );
       await createDeckVersionSnapshot(
         {
           id: current.id,

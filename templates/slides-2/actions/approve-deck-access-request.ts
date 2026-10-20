@@ -139,48 +139,24 @@ export default defineAction({
     }
     const requestPayload = request.parsed;
 
-    const [existingShare] = await db
-      .select({ id: schema.deckShares.id })
-      .from(schema.deckShares)
-      .where(
-        and(
-          eq(schema.deckShares.resourceId, deckId),
-          eq(schema.deckShares.principalType, "user"),
-          sql`lower(${schema.deckShares.principalId}) = ${requesterEmail}`,
-        ),
-      )
-      .limit(1);
-    if (existingShare) {
-      return {
-        ok: true as const,
-        alreadyAllowed: true,
-        requesterEmail,
-        deckId,
-        deckTitle: deck.title,
-        shareId: existingShare.id,
-        message: "Access was already granted to this requester.",
-      };
-    }
-    if (isGrantedAccessRequest(requestPayload)) {
-      throw httpError("This access request is invalid or expired.", 404);
-    }
-
     const shareId = deckViewerShareId(deckId, requesterEmail);
-    const [insertedShare] = await db
-      .insert(schema.deckShares)
-      .values({
-        id: shareId,
-        resourceId: deckId,
-        principalType: "user",
-        principalId: requesterEmail,
-        role: "viewer",
-        createdBy: normalizedApproverEmail,
-        createdAt: new Date().toISOString(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.deckShares.id });
-    if (!insertedShare) {
-      const [existingShareAfterConflict] = await db
+    const approval = await db.transaction(async (tx) => {
+      const [lockedDeck] = await tx
+        .select({
+          id: schema.decks.id,
+          title: schema.decks.title,
+          visibility: schema.decks.visibility,
+          data: schema.decks.data,
+        })
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId))
+        .for("update");
+      if (!lockedDeck || lockedDeck.visibility !== "private") {
+        throw httpError(`Deck ${deckId} not found`, 404);
+      }
+      assertSlides2DeckData(JSON.parse(lockedDeck.data));
+
+      const [existingShare] = await tx
         .select({ id: schema.deckShares.id })
         .from(schema.deckShares)
         .where(
@@ -191,43 +167,95 @@ export default defineAction({
           ),
         )
         .limit(1);
-      if (!existingShareAfterConflict) {
-        fail("Deck access share conflict could not be resolved.", {
-          errorCode: "deck_access_share_conflict",
+      if (existingShare) {
+        return {
+          kind: "already-allowed" as const,
+          deckTitle: lockedDeck.title,
+          shareId: existingShare.id,
+        };
+      }
+      if (isGrantedAccessRequest(requestPayload)) {
+        throw httpError("This access request is invalid or expired.", 404);
+      }
+
+      const [insertedShare] = await tx
+        .insert(schema.deckShares)
+        .values({
+          id: shareId,
+          resourceId: deckId,
+          principalType: "user",
+          principalId: requesterEmail,
+          role: "viewer",
+          createdBy: normalizedApproverEmail,
+          createdAt: new Date().toISOString(),
+        })
+        .onConflictDoNothing()
+        .returning({ id: schema.deckShares.id });
+      if (!insertedShare) {
+        const [existingShareAfterConflict] = await tx
+          .select({ id: schema.deckShares.id })
+          .from(schema.deckShares)
+          .where(
+            and(
+              eq(schema.deckShares.resourceId, deckId),
+              eq(schema.deckShares.principalType, "user"),
+              sql`lower(${schema.deckShares.principalId}) = ${requesterEmail}`,
+            ),
+          )
+          .limit(1);
+        if (!existingShareAfterConflict) {
+          fail("Deck access share conflict could not be resolved.", {
+            errorCode: "deck_access_share_conflict",
+            statusCode: 409,
+          });
+        }
+        return {
+          kind: "already-allowed" as const,
+          deckTitle: lockedDeck.title,
+          shareId: existingShareAfterConflict.id,
+        };
+      }
+
+      const [markedRequest] = await tx
+        .update(schema.deckEvents)
+        .set({
+          payload: JSON.stringify({
+            ...requestPayload,
+            accessGrantedAt: new Date().toISOString(),
+            accessShareId: insertedShare.id,
+          }),
+        })
+        .where(
+          and(
+            eq(schema.deckEvents.id, request.id),
+            eq(schema.deckEvents.deckId, deckId),
+            eq(schema.deckEvents.payload, request.payload ?? ""),
+          ),
+        )
+        .returning({ id: schema.deckEvents.id });
+      if (!markedRequest) {
+        fail("Deck access request approval could not be recorded.", {
+          errorCode: "deck_access_request_conflict",
           statusCode: 409,
         });
       }
+      return {
+        kind: "granted" as const,
+        deckTitle: lockedDeck.title,
+        shareId: insertedShare.id,
+      };
+    });
+
+    if (approval.kind === "already-allowed") {
       return {
         ok: true as const,
         alreadyAllowed: true,
         requesterEmail,
         deckId,
-        deckTitle: deck.title,
-        shareId: existingShareAfterConflict.id,
+        deckTitle: approval.deckTitle,
+        shareId: approval.shareId,
         message: "Access was already granted to this requester.",
       };
-    }
-    const [markedRequest] = await db
-      .update(schema.deckEvents)
-      .set({
-        payload: JSON.stringify({
-          ...requestPayload,
-          accessGrantedAt: new Date().toISOString(),
-          accessShareId: insertedShare.id,
-        }),
-      })
-      .where(
-        and(
-          eq(schema.deckEvents.id, request.id),
-          eq(schema.deckEvents.payload, request.payload ?? ""),
-        ),
-      )
-      .returning({ id: schema.deckEvents.id });
-    if (!markedRequest) {
-      fail("Deck access request approval could not be recorded.", {
-        errorCode: "deck_access_request_conflict",
-        statusCode: 409,
-      });
     }
     invalidateCollabAccessCache("deck", deckId);
 
@@ -235,7 +263,7 @@ export default defineAction({
     // the approval link never notify the requester twice.
     const requesterNotified = await notifyRequesterOfAccess({
       deckId,
-      deckTitle: deck.title,
+      deckTitle: approval.deckTitle,
       requesterEmail,
       approverEmail: normalizedApproverEmail,
     });
@@ -245,8 +273,8 @@ export default defineAction({
       alreadyAllowed: false,
       requesterEmail,
       deckId,
-      deckTitle: deck.title,
-      shareId: insertedShare.id,
+      deckTitle: approval.deckTitle,
+      shareId: approval.shareId,
       requesterNotified,
       message:
         requesterNotified === true

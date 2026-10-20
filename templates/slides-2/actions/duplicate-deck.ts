@@ -11,6 +11,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withSlideAssetReferencesLocked } from "../server/lib/slide-asset-references.js";
 import { repairDeckSlideReferences } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 import { assertSlides2DeckData, isSlides2DeckData } from "./_deck-app-scope.js";
@@ -235,17 +236,24 @@ export default defineAction({
     assertDeckInlineImagesPersistable(null, deckData);
 
     try {
-      await db.insert(schema.decks).values({
-        id: newId,
-        title: newTitle,
-        data: JSON.stringify(deckData),
-        designSystemId: source.designSystemId ?? null,
-        visibility: "private",
-        createdAt: now,
-        updatedAt: now,
-        ownerEmail,
-        orgId,
-      });
+      await withSlideAssetReferencesLocked(
+        db,
+        deckData,
+        { ownerEmail, orgId },
+        async (tx) => {
+          await tx.insert(schema.decks).values({
+            id: newId,
+            title: newTitle,
+            data: JSON.stringify(deckData),
+            designSystemId: source.designSystemId ?? null,
+            visibility: "private",
+            createdAt: now,
+            updatedAt: now,
+            ownerEmail,
+            orgId,
+          });
+        },
+      );
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
       const existing = await readDuplicateCopy(

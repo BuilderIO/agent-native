@@ -43,6 +43,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  requiresAuth: false,
   run: async ({ deckId, slideId, expectedRevision, expectedSourceHash }) => {
     await assertAccess("deck", deckId, "viewer");
     const [row] = await getDb()

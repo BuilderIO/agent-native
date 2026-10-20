@@ -2,17 +2,20 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { deleteUploadedFile } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { and, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { localImportedAssetIdentity } from "../server/lib/import-asset-storage.js";
+import { findDeckReferencesToAssets } from "../server/lib/slide-asset-references.js";
 import {
   finishOwnedUploadedAssetCleanup,
   retryOwnedUploadedAssetCleanup,
   scheduleUploadedAssetDeletion,
   type SlidesTransaction,
 } from "../server/lib/uploaded-asset-cleanup-outbox.js";
+import { deleteUploadedAssetObject } from "../server/lib/uploaded-asset-object-lifecycle.js";
 import { isSlides2DeckData } from "../shared/deck-app-scope.js";
 
 type DeckUploadedAsset = {
@@ -129,7 +132,7 @@ export default defineAction({
       }
       const result = await db.transaction(async (tx) => {
         // Comment creation takes this same lock before validating the slide,
-        // so deck removal cannot race an insert of an orphaned comment.
+        // as does upload registration before inserting its asset row.
         const [lockedDeck] = await tx
           .select({ id: schema.decks.id, data: schema.decks.data })
           .from(schema.decks)
@@ -143,14 +146,6 @@ export default defineAction({
             statusCode: 404,
           });
         }
-
-        const shares = await tx
-          .select({
-            principalType: schema.deckShares.principalType,
-            principalId: schema.deckShares.principalId,
-          })
-          .from(schema.deckShares)
-          .where(eq(schema.deckShares.resourceId, id));
         const uploadedAssets = await tx
           .select({
             id: schema.uploadedAssets.id,
@@ -162,15 +157,57 @@ export default defineAction({
           })
           .from(schema.uploadedAssets)
           .where(eq(schema.uploadedAssets.deckId, id))
+          .orderBy(asc(schema.uploadedAssets.id))
           .for("update");
-        const assetsWithProvider = uploadedAssets.map((asset) => {
-          if (!asset.provider) {
+
+        const shares = await tx
+          .select({
+            principalType: schema.deckShares.principalType,
+            principalId: schema.deckShares.principalId,
+          })
+          .from(schema.deckShares)
+          .where(eq(schema.deckShares.resourceId, id));
+        const referencedAssets = await findDeckReferencesToAssets(
+          tx,
+          uploadedAssets,
+          id,
+        );
+        const referencedAssetIds = new Set(referencedAssets.keys());
+        for (const assetId of [...referencedAssetIds].sort()) {
+          const [detachedAsset] = await tx
+            .update(schema.uploadedAssets)
+            .set({ deckId: null })
+            .where(
+              and(
+                eq(schema.uploadedAssets.id, assetId),
+                eq(schema.uploadedAssets.deckId, id),
+              ),
+            )
+            .returning({ id: schema.uploadedAssets.id });
+          if (!detachedAsset) {
+            fail("A referenced slide asset changed during deck deletion.", {
+              errorCode: "deck_asset_reference_conflict",
+              statusCode: 409,
+            });
+          }
+        }
+        const deletedAssets = uploadedAssets.filter(
+          (asset) => !referencedAssetIds.has(asset.id),
+        );
+        const assetsWithProvider = deletedAssets.map((asset) => {
+          const localIdentity = asset.provider
+            ? null
+            : localImportedAssetIdentity(asset.url);
+          const provider = asset.provider ?? localIdentity?.provider;
+          const providerObjectId =
+            asset.providerObjectId ?? localIdentity?.providerObjectId ?? null;
+          if (!provider) {
             fail("Could not delete deck assets without a storage provider.", {
               errorCode: "deck_asset_cleanup_unavailable",
               statusCode: 503,
             });
           }
-          return { ...asset, provider: asset.provider };
+          return { ...asset, provider, providerObjectId };
         });
         const assetCleanupRecords: Array<{
           assetId: string;
@@ -181,9 +218,7 @@ export default defineAction({
           ownerEmail: string;
           token: string;
         }> = [];
-        const deletedAssetIds = new Set(
-          uploadedAssets.map((asset) => asset.id),
-        );
+        const deletedAssetIds = new Set(deletedAssets.map((asset) => asset.id));
         for (const group of storedObjectGroups(assetsWithProvider)) {
           const referenceConditions = group.map(storedObjectWhere);
           const references = await tx
@@ -231,6 +266,12 @@ export default defineAction({
           .delete(schema.deckShareLinks)
           .where(eq(schema.deckShareLinks.deckId, id));
         await tx
+          .delete(schema.deckEvents)
+          .where(eq(schema.deckEvents.deckId, id));
+        await tx
+          .delete(schema.deckAccessRequestLimits)
+          .where(eq(schema.deckAccessRequestLimits.deckId, id));
+        await tx
           .delete(schema.deckVersions)
           .where(
             and(
@@ -268,95 +309,66 @@ export default defineAction({
             ...(asset.orgId ? { orgId: asset.orgId } : {}),
           };
           try {
-            const [survivingReference] = await runWithRequestContext(
-              requestContext,
-              () =>
-                db
-                  .select({ id: schema.uploadedAssets.id })
-                  .from(schema.uploadedAssets)
-                  .where(
-                    and(
-                      ne(schema.uploadedAssets.id, asset.assetId),
-                      storedObjectWhere(asset),
-                    ),
-                  )
-                  .limit(1),
-            );
-            if (survivingReference) {
-              await runWithRequestContext(requestContext, () =>
-                db.transaction(async (tx) => {
-                  const removed = await finishOwnedUploadedAssetCleanup(
-                    tx,
-                    {
-                      assetId: asset.assetId,
-                      ownerEmail: asset.ownerEmail,
-                      orgId: asset.orgId,
-                    },
-                    asset.token,
-                  );
-                  if (!removed) {
-                    fail("Shared image cleanup lease is no longer current.", {
-                      errorCode: "deck_asset_cleanup_lease_lost",
-                      statusCode: 409,
-                    });
-                  }
-                }),
+            const cleanupScope = {
+              assetId: asset.assetId,
+              ownerEmail: asset.ownerEmail,
+              orgId: asset.orgId,
+            };
+            const finishCleanup = async (tx: SlidesTransaction) => {
+              const removed = await finishOwnedUploadedAssetCleanup(
+                tx,
+                cleanupScope,
+                asset.token,
               );
-              return;
-            }
-
-            const deleted = await runWithRequestContext(requestContext, () =>
-              deleteUploadedFile(asset.provider, {
-                id: asset.providerObjectId ?? undefined,
-                url: asset.url,
+              if (!removed) {
+                fail("Deck asset cleanup lease was no longer current.", {
+                  errorCode: "deck_asset_cleanup_lease_lost",
+                  statusCode: 409,
+                });
+              }
+              await tx
+                .delete(schema.uploadedAssets)
+                .where(
+                  and(
+                    eq(schema.uploadedAssets.id, asset.assetId),
+                    eq(schema.uploadedAssets.ownerEmail, asset.ownerEmail),
+                    asset.orgId
+                      ? eq(schema.uploadedAssets.orgId, asset.orgId)
+                      : isNull(schema.uploadedAssets.orgId),
+                    eq(schema.uploadedAssets.url, asset.url),
+                    eq(schema.uploadedAssets.provider, asset.provider),
+                    asset.providerObjectId
+                      ? eq(
+                          schema.uploadedAssets.providerObjectId,
+                          asset.providerObjectId,
+                        )
+                      : isNull(schema.uploadedAssets.providerObjectId),
+                    isNull(schema.uploadedAssets.deckId),
+                  ),
+                );
+            };
+            const deletion = await runWithRequestContext(requestContext, () =>
+              deleteUploadedAssetObject({
+                identity: {
+                  url: asset.url,
+                  provider: asset.provider,
+                  providerObjectId: asset.providerObjectId,
+                },
+                excludeAssetId: asset.assetId,
+                lease: { ...cleanupScope, token: asset.token },
+                deleteObject: () =>
+                  deleteUploadedFile(asset.provider, {
+                    id: asset.providerObjectId ?? undefined,
+                    url: asset.url,
+                  }),
+                onShared: finishCleanup,
+                onAlreadyDeleted: finishCleanup,
+                onDeleted: finishCleanup,
               }),
             );
-            if (deleted) {
+            if (deletion.status === "failed") {
               await runWithRequestContext(requestContext, () =>
-                db.transaction(async (tx) => {
-                  const removed = await finishOwnedUploadedAssetCleanup(
-                    tx,
-                    {
-                      assetId: asset.assetId,
-                      ownerEmail: asset.ownerEmail,
-                      orgId: asset.orgId,
-                    },
-                    asset.token,
-                  );
-                  if (!removed) return;
-                  await tx
-                    .delete(schema.uploadedAssets)
-                    .where(
-                      and(
-                        eq(schema.uploadedAssets.id, asset.assetId),
-                        eq(schema.uploadedAssets.ownerEmail, asset.ownerEmail),
-                        asset.orgId
-                          ? eq(schema.uploadedAssets.orgId, asset.orgId)
-                          : isNull(schema.uploadedAssets.orgId),
-                        eq(schema.uploadedAssets.url, asset.url),
-                        eq(schema.uploadedAssets.provider, asset.provider),
-                        asset.providerObjectId
-                          ? eq(
-                              schema.uploadedAssets.providerObjectId,
-                              asset.providerObjectId,
-                            )
-                          : isNull(schema.uploadedAssets.providerObjectId),
-                        isNull(schema.uploadedAssets.deckId),
-                      ),
-                    );
-                }),
-              );
-            } else {
-              await runWithRequestContext(requestContext, () =>
-                retryOwnedUploadedAssetCleanup(
-                  {
-                    assetId: asset.assetId,
-                    ownerEmail: asset.ownerEmail,
-                    orgId: asset.orgId,
-                  },
-                  asset.token,
-                  1,
-                ),
+                retryOwnedUploadedAssetCleanup(cleanupScope, asset.token, 1),
               );
               console.warn(
                 "[slides-upload] deck asset cleanup remains queued",

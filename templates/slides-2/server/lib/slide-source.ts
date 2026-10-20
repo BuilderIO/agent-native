@@ -352,6 +352,31 @@ export interface StaticSlidePageSource {
   notes?: string;
 }
 
+export function findStaticLocalPageArray(
+  ast: t.File,
+  expression: t.Node,
+): t.ArrayExpression | null {
+  const candidate = unwrapTypeScriptExpression(expression);
+  if (!t.isIdentifier(candidate)) return null;
+
+  for (const statement of ast.program.body) {
+    const declaration = t.isExportNamedDeclaration(statement)
+      ? statement.declaration
+      : statement;
+    if (!t.isVariableDeclaration(declaration) || declaration.kind !== "const")
+      continue;
+
+    const binding = declaration.declarations.find(
+      (item) => t.isIdentifier(item.id) && item.id.name === candidate.name,
+    );
+    if (!binding?.init) continue;
+    const initializer = unwrapTypeScriptExpression(binding.init);
+    return t.isArrayExpression(initializer) ? initializer : null;
+  }
+
+  return null;
+}
+
 export function splitSlideSourcePages(
   sourceTsx: string,
 ): StaticSlidePageSource[] {
@@ -363,15 +388,9 @@ export function splitSlideSourcePages(
     );
   }
 
-  let declaration = defaultExport.declaration;
-  while (
-    t.isTSAsExpression(declaration) ||
-    t.isTSTypeAssertion(declaration) ||
-    t.isTSNonNullExpression(declaration) ||
-    t.isTSSatisfiesExpression(declaration)
-  ) {
-    declaration = declaration.expression;
-  }
+  let declaration = unwrapTypeScriptExpression(defaultExport.declaration);
+  const localPageArray = findStaticLocalPageArray(ast, declaration);
+  if (localPageArray) declaration = localPageArray;
   let pageExpressions: t.Node[];
   if (!t.isArrayExpression(declaration)) {
     if (
@@ -519,6 +538,19 @@ export function splitSlideSourcePages(
       ...(moduleNotes.values ? { notes: moduleNotes.values[index] ?? "" } : {}),
     };
   });
+}
+
+function unwrapTypeScriptExpression(expression: t.Node): t.Node {
+  let current = expression;
+  while (
+    t.isTSAsExpression(current) ||
+    t.isTSTypeAssertion(current) ||
+    t.isTSNonNullExpression(current) ||
+    t.isTSSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
 }
 
 function readComponentTransitions(

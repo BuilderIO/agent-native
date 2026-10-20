@@ -7,10 +7,12 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, eq, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { localImportedAssetIdentity } from "../server/lib/import-asset-storage.js";
+import { findDeckReferencingAsset } from "../server/lib/slide-asset-references.js";
 import { scheduleUploadedAssetDeletion } from "../server/lib/uploaded-asset-cleanup-outbox.js";
 
 function imageAssetWorkspaceScope(orgId: string | null | undefined) {
@@ -83,26 +85,21 @@ export default defineAction({
           .for("update");
 
         if (!asset) return "missing";
-        if (!asset.provider) return "storage_unavailable";
+        const localIdentity = asset.provider
+          ? null
+          : localImportedAssetIdentity(asset.url);
+        const provider = asset.provider ?? localIdentity?.provider;
+        const providerObjectId =
+          asset.providerObjectId ?? localIdentity?.providerObjectId ?? null;
+        if (!provider) return "storage_unavailable";
 
-        const deckScope = asset.orgId
-          ? eq(schema.decks.orgId, asset.orgId)
-          : and(
-              eq(schema.decks.ownerEmail, ownerEmail),
-              isNull(schema.decks.orgId),
-            );
         let referencingDeck: { id: string } | undefined;
         try {
-          [referencingDeck] = await tx
-            .select({ id: schema.decks.id })
-            .from(schema.decks)
-            .where(
-              and(
-                deckScope,
-                sql`position(${`asset://${asset.id}`} in ${schema.decks.data}) > 0`,
-              ),
-            )
-            .limit(1);
+          referencingDeck = await findDeckReferencingAsset(tx, {
+            id: asset.id,
+            ownerEmail,
+            orgId: asset.orgId,
+          });
         } catch {
           fail("Could not verify whether the uploaded image is in use.", {
             errorCode: "asset_delete_reference_check_failed",
@@ -120,8 +117,8 @@ export default defineAction({
           assetId: asset.id,
           ownerEmail,
           orgId: asset.orgId,
-          provider: asset.provider,
-          providerObjectId: asset.providerObjectId,
+          provider,
+          providerObjectId,
           url: asset.url,
         });
 

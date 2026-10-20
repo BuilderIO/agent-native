@@ -13,6 +13,29 @@ const mocks = vi.hoisted(() => ({
   isEmailConfigured: vi.fn(),
   sendEmail: vi.fn(),
 }));
+const tables = vi.hoisted(() => ({
+  decks: {
+    id: "decks.id",
+    title: "decks.title",
+    visibility: "decks.visibility",
+    data: "decks.data",
+  },
+  deckEvents: {
+    id: "deck_events.id",
+    deckId: "deck_events.deck_id",
+    type: "deck_events.type",
+    payload: "deck_events.payload",
+  },
+  deckShares: {
+    id: "deck_shares.id",
+    resourceId: "deck_shares.resource_id",
+    principalType: "deck_shares.principal_type",
+    principalId: "deck_shares.principal_id",
+    role: "deck_shares.role",
+    createdBy: "deck_shares.created_by",
+    createdAt: "deck_shares.created_at",
+  },
+}));
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => mocks.defineAction(options),
@@ -58,29 +81,7 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("../server/db/index.js", () => ({
   getDb: (...args: unknown[]) => mocks.getDb(...args),
-  schema: {
-    decks: {
-      id: "decks.id",
-      title: "decks.title",
-      visibility: "decks.visibility",
-      data: "decks.data",
-    },
-    deckEvents: {
-      id: "deck_events.id",
-      deckId: "deck_events.deck_id",
-      type: "deck_events.type",
-      payload: "deck_events.payload",
-    },
-    deckShares: {
-      id: "deck_shares.id",
-      resourceId: "deck_shares.resource_id",
-      principalType: "deck_shares.principal_type",
-      principalId: "deck_shares.principal_id",
-      role: "deck_shares.role",
-      createdBy: "deck_shares.created_by",
-      createdAt: "deck_shares.created_at",
-    },
-  },
+  schema: tables,
 }));
 
 import { accessRequestEventId } from "../server/lib/deck-access-requests.js";
@@ -91,16 +92,37 @@ function createDb(
   requestRows: unknown[],
   shareRows: unknown[],
   insertConflict = false,
+  deckMissingAtLock = false,
 ) {
-  const rowsBySelect = [deckRows, requestRows, shareRows];
-  let selectIndex = 0;
-  const db = {
+  const db: any = {
     select: vi.fn(() => {
-      const rows = rowsBySelect[selectIndex++] ?? [];
+      let table: unknown;
+      let rows: unknown[] = [];
       const builder = {
-        from: vi.fn(() => builder),
+        from: vi.fn((selectedTable: unknown) => {
+          table = selectedTable;
+          rows =
+            table === tables.decks
+              ? deckRows
+              : table === tables.deckEvents
+                ? requestRows
+                : table === tables.deckShares
+                  ? shareRows
+                  : [];
+          return builder;
+        }),
         where: vi.fn(() => builder),
         limit: vi.fn(async () => rows),
+        for: vi.fn((mode: string) => {
+          if (
+            table === tables.decks &&
+            mode === "update" &&
+            deckMissingAtLock
+          ) {
+            rows = [];
+          }
+          return builder;
+        }),
         then: (
           resolve: (value: unknown[]) => unknown,
           reject?: (reason: unknown) => unknown,
@@ -122,6 +144,7 @@ function createDb(
         })),
       })),
     })),
+    transaction: vi.fn(async (run: (tx: any) => Promise<unknown>) => run(db)),
   };
   return db;
 }
@@ -191,6 +214,23 @@ describe("approve-deck-access-request", () => {
       left: "deck_events.id",
       right: accessRequestEventId("deck-1", "viewer@example.com"),
     });
+  });
+
+  it("does not grant access when deck deletion wins the approval write lock", async () => {
+    const db = createDb([privateDeck()], [accessRequest()], [], false, true);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (approveDeckAccessRequest as any).run({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
   it("rejects approval when the recorded request cannot be read", async () => {

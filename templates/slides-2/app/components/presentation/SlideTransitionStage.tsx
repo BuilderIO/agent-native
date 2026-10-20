@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
 import { useLayoutEffect, useRef } from "react";
 
-import SlideRenderer from "@/components/deck/SlideRenderer";
+import SlideContentRenderer from "@/components/slides-2-runtime/SlideContentRenderer";
 import {
   Dialog,
   DialogClose,
@@ -44,6 +44,7 @@ export interface SlideTransitionStageProps {
   outgoingPosition: SlidePosition;
   incomingPosition: SlidePosition;
   motion: ResolvedSlideTransitionMotion;
+  sourceDeckId?: string;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   onFinished?: () => void;
@@ -52,32 +53,21 @@ export interface SlideTransitionStageProps {
 export function PresentationSlideLayer({
   slide,
   slidePosition,
+  sourceDeckId,
   aspectRatio,
   designSystem,
 }: {
   slide: Slide;
   slidePosition: SlidePosition;
+  sourceDeckId?: string;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
 }) {
-  const t = useT();
-  if (slide.sourceRuntimeRequired) {
-    return (
-      <div
-        role="status"
-        className={
-          /* guard:allow-raw-color — transition error overlays use the fixed presenter-stage contrast. */ "absolute inset-0 flex items-center justify-center p-10 text-center text-lg text-white/80"
-        }
-      >
-        {t("presentation.reactSlideUnavailable")}
-      </div>
-    );
-  }
   return (
-    <SlideRenderer
+    <SlideContentRenderer
       slide={slide}
       slidePosition={slidePosition}
-      thumbnail={false}
+      sourceDeckId={sourceDeckId}
       aspectRatio={aspectRatio}
       designSystem={designSystem}
     />
@@ -95,6 +85,7 @@ export function SlideTransitionStage({
   outgoingPosition,
   incomingPosition,
   motion,
+  sourceDeckId,
   aspectRatio,
   designSystem,
   onFinished,
@@ -156,6 +147,7 @@ export function SlideTransitionStage({
         <PresentationSlideLayer
           slide={outgoing}
           slidePosition={outgoingPosition}
+          sourceDeckId={sourceDeckId}
           aspectRatio={aspectRatio}
           designSystem={designSystem}
         />
@@ -171,6 +163,7 @@ export function SlideTransitionStage({
         <PresentationSlideLayer
           slide={incoming}
           slidePosition={incomingPosition}
+          sourceDeckId={sourceDeckId}
           aspectRatio={aspectRatio}
           designSystem={designSystem}
         />
@@ -280,10 +273,9 @@ export function SlideTransitionPreview({
             />
           ) : (
             <div className="absolute inset-0">
-              <SlideRenderer
+              <SlideContentRenderer
                 slide={incoming}
                 slidePosition={incomingPosition}
-                thumbnail={false}
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
               />

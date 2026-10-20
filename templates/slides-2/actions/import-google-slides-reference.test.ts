@@ -128,17 +128,19 @@ describe("import-google-slides-reference action", () => {
     vi.unstubAllGlobals();
   });
 
-  it("enforces a streaming response byte limit when content-length is absent", async () => {
+  it("enforces a streaming response byte limit when content-length understates the body", async () => {
     const cancelBody = vi.fn(() => Promise.reject(new Error("cancel failed")));
     const response = new Response(
       new ReadableStream({
         start(controller) {
-          controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+          controller.enqueue(new Uint8Array([1, 2]));
+          controller.enqueue(new Uint8Array([3, 4]));
         },
         cancel: cancelBody,
       }),
+      { headers: { "content-length": "3" } },
     );
-    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("content-length")).toBe("3");
 
     await expect(
       readBoundedResponseBytes(response, 3, {
@@ -172,7 +174,15 @@ describe("import-google-slides-reference action", () => {
 
   it("lets callers cap aggregate bytes while streaming several assets", async () => {
     let totalBytes = 0;
-    const response = new Response(new Uint8Array([1, 2, 3]));
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1]));
+          controller.enqueue(new Uint8Array([2, 3]));
+          controller.close();
+        },
+      }),
+    );
 
     await expect(
       readBoundedResponseBytes(
@@ -219,6 +229,23 @@ describe("import-google-slides-reference action", () => {
     await expect(
       action.run({ fileId: "presentation_123", purpose: "reference" }),
     ).resolves.toBeDefined();
+  });
+
+  it("rejects an empty successful image response before importing fallbacks", async () => {
+    const imageUrl = "https://lh3.googleusercontent.com/empty-image.png";
+    configureGoogleSlidesImport(
+      [imageUrl],
+      async () =>
+        new Response(null, { headers: { "content-type": "image/png" } }),
+    );
+
+    await expect(
+      action.run({ fileId: "presentation_123", purpose: "reference" }),
+    ).rejects.toMatchObject({
+      errorCode: "google_slides_image_empty",
+      statusCode: 502,
+    });
+    expect(mocks.importPptxBufferToDeck).not.toHaveBeenCalled();
   });
 
   it("returns the typed error when a Google Slides image exceeds its byte limit", async () => {
@@ -275,6 +302,78 @@ describe("import-google-slides-reference action", () => {
       statusCode: 413,
     });
     expect(fetchImage).toHaveBeenCalledTimes(6);
+  });
+
+  it("cancels an unsuccessful Google Drive export response body", async () => {
+    mocks.getAvailableGoogleDocsAccessToken.mockResolvedValue({
+      accessToken: "example-access-token",
+    });
+    const cancelBody = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new ReadableStream({ cancel: cancelBody }), {
+            status: 503,
+          }),
+      ),
+    );
+
+    await expect(
+      action.run({ fileId: "presentation_123", purpose: "reference" }),
+    ).rejects.toThrow("Google Drive returned HTTP 503");
+    expect(cancelBody).toHaveBeenCalledOnce();
+    expect(mocks.parsePptx).not.toHaveBeenCalled();
+  });
+
+  it("cancels an unsuccessful Google Slides metadata response body", async () => {
+    const cancelBody = vi.fn();
+    configureGoogleSlidesImport([], vi.fn());
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(new ReadableStream({ cancel: cancelBody }), {
+        status: 503,
+      }),
+    );
+
+    await expect(
+      action.run({ fileId: "presentation_123", purpose: "reference" }),
+    ).rejects.toMatchObject({
+      errorCode: "google_slides_images_request_failed",
+      statusCode: 502,
+    });
+    expect(cancelBody).toHaveBeenCalledOnce();
+    expect(mocks.importPptxBufferToDeck).not.toHaveBeenCalled();
+  });
+
+  it("rejects excessive image placements before scheduling downloads", async () => {
+    const repeatedImageUrl = "https://lh3.googleusercontent.com/repeated.png";
+    const fetchImage = vi.fn(async () => new Response(new Uint8Array([1])));
+    configureGoogleSlidesImport(Array(501).fill(repeatedImageUrl), fetchImage);
+
+    await expect(
+      action.run({ fileId: "presentation_123", purpose: "reference" }),
+    ).rejects.toMatchObject({
+      errorCode: "google_slides_too_many_image_candidates",
+      statusCode: 413,
+    });
+    expect(fetchImage).not.toHaveBeenCalled();
+  });
+
+  it("rejects excessive distinct image fetches before starting them", async () => {
+    const imageUrls = Array.from(
+      { length: 251 },
+      (_, index) => `https://lh3.googleusercontent.com/image-${index}.png`,
+    );
+    const fetchImage = vi.fn(async () => new Response(new Uint8Array([1])));
+    configureGoogleSlidesImport(imageUrls, fetchImage);
+
+    await expect(
+      action.run({ fileId: "presentation_123", purpose: "reference" }),
+    ).rejects.toMatchObject({
+      errorCode: "google_slides_too_many_image_fetches",
+      statusCode: 413,
+    });
+    expect(fetchImage).not.toHaveBeenCalled();
   });
 
   it("reports a missing Google connection as a safe precondition failure", async () => {

@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withSlideAssetReferencesLocked } from "../server/lib/slide-asset-references.js";
 import { getDeckUrl } from "./_app-url.js";
 import { trackDeckCreated } from "./_deck-tracking.js";
 import { assertDeckInlineImagesPersistable } from "./_render-artifacts.js";
@@ -95,18 +96,24 @@ export default defineAction({
       id: `slide-${nanoid(8)}`,
     }));
     assertDeckInlineImagesPersistable(null, deck);
-    await getDb()
-      .insert(schema.decks)
-      .values({
-        id,
-        title,
-        data: JSON.stringify(deck),
-        designSystemId: deck.designSystemId ?? null,
-        ownerEmail: email,
-        orgId: getRequestOrgId() ?? null,
-        createdAt: now,
-        updatedAt: now,
-      });
+    const orgId = getRequestOrgId() ?? null;
+    await withSlideAssetReferencesLocked(
+      getDb(),
+      deck,
+      { ownerEmail: email, orgId },
+      async (tx) => {
+        await tx.insert(schema.decks).values({
+          id,
+          title,
+          data: JSON.stringify(deck),
+          designSystemId: deck.designSystemId ?? null,
+          ownerEmail: email,
+          orgId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
     const [saved] = await getDb()
       .select({ id: schema.decks.id, title: schema.decks.title })
       .from(schema.decks)

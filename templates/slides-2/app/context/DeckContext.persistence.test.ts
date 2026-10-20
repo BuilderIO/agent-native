@@ -41,6 +41,11 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => orgQueryState,
 }));
 
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) =>
+    key === "deckEditor.historyStepConflict" ? "History step conflict" : key,
+}));
+
 import {
   registerInlineEditRemoteApplier,
   requestInlineEditRemoteRetry,
@@ -2311,7 +2316,9 @@ describe("DeckContext deck creation persistence", () => {
         ?.slides.find((slide) => slide.id === "slide-1")?.notes,
     ).toBe("Local notes");
 
-    act(() => result.current.undo(deckId));
+    await act(async () => {
+      await result.current.undo(deckId);
+    });
     await waitFor(() =>
       expect(
         result.current.decks
@@ -2405,7 +2412,9 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const toastSpy = vi.spyOn(toast, "error");
-    act(() => result.current.undo(deckId));
+    await act(async () => {
+      await result.current.undo(deckId);
+    });
 
     expect(result.current.getDeck(deckId)?.slides[0]).toMatchObject({
       notes: "Local notes",
@@ -5846,12 +5855,14 @@ describe("DeckContext deck creation persistence", () => {
     ).toBeTruthy();
 
     await act(async () => {
-      result.current.undo(created.id);
+      await result.current.undo(created.id);
       await result.current.flushDeckSave(created.id);
     });
     expect(result.current.getDeck(created.id)?.slides[0]?.layout).toBe("title");
 
-    act(() => result.current.undo(created.id));
+    await act(async () => {
+      await result.current.undo(created.id);
+    });
 
     expect(result.current.getDeck(created.id)).toBeUndefined();
   });
@@ -7748,6 +7759,70 @@ describe("DeckContext deck creation persistence", () => {
       }
 
       window.history.pushState({}, "", pathname);
+      const shortcutEvent = new KeyboardEvent("keydown", {
+        key: shortcut === "undo" ? "z" : "y",
+        metaKey: true,
+        cancelable: true,
+      });
+      act(() => window.dispatchEvent(shortcutEvent));
+
+      expect(shortcutEvent.defaultPrevented).toBe(false);
+      expect(result.current.getDeck("shared-deck")?.title).toBe(expectedTitle);
+      expect(getAccessibleDeck()?.title).toBe(expectedTitle);
+    },
+  );
+
+  it.each(["undo", "redo"] as const)(
+    "ignores the %s shortcut when no editor deck is active despite a stale deck URL",
+    async (shortcut) => {
+      window.history.pushState({}, "", "/deck/shared-deck");
+      const { setAccessibleDeck, getAccessibleDeck } = setupFetch();
+      const inactiveDeckWrapper = ({ children }: { children: ReactNode }) =>
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(DeckProvider, {
+            realtimeEnabled: true,
+            openDeckId: null,
+            children,
+          }),
+        );
+      const { result } = renderHook(() => useDecks(), {
+        wrapper: inactiveDeckWrapper,
+      });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      setAccessibleDeck({
+        id: "shared-deck",
+        title: "Original title",
+        createdAt: "2026-05-12T00:00:00.000Z",
+        updatedAt: "2026-05-12T00:00:00.000Z",
+        slides: [],
+      });
+      await act(async () => {
+        await result.current.reloadDecks();
+      });
+
+      await act(async () => {
+        result.current.updateDeck("shared-deck", { title: "Edited title" });
+        await result.current.flushDeckSave("shared-deck");
+      });
+      await waitFor(() =>
+        expect(getAccessibleDeck()?.title).toBe("Edited title"),
+      );
+
+      const expectedTitle =
+        shortcut === "undo" ? "Edited title" : "Original title";
+      if (shortcut === "redo") {
+        await act(async () => {
+          await result.current.undo("shared-deck");
+          await result.current.flushDeckSave("shared-deck");
+        });
+        await waitFor(() =>
+          expect(getAccessibleDeck()?.title).toBe("Original title"),
+        );
+      }
+
       const shortcutEvent = new KeyboardEvent("keydown", {
         key: shortcut === "undo" ? "z" : "y",
         metaKey: true,

@@ -142,6 +142,42 @@ describe("get-slide-render", () => {
     });
   });
 
+  it("allows anonymous public viewers while still denying private decks", async () => {
+    expect(action.requiresAuth).toBe(false);
+    mocks.assertAccess.mockImplementation(async (_type, deckId, role) => {
+      expect(role).toBe("viewer");
+      if (deckId === "private-deck") throw new Error("No access to deck");
+      return { role: "viewer" };
+    });
+
+    const publicResult = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-2",
+    });
+
+    expect(publicResult).toMatchObject({
+      deckId: "deck-1",
+      slideId: "slide-2",
+    });
+    expect(mocks.assertAccess).toHaveBeenNthCalledWith(
+      1,
+      "deck",
+      "deck-1",
+      "viewer",
+    );
+
+    await expect(
+      action.run({ deckId: "private-deck", slideId: "slide-2" }),
+    ).rejects.toThrow("No access to deck");
+    expect(mocks.assertAccess).toHaveBeenNthCalledWith(
+      2,
+      "deck",
+      "private-deck",
+      "viewer",
+    );
+    expect(mocks.limit).toHaveBeenCalledTimes(1);
+  });
+
   it("renders a saved slide in a deck with more than 40 slides", async () => {
     const slides = Array.from({ length: 41 }, (_, index) =>
       index === 40

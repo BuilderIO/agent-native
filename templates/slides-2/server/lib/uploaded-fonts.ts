@@ -24,6 +24,7 @@ import {
   registerDeckUploadedAsset,
 } from "./deck-asset-scope.js";
 import { type DownloadedGoogleFont } from "./google-fonts.js";
+import { deleteUploadedAssetObject } from "./uploaded-asset-object-lifecycle.js";
 
 const MAX_STORED_FONT_BYTES = 8 * 1024 * 1024;
 const FONT_MIME_EXTENSIONS: Record<string, string> = {
@@ -266,13 +267,22 @@ export async function reapOrphanedFontAssetObjects(
           );
           return;
         }
-        const deleted = await runWithRequestContext(requestContext, () =>
-          deleteUploadedFile(value.provider, {
-            id: value.providerObjectId ?? undefined,
-            url: value.url,
+        const deletion = await runWithRequestContext(requestContext, () =>
+          deleteUploadedAssetObject({
+            identity: {
+              url: value.url,
+              provider: value.provider,
+              providerObjectId: value.providerObjectId,
+            },
+            excludeAssetId: value.assetId,
+            deleteObject: () =>
+              deleteUploadedFile(value.provider, {
+                id: value.providerObjectId ?? undefined,
+                url: value.url,
+              }),
           }),
         );
-        if (deleted) {
+        if (deletion.status !== "failed") {
           await runWithRequestContext(requestContext, () =>
             deleteAppState(key),
           );
@@ -351,14 +361,23 @@ async function recordAndReapFailedFontRegistration(args: {
     registered = undefined;
   }
   if (registered === false) {
-    let deleted = false;
     try {
-      deleted = await runWithRequestContext(requestContext, () =>
-        deleteUploadedFile(args.provider, {
-          id: args.providerObjectId ?? undefined,
-          url: args.url,
+      const deletion = await runWithRequestContext(requestContext, () =>
+        deleteUploadedAssetObject({
+          identity: {
+            url: args.url,
+            provider: args.provider,
+            providerObjectId: args.providerObjectId,
+          },
+          excludeAssetId: args.assetId,
+          deleteObject: () =>
+            deleteUploadedFile(args.provider, {
+              id: args.providerObjectId ?? undefined,
+              url: args.url,
+            }),
         }),
       );
+      if (deletion.status !== "failed") return;
     } catch (error) {
       console.warn(
         "[slides-upload] could not immediately delete unregistered font",
@@ -367,7 +386,6 @@ async function recordAndReapFailedFontRegistration(args: {
         },
       );
     }
-    if (deleted) return;
   } else if (registered) {
     return;
   }
@@ -512,9 +530,17 @@ export async function importGoogleFontAsset(args: {
     url = assertFontUrl(uploaded.url);
   } catch (error) {
     try {
-      await deleteUploadedFile(uploaded.provider, {
-        url: uploaded.url,
-        id: uploaded.id,
+      await deleteUploadedAssetObject({
+        identity: {
+          url: uploaded.url,
+          provider: uploaded.provider,
+          providerObjectId: uploaded.id ?? null,
+        },
+        deleteObject: () =>
+          deleteUploadedFile(uploaded.provider, {
+            url: uploaded.url,
+            id: uploaded.id,
+          }),
       });
     } catch {
       // Preserve the typed URL error; the provider may retry its orphan cleanup.

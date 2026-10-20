@@ -5,8 +5,7 @@ type Clause =
   | { kind: "eq"; column: string; value: unknown }
   | { kind: "isNull"; column: string }
   | { kind: "like"; column: string; value: string }
-  | { kind: "inArray"; column: string; values: unknown[] }
-  | { kind: "assetReference"; value: string };
+  | { kind: "inArray"; column: string; values: unknown[] };
 
 type Asset = {
   id: string;
@@ -38,7 +37,11 @@ const mocks = vi.hoisted(() => ({
   scheduleCleanup: vi.fn(),
   finishCleanup: vi.fn(),
   retryCleanup: vi.fn(),
+  lockUploadedAssetObjectIdentities: vi.fn(),
+  registerUploadedAssetObjectIdentities: vi.fn(),
   removeReplacementBeforeTransaction: false,
+  externalAssetDeletes: new Set<string>(),
+  lastTransaction: null as unknown,
   events: [] as string[],
   schema: {
     uploadedAssets: {
@@ -95,8 +98,6 @@ function matches(clause: Clause, row: Asset | Deck): boolean {
       return clause.values.includes(
         (row as unknown as Record<string, unknown>)[clause.column],
       );
-    case "assetReference":
-      return "data" in row && row.data.includes(clause.value);
   }
 }
 
@@ -114,22 +115,44 @@ function makeDb() {
     from: (table: unknown) => ({
       where: (clause: Clause) => {
         if (table === mocks.schema.decks) {
+          mocks.events.push("deck-reference-read");
           return {
-            limit: async (count: number) => {
-              mocks.events.push("deck-reference-read");
-              return mocks.decks
-                .filter((deck) => matches(clause, deck))
-                .slice(0, count)
-                .map((deck) => project(deck, selection));
-            },
+            orderBy: () => ({
+              limit: async (count: number) =>
+                mocks.decks
+                  .filter((deck) => matches(clause, deck))
+                  .slice(0, count)
+                  .map((deck) => project(deck, selection)),
+            }),
           };
         }
-        mocks.events.push("asset-read");
-        return Promise.resolve(
-          mocks.assets
-            .filter((asset) => matches(clause, asset))
-            .map((asset) => project(asset, selection)),
-        );
+        return {
+          orderBy: () => {
+            const read = () =>
+              mocks.assets
+                .filter((asset) => matches(clause, asset))
+                .map((asset) => project(asset, selection));
+            const builder = {
+              for: async (mode: string) => {
+                mocks.events.push(`asset-read-for-${mode}`);
+                if (mocks.removeReplacementBeforeTransaction) {
+                  mocks.events.push("concurrent-replacement-delete");
+                  mocks.assets = mocks.assets.filter(
+                    (asset) => asset.id !== "asset-2",
+                  );
+                  mocks.externalAssetDeletes.add("asset-2");
+                  mocks.removeReplacementBeforeTransaction = false;
+                }
+                return read();
+              },
+              then: (
+                resolve: (value: ReturnType<typeof read>) => unknown,
+                reject: (error: unknown) => unknown,
+              ) => Promise.resolve(read()).then(resolve, reject),
+            };
+            return builder;
+          },
+        };
       },
     }),
   });
@@ -172,15 +195,16 @@ function makeDb() {
     update,
     delete: remove,
     transaction: async (run: (tx: ReturnType<typeof makeDb>) => unknown) => {
-      if (mocks.removeReplacementBeforeTransaction) {
-        mocks.events.push("concurrent-replacement-delete");
-        mocks.assets = mocks.assets.filter((asset) => asset.id !== "asset-2");
-      }
       const rollbackState = structuredClone(mocks.assets);
+      const transaction = makeDb();
+      mocks.lastTransaction = transaction;
       try {
-        return await run(makeDb());
+        return await run(transaction);
       } catch (error) {
-        mocks.assets = rollbackState;
+        mocks.assets = rollbackState.filter(
+          (asset) => !mocks.externalAssetDeletes.has(asset.id),
+        );
+        mocks.externalAssetDeletes.clear();
         throw error;
       }
     },
@@ -189,6 +213,13 @@ function makeDb() {
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  isActionContractError: (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      "errorCode" in error &&
+      "statusCode" in error,
+    ),
   fail: (message: string, details: Record<string, unknown> = {}) => {
     throw Object.assign(new Error(message), details);
   },
@@ -208,6 +239,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Clause[]): Clause => ({ kind: "and", conditions }),
+  asc: (column: string) => ({ kind: "asc", column }),
   eq: (column: string, value: unknown): Clause => ({
     kind: "eq",
     column,
@@ -225,15 +257,35 @@ vi.mock("drizzle-orm", () => ({
     value,
   }),
   or: (...conditions: Clause[]): Clause => ({ kind: "or", conditions }),
-  sql: (_strings: TemplateStringsArray, ...values: unknown[]): Clause => ({
-    kind: "assetReference",
-    value: String(values[0]),
-  }),
 }));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => makeDb(),
   schema: mocks.schema,
+}));
+
+vi.mock("../server/lib/uploaded-asset-object-lifecycle.js", () => ({
+  lockUploadedAssetObjectIdentities: (...args: unknown[]) =>
+    mocks.lockUploadedAssetObjectIdentities(...args),
+  registerUploadedAssetObjectIdentities: (...args: unknown[]) =>
+    mocks.registerUploadedAssetObjectIdentities(...args),
+  deleteUploadedAssetObject: async (args: {
+    deleteObject: () => Promise<boolean>;
+    onDeleted?: (transaction: ReturnType<typeof makeDb>) => Promise<void>;
+  }) => {
+    try {
+      if (!(await args.deleteObject())) {
+        return {
+          status: "failed",
+          error: new Error("Storage deletion failed."),
+        };
+      }
+      await args.onDeleted?.(makeDb());
+      return { status: "deleted" };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  },
 }));
 
 vi.mock("../server/lib/uploaded-asset-cleanup-outbox.js", () => ({
@@ -285,11 +337,13 @@ describe("update-asset", () => {
     ];
     mocks.decks = [];
     mocks.events.length = 0;
+    mocks.lastTransaction = null;
     mocks.deleteFile.mockResolvedValue(true);
     mocks.scheduleCleanup.mockReset().mockResolvedValue("cleanup-token");
     mocks.finishCleanup.mockReset().mockResolvedValue(true);
     mocks.retryCleanup.mockReset().mockResolvedValue(true);
     mocks.removeReplacementBeforeTransaction = false;
+    mocks.externalAssetDeletes.clear();
   });
 
   it("renames only the caller's global image", async () => {
@@ -319,7 +373,7 @@ describe("update-asset", () => {
       providerObjectId: "new-object",
     });
     expect(mocks.events).toEqual([
-      "asset-read",
+      "asset-read-for-update",
       "deck-reference-read",
       "asset-update",
       "asset-row-delete",
@@ -332,6 +386,31 @@ describe("update-asset", () => {
       url: "https://storage.example.test/old.png",
       id: "old-object",
     });
+    expect(mocks.lockUploadedAssetObjectIdentities).toHaveBeenCalledWith(
+      mocks.lastTransaction,
+      [
+        {
+          url: "https://storage.example.test/old.png",
+          provider: "s3",
+          providerObjectId: "old-object",
+        },
+        {
+          url: "https://storage.example.test/new.png",
+          provider: "s3",
+          providerObjectId: "new-object",
+        },
+      ],
+    );
+    expect(mocks.registerUploadedAssetObjectIdentities).toHaveBeenCalledWith(
+      mocks.lastTransaction,
+      [
+        {
+          url: "https://storage.example.test/new.png",
+          provider: "s3",
+          providerObjectId: "new-object",
+        },
+      ],
+    );
     expect(mocks.scheduleCleanup).toHaveBeenCalledWith(expect.anything(), {
       assetId: "asset-1",
       ownerEmail: "owner@example.com",
@@ -342,14 +421,14 @@ describe("update-asset", () => {
     });
   });
 
-  it("does not retarget to a replacement row deleted after the initial read", async () => {
+  it("rechecks the replacement after locking both asset rows", async () => {
     mocks.removeReplacementBeforeTransaction = true;
 
     await expect(
       action.run({ id: "asset-1", replacementId: "asset-2" } as never),
     ).rejects.toMatchObject({
-      errorCode: "asset_replace_failed",
-      statusCode: 500,
+      errorCode: "asset_not_found",
+      statusCode: 404,
     });
 
     expect(mocks.assets).toHaveLength(1);
@@ -360,11 +439,8 @@ describe("update-asset", () => {
     });
     expect(mocks.deleteFile).not.toHaveBeenCalled();
     expect(mocks.events).toEqual([
-      "asset-read",
-      "deck-reference-read",
+      "asset-read-for-update",
       "concurrent-replacement-delete",
-      "asset-update",
-      "asset-row-delete",
     ]);
   });
 
@@ -372,7 +448,15 @@ describe("update-asset", () => {
     mocks.decks = [
       {
         id: "deck-1",
-        data: JSON.stringify({ sourceTsx: '<img src="asset://asset-2" />' }),
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              sourceTsx: String.raw`<img src={"asset:\u002f\u002fasset-2"} />`,
+            },
+          ],
+        }),
         ownerEmail: "another-member@example.com",
         orgId: "org-1",
         visibility: "private",
@@ -388,7 +472,10 @@ describe("update-asset", () => {
 
     expect(mocks.assets).toHaveLength(2);
     expect(mocks.assets[1]!.url).toBe("https://storage.example.test/new.png");
-    expect(mocks.events).toEqual(["asset-read", "deck-reference-read"]);
+    expect(mocks.events).toEqual([
+      "asset-read-for-update",
+      "deck-reference-read",
+    ]);
     expect(mocks.deleteFile).not.toHaveBeenCalled();
   });
 
@@ -396,7 +483,12 @@ describe("update-asset", () => {
     mocks.decks = [
       {
         id: "deck-other-org",
-        data: JSON.stringify({ sourceTsx: '<img src="asset://asset-2" />' }),
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            { id: "slide-1", sourceTsx: '<img src="asset://asset-2" />' },
+          ],
+        }),
         ownerEmail: "another-member@example.com",
         orgId: "org-2",
         visibility: "private",
@@ -409,7 +501,7 @@ describe("update-asset", () => {
 
     expect(mocks.assets).toHaveLength(1);
     expect(mocks.events).toEqual([
-      "asset-read",
+      "asset-read-for-update",
       "deck-reference-read",
       "asset-update",
       "asset-row-delete",
@@ -469,7 +561,7 @@ describe("update-asset", () => {
 
     expect(mocks.deleteFile).not.toHaveBeenCalled();
     expect(mocks.events).toEqual([
-      "asset-read",
+      "asset-read-for-update",
       "deck-reference-read",
       "asset-update",
       "asset-row-delete",

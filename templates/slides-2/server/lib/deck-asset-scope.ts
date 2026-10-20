@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 
 import { isSlides2DeckData } from "../../shared/deck-app-scope.js";
 import { getDb, schema } from "../db/index.js";
+import { registerUploadedAssetObjectIdentities } from "./uploaded-asset-object-lifecycle.js";
 
 type SlidesTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
@@ -136,6 +137,13 @@ export async function registerDeckUploadedAsset(args: {
       transaction: getDbExec(),
     });
 
+    await registerUploadedAssetObjectIdentities(tx, [
+      {
+        url: args.row.url,
+        provider: args.row.provider ?? null,
+        providerObjectId: args.row.providerObjectId ?? null,
+      },
+    ]);
     await tx.insert(schema.uploadedAssets).values(args.row);
     await args.onRegistered?.(tx);
   });

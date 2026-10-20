@@ -7,6 +7,7 @@ import { useChangeVersion, useDbSync } from "@agent-native/core/client/hooks";
 import { appStateKey, appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router";
 
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -23,6 +24,11 @@ import {
 } from "../../shared/deck-history-control.js";
 
 const COMMAND_POLL_RETRY_MS = 500;
+
+function isPrivateDeckEditorPath(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "");
+  return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
+}
 
 function commandIdentityMatches(
   left: DeckHistoryCommand,
@@ -64,6 +70,7 @@ export function useDeckHistoryActionBridge({
   flushDeckSave: (deckId: string) => Promise<void>;
 }): void {
   const [editorSessionId] = useState(() => nanoid());
+  const { pathname } = useLocation();
   const commandKey = appStateKeyForBrowserTab(
     appStateKey(DECK_HISTORY_COMMAND_KEY),
     TAB_ID,
@@ -73,7 +80,9 @@ export function useDeckHistoryActionBridge({
   );
   useDbSync({
     ignoreSource: TAB_ID,
-    realtime: { reason: "apply agent commands to DeckEditor history" },
+    realtime: isPrivateDeckEditorPath(pathname)
+      ? { reason: "apply agent commands to DeckEditor history" }
+      : undefined,
     pauseWhenHidden: false,
   });
   const status = useMemo<DeckHistoryStatus | null>(() => {

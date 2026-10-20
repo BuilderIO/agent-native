@@ -24,6 +24,7 @@ import {
   NotificationSettings,
 } from "@/components/settings/notification-settings";
 import messages from "@/i18n/en-US";
+import { localizeSlidesChangelog } from "@/lib/localize-slides-changelog";
 
 import changelog from "../../CHANGELOG.md?raw";
 
@@ -38,6 +39,15 @@ const createCreativeContextSettingsTab: CreativeContextAgentTabFactory = (
 
 export default function SettingsRoute() {
   const t = useT();
+  const localizedChangelog = localizeSlidesChangelog(changelog, {
+    editorHoveredObjects: t("slidesChangelog.editorHoveredObjects"),
+    deckEditingControls: t("slidesChangelog.deckEditingControls"),
+    googleSlidesMissingImageData: t(
+      "slidesChangelog.googleSlidesMissingImageData",
+    ),
+    globalMediaPickerScope: t("slidesChangelog.globalMediaPickerScope"),
+    savedSlideImages: t("slidesChangelog.savedSlideImages"),
+  });
   const creativeContextEnabled = useCreativeContextLab();
   const {
     data: activeOrg,
@@ -115,7 +125,7 @@ export default function SettingsRoute() {
       labsIntro={t("settings.labsIntro")}
       labsLabel={t("settings.labs")}
       mcpAbout={t("settings.mcpAbout")}
-      whatsNewMarkdown={changelog}
+      whatsNewMarkdown={localizedChangelog}
     />
   );
 }

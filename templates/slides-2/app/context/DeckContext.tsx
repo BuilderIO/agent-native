@@ -4942,36 +4942,41 @@ export function DeckProvider({
               }
             }
           }
+          const withoutStaleDraftFields = (historyOps: DeckUndoOp[]) =>
+            historyOps.flatMap<DeckUndoOp>((op) => {
+              if (op.op !== "patch-slide" || op.deckId !== deckId) {
+                return [op];
+              }
+              const fields = { ...op.fields };
+              const baseFields = { ...op.baseFields };
+              for (const draft of staleDraftsToRestore.values()) {
+                if (draft.slideId !== op.slideId) continue;
+                delete fields[draft.field as keyof PatchSlideFields];
+                delete baseFields[draft.field as PatchSlideBaselineField];
+              }
+              if (Object.keys(fields).length === 0) return [];
+              const { baseFields: _baseFields, ...withoutBaseFields } = op;
+              return [
+                {
+                  ...withoutBaseFields,
+                  fields,
+                  ...(Object.keys(baseFields).length > 0 ? { baseFields } : {}),
+                },
+              ];
+            });
           const opsWithoutStaleDraftFields =
             staleDraftsToRestore.size === 0
               ? ops
-              : ops.flatMap<DeckUndoOp>((op) => {
-                  if (op.op !== "patch-slide" || op.deckId !== deckId) {
-                    return [op];
-                  }
-                  const fields = { ...op.fields };
-                  const baseFields = { ...op.baseFields };
-                  for (const draft of staleDraftsToRestore.values()) {
-                    if (draft.slideId !== op.slideId) continue;
-                    delete fields[draft.field as keyof PatchSlideFields];
-                    delete baseFields[draft.field as PatchSlideBaselineField];
-                  }
-                  if (Object.keys(fields).length === 0) return [];
-                  const { baseFields: _baseFields, ...withoutBaseFields } = op;
-                  return [
-                    {
-                      ...withoutBaseFields,
-                      fields,
-                      ...(Object.keys(baseFields).length > 0
-                        ? { baseFields }
-                        : {}),
-                    },
-                  ];
-                });
+              : withoutStaleDraftFields(ops);
+          const expectedOps = direction === "undo" ? entry.redo : entry.undo;
+          const expectedOpsWithoutStaleDraftFields =
+            direction !== "undo" || staleDraftsToRestore.size === 0
+              ? expectedOps
+              : withoutStaleDraftFields(expectedOps);
           const { ops: applicableOps, hasConflict } =
             undoOpsWithoutRemoteFieldConflicts(
               opsWithoutStaleDraftFields,
-              direction === "undo" ? entry.redo : entry.undo,
+              expectedOpsWithoutStaleDraftFields,
               startingDecks,
             );
           if (hasConflict) {
@@ -6176,7 +6181,8 @@ export function DeckProvider({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      const deckId = currentOpenDeckIdFromWindow();
+      const deckId =
+        openDeckId === undefined ? currentOpenDeckIdFromWindow() : openDeckId;
       if (!deckId) return;
 
       const target = e.target as HTMLElement;
@@ -6202,7 +6208,7 @@ export function DeckProvider({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [undo, redo]);
+  }, [openDeckId, undo, redo]);
 
   const createDeck = useCallback(
     (

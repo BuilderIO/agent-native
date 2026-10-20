@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   state: new Map<string, unknown>(),
   commandVersion: 0,
+  pathname: "/deck/deck-1",
   readClientAppState: vi.fn(),
   writeClientAppState: vi.fn(),
   compareAndSetClientAppState: vi.fn(),
@@ -25,6 +26,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@/lib/tab-id", () => ({ TAB_ID: "test-tab" }));
+vi.mock("react-router", () => ({
+  useLocation: () => ({ pathname: mocks.pathname }),
+}));
 
 import { appStateKey } from "../../shared/app-state-tabs.js";
 import {
@@ -56,6 +60,7 @@ describe("useDeckHistoryActionBridge", () => {
   beforeEach(() => {
     mocks.state.clear();
     mocks.commandVersion = 0;
+    mocks.pathname = "/deck/deck-1";
     mocks.useChangeVersion
       .mockReset()
       .mockImplementation(() => mocks.commandVersion);
@@ -114,6 +119,28 @@ describe("useDeckHistoryActionBridge", () => {
     expect(undo).toHaveBeenCalledWith("deck-1");
     expect(flushDeckSave).toHaveBeenCalledWith("deck-1");
     expect(redo).not.toHaveBeenCalled();
+  });
+
+  it("keeps realtime off outside the private deck editor route", () => {
+    mocks.pathname = "/share/public-deck";
+    renderHook(() =>
+      useDeckHistoryActionBridge({
+        deckId: "deck-1",
+        historyVersion: 4,
+        canUndo: true,
+        canRedo: false,
+        enabled: true,
+        undo: vi.fn().mockResolvedValue(true),
+        redo: vi.fn().mockResolvedValue(true),
+        flushDeckSave: vi.fn().mockResolvedValue(undefined),
+      }),
+    );
+
+    expect(mocks.useDbSync).toHaveBeenCalledWith({
+      ignoreSource: "test-tab",
+      realtime: undefined,
+      pauseWhenHidden: false,
+    });
   });
 
   it("rejects a command from a stale editor session without mutating the deck", async () => {

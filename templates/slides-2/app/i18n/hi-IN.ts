@@ -805,6 +805,18 @@ const messages = {
     generate: "स्लाइड जनरेट करें",
   },
   deckResult: { saved: "सहेजा गया" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "एडिटर पर कर्सर ले जाने पर ऑब्जेक्ट हाइलाइट होते हैं, और इमेज बदलने व क्रॉप करने के विकल्प कैनवस पर ही रहते हैं।",
+    deckEditingControls:
+      "स्लाइड-सूची टॉगल, प्रेज़ेंटेशन शीर्षक और Present बटन अब वर्कस्पेस के साझा कंट्रोल से मेल खाते हैं।",
+    googleSlidesMissingImageData:
+      "Google Slides इंपोर्ट अब खाली इमेज जोड़ने के बजाय गायब इमेज डेटा की सूचना देता है।",
+    globalMediaPickerScope:
+      "ग्लोबल मीडिया चयन में अब केवल वही एसेट दिखते हैं जिन्हें मौजूदा प्रेज़ेंटेशन हल कर सकता है।",
+    savedSlideImages:
+      "सेव की गई स्लाइड में इस्तेमाल होने वाली इमेज आपकी लाइब्रेरी में उपलब्ध रहती हैं।",
+  },
   history: {
     unknownTime: "अज्ञात समय",
     justNow: "अभी-अभी",
@@ -869,7 +881,7 @@ const messages = {
     collaboratorTooltip: "{{name}} ({{email}}) इस स्लाइड पर हैं",
     applyUpdates: "अपडेट लागू करें ({{count}})",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "अभी",
     preview: "पूर्वावलोकन",
     edit: "संपादित करें",
@@ -924,7 +936,7 @@ const messages = {
     noVideosYet: "अभी कोई वीडियो नहीं है।",
     noAssetsMatch: "आपकी खोज से कोई मीडिया मेल नहीं खाता।",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "Google Fonts ब्राउज़ करें",
     title: "Google Fonts",
     searchPlaceholder: "फ़ॉन्ट परिवार खोजें",
@@ -941,7 +953,7 @@ const messages = {
     importFailed: "चुना गया फ़ॉन्ट आयात नहीं हो सका।",
     chooseFont: "पूर्वावलोकन के लिए फ़ॉन्ट चुनें।",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "डिज़ाइन टोकन",
     colors: "रंग",
     background: "पृष्ठभूमि",
@@ -956,7 +968,7 @@ const messages = {
     radius: "कोने की गोलाई",
     shuffle: "डिज़ाइन बदलें",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "डेक बदलें",
     searchDecks: "सुलभ डेक खोजें",
     loadingDecks: "डेक लोड हो रहे हैं…",
@@ -1042,6 +1054,8 @@ const messages = {
     generationStalledDescription:
       "आपकी सेव की गई स्लाइडें यहाँ मौजूद हैं। चैट में इस डेक से आगे बढ़ें।",
     continueInChat: "चैट में आगे बढ़ें",
+    applyResult: "लागू करें",
+    regenerateResult: "फिर से बनाएँ",
     continueGenerationPrompt:
       "इस डेक के लिए स्लाइड जनरेट करना जारी रखें। पहले मौजूदा स्लाइड और सेव किया गया जनरेशन संदर्भ देखें। पूरी हो चुकी स्लाइडें रखें और केवल छूटी हुई स्लाइडें जोड़ें।",
     checkingSharedAccess: "जांच रहे हैं कि यह प्रस्तुति आपके खाते से साझा है या नहीं।",

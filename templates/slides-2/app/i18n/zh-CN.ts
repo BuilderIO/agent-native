@@ -785,6 +785,17 @@ const messages = {
     generate: "生成幻灯片",
   },
   deckResult: { saved: "已保存" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "编辑器会高亮鼠标悬停的对象，并在画布上提供图像替换和裁剪操作。",
+    deckEditingControls:
+      "幻灯片列表切换按钮、演示文稿标题和“演示”按钮现在与工作区共享控件保持一致。",
+    googleSlidesMissingImageData:
+      "Google 幻灯片导入现在会报告缺失的图像数据，而不会添加空白图像。",
+    globalMediaPickerScope:
+      "全局媒体选择器现在只显示当前演示文稿可解析的资源。",
+    savedSlideImages: "已保存幻灯片使用的图像会继续保留在你的素材库中。",
+  },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -848,7 +859,7 @@ const messages = {
     collaboratorTooltip: "{{name}}（{{email}}）正在查看此幻灯片",
     applyUpdates: "应用更新（{{count}}）",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "现在",
     preview: "预览",
     edit: "编辑",
@@ -902,7 +913,7 @@ const messages = {
     noVideosYet: "还没有视频。",
     noAssetsMatch: "没有媒体符合搜索条件。",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "浏览 Google Fonts",
     title: "Google 字体",
     searchPlaceholder: "搜索字体系列",
@@ -919,7 +930,7 @@ const messages = {
     importFailed: "无法导入所选字体。",
     chooseFont: "选择字体进行预览。",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "设计令牌",
     colors: "颜色",
     background: "背景",
@@ -934,7 +945,7 @@ const messages = {
     radius: "圆角",
     shuffle: "随机设计",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "切换演示文稿",
     searchDecks: "搜索可访问的演示文稿",
     loadingDecks: "正在加载演示文稿…",
@@ -1018,6 +1029,8 @@ const messages = {
     generationStalledDescription:
       "已保存的幻灯片仍然保留。你可以在聊天中继续此演示文稿。",
     continueInChat: "在聊天中继续",
+    applyResult: "应用",
+    regenerateResult: "重新生成",
     continueGenerationPrompt:
       "继续为此演示文稿生成幻灯片。请先检查现有幻灯片和已保存的生成上下文。保留已完成的幻灯片，只添加缺少的内容。",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",

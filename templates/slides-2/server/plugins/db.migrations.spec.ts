@@ -148,6 +148,36 @@ describe("Slides share migrations", () => {
 
     await runSlidesMigrations({});
 
+    const { rows: objectLifecycleTables } = await exec.execute(
+      `SELECT table_name AS name
+       FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_name = 'uploaded_asset_object_lifecycle'`,
+    );
+    expect(objectLifecycleTables).toEqual([
+      { name: "uploaded_asset_object_lifecycle" },
+    ]);
+    const { rows: objectLifecycleMigration } = await exec.execute(
+      `SELECT version FROM slides_migrations WHERE version = 39`,
+    );
+    expect(objectLifecycleMigration).toHaveLength(1);
+    const { rows: objectLifecycleLeaseMigration } = await exec.execute(
+      `SELECT version FROM slides_migrations WHERE version = 40`,
+    );
+    expect(objectLifecycleLeaseMigration).toHaveLength(1);
+    const { rows: objectLifecycleColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'uploaded_asset_object_lifecycle'`,
+    );
+    expect(objectLifecycleColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "deletion_lease_token" }),
+        expect.objectContaining({ name: "deletion_lease_expires_at" }),
+      ]),
+    );
+
     const { rows: commentColumns } = await exec.execute(
       `SELECT column_name AS name
        FROM information_schema.columns

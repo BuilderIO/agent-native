@@ -1,6 +1,5 @@
 import { fail } from "@agent-native/core/action";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import {
   parseFragment,
   serialize,
@@ -8,19 +7,16 @@ import {
 } from "parse5";
 
 import { getDb, schema } from "../server/db/index.js";
+import type { ImportedAssetUpload } from "../server/lib/imported-asset-batch.js";
 import { legacySlideHtmlToSource } from "../server/lib/legacy-slide-source.js";
+import { registerUploadedAssetObjectIdentities } from "../server/lib/uploaded-asset-object-lifecycle.js";
 import { compileSlideSource } from "./_slide-source.js";
 
-export interface ImportedSlideAsset {
-  url: string;
-  filename: string;
-  mimeType: string;
-  size: number;
-}
+export type ImportedSlideAsset = ImportedAssetUpload;
 
 export async function compileImportedSlideSource(
   html: string,
-  scope: { ownerEmail: string; orgId?: string | null },
+  scope: { ownerEmail: string; orgId?: string | null; deckId?: string | null },
   assets: readonly ImportedSlideAsset[] = [],
 ): Promise<{
   sourceTsx: string;
@@ -29,22 +25,17 @@ export async function compileImportedSlideSource(
   content: string;
 }> {
   const assetIdsByUrl = new Map<string, string>();
-  const records = new Map<
-    string,
-    { id: string; filename: string; mimeType: string; size: number }
-  >();
+  const records = new Map<string, ImportedSlideAsset>();
 
   for (const asset of assets) {
     if (!asset.url || asset.url.startsWith("asset://")) continue;
     let id = assetIdsByUrl.get(asset.url);
     if (!id) {
-      id = nanoid();
+      id = asset.assetId;
       assetIdsByUrl.set(asset.url, id);
       records.set(asset.url, {
-        id,
-        filename: asset.filename,
-        mimeType: asset.mimeType,
-        size: asset.size,
+        ...asset,
+        assetId: id,
       });
     }
   }
@@ -78,21 +69,30 @@ export async function compileImportedSlideSource(
 
   if (records.size > 0) {
     const createdAt = new Date().toISOString();
-    await getDb()
-      .insert(schema.uploadedAssets)
-      .values(
-        [...records.entries()].map(([url, asset]) => ({
-          id: asset.id,
-          filename: asset.filename,
-          url,
-          type: asset.mimeType,
-          size: asset.size,
-          provider: null,
-          orgId: scope.orgId ?? null,
-          ownerEmail: scope.ownerEmail,
-          createdAt,
+    const rows = [...records.entries()].map(([url, asset]) => ({
+      id: asset.assetId,
+      filename: asset.filename,
+      url,
+      type: asset.mimeType,
+      size: asset.size,
+      provider: asset.provider,
+      providerObjectId: asset.providerObjectId,
+      deckId: scope.deckId ?? null,
+      orgId: scope.orgId ?? null,
+      ownerEmail: scope.ownerEmail,
+      createdAt,
+    }));
+    await getDb().transaction(async (transaction) => {
+      await registerUploadedAssetObjectIdentities(
+        transaction,
+        rows.map((row) => ({
+          url: row.url,
+          provider: row.provider,
+          providerObjectId: row.providerObjectId,
         })),
       );
+      await transaction.insert(schema.uploadedAssets).values(rows);
+    });
   }
 
   const compiled = await compileSlideSource(sourceTsx, scope);

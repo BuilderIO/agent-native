@@ -175,6 +175,15 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => unknown) => fn(),
 }));
 
+vi.mock("../server/lib/slide-asset-references.js", () => ({
+  withSlideAssetReferencesLocked: (
+    db: unknown,
+    _deckData: unknown,
+    _scope: unknown,
+    write: (connection: unknown) => Promise<unknown>,
+  ) => write(db),
+}));
+
 import {
   InvalidPptxSourceError,
   SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
@@ -201,6 +210,7 @@ beforeEach(() => {
   mockPdfLoad.mockResolvedValue({ numPages: 1 });
   mockUploadPptxSlideImages.mockResolvedValue({
     urls: { img1: "https://files.example/source-page.png" },
+    assets: {},
     imageSkippedCount: 0,
   });
   mockConvertToSlideHtml.mockReturnValue(
@@ -975,6 +985,7 @@ describe("import-file PDF source extraction", () => {
     });
     mockUploadPptxSlideImages.mockResolvedValue({
       urls: {},
+      assets: {},
       imageSkippedCount: 0,
     });
     mockConvertToSlideHtml.mockReturnValue("<div>Slide one</div>");
@@ -1033,6 +1044,7 @@ describe("import-file PDF source extraction", () => {
     const db = pptxDeckHarness([]);
     mockUploadPptxSlideImages.mockResolvedValue({
       urls: {},
+      assets: {},
       imageSkippedCount: 1,
     });
 

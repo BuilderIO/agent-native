@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   selectForUpdate: vi.fn(),
   insertValues: vi.fn(),
+  registerObjectIdentities: vi.fn(),
+  transactionObject: null as unknown,
   transactionContext: { execute: vi.fn() },
   deck: null as {
     data: string;
@@ -51,6 +53,11 @@ vi.mock("../db/index.js", () => ({
   schema: mocks.schema,
 }));
 
+vi.mock("./uploaded-asset-object-lifecycle.js", () => ({
+  registerUploadedAssetObjectIdentities: (...args: unknown[]) =>
+    mocks.registerObjectIdentities(...args),
+}));
+
 import {
   assertDeckAssetUploadScope,
   parseOptionalDeckId,
@@ -61,7 +68,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.deck = null;
   mocks.events.length = 0;
+  mocks.transactionObject = null;
   mocks.transactionContext = { execute: vi.fn() };
+  mocks.registerObjectIdentities.mockReset().mockImplementation(async () => {
+    mocks.events.push("object-register");
+  });
   mocks.runWithRequestContext.mockImplementation(
     async (_context: unknown, callback: () => unknown) => callback(),
   );
@@ -77,8 +88,8 @@ beforeEach(() => {
     mocks.events.push("asset-insert");
   });
   mocks.transaction.mockImplementation(
-    async (callback: (tx: unknown) => unknown) =>
-      callback({
+    async (callback: (tx: unknown) => unknown) => {
+      const transaction = {
         select: () => ({
           from: (table: unknown) => ({
             where: () => ({
@@ -89,7 +100,10 @@ beforeEach(() => {
         insert: (table: unknown) => ({
           values: (row: unknown) => mocks.insertValues(table, row),
         }),
-      }),
+      };
+      mocks.transactionObject = transaction;
+      return callback(transaction);
+    },
   );
   mocks.select.mockImplementation(() => ({
     from: (table: unknown) => ({
@@ -219,6 +233,48 @@ describe("deck asset upload scope", () => {
     );
     expect(mocks.insertValues).not.toHaveBeenCalled();
     expect(mocks.events).not.toContain("asset-insert");
+  });
+
+  it("registers an object identity in the asset insert transaction", async () => {
+    mocks.deck = {
+      data: JSON.stringify({ appId: "slides-2", slides: [] }),
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    };
+
+    await registerDeckUploadedAsset({
+      deckId: "deck-1",
+      email: "owner@example.com",
+      orgId: "org-1",
+      row: {
+        id: "asset-1",
+        filename: "image.png",
+        url: "https://cdn.example.com/image.png",
+        type: "image/png",
+        size: 1,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        deckId: "deck-1",
+        createdAt: new Date().toISOString(),
+      },
+    });
+
+    expect(mocks.registerObjectIdentities).toHaveBeenCalledWith(
+      mocks.transactionObject,
+      [
+        {
+          url: "https://cdn.example.com/image.png",
+          provider: null,
+          providerObjectId: null,
+        },
+      ],
+    );
+    expect(mocks.events).toEqual([
+      "deck-lock-read",
+      "access-check",
+      "object-register",
+      "asset-insert",
+    ]);
   });
 
   it("parses one bounded optional deckId field and rejects duplicates or malformed fields", () => {

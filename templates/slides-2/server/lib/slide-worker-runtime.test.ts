@@ -70,6 +70,106 @@ function renderWorker(
 }
 
 describe("React slide source validation", () => {
+  it("uses a static default-page transition override before the module default", async () => {
+    const runtime = await buildReactSlideRuntime(
+      `
+export const transition = { duration: 300 };
+export default function Slide() { return <main />; }
+Slide.transition = { duration: 220 };
+`,
+      { current: 1, total: 1, assetUrls: new Map() },
+    );
+
+    expect(runtime.transition).toEqual({ duration: 220 });
+  });
+
+  it("resolves a default-page transition from a static local value", () => {
+    const prepared = prepareReactSlideSource(`
+const Slide = () => <main />;
+const pageTransition = { duration: 180 };
+Slide.transition = pageTransition;
+export default Slide;
+`);
+
+    expect(prepared.transition).toEqual({ duration: 180 });
+  });
+
+  it("rejects dynamic and repeated default-page transition assignments", () => {
+    expect(() =>
+      prepareReactSlideSource(`
+export default function Slide() { return <main />; }
+Slide.transition = getTransition();
+`),
+    ).toThrow("Slide module metadata must be a static object.");
+
+    expect(() =>
+      prepareReactSlideSource(`
+export default function Slide() { return <main />; }
+Slide.transition = { duration: 180 };
+Slide.transition = { duration: 220 };
+`),
+    ).toThrow("A page may only declare one transition override.");
+  });
+
+  it("rejects transition assignments on a component other than the default page", () => {
+    expect(() =>
+      prepareReactSlideSource(`
+function Cover() { return <main />; }
+function Body() { return <section />; }
+Body.transition = { duration: 220 };
+export default Cover;
+`),
+    ).toThrow("Top-level ExpressionStatement code is not supported");
+  });
+
+  it("merges a morph marker and presentation props onto a single DOM child", async () => {
+    const response = await renderInWorker(`
+import { MorphElement } from "@open-slide/core";
+export default function Slide() {
+  return (
+    <MorphElement id="heading" className="morph-frame" style={{ color: "red" }}>
+      <h1 className="title" style={{ color: "blue", fontSize: 48 }}>Hello</h1>
+    </MorphElement>
+  );
+}
+`);
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toContain('<h1 class="title morph-frame"');
+    expect(response.html).toContain('data-slides2-morph="heading"');
+    expect(response.html).toContain("font-size:48px");
+    expect(response.html).toContain("color:red");
+    expect(response.html).not.toContain("color:blue");
+    expect(response.html).not.toContain('<div class="morph-frame"');
+  });
+
+  it("collapses stepped reveal fades under the reduced-motion media query", async () => {
+    const runtime = await buildReactSlideRuntime(
+      `
+import { Step, Steps } from "@open-slide/core";
+export default function Slide() {
+  return <Steps><Step duration={240}>Reveal</Step></Steps>;
+}
+`,
+      { current: 1, total: 1, assetUrls: new Map() },
+    );
+    const css = runtime.styles.join("\n");
+
+    expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(css).toContain("#slide-root :is([data-slides2-step])");
+    expect(css).toContain("transition-duration: 0ms !important");
+  });
+
+  it("rejects a default export that aliases a Page array", () => {
+    expect(() =>
+      prepareReactSlideSource(`
+function Cover() { return <main />; }
+const pages: Page[] = [Cover];
+export default pages;
+`),
+    ).toThrow("The default export must be a React page component.");
+  });
+
   it("prepares a source module at the 256 KiB UTF-8 boundary", () => {
     const suffix = "*/\nexport default function Slide() { return <main />; }";
     const paddingLength =
@@ -222,7 +322,7 @@ describe("React slide source validation", () => {
     );
   });
 
-  it("renders OpenSlide image placeholder hints and dimensions", async () => {
+  it("renders Slides2 image placeholder hints and dimensions", async () => {
     const response = await renderInWorker(
       [
         'import { ImagePlaceholder } from "@open-slide/core";',
@@ -241,6 +341,79 @@ describe("React slide source validation", () => {
     expect(response.html).toContain('data-placeholder-h="360"');
     expect(response.html).toContain("width:640px");
     expect(response.html).toContain("height:360px");
+    expect(response.html).toContain('role="img"');
+    expect(response.html).toContain("border-radius:12px");
+    expect(response.html).toContain('aria-label="image placeholder"');
+    expect(response.html).toContain(">Image</span>");
+    expect(response.html).toContain(">Product hero screenshot</span>");
+    expect(response.html).toContain(">640 × 360</span>");
+  });
+
+  it("uses the placeholder fallback and does not infer dimensions or aspect ratio", async () => {
+    const response = await renderInWorker(
+      [
+        'import { ImagePlaceholder } from "@open-slide/core";',
+        "export default function Slide() {",
+        "  return <ImagePlaceholder width={640} />;",
+        "}",
+      ].join("\n"),
+    );
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toContain(
+      'data-slide-placeholder="Image placeholder"',
+    );
+    expect(response.html).toContain('aria-label="Image placeholder"');
+    expect(response.html).toContain(">Image placeholder</span>");
+    expect(response.html).toContain(
+      'style="position:relative;width:640px;height:100%',
+    );
+    expect(response.html).not.toContain("640 ×");
+    expect(response.html).not.toContain("aspect-ratio");
+  });
+
+  it("keeps uploaded image handles in image markup for host resolution", async () => {
+    const image = await renderInWorker(
+      [
+        "export default function Slide() {",
+        '  return <img src="asset://uploaded-image" alt="Product screenshot" />;',
+        "}",
+      ].join("\n"),
+    );
+
+    expect(image.type).toBe("rendered");
+    expect(image.html).toContain('<img src="asset://uploaded-image"');
+    expect(image.html).not.toContain('<link rel="preload"');
+  });
+
+  it.each([
+    ["external image URL", "https://attacker.example/image.png"],
+    ["malformed image handle", "asset://../image"],
+  ])(
+    "rejects %s instead of treating it as an image preload",
+    async (_label, src) => {
+      const image = await renderInWorker(
+        `export default function Slide() { return <img src="${src}" alt="Product screenshot" />; }`,
+      );
+
+      expect(image.type).toBe("error");
+    },
+  );
+
+  it("rejects uploaded image handles on image placeholders", async () => {
+    const placeholder = await renderInWorker(
+      [
+        'import { ImagePlaceholder } from "@open-slide/core";',
+        "export default function Slide() {",
+        '  return <ImagePlaceholder hint="Product screenshot" src="asset://uploaded-image" />;',
+        "}",
+      ].join("\n"),
+    );
+
+    expect(placeholder.type).toBe("error");
+    expect(placeholder.message).toContain(
+      "Media references must use uploaded asset handles.",
+    );
   });
 
   it("renders video, source, and poster only with uploaded asset handles", async () => {
@@ -312,7 +485,7 @@ describe("React slide source validation", () => {
     }
   });
 
-  it("bundles the Worker-safe OpenSlide canvas and design values", async () => {
+  it("bundles the Worker-safe Slides2 canvas and design values", async () => {
     const sourceTsx = [
       'import { CANVAS_HEIGHT, CANVAS_WIDTH, defaultDesign, designToCssVars } from "@open-slide/core";',
       "export default function Slide() {",
@@ -348,11 +521,50 @@ describe("React slide source validation", () => {
     );
   });
 
-  it("bundles the bounded OpenSlide CSS variable serializer", async () => {
+  it("renders approved React identifiers with reveal components", async () => {
+    const response = await renderInWorker(
+      [
+        'import { useId } from "react";',
+        'import { Step, Steps } from "@open-slide/core";',
+        "export default function Slide() {",
+        "  const id = useId();",
+        '  return <main id={id}><a href={"#" + id}>Jump</a><Steps><Step>Reveal</Step></Steps></main>;',
+        "}",
+      ].join("\n"),
+    );
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toMatch(/<main id="_[^"]+"[^>]*>/);
+    expect(response.html).toMatch(/href="#_[^"]+"/);
+    expect(response.html).toContain('data-slides2-step="revealed"');
+    expect(response.html).toContain(">Reveal</div>");
+  });
+
+  it.each([
+    "node:fs",
+    "react-dom/server",
+    "@agent-native/slides-2-core/internal",
+  ])("rejects imports from unsupported module %s", (moduleName) => {
+    expect(() =>
+      prepareReactSlideSource(
+        `import React from "${moduleName}"; export default function Slide() { return <main />; }`,
+      ),
+    ).toThrow(`Import from ${moduleName} is not supported`);
+  });
+
+  it("rejects module-level execution outside static declarations", () => {
+    expect(() =>
+      prepareReactSlideSource(
+        'console.log("not allowed"); export default function Slide() { return <main />; }',
+      ),
+    ).toThrow("Top-level ExpressionStatement code is not supported");
+  });
+
+  it("bundles the bounded Slides2 CSS variable serializer", async () => {
     const sourceTsx = [
       'import { cssVarsToString } from "@open-slide/core";',
       "export default function Slide() {",
-      '  const cssText = cssVarsToString({ "--osd-accent": "#6d4cff" });',
+      '  const cssText = cssVarsToString({ "--slides2-accent": "#6d4cff" });',
       "  return <pre>{cssText}</pre>;",
       "}",
     ].join("\n");
@@ -363,7 +575,7 @@ describe("React slide source validation", () => {
       assetUrls: new Map(),
     });
 
-    expect(runtime.workerSource).toContain("--osd-accent");
+    expect(runtime.workerSource).toContain("--slides2-accent");
     expect(runtime.workerSource).toContain(
       "CSS variable names must be bounded custom properties.",
     );
@@ -373,7 +585,7 @@ describe("React slide source validation", () => {
     const sourceTsx = [
       'import { cssVarsToString } from "@open-slide/core";',
       "export default function Slide() {",
-      '  const cssText = cssVarsToString({ "--osd-accent": "#6d4cff" });',
+      '  const cssText = cssVarsToString({ "--slides2-accent": "#6d4cff" });',
       "  return <style>{cssText}</style>;",
       "}",
     ].join("\n");
@@ -388,14 +600,14 @@ describe("React slide source validation", () => {
       [
         'import { cssVarsToString } from "@open-slide/core";',
         "export default function Slide() {",
-        '  const cssText = cssVarsToString({ "--osd-accent": "#6d4cff" });',
+        '  const cssText = cssVarsToString({ "--slides2-accent": "#6d4cff" });',
         "  return <code>{cssText}</code>;",
         "}",
       ].join("\n"),
     );
 
     expect(response.type).toBe("rendered");
-    expect(response.html).toContain("--osd-accent: #6d4cff;");
+    expect(response.html).toContain("--slides2-accent: #6d4cff;");
   });
 
   it("rejects CSS variable values that could add declarations or resources", async () => {
@@ -403,7 +615,7 @@ describe("React slide source validation", () => {
       [
         'import { cssVarsToString } from "@open-slide/core";',
         "export default function Slide() {",
-        '  const cssText = cssVarsToString({ "--osd-accent": "red; background-image: url(https://example.test/a.png)" });',
+        '  const cssText = cssVarsToString({ "--slides2-accent": "red; background-image: url(https://example.test/a.png)" });',
         "  return <pre>{cssText}</pre>;",
         "}",
       ].join("\n"),

@@ -839,6 +839,18 @@ const messages = {
     generate: "Folien erstellen",
   },
   deckResult: { saved: "Gespeichert" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "Der Editor hebt Elemente unter dem Mauszeiger hervor und lässt Bilder direkt auf der Arbeitsfläche ersetzen und zuschneiden.",
+    deckEditingControls:
+      "Der Schalter für die Folienliste, der Präsentationstitel und die Schaltfläche „Präsentieren“ entsprechen jetzt den gemeinsamen Steuerelementen des Arbeitsbereichs.",
+    googleSlidesMissingImageData:
+      "Google-Slides-Importe melden jetzt fehlende Bilddaten, statt leere Bilder hinzuzufügen.",
+    globalMediaPickerScope:
+      "Die globale Medienauswahl zeigt jetzt nur Assets an, die die aktuelle Präsentation auflösen kann.",
+    savedSlideImages:
+      "Bilder, die in gespeicherten Folien verwendet werden, bleiben in deiner Bibliothek verfügbar.",
+  },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -906,7 +918,7 @@ const messages = {
     collaboratorTooltip: "{{name}} ({{email}}) ist auf dieser Folie",
     applyUpdates: "Änderungen übernehmen ({{count}})",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "JETZT",
     preview: "Vorschau",
     edit: "Bearbeiten",
@@ -969,7 +981,7 @@ const messages = {
     noVideosYet: "Noch keine Videos vorhanden.",
     noAssetsMatch: "Keine Medien entsprechen deiner Suche.",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "Google Fonts durchsuchen",
     title: "Google Fonts",
     searchPlaceholder: "Schriftfamilien suchen",
@@ -986,7 +998,7 @@ const messages = {
     importFailed: "Die ausgewählte Schriftart konnte nicht importiert werden.",
     chooseFont: "Schriftart zur Vorschau auswählen.",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "Design-Tokens",
     colors: "Farben",
     background: "Hintergrund",
@@ -1001,7 +1013,7 @@ const messages = {
     radius: "Eckenradius",
     shuffle: "Design mischen",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "Deck wechseln",
     searchDecks: "Zugängliche Decks suchen",
     loadingDecks: "Decks werden geladen…",
@@ -1093,6 +1105,8 @@ const messages = {
     generationStalledDescription:
       "Deine gespeicherten Folien sind weiterhin vorhanden. Setze die Arbeit für dieses Deck im Chat fort.",
     continueInChat: "Im Chat fortfahren",
+    applyResult: "Anwenden",
+    regenerateResult: "Neu generieren",
     continueGenerationPrompt:
       "Setze die Foliengenerierung für dieses Deck fort. Prüfe zuerst die vorhandenen Folien und den gespeicherten Generierungskontext. Behalte fertige Folien bei und ergänze nur die fehlenden.",
     checkingSharedAccess:

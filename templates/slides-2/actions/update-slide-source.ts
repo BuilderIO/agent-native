@@ -11,6 +11,7 @@ import {
   createDeckVersionSnapshot,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
+import { lockSlideAssetReferences } from "../server/lib/slide-asset-references.js";
 import { applyEditBatch } from "../server/lib/slide-source-editing/batch-edit.js";
 import {
   isSlideSourceWithinByteLimit,
@@ -244,6 +245,15 @@ export default defineAction({
 
       try {
         await db.transaction(async (tx: any) => {
+          await lockSlideAssetReferences(
+            tx,
+            nextData,
+            {
+              ownerEmail: row.ownerEmail,
+              orgId: row.orgId,
+            },
+            deckId,
+          );
           await createDeckVersionSnapshot(
             {
               id: row.id,

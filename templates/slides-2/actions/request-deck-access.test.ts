@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   requesterEmail: "requester@example.com" as string | null,
   requesterName: "Requester" as string | null,
+  deckDeletedBeforeWrite: false,
   deck: {
     id: "deck-1",
     title: "Quarterly Review",
@@ -30,10 +31,30 @@ const state = vi.hoisted(() => ({
   updatedPayload: null as string | null,
   rateLimitCount: 0,
 }));
+const tables = vi.hoisted(() => ({
+  decks: {
+    id: "decks.id",
+    title: "decks.title",
+    ownerEmail: "decks.owner_email",
+    visibility: "decks.visibility",
+    data: "decks.data",
+  },
+  deckEvents: {
+    id: "deck_events.id",
+    deckId: "deck_events.deck_id",
+    type: "deck_events.type",
+    message: "deck_events.message",
+    payload: "deck_events.payload",
+    createdBy: "deck_events.created_by",
+    createdAt: "deck_events.created_at",
+  },
+  deckAccessRequestLimits: {
+    deckId: "deck_access_request_limits.deck_id",
+    windowStartedAt: "deck_access_request_limits.window_started_at",
+    requestCount: "deck_access_request_limits.request_count",
+  },
+}));
 
-const limitSelect = vi.hoisted(() =>
-  vi.fn(async () => (state.deck ? [state.deck] : [])),
-);
 const insertValues = vi.hoisted(() =>
   vi.fn((row: Record<string, unknown>) => {
     if ("requestCount" in row) {
@@ -42,17 +63,24 @@ const insertValues = vi.hoisted(() =>
           returning: async () => {
             if (state.rateLimitCount >= 5) return [];
             state.rateLimitCount += 1;
-            return [{ requestCount: state.rateLimitCount }];
+            return [
+              {
+                requestCount: state.rateLimitCount,
+                windowStartedAt: row.windowStartedAt,
+              },
+            ];
           },
         }),
       };
     }
     if (state.insertError) throw state.insertError;
-    state.insertedRows.push(row);
     return {
       onConflictDoNothing: () => ({
-        returning: async () =>
-          state.insertConflict ? [] : [{ id: row.id as string }],
+        returning: async () => {
+          if (state.insertConflict) return [];
+          state.insertedRows.push(row);
+          return [{ id: row.id as string }];
+        },
       }),
     };
   }),
@@ -105,17 +133,59 @@ const updateSet = vi.hoisted(() =>
   }),
 );
 const db = vi.hoisted(() => ({
-  select: vi.fn((selection: Record<string, unknown>) => ({
-    from: vi.fn(() => ({
+  select: vi.fn((_selection: Record<string, unknown>) => {
+    let selectedTable: unknown;
+    let rowLock = false;
+    const builder = {
+      from: vi.fn((table: unknown) => {
+        selectedTable = table;
+        return builder;
+      }),
       where: vi.fn(() =>
-        selection.payload
+        selectedTable === tables.deckEvents
           ? Promise.resolve(state.previousRequests)
-          : { limit: limitSelect },
+          : builder,
       ),
-    })),
-  })),
+      for: vi.fn((mode: string) => {
+        rowLock = mode === "update";
+        return builder;
+      }),
+      limit: vi.fn(async () =>
+        selectedTable === tables.decks && state.deck ? [state.deck] : [],
+      ),
+      then: (
+        resolve: (rows: unknown[]) => unknown,
+        reject: (error: unknown) => unknown,
+      ) => {
+        const rows =
+          selectedTable === tables.decks &&
+          rowLock &&
+          !state.deckDeletedBeforeWrite &&
+          state.deck
+            ? [state.deck]
+            : [];
+        return Promise.resolve(rows).then(resolve, reject);
+      },
+    };
+    return builder;
+  }),
   insert: vi.fn(() => ({ values: insertValues })),
   update: vi.fn(() => ({ set: updateSet })),
+  transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
+    const rateLimitCount = state.rateLimitCount;
+    const insertedRows = state.insertedRows.map((row) => ({ ...row }));
+    const previousRequests = state.previousRequests.map((row) => ({ ...row }));
+    const updatedPayload = state.updatedPayload;
+    try {
+      return await run(db);
+    } catch (error) {
+      state.rateLimitCount = rateLimitCount;
+      state.insertedRows = insertedRows;
+      state.previousRequests = previousRequests;
+      state.updatedPayload = updatedPayload;
+      throw error;
+    }
+  }),
 }));
 
 const notifyWithDelivery = vi.hoisted(() =>
@@ -150,29 +220,7 @@ const resolveAccess = vi.hoisted(() => vi.fn(async () => state.access));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
-  schema: {
-    decks: {
-      id: "decks.id",
-      title: "decks.title",
-      ownerEmail: "decks.owner_email",
-      visibility: "decks.visibility",
-      data: "decks.data",
-    },
-    deckEvents: {
-      id: "deck_events.id",
-      deckId: "deck_events.deck_id",
-      type: "deck_events.type",
-      message: "deck_events.message",
-      payload: "deck_events.payload",
-      createdBy: "deck_events.created_by",
-      createdAt: "deck_events.created_at",
-    },
-    deckAccessRequestLimits: {
-      deckId: "deck_access_request_limits.deck_id",
-      windowStartedAt: "deck_access_request_limits.window_started_at",
-      requestCount: "deck_access_request_limits.request_count",
-    },
-  },
+  schema: tables,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -219,6 +267,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.requesterEmail = "requester@example.com";
   state.requesterName = "Requester";
+  state.deckDeletedBeforeWrite = false;
   state.deck = {
     id: "deck-1",
     title: "Quarterly Review",
@@ -253,6 +302,26 @@ describe("request-deck-access", () => {
     });
 
     expect(db.insert).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not insert a request or anonymous limit after deck deletion wins the lock", async () => {
+    state.requesterEmail = null;
+    state.deckDeletedBeforeWrite = true;
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(state.insertedRows).toEqual([]);
+    expect(state.rateLimitCount).toBe(0);
     expect(notifyWithDelivery).not.toHaveBeenCalled();
     expect(sendEmail).not.toHaveBeenCalled();
   });

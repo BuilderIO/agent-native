@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockValues = vi.hoisted(() => vi.fn());
 const mockInsert = vi.hoisted(() => vi.fn(() => ({ values: mockValues })));
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockRegisterUploadedAssetObjectIdentities = vi.hoisted(() => vi.fn());
+const mockTransaction = vi.hoisted(() => ({ current: null as unknown }));
 const mockExistingAssetRows = vi.hoisted(() => vi.fn());
 const mockWhere = vi.hoisted(() =>
   vi.fn((condition: unknown) => mockExistingAssetRows(condition)),
@@ -14,6 +16,9 @@ const mockAssetColumns = vi.hoisted(() => ({
   url: "url",
   ownerEmail: "ownerEmail",
   orgId: "orgId",
+  provider: "provider",
+  providerObjectId: "providerObjectId",
+  deckId: "deckId",
 }));
 const mockCompileSlideSource = vi.hoisted(() =>
   vi.fn(async (_sourceTsx: string, _scope: unknown) => ({
@@ -45,12 +50,26 @@ vi.mock("./_slide-source.js", () => ({
   compileSlideSource: (...args: unknown[]) => mockCompileSlideSource(...args),
 }));
 
+vi.mock("../server/lib/uploaded-asset-object-lifecycle.js", () => ({
+  registerUploadedAssetObjectIdentities: (...args: unknown[]) =>
+    mockRegisterUploadedAssetObjectIdentities(...args),
+}));
+
 import { compileImportedSlideSource } from "./_imported-slide-source.js";
 
 describe("compileImportedSlideSource", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetDb.mockReturnValue({ insert: mockInsert, select: mockSelect });
+    mockTransaction.current = null;
+    mockGetDb.mockReturnValue({
+      insert: mockInsert,
+      select: mockSelect,
+      transaction: (callback: (transaction: unknown) => unknown) => {
+        const transaction = { insert: mockInsert };
+        mockTransaction.current = transaction;
+        return callback(transaction);
+      },
+    });
     mockExistingAssetRows.mockResolvedValue([]);
     mockCompileSlideSource.mockResolvedValue({
       content: '<div data-compiled="true"></div>',
@@ -63,33 +82,55 @@ describe("compileImportedSlideSource", () => {
   it("registers uploaded images in scope before compiling source-backed slides", async () => {
     const result = await compileImportedSlideSource(
       '<div class="fmd-slide"><img src="https://files.example/photo.png"></div>',
-      { ownerEmail: "owner@example.com", orgId: "org-1" },
+      { ownerEmail: "owner@example.com", orgId: "org-1", deckId: "deck-1" },
       [
         {
+          assetId: "imported-asset-1",
           url: "https://files.example/photo.png",
           filename: "photo.png",
           mimeType: "image/png",
           size: 1234,
+          provider: "s3",
+          providerObjectId: "object-1",
         },
       ],
     );
 
-    const assetId = expect.stringMatching(/^[A-Za-z0-9_-]{10,}$/);
     expect(mockValues).toHaveBeenCalledWith([
       expect.objectContaining({
-        id: assetId,
+        id: "imported-asset-1",
         filename: "photo.png",
         url: "https://files.example/photo.png",
         type: "image/png",
         size: 1234,
+        provider: "s3",
+        providerObjectId: "object-1",
+        deckId: "deck-1",
         orgId: "org-1",
         ownerEmail: "owner@example.com",
       }),
     ]);
+    expect(mockRegisterUploadedAssetObjectIdentities).toHaveBeenCalledWith(
+      mockTransaction.current,
+      [
+        {
+          url: "https://files.example/photo.png",
+          provider: "s3",
+          providerObjectId: "object-1",
+        },
+      ],
+    );
+    expect(
+      mockRegisterUploadedAssetObjectIdentities.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockValues.mock.invocationCallOrder[0]!);
     expect(mockCompileSlideSource).toHaveBeenCalledOnce();
     const [sourceTsx, scope] = mockCompileSlideSource.mock.calls[0]!;
-    expect(sourceTsx).toMatch(/src=\{"asset:\/\/[-A-Za-z0-9_]+"\}/);
-    expect(scope).toEqual({ ownerEmail: "owner@example.com", orgId: "org-1" });
+    expect(sourceTsx).toContain('src={"asset://imported-asset-1"}');
+    expect(scope).toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      deckId: "deck-1",
+    });
     expect(result).toMatchObject({
       revision: 1,
       sourceHash: "a".repeat(64),

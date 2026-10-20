@@ -18,6 +18,8 @@ import {
 
 const MAX_GOOGLE_SLIDES_PPTX_BYTES = 100 * 1024 * 1024;
 const MAX_GOOGLE_SLIDES_METADATA_BYTES = 8 * 1024 * 1024;
+const MAX_GOOGLE_SLIDES_IMAGE_CANDIDATES = 500;
+const MAX_GOOGLE_SLIDES_IMAGE_FETCHES = 250;
 const MAX_GOOGLE_SLIDES_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_GOOGLE_SLIDES_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024;
 
@@ -172,6 +174,7 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
   );
 
   if (!response.ok) {
+    await cancelResponseBody(response);
     throw googleSlidesExportError(response.status);
   }
 
@@ -289,6 +292,7 @@ async function fetchGoogleSlidesImageFallbacks(
     { httpsOnly: true, maxRedirects: 2 },
   );
   if (!response.ok) {
+    await cancelResponseBody(response);
     fail(
       `Google Slides returned HTTP ${response.status} while reading native image elements. Reconnect Google Drive and try the import again.`,
       { errorCode: "google_slides_images_request_failed", statusCode: 502 },
@@ -315,6 +319,7 @@ async function fetchGoogleSlidesImageFallbacks(
   }
   const candidates: GoogleSlidesImageCandidate[] = [];
   const candidateKeys = new Set<string>();
+  const imageFetchUrls = new Set<string>();
 
   for (const [slideIndex, slide] of (
     googlePresentation.slides ?? []
@@ -376,7 +381,23 @@ async function fetchGoogleSlidesImageFallbacks(
         : undefined;
       const candidateKey = `${slideIndex}:${x}:${y}:${width}:${height}`;
       if (candidateKeys.has(candidateKey)) continue;
+      if (candidates.length >= MAX_GOOGLE_SLIDES_IMAGE_CANDIDATES) {
+        fail("Google Slides has too many image placements to import.", {
+          errorCode: "google_slides_too_many_image_candidates",
+          statusCode: 413,
+        });
+      }
+      if (
+        !imageFetchUrls.has(contentUrl) &&
+        imageFetchUrls.size >= MAX_GOOGLE_SLIDES_IMAGE_FETCHES
+      ) {
+        fail("Google Slides has too many distinct images to import.", {
+          errorCode: "google_slides_too_many_image_fetches",
+          statusCode: 413,
+        });
+      }
       candidateKeys.add(candidateKey);
+      imageFetchUrls.add(contentUrl);
       candidates.push({
         slideIndex,
         imageIndex,
@@ -499,6 +520,12 @@ async function fetchGoogleSlidesImageFallbacks(
           },
           registerImageReader,
         );
+        if (data.byteLength === 0) {
+          fail(
+            `Google Slides returned an empty image for image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
+            { errorCode: "google_slides_image_empty", statusCode: 502 },
+          );
+        }
         return { data, mimeType };
       } catch (error) {
         const failure = stopImageDownloads(error);

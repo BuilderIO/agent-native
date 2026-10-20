@@ -7,6 +7,7 @@ import { getH3App } from "@agent-native/core/server";
 import { setResponseHeader, setResponseStatus } from "h3";
 
 import "../db/index.js";
+import "../lib/import-asset-storage.js";
 import * as schema from "../db/schema.js";
 
 function isDrizzleTable(value: unknown): value is object {
@@ -378,6 +379,25 @@ ON deck_share_links (deck_id)`,
   );
 CREATE INDEX IF NOT EXISTS uploaded_asset_cleanup_outbox_due_idx
 ON uploaded_asset_cleanup_outbox (next_attempt_at, lease_expires_at, created_at)`,
+    },
+    {
+      version: 39,
+      name: "slides-uploaded-asset-object-lifecycle",
+      sql: `CREATE TABLE IF NOT EXISTS uploaded_asset_object_lifecycle (
+    identity_key TEXT PRIMARY KEY,
+    state TEXT NOT NULL CHECK (state IN ('active', 'deleting', 'deleted')),
+    updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+CREATE INDEX IF NOT EXISTS uploaded_asset_object_lifecycle_state_updated_idx
+ON uploaded_asset_object_lifecycle (state, updated_at)`,
+    },
+    {
+      version: 40,
+      name: "slides-uploaded-asset-object-deletion-lease",
+      sql: `ALTER TABLE uploaded_asset_object_lifecycle
+ADD COLUMN IF NOT EXISTS deletion_lease_token TEXT;
+ALTER TABLE uploaded_asset_object_lifecycle
+ADD COLUMN IF NOT EXISTS deletion_lease_expires_at TEXT`,
     },
   ],
   { table: "slides_migrations" },

@@ -813,6 +813,18 @@ const messages = {
     generate: "슬라이드 생성",
   },
   deckResult: { saved: "저장됨" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "편집기에서 마우스를 올린 개체를 강조 표시하고 캔버스에서 이미지를 교체하거나 자를 수 있습니다.",
+    deckEditingControls:
+      "슬라이드 목록 토글, 프레젠테이션 제목, 발표 버튼이 이제 워크스페이스 공용 컨트롤과 일치합니다.",
+    googleSlidesMissingImageData:
+      "Google Slides 가져오기는 빈 이미지를 추가하는 대신 이미지 데이터가 누락되었다고 알립니다.",
+    globalMediaPickerScope:
+      "전체 미디어 선택기에는 현재 프레젠테이션에서 사용할 수 있는 에셋만 표시됩니다.",
+    savedSlideImages:
+      "저장된 슬라이드에서 사용하는 이미지는 라이브러리에서 계속 사용할 수 있습니다.",
+  },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -877,7 +889,7 @@ const messages = {
     collaboratorTooltip: "{{name}} ({{email}})님이 이 슬라이드에 있습니다",
     applyUpdates: "업데이트 적용 ({{count}})",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "현재",
     preview: "미리보기",
     edit: "편집",
@@ -936,7 +948,7 @@ const messages = {
     noVideosYet: "아직 동영상이 없습니다.",
     noAssetsMatch: "검색과 일치하는 미디어가 없습니다.",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "Google Fonts 둘러보기",
     title: "Google Fonts",
     searchPlaceholder: "글꼴 패밀리 검색",
@@ -953,7 +965,7 @@ const messages = {
     importFailed: "선택한 글꼴을 가져오지 못했습니다.",
     chooseFont: "미리 볼 글꼴을 선택하세요.",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "디자인 토큰",
     colors: "색상",
     background: "배경",
@@ -968,7 +980,7 @@ const messages = {
     radius: "모서리 반경",
     shuffle: "디자인 섞기",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "덱 전환",
     searchDecks: "접근 가능한 덱 검색",
     loadingDecks: "덱을 불러오는 중…",
@@ -1058,6 +1070,8 @@ const messages = {
     generationStalledDescription:
       "저장된 슬라이드는 그대로 있습니다. 채팅에서 이 덱의 생성을 이어가세요.",
     continueInChat: "채팅에서 이어가기",
+    applyResult: "적용",
+    regenerateResult: "다시 생성",
     continueGenerationPrompt:
       "이 덱의 슬라이드 생성을 계속하세요. 먼저 현재 슬라이드와 저장된 생성 컨텍스트를 확인하세요. 완료된 슬라이드는 유지하고 누락된 슬라이드만 추가하세요.",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",

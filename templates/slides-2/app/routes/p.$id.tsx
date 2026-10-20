@@ -7,7 +7,7 @@ import {
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { summarizeSlideContent } from "@shared/deck-title";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { useLayoutEffect, useRef, useState } from "react";
 import type {
   HeadersArgs,
@@ -34,30 +34,35 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const basePath = getConfiguredAppBasePath();
 
   const db = getDb();
-  const [deck] = await db
+  const [deckAccess] = await db
     .select({
-      title: schema.decks.title,
-      data: schema.decks.data,
+      id: schema.decks.id,
       visibility: schema.decks.visibility,
     })
     .from(schema.decks)
     .where(eq(schema.decks.id, id))
     .limit(1);
 
-  if (!deck) throw new Response("Not found", { status: 404 });
-  if (deck.visibility === "public") {
-    return {
-      deck: toSharedDeck(deck),
-      id,
-      basePath,
-      origin: new URL(request.url).origin,
-      isPublic: true,
-    };
+  if (!deckAccess) throw new Response("Not found", { status: 404 });
+  if (deckAccess.visibility !== "public") {
+    return { deck: null, error: "restricted", restricted: { id, basePath } };
+  }
+
+  const [deck] = await db
+    .select({ title: schema.decks.title, data: schema.decks.data })
+    .from(schema.decks)
+    .where(and(eq(schema.decks.id, id), eq(schema.decks.visibility, "public")))
+    .limit(1);
+
+  if (!deck) {
+    return { deck: null, error: "restricted", restricted: { id, basePath } };
   }
   return {
-    deck: null,
-    error: "restricted",
-    restricted: { id, basePath },
+    deck: toSharedDeck(deck),
+    id,
+    basePath,
+    origin: new URL(request.url).origin,
+    isPublic: true,
   };
 }
 
@@ -89,6 +94,10 @@ export default function PublicDeckRoute() {
     token: string;
   } | null>(null);
   const agentAccessRef = useRef<{ deckId: string; token: string } | null>(null);
+  const authorizedAgentAccess =
+    restricted && agentAccess && agentAccess.deckId === restricted.id
+      ? { ...agentAccess, basePath: restricted.basePath }
+      : null;
 
   useLayoutEffect(() => {
     const url = new URL(window.location.href);
@@ -123,20 +132,19 @@ export default function PublicDeckRoute() {
           title={data.deck.title}
           basePath={data.basePath}
         />
-      ) : agentAccess?.deckId === restricted?.id && restricted ? (
+      ) : authorizedAgentAccess ? (
         <AgentReadableDeckDiscovery
-          id={restricted.id}
-          basePath={restricted.basePath}
-          token={agentAccess.token}
+          id={authorizedAgentAccess.deckId}
+          basePath={authorizedAgentAccess.basePath}
+          token={authorizedAgentAccess.token}
         />
       ) : null}
       <SharedPresentation
         initialDeck={data.deck}
+        sourceDeckId={data.deck ? data.id : undefined}
         initialError={data.deck ? data.error : undefined}
         agentAccessDeckId={restricted?.id}
-        agentAccessToken={
-          agentAccess?.deckId === restricted?.id ? agentAccess.token : null
-        }
+        agentAccessToken={authorizedAgentAccess?.token ?? null}
       />
     </>
   );

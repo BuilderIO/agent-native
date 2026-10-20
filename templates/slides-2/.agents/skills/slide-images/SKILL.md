@@ -113,11 +113,13 @@ pnpm action search-images --q "Acme logo transparent" --count 5
 
 ## Asset Library
 
-Use `list-assets` to find a global image by its `assetId`. Call `update-asset`
-with `filename` to rename it, or with `replacementId` to replace its stored
-image while preserving the original ID and slide references. The replacement
-must be another uploaded image from the same user's global collection. Do not
-delete the original before the replacement action succeeds.
+Use `list-assets` to find an image by its `assetId`. When selecting media for an
+existing deck, include its `deckId` with global scope so results are limited to
+assets the deck can use. Call `update-asset` with `filename` to rename it, or
+with `replacementId` to replace its stored image while preserving the original
+ID and slide references. The replacement must be another uploaded image from
+the same user's global collection. Do not delete the original before the
+replacement action succeeds.
 
 ## Important Rules
 

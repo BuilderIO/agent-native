@@ -16,6 +16,7 @@ import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
 
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
+  sourceDeckId?: string;
   initialError?: string;
   agentAccessDeckId?: string;
   agentAccessToken?: string | null;
@@ -23,6 +24,7 @@ interface SharedPresentationProps {
 
 export default function SharedPresentation({
   initialDeck = null,
+  sourceDeckId,
   initialError = "",
   agentAccessDeckId,
   agentAccessToken,
@@ -161,10 +163,11 @@ export default function SharedPresentation({
     <PresentationView
       slides={slides}
       deckId={`__shared__/${token ?? agentAccessDeckId ?? "public"}`}
+      sourceDeckId={sourceDeckId}
       startIndex={startIndex}
       aspectRatio={deck.aspectRatio}
       designSystem={designSystem}
-      pdfExportTitle={token ? deck.title : undefined}
+      pdfExportTitle={token || sourceDeckId ? deck.title : undefined}
       pdfExportToken={token}
     />
   );

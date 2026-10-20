@@ -20,6 +20,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
+  lockSlideAssetReferences,
+  withSlideAssetReferencesLocked,
+} from "../server/lib/slide-asset-references.js";
+import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
 } from "../server/lib/slide-hygiene.js";
@@ -401,7 +405,7 @@ function generationTerminalEvent(signal?: AbortSignal): {
 export default defineAction({
   title: "Create Slides 2 deck",
   description:
-    "Create an editable Slides 2 deck, optionally already populated with slides, or atomically replace all slides in an existing deck. For generated slides, pass one default-exported React component in each `slides[].sourceTsx`; a static `export default [Cover, Body] satisfies Page[]` is also split into one source-backed slide per local component (up to 40 pages). An index-aligned static `export const notes = [...]` is copied into each page's presenter notes, and static `Cover.transition = {...}` overrides are preserved per page over the module `transition` default. Source is validated and stored in SQL; the opaque Worker runtime derives rendered HTML for the editor and presenter. The Slides 2 editor's browser PDF export renders that Worker artifact in the sandbox. Server PPTX export attempts bounded static rendering for source slides without a saved preview; sources requiring Worker rendering return `source_runtime_export_required` before a file is created. Server HTML/Google Slides exports and the shared PresentationView PDF path still need static HTML previews and return that error when a source slide has no preview. React and the eleven Worker-supported named `@open-slide/core` values are supported: `CANVAS_WIDTH`, `CANVAS_HEIGHT`, `defaultDesign`, `designToCssVars`, `cssVarsToString`, `Step`, `Steps`, `useSlidePageNumber`, `useIsActivePage`, `ImagePlaceholder`, and `MorphElement`. `cssVarsToString` serializes a bounded safe custom-property map to text and does not enable runtime CSS injection. Static `design`, `meta`, and validated `transition` exports are supported. Use inline styles or static CSS strings in local `style`/`css`/`keyframe` constants; CSS is sanitized and scoped, and Tailwind classes have no stylesheet in the frame. Do not use arbitrary imports, browser globals, event handlers, remote CSS/fonts, or external URLs. Images and videos use uploaded `asset://` handles only. Call `list-assets` with `media` set to `video` or `all` to find uploaded MP4/WebM videos; it defaults to images. Use the returned `assetId` as the React `<video>` source, and an uploaded image handle for an optional poster. For an existing source-backed slide, read it with `get-slide-source`, save with `update-slide-source` using its revision and sourceHash, then read it back; do not change generated slide source through `slides[].content`. `slides[].content` is for imported or legacy HTML and the derived static preview only. " +
+    "Create an editable Slides 2 deck, optionally already populated with slides, or atomically replace all slides in an existing deck. For generated slides, pass one default-exported React component in each `slides[].sourceTsx`; a static Page array such as `export default [Cover, Body] satisfies Page[]` or `const pages: Page[] = [Cover, Body]; export default pages;` is also split into one source-backed slide per local component (up to 40 pages). An index-aligned static `export const notes = [...]` is copied into each page's presenter notes, and static `Cover.transition = {...}` overrides are preserved per page over the module `transition` default. Source is validated and stored in SQL; the opaque Worker runtime derives rendered HTML for the editor and presenter. The Slides 2 editor's browser PDF export renders that Worker artifact in the sandbox. Server PPTX export attempts bounded static rendering for source slides without a saved preview; sources requiring Worker rendering return `source_runtime_export_required` before a file is created. Server HTML/Google Slides exports and the shared PresentationView PDF path still need static HTML previews and return that error when a source slide has no preview. React and the eleven Worker-supported named `@open-slide/core` values are supported: `CANVAS_WIDTH`, `CANVAS_HEIGHT`, `defaultDesign`, `designToCssVars`, `cssVarsToString`, `Step`, `Steps`, `useSlidePageNumber`, `useIsActivePage`, `ImagePlaceholder`, and `MorphElement`. `cssVarsToString` serializes a bounded safe custom-property map to text and does not enable runtime CSS injection. Static `design`, `meta`, and validated `transition` exports are supported. Use inline styles or static CSS strings in local `style`/`css`/`keyframe` constants; CSS is sanitized and scoped, and Tailwind classes have no stylesheet in the frame. Do not use arbitrary imports, browser globals, event handlers, remote CSS/fonts, or external URLs. Images and videos use uploaded `asset://` handles only. Call `list-assets` with `media` set to `video` or `all` to find uploaded MP4/WebM videos; it defaults to images. Use the returned `assetId` as the React `<video>` source, and an uploaded image handle for an optional poster. For an existing source-backed slide, read it with `get-slide-source`, save with `update-slide-source` using its revision and sourceHash, then read it back; do not change generated slide source through `slides[].content`. `slides[].content` is for imported or legacy HTML and the derived static preview only. " +
     "When all pages are authored before persistence, pass the full ordered deck in this call so it is saved atomically in any host. For genuinely live in-app generation, create the deck with slides: [], then add each page sequentially with add-slide; pass generationComplete=false on intermediate writes and true on the final write of an action-owned generation. The final write persists completion so later additions are ordinary edits. Use patch-deck for deck structure, and never issue parallel writes to the same deck. " +
     "Home's prompt-first flow may pass promptDraft to persist its stable empty draft with the original prompt and reference context before dispatching generation; retrying that ID is safe only while the same owner's initial draft fields still match. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
@@ -765,6 +769,15 @@ export default defineAction({
         );
         assertNoDeckRenderArtifacts(existingDeck.data, data);
         await db.transaction(async (tx: any) => {
+          await lockSlideAssetReferences(
+            tx,
+            data,
+            {
+              ownerEmail: existingDeck.ownerEmail,
+              orgId: existingDeck.orgId,
+            },
+            existingDeck.id,
+          );
           await createDeckVersionSnapshot(
             {
               id: existingDeck.id,
@@ -1009,10 +1022,16 @@ export default defineAction({
         }
       }
       try {
-        const insertedRows = await db
-          .insert(schema.decks)
-          .values(insertValues)
-          .returning(persistedDeckWriteColumns());
+        const insertedRows = await withSlideAssetReferencesLocked(
+          db,
+          data,
+          { ownerEmail, orgId: insertValues.orgId ?? null },
+          async (tx) =>
+            tx
+              .insert(schema.decks)
+              .values(insertValues)
+              .returning(persistedDeckWriteColumns()),
+        );
         assertPersistedDeckWrite(
           insertedRows[0],
           {

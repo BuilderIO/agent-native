@@ -33,9 +33,9 @@ export function AlignmentGuides({
     pointerEvents: "none",
     zIndex: 70,
     backgroundColor: guide.equalSpacing
-      ? // guard:allow-raw-color — Google Slides equal-spacing guides are literal #009ef5, theme-independent (gs-truth-selection 9.4)
+      ? // guard:allow-raw-color — Equal-spacing guides use a fixed slide-canvas blue, independent of the app theme.
         "#009ef5"
-      : // guard:allow-raw-color — Google Slides guides are literal #ff0000, theme-independent (interaction-oracle.md 9.2)
+      : // guard:allow-raw-color — Alignment guides use a fixed slide-canvas red, independent of the app theme.
         "#ff0000",
   });
 

@@ -17,7 +17,7 @@ describe("diffUndoRevealTargets", () => {
   const A = box("a", "left: 10px", "A");
   const B = box("b", "left: 100px", "B");
 
-  it("selects the object whose style changed (gs-truth U1, U2)", () => {
+  it("selects the object whose style changed", () => {
     const moved = box("a", "left: 40px", "A");
     for (const direction of ["undo", "redo"] as const) {
       expect(

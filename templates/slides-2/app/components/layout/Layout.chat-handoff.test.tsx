@@ -144,7 +144,29 @@ import ChatRoute from "@/routes/chat";
 
 import { Layout } from "./Layout";
 
-beforeEach(() => window.localStorage.clear());
+function createLocalStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+}
+
+const localStorage = createLocalStorage();
+
+beforeEach(() => {
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: localStorage,
+  });
+  localStorage.clear();
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

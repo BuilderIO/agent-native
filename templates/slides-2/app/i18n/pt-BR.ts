@@ -834,6 +834,18 @@ const messages = {
     generate: "Gerar slides",
   },
   deckResult: { saved: "Salvo" },
+  slidesChangelog: {
+    editorHoveredObjects:
+      "O editor destaca objetos ao passar o cursor e mantém as ações de substituir e recortar imagens no canvas.",
+    deckEditingControls:
+      "O botão da lista de slides, o título da apresentação e o botão Apresentar agora seguem os controles compartilhados do espaço de trabalho.",
+    googleSlidesMissingImageData:
+      "As importações do Google Slides agora informam quando faltam dados de imagem, em vez de adicionar imagens vazias.",
+    globalMediaPickerScope:
+      "O seletor global de mídia agora mostra apenas recursos que a apresentação atual consegue resolver.",
+    savedSlideImages:
+      "As imagens usadas em slides salvos continuam disponíveis na sua biblioteca.",
+  },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -901,7 +913,7 @@ const messages = {
     collaboratorTooltip: "{{name}} ({{email}}) está neste slide",
     applyUpdates: "Aplicar atualizações ({{count}})",
   },
-  openSlideEditor: {
+  slides2Editor: {
     now: "AGORA",
     preview: "Visualizar",
     edit: "Editar",
@@ -962,7 +974,7 @@ const messages = {
     noVideosYet: "Ainda não há vídeos.",
     noAssetsMatch: "Nenhuma mídia corresponde à sua busca.",
   },
-  openSlideFonts: {
+  slides2Fonts: {
     browse: "Explorar Google Fonts",
     title: "Fontes do Google",
     searchPlaceholder: "Buscar famílias de fontes",
@@ -979,7 +991,7 @@ const messages = {
     importFailed: "Não foi possível importar a fonte selecionada.",
     chooseFont: "Escolha uma fonte para pré-visualizar.",
   },
-  openSlideDesignTokens: {
+  slides2DesignTokens: {
     title: "Tokens de design",
     colors: "Cores",
     background: "Plano de fundo",
@@ -994,7 +1006,7 @@ const messages = {
     radius: "Raio",
     shuffle: "Aleatorizar design",
   },
-  openSlidePresenter: {
+  slides2Presenter: {
     switchDeck: "Trocar apresentação",
     searchDecks: "Pesquisar apresentações acessíveis",
     loadingDecks: "Carregando apresentações…",
@@ -1083,6 +1095,8 @@ const messages = {
     generationStalledDescription:
       "Suas lâminas salvas continuam aqui. Continue este deck no chat.",
     continueInChat: "Continuar no chat",
+    applyResult: "Aplicar",
+    regenerateResult: "Gerar novamente",
     continueGenerationPrompt:
       "Continue gerando as lâminas deste deck. Primeiro, confira as lâminas existentes e o contexto de geração salvo. Mantenha as lâminas concluídas e adicione somente as que faltam.",
     checkingSharedAccess:

@@ -141,6 +141,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides-2:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides-2:slide_comments": "child rows scoped through authorized decks",
+  "slides-2:uploaded_asset_object_lifecycle":
+    "global stored-object identity lifecycle registry, accessed only by the uploaded asset lifecycle helper",
 };
 
 async function* walk(dir) {

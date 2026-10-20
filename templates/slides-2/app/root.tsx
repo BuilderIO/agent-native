@@ -39,6 +39,7 @@ import { Layout as AppLayout } from "@/components/layout/Layout";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { localizeSlidesChangelog } from "@/lib/localize-slides-changelog";
 import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
 
@@ -223,6 +224,15 @@ function AppContent() {
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
+  const localizedChangelog = localizeSlidesChangelog(changelog, {
+    editorHoveredObjects: t("slidesChangelog.editorHoveredObjects"),
+    deckEditingControls: t("slidesChangelog.deckEditingControls"),
+    googleSlidesMissingImageData: t(
+      "slidesChangelog.googleSlidesMissingImageData",
+    ),
+    globalMediaPickerScope: t("slidesChangelog.globalMediaPickerScope"),
+    savedSlideImages: t("slidesChangelog.savedSlideImages"),
+  });
   const navigate = useNavigate();
   const handleCommandMenuShortcut = useCallback(() => {
     setCmdkOpen(true);
@@ -264,7 +274,7 @@ function AppContent() {
       <CommandMenu
         open={cmdkOpen}
         onOpenChange={setCmdkOpen}
-        changelog={changelog}
+        changelog={localizedChangelog}
         changelogKey="slides-2"
         chatStorageKey="slides-2"
       >

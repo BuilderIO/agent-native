@@ -19,7 +19,6 @@
     "server/**/*",
     "shared/**/*",
     "scripts/**/*",
-    "oracle/**/*",
     "vite.config.ts",
     "react-router.config.ts",
     ".react-router/types/**/*",

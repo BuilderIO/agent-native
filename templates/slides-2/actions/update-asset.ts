@@ -1,18 +1,30 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { deleteUploadedFile } from "@agent-native/core/file-upload";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { findDeckReferencingAsset } from "../server/lib/slide-asset-references.js";
 import {
   finishOwnedUploadedAssetCleanup,
   retryOwnedUploadedAssetCleanup,
   scheduleUploadedAssetDeletion,
+  type SlidesTransaction,
 } from "../server/lib/uploaded-asset-cleanup-outbox.js";
+import {
+  deleteUploadedAssetObject,
+  lockUploadedAssetObjectIdentities,
+  registerUploadedAssetObjectIdentities,
+  type UploadedAssetObjectIdentity,
+} from "../server/lib/uploaded-asset-object-lifecycle.js";
 
 function ownedImageScope(
   id: string,
@@ -171,103 +183,6 @@ export default defineAction({
 
     const replacementAssetId = requireReplacementId(replacementId);
 
-    let assets: Array<{
-      id: string;
-      filename: string;
-      url: string;
-      type: string;
-      size: number;
-      provider: string | null;
-      providerObjectId: string | null;
-      orgId: string | null;
-    }>;
-    try {
-      assets = await db
-        .select({
-          id: schema.uploadedAssets.id,
-          filename: schema.uploadedAssets.filename,
-          url: schema.uploadedAssets.url,
-          type: schema.uploadedAssets.type,
-          size: schema.uploadedAssets.size,
-          provider: schema.uploadedAssets.provider,
-          providerObjectId: schema.uploadedAssets.providerObjectId,
-          orgId: schema.uploadedAssets.orgId,
-        })
-        .from(schema.uploadedAssets)
-        .where(
-          and(
-            inArray(schema.uploadedAssets.id, [id, replacementAssetId]),
-            eq(schema.uploadedAssets.ownerEmail, ownerEmail),
-            orgId
-              ? or(
-                  eq(schema.uploadedAssets.orgId, orgId),
-                  isNull(schema.uploadedAssets.orgId),
-                )
-              : isNull(schema.uploadedAssets.orgId),
-            isNull(schema.uploadedAssets.deckId),
-            like(schema.uploadedAssets.type, "image/%"),
-          ),
-        );
-    } catch {
-      fail("Could not read the uploaded images.", {
-        errorCode: "asset_update_failed",
-        statusCode: 500,
-      });
-    }
-
-    const previous = assets.find((asset) => asset.id === id);
-    const replacement = assets.find((asset) => asset.id === replacementAssetId);
-    if (!previous || !replacement) {
-      fail("Uploaded image not found.", {
-        errorCode: "asset_not_found",
-        statusCode: 404,
-      });
-    }
-    const previousProvider = previous.provider;
-    const replacementProvider = replacement.provider;
-    if (!previousProvider || !replacementProvider) {
-      fail("Image storage could not be verified.", {
-        errorCode: "asset_replace_storage_unavailable",
-        statusCode: 503,
-      });
-    }
-    let referencingDeck: { id: string } | undefined;
-    try {
-      // Check private same-org decks too, while returning only a generic conflict.
-      const deckScope = replacement.orgId
-        ? eq(schema.decks.orgId, replacement.orgId)
-        : and(
-            eq(schema.decks.ownerEmail, ownerEmail),
-            isNull(schema.decks.orgId),
-          );
-      [referencingDeck] = await db
-        .select({ id: schema.decks.id })
-        .from(schema.decks)
-        .where(
-          and(
-            deckScope,
-            sql`position(${`asset://${replacementAssetId}`} in ${schema.decks.data}) > 0`,
-          ),
-        )
-        .limit(1);
-    } catch {
-      fail("Could not verify whether the replacement image is in use.", {
-        errorCode: "asset_replacement_check_failed",
-        statusCode: 500,
-      });
-    }
-    if (referencingDeck) {
-      fail("Choose an image that no saved slide already uses.", {
-        errorCode: "asset_replacement_in_use",
-        statusCode: 409,
-      });
-    }
-    const sameStoredFile =
-      previous.url === replacement.url ||
-      (previousProvider === replacementProvider &&
-        previous.providerObjectId !== null &&
-        previous.providerObjectId === replacement.providerObjectId);
-
     let updated: {
       filename: string;
       cleanup: {
@@ -281,7 +196,143 @@ export default defineAction({
       } | null;
     };
     try {
+      const identityScope = and(
+        inArray(schema.uploadedAssets.id, [id, replacementAssetId]),
+        eq(schema.uploadedAssets.ownerEmail, ownerEmail),
+        orgId
+          ? or(
+              eq(schema.uploadedAssets.orgId, orgId),
+              isNull(schema.uploadedAssets.orgId),
+            )
+          : isNull(schema.uploadedAssets.orgId),
+        isNull(schema.uploadedAssets.deckId),
+        like(schema.uploadedAssets.type, "image/%"),
+      );
+      const identityRows = await db
+        .select({
+          id: schema.uploadedAssets.id,
+          url: schema.uploadedAssets.url,
+          provider: schema.uploadedAssets.provider,
+          providerObjectId: schema.uploadedAssets.providerObjectId,
+        })
+        .from(schema.uploadedAssets)
+        .where(identityScope)
+        .orderBy(asc(schema.uploadedAssets.id));
+      const previousIdentityRow = identityRows.find((asset) => asset.id === id);
+      const replacementIdentityRow = identityRows.find(
+        (asset) => asset.id === replacementAssetId,
+      );
+      if (!previousIdentityRow || !replacementIdentityRow) {
+        fail("Uploaded image not found.", {
+          errorCode: "asset_not_found",
+          statusCode: 404,
+        });
+      }
+      const previousIdentity: UploadedAssetObjectIdentity = {
+        url: previousIdentityRow.url,
+        provider: previousIdentityRow.provider,
+        providerObjectId: previousIdentityRow.providerObjectId,
+      };
+      const replacementIdentity: UploadedAssetObjectIdentity = {
+        url: replacementIdentityRow.url,
+        provider: replacementIdentityRow.provider,
+        providerObjectId: replacementIdentityRow.providerObjectId,
+      };
+
       updated = await db.transaction(async (tx) => {
+        await lockUploadedAssetObjectIdentities(tx, [
+          previousIdentity,
+          replacementIdentity,
+        ]);
+        await registerUploadedAssetObjectIdentities(tx, [replacementIdentity]);
+
+        const assets = await tx
+          .select({
+            id: schema.uploadedAssets.id,
+            filename: schema.uploadedAssets.filename,
+            url: schema.uploadedAssets.url,
+            type: schema.uploadedAssets.type,
+            size: schema.uploadedAssets.size,
+            provider: schema.uploadedAssets.provider,
+            providerObjectId: schema.uploadedAssets.providerObjectId,
+            ownerEmail: schema.uploadedAssets.ownerEmail,
+            orgId: schema.uploadedAssets.orgId,
+          })
+          .from(schema.uploadedAssets)
+          .where(
+            and(
+              inArray(schema.uploadedAssets.id, [id, replacementAssetId]),
+              eq(schema.uploadedAssets.ownerEmail, ownerEmail),
+              orgId
+                ? or(
+                    eq(schema.uploadedAssets.orgId, orgId),
+                    isNull(schema.uploadedAssets.orgId),
+                  )
+                : isNull(schema.uploadedAssets.orgId),
+              isNull(schema.uploadedAssets.deckId),
+              like(schema.uploadedAssets.type, "image/%"),
+            ),
+          )
+          .orderBy(asc(schema.uploadedAssets.id))
+          .for("update");
+
+        const previous = assets.find((asset) => asset.id === id);
+        const replacement = assets.find(
+          (asset) => asset.id === replacementAssetId,
+        );
+        if (!previous || !replacement) {
+          fail("Uploaded image not found.", {
+            errorCode: "asset_not_found",
+            statusCode: 404,
+          });
+        }
+        if (
+          previous.url !== previousIdentity.url ||
+          previous.provider !== previousIdentity.provider ||
+          previous.providerObjectId !== previousIdentity.providerObjectId ||
+          replacement.url !== replacementIdentity.url ||
+          replacement.provider !== replacementIdentity.provider ||
+          replacement.providerObjectId !== replacementIdentity.providerObjectId
+        ) {
+          fail(
+            "The uploaded images changed while the replacement was being prepared.",
+            {
+              errorCode: "asset_replace_changed",
+              statusCode: 409,
+            },
+          );
+        }
+        const previousProvider = previous.provider;
+        const replacementProvider = replacement.provider;
+        if (!previousProvider || !replacementProvider) {
+          fail("Image storage could not be verified.", {
+            errorCode: "asset_replace_storage_unavailable",
+            statusCode: 503,
+          });
+        }
+
+        let referencingDeck: { id: string } | undefined;
+        try {
+          // Check private same-org decks too, while returning only a generic conflict.
+          referencingDeck = await findDeckReferencingAsset(tx, replacement);
+        } catch {
+          fail("Could not verify whether the replacement image is in use.", {
+            errorCode: "asset_replacement_check_failed",
+            statusCode: 500,
+          });
+        }
+        if (referencingDeck) {
+          fail("Choose an image that no saved slide already uses.", {
+            errorCode: "asset_replacement_in_use",
+            statusCode: 409,
+          });
+        }
+
+        const sameStoredFile =
+          previous.url === replacement.url ||
+          (previousProvider === replacementProvider &&
+            previous.providerObjectId !== null &&
+            previous.providerObjectId === replacement.providerObjectId);
         const [saved] = await tx
           .update(schema.uploadedAssets)
           .set({
@@ -380,7 +431,8 @@ export default defineAction({
 
         return { filename: saved.filename, cleanup };
       });
-    } catch {
+    } catch (error) {
+      if (isActionContractError(error)) throw error;
       fail("Could not replace the uploaded image.", {
         errorCode: "asset_replace_failed",
         statusCode: 500,
@@ -396,27 +448,41 @@ export default defineAction({
         orgId: cleanup.orgId,
       };
       try {
-        const deleted = await deleteUploadedFile(cleanup.provider, {
-          url: cleanup.url,
-          id: cleanup.providerObjectId ?? undefined,
+        const finishCleanup = async (tx: SlidesTransaction) => {
+          const removed = await finishOwnedUploadedAssetCleanup(
+            tx,
+            cleanupScope,
+            cleanup.token,
+          );
+          if (!removed) {
+            fail("Replaced image cleanup lease is no longer current.", {
+              errorCode: "asset_replace_cleanup_lease_lost",
+              statusCode: 409,
+            });
+          }
+        };
+        const deletion = await deleteUploadedAssetObject({
+          identity: {
+            url: cleanup.url,
+            provider: cleanup.provider,
+            providerObjectId: cleanup.providerObjectId,
+          },
+          excludeAssetId: cleanup.assetId,
+          lease: { ...cleanupScope, token: cleanup.token },
+          deleteObject: () =>
+            deleteUploadedFile(cleanup.provider, {
+              url: cleanup.url,
+              id: cleanup.providerObjectId ?? undefined,
+            }),
+          onShared: finishCleanup,
+          onAlreadyDeleted: finishCleanup,
+          onDeleted: finishCleanup,
         });
-        if (!deleted) {
+        if (deletion.status === "stale") {
+          cleanupWarning = true;
+        } else if (deletion.status === "failed") {
           cleanupWarning = true;
           await retryOwnedUploadedAssetCleanup(cleanupScope, cleanup.token, 1);
-        } else {
-          await db.transaction(async (tx) => {
-            const removed = await finishOwnedUploadedAssetCleanup(
-              tx,
-              cleanupScope,
-              cleanup.token,
-            );
-            if (!removed) {
-              fail("Replaced image cleanup lease is no longer current.", {
-                errorCode: "asset_replace_cleanup_lease_lost",
-                statusCode: 409,
-              });
-            }
-          });
         }
       } catch {
         cleanupWarning = true;

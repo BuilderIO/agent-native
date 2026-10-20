@@ -28,6 +28,7 @@ import {
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
+import { lockSlideAssetReferences } from "../server/lib/slide-asset-references.js";
 import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
@@ -136,7 +137,7 @@ export default defineAction({
     "Before the first incremental write, assign each planned page a unique stable slideId and include it in the call. Reuse that ID and the same sourceTsx or content and notes after an unclear result. If a retry returns duplicate_slide_id, call get-deck with slideIds=[slideId] and compact=false; treat it as saved only when its ID and sourceTsx or content and notes match, otherwise stop and report the conflict. Calls that omit slideId receive an auto-generated ID and are not retry-safe. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
-    "For generated slides, pass one default-exported React page component in `sourceTsx`; the component is validated and stored in SQL, then rendered in a bounded Worker inside an opaque-origin sandbox. React and the eleven Worker-supported named `@open-slide/core` values are the only module imports: `CANVAS_WIDTH`, `CANVAS_HEIGHT`, `defaultDesign`, `designToCssVars`, `cssVarsToString`, `Step`, `Steps`, `useSlidePageNumber`, `useIsActivePage`, `ImagePlaceholder`, and `MorphElement`. `cssVarsToString` serializes a bounded safe custom-property map to text and does not enable runtime CSS injection. Static `design`, `meta`, and `transition` exports are supported. Use inline styles or static CSS strings in local `style`/`css`/`keyframe` constants; CSS is sanitized and scoped, while Tailwind utilities have no stylesheet in the frame. Do not use arbitrary imports, browser globals, event handlers, CSS imports, remote CSS/fonts, or external URLs. Images and videos must use uploaded `asset://` handles. Call `list-assets` with `media` set to `video` or `all` to find uploaded MP4/WebM videos; it defaults to images. Use the returned `assetId` as the React `<video>` source, and an uploaded image handle for an optional poster. For an existing source-backed slide, read it with `get-slide-source`, save with `update-slide-source` using its revision and sourceHash, then read it back. Do not change generated slide source through legacy `content` or `patch-deck`. The `content` field is retained for legacy/imported HTML. Keep the shared deck theme consistent and use the `get/update-deck-design-tokens` actions for deck-level colors and type scale. " +
+    "For generated slides, pass one default-exported React page component in `sourceTsx`; the component is validated and stored in SQL, then rendered in a bounded Worker inside an opaque-origin sandbox. React and the eleven Worker-supported named `@open-slide/core` values are the only module imports: `CANVAS_WIDTH`, `CANVAS_HEIGHT`, `defaultDesign`, `designToCssVars`, `cssVarsToString`, `Step`, `Steps`, `useSlidePageNumber`, `useIsActivePage`, `ImagePlaceholder`, and `MorphElement`. `cssVarsToString` serializes a bounded safe custom-property map to text and does not enable runtime CSS injection. Static `design`, `meta`, and `transition` exports are supported. A named default page component may set a static per-page transition with `DefaultComponent.transition = {...}`; it overrides the module-level transition export. Use inline styles or static CSS strings in local `style`/`css`/`keyframe` constants; CSS is sanitized and scoped, while Tailwind utilities have no stylesheet in the frame. Do not use arbitrary imports, browser globals, event handlers, CSS imports, remote CSS/fonts, or external URLs. Images and videos must use uploaded `asset://` handles. Call `list-assets` with `media` set to `video` or `all` to find uploaded MP4/WebM videos; it defaults to images. Use the returned `assetId` as the React `<video>` source, and an uploaded image handle for an optional poster. For an existing source-backed slide, read it with `get-slide-source`, save with `update-slide-source` using its revision and sourceHash, then read it back. Do not change generated slide source through legacy `content` or `patch-deck`. The `content` field is retained for legacy/imported HTML. Keep the shared deck theme consistent and use the `get/update-deck-design-tokens` actions for deck-level colors and type scale. " +
     "Use `patch-deck` for supported deck-structure edits, not for appending newly generated slides in this workflow. " +
     'Exception: when the user asks for a blank or empty slide, pass layout="blank" with an empty padded `fmd-slide` wrapper (reuse the deck background if one exists) and skip the get-deck preflight, the styling requirement, and fit/contrast checks. ' +
     "Returns the new slide ID, 1-based slideNumber, updated slide count, realSlideCount (real non-blank slides after the write, present when the deck has a target slide count; compare it, not slideCount, with the target), and pending layoutFit identity. Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it." +
@@ -640,6 +641,15 @@ export default defineAction({
       const persistedData = JSON.stringify(deck);
 
       await db.transaction(async (tx: any) => {
+        await lockSlideAssetReferences(
+          tx,
+          deck,
+          {
+            ownerEmail: row.ownerEmail,
+            orgId: row.orgId,
+          },
+          deckId,
+        );
         await createDeckVersionSnapshot(
           {
             id: row.id,

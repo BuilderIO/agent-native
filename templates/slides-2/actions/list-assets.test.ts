@@ -167,7 +167,7 @@ beforeEach(() => {
 });
 
 describe("list-assets", () => {
-  it("keeps global results to the current user's images in the global collection and current workspace", async () => {
+  it("keeps global results in the current workspace when no deck is specified", async () => {
     mocks.assets = [
       asset("own-org", "image/png", "viewer@example.com", "org-1"),
       asset("own-unscoped", "image/jpeg", "viewer@example.com", null),
@@ -182,14 +182,85 @@ describe("list-assets", () => {
       id: string;
     }>;
 
-    expect(result.map(({ id }) => id).sort()).toEqual([
-      "own-org",
-      "own-unscoped",
-    ]);
+    expect(result.map(({ id }) => id).sort()).toEqual(["own-org"]);
     expect(mocks.assertAccess).not.toHaveBeenCalled();
   });
 
-  it("lists only supported videos for the current user from the global collection", async () => {
+  it("lists the signed-in user's global assets when there is no active organization", async () => {
+    mocks.requestOrgId = null;
+    mocks.assets = [
+      asset("own-unscoped", "image/jpeg", "viewer@example.com", null),
+      asset("other-unscoped", "image/png", "other@example.com", null),
+      asset("own-org", "image/png", "viewer@example.com", "org-1"),
+    ];
+
+    const result = (await action.run({ scope: "global" } as never)) as Array<{
+      id: string;
+    }>;
+
+    expect(result.map(({ id }) => id)).toEqual(["own-unscoped"]);
+  });
+
+  it("limits global results with a deck context to media that deck can resolve", async () => {
+    mocks.deckRow = {
+      id: "deck-1",
+      ownerEmail: "deck-owner@example.com",
+      orgId: "org-1",
+      data: JSON.stringify({ appId: "slides-2", slides: [] }),
+    };
+    mocks.assets = [
+      asset("owner-org-global", "image/png", "deck-owner@example.com", "org-1"),
+      asset("member-org-global", "image/png", "member@example.com", "org-1"),
+      asset("caller-org-global", "image/png", "viewer@example.com", "org-1"),
+      asset(
+        "owner-private-global",
+        "image/png",
+        "deck-owner@example.com",
+        null,
+      ),
+      asset("caller-private-global", "image/png", "viewer@example.com", null),
+      asset("foreign-org-global", "image/png", "viewer@example.com", "org-2"),
+      asset(
+        "deck-attached",
+        "image/png",
+        "deck-owner@example.com",
+        "org-1",
+        "deck-1",
+      ),
+    ];
+
+    const result = (await action.run({
+      scope: "global",
+      deckId: "deck-1",
+    } as never)) as Array<{ id: string }>;
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
+    expect(result.map(({ id }) => id)).toEqual(["caller-org-global"]);
+  });
+
+  it("allows only the deck owner's personal assets for a personal deck", async () => {
+    mocks.requestOrgId = "org-1";
+    mocks.deckRow = {
+      id: "personal-deck",
+      ownerEmail: "viewer@example.com",
+      orgId: null,
+      data: JSON.stringify({ appId: "slides-2", slides: [] }),
+    };
+    mocks.assets = [
+      asset("owner-private-global", "image/png", "viewer@example.com", null),
+      asset("other-private-global", "image/png", "other@example.com", null),
+      asset("owner-org-global", "image/png", "viewer@example.com", "org-1"),
+    ];
+
+    const result = (await action.run({
+      scope: "global",
+      deckId: "personal-deck",
+    } as never)) as Array<{ id: string }>;
+
+    expect(result.map(({ id }) => id)).toEqual(["owner-private-global"]);
+  });
+
+  it("lists supported videos from the current workspace's global collection", async () => {
     mocks.assets = [
       asset("own-mp4", "video/mp4", "viewer@example.com", "org-1"),
       asset("own-webm", "video/webm", "viewer@example.com", null),
@@ -203,7 +274,7 @@ describe("list-assets", () => {
       media: "video",
     } as never)) as Array<{ id: string; type: string }>;
 
-    expect(result.map(({ id }) => id).sort()).toEqual(["own-mp4", "own-webm"]);
+    expect(result.map(({ id }) => id).sort()).toEqual(["own-mp4"]);
     expect(result.every(({ type }) => type.startsWith("video/"))).toBe(true);
   });
 
@@ -523,7 +594,7 @@ describe("list-assets", () => {
     });
   });
 
-  it("requires a deck ID for deck scope and forbids one for global scope", () => {
+  it("requires deck context for deck and slide scopes", () => {
     expect(() => action.schema.parse({ scope: "deck" })).toThrow();
     expect(() =>
       action.schema.parse({ scope: "slide", deckId: "deck-1" }),
@@ -545,9 +616,9 @@ describe("list-assets", () => {
         slideId: "slide-1",
       }),
     ).toMatchObject({ scope: "slide", deckId: "deck-1", slideId: "slide-1" });
-    expect(() =>
+    expect(
       action.schema.parse({ scope: "global", deckId: "deck-1" }),
-    ).toThrow();
+    ).toMatchObject({ scope: "global", deckId: "deck-1" });
     expect(() => action.schema.parse({ scope: "slide" })).toThrow();
   });
 });

@@ -1,10 +1,10 @@
 import messages from "@/i18n/en-US";
-import OpenSlidePresenterPage from "@/pages/OpenSlidePresenterPage";
+import Slides2PresenterPage from "@/pages/Slides2PresenterPage";
 
 export function meta() {
   return [{ title: messages.raw.routeEditorTitle }];
 }
 
 export default function PresentationRoute() {
-  return <OpenSlidePresenterPage />;
+  return <Slides2PresenterPage />;
 }

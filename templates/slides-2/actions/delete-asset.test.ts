@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Clause =
   | { kind: "and" | "or"; conditions: Clause[] }
   | { kind: "eq"; column: string; value: unknown }
+  | { kind: "gt"; column: string; value: unknown }
   | { kind: "ne"; column: string; value: unknown }
   | { kind: "isNull"; column: string }
-  | { kind: "like"; column: string; value: string }
-  | { kind: "assetReference"; value: string };
+  | { kind: "like"; column: string; value: string };
 
 type Asset = {
   id: string;
@@ -61,6 +61,14 @@ function matches(clause: Clause, row: Asset | Deck): boolean {
       return clause.conditions.every((condition) => matches(condition, row));
     case "or":
       return clause.conditions.some((condition) => matches(condition, row));
+    case "gt": {
+      const value = (row as unknown as Record<string, unknown>)[clause.column];
+      return (
+        typeof value === "string" &&
+        typeof clause.value === "string" &&
+        value > clause.value
+      );
+    }
     case "eq":
       return (
         (row as unknown as Record<string, unknown>)[clause.column] ===
@@ -79,8 +87,6 @@ function matches(clause: Clause, row: Asset | Deck): boolean {
         typeof value === "string" && value.startsWith(clause.value.slice(0, -1))
       );
     }
-    case "assetReference":
-      return "data" in row && row.data.includes(clause.value);
   }
 }
 
@@ -105,8 +111,14 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Clause[]): Clause => ({ kind: "and", conditions }),
+  asc: (column: string) => ({ kind: "asc", column }),
   eq: (column: string, value: unknown): Clause => ({
     kind: "eq",
+    column,
+    value,
+  }),
+  gt: (column: string, value: unknown): Clause => ({
+    kind: "gt",
     column,
     value,
   }),
@@ -116,14 +128,11 @@ vi.mock("drizzle-orm", () => ({
     value,
   }),
   isNull: (column: string): Clause => ({ kind: "isNull", column }),
+  inArray: vi.fn(),
   like: (column: string, value: string): Clause => ({
     kind: "like",
     column,
     value,
-  }),
-  sql: (_strings: TemplateStringsArray, ...values: unknown[]): Clause => ({
-    kind: "assetReference",
-    value: String(values[0]),
   }),
   or: (...conditions: Clause[]): Clause => ({ kind: "or", conditions }),
 }));
@@ -137,24 +146,32 @@ vi.mock("../server/db/index.js", () => ({
           from: (table: unknown) => ({
             where: (clause: Clause) => {
               if (table === mocks.schema.decks) {
+                mocks.events.push("deck-reference-read");
+                if (mocks.failDeckReferenceRead) {
+                  throw new Error("deck reference query failed");
+                }
                 return {
-                  limit: async (count: number) => {
-                    mocks.events.push("deck-reference-read");
-                    if (mocks.failDeckReferenceRead) {
-                      throw new Error("deck reference query failed");
-                    }
-                    return mocks.decks
-                      .filter((deck) => matches(clause, deck))
-                      .slice(0, count)
-                      .map((deck) =>
-                        Object.fromEntries(
-                          Object.entries(selection).map(([key, column]) => [
-                            key,
-                            deck[column as keyof Deck],
-                          ]),
+                  orderBy: (order: { column: string }) => ({
+                    limit: async (count: number) =>
+                      mocks.decks
+                        .filter((deck) => matches(clause, deck))
+                        .sort((left, right) =>
+                          String(
+                            left[order.column as keyof Deck],
+                          ).localeCompare(
+                            String(right[order.column as keyof Deck]),
+                          ),
+                        )
+                        .slice(0, count)
+                        .map((deck) =>
+                          Object.fromEntries(
+                            Object.entries(selection).map(([key, column]) => [
+                              key,
+                              deck[column as keyof Deck],
+                            ]),
+                          ),
                         ),
-                      );
-                  },
+                  }),
                 };
               }
               return {
@@ -265,7 +282,15 @@ describe("delete-asset", () => {
     mocks.decks = [
       {
         id: "deck-1",
-        data: JSON.stringify({ sourceTsx: '<img src="asset://asset-1" />' }),
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              sourceTsx: String.raw`<img src={"asset:\u002f\u002fasset-1"} />`,
+            },
+          ],
+        }),
         ownerEmail: "another-member@example.com",
         orgId: "org-1",
       },
@@ -281,6 +306,34 @@ describe("delete-asset", () => {
       "asset-read-for-update",
       "deck-reference-read",
     ]);
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
+    expect(mocks.asset).not.toBeNull();
+  });
+
+  it("refuses deletion when a video poster references the image", async () => {
+    mocks.decks = [
+      {
+        id: "deck-video-poster",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              sourceTsx:
+                '<video src="asset://video-1" poster="asset://asset-1" />',
+            },
+          ],
+        }),
+        ownerEmail: "another-member@example.com",
+        orgId: "org-1",
+      },
+    ];
+
+    await expect(action.run({ id: "asset-1" } as never)).rejects.toMatchObject({
+      errorCode: "asset_delete_in_use",
+      statusCode: 409,
+    });
+
     expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
     expect(mocks.asset).not.toBeNull();
   });
@@ -330,6 +383,61 @@ describe("delete-asset", () => {
       expect.objectContaining({ orgId: null }),
     );
     expect(mocks.asset).toBeNull();
+  });
+
+  it("checks owner assets referenced by that owner's personal deck", async () => {
+    mocks.asset = imageAsset({ orgId: null });
+    mocks.decks = [
+      {
+        id: "deck-legacy-owner",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              sourceTsx: '<img src="asset://asset-1" />',
+            },
+          ],
+        }),
+        ownerEmail: "owner@example.com",
+        orgId: null,
+      },
+    ];
+
+    await expect(action.run({ id: "asset-1" } as never)).rejects.toMatchObject({
+      errorCode: "asset_delete_in_use",
+      statusCode: 409,
+    });
+
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
+    expect(mocks.asset).not.toBeNull();
+  });
+
+  it("refuses deletion when legacy slide content references the image", async () => {
+    mocks.decks = [
+      {
+        id: "deck-legacy-content",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              content: '<img src="asset://asset-1" />',
+            },
+          ],
+        }),
+        ownerEmail: "another-member@example.com",
+        orgId: "org-1",
+      },
+    ];
+
+    await expect(action.run({ id: "asset-1" } as never)).rejects.toMatchObject({
+      errorCode: "asset_delete_in_use",
+      statusCode: 409,
+    });
+
+    expect(mocks.scheduleCleanup).not.toHaveBeenCalled();
+    expect(mocks.asset).not.toBeNull();
   });
 
   it("schedules cleanup for reaper alias checks when another row references the object", async () => {

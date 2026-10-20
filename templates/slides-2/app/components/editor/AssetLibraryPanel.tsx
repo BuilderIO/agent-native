@@ -360,7 +360,7 @@ export default function AssetLibraryPanel({
             <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
           )}
           <span className="text-xs text-muted-foreground">
-            {uploading ? t("raw.uploading") : t("openSlideEditor.uploadImage")}
+            {uploading ? t("raw.uploading") : t("slides2Editor.uploadImage")}
           </span>
         </button>
         <input

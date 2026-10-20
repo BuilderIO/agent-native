@@ -3,7 +3,10 @@ import { act, cleanup, render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { chatSurfaceMock } = vi.hoisted(() => ({ chatSurfaceMock: vi.fn() }));
+const { chatSurfaceMock, agentPanelMock } = vi.hoisted(() => ({
+  chatSurfaceMock: vi.fn(),
+  agentPanelMock: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
@@ -31,13 +34,24 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   }),
   markAgentChatHomeHandoff: vi.fn(),
 }));
-vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
-  AgentChatSurface: (props: Record<string, unknown>) => {
-    chatSurfaceMock(props);
-    return null;
-  },
-}));
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => {
+  const toolkit =
+    await importOriginal<typeof import("@agent-native/toolkit/app/chat")>();
+  return {
+    ...toolkit,
+    AgentChatSurface: (props: Record<string, unknown>) => {
+      chatSurfaceMock(props);
+      const surface = toolkit.AgentChatSurface(
+        props as Parameters<typeof toolkit.AgentChatSurface>[0],
+      );
+      const panel = (surface.props as { children: unknown[] }).children[1];
+      if (panel && typeof panel === "object" && "type" in panel) {
+        agentPanelMock(panel);
+      }
+      return null;
+    },
+  };
+});
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
@@ -48,6 +62,8 @@ vi.mock("@/components/editor/SlidesComposerContextProvider", () => ({
   SlidesComposerContextProvider: () => null,
 }));
 
+import { AgentPanel } from "@agent-native/toolkit/app/chat";
+
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 
 import ChatRoute from "./chat";
@@ -56,9 +72,33 @@ afterEach(() => {
   cleanup();
   publishSlidesSelection(null);
   chatSurfaceMock.mockClear();
+  agentPanelMock.mockClear();
 });
 
 describe("Slides chat route", () => {
+  it("uses the shared AgentPanel behind its full-page chat surface", () => {
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <Routes>
+          <Route path="/chat" element={<ChatRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(agentPanelMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: AgentPanel,
+        props: expect.objectContaining({
+          defaultMode: "chat",
+          showHeader: false,
+          showTabBar: false,
+          isFullscreen: true,
+          composerContextProvider: expect.any(Function),
+        }),
+      }),
+    );
+  });
+
   it("updates the scope label and agent context after slide navigation", () => {
     render(
       <MemoryRouter initialEntries={["/chat?deckId=deck-1"]}>

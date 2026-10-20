@@ -7,6 +7,33 @@ import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  renderQuery: {
+    data: undefined as unknown,
+    error: undefined as unknown,
+    isLoading: false,
+  },
+  renderQueries: [] as Array<{
+    action: string;
+    args: Record<string, unknown>;
+    enabled?: boolean;
+  }>,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  actionErrorMessage: (error: unknown) =>
+    error instanceof Error ? error.message : null,
+  callAction: vi.fn(),
+  useActionQuery: (
+    action: string,
+    args: Record<string, unknown>,
+    options?: { enabled?: boolean },
+  ) => {
+    mocks.renderQueries.push({ action, args, enabled: options?.enabled });
+    return mocks.renderQuery;
+  },
+}));
+
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
   captureError: vi.fn(),
@@ -36,6 +63,24 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
   ),
 }));
 
+vi.mock("@/components/slides-2-runtime/Slides2Canvas", async () => {
+  const { createElement } = await import("react");
+  return {
+    Slides2Canvas: ({ children }: { children: React.ReactNode }) =>
+      createElement("div", { "data-testid": "slides-2-canvas" }, children),
+  };
+});
+
+vi.mock("@/components/slides-2-runtime/SandboxedSlide", async () => {
+  const { createElement } = await import("react");
+  return {
+    SandboxedSlide: ({ artifact }: { artifact: { slideId: string } }) =>
+      createElement("div", {
+        "data-testid": `sandboxed-${artifact.slideId}`,
+      }),
+  };
+});
+
 import SharedPresentation from "./SharedPresentation";
 
 const revealSlide = `<div class="fmd-slide"><div class="text-box"><p>One</p><p>Two</p><p>Three</p></div></div>`;
@@ -62,13 +107,37 @@ const deck = {
   ],
 } as unknown as SharedDeckResponse;
 
-function tree(url: string) {
+function tree(
+  url: string,
+  options: {
+    initialDeck?: SharedDeckResponse;
+    sourceDeckId?: string;
+  } = {},
+) {
   return (
     <MemoryRouter initialEntries={[url]}>
       <Routes>
         <Route
-          path="/p/:token"
-          element={<SharedPresentation initialDeck={deck} />}
+          path="/p/:id"
+          element={
+            <SharedPresentation
+              initialDeck={options.initialDeck ?? deck}
+              sourceDeckId={options.sourceDeckId}
+            />
+          }
+        />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+function snapshotTree(url: string, initialDeck: SharedDeckResponse = deck) {
+  return (
+    <MemoryRouter initialEntries={[url]}>
+      <Routes>
+        <Route
+          path="/share/:token"
+          element={<SharedPresentation initialDeck={initialDeck} />}
         />
       </Routes>
     </MemoryRouter>
@@ -85,7 +154,11 @@ function revealParagraphs(): HTMLElement[] {
   );
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  mocks.renderQuery = { data: undefined, error: undefined, isLoading: false };
+  mocks.renderQueries = [];
+});
 
 describe("SharedPresentation deep link", () => {
   it("server markup is the same shell whatever the ?slide= query", () => {
@@ -137,5 +210,82 @@ describe("SharedPresentation deep link", () => {
     render(tree("/p/deck-1"));
 
     expect(screen.getByText("1 / 3")).toBeTruthy();
+  });
+
+  it("renders a source-only public slide through its live deck runtime", () => {
+    const sourceDeck = {
+      title: "Source deck",
+      slides: [
+        {
+          id: "source-slide",
+          content: "",
+          sourceRuntimeRequired: true,
+          notes: "",
+          layout: "content",
+        },
+      ],
+    } as SharedDeckResponse;
+    const artifact = {
+      deckId: "deck-live",
+      slideId: "source-slide",
+      revision: 1,
+      sourceHash: "a".repeat(64),
+    };
+    mocks.renderQuery.data = artifact;
+
+    render(
+      tree("/p/deck-live", {
+        initialDeck: sourceDeck,
+        sourceDeckId: "deck-live",
+      }),
+    );
+
+    expect(mocks.renderQueries).toContainEqual({
+      action: "get-slide-render",
+      args: { deckId: "deck-live", slideId: "source-slide" },
+      enabled: true,
+    });
+    expect(screen.getByTestId("sandboxed-source-slide")).toBeTruthy();
+  });
+
+  it("offers PDF export for live public decks and token snapshots", () => {
+    const sourceDeck = {
+      title: "Source deck",
+      slides: [
+        {
+          id: "source-slide",
+          content: "",
+          sourceRuntimeRequired: true,
+          notes: "",
+          layout: "content",
+        },
+      ],
+    } as SharedDeckResponse;
+
+    render(
+      tree("/p/deck-live", {
+        initialDeck: sourceDeck,
+        sourceDeckId: "deck-live",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "editorExport.exportPdf" }),
+    ).toBeTruthy();
+    expect(mocks.renderQueries).toContainEqual(
+      expect.objectContaining({ action: "get-slide-render", enabled: true }),
+    );
+
+    cleanup();
+    mocks.renderQueries = [];
+
+    render(snapshotTree("/share/snapshot-token", sourceDeck));
+
+    expect(
+      screen.getByRole("button", { name: "editorExport.exportPdf" }),
+    ).toBeTruthy();
+    expect(mocks.renderQueries).toContainEqual(
+      expect.objectContaining({ action: "get-slide-render", enabled: false }),
+    );
   });
 });
