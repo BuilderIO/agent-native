@@ -104,7 +104,18 @@ describe("page-chat handoff defaults", () => {
       redirect.includes(
         "window.location.replace(appPath(chatThreadPath(threadId)));",
       );
-    expect(usesClientNavigate || usesDurableHardNavigation).toBe(true);
+    const usesLocalRouteHardNavigation =
+      redirect.includes(
+        'import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";',
+      ) &&
+      redirect.includes(
+        "window.location.replace(appPathFromLocalRoute(chatThreadPath(threadId)));",
+      );
+    expect(
+      usesClientNavigate ||
+        usesDurableHardNavigation ||
+        usesLocalRouteHardNavigation,
+    ).toBe(true);
     expect(redirect).toContain("return null;");
     expect(redirect).toContain("useState(");
     expect(chatSurface).toContain("AgentKitRoot");
