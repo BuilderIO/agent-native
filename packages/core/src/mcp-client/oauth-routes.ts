@@ -12,6 +12,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import {
   CredentialStoreUnavailableError,
@@ -68,7 +70,8 @@ const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
   );
 
 function safeReturnPath(raw: string | null | undefined): string {
-  return normalizeAppPath(raw) ?? "/";
+  const basePath = getAppBasePath();
+  return normalizeAppPath(raw, basePath) ?? (basePath || "/");
 }
 
 async function getSessionForEvent(event: H3Event) {
@@ -390,7 +393,23 @@ async function handleMcpOAuthStart(
     managedMcpOAuthClientFor(urlCheck.url!)?.requireClientCredentials &&
     !clientInformation
   ) {
-    return refuse(event, 400, MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE);
+    return mcpOAuthStartFailureResponse(
+      event,
+      {
+        status: 400,
+        body: { error: MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE },
+      },
+      {
+        backHref: safeReturnPath(
+          returnUrl || `${getAppBasePath()}/settings/integrations`,
+        ),
+        backLabel: mcpSettingsMessagesForLocale(
+          resolveLocaleFromRequest({
+            acceptLanguage: getRequestHeader(event, "accept-language"),
+          }).locale,
+        ).mcpOAuthBackToApp,
+      },
+    );
   }
   // A pre-registered client has a fixed redirect URI on the shared workspace
   // callback. A dynamically registered client registers whatever URI this
@@ -563,6 +582,7 @@ function authorizationServerLabel(
 export function mcpOAuthStartFailureResponse(
   event: H3Event,
   failure: { status: number; body: McpOAuthStartErrorBody },
+  htmlOptions?: { backHref?: string; backLabel?: string },
 ): Response | Record<string, unknown> {
   if (!wantsHtmlResponse(event)) {
     setResponseStatus(event, failure.status);
@@ -570,7 +590,7 @@ export function mcpOAuthStartFailureResponse(
   }
   return withStagedCookies(
     event,
-    oauthErrorPage(failure.body.error, failure.status),
+    oauthErrorPage(failure.body.error, failure.status, htmlOptions),
   );
 }
 

@@ -983,7 +983,25 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.hubspot.useCase":
     "CRM, संपर्क, कंपनियाँ, डील, टिकट, ग्राहक एनालिटिक्स",
   "mcpIntegrations.catalog.hubspot.setupNote":
-    "जब वर्कस्पेस द्वारा प्रबंधित HubSpot MCP Auth App कॉन्फ़िगर होता है, तो कोई भी सदस्य OAuth और PKCE के साथ अपना व्यक्तिगत HubSpot खाता कनेक्ट कर सकता है। नहीं तो, कनेक्ट करने से पहले HubSpot Developer Platform में ऐप बनाएँ। मौजूदा HubSpot OAuth कनेक्टर ऐप एक्शन के लिए उपलब्ध रहता है।",
+    "वर्कस्पेस का मालिक HubSpot MCP Auth App सेट अप करने के बाद हर व्यक्ति अपना HubSpot खाता जोड़ता है।",
+  "mcpIntegrations.hubspot.setupTitle": "HubSpot MCP सेट अप करें",
+  "mcpIntegrations.hubspot.dialogDescription":
+    "वर्कस्पेस का मालिक HubSpot MCP को एक बार सेट अप करता है। इसके बाद हर सदस्य अपना खाता जोड़ता है।",
+  "mcpIntegrations.hubspot.workspaceSetupStatus": "वर्कस्पेस सेटअप ज़रूरी है",
+  "mcpIntegrations.hubspot.setupChecking": "वर्कस्पेस सेटअप जाँचा जा रहा है…",
+  "mcpIntegrations.hubspot.setupUnavailable": "सेटअप की स्थिति उपलब्ध नहीं है",
+  "mcpIntegrations.hubspot.setupUnavailableDescription":
+    "वर्कस्पेस OAuth सेटिंग जाँची नहीं जा सकी। फिर से कोशिश करें।",
+  "mcpIntegrations.hubspot.ownerSetupDescription":
+    "HubSpot MCP Auth App बनाएँ, फिर Agent-Native settings → API keys में उसका client ID और secret जोड़ें।",
+  "mcpIntegrations.hubspot.memberSetupDescription":
+    "वर्कस्पेस के मालिक से HubSpot MCP Auth App बनाने और Agent-Native settings → API keys में उसका client ID और secret जोड़ने को कहें। सेटअप के बाद आप अपना HubSpot खाता जोड़ सकते हैं।",
+  "mcpIntegrations.hubspot.noWorkspaceDescription":
+    "HubSpot MCP जोड़ने से पहले किसी वर्कस्पेस से जुड़ें।",
+  "mcpIntegrations.hubspot.configureWorkspaceCredentials":
+    "वर्कस्पेस credentials जोड़ें",
+  "mcpIntegrations.hubspot.refreshSetupStatus": "फिर से जाँचें",
+  "mcpIntegrations.hubspot.retrySetupStatus": "फिर कोशिश करें",
   "mcpIntegrations.catalog.pylon.description":
     "Pylon सपोर्ट डेटा खोजें और अपडेट करें।",
   "mcpIntegrations.catalog.pylon.useCase":
