@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-19
+
+### Improved
+
+- The Sources list loads with fewer database queries, including when showing capture counts and latest syncs.
+
 ## 2026-10-16
 
 ### Fixed
