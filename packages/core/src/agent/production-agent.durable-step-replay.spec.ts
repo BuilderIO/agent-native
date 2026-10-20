@@ -401,6 +401,100 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("recovers a legacy custom-agent step without namespacing its ID twice", async () => {
+    const input = { id: "custom-deck" };
+    const legacyCustomStepId = `custom_${"a".repeat(32)}_${"b".repeat(24)}`;
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: legacyCustomStepId,
+        tool: "create-deck",
+        input,
+      },
+    ];
+    durableStep.completedSteps.push({
+      stepId: legacyCustomStepId,
+      operationId: legacyCustomStepId,
+      toolName: "create-deck",
+      inputJson: JSON.stringify({ input }),
+      resultJson: JSON.stringify({
+        result: "Deck saved before reconnect",
+        isError: false,
+        completedSideEffect: true,
+      }),
+    });
+    const actionRun = vi.fn(async () => "Deck saved again");
+    const namespacedDurableStepId = vi.fn(
+      (logicalStepId: string) => `custom-profile:${logicalStepId}`,
+    );
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("resumed-provider-id", input)],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: legacyCustomStepId,
+                name: "create-deck",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        durableStepIdForToolCall: namespacedDurableStepId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(namespacedDurableStepId).not.toHaveBeenCalled();
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "resumed-provider-id",
+        executionStepId: legacyCustomStepId,
+        result: expect.stringContaining("Deck saved before reconnect"),
+        replayed: true,
+      }),
+    );
+  });
+
   it("binds an interrupted safe write to only one identical resumed call", async () => {
     const input = { id: "deck-1" };
     durableStep.priorEvents = [

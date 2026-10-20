@@ -9060,10 +9060,10 @@ export async function runAgentLoop(opts: {
               consumedInterruptedJournalKeys,
             )
           : { status: "none" as const };
+      // Legacy custom-agent journal IDs already include the loop namespace.
       const legacyInterruptedStepId =
         legacyInterruptedStep.status === "matched"
-          ? (opts.durableStepIdForToolCall?.(legacyInterruptedStep.stepId) ??
-            legacyInterruptedStep.stepId)
+          ? legacyInterruptedStep.stepId
           : undefined;
       const interruptedStepId =
         interruptedStep?.executionStepId ?? legacyInterruptedStepId;
