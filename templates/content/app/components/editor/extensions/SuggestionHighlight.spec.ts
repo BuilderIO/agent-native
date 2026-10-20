@@ -759,10 +759,44 @@ describe("SuggestionHighlight", () => {
           content: "listItem+",
           toDOM: () => ["ul", 0],
         },
+        orderedList: {
+          group: "block",
+          content: "listItem+",
+          toDOM: () => ["ol", 0],
+        },
         listItem: { content: "paragraph block*", toDOM: () => ["li", 0] },
         text: {},
       },
     });
+    const listItem = (text: string, ...children: ProseMirrorNode[]) =>
+      listSchema.node("listItem", null, [
+        listSchema.node("paragraph", null, listSchema.text(text)),
+        ...children,
+      ]);
+    const list = (type: string, ...items: ProseMirrorNode[]) =>
+      listSchema.node(type, null, items);
+
+    // A saved suggestion adding `line` right after the text `anchor`.
+    function lineAfter(
+      blocks: ProseMirrorNode[],
+      anchor: string,
+      source: string,
+      line: string,
+    ): SuggestionHighlightSpec {
+      let point = -1;
+      listSchema.node("doc", null, blocks).descendants((node, offset) => {
+        if (node.text === anchor) point = offset + anchor.length;
+      });
+      const from = source.indexOf(line);
+      return {
+        suggestionId: "line",
+        kind: "add_block",
+        from: point,
+        to: point,
+        insertedText: line,
+        insertedPresentation: { source, from, to: from + line.length },
+      };
+    }
 
     function mounted(
       blocks: ProseMirrorNode[],
@@ -913,6 +947,72 @@ describe("SuggestionHighlight", () => {
       }
     });
 
+    it("draws a suggested bullet beside a numbered list, never inside it", () => {
+      const numbered = [list("orderedList", listItem("One"), listItem("Two"))];
+      const inside = mounted(numbered, [
+        lineAfter(numbered, "One", "1. One\n- New\n2. Two", "\n- New"),
+      ]);
+      const after = mounted(numbered, [
+        lineAfter(numbered, "Two", "1. One\n2. Two\n- New", "\n- New"),
+      ]);
+      try {
+        // Between two numbered items it can't be drawn as one of them.
+        expect(
+          inside.mount.querySelector(".suggestion-block-widget"),
+        ).toBeNull();
+        expect(inside.mount.querySelector("ol")!.children).toHaveLength(2);
+        // After the last one it starts a bulleted list of its own.
+        expect(blocks(after.mount)).toEqual(["ol OneTwo", "div.widget New"]);
+        expect(
+          after.mount.querySelector(".suggestion-block-widget ul")?.textContent,
+        ).toBe("New");
+      } finally {
+        inside.view.destroy();
+        after.view.destroy();
+      }
+    });
+
+    it("draws a suggested list item at its own depth", () => {
+      const flat = [list("bulletList", listItem("One"), listItem("Two"))];
+      const child = mounted(flat, [
+        lineAfter(flat, "One", "- One\n\t- Child\n- Two", "\n\t- Child"),
+      ]);
+      const nested = [
+        list(
+          "bulletList",
+          listItem("One", list("bulletList", listItem("Child"))),
+          listItem("Two"),
+        ),
+      ];
+      const back = mounted(nested, [
+        lineAfter(nested, "Child", "- One\n\t- Child\n- New\n- Two", "\n- New"),
+      ]);
+      try {
+        // A first child item nests under the item it follows.
+        const outer = child.mount.querySelector(".ProseMirror > ul")!;
+        expect(Array.from(outer.children, (item) => item.textContent)).toEqual([
+          "OneChild",
+          "Two",
+        ]);
+        expect(
+          outer.children[0]!.querySelector(".suggestion-block-widget ul")
+            ?.textContent,
+        ).toBe("Child");
+        expect(child.mount.textContent).not.toContain("⇥");
+        // An item after a nested one goes back out to the outer list.
+        const items = back.mount.querySelector(".ProseMirror > ul")!.children;
+        expect(Array.from(items, (item) => item.textContent)).toEqual([
+          "OneChild",
+          "New",
+          "Two",
+        ]);
+        expect(items[1]!.classList).toContain("suggestion-block-widget");
+      } finally {
+        child.view.destroy();
+        back.view.destroy();
+      }
+    });
+
     it("keeps each line's number in a suggested new numbered list", () => {
       const source = "Alpha one.\n1. One\n2. Two\nBravo two.";
       const from = "Alpha one.".length;
@@ -1055,6 +1155,32 @@ describe("SuggestionHighlight", () => {
           "true",
         );
         expect(widget.getAttribute("data-suggestion-position")).toBe("6");
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("moves a drafted deletion's caret spot with text typed before it", () => {
+      const { view, mount } = mounted(
+        [paragraph("Alpha one.")],
+        [
+          {
+            suggestionId: "gone",
+            kind: "delete",
+            from: 6,
+            to: 6,
+            deletedText: " gone",
+            editableBoundary: true,
+          },
+        ],
+      );
+      try {
+        view.dispatch(view.state.tr.insertText("XY", 1));
+        expect(
+          mount
+            .querySelector('[data-suggestion-id="gone"]')!
+            .getAttribute("data-suggestion-position"),
+        ).toBe("8");
       } finally {
         view.destroy();
       }

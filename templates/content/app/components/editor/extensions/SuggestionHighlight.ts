@@ -269,17 +269,38 @@ function suggestedLines(
 }
 
 const LIST_LINE = /^\t*(?:[-*+] (\[[ xX]\] )?|(\d+)[.)] )/;
-const LIST_ITEM = /^(?:listItem|taskItem)$/;
 const LIST = /^(?:bulletList|orderedList|taskList)$/;
 
-// The document position beside the block at `point` where whole lines go,
-// outside any container the point sits at the edge of. A list item line
-// stays in its list.
+// Where a whole line belongs: how far it is indented, and the kind of list
+// it adds an item to, if it is a list item.
+interface LineShape {
+  indent: number;
+  list: string | null;
+}
+
+function lineShape(text: string): LineShape {
+  const list = LIST_LINE.exec(text);
+  return {
+    indent: /^\t*/.exec(text)![0].length,
+    list: !list
+      ? null
+      : list[1]
+        ? "taskList"
+        : list[2]
+          ? "orderedList"
+          : "bulletList",
+  };
+}
+
+// The document position beside the block at `point` where a whole line
+// goes: out of the containers the point sits at the edge of, but no further
+// than the line's indentation allows, and into a list only of its own kind.
+// A line that can't be placed as written has no position.
 function lineBoundary(
   doc: ProseMirrorNode,
   point: number,
   side: "before" | "after",
-  listLine: boolean,
+  shape: LineShape,
 ): { position: number; inList: boolean } | null {
   if (point < 0 || point > doc.content.size) return null;
   const $point = doc.resolve(point);
@@ -288,21 +309,41 @@ function lineBoundary(
     $point.parentOffset !== (side === "before" ? 0 : $point.parent.content.size)
   )
     return null;
+  // A Page indents a block one tab per block it sits in; a list's items
+  // indent their children, so the list itself adds none.
+  const indentInside = (depth: number) => {
+    let indent = 0;
+    for (let level = 1; level <= depth; level += 1) {
+      const node = $point.node(level);
+      indent += LIST.test(node.type.name) ? 0 : 1;
+      indent += Number(node.attrs.indent) || 0;
+    }
+    return indent;
+  };
   let depth = $point.depth;
   while (depth > 1) {
     const container = $point.node(depth - 1);
-    if (listLine && LIST_ITEM.test(container.type.name)) {
-      depth -= 1;
+    if (
+      container.type.name === shape.list &&
+      indentInside(depth - 1) === shape.indent
+    )
       break;
-    }
     const index = $point.index(depth - 1);
     if (side === "before" ? index !== 0 : index !== container.childCount - 1)
       break;
+    if (indentInside(depth - 2) < shape.indent) break;
     depth -= 1;
   }
+  const container = $point.node(depth - 1);
+  const inList = LIST.test(container.type.name);
+  if (
+    indentInside(depth - 1) !== shape.indent ||
+    (inList && container.type.name !== shape.list)
+  )
+    return null;
   return {
     position: side === "before" ? $point.before(depth) : $point.after(depth),
-    inList: depth > 1 && LIST.test($point.node(depth - 1).type.name),
+    inList,
   };
 }
 
@@ -328,10 +369,14 @@ function lineWidget(
     );
     if (list?.[1])
       block.append(document.createTextNode(/x/i.test(list[1]) ? "☑ " : "☐ "));
-    // The element shows the line's structure, so its marker isn't repeated;
-    // an empty paragraph keeps its pilcrow so the line can be seen.
+    // The element and where it sits show the line's structure, so its
+    // indentation and marker aren't repeated; an empty paragraph keeps its
+    // pilcrow so the line can be seen.
     for (const node of nodes)
-      if (node.type !== "block" || node.value === "¶")
+      if (
+        node.type !== "indent" &&
+        (node.type !== "block" || node.value === "¶")
+      )
         appendPresentationNode(block, node, true);
     let content: HTMLElement = block;
     if (quote) {
@@ -371,7 +416,7 @@ function lineDecorations(
     const text = lines.source.slice(line.from, line.to);
     return {
       line,
-      boundary: lineBoundary(doc, spec.from, lines.side, LIST_LINE.test(text)),
+      boundary: lineBoundary(doc, spec.from, lines.side, lineShape(text)),
       nodes: suggestionTextPresentationForSource(text, {
         source: lines.source,
         ...line,
@@ -747,6 +792,7 @@ function buildDecorations(
             key: JSON.stringify([
               spec.suggestionId,
               "deleted",
+              clampPosition(spec.from, size),
               spec.deletedText,
               active,
               !!spec.editableBoundary,
