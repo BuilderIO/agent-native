@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-import type { ActionRunContext } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
   attachmentFailureToError,
   isAttachmentRef,
@@ -68,9 +68,10 @@ function assertExpectedExtension(
 ): void {
   if (!hasExpectedExtension(filename, expectedExtensions)) {
     const formats = expectedExtensions?.join(", ") ?? "";
-    throw new Error(
-      `File "${filename}" does not match the expected format: ${formats}`,
-    );
+    fail(`File "${filename}" does not match the expected format: ${formats}`, {
+      errorCode: "unsupported_file_format",
+      statusCode: 422,
+    });
   }
 }
 
