@@ -3499,7 +3499,7 @@ export default function SlideEditor({
           `Deck id: \`${deckId}\``,
           `Slide id: \`${slide.id}\``,
           `Work only on this slide id, whichever slide is on screen now. Read its content and current notes with \`get-deck\` (\`deckId\` and \`slideId\` above, \`compact: "false"\`); \`view-screen\` does not return note text.`,
-          `Write the result with \`patch-deck\` (\`deckId\` above) using a \`patch-slide\` op for the same slide id that sets only \`fields.notes\`. Pass \`baseFields: { notes }\` from the notes you just read: \`{ present: true, value: <exact notes text> }\`, or \`{ present: false }\` when \`get-deck\` returned no notes, so a newer edit by the user is not overwritten. Do not change the slide's content.`,
+          `Write the result with \`patch-deck\` (\`deckId\` above) using a \`patch-slide\` op for the same slide id that sets only \`fields.notes\` and \`preserveSource: false\` (the user explicitly asked to rewrite notes, and source-imported slides otherwise reject any change to their notes). Pass \`baseFields: { notes }\` from the notes you just read: \`{ present: true, value: <exact notes text> }\`, or \`{ present: false }\` when \`get-deck\` returned no notes, so a newer edit by the user is not overwritten. Do not change the slide's content.`,
         ].join("\n"),
         submit: true,
         chatTarget: "local",
