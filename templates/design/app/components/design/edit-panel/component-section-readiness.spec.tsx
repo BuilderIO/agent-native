@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     options?: { onSettled?: () => void };
   }>,
   triggerVariantCommit: false,
+  cachedWhileDisabled: false,
 }));
 
 const detailsData = {
@@ -51,7 +52,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
     }
     if (options?.enabled === false) {
       return {
-        data: undefined,
+        data: mocks.cachedWhileDisabled ? detailsData : undefined,
         isLoading: false,
         error: null,
         refetch: mocks.refetch,
@@ -153,6 +154,7 @@ describe("ComponentSection source readiness", () => {
     mocks.refetch.mockClear();
     mocks.mutations.length = 0;
     mocks.triggerVariantCommit = false;
+    mocks.cachedWhileDisabled = false;
     detailsData.isMain = false;
     detailsData.canRestore = false;
   });
@@ -371,6 +373,59 @@ describe("ComponentSection source readiness", () => {
     expect(mocks.refetch).toHaveBeenCalledOnce();
     await act(async () => root.unmount());
     iframe.remove();
+    container.remove();
+  });
+
+  it("keeps showing cached details while a pending save holds the read", async () => {
+    const { container, root } = await mount();
+    const props = {
+      designId: "design_1",
+      fileId: "screen_1",
+      nodeId: "node_1",
+    };
+    await act(async () =>
+      root.render(<ComponentSection {...props} componentDetailsReady />),
+    );
+    expect(container.textContent).toContain("Button");
+    const fetchesWhileReady = mocks.fetches;
+
+    mocks.cachedWhileDisabled = true;
+    await act(async () =>
+      root.render(
+        <ComponentSection {...props} componentDetailsReady={false} />,
+      ),
+    );
+
+    expect(mocks.fetches).toBe(fetchesWhileReady);
+    expect(container.textContent).toContain("Button");
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("does not edit from cached details while a pending save holds the read", async () => {
+    const { container, root } = await mount();
+    mocks.cachedWhileDisabled = true;
+    mocks.triggerVariantCommit = true;
+    await act(async () =>
+      root.render(
+        <ComponentSection
+          designId="design_1"
+          fileId="screen_1"
+          nodeId="node_1"
+          componentDetailsReady={false}
+        />,
+      ),
+    );
+
+    expect(container.textContent).toContain("Button");
+    expect(mocks.mutations).toEqual([]);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="designEditor.componentInstances.swap"]',
+      )?.disabled,
+    ).toBe(true);
+    await act(async () => root.unmount());
     container.remove();
   });
 

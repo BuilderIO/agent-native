@@ -67,6 +67,15 @@ export interface MotionTimelineQueryResult {
   }>;
 }
 
+export function motionSourceReadUnavailableMessageKey(
+  capability: MotionSourceReadCapability | null | undefined,
+) {
+  if (!capability) return null;
+  return capability.errorCode === "motion_html_source_unresolved_stylesheet"
+    ? "designEditor.motion.unresolvedStylesheets"
+    : "designEditor.motion.sourceReadUnavailable";
+}
+
 export function hasMotionTimelineContent(args: {
   id: string | null;
   tracks: readonly MotionDockTrack[];

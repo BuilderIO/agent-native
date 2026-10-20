@@ -7,6 +7,7 @@ import {
 import {
   compile,
   hashCss,
+  hasIncompatibleRepeatedPositionTracks,
   MotionCssSourceParseError,
   parse,
   parsePlaybackMode,
@@ -138,6 +139,17 @@ export function motionCodeDocumentFromTimeline(
   };
   assertMotionCodeDocument(document);
   return document;
+}
+
+export function motionTimelineHasIncompatiblePositionTracks(
+  timeline: Pick<MotionTimeline, "tracks" | "nativeStyles">,
+): boolean {
+  return hasIncompatibleRepeatedPositionTracks([
+    ...withPositionTrackComposition(timeline.tracks),
+    ...motionNativeStyleTrackGroups(timeline.nativeStyles ?? [], {
+      trackIds: true,
+    }).flat(),
+  ]);
 }
 
 export function compileMotionCode(

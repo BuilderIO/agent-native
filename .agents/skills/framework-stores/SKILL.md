@@ -89,7 +89,10 @@ export function ensureWidgetsTable(): Promise<void> {
 Then run, in this order:
 
 1. `pnpm gen:store-registry` — rewrites `store-registry.generated.ts` and
-   `store-migrations.lock.json`. Commit both.
+   `store-migrations.lock.json`. Then `pnpm gen:schema-snapshot` — rewrites
+   `schema-snapshot.generated.ts`, the schema fresh databases install in one
+   step. Commit all three; `release-schema.snapshot.spec.ts` fails when the
+   snapshot no longer covers every schema migration.
 2. `pnpm guard:release-schema-complete` and `pnpm guard:additive-migrations`.
 3. The store's own spec, plus `src/db/store-registry.spec.ts`,
    `src/server/release-schema.cold-start.spec.ts` and

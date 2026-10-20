@@ -14,7 +14,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded DOCX path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded DOCX path, hosted reference, exact current attachment name, or a generic reference such as 'the attached document' when exactly one compatible DOCX is attached. Format-specific references must match DOCX.",
+      ),
     convertToSlides: z
       .boolean()
       .optional()
@@ -24,7 +26,9 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, convertToSlides }, ctx) => {
-    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
+    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx, {
+      expectedExtensions: [".docx"],
+    });
     const doc = await parseDocx(fileBuffer);
 
     const result: Record<string, unknown> = {

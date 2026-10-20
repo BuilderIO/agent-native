@@ -422,7 +422,7 @@ describe("explicit grid placement repro", () => {
     await browser.close();
   });
 
-  it("preserves same-grid one-cell ranges written with end lines", async () => {
+  it("moves a same-grid one-cell range written with end lines into the cell past the line", async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({
       viewport: { width: 700, height: 500 },
@@ -464,14 +464,14 @@ describe("explicit grid placement repro", () => {
         column: getComputedStyle(node).gridColumn,
         row: getComputedStyle(node).gridRow,
       })),
-    ).toEqual({ parent: "grid", column: "3 / 4", row: "1 / 2" });
+    ).toEqual({ parent: "grid", column: "1 / 2", row: "3 / 4" });
     expect(
       await page.evaluate(
         () =>
           (window as Window & { __gridDrop?: { gridPlacement?: unknown } })
             .__gridDrop?.gridPlacement,
       ),
-    ).toBeUndefined();
+    ).toEqual({ column: 1, columnEnd: 2, row: 3, rowEnd: 4 });
     await browser.close();
   });
 

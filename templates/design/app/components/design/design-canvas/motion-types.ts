@@ -35,4 +35,7 @@ export function motionPathTrackForTarget(
 
 export type MotionPathTracksChangeResult =
   | { status: "updated" }
-  | { status: "unsupported"; reason: "ambiguous-position-source" };
+  | {
+      status: "unsupported";
+      reason: "ambiguous-position-source" | "repeated-position-path";
+    };

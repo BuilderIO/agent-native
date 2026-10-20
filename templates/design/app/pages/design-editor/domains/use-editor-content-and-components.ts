@@ -12,7 +12,10 @@ import {
 import type { A11yFinding } from "@shared/design-review";
 import { readLiteralJsxPropsAtAnchor } from "@shared/local-jsx-visual-edit";
 import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-styles";
-import type { MotionAudioClip } from "@shared/motion-code";
+import {
+  motionTimelineHasIncompatiblePositionTracks,
+  type MotionAudioClip,
+} from "@shared/motion-code";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import {
   motionNativeStyleWithPositionTrack,
@@ -104,6 +107,7 @@ import {
 } from "../localhost-consent-request";
 import {
   applyMotionStyleKeyframeEdit,
+  motionSourceReadUnavailableMessageKey,
   motionSourceWriteCapabilityAllowsTargets,
   type MotionSourceWriteCapabilitySnapshot,
   motionSourcePreviewProofForTargets,
@@ -411,9 +415,10 @@ export function useEditorContentAndComponents({
     ],
     activeFile?.id,
   );
-  const motionSourceReadUnavailableReason = activeMotionSourceReadCapability
-    ? t("designEditor.motion.sourceReadUnavailable")
-    : null;
+  const messageKey = motionSourceReadUnavailableMessageKey(
+    activeMotionSourceReadCapability,
+  );
+  const motionSourceReadUnavailableReason = messageKey ? t(messageKey) : null;
   const motionSourceReadable = motionSourceReadAllowsWrites(
     activeMotionSourceReadCapability,
   );
@@ -764,6 +769,16 @@ export function useEditorContentAndComponents({
         if (JSON.stringify(currentStyle) === JSON.stringify(updatedStyle)) {
           return { status: "updated" };
         }
+        if (
+          motionTimelineHasIncompatiblePositionTracks({
+            tracks: motionTracks,
+            nativeStyles: motionNativeStyles.map((style, index) =>
+              index === styleIndex ? updatedStyle : style,
+            ),
+          })
+        ) {
+          return { status: "unsupported", reason: "repeated-position-path" };
+        }
         setMotionNativeStyles((current) =>
           current.map((style, index) =>
             index === styleIndex ? updatedStyle : style,
@@ -791,7 +806,7 @@ export function useEditorContentAndComponents({
       ) {
         return currentPositionTrack ? { status: "updated" } : undefined;
       }
-      setMotionTracks((current) =>
+      const withUpdatedPosition = (current: typeof motionTracks) =>
         current.map((track) => {
           const matchesTrack = updatedPositionTrack.id
             ? track.id === updatedPositionTrack.id
@@ -800,8 +815,16 @@ export function useEditorContentAndComponents({
           return matchesTrack
             ? { ...track, keyframes: updatedPositionTrack.keyframes }
             : track;
-        }),
-      );
+        });
+      if (
+        motionTimelineHasIncompatiblePositionTracks({
+          tracks: withUpdatedPosition(motionTracks),
+          nativeStyles: motionNativeStyles,
+        })
+      ) {
+        return { status: "unsupported", reason: "repeated-position-path" };
+      }
+      setMotionTracks(withUpdatedPosition);
       markMotionTracksDirty();
       return { status: "updated" };
     },
@@ -1045,6 +1068,17 @@ export function useEditorContentAndComponents({
         }
       }
 
+      if (
+        motionTimelineHasIncompatiblePositionTracks({
+          tracks: motionTracks,
+          nativeStyles: nextStyles,
+        })
+      ) {
+        toast.error(t("designEditor.motion.positionStyleConflict"), {
+          id: "motion-position-style-conflict",
+        });
+        return;
+      }
       setMotionNativeStyles(nextStyles);
       if (JSON.stringify(nextDocument) !== JSON.stringify(motionTextDocument)) {
         setMotionTextDocument(nextDocument);
@@ -1055,6 +1089,7 @@ export function useEditorContentAndComponents({
       markMotionTracksDirty,
       motionNativeStyles,
       motionTextDocument,
+      motionTracks,
       setMotionNativeStyles,
       setMotionTextDocument,
       t,

@@ -407,10 +407,20 @@ export async function runDashboardPanelQuery(args: {
   timeoutMs?: number;
   forceRefresh?: boolean;
   signal?: AbortSignal;
+  /** Billed-byte cap for warehouse-backed sources; the others ignore it. */
+  maxBytesBilled?: number;
 }): Promise<
   DashboardPanelQueryResult | MissingKeyResponse | UnsupportedBackendResponse
 > {
-  const { source, query, ctx, timeoutMs, forceRefresh, signal } = args;
+  const {
+    source,
+    query,
+    ctx,
+    timeoutMs,
+    forceRefresh,
+    signal,
+    maxBytesBilled,
+  } = args;
 
   if (source === "bigquery") {
     const missing = await missingCredential(
@@ -422,6 +432,7 @@ export async function runDashboardPanelQuery(args: {
     return await runQuery(query, {
       ...(forceRefresh ? { forceRefresh: true } : {}),
       ...(signal ? { signal } : {}),
+      ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
     });
   }
 
@@ -471,6 +482,7 @@ export async function runDashboardPanelQuery(args: {
         {
           cache: true,
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+          ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
         },
       );
     } catch (error) {

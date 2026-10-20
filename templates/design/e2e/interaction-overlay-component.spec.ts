@@ -120,7 +120,6 @@ function expectNear(actual: Point, expected: Point, label: string) {
   ).toBeLessThanOrEqual(1.5);
 }
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("draws an overlaid play triangle, fills both, and converts the grouped layers to a component", async ({
   app,
 }) => {

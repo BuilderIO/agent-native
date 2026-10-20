@@ -18,6 +18,13 @@ vi.mock("../audit/store.js", () => ({
 vi.mock("../authorization/check-action.js", () => ({
   checkAction: mocks.checkAction,
 }));
+// The calls come from the signed-in app, which is where approval is given.
+vi.mock("../server/ui-action-capability.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/ui-action-capability.js")
+  >()),
+  hasUiActionCapability: () => true,
+}));
 vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: (app: unknown) => app,
 }));
@@ -63,7 +70,10 @@ async function invoke(
     context: {},
     req: new Request(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-agent-native-frontend": "1",
+      },
       body: JSON.stringify(args),
     }),
     res: { status: 200, headers: new Headers() },

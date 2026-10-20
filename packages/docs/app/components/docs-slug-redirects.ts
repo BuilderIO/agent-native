@@ -21,6 +21,7 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   client: "client-overview",
   routing: "client-routing",
   actions: "actions-overview",
+  "template-chat-first-edits": "template-chat-developers",
   "template-calendar-scheduling": "template-calendar-features",
   "template-calendar-booking-links": "template-calendar-features",
   "template-dispatch-messaging-routing": "template-dispatch-features",
@@ -39,6 +40,12 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
 };
 
 export const DOCS_FRAGMENT_REDIRECTS: Record<string, Record<string, string>> = {
+  "template-chat-developers": {
+    "first-edits": "#first-feature",
+    "first-code": "#routes",
+    tables: "#data-model",
+    "admin-surfaces": "#routes",
+  },
   // /docs/other-platforms redirects here and the browser keeps its fragment.
   // Never map an id the deployment page itself renders.
   deployment: {

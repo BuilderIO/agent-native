@@ -85,6 +85,11 @@ export async function trashReleasedFootage(
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Remove an owned screen history item and trash its footage recordings, including footage an export is still reserving. Removing an item that is already removed returns it unchanged.",
   schema: z.object({ id: z.string() }),

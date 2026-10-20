@@ -1,0 +1,99 @@
+import { defineAction } from "@agent-native/core/action";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
+import { z } from "zod";
+
+import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js";
+import {
+  contentCollectionConfigSchema,
+  searchConsoleSiteSchema,
+  signupsSettingsUpdateSchema,
+  storedSearchConsoleSiteSchema,
+} from "../server/lib/content-metrics/config.js";
+import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
+import {
+  readContentCollection,
+  writeContentCollection,
+} from "../server/lib/content-metrics/store.js";
+import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
+import { cliBoolean } from "./schema-helpers.js";
+
+const CONTENT_VIEW_DASHBOARD_ID = "content-view";
+
+export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  description:
+    "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values. Turning collection on also lists the built-in Content dashboard in the organization's Dashboards; the result's contentDashboardId opens it at /dashboards/<id>.",
+  schema: z.object({
+    enabled: cliBoolean.describe("Whether the daily collection runs."),
+    builderBlog: cliBoolean
+      .optional()
+      .describe("Collect the Builder blog article list with authors."),
+    ga4: cliBoolean
+      .optional()
+      .describe("Collect daily GA4 pageviews for each blog article."),
+    searchConsole: cliBoolean
+      .optional()
+      .describe(
+        "Collect daily Search Console clicks and impressions. Turn on only after a property owner has given the service account access.",
+      ),
+    searchConsoleSites: z
+      .array(storedSearchConsoleSiteSchema)
+      .max(20)
+      .optional()
+      .describe(
+        'Search Console properties to collect, replacing the saved list, e.g. [{"siteUrl":"sc-domain:example.com","pathPrefix":"/blog/"}].',
+      ),
+    signups: signupsSettingsUpdateSchema
+      .optional()
+      .describe(
+        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own, as Source signups), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
+  }),
+  run: async (
+    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites, signups },
+    ctx,
+  ) => {
+    const admin = await requireAnalyticsAdminContext({
+      userEmail: getRequestUserEmail() || ctx?.userEmail,
+      orgId: getRequestOrgId() || ctx?.orgId || null,
+    });
+    const scope = { ownerEmail: admin.userEmail, orgId: admin.orgId };
+    const current = await readContentCollection(scope);
+    const saved = current?.config ?? contentCollectionConfigSchema.parse({});
+    const config = contentCollectionConfigSchema.parse({
+      ...saved,
+      ...(builderBlog === undefined
+        ? {}
+        : { builderBlog: { enabled: builderBlog } }),
+      ...(ga4 === undefined ? {} : { ga4: { enabled: ga4 } }),
+      searchConsole: {
+        enabled: searchConsole ?? saved.searchConsole.enabled,
+        sites: searchConsoleSites ?? saved.searchConsole.sites,
+      },
+      signups: { ...saved.signups, ...signups },
+    });
+    if (enabled && config.searchConsole.enabled) {
+      z.array(searchConsoleSiteSchema)
+        .max(20)
+        .parse(config.searchConsole.sites);
+    }
+    if (enabled) {
+      await installBuiltinDashboardOnce(
+        { email: admin.userEmail, orgId: admin.orgId },
+        CONTENT_VIEW_DASHBOARD_ID,
+      );
+    }
+    await writeContentCollection(scope, { enabled, config });
+    return {
+      ...(await readContentCollectionStatus(admin.orgId, admin.userEmail)),
+      contentDashboardId: enabled ? CONTENT_VIEW_DASHBOARD_ID : null,
+    };
+  },
+});

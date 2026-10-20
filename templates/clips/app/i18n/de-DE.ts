@@ -1,5 +1,23 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  meetingBrowserConfirmation:
+    "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
+  meetingReplacement: {
+    title: "Meeting-Notizen benötigen deine Aufmerksamkeit",
+    description:
+      "Die Notizen des vorherigen Meetings konnten nicht gespeichert werden. Kopiere sie, bevor du dieses Meeting startest.",
+    copyAndStart: "Notizen kopieren und starten",
+    actionFailed:
+      "Die Meeting-Wiederherstellung konnte nicht fortgesetzt werden. Versuche es erneut.",
+  },
+  quitRecovery: {
+    title: "Clips beendet die Besprechung noch",
+    body: "Clips hat diese Besprechung noch nicht beendet und gespeichert. Wenn du jetzt beendest, kann das neueste Transkript verloren gehen.",
+    keepOpen: "Clips geöffnet lassen",
+    quitAnyway: "Trotzdem beenden",
+    actionFailed:
+      "Clips konnte den Wiederherstellungsstatus nicht ändern. Versuche es erneut.",
+  },
   lookbackContext: {
     includeLast: "Letzte einbeziehen",
     whatIsThis: "Was ist das?",
@@ -689,6 +707,14 @@ const messages = {
     errorOutOfOrder: "Zeile {{line}}: Diese Zeit liegt vor der vorherigen.",
     errorPastEnd: "Zeile {{line}}: Diese Zeit liegt nach dem Ende des Videos.",
   },
+  transcriptHistory: {
+    title: "Frühere Transkripte",
+    automatic: "Automatisch",
+    restore: "Wiederherstellen",
+    restored: "Transkript wiederhergestellt",
+    restoreFailed: "Transkript konnte nicht wiederhergestellt werden",
+    undo: "Rückgängig",
+  },
   thumbnailPicker: {
     failedCapture: "Frame konnte nicht erfasst werden",
     failedGif:
@@ -963,8 +989,8 @@ const messages = {
     labMeetings: "Meetings und Transkription",
     labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
-    labWisprFlow: "Sprachdiktat",
-    labWisprFlowDescription:
+    labVoiceDictation: "Sprachdiktat",
+    labVoiceDictationDescription:
       "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     labLookbackContext: "Frühere Bildschirmzeit einbeziehen",
     labLookbackContextDescription:
@@ -1402,6 +1428,15 @@ const messages = {
     playClip: "Clip abspielen",
     unsupportedFormat:
       "Dieser Browser kann dieses Video nicht abspielen. Öffne den Link in Chrome, Edge oder Firefox.",
+    youtubeLoading: "YouTube-Player wird geladen",
+    youtubeUnavailable: "Dieses YouTube-Video ist privat oder wurde entfernt.",
+    youtubeEmbedBlocked:
+      "Der Inhaber dieses Videos erlaubt keine Wiedergabe außerhalb von YouTube.",
+    youtubeInvalid: "Dieser YouTube-Link führt zu keinem abspielbaren Video.",
+    youtubePlaybackFailed: "YouTube konnte dieses Video hier nicht abspielen.",
+    youtubeApiUnavailable:
+      "Der YouTube-Player wurde nicht geladen. Prüfe deine Verbindung oder deinen Inhaltsblocker und lade die Seite neu.",
+    watchOnYouTube: "Auf YouTube ansehen",
   },
   searchBar: {
     placeholder: "Aufzeichnungen suchen…",
@@ -1628,6 +1663,9 @@ const messages = {
     disconnected: "Mikrofon getrennt.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Der kostenlose Tarif von Builder.io umfasst Videospeicher, den du mit einem Klick einrichten kannst.",
+    customKeys: "Eigene Schlüssel",
     builderConnectPopupError:
       "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
@@ -1649,8 +1687,7 @@ const messages = {
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    description:
-      "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
+    description: "Wähle, wo deine aufgenommenen Videos gespeichert werden.",
     createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",
@@ -1678,15 +1715,32 @@ const messages = {
     placeholder: "Clip title (Lokalisiert)",
     editLabel: "Edit clip title (Lokalisiert)",
   },
+  chapterList: {
+    add: "Kapitel hinzufügen",
+    editLabel: "Kapitel bearbeiten",
+    placeholder: "0:00 Einführung\n1:30 Nächster Abschnitt",
+    errorLineShape:
+      "Zeile {{line}}: zuerst eine Zeit, dann ein Titel, z. B. „0:48 Notizdaten gespeichert“.",
+    errorBadTime: "Zeile {{line}}: „{{value}}“ ist keine Zeit wie 0:48.",
+    errorDuplicate:
+      "Zeile {{line}}: Bei {{value}} gibt es bereits ein Kapitel.",
+    errorPastEnd: "Zeile {{line}}: {{value}} liegt nach dem Ende des Clips.",
+    changedWhileEditing:
+      "Die Kapitel wurden geändert, während du sie bearbeitet hast. Prüfe deine Zeilen und speichere erneut, um sie zu ersetzen.",
+  },
   chapters: {
-    title: "Chapters (Lokalisiert)",
-    addHere: "Add here (Lokalisiert)",
-    empty: "No chapters yet. (Lokalisiert)",
-    remove: "Remove chapter (Lokalisiert)",
-    saveFailed: "Failed to save chapters (Lokalisiert)",
-    duplicateAtPoint: "A chapter already exists at this point (Lokalisiert)",
-    defaultTitle: "Chapter {{count}} (Lokalisiert)",
-    seekTo: "Seek to {{time}} (Lokalisiert)",
+    title: "Kapitel",
+    addHere: "Hier hinzufügen",
+    empty: "Noch keine Kapitel.",
+    remove: "Kapitel entfernen",
+    saveFailed: "Kapitel konnten nicht gespeichert werden",
+    changedElsewhere:
+      "Die Kapitel wurden an anderer Stelle geändert, daher wurde deine letzte Änderung nicht gespeichert.",
+    unreadable:
+      "Einige gespeicherte Kapitel können nicht gelesen werden, daher lassen sich Änderungen hier nicht speichern. Bitte den Agenten, die Kapitel zu ersetzen.",
+    duplicateAtPoint: "An dieser Stelle gibt es bereits ein Kapitel",
+    defaultTitle: "Kapitel {{count}}",
+    seekTo: "Zu {{time}} springen",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (Lokalisiert)",
@@ -1817,7 +1871,7 @@ const messages = {
     unmuteMicrophone: "Stummschaltung aufheben",
     uploadVideo: "Upload video (Lokalisiert)",
     takeScreenshot: "Screenshot aufnehmen",
-    importLoom: "Import Loom (Lokalisiert)",
+    importLoom: "Video importieren",
     importing: "Importing... (Lokalisiert)",
     import: "Import (Lokalisiert)",
     recordNew: "Neu aufnehmen",
@@ -1970,6 +2024,8 @@ const messages = {
       "Storage needed to finish Loom import (Lokalisiert)",
     loomImported: "Loom imported (Lokalisiert)",
     couldNotImportLoom: "Dieser Loom konnte nicht importiert werden.",
+    youtubeImported: "YouTube-Video hinzugefügt",
+    couldNotImportVideo: "Dieses Video konnte nicht importiert werden.",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
     linkCopied: "Link kopiert",
@@ -2074,12 +2130,12 @@ const messages = {
       "Diese Aufnahme wird noch verarbeitet, daher hat Clips deine Kopie hier behalten. Warte darauf oder lade sie erneut hoch.",
   },
   importRoute: {
-    pageTitle: "Loom importieren — Clips",
-    title: "Loom importieren",
+    pageTitle: "Video importieren — Clips",
+    title: "Video importieren",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importieren",
     helperText:
-      "Funktioniert hervorragend mit Loom. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
+      "Funktioniert hervorragend mit Loom und YouTube. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
     stageFetching: "Dein Video wird geladen…",
     stageUploading: "Rohmaterial wird hochgeladen…",
     stageTranscript: "Sprache und Bildschirminhalte agentenlesbar machen…",
@@ -2125,6 +2181,34 @@ const messages = {
     copy: "Kopieren",
     copied: "Kopiert",
     copyFailed: "Kopieren nicht möglich",
+    flowStarting: "Diktat wird gestartet …",
+    flowFinalizing: "Diktat wird abgeschlossen…",
+    flowBusy: "Vorheriges Diktat wird abgeschlossen…",
+    flowTranscribing: "Sprache wird transkribiert…",
+    flowCleaning: "Text wird bereinigt…",
+    flowPasting: "Text wird eingefügt…",
+    flowSavingHistory: "Wird im Verlauf gespeichert…",
+    flowPasted: "Eingefügt",
+    flowCopied: "In die Zwischenablage kopiert",
+    flowPastedHistoryFailed: "Eingefügt, aber nicht im Verlauf gespeichert",
+    flowCopiedHistoryFailed: "Kopiert, aber nicht im Verlauf gespeichert",
+    flowHistoryNotSaved: "Diktat wurde nicht im Verlauf gespeichert",
+    flowPermissionFailed: "Mikrofonzugriff ist deaktiviert",
+    flowMicrophoneUnavailable: "Mikrofon nicht verfügbar",
+    flowProviderFailed: "Sprache konnte nicht transkribiert werden",
+    flowMeetingCaptureActive: "Beende die Meeting-Aufnahme, bevor du diktierst",
+    flowPasteFailed: "Transkript konnte nicht eingefügt werden",
+    flowCancelled: "Diktat abgebrochen",
+    flowRetryHistory: "Verlauf erneut speichern",
+    flowDismiss: "Schließen",
+    flowTranscriptRecovery: "Transkript wiederherstellen",
+    flowOriginalTranscript: "Originaltranskript anzeigen",
+    flowCleanupSkipped:
+      "Textbereinigung übersprungen; Originaltext beibehalten",
+    flowBacktrackSkipped:
+      "Textbearbeitung übersprungen; erkannter Text beibehalten",
+    flowCancelDictation: "Diktat abbrechen",
+    flowCopying: "Transkript wird kopiert…",
     aiProcessed: "KI-verarbeitet",
     aiCleaned: "Mit KI bereinigt",
     original: "Original",

@@ -48,7 +48,7 @@ Ein nicht registriertes Flag wertet immer zu `false` aus, egal was ein Operator 
 Dies ist die Prüfung, die tatsächlich zählt, da jeder Aufrufer, ob das der Agent, das Frontend oder ein Skript ist, sie durchlaufen muss:
 
 ```ts
-// actions/create-fusion-app.ts
+// actions/create-builder-app.ts
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 
 run: async (args, ctx) => {

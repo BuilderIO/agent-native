@@ -382,6 +382,98 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
+  it("drops on an empty static screen body at the release point", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body data-agent-native-node-id="page" style="margin:0;min-height:400px"></body></html>`,
+      );
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "empty-body",
+            x: 300,
+            y: 200,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        anchorNodeId: "page",
+        placement: "inside",
+        dropMode: "absolute-container",
+        absoluteOrigin: { left: 0, top: 0 },
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("drops inside an absolutely positioned frame of an auto-layout screen root, not beside it in the root's flow", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;position:relative;display:flex;align-items:flex-start;gap:20px;width:640px;height:480px">
+        <div data-agent-native-node-id="flow-frame" data-an-primitive="frame" style="position:relative;width:80px;height:50px"></div>
+        <div data-agent-native-node-id="floating-frame" data-an-primitive="frame" style="position:absolute;left:180px;top:120px;width:320px;height:240px">
+          <div data-agent-native-node-id="floating-child" style="position:absolute;left:16px;top:16px;width:80px;height:40px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "floating-frame",
+            x: 330,
+            y: 235,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        correlationId: "floating-frame",
+        anchorNodeId: "floating-frame",
+        placement: "inside",
+        dropMode: "absolute-container",
+        absoluteOrigin: { left: 180, top: 120 },
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("uses the vertical main-axis size for row drops in vertical writing modes", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

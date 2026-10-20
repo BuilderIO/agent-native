@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockApplyAgentJsonHeaders = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
 const mockLoadScreenshotImage = vi.hoisted(() => vi.fn());
@@ -37,6 +38,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../../lib/public-agent-context.js", () => ({
+  applyAgentJsonHeaders: (...args: unknown[]) =>
+    mockApplyAgentJsonHeaders(...args),
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
   describeAgentAccessFailure: (failure: unknown) => failure,
   loadPublicAgentAccess: (...args: unknown[]) =>
@@ -222,6 +225,7 @@ describe("agent-frame.jpg route", () => {
 
       expect(event.status).toBe(409);
       expect(headerValue(event, "Retry-After")).toBe("15");
+      expect(mockApplyAgentJsonHeaders).toHaveBeenCalledWith(event);
       expect(result).toMatchObject({
         failureKind: "processing",
         retryAfterSeconds: 15,

@@ -5,16 +5,19 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { act, createElement, type PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { callActionWithRetry, mutateSyncAction, useActionMutation } = vi.hoisted(
-  () => ({
+const { callAction, callActionWithRetry, mutateSyncAction, useActionMutation } =
+  vi.hoisted(() => ({
+    callAction: vi.fn(),
     callActionWithRetry: vi.fn(),
     mutateSyncAction: vi.fn(),
     useActionMutation: vi.fn(() => ({ mutateAsync: mutateSyncAction })),
-  }),
-);
+  }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction,
   callActionWithRetry,
+  currentActionQueryCacheBinding: () => undefined,
+  recordActionQueryBrowserPersist: () => {},
   useActionMutation,
 }));
 
@@ -25,14 +28,170 @@ import type {
 } from "@shared/inbox-threads";
 
 import {
+  invalidateInboxThreads,
   inboxSyncRefetchInterval,
   inboxSyncQueryKey,
+  refreshInboxNow,
   useInboxSyncPoller,
   useInboxThreads,
 } from "./use-inbox-threads";
 
+const steadyAccount = {
+  accountEmail: "first@example.com",
+  state: "ready" as const,
+  lastSyncedAt: 1,
+  changed: false,
+  lastPushGeneration: 0,
+  pushGeneration: 0,
+  pushPending: false,
+};
+
+function intervalFor(accounts: Array<Record<string, unknown>>) {
+  return inboxSyncRefetchInterval({
+    state: { error: null, data: { accounts: accounts as never } },
+  });
+}
+
+describe("inboxSyncRefetchInterval cadence", () => {
+  it("keeps the fast cadence during the first sync", () => {
+    expect(intervalFor([{ ...steadyAccount, state: "initial" }])).toBe(3_000);
+  });
+
+  it("keeps the fast cadence while a push is pending", () => {
+    expect(intervalFor([{ ...steadyAccount, pushPending: true }])).toBe(3_000);
+  });
+
+  it("polls a fully synced account with an active push watch once a minute", () => {
+    expect(intervalFor([{ ...steadyAccount, pushWatch: "active" }])).toBe(
+      60_000,
+    );
+  });
+
+  it("keeps the 20s fallback for a fully synced account without an active watch", () => {
+    expect(intervalFor([{ ...steadyAccount, pushWatch: "fallback" }])).toBe(
+      20_000,
+    );
+    expect(intervalFor([steadyAccount])).toBe(20_000);
+  });
+
+  it("polls at the fastest cadence of its accounts", () => {
+    expect(
+      intervalFor([
+        { ...steadyAccount, pushWatch: "active" },
+        {
+          ...steadyAccount,
+          accountEmail: "second@example.com",
+          pushWatch: "fallback",
+        },
+      ]),
+    ).toBe(20_000);
+  });
+
+  it("polls again right away after a changed sync", () => {
+    expect(intervalFor([{ ...steadyAccount, changed: true }])).toBe(1);
+  });
+});
+
+describe("manual refresh and push wake-ups", () => {
+  it("refreshes Gmail from the Sent view with one forced sync, with no poller mounted", async () => {
+    callAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const onError = vi.fn();
+
+    await refreshInboxNow(queryClient, onError);
+
+    expect(callAction).toHaveBeenCalledTimes(1);
+    expect(callAction).toHaveBeenCalledWith("sync-inbox", { force: true });
+    expect(mutateSyncAction).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    queryClient.clear();
+  });
+
+  it("leaves no forced sync behind for the inbox poll that runs later", async () => {
+    callAction.mockResolvedValue({ accounts: [] });
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    await refreshInboxNow(queryClient, vi.fn());
+    const hook = renderHook(() => useInboxSyncPoller(["first@example.com"]), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+
+    expect(mutateSyncAction.mock.calls[0][0]).not.toHaveProperty("force");
+    expect(callAction).toHaveBeenCalledTimes(1);
+
+    hook.unmount();
+    queryClient.clear();
+  });
+
+  it("still refreshes the reads when the explicit sync fails", async () => {
+    callAction.mockRejectedValue(new Error("Gmail is unavailable"));
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useInboxSyncPoller(["first@example.com"]), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+
+    const onError = vi.fn();
+
+    await refreshInboxNow(queryClient, onError);
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(new Error("Gmail is unavailable"));
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
+
+    hook.unmount();
+    queryClient.clear();
+  });
+
+  it("syncs right away when a list read reports a pending push", async () => {
+    callActionWithRetry.mockResolvedValue({
+      ...response(),
+      accounts: [{ ...steadyAccount, pushPending: true, pushWatch: "active" }],
+    });
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
+
+    syncHook.unmount();
+    listHook.unmount();
+    queryClient.clear();
+  });
+});
+
 afterEach(() => {
   cleanup();
+  callAction.mockReset();
   callActionWithRetry.mockReset();
   mutateSyncAction.mockReset();
   useActionMutation.mockClear();
@@ -404,6 +563,127 @@ describe("useInboxThreads tab previews", () => {
     await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledWith({}));
 
     hook.unmount();
+    queryClient.clear();
+  });
+});
+
+describe("list page clamp at the offset cap", () => {
+  it("asks for no rows past the cap", async () => {
+    callActionWithRetry.mockResolvedValue(response());
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const listHook = renderHook(
+      () => useInboxThreads({ tab: "important", offset: 1_999, limit: 200 }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    expect(callActionWithRetry).toHaveBeenCalledWith(
+      "list-inbox-threads",
+      expect.objectContaining({ offset: 1_999, limit: 1 }),
+      expect.anything(),
+    );
+
+    listHook.unmount();
+    queryClient.clear();
+  });
+});
+
+describe("pending-push wake-up for unhealthy accounts", () => {
+  it("does not wake the poller for an errored account with a pending push", async () => {
+    callActionWithRetry.mockResolvedValue({
+      ...response(),
+      accounts: [
+        {
+          ...steadyAccount,
+          state: "error",
+          error: "Gmail is unavailable",
+          pushPending: true,
+          pushWatch: "active",
+        },
+      ],
+    });
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mutateSyncAction).toHaveBeenCalledTimes(1);
+
+    syncHook.unmount();
+    listHook.unmount();
+    queryClient.clear();
+  });
+});
+
+describe("pending-push wake-up while a sync is in flight", () => {
+  it("does not cancel a refresh sync that is in flight when a pending push arrives", async () => {
+    // The first sync establishes query data. React Query cancels an in-flight
+    // refetch only when there is data, so the held sync must be a refetch.
+    let finishHeldSync!: (value: unknown) => void;
+    mutateSyncAction.mockResolvedValueOnce({ accounts: [] });
+    mutateSyncAction.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishHeldSync = resolve;
+        }),
+    );
+    mutateSyncAction.mockResolvedValue({ accounts: [] });
+    callActionWithRetry.mockResolvedValue({
+      ...response(),
+      accounts: [{ ...steadyAccount, pushPending: true, pushWatch: "active" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(syncHook.result.current.data).toBeDefined());
+
+    void invalidateInboxThreads(queryClient);
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
+
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mutateSyncAction).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      finishHeldSync({ accounts: [] });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mutateSyncAction).toHaveBeenCalledTimes(2);
+
+    syncHook.unmount();
+    listHook.unmount();
     queryClient.clear();
   });
 });

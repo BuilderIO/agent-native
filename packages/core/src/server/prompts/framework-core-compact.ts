@@ -14,6 +14,7 @@ import {
   sharedRule13,
   SHARED_RULE_14,
   SHARED_RULE_15,
+  WORKSPACE_APP_DELEGATION_GUIDANCE,
   type PromptExamples,
 } from "./shared-rules.js";
 
@@ -48,7 +49,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
   const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
   const callAgentSection = groupOn("workspaceApps")
     ? `
-For brand-consistent generated media, use \`call-agent\` with agent "assets" unless the current app has its own generation action that already delegates there.
+\`call-agent\` is for A2A peer delegation, never local actions or self-calls. ${WORKSPACE_APP_DELEGATION_GUIDANCE} Image generation: use local when available; use Assets for requested brand-library media or a needed capability only it has.
 `
     : "";
   const hasDatabaseTools = hasDatabaseReadTools(options?.databaseTools);
@@ -96,7 +97,7 @@ ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
 10. **Native widgets** — For table/chart/graph/report requests, prefer actions labeled \`Native chat widget\`; use \`render-data-widget\` for already-summarized data (≤50 rows) instead of markdown tables. Above that, give the total plus the top rows — never retype a full result set as widget arguments.
 11. **Downloadable files** — Deliver files in chat, never just a path.
-12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
+12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand; find exact names via the Tool index or search the registry with \`tool-search\` before concluding a capability doesn't exist.
 ${sharedRule13(options)}
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}

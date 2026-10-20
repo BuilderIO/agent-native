@@ -52,7 +52,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const MAX_FILTER_OPTIONS = 100;
+export const MAX_FILTER_OPTIONS = 500;
+export const MAX_FILTER_PRESET_VALUES = 100;
 // Each preset is a button in the dropdown, so a filter offers a short list.
 export const MAX_FILTER_PRESETS = 20;
 
@@ -110,9 +111,9 @@ export function filterPresetIssues(
     if (
       isRecord(preset) &&
       Array.isArray(preset.values) &&
-      preset.values.length > MAX_FILTER_OPTIONS
+      preset.values.length > MAX_FILTER_PRESET_VALUES
     ) {
-      return `has more than ${MAX_FILTER_OPTIONS} values`;
+      return `has more than ${MAX_FILTER_PRESET_VALUES} values`;
     }
     if (
       !isFilterPreset(preset) ||

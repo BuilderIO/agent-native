@@ -38,6 +38,20 @@ How to export designs and generate handoff documentation for developers converti
   that sRGB cannot show is rendered as its CSS Color 4 gamut-mapped sRGB
   fallback (lightness and hue kept, chroma reduced), not the browser's clip.
   HTML and SVG exports keep such colors as written.
+  Saved native shader scenes use the live editor's PNG path so GPU fills and
+  Liquid Glass keep their rendered appearance. The inspector exports selected
+  authored layers with transparent unselected surroundings. For agent exports,
+  discover the live tab with `get-native-render-contexts`, obtain the exact source
+  `versionHash` from `get-shader`, then call `request-native-local-export` with
+  that `targetTabId` and source hash. Its `export.viewport` is the unchanged CSS
+  layout viewport. Optional `cropRect: { x, y, width, height }` bounds the output
+  in that viewport's world coordinates; `selectedNodeIds` additionally isolates
+  those authored subtrees while backdrop inputs still sample the full scene.
+  Omitting `selectedNodeIds` captures the full composition inside the crop.
+  Output dimensions are the crop size times `pixelRatio`, bounded to 4096 pixels
+  per edge and 8,388,608 pixels total. Poll `get-native-local-export` with the
+  exact request and tab IDs; only `completed` provides the protected PNG URL.
+
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;

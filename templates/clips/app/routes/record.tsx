@@ -4185,6 +4185,7 @@ export default function RecordRoute() {
                         ? t("recordRoute.hostedClipsExhaustedDescription")
                         : undefined
                     }
+                    showBuilderStorageOffer={!hostedAllowanceExhausted}
                     connectSource="clips_record_storage_setup_card"
                     connectFlow="record"
                   />
@@ -4278,6 +4279,7 @@ export default function RecordRoute() {
                           !!bufferedEngineRef.current,
                         )}`
                   }
+                  showBuilderStorageOffer={!hostedAllowanceExhausted}
                   connectedDescription={t(
                     "recordRoute.storageConnectedUploading",
                   )}
@@ -4285,7 +4287,6 @@ export default function RecordRoute() {
                   key={pendingLocal.id}
                   recordingAttemptId={pendingLocal.id}
                   connectFlow="record_first"
-                  openSettingsInNewTab
                 />
               </>
             ) : (
@@ -4639,6 +4640,7 @@ export default function RecordRoute() {
                     ? t("recordRoute.hostedClipsExhaustedDescription")
                     : undefined
                 }
+                showBuilderStorageOffer={!hostedAllowanceExhausted}
                 connectedDescription={t(
                   "recordRoute.storageConnectedReopeningRecorder",
                 )}

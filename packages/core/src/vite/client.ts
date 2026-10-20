@@ -94,6 +94,7 @@ import {
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -3500,9 +3501,10 @@ function silenceConnectionResets(): Plugin {
     return (
       code === "ECONNRESET" ||
       code === "ECONNABORTED" ||
+      code === "ECANCELED" ||
       code === "EPIPE" ||
       isClosedWebStreamController(err) ||
-      /^(read ECONNRESET|write ECONNRESET|socket hang up|aborted|write EPIPE)$/i.test(
+      /^(read ECONNRESET|write ECONNRESET|write ECANCELED|socket hang up|aborted|write EPIPE)$/i.test(
         message,
       )
     );
@@ -4648,6 +4650,7 @@ function createAgentNativePlugins(
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
+    boundedTaskSourcePlugin(),
     authClientAssetPlugin(cwd),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),

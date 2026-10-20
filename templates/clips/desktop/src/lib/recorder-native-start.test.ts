@@ -33,6 +33,7 @@ vi.mock("./local-export", async (importOriginal) => {
 
 import { requestRecordingContext } from "../lookback/context-api";
 import {
+  emitRecorderSession,
   forgetRewindClipOriginIfNoRequest,
   getRewindClipOrigin,
   rememberRewindClipOrigin,
@@ -350,6 +351,38 @@ afterEach(() => {
   rejectMediaRecorderStop = false;
 });
 
+describe("recorder session event", () => {
+  it("emits the requested context flag and recording URL", () => {
+    emitRecorderSession(
+      "https://clips.example/",
+      "recording-1",
+      false,
+      true,
+      true,
+    );
+
+    expect(mocks.emit).toHaveBeenCalledWith("clips:recorder-session", {
+      viewUrl: "https://clips.example/r/recording-1",
+      recordingId: "recording-1",
+      localOnly: false,
+      microphoneEnabled: true,
+      lookbackEnabled: true,
+    });
+  });
+
+  it("never enables context for a local-only recording", () => {
+    emitRecorderSession(null, "recording-1", true, false, true);
+
+    expect(mocks.emit).toHaveBeenCalledWith("clips:recorder-session", {
+      viewUrl: null,
+      recordingId: "recording-1",
+      localOnly: true,
+      microphoneEnabled: false,
+      lookbackEnabled: false,
+    });
+  });
+});
+
 describe("native recording startup", () => {
   it("retains origins for more than fifty outstanding recordings", () => {
     const now = Date.now();
@@ -501,6 +534,15 @@ describe("native recording startup", () => {
     const handle = await pending;
     const recordingId = createdRecordingId();
 
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "clips:recorder-session",
+      expect.objectContaining({
+        viewUrl: `${params.serverUrl}/r/${recordingId}`,
+        recordingId,
+        localOnly: false,
+        lookbackEnabled: true,
+      }),
+    );
     expect(originAtCaptureStartRequest).toMatchObject({ recordingId });
     expect(originAtCaptureStartRequest?.startedAt).toBe(
       startedAtCaptureStartRequest,
@@ -574,6 +616,15 @@ describe("native recording startup", () => {
     const handle = await pending;
     const recordingId = createdRecordingId();
 
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "clips:recorder-session",
+      expect.objectContaining({
+        viewUrl: `${params.serverUrl}/r/${recordingId}`,
+        recordingId,
+        localOnly: false,
+        lookbackEnabled: false,
+      }),
+    );
     expect(getRewindClipOrigin(recordingId)).toBeNull();
 
     await handle.cancel();
@@ -601,6 +652,14 @@ describe("native recording startup", () => {
     expect(recordingId).toBeNull();
     expect(captureIdentity).toEqual(expect.any(String));
     expect(getRewindClipOrigin(captureIdentity)).toBeNull();
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "clips:recorder-session",
+      expect.objectContaining({
+        viewUrl: null,
+        localOnly: true,
+        lookbackEnabled: false,
+      }),
+    );
 
     await handle.cancel();
   });

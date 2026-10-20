@@ -48,7 +48,6 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  IconDots,
   IconPlus,
   IconRepeat,
   IconRepeatOnce,
@@ -606,9 +605,18 @@ export function MotionDock({
   const [selectedTrackKey, setSelectedTrackKey] = useState<string | null>(() =>
     tracks.length > 0 ? trackKey(tracks[tracks.length - 1]) : null,
   );
+  // A style added while the dock was closed is already in `nativeStyles` on
+  // mount, so the added-row effect below never sees it as new.
   const [selectedNativeStyleKey, setSelectedNativeStyleKey] = useState<
     string | null
-  >(null);
+  >(() =>
+    nativeStyles.length > 0
+      ? nativeStyleIdentityKey(
+          nativeStyles[nativeStyles.length - 1]!,
+          nativeStyles.length - 1,
+        )
+      : null,
+  );
   const [selectedKeyframeKeys, setSelectedKeyframeKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -2687,6 +2695,59 @@ interface AddTrackMenuProps {
   disabledReason?: string;
 }
 
+const NATIVE_STYLE_OPTIONS: ReadonlyArray<{
+  styleKey: MotionNativeStyleKey;
+  labelKey: string;
+  Icon: typeof IconArrowsMove;
+}> = [
+  {
+    styleKey: "Position",
+    labelKey: "designEditor.motion.animationStyles.position",
+    Icon: IconArrowsMove,
+  },
+  {
+    styleKey: "Scale",
+    labelKey: "designEditor.motion.animationStyles.scale",
+    Icon: IconScale,
+  },
+  {
+    styleKey: "Rotation",
+    labelKey: "designEditor.motion.animationStyles.rotation",
+    Icon: IconRotate,
+  },
+  {
+    styleKey: "Size",
+    labelKey: "designEditor.motion.animationStyles.size",
+    Icon: IconResize,
+  },
+  {
+    styleKey: "Opacity",
+    labelKey: "designEditor.motion.animationStyles.opacity",
+    Icon: IconCircleHalf,
+  },
+];
+
+const PATH_STYLE_OPTION = {
+  styleKey: "Path",
+  labelKey: "designEditor.motion.animationStyles.path",
+  Icon: IconVectorBezier2,
+} as const;
+
+function primaryStyleIcon(property: string): typeof IconArrowsMove {
+  switch (property) {
+    case "translate":
+      return IconArrowsMove;
+    case "scale":
+      return IconScale;
+    case "rotate":
+      return IconRotate;
+    case "size":
+      return IconResize;
+    default:
+      return IconCircleHalf;
+  }
+}
+
 export function AddTrackMenu({
   selectedTarget,
   onCreateTrack,
@@ -2697,8 +2758,59 @@ export function AddTrackMenu({
   disabledReason,
 }: AddTrackMenuProps) {
   const t = useT();
-  const disabled = !selectedTarget || Boolean(disabledReason);
   const addMotionLabel = t("designEditor.motion.addMotion");
+  const primaryStyles = getMotionDockPrimaryStyles(t);
+  // Styles that do not suit the selection are left out of the list, not greyed.
+  const options: Array<{
+    key: string;
+    label: string;
+    Icon: typeof IconArrowsMove;
+    disabled?: boolean;
+    onSelect: () => void;
+  }> = !selectedTarget
+    ? []
+    : [
+        ...(selectedTarget.isText && (onCreateNativeStyle || onCreateText)
+          ? [
+              {
+                key: "text",
+                label: t("designEditor.motion.text"),
+                Icon: IconTypography,
+                onSelect: () =>
+                  onCreateNativeStyle
+                    ? onCreateNativeStyle("TextStagger")
+                    : onCreateText?.(),
+              },
+            ]
+          : []),
+        ...(onCreateNativeStyle
+          ? [
+              ...NATIVE_STYLE_OPTIONS,
+              ...(selectedTarget.isPath ? [PATH_STYLE_OPTION] : []),
+            ].map(({ styleKey, labelKey, Icon }) => ({
+              key: styleKey,
+              label: t(labelKey),
+              Icon,
+              onSelect: () => onCreateNativeStyle(styleKey),
+            }))
+          : onCreateStyle || onCreateTrack
+            ? primaryStyles.map((style) => ({
+                key: `${style.preset.property}-${style.label}`,
+                label: style.label,
+                Icon: primaryStyleIcon(style.preset.property),
+                disabled: style.preset.additionalProperties
+                  ? style.preset.additionalProperties.every((property) =>
+                      disabledProperties.includes(property),
+                    )
+                  : disabledProperties.includes(style.preset.property),
+                onSelect: () => {
+                  if (onCreateStyle) onCreateStyle(style);
+                  else onCreateTrack?.(style.preset);
+                },
+              }))
+            : []),
+      ];
+  const disabled = Boolean(disabledReason) || options.length === 0;
   const trigger = (
     <Button
       type="button"
@@ -2715,68 +2827,22 @@ export function AddTrackMenu({
   );
 
   if (disabled) {
+    // A selection with no styles left to list gets no hover tip.
+    const disabledTip =
+      disabledReason ??
+      (selectedTarget
+        ? undefined
+        : t("designEditor.motion.selectElementFirst"));
+    if (!disabledTip) return <span className="inline-flex">{trigger}</span>;
     return (
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex">{trigger}</span>
         </TooltipTrigger>
-        <TooltipContent side="top">
-          {disabledReason ?? t("designEditor.motion.selectElementFirst")}
-        </TooltipContent>
+        <TooltipContent side="top">{disabledTip}</TooltipContent>
       </Tooltip>
     );
   }
-
-  const primaryStyles = getMotionDockPrimaryStyles(t);
-  const nativeStyleOptions: Array<{
-    styleKey: MotionNativeStyleKey;
-    labelKey: string;
-    Icon: typeof IconArrowsMove;
-  }> = [
-    {
-      styleKey: "Position",
-      labelKey: "designEditor.motion.animationStyles.position",
-      Icon: IconArrowsMove,
-    },
-    {
-      styleKey: "Scale",
-      labelKey: "designEditor.motion.animationStyles.scale",
-      Icon: IconScale,
-    },
-    {
-      styleKey: "Rotation",
-      labelKey: "designEditor.motion.animationStyles.rotation",
-      Icon: IconRotate,
-    },
-    {
-      styleKey: "Size",
-      labelKey: "designEditor.motion.animationStyles.size",
-      Icon: IconResize,
-    },
-    {
-      styleKey: "Opacity",
-      labelKey: "designEditor.motion.animationStyles.opacity",
-      Icon: IconCircleHalf,
-    },
-  ];
-  const productMotionOptions: Array<{
-    key: string;
-    labelKey: string;
-    Icon: typeof IconTypography;
-    onSelect: () => void;
-  }> = [
-    ...(selectedTarget.isPath && onCreateNativeStyle
-      ? [
-          {
-            key: "Path",
-            labelKey: "designEditor.motion.animationStyles.path",
-            Icon: IconVectorBezier2,
-            onSelect: () => onCreateNativeStyle("Path"),
-          },
-        ]
-      : []),
-  ];
-  const moreMotionLabel = `${t("designEditor.motion.more")} ${t("designEditor.motion.tabLabel")}`;
 
   return (
     <div className="flex items-center gap-1">
@@ -2788,124 +2854,25 @@ export function AddTrackMenu({
         >
           <DropdownMenuLabel className="sr-only">
             {t("designEditor.motion.animateLayer", {
-              label: selectedTarget.label,
+              label: selectedTarget!.label,
             })}
           </DropdownMenuLabel>
-          {selectedTarget.isText && (onCreateNativeStyle || onCreateText) ? (
+          {options.map(({ key, label, Icon, disabled, onSelect }) => (
             <DropdownMenuItem
+              key={key}
               className="h-6 gap-2 px-2 text-[12px] leading-none"
-              onSelect={() =>
-                onCreateNativeStyle
-                  ? onCreateNativeStyle("TextStagger")
-                  : onCreateText?.()
-              }
+              disabled={disabled}
+              onSelect={onSelect}
             >
-              <IconTypography
+              <Icon
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              {t("designEditor.motion.text")}
+              {label}
             </DropdownMenuItem>
-          ) : null}
-          {onCreateNativeStyle
-            ? nativeStyleOptions.map(({ styleKey, labelKey, Icon }) => (
-                <DropdownMenuItem
-                  key={styleKey}
-                  className="h-6 gap-2 px-2 text-[12px] leading-none"
-                  onSelect={() => onCreateNativeStyle(styleKey)}
-                >
-                  <Icon
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  {t(labelKey)}
-                </DropdownMenuItem>
-              ))
-            : null}
-          {!onCreateNativeStyle
-            ? primaryStyles.map((style) => (
-                <DropdownMenuItem
-                  key={`${style.preset.property}-${style.label}`}
-                  className="h-6 gap-2 px-2 text-[12px] leading-none"
-                  disabled={
-                    style.preset.additionalProperties
-                      ? style.preset.additionalProperties.every((property) =>
-                          disabledProperties.includes(property),
-                        )
-                      : disabledProperties.includes(style.preset.property)
-                  }
-                  onSelect={() => {
-                    if (onCreateStyle) onCreateStyle(style);
-                    else onCreateTrack?.(style.preset);
-                  }}
-                >
-                  {style.preset.property === "translate" ? (
-                    <IconArrowsMove
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : style.preset.property === "scale" ? (
-                    <IconScale
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : style.preset.property === "rotate" ? (
-                    <IconRotate
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : style.preset.property === "size" ? (
-                    <IconResize
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <IconCircleHalf
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  )}
-                  {style.label}
-                </DropdownMenuItem>
-              ))
-            : null}
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      {productMotionOptions.length > 0 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 px-0"
-              disabled={disabled}
-              aria-label={moreMotionLabel}
-              title={moreMotionLabel}
-            >
-              <IconDots className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-36 p-1">
-            <DropdownMenuLabel className="sr-only">
-              {moreMotionLabel}
-            </DropdownMenuLabel>
-            {productMotionOptions.map(({ key, labelKey, Icon, onSelect }) => (
-              <DropdownMenuItem
-                key={key}
-                className="h-6 gap-2 px-2 text-[12px] leading-none"
-                onSelect={onSelect}
-              >
-                <Icon
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                {t(labelKey)}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
     </div>
   );
 }
