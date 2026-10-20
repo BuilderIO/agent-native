@@ -3485,6 +3485,10 @@ export async function markTurnAborted(
   turnId: string,
   reason: string = "user",
 ): Promise<"aborted" | "already_terminal"> {
+  const fence = currentExecutionFence();
+  if (fence && (fence.threadId !== threadId || fence.turnId !== turnId)) {
+    throw new StaleExecutionFenceError(fence);
+  }
   await ensureRunTables();
   const now = Date.now();
   const client = getDbExec();
@@ -3497,7 +3501,16 @@ export async function markTurnAborted(
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
     });
-    await lockTurnExecutionLease(tx, threadId, turnId);
+    const lease = await lockTurnExecutionLease(tx, threadId, turnId);
+    if (
+      fence &&
+      (!lease ||
+        !lease.isLive ||
+        lease.ownerRunId !== fence.runId ||
+        lease.generation !== fence.generation)
+    ) {
+      throw new StaleExecutionFenceError(fence);
+    }
     const running = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
       args: [threadId, turnId],

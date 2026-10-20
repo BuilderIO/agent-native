@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep queued turn interruptions retryable until the abort and stable-idle checks complete.
+Fence turn-abort writes to the live generation and keep queued interruptions retryable until abort and stable-idle checks complete.
