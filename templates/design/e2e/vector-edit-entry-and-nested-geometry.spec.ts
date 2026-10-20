@@ -196,16 +196,16 @@ test("selected Pen anchors round independently and survive undo, redo, and reloa
     await selectAnchor(index);
     await radiusField.fill(String(radius));
     await radiusField.press("Enter");
-    await expect(radiusField).toHaveValue(String(radius));
+    await expect(radiusField).toHaveValue(`${radius}px`);
   };
 
   await setRadius(1, 12);
   await setRadius(3, 18);
   await expect.poll(savedRadii).toEqual([null, 12, null, 18]);
   await selectAnchor(1);
-  await expect(radiusField).toHaveValue("12");
+  await expect(radiusField).toHaveValue("12px");
   await selectAnchor(3);
-  await expect(radiusField).toHaveValue("18");
+  await expect(radiusField).toHaveValue("18px");
 
   await page.keyboard.press("Escape");
   await page.keyboard.press("ControlOrMeta+Z");
@@ -222,9 +222,9 @@ test("selected Pen anchors round independently and survive undo, redo, and reloa
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
   await selectAnchor(1);
-  await expect(radiusField).toHaveValue("12");
+  await expect(radiusField).toHaveValue("12px");
   await selectAnchor(3);
-  await expect(radiusField).toHaveValue("18");
+  await expect(radiusField).toHaveValue("18px");
 });
 
 test("Escape leaves an ellipse untouched, and dragging its top anchor converts it to a path in place", async ({

@@ -1362,6 +1362,13 @@ export default {
     viewOnly: "您對此儀表板只有檢視權限。",
     saveFailed: "無法儲存儀表板",
     saveFailedWithMessage: "無法儲存儀表板：{{message}}",
+    panelCostTitle: "「{{title}}」的 BigQuery 費用",
+    panelCostOverTitle: "重新整理「{{title}}」的費用較高",
+    panelCostScheduled:
+      "掃描約 {{size}} · 每次重新整理 {{perRun}} · 電子郵件報告每月約 {{perMonth}}",
+    panelCostUnscheduled:
+      "掃描約 {{size}} · 每次重新整理 {{perRun}} · 沒有電子郵件報告",
+    panelCostOverHint: "縮短日期範圍或減少欄位可以減少掃描量。",
     archived: "已封存「{{name}}」",
     unhid: "已取消隱藏「{{name}}」",
     archiveFailed: "無法存檔儀表板",

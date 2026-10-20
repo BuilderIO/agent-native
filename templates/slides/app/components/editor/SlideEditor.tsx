@@ -1295,11 +1295,9 @@ interface SlideEditorProps {
   /** Close the document layers panel. */
   onCloseLayers?: () => void;
   /** Whether the comments panel is open. */
-  commentsOpen?: boolean;
   /** Toggles the comments panel. */
   onToggleComments?: () => void;
   /** Toggles the pin-comment tool. */
-  onTogglePinMode?: () => void;
   /** Toggles the draw-on-slide annotation overlay. */
   onToggleDrawMode?: () => void;
   /** Toggle the transitions panel without a target. */
@@ -1985,9 +1983,7 @@ export default function SlideEditor({
   onCloseLayers,
   onOpenAnimations,
   onToggleAnimations,
-  commentsOpen,
   onToggleComments,
-  onTogglePinMode,
   onToggleDrawMode,
   onSelectedAnimationTargetsChange,
   slideId,
@@ -3426,20 +3422,16 @@ export default function SlideEditor({
   );
 
   const disabledCommentActions = useMemo(
-    () => [
-      ...(canComment ? [] : (["pin"] as const)),
-      ...(readOnly ? (["annotate"] as const) : []),
-    ],
-    [canComment, readOnly],
+    () => (readOnly ? (["annotate"] as const) : []),
+    [readOnly],
   );
 
   const runCommentAction = useCallback(
-    (action: "comments" | "annotate" | "pin") => {
+    (action: "comments" | "annotate") => {
       if (action === "comments") onToggleComments?.();
-      else if (action === "pin") onTogglePinMode?.();
       else onToggleDrawMode?.();
     },
-    [onToggleComments, onTogglePinMode, onToggleDrawMode],
+    [onToggleComments, onToggleDrawMode],
   );
 
   const runAgentAction = useCallback(
@@ -11344,9 +11336,8 @@ export default function SlideEditor({
                   transitionsDisabledReason={transitionsDisabledReason}
                   onOpenTransitions={openTransitionsPanel}
                   onSelectTransition={applyTransitionQuickPick}
-                  commentsOpen={Boolean(commentsOpen)}
                   commentToolValue={
-                    pinMode ? "pin" : drawMode ? "annotate" : null
+                    pinMode ? "comments" : drawMode ? "annotate" : null
                   }
                   disabledCommentActions={disabledCommentActions}
                   onOpenComments={onToggleComments}

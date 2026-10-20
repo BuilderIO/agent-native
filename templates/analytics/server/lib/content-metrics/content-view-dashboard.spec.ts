@@ -121,12 +121,15 @@ describe("Content view dashboard", () => {
         ('s3', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(40)}', 'ga4_pageviews', 100, 'ga4', 'r0', '${daysAgo(39)}'),
         ('s4', 'org:org_a', 'alice@example.test', 'org_a', 'p1', '${daysAgo(4)}', 'search_console_clicks', 2, 'search_console', 'r9', '${daysAgo(1)}'),
         ('s5', 'org:org_a', 'alice@example.test', 'org_a', 'p1', '${daysAgo(4)}', 'search_console_impressions', 30, 'search_console', 'r9', '${daysAgo(1)}'),
-        ('s6', 'org:org_b', 'carol@example.test', 'org_b', 'b1', '${daysAgo(3)}', 'ga4_pageviews', 999, 'ga4', 'rb', '${daysAgo(1)}');
+        ('s6', 'org:org_b', 'carol@example.test', 'org_b', 'b1', '${daysAgo(3)}', 'ga4_pageviews', 999, 'ga4', 'rb', '${daysAgo(1)}'),
+        ('s7', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch', 2, 'signups', 'r5', '${daysAgo(1)}'),
+        ('s8', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch_source', 1, 'signups', 'r5', '${daysAgo(1)}');
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end, error_code, error_message) VALUES
         ('r1', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:00.000Z', NULL, NULL, NULL),
         ('r2', 'org:org_a', 'alice@example.test', 'org_a', 'ga4', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:01.000Z', '${daysAgo(2)}', NULL, NULL),
         ('r3', 'org:org_a', 'alice@example.test', 'org_a', 'search_console', 'scheduled', 'succeeded', '${daysAgo(2)}T07:00:02.000Z', '${daysAgo(4)}', NULL, NULL),
         ('r4', 'org:org_a', 'alice@example.test', 'org_a', 'search_console', 'scheduled', 'not_configured', '${daysAgo(1)}T07:00:02.000Z', NULL, 'search_console_no_access', 'Search Console denied access to sc-domain:example.test.'),
+        ('r5', 'org:org_a', 'alice@example.test', 'org_a', 'signups', 'scheduled', 'cost_limited', '${daysAgo(1)}T07:00:03.000Z', NULL, 'signups_bytes_cap', 'The signups join would scan 5000 bytes, over the 1000-byte cap. Nothing ran.'),
         ('rb', 'org:org_b', 'carol@example.test', 'org_b', 'ga4', 'scheduled', 'failed', '${daysAgo(1)}T07:00:00.000Z', NULL, 'step_failed', 'boom');
     `);
   });
@@ -167,6 +170,7 @@ describe("Content view dashboard", () => {
         data_through: daysAgo(4),
         detail: "Search Console denied access to sc-domain:example.test.",
       }),
+      expect.objectContaining({ source: "Signups", status: "Cost-limited" }),
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
@@ -180,14 +184,20 @@ describe("Content view dashboard", () => {
         published: daysAgo(0),
         pageviews: null,
         clicks: null,
+        signups: null,
+        source_signups: null,
         not_collected:
-          "GA4: not reported in this window · Search Console: not set up",
+          "GA4: not reported in this window · Search Console: not set up · Signups: cost-limited",
       }),
       expect.objectContaining({
         title: "Post one",
         href: "https://www.builder.io/blog/one",
         pageviews: 5,
         clicks: null,
+        // Kept from an earlier run: a capped run writes nothing, so the
+        // numbers already collected still show.
+        signups: 2,
+        source_signups: 1,
         not_collected: "Search Console: not set up",
       }),
     ]);

@@ -25,7 +25,14 @@ const mocks = vi.hoisted(() => ({
       org: [],
       orgId: "org-builder",
       role: "owner",
-    },
+    } as
+      | {
+          user: unknown[];
+          org: unknown[];
+          orgId: string | null;
+          role: string | null;
+        }
+      | undefined,
     isSuccess: true,
     isError: false,
     error: null as Error | null,
@@ -72,6 +79,12 @@ describe("McpIntegrationDialog", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.navigateToMcpOAuthStart.mockReset().mockReturnValue(true);
     mocks.customIntegrationEnabled.mockReset().mockReturnValue(false);
+    mocks.mcpServersQuery.data = {
+      user: [],
+      org: [],
+      orgId: "org-builder",
+      role: "owner",
+    };
     mocks.settings.mockReset();
     mocks.hubspotOAuthReadinessQuery.data = { hubspot: "configured" };
     mocks.hubspotOAuthReadinessQuery.isSuccess = true;
@@ -459,6 +472,7 @@ describe("McpIntegrationDialog", () => {
     const gong = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "gong",
     )!;
+    mocks.mcpServersQuery.data = undefined;
     mocks.mcpServersQuery.isSuccess = false;
 
     act(() => {
@@ -481,6 +495,12 @@ describe("McpIntegrationDialog", () => {
     expect(document.body.textContent).toContain("Loading connection scope…");
     expect(document.body.textContent).not.toContain("Provider setup required");
 
+    mocks.mcpServersQuery.data = {
+      user: [],
+      org: [],
+      orgId: "org-builder",
+      role: "owner",
+    };
     mocks.mcpServersQuery.isSuccess = true;
     act(() => {
       root.render(
@@ -500,6 +520,36 @@ describe("McpIntegrationDialog", () => {
     });
 
     expect(document.body.textContent).toContain("Who should use this?");
+  });
+
+  it("opens the requested setup from cached scope data after a refetch fails", () => {
+    const gong = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "gong",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+    mocks.mcpServersQuery.isError = true;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="gong"
+            defaultScope="org"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[gong]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).not.toContain(
+      "Loading connection scope…",
+    );
   });
 
   it("surfaces a retry when scope metadata fails before direct connecting", () => {

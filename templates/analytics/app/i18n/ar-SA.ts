@@ -1329,6 +1329,14 @@ export default {
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",
     saveFailed: "تعذر حفظ لوحة البيانات",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: 'تكلفة BigQuery لـ "{{title}}"',
+    panelCostOverTitle: 'تحديث "{{title}}" مكلف',
+    panelCostScheduled:
+      "~{{size}} يتم فحصها · {{perRun}} لكل تحديث · ~{{perMonth}}/شهريًا في تقارير البريد الإلكتروني",
+    panelCostUnscheduled:
+      "~{{size}} يتم فحصها · {{perRun}} لكل تحديث · لا توجد تقارير بريد إلكتروني",
+    panelCostOverHint:
+      "نطاق تاريخ أضيق أو أعمدة أقل يقلل البيانات التي يتم فحصها.",
     archived: 'تمت أرشفة "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "تعذر أرشفة لوحة التحكم",

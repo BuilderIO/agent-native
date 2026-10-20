@@ -26,6 +26,10 @@ export default defineAction({
       return `${args.reset ? "Reset" : "Updated"} ${args.appId} permission ${args.permission}: [${(change.previousRoles ?? []).join(", ")}] -> [${(change.roles ?? []).join(", ")}]`;
     },
   }),
+  // It changes who may use an app or what they may do in it: every call
+  // needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async ({ appId, permission, roles, reset }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const descriptor = getRegisteredAppRoles(appId);

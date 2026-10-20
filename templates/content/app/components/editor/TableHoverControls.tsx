@@ -11,6 +11,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { TextSelection } from "@tiptap/pm/state";
 import { findTable } from "@tiptap/pm/tables";
 import { Editor } from "@tiptap/react";
 import {
@@ -34,6 +35,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 
 interface TableHoverControlsProps {
   editor: Editor;
@@ -107,13 +110,19 @@ const MENU_COLLISION_PADDING = 8;
 
 const menuIconClass = "size-4 shrink-0 text-muted-foreground";
 
+// A reference preview inside a cell brings its own tables, so these keep only
+// the rows and cells that belong to the given table or row.
 function getRows(table: HTMLElement) {
-  return Array.from(table.querySelectorAll("tr")) as HTMLTableRowElement[];
+  return (
+    Array.from(table.querySelectorAll("tr")) as HTMLTableRowElement[]
+  ).filter((row) => row.closest("table") === table);
 }
 
 function getCells(row: HTMLTableRowElement | null | undefined) {
   return row
-    ? (Array.from(row.querySelectorAll("td, th")) as HTMLElement[])
+    ? (Array.from(row.querySelectorAll("td, th")) as HTMLElement[]).filter(
+        (cell) => cell.closest("tr") === row,
+      )
     : [];
 }
 
@@ -137,14 +146,24 @@ function getLastRowCell(table: HTMLElement) {
   return cells[0] ?? null;
 }
 
+// A reference preview renders its own read-only editor, tables included,
+// inside this one. Those tables aren't in this editor's document.
+function isInEditor(root: HTMLElement, element: Element) {
+  return element.closest(".ProseMirror") === root;
+}
+
+export function getEditorTables(root: HTMLElement) {
+  return (Array.from(root.querySelectorAll("table")) as HTMLElement[]).filter(
+    (table) => isInEditor(root, table),
+  );
+}
+
 function getCellAddress(editor: Editor, cell: HTMLElement) {
   const table = cell.closest("table") as HTMLElement | null;
   const row = cell.closest("tr") as HTMLTableRowElement | null;
   if (!table || !row) return null;
 
-  const tables = Array.from(
-    editor.view.dom.querySelectorAll("table"),
-  ) as HTMLElement[];
+  const tables = getEditorTables(editor.view.dom);
   const tableIndex = tables.indexOf(table);
   const rowIndex = getRows(table).indexOf(row);
   const columnIndex = getCells(row).indexOf(cell);
@@ -154,7 +173,7 @@ function getCellAddress(editor: Editor, cell: HTMLElement) {
   return { columnIndex, rowIndex, tableIndex };
 }
 
-function getCellAtAddress(
+export function getCellAtAddress(
   tables: HTMLElement[],
   address: SelectedCellAddress | null,
 ) {
@@ -236,6 +255,26 @@ function getChildren(node: ProseMirrorNode) {
   return children;
 }
 
+// Where a cell starts in a table that starts at tablePos.
+function getCellPos(
+  table: ProseMirrorNode,
+  tablePos: number,
+  address: SelectedCellAddress,
+) {
+  const row = table.maybeChild(address.rowIndex);
+  if (!row || address.columnIndex >= row.childCount) return null;
+
+  let pos = tablePos + 1;
+  for (let index = 0; index < address.rowIndex; index += 1) {
+    pos += table.child(index).nodeSize;
+  }
+  pos += 1;
+  for (let index = 0; index < address.columnIndex; index += 1) {
+    pos += row.child(index).nodeSize;
+  }
+  return pos;
+}
+
 function findTableNodeByIndex(
   doc: ProseMirrorNode,
   tableIndex: number,
@@ -297,6 +336,18 @@ function hasHeaderColumnAtAddress(
   );
 }
 
+// The menus and edge controls act while they, not the editor, hold focus, and
+// Content saves an unfocused change only when it is marked as the user's.
+function userEditChain(editor: Editor) {
+  return editor
+    .chain()
+    .focus()
+    .command(({ tr }) => {
+      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+      return true;
+    });
+}
+
 function getTargetElement(target: EventTarget | null) {
   if (target instanceof Element) return target;
   if (target instanceof Node) return target.parentElement;
@@ -325,7 +376,7 @@ function getHoveredTableEdges(editor: Editor, target: EventTarget | null) {
   }
 
   const cell = targetElement.closest("td, th") as HTMLElement | null;
-  if (!cell || !view.dom.contains(cell)) {
+  if (!cell || !isInEditor(view.dom, cell)) {
     return { columnTable: null, rowTable: null };
   }
 
@@ -337,7 +388,11 @@ function getHoveredTableEdges(editor: Editor, target: EventTarget | null) {
 
   const rows = getRows(table);
   const rowCells = getCells(row);
-  const isLastColumn = rowCells[rowCells.length - 1] === cell;
+  // A table wider than its scrollport keeps its add-column control at the
+  // scrollport's edge, beside the column the edge cuts through.
+  const isLastColumn =
+    rowCells[rowCells.length - 1] === cell ||
+    cell.getBoundingClientRect().right > getTableScrollport(table).right + 1;
   const isLastRow = rows[rows.length - 1] === row;
 
   return {
@@ -394,8 +449,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   });
   const pointerResizeRef = useRef<PointerResizeState | null>(null);
   const tablesRef = useRef<HTMLElement[]>([]);
+  const hoveredCellRef = useRef<HTMLElement | null>(null);
+  const menuDismissedOutsideRef = useRef(false);
   const [tables, setTables] = useState<HTMLElement[]>([]);
   const [selectedCell, setSelectedCell] = useState<HTMLElement | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<HTMLElement | null>(null);
   const [hoveredEdges, setHoveredEdges] = useState<HoveredTableEdges>({
     columnTable: null,
     rowTable: null,
@@ -416,6 +474,20 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     tableUiPointerDownRef.current = false;
     setColumnMenuOpen(false);
     setRowMenuOpen(false);
+  };
+
+  // Radix returns focus to the menu's trigger, which strands the keyboard
+  // outside the editor: Ctrl+Z there runs the browser's own undo on cell text.
+  // The menus aren't modal, so a click elsewhere both closes them and lands;
+  // refocusing the editor after it would put back the cell the menu acted on.
+  const returnFocusToEditor = (event: Event) => {
+    event.preventDefault();
+    const dismissedOutside = menuDismissedOutsideRef.current;
+    menuDismissedOutsideRef.current = false;
+    if (!dismissedOutside) getMountedEditorView(editor)?.focus();
+  };
+  const noteMenuDismissedOutside = () => {
+    menuDismissedOutsideRef.current = true;
   };
 
   const clearSelectedCell = () => {
@@ -442,9 +514,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       return;
     }
 
-    const liveTables = Array.from(
-      view.dom.querySelectorAll("table"),
-    ) as HTMLElement[];
+    const liveTables = getEditorTables(view.dom);
     const nextSelectedCell =
       (selectedCellRef.current?.isConnected
         ? selectedCellRef.current
@@ -510,7 +580,22 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     setHoveredEdges(nextHoveredEdges);
   };
 
-  const selectCellForCommand = (cell: HTMLElement | null) => {
+  // The row and column options follow the hovered cell, so the pointer keeps
+  // it while crossing onto them or into their menu.
+  const updateHoveredCell = (target: EventTarget | null) => {
+    const element = getTargetElement(target);
+    if (element?.closest(".content-table-axis-trigger, [role='menu']")) return;
+
+    const cell = element?.closest("td, th") as HTMLElement | null;
+    const root = getMountedEditorView(editor)?.dom;
+    const nextCell = cell && root && isInEditor(root, cell) ? cell : null;
+    if (hoveredCellRef.current === nextCell) return;
+
+    hoveredCellRef.current = nextCell;
+    setHoveredCell(nextCell);
+  };
+
+  const selectCellForCommand = (cell: HTMLElement | null, focus = true) => {
     if (!cell || editor.isDestroyed) return false;
 
     const view = getMountedEditorView(editor);
@@ -519,9 +604,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     const pos = view.posAtDOM(cell, 0);
     if (pos < 0) return false;
 
-    editor
-      .chain()
-      .focus()
+    (focus ? editor.chain().focus() : editor.chain())
       .setTextSelection(Math.min(pos + 1, editor.state.doc.content.size))
       .run();
 
@@ -529,6 +612,16 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     selectedCellAddressRef.current = getCellAddress(editor, cell);
     syncOverlay();
     return true;
+  };
+
+  // Without focusing the editor: an unfocused editor takes focus a frame later,
+  // after the menu opened, and the menu closes when focus leaves it. The menu's
+  // commands focus the editor themselves.
+  const selectHoveredCell = () => {
+    const cell = hoveredCellRef.current;
+    if (cell?.isConnected && cell !== selectedCellRef.current) {
+      selectCellForCommand(cell, false);
+    }
   };
 
   const runAtCell = (cell: HTMLElement | null, action: () => void) => {
@@ -542,13 +635,18 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
   const addColumnAtEnd = (table: HTMLElement) => {
     runAtCell(getLastColumnCell(table), () => {
-      editor.chain().focus().addColumnAfter().run();
+      userEditChain(editor).addColumnAfter().run();
+    });
+    requestAnimationFrame(() => {
+      const scrollport =
+        getCellFromEditorSelection(editor)?.closest(".tableWrapper");
+      scrollport?.scrollTo({ left: scrollport.scrollWidth });
     });
   };
 
   const addRowAtEnd = (table: HTMLElement) => {
     runAtCell(getLastRowCell(table), () => {
-      editor.chain().focus().addRowAfter().run();
+      userEditChain(editor).addRowAfter().run();
     });
   };
 
@@ -572,11 +670,14 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     return { address, table };
   };
 
+  // The header switches keep their menu open, and the menu isn't modal, so
+  // focusing the editor would close it. Closing it focuses the editor instead.
   const replaceTable = (
     tablePos: number,
     oldTable: ProseMirrorNode,
     nextTable: ProseMirrorNode,
     nextAddress: SelectedCellAddress,
+    { keepMenuFocus = false } = {},
   ) => {
     const transaction = editor.state.tr.replaceWith(
       tablePos,
@@ -584,12 +685,22 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       nextTable,
     );
 
+    // Replacing the table moves the selection out of it, and the controls
+    // follow the selected cell: they would unmount, menu and all, until the
+    // next frame selects the cell again.
+    const cellPos = getCellPos(nextTable, tablePos, nextAddress);
+    if (cellPos !== null) {
+      transaction.setSelection(
+        TextSelection.near(transaction.doc.resolve(cellPos + 1)),
+      );
+    }
+    transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
     editor.view.dispatch(transaction.scrollIntoView());
-    editor.view.focus();
+    if (!keepMenuFocus) editor.view.focus();
 
     requestAnimationFrame(() => {
       const nextCell = getCellAtAddress(
-        Array.from(editor.view.dom.querySelectorAll("table")) as HTMLElement[],
+        getEditorTables(editor.view.dom),
         nextAddress,
       );
 
@@ -598,7 +709,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         ? getCellAddress(editor, nextCell)
         : nextAddress;
       if (nextCell) {
-        selectCellForCommand(nextCell);
+        selectCellForCommand(nextCell, !keepMenuFocus);
       } else {
         syncOverlay();
       }
@@ -735,6 +846,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       table.node,
       table.node.copy(Fragment.fromArray(nextRows)),
       address,
+      { keepMenuFocus: true },
     );
   };
 
@@ -776,6 +888,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       table.node,
       table.node.copy(Fragment.fromArray(nextRows)),
       address,
+      { keepMenuFocus: true },
     );
   };
 
@@ -785,13 +898,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
     while (columnCount < nextCount) {
       if (!selectCellForCommand(getLastColumnCell(table))) break;
-      editor.chain().focus().addColumnAfter().run();
+      userEditChain(editor).addColumnAfter().run();
       columnCount += 1;
     }
 
     while (columnCount > nextCount) {
       if (!selectCellForCommand(getLastColumnCell(table))) break;
-      editor.chain().focus().deleteColumn().run();
+      userEditChain(editor).deleteColumn().run();
       columnCount -= 1;
     }
 
@@ -804,13 +917,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
     while (rowCount < nextCount) {
       if (!selectCellForCommand(getLastRowCell(table))) break;
-      editor.chain().focus().addRowAfter().run();
+      userEditChain(editor).addRowAfter().run();
       rowCount += 1;
     }
 
     while (rowCount > nextCount) {
       if (!selectCellForCommand(getLastRowCell(table))) break;
-      editor.chain().focus().deleteRow().run();
+      userEditChain(editor).deleteRow().run();
       rowCount -= 1;
     }
 
@@ -835,20 +948,22 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         : "content-table-resizing-row",
     );
 
+    // Count from where the drag started, not from the table's start: the
+    // column control can sit at a scrollport edge well short of the table's end.
     if (current.kind === "column") {
       const averageWidth = current.tableRect.width / current.baseColumnCount;
-      const target = Math.round(
-        (event.clientX - current.tableRect.left) / averageWidth,
-      );
+      const target =
+        current.baseColumnCount +
+        Math.round((event.clientX - current.startX) / averageWidth);
       if (target !== current.lastTarget) {
         current.lastTarget = target;
         adjustColumnCount(current.table, target);
       }
     } else {
       const averageHeight = current.tableRect.height / current.baseRowCount;
-      const target = Math.round(
-        (event.clientY - current.tableRect.top) / averageHeight,
-      );
+      const target =
+        current.baseRowCount +
+        Math.round((event.clientY - current.startY) / averageHeight);
       if (target !== current.lastTarget) {
         current.lastTarget = target;
         adjustRowCount(current.table, target);
@@ -856,7 +971,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     }
   };
 
-  const handlePointerUp = () => {
+  const endPointerResize = () => {
     const current = pointerResizeRef.current;
     pointerResizeRef.current = null;
     document.documentElement.classList.remove(
@@ -865,7 +980,19 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     );
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", handlePointerUp);
+    window.removeEventListener("pointercancel", handlePointerCancel);
+    return current;
+  };
 
+  // The browser cancels a touch it takes over, e.g. to scroll. That ends the
+  // drag without the click's added row or column.
+  const handlePointerCancel = () => {
+    endPointerResize();
+    syncOverlay();
+  };
+
+  const handlePointerUp = () => {
+    const current = endPointerResize();
     if (!current) return;
 
     if (!current.didResize) {
@@ -902,6 +1029,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
   };
 
   useEffect(() => {
@@ -925,6 +1053,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       if (columnAxisTrigger) {
         event.preventDefault();
         event.stopPropagation();
+        selectHoveredCell();
         holdTableUiSelection();
         setColumnMenuOpen(true);
         return;
@@ -936,6 +1065,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       if (rowAxisTrigger) {
         event.preventDefault();
         event.stopPropagation();
+        selectHoveredCell();
         holdTableUiSelection();
         setRowMenuOpen(true);
         return;
@@ -943,7 +1073,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
       const cell = target.closest("td, th") as HTMLElement | null;
 
-      if (cell && view.dom.contains(cell)) {
+      if (cell && isInEditor(view.dom, cell)) {
         closeTableMenus();
         selectedCellRef.current = cell;
         selectedCellAddressRef.current = getCellAddress(editor, cell);
@@ -963,14 +1093,31 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         syncOverlay();
       }
     };
+    // The pointer keeps an edge handle shown while it's on the handle.
+    const updateEdgesFromTarget = (target: EventTarget | null) => {
+      if (getTargetElement(target)?.closest("[data-table-edge-control]")) {
+        return;
+      }
+      updateHoveredEdges(getHoveredTableEdges(editor, target));
+    };
     const handleHoverPointerMove = (event: PointerEvent) => {
       if (pointerResizeRef.current) return;
-      updateHoveredEdges(getHoveredTableEdges(editor, event.target));
+      // Touch has no hover. A finger that moves during a tap would show a
+      // handle under it before the tap lands, so taps use handleTapEdges.
+      if (event.pointerType !== "touch") updateEdgesFromTarget(event.target);
+      updateHoveredCell(event.target);
+    };
+    // Once a tap has placed the caret, the cell it landed on shows its edge
+    // handles, so a second tap can use them.
+    const handleTapEdges = (event: MouseEvent) => {
+      if (pointerResizeRef.current) return;
+      updateEdgesFromTarget(event.target);
     };
 
     const handleKeyUp = () => {
       const cell = getCellFromEditorSelection(editor);
-      selectedCellRef.current = cell && view.dom.contains(cell) ? cell : null;
+      selectedCellRef.current =
+        cell && isInEditor(view.dom, cell) ? cell : null;
       selectedCellAddressRef.current = selectedCellRef.current
         ? getCellAddress(editor, selectedCellRef.current)
         : null;
@@ -984,7 +1131,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       }
 
       const cell = getCellFromEditorSelection(editor);
-      if (cell && view.dom.contains(cell)) {
+      if (cell && isInEditor(view.dom, cell)) {
         selectedCellRef.current = cell;
         selectedCellAddressRef.current = getCellAddress(editor, cell);
       } else if (!selectedCellRef.current?.isConnected) {
@@ -1016,6 +1163,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     document.addEventListener("mousedown", handlePointerDown, true);
     document.addEventListener("click", handlePointerDown, true);
     document.addEventListener("pointermove", handleHoverPointerMove, true);
+    document.addEventListener("click", handleTapEdges, true);
     window.addEventListener("resize", handleGeometryChange);
     window.addEventListener("scroll", handleScroll, true);
     view.dom.addEventListener("keyup", handleKeyUp);
@@ -1026,10 +1174,12 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       document.removeEventListener("mousedown", handlePointerDown, true);
       document.removeEventListener("click", handlePointerDown, true);
       document.removeEventListener("pointermove", handleHoverPointerMove, true);
+      document.removeEventListener("click", handleTapEdges, true);
       window.removeEventListener("resize", handleGeometryChange);
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
       view.dom.removeEventListener("keyup", handleKeyUp);
       editor.off("selectionUpdate", handleSelectionUpdate);
     };
@@ -1118,6 +1268,29 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         ROW_OPTIONS_MENU_HEIGHT >
       viewportHeight - MENU_COLLISION_PADDING
     : false;
+  const hoveredAxisCell =
+    !columnMenuOpen &&
+    !rowMenuOpen &&
+    hoveredCell?.isConnected &&
+    hoveredCell !== selectedCell
+      ? hoveredCell
+      : null;
+  const hoveredAxisTable = hoveredAxisCell?.closest(
+    "table",
+  ) as HTMLElement | null;
+  const axisTableRect = hoveredAxisTable
+    ? hoveredAxisTable.getBoundingClientRect()
+    : selectedTableRect;
+  const axisScrollport = hoveredAxisTable
+    ? getTableScrollport(hoveredAxisTable)
+    : selectedScrollport;
+  const axisRect =
+    hoveredAxisCell && hoveredAxisTable && axisScrollport
+      ? clampToScrollport(
+          hoveredAxisCell.getBoundingClientRect(),
+          axisScrollport,
+        )
+      : visibleSelectedRect;
   const columnMenuAlign = columnMenuWouldOverflowRight ? "end" : "start";
   const columnMenuAlignOffset = columnMenuWouldOverflowRight
     ? -COLUMN_OPTIONS_MENU_ALIGN_OFFSET
@@ -1131,8 +1304,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     "content-table-axis-trigger group absolute z-40 flex items-center justify-center rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   const axisMarkerClass =
     "block rounded-full bg-muted-foreground/55 transition-colors group-hover:bg-primary group-focus-visible:bg-primary";
+  // touch-none lets a finger drag a handle instead of scrolling the page.
   const handleClass =
-    "table-hover-controls group absolute z-40 flex items-center justify-center rounded-md bg-transparent opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+    "table-hover-controls group absolute z-40 flex touch-none items-center justify-center rounded-md bg-transparent opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   const edgeHandleMarkerClass =
     "block rounded-full bg-muted-foreground/55 transition-colors group-hover:bg-primary group-focus-visible:bg-primary";
 
@@ -1181,15 +1355,24 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               }}
             />
           ) : null}
+        </>
+      ) : null}
 
-          <DropdownMenu open={columnMenuOpen} onOpenChange={setColumnMenuOpen}>
+      {axisRect && axisScrollport && axisTableRect ? (
+        <>
+          <DropdownMenu
+            open={columnMenuOpen}
+            onOpenChange={(open) => {
+              // Enter, Space and ArrowDown open the menu without a pointer.
+              if (open) selectHoveredCell();
+              setColumnMenuOpen(open);
+            }}
+            modal={false}
+          >
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={t("database.columnOptions")}
-                className={cn(
-                  lineButtonClass,
-                  !visibleSelectedRect.width && "invisible",
-                )}
+                className={cn(lineButtonClass, !axisRect.width && "invisible")}
                 data-testid="table-column-options"
                 onClickCapture={(event) => {
                   event.preventDefault();
@@ -1207,12 +1390,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   setColumnMenuOpen(true);
                 }}
                 style={{
-                  left:
-                    visibleSelectedRect.left -
-                    wrapperRect.left +
-                    visibleSelectedRect.width / 2,
+                  left: axisRect.left - wrapperRect.left + axisRect.width / 2,
                   top:
-                    selectedTableRect.top -
+                    axisTableRect.top -
                     wrapperRect.top -
                     COLUMN_OPTIONS_HIT_HEIGHT / 2,
                   height: COLUMN_OPTIONS_HIT_HEIGHT,
@@ -1236,6 +1416,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               align={columnMenuAlign}
               alignOffset={columnMenuAlignOffset}
               collisionPadding={MENU_COLLISION_PADDING}
+              onCloseAutoFocus={returnFocusToEditor}
+              onInteractOutside={noteMenuDismissedOutside}
             >
               <DropdownMenuLabel>{t("database.column")}</DropdownMenuLabel>
               {canToggleHeaderColumn ? (
@@ -1278,7 +1460,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   runAtCell(getSelectedCellElement(), () => {
-                    editor.chain().focus().addColumnBefore().run();
+                    userEditChain(editor).addColumnBefore().run();
                   })
                 }
               >
@@ -1289,7 +1471,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   runAtCell(getSelectedCellElement(), () => {
-                    editor.chain().focus().addColumnAfter().run();
+                    userEditChain(editor).addColumnAfter().run();
                   })
                 }
               >
@@ -1316,9 +1498,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 onSelect={() =>
                   runAtCell(getSelectedCellElement(), () => {
                     if (selectedDimensions.columnCount <= 1) {
-                      editor.chain().focus().deleteTable().run();
+                      userEditChain(editor).deleteTable().run();
                     } else {
-                      editor.chain().focus().deleteColumn().run();
+                      userEditChain(editor).deleteColumn().run();
                     }
                   })
                 }
@@ -1329,7 +1511,15 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <DropdownMenu open={rowMenuOpen} onOpenChange={setRowMenuOpen}>
+          <DropdownMenu
+            open={rowMenuOpen}
+            onOpenChange={(open) => {
+              // Enter, Space and ArrowDown open the menu without a pointer.
+              if (open) selectHoveredCell();
+              setRowMenuOpen(open);
+            }}
+            modal={false}
+          >
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={t("database.rowOptions")}
@@ -1352,13 +1542,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }}
                 style={{
                   left:
-                    Math.max(selectedTableRect.left, selectedScrollport.left) -
+                    Math.max(axisTableRect.left, axisScrollport.left) -
                     wrapperRect.left -
                     ROW_OPTIONS_HIT_WIDTH / 2,
-                  top:
-                    visibleSelectedRect.top -
-                    wrapperRect.top +
-                    visibleSelectedRect.height / 2,
+                  top: axisRect.top - wrapperRect.top + axisRect.height / 2,
                   height: ROW_OPTIONS_HIT_HEIGHT,
                   transform: "translateY(-50%)",
                   width: ROW_OPTIONS_HIT_WIDTH,
@@ -1377,6 +1564,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
               align={rowMenuAlign}
               alignOffset={rowMenuAlignOffset}
               collisionPadding={MENU_COLLISION_PADDING}
+              onCloseAutoFocus={returnFocusToEditor}
+              onInteractOutside={noteMenuDismissedOutside}
               side="right"
             >
               <DropdownMenuLabel>{t("database.row")}</DropdownMenuLabel>
@@ -1420,7 +1609,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   runAtCell(getSelectedCellElement(), () => {
-                    editor.chain().focus().addRowBefore().run();
+                    userEditChain(editor).addRowBefore().run();
                   })
                 }
               >
@@ -1431,7 +1620,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className="gap-2"
                 onSelect={() =>
                   runAtCell(getSelectedCellElement(), () => {
-                    editor.chain().focus().addRowAfter().run();
+                    userEditChain(editor).addRowAfter().run();
                   })
                 }
               >
@@ -1458,9 +1647,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 onSelect={() =>
                   runAtCell(getSelectedCellElement(), () => {
                     if (selectedDimensions.rowCount <= 1) {
-                      editor.chain().focus().deleteTable().run();
+                      userEditChain(editor).deleteTable().run();
                     } else {
-                      editor.chain().focus().deleteRow().run();
+                      userEditChain(editor).deleteRow().run();
                     }
                   })
                 }
@@ -1481,59 +1670,59 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         const scrollportRect = getTableScrollport(table);
         const visibleLeft = Math.max(rect.left, scrollportRect.left);
         const visibleRight = Math.min(rect.right, scrollportRect.right);
-        const isTableEndVisible = rect.right <= visibleRight + 1;
         const top = rect.top - wrapperRect.top;
-        const right = rect.right - wrapperRect.left;
+        const right = visibleRight - wrapperRect.left;
         const bottom = rect.bottom - wrapperRect.top;
         const visibleCenter =
           (visibleLeft + visibleRight) / 2 - wrapperRect.left;
+        // A hidden handle lets clicks through to the cell under it.
         const isColumnHandleVisible = hoveredEdges.columnTable === table;
         const isRowHandleVisible = hoveredEdges.rowTable === table;
 
         return (
           <div key={tableId}>
-            {isTableEndVisible ? (
-              <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
-                <TooltipTrigger asChild>
-                  <button
-                    aria-label={t("database.tableColumnHandle")}
-                    className={cn(
-                      handleClass,
-                      "cursor-col-resize -translate-y-1/2",
-                      isColumnHandleVisible && "opacity-100",
-                    )}
-                    data-table-edge-control
-                    data-table-edge="column"
-                    data-table-id={tableId}
-                    data-testid="table-column-handle"
-                    onPointerDown={(event) =>
-                      startHandlePointer("column", table, event)
-                    }
+            <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label={t("database.tableColumnHandle")}
+                  className={cn(
+                    handleClass,
+                    "cursor-col-resize -translate-y-1/2",
+                    isColumnHandleVisible
+                      ? "opacity-100"
+                      : "pointer-events-none",
+                  )}
+                  data-table-edge-control
+                  data-table-edge="column"
+                  data-table-id={tableId}
+                  data-testid="table-column-handle"
+                  onPointerDown={(event) =>
+                    startHandlePointer("column", table, event)
+                  }
+                  style={{
+                    height: COLUMN_EDGE_HANDLE_HIT_HEIGHT,
+                    left: right - COLUMN_EDGE_HANDLE_HIT_WIDTH / 2,
+                    top: top + rect.height / 2,
+                    width: COLUMN_EDGE_HANDLE_HIT_WIDTH,
+                  }}
+                  type="button"
+                >
+                  <span
+                    className={edgeHandleMarkerClass}
                     style={{
-                      height: COLUMN_EDGE_HANDLE_HIT_HEIGHT,
-                      left: right - COLUMN_EDGE_HANDLE_HIT_WIDTH / 2,
-                      top: top + rect.height / 2,
-                      width: COLUMN_EDGE_HANDLE_HIT_WIDTH,
+                      height: EDGE_HANDLE_LENGTH,
+                      width: EDGE_HANDLE_THICKNESS,
                     }}
-                    type="button"
-                  >
-                    <span
-                      className={edgeHandleMarkerClass}
-                      style={{
-                        height: EDGE_HANDLE_LENGTH,
-                        width: EDGE_HANDLE_THICKNESS,
-                      }}
-                    />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <strong>{t("database.click")}</strong>{" "}
-                  {t("database.toAddAColumn")}{" "}
-                  <strong>{t("database.drag")}</strong>{" "}
-                  {t("database.toAddOrRemoveColumns")}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <strong>{t("database.click")}</strong>{" "}
+                {t("database.toAddAColumn")}{" "}
+                <strong>{t("database.drag")}</strong>{" "}
+                {t("database.toAddOrRemoveColumns")}
+              </TooltipContent>
+            </Tooltip>
 
             <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
               <TooltipTrigger asChild>
@@ -1542,7 +1731,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   className={cn(
                     handleClass,
                     "cursor-row-resize -translate-x-1/2",
-                    isRowHandleVisible && "opacity-100",
+                    isRowHandleVisible ? "opacity-100" : "pointer-events-none",
                   )}
                   data-table-edge-control
                   data-table-edge="row"

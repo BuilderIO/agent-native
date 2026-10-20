@@ -52,5 +52,9 @@ export default defineAction({
   // Carries a secret `value`. Record THAT the secret changed, never the value —
   // keep the audit trail from becoming a second credential store.
   audit: { recordInputs: false },
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => toVaultSecretMetadata(await updateSecret(args.id, args)),
 });

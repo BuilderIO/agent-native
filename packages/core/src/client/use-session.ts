@@ -11,6 +11,7 @@ import {
   SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
+import { recordSessionIdentity } from "./session-identity.js";
 
 export type { AuthSession };
 
@@ -194,6 +195,7 @@ function hasFreshSessionCache(): boolean {
 function publishSessionIdentity(session: AuthSessionResponse | null): void {
   const identity = session?.userId ?? session?.email ?? null;
   const authUserId = session?.authUserId;
+  recordSessionIdentity(identity);
   if (
     trackedSessionIdentity !== identity ||
     trackedSessionAuthUserId !== authUserId

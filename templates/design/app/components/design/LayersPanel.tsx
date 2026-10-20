@@ -1188,6 +1188,15 @@ function LayersPanelImpl(
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, []);
 
+  const toggleSearch = useCallback(() => {
+    if (searchOpen || searchQuery.trim()) {
+      setSearchOpen(false);
+      if (searchQuery) onSearchQueryChange("");
+      return;
+    }
+    focusSearch();
+  }, [focusSearch, onSearchQueryChange, searchOpen, searchQuery]);
+
   const beginRename = useCallback(
     (layerId: string): boolean => {
       if (!onRename) return false;
@@ -1570,7 +1579,7 @@ function LayersPanelImpl(
             <IconTooltipButton
               label={labels.searchPlaceholder}
               dataAction="search"
-              onClick={focusSearch}
+              onClick={toggleSearch}
             >
               <IconSearch
                 className="!size-[var(--design-icon-size)]"
