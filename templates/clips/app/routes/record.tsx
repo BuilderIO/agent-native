@@ -250,6 +250,8 @@ const MAC_CAMERA_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera";
 const MAC_MICROPHONE_PREF_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+const RECORDING_STORAGE_STATUS_TIMEOUT_MS = 15_000;
+const RECORDING_UPLOAD_TARGET_TIMEOUT_MS = 30_000;
 const STORAGE_SETUP_REQUIRED_ERROR = "STORAGE_SETUP_REQUIRED";
 
 export function recordingStartErrorMessage(
@@ -1819,7 +1821,9 @@ export default function RecordRoute() {
             newId: newRecordingId,
             isStale,
             fetchStatus: async () => {
-              const status = await fetchVideoStorageStatus();
+              const status = await fetchVideoStorageStatus({
+                timeoutMs: RECORDING_STORAGE_STATUS_TIMEOUT_MS,
+              });
               markStorageConfigured(status);
               return status;
             },
@@ -1838,6 +1842,7 @@ export default function RecordRoute() {
                       bugReport: reportContext ?? undefined,
                     }
                   : { ...recordingPayload, ...extra },
+                AbortSignal.timeout(RECORDING_UPLOAD_TARGET_TIMEOUT_MS),
               ),
             dropRow,
             onCreateFailed: (cause) => {

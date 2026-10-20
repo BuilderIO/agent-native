@@ -286,7 +286,7 @@ export default defineAction({
     });
     const streamingRequired = !bufferedFallbackAvailable;
 
-    const failUploadSetup = async (
+    const failUpload = async (
       reason: string,
       failure: ReturnType<typeof classifyInitialUploadFailure> = {
         failureCode: "storage_setup_required",
@@ -344,7 +344,13 @@ export default defineAction({
       streamingRequired &&
       (!streamingEnabled || !uploadProvider?.resumable)
     ) {
-      await failUploadSetup(STORAGE_SETUP_REQUIRED_REASON);
+      await failUpload(
+        "Video storage cannot start a resumable upload with this configuration.",
+        {
+          failureCode: "multipart_start_failed",
+          failureStage: "multipart_start",
+        },
+      );
     }
 
     if (
@@ -429,7 +435,7 @@ export default defineAction({
               // Error reporting must not mask the upload failure.
             }
           }
-          await failUploadSetup(
+          await failUpload(
             failure.failureCode === "hosted_storage_unavailable"
               ? HOSTED_STORAGE_UNAVAILABLE_REASON
               : reason

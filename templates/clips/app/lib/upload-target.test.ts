@@ -228,6 +228,27 @@ describe("openUploadTarget", () => {
     expect(dropRow).toHaveBeenCalledWith("srv-1");
   });
 
+  it("maps a timed-out intake create to a typed start error", async () => {
+    const result = openUploadTarget({
+      intake: true,
+      ownerEmail: null,
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => null,
+      create: async () => {
+        throw new DOMException(
+          "Upload target request timed out",
+          "TimeoutError",
+        );
+      },
+      dropRow: vi.fn(),
+    });
+
+    await expect(result).rejects.toMatchObject({
+      code: "upload_target_unavailable",
+    });
+  });
+
   it("requires an owner before opening an upload row", async () => {
     const create = vi.fn();
     const { result } = open(create, null);

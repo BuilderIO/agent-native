@@ -322,6 +322,53 @@ describe("create-recording policy", () => {
     );
   });
 
+  it("does not classify unavailable required streaming as missing storage", async () => {
+    calls.bufferedFallbackAvailable = false;
+    calls.streamingEnabled = false;
+    calls.resolveStorage.mockResolvedValueOnce({
+      mode: "own",
+      provider: { id: "configured-provider" },
+      reservationCreated: false,
+    });
+
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        {
+          id: "rec-1",
+          mimeType: "audio/webm",
+          recordingPlatform: "web",
+          requestStreaming: true,
+        },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "multipart_start_failed",
+      statusCode: 503,
+    });
+
+    expect(calls.updateSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "multipart_start_failed",
+      }),
+    );
+    expect(calls.writeState).toHaveBeenLastCalledWith(
+      "recording-upload-rec-1",
+      expect.objectContaining({
+        status: "failed",
+        storageSetupRequired: false,
+      }),
+    );
+  });
+
   it("persists and reports hosted provider auth failures without exposing the provider error", async () => {
     calls.bufferedFallbackAvailable = false;
     calls.streamingEnabled = true;
@@ -602,7 +649,7 @@ describe("recording_created", () => {
     expect(createdCalls()).toHaveLength(0);
   });
 
-  it("is followed by recording_failed when storage is missing, so the row is never silent", async () => {
+  it("reports unavailable required streaming after creating the row", async () => {
     calls.bufferedFallbackAvailable = false;
 
     await expect(
@@ -615,7 +662,7 @@ describe("recording_created", () => {
     const names = calls.track.mock.calls.map(([name]) => name);
     expect(names).toEqual(["recording_created", "recording_failed"]);
     expect(calls.track.mock.calls[1][1]).toMatchObject({
-      failure_code: "storage_setup_required",
+      failure_code: "multipart_start_failed",
       recording_platform: "extension",
     });
   });

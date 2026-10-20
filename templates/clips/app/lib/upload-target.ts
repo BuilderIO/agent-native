@@ -124,19 +124,24 @@ export async function openUploadTarget(options: {
         : {},
     );
   } catch (err) {
-    if (intake) throw err;
     options.onCreateFailed?.({
       kind: "network",
       message: err instanceof Error ? err.message : String(err),
     });
     // The server may have inserted the row before the response was lost.
-    options.dropRow(serverId!);
+    if (serverId) options.dropRow(serverId);
     throw new UploadTargetError("upload_target_unavailable");
   }
   if (res.ok) {
-    const created = (await res.json()) as {
+    let created: {
       result?: CreatedUploadTarget;
     } & Partial<CreatedUploadTarget>;
+    try {
+      created = (await res.json()) as typeof created;
+    } catch {
+      if (serverId) options.dropRow(serverId);
+      throw new UploadTargetError("upload_target_unavailable");
+    }
     const info = created.result ?? (created as CreatedUploadTarget);
     if (!info?.id) {
       if (intake) throw new Error("create-recording did not return an id");
