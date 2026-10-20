@@ -375,12 +375,24 @@ describe("presets", () => {
 
 describe("startingContentDatabaseItemLayout", () => {
   it("matches the default rows: page icon, title, first four properties", () => {
-    expect(startingContentDatabaseItemLayout(all)).toEqual({
+    expect(
+      startingContentDatabaseItemLayout([done, pitch, stage, due, owner]),
+    ).toEqual({
       leading: { kind: "page_icon", propertyId: null },
       titleWeight: "medium",
       line2: { propertyId: null, lines: 1 },
       line3: [],
       trailing: ["done", "pitch", "stage", "due"],
+    });
+  });
+
+  it("puts a Blocks field from the first four on line 2, not a fifth property in End", () => {
+    expect(startingContentDatabaseItemLayout(all)).toEqual({
+      leading: { kind: "page_icon", propertyId: null },
+      titleWeight: "medium",
+      line2: { propertyId: "notes", lines: 1 },
+      line3: [],
+      trailing: ["done", "pitch"],
     });
   });
 });

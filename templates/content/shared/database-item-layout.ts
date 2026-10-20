@@ -460,19 +460,25 @@ export function savableContentDatabaseItemLayout(
 
 /**
  * The layout someone starts editing from on a view with no saved layout. It
- * matches the default rows: page icon, title, and the first few properties.
+ * matches the default rows: page icon, title, and the first four properties.
+ * Line 2 is the only slot that shows a Blocks field, so one of those goes
+ * there. The page body itself has no slot yet.
  */
 export function startingContentDatabaseItemLayout(
   visibleProperties: readonly ContentDatabaseItemLayoutPropertyLike[],
 ): ContentDatabaseItemLayout {
+  const shown = visibleProperties.slice(0, 4);
+  const blocks = itemLayoutLine2Candidates(shown).find(
+    (property) => property.definition.type === "blocks",
+  );
   return {
     leading: { kind: "page_icon", propertyId: null },
     titleWeight: "medium",
-    line2: { propertyId: null, lines: 1 },
+    line2: { propertyId: blocks?.definition.id ?? null, lines: 1 },
     line3: [],
-    trailing: itemLayoutMetaCandidates(visibleProperties)
-      .slice(0, 4)
-      .map((property) => property.definition.id),
+    trailing: itemLayoutMetaCandidates(shown).map(
+      (property) => property.definition.id,
+    ),
   };
 }
 
