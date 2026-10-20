@@ -714,6 +714,14 @@ export async function restoreDocumentSubtree(
   );
 
   const now = new Date().toISOString();
+  // First, so the restore takes a GitHub collection's lock before it writes
+  // any page, in the same order a sync does.
+  const releasedFrom = await releaseRestoredPagesFromGitHubCollections(
+    db,
+    documentIds,
+    ownerEmail,
+    now,
+  );
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
@@ -735,12 +743,6 @@ export async function restoreDocumentSubtree(
         ),
       );
   }
-  const releasedFrom = await releaseRestoredPagesFromGitHubCollections(
-    db,
-    documentIds,
-    ownerEmail,
-    now,
-  );
 
   const databaseIds = [
     ...new Set([

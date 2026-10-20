@@ -1279,11 +1279,17 @@ async function applyFile(
       withPositionLock(databaseItemsPositionScope(run.database.id), () =>
         run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
           await lockLinkedCollection(tx, run);
-          if (linkedRow) {
+          // A restore that released the page since this sync planned the
+          // file deleted its record; the file then gets a new page.
+          const linked =
+            linkedRow && (await recordStillLinked(tx, linkedRow))
+              ? linkedRow
+              : null;
+          if (linked) {
             const [document] = await tx
               .select()
               .from(schema.documents)
-              .where(eq(schema.documents.id, linkedRow.documentId));
+              .where(eq(schema.documents.id, linked.documentId));
             if (document) {
               const bodyChanged =
                 !previous ||
@@ -1348,8 +1354,8 @@ async function applyFile(
                 values,
               );
               await upsertSourceRow(tx, run, {
-                rowId: linkedRow.id,
-                itemId: linkedRow.databaseItemId,
+                rowId: linked.id,
+                itemId: linked.databaseItemId,
                 documentId: document.id,
                 state: nextState,
                 values,
@@ -1364,7 +1370,7 @@ async function applyFile(
             // new page, and the stale row is replaced below.
             await tx
               .delete(schema.contentDatabaseSourceRows)
-              .where(eq(schema.contentDatabaseSourceRows.id, linkedRow.id));
+              .where(eq(schema.contentDatabaseSourceRows.id, linked.id));
           }
 
           let documentId = run.documentIdByPath.get(relativePath)!;
@@ -1492,22 +1498,20 @@ async function applyFile(
 }
 
 /**
- * Takes the lock disconnect takes, then confirms the link still exists. A
- * disconnect that lands while this sync reads GitHub has made the pages
- * ordinary again, so the sync stops instead of writing to them.
- */
-/**
- * Locks the collection for one write and checks the link is still this run's.
- * Relinking the same folder makes the same source id, so the source alone
- * can't tell; the lease can, and it also stops a run whose lease ran out and
- * another sync took over.
+ * Takes the lock disconnect takes, then checks the link is still this run's.
+ * A disconnect that lands while this sync reads GitHub has made the pages
+ * ordinary again, and relinking the same folder makes the same source id, so
+ * the source alone can't tell; the lease can. Updating the link's row, not
+ * only reading it, holds it until the write commits, so another sync can't
+ * claim the link partway through a write.
  */
 async function lockLinkedCollection(tx: Db, run: SyncRun) {
   await lockContentDatabaseMutation(tx, run.database.id);
   const [source] = await tx
-    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, run.sourceId));
+    .update(schema.contentDatabaseSources)
+    .set({ updatedAt: sql`${schema.contentDatabaseSources.updatedAt}` })
+    .where(eq(schema.contentDatabaseSources.id, run.sourceId))
+    .returning({ metadataJson: schema.contentDatabaseSources.metadataJson });
   if (!source) {
     throw new ActionContractError(
       "This collection isn't linked to a GitHub folder.",
@@ -1523,9 +1527,28 @@ async function lockLinkedCollection(tx: Db, run: SyncRun) {
   }
 }
 
+/**
+ * Whether a page's record is still there once the sync holds the lock. A
+ * restore that releases the page from the collection deletes it, and the
+ * page is then no longer the sync's to write.
+ */
+async function recordStillLinked(tx: Db, row: SourceRow) {
+  const [record] = await tx
+    .select({ id: schema.contentDatabaseSourceRows.id })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.id, row.id),
+        eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+      ),
+    );
+  return Boolean(record);
+}
+
 async function trashRow(run: SyncRun, row: SourceRow) {
   await run.db.transaction(async (tx: Db) => {
     await lockLinkedCollection(tx, run);
+    if (!(await recordStillLinked(tx, row))) return;
     const [document] = await tx
       .select({
         ownerEmail: schema.documents.ownerEmail,
