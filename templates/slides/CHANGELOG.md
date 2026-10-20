@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-20
+
+### Fixed
+
+- Slides handles chat attachments more reliably, including documents with unclear filenames and image links.
+
 ## 2026-10-19
 
 ### Improved
