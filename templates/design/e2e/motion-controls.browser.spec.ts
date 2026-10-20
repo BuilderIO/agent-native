@@ -417,6 +417,7 @@ test("Motion inspector states match the editable timeline", async ({
   expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
   expect(await appliedResponse.json()).toMatchObject({ persisted: true });
 
+  await page.getByRole("tab", { name: "List", exact: true }).click();
   const nativeStyleInspector = page.locator(
     '[data-design-inspector-section][aria-label="Animations"]',
   );

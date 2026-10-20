@@ -208,6 +208,7 @@ test.describe("URL-backed React JSX writeback", () => {
     await expect(card()).toHaveCSS("color", "rgb(0, 0, 255)");
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(card()).toHaveText("Card", { timeout: 60_000 });
     await expect(card()).toHaveCSS("color", "rgb(0, 0, 255)");
     expect(fs.readFileSync(filePath, "utf8")).toBe(cardSource("blue"));
   });

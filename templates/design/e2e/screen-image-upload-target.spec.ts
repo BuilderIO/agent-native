@@ -1388,6 +1388,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
+    await app.zoomToFit();
     await expect
       .poll(async () => readScreenHtml(page, designId, screenAId))
       .toContain(uploadResult.url!);
@@ -1396,10 +1397,15 @@ test("accepted Screen-root image upload persists and renders its source", async 
       .locator('[role="treeitem"][aria-level="1"]')
       .filter({ hasText: "Screen A" });
     await reloadedScreenARow.locator("[data-layer-row-button]").click();
+    await expect(reloadedScreenARow).toHaveAttribute("aria-selected", "true");
     const reloadedScreenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
     );
-    await reloadedScreenAShell.locator("[data-frame-title]").first().dblclick();
+    const reloadedScreenTitle = reloadedScreenAShell
+      .locator("[data-frame-title]")
+      .first();
+    await expect(reloadedScreenTitle).toBeVisible({ timeout: 30_000 });
+    await reloadedScreenTitle.dblclick();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();

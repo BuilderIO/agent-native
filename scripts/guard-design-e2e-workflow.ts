@@ -86,7 +86,7 @@ assert.equal(
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
 const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
-assert.equal(jobTimeout, 75);
+assert.equal(jobTimeout, 105);
 assert.equal(
   workflow.jobs?.e2e?.name,
   "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}",
@@ -101,19 +101,24 @@ assert.deepEqual(workflow.jobs?.e2e?.strategy?.matrix?.include, [
 const steps = workflow.jobs?.e2e?.steps ?? [];
 const shardIndex = steps.findIndex((step) => step.name === "Run shard");
 const shardStep = steps.find((step) => step.name === "Run shard");
+const prExportIndex = steps.findIndex(
+  (step) => step.name === "Run PR export E2E",
+);
+const prExportStep = steps.find((step) => step.name === "Run PR export E2E");
+const prMarqueeIndex = steps.findIndex(
+  (step) => step.name === "Run PR marquee E2E",
+);
+const prMarqueeStep = steps.find((step) => step.name === "Run PR marquee E2E");
 assert.equal(shardStep?.id, "run-shard");
-assert.equal(shardStep?.if, "matrix.shard != 'runtime-budget'");
+assert.equal(
+  shardStep?.if,
+  "matrix.shard != 'runtime-budget' && github.event_name != 'pull_request'",
+);
 assert.equal(
   shardStep?.run,
   [
     "mkdir -p .react-router/types",
-    'base_run_id="$E2E_RUN_ID"',
-    'if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then',
-    '  E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts',
-    '  E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
-    "else",
-    '  E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16',
-    "fi",
+    'E2E_RUN_ID="${E2E_RUN_ID}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16',
   ].join("\n") + "\n",
 );
 assert.equal(
@@ -122,11 +127,41 @@ assert.equal(
 );
 const shardTimeout = shardStep?.["timeout-minutes"];
 assert.equal(shardTimeout, 37);
+assert.equal(prExportStep?.if, "github.event_name == 'pull_request'");
+assert.equal(prExportStep?.["timeout-minutes"], 37);
+assert.equal(
+  prExportStep?.env?.E2E_RUN_ID,
+  "design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-exports",
+);
+assert.equal(
+  prExportStep?.run,
+  [
+    "mkdir -p .react-router/types",
+    "pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts",
+  ].join("\n") + "\n",
+);
+assert.equal(prMarqueeStep?.if, "github.event_name == 'pull_request'");
+assert.equal(prMarqueeStep?.["timeout-minutes"], 37);
+assert.equal(
+  prMarqueeStep?.env?.E2E_RUN_ID,
+  "design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-marquee",
+);
+assert.equal(
+  prMarqueeStep?.run,
+  [
+    "mkdir -p .react-router/types",
+    'pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
+  ].join("\n") + "\n",
+);
+const loopbackStep = steps.find(
+  (step) => step.name === "Run chat attachment and sizing loopback E2E",
+);
+const loopbackTimeout = loopbackStep?.["timeout-minutes"];
 assert.ok(
   typeof jobTimeout === "number" &&
-    typeof shardTimeout === "number" &&
-    jobTimeout - shardTimeout >= 10,
-  "leave at least 10 minutes for setup and report upload after the shard timeout",
+    typeof loopbackTimeout === "number" &&
+    jobTimeout - 37 - 37 - loopbackTimeout >= 10,
+  "leave at least 10 minutes beyond both independently budgeted PR runs and loopback E2E",
 );
 const retryArtifactIndex = steps.findIndex(
   (step) => step.name === "Detect retried test failures",
@@ -137,8 +172,13 @@ const reportIndex = steps.findIndex(
 const reportStep = steps.find(
   (step) => step.name === "Upload Design E2E artifacts",
 );
-assert.ok(shardIndex >= 0 && reportIndex > shardIndex);
-assert.ok(retryArtifactIndex > shardIndex && reportIndex > retryArtifactIndex);
+assert.ok(
+  shardIndex >= 0 &&
+    prExportIndex > shardIndex &&
+    prMarqueeIndex > prExportIndex &&
+    retryArtifactIndex > prMarqueeIndex &&
+    reportIndex > retryArtifactIndex,
+);
 assert.equal(
   reportStep?.uses,
   "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",

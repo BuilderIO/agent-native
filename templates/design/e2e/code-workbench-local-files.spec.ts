@@ -324,9 +324,11 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
     { waitUntil: "domcontentloaded" },
   );
   const rootName = path.basename(rootPath);
-  const localRoot = page.getByText(`LOCAL FILES — ${rootName}`, {
-    exact: true,
-  });
+  const localRoot = page
+    .getByText(`LOCAL FILES — ${rootName}`, {
+      exact: true,
+    })
+    .locator("..");
   await expect(localRoot).toBeVisible({ timeout: 30_000 });
   await expect(localRoot).toHaveAttribute("title", rootPath);
   const localTree = page.getByRole("tree", {

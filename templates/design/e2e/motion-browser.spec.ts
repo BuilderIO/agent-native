@@ -400,6 +400,7 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     "Position",
     page.getByRole("button", { name: "Add animation", exact: true }).first(),
   );
+  await page.getByRole("tab", { name: "List", exact: true }).click();
   const nativeStyleInspector = page.locator(
     '[data-design-inspector-section][aria-label="Animations"]',
   );

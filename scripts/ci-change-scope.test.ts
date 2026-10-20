@@ -1407,8 +1407,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^    timeout-minutes: 75$/m,
-    "the standalone Design job must cover sequential shard and loopback steps plus setup and artifacts",
+    /^    timeout-minutes: 105$/m,
+    "the standalone Design job must cover both PR setup cycles, loopback E2E, and artifacts",
   );
   assert.match(
     designE2eWorkflow,
@@ -1417,8 +1417,18 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^      - name: Run shard\n        id: run-shard\n        if: matrix\.shard != 'runtime-budget'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
-    "the standalone shard budget must remain explicit",
+    /^      - name: Run shard\n        id: run-shard\n        if: matrix\.shard != 'runtime-budget' && github\.event_name != 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
+    "the standalone shard budget must remain explicit outside the separate PR runs",
+  );
+  assert.match(
+    designE2eWorkflow,
+    /^      - name: Run PR export E2E\n        if: github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
+    "the PR export run must have its own setup and test budget",
+  );
+  assert.match(
+    designE2eWorkflow,
+    /^      - name: Run PR marquee E2E\n        if: github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
+    "the PR marquee run must have its own setup and test budget",
   );
   assert.deepEqual(
     [
