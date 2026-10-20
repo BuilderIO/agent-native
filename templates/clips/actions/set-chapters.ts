@@ -12,7 +12,7 @@ import {
 export default defineAction({
   mcpApp: { compactCatalog: true },
   description:
-    "Replace all chapters on a recording with the given list, sorted by start time. Chapters are {startMs,title} markers on the timeline and in the player. To add, rename or remove one chapter, read the current chapters from get-recording-player-data and send the whole list. Pass that original list as expectedChapters or its expectedVersion, and pass expectedMediaUpdatedAt from the same response; saves based on changed chapters or media are refused.",
+    "Replace all chapters on a recording with the given list, sorted by start time. Chapters are {startMs,title} markers on the timeline and in the player. To add, rename or remove one chapter, read the current chapters from get-recording-player-data and send the whole list. Pass that original list as expectedChapters and its mediaUpdatedAt as expectedMediaUpdatedAt. For a regeneration request, regenerate-chapters supplies expectedVersion and expectedMediaUpdatedAt instead. Saves based on changed chapters or media are refused.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     chapters: z
