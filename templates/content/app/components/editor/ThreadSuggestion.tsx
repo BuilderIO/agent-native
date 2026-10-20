@@ -230,7 +230,7 @@ export function ThreadSuggestionBody({
             type="button"
             size="sm"
             variant="ghost"
-            disabled={pending.some(busy)}
+            disabled={pending.some(busy) || pending.some(conflict)}
             onClick={(event) => {
               event.stopPropagation();
               onDecideRemaining("accepted");

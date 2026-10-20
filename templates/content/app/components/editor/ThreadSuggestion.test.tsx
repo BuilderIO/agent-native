@@ -62,6 +62,7 @@ function render(
   handlers: {
     onDecide?: (...args: unknown[]) => void;
     onDecideRemaining?: (...args: unknown[]) => void;
+    conflict?: (suggestion: ResourceSuggestion) => boolean;
   } = {},
 ) {
   act(() =>
@@ -70,7 +71,7 @@ function render(
         suggestions={suggestions}
         canDecide
         busy={() => false}
-        conflict={() => false}
+        conflict={handlers.conflict ?? (() => false)}
         onDecide={handlers.onDecide ?? (() => {})}
         onDecideRemaining={handlers.onDecideRemaining}
       />,
@@ -115,6 +116,17 @@ describe("ThreadSuggestionBody", () => {
       ),
     ).toEqual(["comments.suggestionReplaced"]);
     expect(host.querySelector("button")).toBeNull();
+  });
+
+  it("keeps a group accept from failing on an edit that cannot be placed", () => {
+    const suggestions = proposal();
+    render(suggestions, {
+      onDecideRemaining: vi.fn(),
+      conflict: (suggestion) => suggestion.id === suggestions[1]!.id,
+    });
+
+    expect(button("comments.acceptRemaining").disabled).toBe(true);
+    expect(button("comments.rejectRemaining").disabled).toBe(false);
   });
 
   it("offers no group decision for a single edit", () => {

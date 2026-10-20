@@ -447,6 +447,8 @@ describe("comment AI dedicated action boundaries", () => {
     async (_shape, edits) => {
       state.request.intent = "suggest";
       state.source.document.content = `Open source is open.\n\n${filler}\n\nFork Open source today.`;
+      // A first request on its comment has no earlier edits to look up.
+      state.earlierRequests = [];
 
       const result = await run(createSuggestion as any, {
         summary: "Hyphenate Open-source",
@@ -454,6 +456,7 @@ describe("comment AI dedicated action boundaries", () => {
       });
 
       expect(mocks.createSuggestion).not.toHaveBeenCalled();
+      expect(mocks.listSuggestions).not.toHaveBeenCalled();
       const [proposal] = mocks.createProposal.mock.calls[0]!;
       expect(proposal).toMatchObject({
         resourceId: "page-1",
@@ -538,6 +541,7 @@ describe("comment AI dedicated action boundaries", () => {
     state.request.intent = "suggest";
     state.source.document.content = "Open source and Open source again.";
     state.earlierRequests = [];
+    state.request.result = { suggestionId: "first-attempt" };
     const fromThisRequest = (id: string, proposalId: string | null) => ({
       id,
       proposalId,
