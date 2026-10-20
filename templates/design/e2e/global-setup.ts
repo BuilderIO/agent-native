@@ -439,22 +439,43 @@ export default async function globalSetup(config: FullConfig) {
         waitUntil: "domcontentloaded",
         timeout: 180_000,
       });
+      let homeComposerWarmed = false;
       try {
         await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+        homeComposerWarmed = true;
       } catch (error) {
         if (
           !new URL(warmupPage.url()).searchParams.has("__an_vite_dev_recovery")
         ) {
           throw error;
         }
-        await warmupPage.goto(homeURL, {
-          waitUntil: "domcontentloaded",
-          timeout: 180_000,
-        });
-        await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+        try {
+          await warmupPage.goto(homeURL, {
+            waitUntil: "domcontentloaded",
+            timeout: 180_000,
+          });
+          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+          homeComposerWarmed = true;
+        } catch (recoveryError) {
+          if (
+            !new URL(warmupPage.url()).searchParams.has(
+              "__an_vite_dev_recovery",
+            )
+          ) {
+            throw recoveryError;
+          }
+          // Home tests remain responsible for reporting any warmup failure.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[e2e] home warmup did not finish after Vite recovery (${(recoveryError as Error).message.split("\n")[0]}); ` +
+              "the first test touching /home will pay the compile.",
+          );
+        }
       }
-      // eslint-disable-next-line no-console
-      console.log("[e2e] home composer warm");
+      if (homeComposerWarmed) {
+        // eslint-disable-next-line no-console
+        console.log("[e2e] home composer warm");
+      }
     } finally {
       await warmupPage.close();
     }
