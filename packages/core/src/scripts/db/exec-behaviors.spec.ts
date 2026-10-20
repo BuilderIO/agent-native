@@ -51,6 +51,7 @@ describe("db-exec behaviors", () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
+    vi.doUnmock("./postgres-client.js");
     vi.resetModules();
     vi.restoreAllMocks();
     await rm(dir, { recursive: true, force: true });
@@ -210,7 +211,7 @@ describe("db-exec behaviors", () => {
           { sql: "UPDATE notes SET nonexistent_col = 'x' WHERE id = 'seed'" },
         ]),
       ]),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Statement 2 failed:/);
 
     const title = await withClient((c) =>
       c
@@ -218,5 +219,64 @@ describe("db-exec behaviors", () => {
         .then((r) => (r[0]?.title ?? r[0]?.[0]) as string),
     );
     expect(title).toBe("seed-title");
+  });
+
+  it("rolls back when scoped-view teardown exceeds the transaction deadline", async () => {
+    await withClient((c) =>
+      c.execute({
+        sql: `INSERT INTO notes VALUES (?, ?, ?)`,
+        args: ["seed", "owner@x.com", "seed-title"],
+      }),
+    );
+    vi.doMock("./postgres-client.js", async () => {
+      const actual = await vi.importActual<
+        typeof import("./postgres-client.js")
+      >("./postgres-client.js");
+      return {
+        ...actual,
+        async createPostgresScriptClient(databaseUrl: string) {
+          const client = await actual.createPostgresScriptClient(databaseUrl);
+          const wrapped: PostgresScriptClient = {
+            ...client,
+            async begin<T>(fn: (tx: PostgresScriptClient) => Promise<T>) {
+              return client.begin((tx) =>
+                fn({
+                  ...tx,
+                  async unsafe(sql, args, options) {
+                    if (sql.startsWith("DROP VIEW IF EXISTS pg_temp.")) {
+                      throw new Error(
+                        "Database transaction timed out after 10000ms.",
+                      );
+                    }
+                    return tx.unsafe(sql, args, options);
+                  },
+                }),
+              );
+            },
+          };
+          return wrapped;
+        },
+      };
+    });
+
+    const { default: dbExec } = await import("./exec.js");
+    await expect(
+      dbExec([
+        "--db",
+        dbFile,
+        "--sql",
+        "UPDATE notes SET title = 'changed' WHERE id = 'seed'",
+      ]),
+    ).rejects.toThrow(/transaction timed out/);
+
+    const row = await withClient((c) =>
+      c
+        .execute(
+          "SELECT title, to_regclass('pg_temp.notes')::text AS temp_view FROM notes WHERE id = 'seed'",
+        )
+        .then((rows) => rows[0]),
+    );
+    expect(row?.title).toBe("seed-title");
+    expect(row?.temp_view).toBeNull();
   });
 });

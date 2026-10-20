@@ -124,6 +124,14 @@ export function ensureAuditTables(): Promise<void> {
   return auditStore.ready();
 }
 
+// PostgreSQL text cannot hold NUL. One in any value, such as a summary built
+// from the call's arguments, would fail the insert and lose the whole row.
+function storableText(value: unknown): unknown {
+  return typeof value === "string"
+    ? value.replaceAll("\u0000", "\uFFFD")
+    : value;
+}
+
 export async function insertAuditEvent(event: AuditEvent): Promise<void> {
   await ensureAuditTables();
   const client = getDbExec();
@@ -169,7 +177,7 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
       event.reportedClientVersion ?? null,
       event.oauthClientId ?? null,
       event.approval ?? null,
-    ],
+    ].map(storableText),
   });
 }
 

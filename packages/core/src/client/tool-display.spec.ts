@@ -7,6 +7,7 @@ import {
   resolveToolCallRowContext,
   runningToolLabel,
   shadowedCallAgentToolCallIds,
+  toolDisplayName,
   toolLabel,
 } from "./tool-display.js";
 
@@ -23,6 +24,19 @@ describe("tool display labels", () => {
     expect(humanizeToolName("delete-file")).toBe("remove screen");
     expect(humanizeToolName("get-design-snapshot")).toBe("get screen snapshot");
     expect(humanizeToolName("edit-design")).toBe("edit screen");
+  });
+
+  it("labels Design's Builder app tools, including their former fusion names", () => {
+    expect(humanizeToolName("send-builder-message")).toBe("ask Builder");
+    expect(toolDisplayName("apply-builder-edits")).toBe(
+      "apply edits with Builder",
+    );
+    // Saved chats from before the rename still read well.
+    expect(humanizeToolName("send-fusion-message")).toBe("ask Builder");
+    expect(toolDisplayName("get-fusion-deploy-status")).toBe(
+      "check deploy status",
+    );
+    expect(toolDisplayName("generate-design")).toBeUndefined();
   });
 
   it("prefers an app's translated tool label over the derived name", () => {

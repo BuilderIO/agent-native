@@ -144,6 +144,8 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-source-reading-tests` check only lines this branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
+`no-new-legacy-mcp-hints` has none: the MCP `destructiveHint` baseline only
+shrinks.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
@@ -247,11 +249,11 @@ argument rots into exactly the patchwork it warns about.
   and must not be required, auto-installed, or vendored by default. Its public
   repository currently declares no license. Use n8n and Zapier as
   automation/workflow or remote MCP connections rather than provider presets.
-- For composable workspace workflows, prefer many focused headless or small-UI
-  mini-apps that discover and call each other over A2A instead of one oversized
-  app. Pass artifact ids, URLs, and bounded summaries between apps instead of
-  pasting large provider dumps through prompts. Read `composable-mini-apps`
-  before designing cross-app orchestration.
+- Keep apps focused, but default to local actions. Use A2A only on request or
+  for required peer-owned data, credentials, or capabilities. Availability or
+  enrichment alone doesn't qualify; artifacts stay in their owning app. Pass
+  bounded ids, URLs, and summaries across app boundaries. Read
+  `composable-mini-apps` before designing cross-app workflows.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.

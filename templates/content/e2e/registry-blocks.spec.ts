@@ -57,7 +57,7 @@ async function getDocContent(page: Page, id: string): Promise<string> {
 }
 
 function prose(page: Page) {
-  return page.locator(".notion-editor.ProseMirror").first();
+  return page.locator(".content-editor.ProseMirror").first();
 }
 
 function blockNode(page: Page, blockId: string) {

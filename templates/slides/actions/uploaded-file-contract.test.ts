@@ -104,6 +104,16 @@ const KINDS = [
     bytes: Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(4096, 7)]),
   },
   {
+    kind: "docx",
+    attachmentType: "file",
+    name: "Quarterly report.docx",
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    bytes: Buffer.concat([
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      Buffer.alloc(4096, 7),
+    ]),
+  },
+  {
     kind: "image",
     attachmentType: "image",
     name: "logo.png",
@@ -217,7 +227,7 @@ describe("one reader for every Slides action that accepts a file", () => {
     ]);
     for (const file of readers) {
       const source = readFileSync(path.join(actionsDir, file), "utf8");
-      expect(source).toMatch(/readUserUploadedFile\(filePath, ctx\)/);
+      expect(source).toMatch(/readUserUploadedFile\(filePath, ctx(?:,|\))/);
     }
   });
 

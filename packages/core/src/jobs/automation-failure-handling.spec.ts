@@ -125,7 +125,7 @@ vi.mock("../chat-threads/store.js", () => ({
     threadData: "{}",
     messageCount: 0,
   })),
-  updateThreadData: vi.fn(async () => {}),
+  updateThreadData: vi.fn(async () => true),
   withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
     fn(),
 }));
@@ -214,6 +214,7 @@ vi.mock("./scheduler-health.js", async (importOriginal) => ({
 }));
 
 const { processRecurringJobs, runJobNow } = await import("./scheduler.js");
+const { ensureRunTables } = await import("../agent/run-store.js");
 const { registerErrorCaptureProvider } =
   await import("../server/capture-error.js");
 const { automationHash } = await import("./automation-events.js");
@@ -335,6 +336,7 @@ async function historyOf(name: string) {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(START);
+  await ensureRunTables();
   resourceStore.rows.clear();
   createThreadMock.mockClear();
   insertRunSpy.mockClear();

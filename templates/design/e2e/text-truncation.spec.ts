@@ -428,7 +428,6 @@ test(
   },
 );
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test(
   "a freshly created title keeps truncation controls in sync without reselection",
   {},

@@ -90,6 +90,13 @@ describe("onboarding app profiles", () => {
       "web-search",
       "transcription",
     ]);
+    expect(
+      clips.capabilities.find((capability) => capability.id === "web-search"),
+    ).toMatchObject({
+      label: "Web search",
+      keySummary: "Web search",
+      builderIncluded: true,
+    });
     expect(clips.capabilities[2]).toMatchObject({
       required: false,
       suggested: true,

@@ -4,6 +4,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { resolveCodeLayerTarget } from "@shared/code-layer";
+import { parseEffectsFromHtml } from "@shared/native-effects";
 import {
   applyShaderToHtml,
   annotateNodeWithShader,
@@ -107,7 +109,7 @@ export async function waitForShaderWriteToSettle(
   if (pending) await pending.catch(() => {});
 }
 
-function withShaderWriteLock<T>(
+export function withShaderWriteLock<T>(
   fileId: string,
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -146,7 +148,12 @@ export interface GlslShaderPanelContext {
   content?: string;
   nodeId?: string;
   selector?: string;
-  onApplied?: (fileId: string, content: string, updatedAt?: string) => void;
+  onApplied?: (
+    fileId: string,
+    content: string,
+    updatedAt?: string,
+    previousContent?: string,
+  ) => void;
   onEditCode?: (shaderId: string) => void;
   /**
    * The picker choosing the shader belongs to a gradient or image layer, not
@@ -182,9 +189,34 @@ export function findFillShader(
 ): { id: string; name: string } | null {
   const content = context?.content;
   const nodeId = context?.nodeId;
-  if (!content || !nodeId || !content.includes("data-an-shader-fill")) {
+  if (!content || !nodeId) {
     return null;
   }
+  if (content.includes("application/x-agent-native-effects")) {
+    const document = parseEffectsFromHtml(content).document;
+    const resolved = context?.selector
+      ? resolveCodeLayerTarget(content, { selector: context.selector })
+          .resolution
+      : null;
+    const authoredId =
+      resolved?.status === "resolved" && resolved.node
+        ? resolved.node.dataAttributes["data-agent-native-node-id"]
+        : undefined;
+    const instance = document?.instances.find(
+      (item) =>
+        (item.nodeId === nodeId || item.nodeId === authoredId) &&
+        item.placement === "fill",
+    );
+    const definition =
+      instance &&
+      document?.definitions.find(
+        (item) =>
+          item.id === instance.definitionId &&
+          item.version === instance.definitionVersion,
+      );
+    if (definition) return { id: definition.id, name: definition.name };
+  }
+  if (!content.includes("data-an-shader-fill")) return null;
   const mount = listShaderMounts(content).find(
     (candidate) => candidate.nodeId === nodeId && candidate.mode === "fill",
   );

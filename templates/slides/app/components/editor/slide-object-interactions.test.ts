@@ -6,6 +6,7 @@ import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
 import {
   alignSlideObjectMembers,
+  applySlideObjectContext,
   applySlideObjectMoveDelta,
   arrangeSlideLayerInParent,
   buildPastedSlideObjects,
@@ -2203,6 +2204,82 @@ describe("slide object interactions", () => {
 
     expect(pasted.style.left).toBe("");
     expect(pasted.style.top).toBe("");
+  });
+
+  function zoomedSlide(scale: number): HTMLElement {
+    const slide = document.createElement("div");
+    slide.className = "fmd-slide";
+    Object.defineProperty(slide, "offsetWidth", { value: 960 });
+    Object.defineProperty(slide, "offsetHeight", { value: 540 });
+    stubRect(slide, {
+      left: 100,
+      top: 50,
+      width: 960 * scale,
+      height: 540 * scale,
+    });
+    document.body.append(slide);
+    return slide;
+  }
+
+  function stubRect(
+    element: HTMLElement,
+    box: { left: number; top: number; width: number; height: number },
+  ) {
+    element.getBoundingClientRect = () =>
+      ({
+        ...box,
+        x: box.left,
+        y: box.top,
+        right: box.left + box.width,
+        bottom: box.top + box.height,
+      }) as DOMRect;
+  }
+
+  it("records each copied object's box in slide layout px under zoom", () => {
+    const slide = zoomedSlide(0.5);
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    second.style.marginLeft = "8px";
+    slide.append(first, second);
+    stubRect(first, { left: 110, top: 60, width: 50, height: 20 });
+    stubRect(second, { left: 160, top: 100, width: 25, height: 10 });
+
+    expect(copySlideObjects([first, second]).layout).toEqual([
+      { left: 20, top: 20, width: 100, height: 40 },
+      // `left` places the margin box, so the margin is backed out.
+      { left: 112, top: 100, width: 50, height: 20 },
+    ]);
+  });
+
+  it("records no layout when the copied objects are not on one slide", () => {
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    zoomedSlide(1).append(first);
+    zoomedSlide(1).append(second);
+
+    expect(copySlideObjects([first, second]).layout).toBeUndefined();
+  });
+});
+
+describe("applySlideObjectContext", () => {
+  it("pins only the context the target does not already provide", () => {
+    const target = document.createElement("div");
+    target.style.setProperty("--deck-muted", "#111111");
+    target.style.setProperty("--deck-accent", "#222222");
+    document.body.append(target);
+    const pasted = document.createElement("p");
+    pasted.style.color = "red";
+
+    applySlideObjectContext(
+      pasted,
+      { "--deck-muted": "#111111", "--deck-accent": "#999999", color: "blue" },
+      target,
+    );
+
+    expect(pasted.style.getPropertyValue("--deck-muted")).toBe("");
+    expect(pasted.style.getPropertyValue("--deck-accent")).toBe("#999999");
+    // The object's own inline styling wins over what it inherited at copy.
+    expect(pasted.style.color).toBe("red");
   });
 });
 

@@ -1,5 +1,5 @@
 import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
-import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
+import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
   listDashboardSummaries,
@@ -66,7 +66,7 @@ function seedConfig(id: string): SqlDashboardConfig {
   if (id !== FIRST_PARTY_DASHBOARD_ID) {
     return seed as unknown as SqlDashboardConfig;
   }
-  return repairCanonicalFirstPartyDashboardQueries(seed)
+  return repairKnownFirstPartyDashboardQueries(id, seed)
     .config as unknown as SqlDashboardConfig;
 }
 
@@ -948,7 +948,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 48,
+    panelCount: 51,
     version: CATALOG_VERSION,
     recommended: true,
     visibleInCatalog: false,
@@ -968,6 +968,27 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     recommended: true,
     visibleInCatalog: false,
     buildConfig: () => seedConfig("skills-cli-funnel"),
+  },
+  {
+    id: "content-view",
+    name: "Content",
+    description:
+      "Blog articles with authors, daily GA4 pageviews, and Search Console clicks and impressions from the daily content collection, with each source's last run.",
+    category: "Acquisition",
+    defaultDashboardId: "content-view",
+    dataSources: ["first-party"],
+    tags: [
+      "content",
+      "blog",
+      "articles",
+      "authors",
+      "search console",
+      "pageviews",
+      "seo",
+    ],
+    panelCount: 4,
+    version: CATALOG_VERSION,
+    buildConfig: () => seedConfig("content-view"),
   },
   {
     id: "google-analytics-web",

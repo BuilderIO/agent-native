@@ -8,6 +8,7 @@ import { saveFirstRunOnboardingRole } from "@agent-native/core/client/onboarding
 import {
   createOnboardingCorrelationId,
   setCustomKeyOnboardingAttempt,
+  setOnboardingExperiment,
   trackOnboardingEvent,
   useOnboarding,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -27,9 +28,28 @@ import type {
   OnboardingCapability,
 } from "@agent-native/core/onboarding/types";
 import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconArrowRight, IconKey, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconArrowRight,
+  IconChevronDown,
+  IconChevronUp,
+  IconHelpCircle,
+  IconKey,
+  IconLoader2,
+} from "@tabler/icons-react";
 import React, {
   useCallback,
   useEffect,
@@ -45,6 +65,11 @@ import {
   CapabilityInfoButton,
   getBuilderIncludedCapabilities,
 } from "./BuilderIncludedServices.js";
+import {
+  assignFirstRunSetupVariant,
+  FIRST_RUN_SETUP_EXPERIMENT_ID,
+  getPreviewFirstRunSetupVariant,
+} from "./first-run-experiment.js";
 import {
   ONBOARDING_PRIMARY_BUTTON_CLASS,
   OnboardingStepLayout,
@@ -135,6 +160,8 @@ function firstRunStepProperties(
   };
 }
 
+const SETUP_EXPERIMENT_DECISION_TIMEOUT_MS = 4000;
+
 const FIRST_RUN_ROLE_OPTIONS = [
   { value: "design", labelKey: "agentChat.onboarding.roleDesign" },
   { value: "developer", labelKey: "agentChat.onboarding.roleDeveloper" },
@@ -192,6 +219,20 @@ export function FirstRunOnboarding({
   const canTrackOnboardingScreen =
     (!loading && profile !== null) || canRenderRoleWithoutProfile;
   const setupSkippable = profile?.appId === "clips";
+  const [setupExperimentDecision, setSetupExperimentDecision] = useState<
+    boolean | null
+  >(null);
+  const setupVariant = useMemo(
+    () =>
+      (previewMode && getPreviewFirstRunSetupVariant(window.location.search)) ||
+      assignFirstRunSetupVariant(),
+    [previewMode],
+  );
+  // The credits arm offers Skip in every app, so analytics must mark the choice step optional there too.
+  const choiceSkippable =
+    setupSkippable ||
+    (setupVariant === "credits" &&
+      (previewMode || setupExperimentDecision === true));
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -240,7 +281,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionIndex,
       extensionStepIndex,
-      setupSkippable,
+      choiceSkippable,
     ).step_index ?? 0,
   );
   const progressWidth = `${Math.min(
@@ -248,6 +289,9 @@ export function FirstRunOnboarding({
     ((currentStepIndex + 1) / totalOnboardingStepCount) * 100,
   )}%`;
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  const [moreInfoOpen, setMoreInfoOpen] = useState(false);
+  const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
+  const skipGoBackRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
@@ -268,7 +312,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           stepExtensionIndex,
           stepIndex,
-          setupSkippable,
+          choiceSkippable,
         ),
       );
     },
@@ -279,7 +323,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionStepIndex,
       previewMode,
-      setupSkippable,
+      choiceSkippable,
     ],
   );
   const trackFirstRunStepSkipped = useCallback(
@@ -298,7 +342,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           stepExtensionIndex,
           stepIndex,
-          setupSkippable,
+          choiceSkippable,
         ),
         reason,
       });
@@ -310,7 +354,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionStepIndex,
       previewMode,
-      setupSkippable,
+      choiceSkippable,
     ],
   );
   const completionAttemptRef = useRef<{
@@ -393,8 +437,21 @@ export function FirstRunOnboarding({
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
   }, [canTrackOnboardingScreen, firstRun, previewMode]);
+  // Both arms render a skeleton until the experiment decision is known, and the
+  // credits arm's skip depends on it, so the choice view waits for the decision
+  // and is sent once with its resolved optional flag. Without an assigned arm
+  // no decision is ever made, and the choice UI renders as is.
+  const choiceStepKnown =
+    screen !== "choice" ||
+    setupVariant === null ||
+    setupExperimentDecision !== null;
   useEffect(() => {
-    if (previewMode || !firstRun || !canTrackOnboardingScreen) {
+    if (
+      previewMode ||
+      !firstRun ||
+      !canTrackOnboardingScreen ||
+      !choiceStepKnown
+    ) {
       stepViewRef.current = null;
       return;
     }
@@ -405,7 +462,7 @@ export function FirstRunOnboarding({
       extensionPlacement,
       extensionIndex,
       extensionStepIndex,
-      setupSkippable,
+      choiceSkippable,
     );
     const key = [step.step_id, step.extension_id, step.step_index].join(":");
     if (stepViewRef.current?.key !== key) {
@@ -427,6 +484,7 @@ export function FirstRunOnboarding({
     firstRun,
     previewMode,
     canTrackOnboardingScreen,
+    choiceStepKnown,
     screen,
   ]);
   useEffect(() => {
@@ -448,7 +506,7 @@ export function FirstRunOnboarding({
           extensionPlacement,
           extensionIndex,
           extensionStepIndex,
-          setupSkippable,
+          choiceSkippable,
         ),
         reason: "page_exit",
       });
@@ -465,7 +523,7 @@ export function FirstRunOnboarding({
     previewMode,
     canTrackOnboardingScreen,
     screen,
-    setupSkippable,
+    choiceSkippable,
   ]);
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
@@ -537,8 +595,70 @@ export function FirstRunOnboarding({
     connectFlow.connecting,
     connectFlow.terminalError,
   ]);
+  // Preview never fetches status, so show the activation path it would offer.
   const canActivateBuilderFreeCredits =
-    connectFlow.agentNativeProvisioningEnabled;
+    previewMode || connectFlow.agentNativeProvisioningEnabled;
+  const setupStatusSettled =
+    previewMode ||
+    connectFlow.hasFetchedStatus ||
+    connectFlow.statusUnavailable;
+  // The experiment only counts users who could be shown the credits page: an
+  // unavailable activation, or an already-connected user, gets the existing
+  // page in both arms and stays out of the results.
+  const setupExperimentEligible =
+    setupStatusSettled &&
+    canActivateBuilderFreeCredits &&
+    !connectFlow.configured;
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      screen !== "choice" ||
+      !setupVariant ||
+      !setupStatusSettled ||
+      setupExperimentDecision !== null
+    ) {
+      return;
+    }
+    if (setupExperimentEligible) {
+      setOnboardingExperiment({
+        id: FIRST_RUN_SETUP_EXPERIMENT_ID,
+        variant: setupVariant,
+      });
+      trackOnboardingEvent("onboarding_experiment_exposed", {
+        flow: "first_run",
+        step_id: "choice",
+      });
+    }
+    setSetupExperimentDecision(setupExperimentEligible);
+  }, [
+    firstRun,
+    previewMode,
+    screen,
+    setupExperimentEligible,
+    setupExperimentDecision,
+    setupStatusSettled,
+    setupVariant,
+  ]);
+  // A stalled Builder status read must not leave the setup screen blank. Past
+  // the limit the person gets the existing page and stays out of the
+  // experiment, identically in both arms, so exposure counts stay honest.
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      screen !== "choice" ||
+      !setupVariant ||
+      setupExperimentDecision !== null
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setSetupExperimentDecision((decision) => decision ?? false),
+      SETUP_EXPERIMENT_DECISION_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [firstRun, previewMode, screen, setupExperimentDecision, setupVariant]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -766,6 +886,335 @@ export function FirstRunOnboarding({
       profile.capabilities,
     );
 
+    const inCreditsArm = setupVariant === "credits";
+    // Both arms must wait: the control setup actions can be used as soon as
+    // they render, so exposure has to be recorded before either arm is usable.
+    if (!previewMode && setupVariant && setupExperimentDecision === null) {
+      return <OnboardingSkeleton />;
+    }
+    const creditsEligible =
+      inCreditsArm && (previewMode || setupExperimentDecision === true);
+
+    const builderStatusError =
+      connectFlow.error && connectFlow.errorKind === "status-read" ? (
+        <div
+          role="status"
+          data-testid="first-run-builder-status-error"
+          className="flex flex-col items-center gap-2 text-center text-xs text-destructive"
+        >
+          <p>{t("agentChat.settingsShell.builder.grantsFailed")}</p>
+          <button
+            type="button"
+            data-testid="first-run-builder-retry-status"
+            aria-busy={retryingBuilderStatus}
+            disabled={retryingBuilderStatus}
+            className="text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={retryBuilderStatus}
+          >
+            {retryingBuilderStatus ? (
+              <IconLoader2
+                className="mr-1 inline h-3 w-3 animate-spin"
+                aria-hidden
+              />
+            ) : null}
+            {t("agentChat.settingsShell.builder.retry")}
+          </button>
+        </div>
+      ) : null;
+
+    const skipSetup = () => {
+      if (setupSkipStartedRef.current || completionInFlightRef.current) return;
+      setupSkipStartedRef.current = true;
+      trackFirstRunStepSkipped("choice");
+      if (setupSkippable) completionRedirectRef.current = "/record";
+      handleFinish(null);
+    };
+
+    const setupSkipButton = setupSkippable ? (
+      <div className="flex justify-center">
+        <button
+          type="button"
+          data-testid="first-run-setup-skip"
+          className="inline-flex min-h-9 items-center justify-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={skipSetup}
+        >
+          {t("agentChat.onboarding.skipForNow")}
+        </button>
+      </div>
+    ) : null;
+
+    const setupCards = (
+      <div className="grid gap-6 sm:grid-cols-2">
+        <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-foreground">
+                Use Builder.io
+              </h2>
+              <Badge variant="secondary" className="font-medium">
+                Recommended
+              </Badge>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
+            <p className="text-[13px] font-semibold text-foreground">
+              {t("agentChat.onboarding.builderIncludedFreeWithAccount")}
+            </p>
+            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              {t("agentChat.onboarding.builderMonthlyCredits")}
+            </p>
+          </div>
+          <BuilderIncludedServices
+            capabilities={builderCapabilities}
+            testId="first-run-builder-services"
+          />
+          <div className="flex flex-col gap-2">
+            {canActivateBuilderFreeCredits && (
+              <button
+                type="button"
+                data-testid="first-run-builder-create-account"
+                className={cn(ONBOARDING_PRIMARY_BUTTON_CLASS, "w-full")}
+                onClick={() => handleBuilder(true)}
+                disabled={connectFlow.connecting}
+              >
+                {t("agentChat.onboarding.builderCreateAccount")}
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="first-run-builder-sign-in"
+              className={cn(mutedButtonClass, "w-full")}
+              onClick={() => handleBuilder(false)}
+              disabled={connectFlow.connecting}
+            >
+              {t("agentChat.onboarding.builderSignInWithAccount")}
+            </button>
+          </div>
+          {connectFlow.connecting && builderCancelRequested && (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="first-run-cancel-pending"
+              role="status"
+            >
+              {t("agentChat.onboarding.builderCancelPending")}
+            </p>
+          )}
+          {!creditsEligible && builderStatusError}
+        </section>
+
+        <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-bold text-foreground">
+              {t("agentChat.composer.addOwnKeys")}
+            </h2>
+          </div>
+          <CapabilityList
+            capabilities={profile.capabilities}
+            className="flex-1"
+          />
+          <button
+            type="button"
+            data-testid="first-run-open-key-settings"
+            className={cn(secondaryButtonClass, "w-full")}
+            onClick={() => void handleOpenSettings()}
+          >
+            {t("agentChat.onboarding.openAiKeySettings")}
+          </button>
+        </section>
+      </div>
+    );
+
+    if (creditsEligible) {
+      const MoreInfoChevron = moreInfoOpen ? IconChevronUp : IconChevronDown;
+      const toggleMoreInfo = () => {
+        if (!moreInfoOpen && !previewMode) {
+          trackOnboardingEvent("onboarding_more_info_opened", {
+            flow: "first_run",
+            step_id: "choice",
+          });
+        }
+        setMoreInfoOpen((open) => !open);
+      };
+      return (
+        <OnboardingShell
+          profile={profile}
+          screen="choice"
+          progressWidth={progressWidth}
+          {...completionErrorProps}
+        >
+          <div
+            data-testid="first-run-credits-offer"
+            className="mx-auto flex w-full flex-col items-center gap-5 pt-[max(0rem,6vh)] text-center"
+          >
+            <h1
+              className={cn(
+                "text-balance text-[28px] font-bold leading-tight tracking-[-0.02em] text-foreground",
+                profile.appId === "clips" ? "max-w-lg" : "max-w-sm",
+              )}
+            >
+              {profile.appId === "clips"
+                ? t("agentChat.onboarding.creditsTitleClips")
+                : t("agentChat.onboarding.creditsTitle")}
+            </h1>
+            <p className="max-w-sm text-sm leading-6 text-muted-foreground">
+              {t("agentChat.onboarding.creditsSubtitle")}{" "}
+              <button
+                type="button"
+                data-testid="first-run-credits-learn-more"
+                aria-expanded={moreInfoOpen}
+                aria-controls={
+                  moreInfoOpen ? "first-run-credits-details" : undefined
+                }
+                className="rounded-sm underline underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={toggleMoreInfo}
+              >
+                {t("agentChat.onboarding.creditsLearnMore")}
+              </button>
+            </p>
+            <div className="flex w-full max-w-sm flex-col items-center gap-3">
+              <button
+                type="button"
+                data-testid="first-run-credits-activate"
+                className={cn(
+                  ONBOARDING_PRIMARY_BUTTON_CLASS,
+                  "min-h-11 w-full text-sm",
+                )}
+                onClick={() => handleBuilder(true)}
+                disabled={connectFlow.connecting}
+              >
+                {t("agentChat.onboarding.creditsActivate")}
+              </button>
+              <button
+                type="button"
+                data-testid="first-run-credits-connect-existing"
+                className={cn(mutedButtonClass, "min-h-11 w-full text-sm")}
+                onClick={() => handleBuilder(false)}
+                disabled={connectFlow.connecting}
+              >
+                {t("agentChat.onboarding.builderExistingAccount")}
+              </button>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {t("agentChat.onboarding.creditsFinePrint")}{" "}
+                <a
+                  href="https://www.builder.io/legal/terms"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t("agentChat.onboarding.builderTerms")}
+                </a>{" "}
+                {t("agentChat.onboarding.builderConsentAnd")}{" "}
+                <a
+                  href="https://www.builder.io/legal/privacy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t("agentChat.onboarding.builderPrivacy")}
+                </a>
+                .
+              </p>
+            </div>
+            {builderStatusError}
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+              <button
+                type="button"
+                data-testid="first-run-credits-more-info"
+                aria-expanded={moreInfoOpen}
+                aria-controls={
+                  moreInfoOpen ? "first-run-credits-details" : undefined
+                }
+                className="inline-flex min-h-8 items-center gap-1 rounded-full border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={toggleMoreInfo}
+              >
+                {t("agentChat.onboarding.creditsMoreInfo")}
+                <MoreInfoChevron size={14} aria-hidden />
+              </button>
+            </div>
+            {moreInfoOpen && (
+              <div
+                id="first-run-credits-details"
+                data-testid="first-run-credits-details"
+                className="mt-3 flex w-full max-w-3xl flex-col gap-6 text-left"
+              >
+                {setupCards}
+              </div>
+            )}
+            <div className="fixed bottom-6 right-6 z-10">
+              <Popover open={skipConfirmOpen} onOpenChange={setSkipConfirmOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="first-run-credits-skip"
+                    className="inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t("agentChat.onboarding.creditsSkip")}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  portalled={false}
+                  aria-labelledby="first-run-credits-skip-title"
+                  aria-describedby="first-run-credits-skip-body"
+                  className="w-96 max-w-[calc(100vw-2rem)] space-y-3 p-4 text-left"
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                    skipGoBackRef.current?.focus();
+                  }}
+                >
+                  <div className="space-y-1">
+                    <p
+                      id="first-run-credits-skip-title"
+                      className="text-sm font-semibold text-foreground"
+                    >
+                      {t("agentChat.onboarding.creditsSkipConfirmTitle")}
+                    </p>
+                    <p
+                      id="first-run-credits-skip-body"
+                      className="text-xs leading-5 text-muted-foreground"
+                    >
+                      {t("agentChat.onboarding.creditsSkipConfirmBody")}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                      onClick={() => void handleOpenSettings()}
+                    >
+                      {t("agentChat.onboarding.creditsUseCustomKeys")}
+                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        data-testid="first-run-credits-skip-confirm"
+                        onClick={skipSetup}
+                      >
+                        {t("agentChat.onboarding.creditsSkipAnyway")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        ref={skipGoBackRef}
+                        onClick={() => setSkipConfirmOpen(false)}
+                      >
+                        {t("agentChat.onboarding.creditsSkipGoBack")}
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+        </OnboardingShell>
+      );
+    }
+
     return (
       <OnboardingShell
         profile={profile}
@@ -783,131 +1232,8 @@ export function FirstRunOnboarding({
                 We recommend starting with Builder.io for the fastest setup.
               </p>
             </div>
-            <div className="grid gap-6 sm:grid-cols-2">
-              <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold text-foreground">
-                      Use Builder.io
-                    </h2>
-                    <Badge variant="secondary" className="font-medium">
-                      Recommended
-                    </Badge>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
-                  <p className="text-[13px] font-semibold text-foreground">
-                    {t("agentChat.onboarding.builderIncludedFreeWithAccount")}
-                  </p>
-                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                    {t("agentChat.onboarding.builderMonthlyCredits")}
-                  </p>
-                </div>
-                <BuilderIncludedServices
-                  capabilities={builderCapabilities}
-                  testId="first-run-builder-services"
-                />
-                <div className="flex flex-col gap-2">
-                  {canActivateBuilderFreeCredits && (
-                    <button
-                      type="button"
-                      data-testid="first-run-builder-create-account"
-                      className={cn(ONBOARDING_PRIMARY_BUTTON_CLASS, "w-full")}
-                      onClick={() => handleBuilder(true)}
-                      disabled={connectFlow.connecting}
-                    >
-                      {t("agentChat.onboarding.builderCreateAccount")}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    data-testid="first-run-builder-sign-in"
-                    className={cn(mutedButtonClass, "w-full")}
-                    onClick={() => handleBuilder(false)}
-                    disabled={connectFlow.connecting}
-                  >
-                    {t("agentChat.onboarding.builderSignInWithAccount")}
-                  </button>
-                </div>
-                {connectFlow.connecting && builderCancelRequested && (
-                  <p
-                    className="text-sm text-muted-foreground"
-                    data-testid="first-run-cancel-pending"
-                    role="status"
-                  >
-                    {t("agentChat.onboarding.builderCancelPending")}
-                  </p>
-                )}
-                {connectFlow.error &&
-                  connectFlow.errorKind === "status-read" && (
-                    <div
-                      role="status"
-                      data-testid="first-run-builder-status-error"
-                      className="flex flex-col items-center gap-2 text-center text-xs text-destructive"
-                    >
-                      <p>{t("agentChat.settingsShell.builder.grantsFailed")}</p>
-                      <button
-                        type="button"
-                        data-testid="first-run-builder-retry-status"
-                        aria-busy={retryingBuilderStatus}
-                        disabled={retryingBuilderStatus}
-                        className="text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={retryBuilderStatus}
-                      >
-                        {retryingBuilderStatus ? (
-                          <IconLoader2
-                            className="mr-1 inline h-3 w-3 animate-spin"
-                            aria-hidden
-                          />
-                        ) : null}
-                        {t("agentChat.settingsShell.builder.retry")}
-                      </button>
-                    </div>
-                  )}
-              </section>
-
-              <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
-                <div className="flex flex-col gap-2">
-                  <h2 className="text-lg font-bold text-foreground">
-                    {t("agentChat.composer.addOwnKeys")}
-                  </h2>
-                </div>
-                <CapabilityList
-                  capabilities={profile.capabilities}
-                  className="flex-1"
-                />
-                <button
-                  type="button"
-                  data-testid="first-run-open-key-settings"
-                  className={cn(secondaryButtonClass, "w-full")}
-                  onClick={() => void handleOpenSettings()}
-                >
-                  {t("agentChat.onboarding.openAiKeySettings")}
-                </button>
-              </section>
-            </div>
-            {setupSkippable && (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  data-testid="first-run-setup-skip"
-                  className="inline-flex min-h-9 items-center justify-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => {
-                    if (
-                      setupSkipStartedRef.current ||
-                      completionInFlightRef.current
-                    )
-                      return;
-                    setupSkipStartedRef.current = true;
-                    trackFirstRunStepSkipped("choice");
-                    completionRedirectRef.current = "/record";
-                    handleFinish(null);
-                  }}
-                >
-                  {t("agentChat.onboarding.skipForNow")}
-                </button>
-              </div>
-            )}
+            {setupCards}
+            {setupSkipButton}
           </div>
           <p className="text-center text-xs leading-5 text-muted-foreground">
             {t("agentChat.onboarding.builderConsentPrefix")}{" "}
@@ -1076,15 +1402,35 @@ export function FirstRunOnboarding({
           {accountExists
             ? t("agentChat.onboarding.builderAccountExistsTitle")
             : provisioning
-              ? t("agentChat.onboarding.builderActivating")
+              ? t("agentChat.onboarding.creditsActivating")
               : t("agentChat.onboarding.builderConnecting")}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          {accountExists
-            ? t("agentChat.onboarding.builderAccountExistsDescription")
-            : provisioning
-              ? t("agentChat.onboarding.builderProvisioningDescription")
-              : t("agentChat.onboarding.builderConnectionDescription")}
+          {accountExists ? (
+            t("agentChat.onboarding.builderAccountExistsDescription")
+          ) : provisioning ? (
+            <>
+              {t("agentChat.onboarding.builderProvisioningDescription")}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("agentChat.onboarding.creditsAboutLabel")}
+                      className="ml-0 inline-flex size-6 items-center justify-center rounded-full align-middle text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <IconHelpCircle size={12} aria-hidden />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    {t("agentChat.onboarding.creditsActivatingTooltip")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </>
+          ) : (
+            t("agentChat.onboarding.builderConnectionDescription")
+          )}
         </p>
         {accountExists ? (
           <button
@@ -1132,7 +1478,7 @@ export function FirstRunOnboarding({
                 <button
                   type="button"
                   data-testid="first-run-cancel-builder"
-                  className={cn(secondaryButtonClass, "mt-4")}
+                  className="fixed bottom-6 left-6 inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
                     setBuilderCancelRequested(true);
                     connectFlow.cancel();
@@ -1189,7 +1535,7 @@ export function FirstRunOnboarding({
                 <button
                   type="button"
                   data-testid="first-run-back-to-choice"
-                  className={cn(secondaryButtonClass, "mt-4")}
+                  className="fixed bottom-6 left-6 inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={returnToSetupChoice}
                 >
                   {t("agentChat.onboarding.back")}

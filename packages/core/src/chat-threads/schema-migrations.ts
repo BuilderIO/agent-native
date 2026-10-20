@@ -75,4 +75,42 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE IF EXISTS chat_thread_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
     `,
   },
+  {
+    version: 5,
+    name: "chat-thread-durable-submission-inbox",
+    sql: `
+      CREATE TABLE IF NOT EXISTS agent_chat_submission_inbox (
+        thread_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        state TEXT NOT NULL,
+        actor_email TEXT NOT NULL,
+        actor_auth_user_id TEXT,
+        actor_identity_authenticated_at_ms BIGINT,
+        actor_name TEXT,
+        actor_org_id TEXT,
+        actor_org_scope TEXT,
+        actor_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+        payload_hash TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        interrupt_active_run BOOLEAN NOT NULL DEFAULT FALSE,
+        submitted_run_id TEXT,
+        queue_order BIGSERIAL NOT NULL,
+        move_to_top_at BIGINT,
+        retry_after BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (thread_id, message_id)
+      );
+      CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_pending_idx
+        ON agent_chat_submission_inbox (state, retry_after, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)
+    `,
+  },
+  {
+    version: 6,
+    name: "chat-thread-inbox-interrupt-replay",
+    sql: `
+      ALTER TABLE agent_chat_submission_inbox
+        ADD COLUMN IF NOT EXISTS interrupt_run_id TEXT
+    `,
+  },
 ];

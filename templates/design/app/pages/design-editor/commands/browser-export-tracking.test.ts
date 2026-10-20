@@ -326,12 +326,13 @@ describe("All-screens PDF download", () => {
 });
 
 describe("SVG download", () => {
-  function args() {
+  function args(ref = idleRef()) {
     return {
       activePreviewFrameId: "screen-1",
       design: null,
       exportTracking,
       fallbackExportName: (extension: string) => `design.${extension}`,
+      pngExportingRef: ref,
       selectedElement: null,
       setSvgExporting: () => undefined,
       t,

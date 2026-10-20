@@ -333,6 +333,17 @@ describe("Blocks property type", () => {
     expect(countWords("```\ncode block ignored\n```\nreal words here")).toBe(3);
   });
 
+  it("doesn't count stored markup as words", () => {
+    expect(countWords("<empty-block/>\n<empty-block/>\none two")).toBe(2);
+    expect(countWords("one<br>two<br/>three")).toBe(3);
+    expect(countWords("<span>\tindented line</span>")).toBe(2);
+  });
+
+  it("counts prose that only looks like a tag", () => {
+    // "a <b and c> d", saved with its angle brackets escaped.
+    expect(countWords("a \\<b and c\\> d")).toBe(5);
+  });
+
   it("formats a word count for table cells", () => {
     expect(formatWordCount("")).toBe("Empty");
     expect(formatWordCount("just one word here")).toBe("4 words");

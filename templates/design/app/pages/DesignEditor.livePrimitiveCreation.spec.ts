@@ -37,6 +37,18 @@ describe("DesignEditor live primitive creation boundary", () => {
     expect(createPrimitiveSource).toContain("extractCanvasPrimitiveHtml");
   });
 
+  it("keeps every focused and overview creation tool on the shared handleCreatePrimitive path", () => {
+    expect(source).toMatch(
+      /const handleSingleScreenCreatePrimitive[\s\S]*?handleCreatePrimitive\(activeFile\.id, primitive\)/,
+    );
+    expect(source).toMatch(
+      /const handleOverviewCreatePrimitive = useCallback\([\s\S]*?handleCreatePrimitive\(screenId, primitive, options\)/,
+    );
+    expect(source).toMatch(
+      /creation=\{\{[\s\S]*?onCreatePrimitive: handleOverviewCreatePrimitive,/,
+    );
+  });
+
   it("forwards explicit tool intent from focused Pen completion", () => {
     expect(source).toMatch(
       /const handleSingleScreenCreatePrimitive[\s\S]*?nextTool:\s*spec\.nextTool\s*\?\?/,

@@ -658,6 +658,7 @@ export default {
     notConnected: "Non connecté",
     needsReauth: "Réauthentification requise",
     error: "Erreur",
+    unknown: "Inconnu",
     indexNotImported: "Aucun index généré n’a été importé.",
     indexUnreadable:
       "Impossible de lire l’index enregistré. Importez un index valide.",
@@ -750,6 +751,47 @@ export default {
       "Impossible de vérifier les entrées existantes pour cette métrique.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Clics et impressions quotidiens par page pour la vue Contenu.",
+      serviceAccount: "Compte de service",
+      copyEmail: "Copier l'e-mail",
+      grantHint:
+        "Ajoutez cet e-mail comme utilisateur sur chaque propriété dans Search Console, sous Paramètres → Utilisateurs et autorisations.",
+      noServiceAccount: "Ajoutez d'abord une clé de compte de service Google.",
+      openGoogleCloud: "Ouvrir Google Cloud",
+      invalidServiceAccount:
+        "La clé de compte de service enregistrée est illisible.",
+      properties: "Propriétés",
+      siteLabel: "Propriété",
+      pathLabel: "Préfixe de chemin",
+      pathInvalid: "Le préfixe du chemin doit commencer par /.",
+      addProperty: "Ajouter une propriété",
+      removeProperty: "Retirer la propriété",
+      save: "Enregistrer",
+      collectDaily: "Collecter chaque jour",
+      adminOnly:
+        "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier ce paramètre.",
+      statusCollecting: "Collecte en cours",
+      statusNeedsAccess: "Accès requis",
+      statusFailed: "Dernière exécution en échec",
+      runSucceeded: "Collecté {{when}}",
+      runNeedsAccess: "Aucun accès au {{when}}",
+      runRunning: "Collecte depuis {{when}}",
+      runFailed: "Échec {{when}}",
+      unavailable: "État de la collecte indisponible : {{message}}",
+      keyUnreadable:
+        "Impossible de lire la clé de compte de service enregistrée. Enregistrez-la de nouveau sous Google Cloud.",
+      propertyBareDomain:
+        "Pour une propriété de domaine, utilisez {{suggestion}}.",
+      propertyInvalidDomain:
+        "Après sc-domain:, indiquez uniquement le domaine, comme dans {{suggestion}}.",
+      propertyMissingSlash:
+        "Les propriétés de préfixe d'URL se terminent par /. Utilisez {{suggestion}}.",
+      propertyUnrecognized:
+        "Utilisez sc-domain:example.com ou une propriété de préfixe d'URL se terminant par /.",
+    },
     uploadFile: "Télécharger le fichier",
     googleSheetsExport: "Export Google Sheets",
     googleSheetsExportDescription:
@@ -849,6 +891,7 @@ export default {
     bigQueryHealthUnavailable:
       "Impossible de vérifier la pression Analytics propriétaire. Rechargez la page avant de changer de backend.",
     analyticsEventCount: "Événements observés",
+    analyticsRecentEventCount: "Événements observés (30 derniers jours)",
     slowQueries24h: "Requêtes lentes (24 h)",
     maxQueryDuration: "Durée maximale de requête",
     defaultKeyName: "Modèles hébergés",
@@ -1259,6 +1302,8 @@ export default {
       "Ajoutez un événement et sélectionnez-le pour voir les résultats",
     queryError: "Query error: {{message}}",
     noDataReturned: "Aucune donnée renvoyée",
+    incompleteResultsWarning:
+      "Ce résultat peut être incomplet. Des lignes ou des données source manquantes peuvent fausser les totaux.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrer par",
     pickPropertyToFilter: "Choisissez une propriété à filtrer",
@@ -1349,6 +1394,10 @@ export default {
     dashboardActions: "Détails et actions du tableau de bord",
     certifyForAi: "Certifier pour les requêtes IA",
     certifiedForAi: "Certifié pour les requêtes IA",
+    duplicateToCustomize: "Dupliquer pour personnaliser",
+    duplicateToCustomizeHint:
+      "Les tableaux de bord intégrés sont mis à jour à chaque version d'Analytics. Créez votre propre copie pour modifier celui-ci.",
+    duplicateFailed: "Impossible de dupliquer ce tableau de bord.",
     certificationSaved: "Tableau certifié pour les requêtes IA",
     certificationFailed: "Impossible de certifier le tableau : {{message}}",
     details: "Details",
@@ -1382,6 +1431,23 @@ export default {
     resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
+    drilldownChartPoints: "Points du graphique",
+    drilldownPreviousPage: "Page précédente des points du graphique",
+    drilldownNextPage: "Page suivante des points du graphique",
+    drilldownPageRange: "Affichage de {{start}} à {{end}} sur {{total}}",
+    drilldownFilterRows: "Filtrer les lignes",
+    drilldownShowSql: "Afficher le SQL",
+    drilldownHideSql: "Masquer le SQL",
+    drilldownDownloadCsv: "Télécharger le CSV",
+    drilldownShowing: "Affichage de {{shown}} sur {{total}} enregistrements",
+    drilldownCsvTruncated:
+      "Export incomplet : la requête correspond à {{total}} enregistrements, mais seuls les {{loaded}} premiers ont été chargés ; ce fichier en contient {{exported}} après filtrage.",
+    drilldownCountMismatch:
+      "Le graphique affiche {{chart}}, mais {{total}} enregistrements correspondent",
+    drilldownAggregateOnly:
+      "Ce panneau ne contient que des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
+    drilldownNoRecords: "Aucun enregistrement correspondant",
+    drilldownLoadFailed: "Impossible de charger les enregistrements",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
     chartTimeRangeInherit: "Plage du tableau de bord",
@@ -1459,6 +1525,24 @@ export default {
     columnShowHidden: "Afficher les colonnes masquées",
     columnName: "Nom de la colonne",
     columnResize: "Redimensionner la colonne",
+    rowBreakdownBy: "Ventiler par",
+    rowBreakdownAll: "Tous",
+    rowBreakdownOther: "Autres",
+    rowBreakdownOtherHint:
+      "Groupes plus petits, et toute personne que le SQL de ce panneau exclut",
+    rowBreakdownSmallGroup: "Moins de {{count}} : lisez les taux avec prudence",
+    rowBreakdownNoValue: "(aucun)",
+    rowBreakdownEmpty: "Aucune ligne pour cette ventilation.",
+    rowBreakdownUnavailable:
+      "Le SQL de ce panneau n'a pas de ventilation par {{column}}.",
+    rowBreakdownFromPanel: "Issu des lignes de ce panneau. Rien n'a été lu.",
+    rowBreakdownFromCache: "Issu du cache. Rien n'a été lu.",
+    rowBreakdownAlreadyLoaded: "Déjà chargé. Rien n'a été lu.",
+    rowBreakdownBytesRead: "{{bytes}} lus",
+    rowBreakdownOverByteCap:
+      "Cette ventilation lirait plus de {{gib}} Gio, elle n'a donc pas été exécutée. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
+    rowBreakdownTruncated:
+      "Le résultat a été tronqué : certains groupes manquent ou sont comptés dans Autres.",
     deleteSectionTitle: "Supprimer la rubrique ?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Supprimer le panneau ?",
@@ -2156,10 +2240,6 @@ export default {
     noMatches: "Aucune définition ne correspond à votre recherche.",
     searchPlaceholder: "Rechercher des définitions",
     sourceIndex: "Index des sources",
-    statusApproved: "Approuvée",
-    statusSuggested: "Suggérée",
-    statusUnreviewed: "Non vérifiée",
-    unsourced: "Sans source",
   },
   indexPanel: {
     presetDaily: "Tous les jours à 06:00",
@@ -2217,6 +2297,8 @@ export default {
     dbtAdminOnly:
       "Seuls les administrateurs de l’organisation peuvent modifier cette connexion.",
     dbtReadFailed: "La connexion dbt n’a pas pu être chargée.",
+    dbtSeveralConnections:
+      "Plusieurs connexions dbt sont accordées à Analytics, donc ce panneau ne peut en modifier aucune. Supprimez les connexions en trop dans Paramètres → Intégrations pour n'en garder qu'une.",
     dbtSave: "Enregistrer la connexion",
     dbtChecking: "Vérification",
     dbtSaveFailed: "La connexion dbt n’a pas pu être enregistrée.",

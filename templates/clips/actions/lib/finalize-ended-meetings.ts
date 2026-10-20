@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import finalizeMeeting from "../finalize-meeting.js";
@@ -28,6 +28,7 @@ export async function listEndedMeetingsForRecording(
     .where(
       and(
         eq(schema.meetings.recordingId, recordingId),
+        isNull(schema.meetings.trashedAt),
         isNotNull(schema.meetings.actualEnd),
         inArray(schema.meetings.transcriptStatus, transcriptStatuses),
         eq(schema.meetings.summaryMd, ""),

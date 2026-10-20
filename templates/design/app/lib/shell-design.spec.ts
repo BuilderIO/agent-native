@@ -29,8 +29,8 @@ describe("buildShellDesign", () => {
   it("maps each route to a URL-backed file, as the server builder does", () => {
     const { design } = build();
     expect(design.files.map((f) => [f.filename, f.content])).toEqual([
-      ["fusion-home.html", "https://branch.builderio.xyz/"],
-      ["fusion-projects.html", "https://branch.builderio.xyz/projects"],
+      ["home.html", "https://branch.builderio.xyz/"],
+      ["projects.html", "https://branch.builderio.xyz/projects"],
     ]);
     expect(design.files.every((f) => f.fileType === "html")).toBe(true);
   });

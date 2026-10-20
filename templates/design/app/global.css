@@ -5,6 +5,10 @@
 
 @source "./**/*.{ts,tsx}";
 
+[data-radix-popper-content-wrapper]:has(> [data-agent-native-tooltip="true"]) {
+  pointer-events: none;
+}
+
 .design-template-preview-frame {
   width: var(--design-template-width);
   height: var(--design-template-height);

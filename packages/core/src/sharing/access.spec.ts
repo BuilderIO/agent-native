@@ -10,6 +10,7 @@ import {
   accessFilter,
   assertAccess,
   ForbiddenError,
+  registerHostAccessResolver,
   resolveAccess,
   resolveRegisteredAccessContext,
 } from "./access.js";
@@ -529,6 +530,39 @@ describe("shareable resource access helpers", () => {
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
     ).resolves.not.toContain("shared-group");
+  });
+
+  it("lets a host deny or grant access while the owner keeps owner", async () => {
+    await insertDoc({ id: "doc-hosted" });
+    const hostRoles = new Map<string, "editor" | null>([
+      [ownerEmail, "editor"],
+      [viewerEmail, "editor"],
+      [outsiderEmail, null],
+    ]);
+    registerHostAccessResolver(resourceType, async (_resource, ctx) =>
+      hostRoles.get(ctx.userEmail ?? ""),
+    );
+    try {
+      await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        expect(
+          assertAccess(resourceType, "doc-hosted", "owner"),
+        ).resolves.toMatchObject({ role: "owner" }),
+      );
+      await runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+        expect(
+          resolveAccess(resourceType, "doc-hosted"),
+        ).resolves.toMatchObject({ role: "editor" }),
+      );
+      await runWithRequestContext({ userEmail: outsiderEmail, orgId }, () =>
+        expect(resolveAccess(resourceType, "doc-hosted")).resolves.toBe(null),
+      );
+      hostRoles.set(ownerEmail, null);
+      await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        expect(resolveAccess(resourceType, "doc-hosted")).resolves.toBe(null),
+      );
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
   });
 
   it("resolves read and write roles without letting visibility imply edit access", async () => {

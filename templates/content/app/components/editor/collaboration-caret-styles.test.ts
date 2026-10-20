@@ -28,7 +28,7 @@ describe("collaboration caret styles", () => {
     document.head.append(style);
 
     const editor = document.createElement("div");
-    editor.className = "notion-editor";
+    editor.className = "content-editor";
     const paragraph = document.createElement("p");
     paragraph.append("Link", caret, selection, " sample.");
     editor.append(paragraph);

@@ -31,6 +31,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("constrains thread rows to the panel's available width", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source.includes('"relative grid grid-cols-1 gap-3.5"')).toBe(true);
+  });
+
   it("keeps the selected history comment visible through status changes", () => {
     const source = readFileSync(
       "app/components/editor/CommentsSidebar.tsx",
@@ -356,6 +364,113 @@ describe("comments sidebar layout", () => {
     expect(globalStyles).not.toContain(".comment-highlight::after");
   });
 
+  it("keeps comment actions named and available to keyboard focus", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain('aria-label={t("comments.askAi")}');
+    expect(source).toContain("onAiDraftChange={onAiDraftChange}");
+    expect(source).toContain(
+      'resolved ? "comments.reopen" : "comments.resolve"',
+    );
+    expect(source).toContain('submitLabel={t("comments.submit")}');
+    expect(source).toMatch(
+      /t\(resolved \? "comments.reopen" : "comments.resolve"\)/,
+    );
+    expect(source).toContain("aria-label={resolveLabel}");
+    expect(source).toContain("data-comment-resolve");
+    expect(source).toContain("focus-visible:ring-ring");
+    expect(source).not.toContain("hidden group-hover/thread:flex");
+    expect(source).toContain('presentation === "history"');
+    expect(source).toContain("data-comments-history");
+    expect(source).not.toContain("showResolved");
+    expect(source).not.toContain('t("comments.resolved", {');
+  });
+
+  it("uses the same eased emphasis for active, hovered, and focused cards", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)]",
+    );
+    expect(source).not.toContain("allowEmphasisMotion");
+    expect(source).toContain(
+      "hover:-translate-x-2 hover:shadow-comment-emphasis",
+    );
+    expect(source).toContain(
+      "focus-within:-translate-x-2 focus-within:shadow-comment-emphasis",
+    );
+    expect(source).toContain("ease-[var(--ease-drawer)]");
+    expect(source).toContain("data-comment-layout-thread");
+    expect(source).toContain(
+      'className="relative transition-transform duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transition-none"',
+    );
+    expect(source).toContain("motion-reduce:hover:translate-x-0");
+    expect(source).not.toContain("bg-accent/60");
+    expect(source).toContain(
+      '? "-translate-x-2 shadow-comment-emphasis ring-foreground/15"',
+    );
+    expect(source).toContain(
+      ': "hover:-translate-x-2 hover:shadow-comment-emphasis focus-within:-translate-x-2 focus-within:shadow-comment-emphasis"',
+    );
+  });
+
+  it("keeps multiline comment highlights padded as one forgiving target", () => {
+    const styles = readFileSync("app/global.css", { encoding: "utf8" });
+    const highlightStyles = styles.slice(
+      styles.indexOf(".content-editor .comment-highlight"),
+      styles.indexOf("/* @mention tokens inside comment bodies */"),
+    );
+
+    expect(highlightStyles).toContain("padding-block: 0.2em");
+    expect(highlightStyles).toContain("padding-inline: 0.15em");
+    expect(highlightStyles).toContain("margin-inline: -0.15em");
+    expect(highlightStyles).toContain("box-decoration-break: clone");
+    expect(highlightStyles).toContain("content-box");
+    expect(highlightStyles).not.toContain("border-bottom: 1px");
+  });
+
+  it("smoothly strengthens ordinary comment highlights without moving them", () => {
+    const styles = readFileSync("app/global.css", { encoding: "utf8" });
+    const highlightStyles = styles.slice(
+      styles.indexOf(".content-editor .comment-highlight"),
+      styles.indexOf("/* Pending suggested edits"),
+    );
+
+    expect(highlightStyles).toContain(
+      "background-color: var(--comment-highlight-fill)",
+    );
+    expect(highlightStyles).toContain(
+      "transition: background-color 160ms var(--ease-out-strong)",
+    );
+    expect(highlightStyles).toMatch(
+      /\.comment-highlight:hover,\s*\.content-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
+    );
+    expect(highlightStyles).toMatch(
+      /\.comment-highlight\.comment-highlight--active\s*\{[^}]*\/ 0\.38\)/,
+    );
+    expect(highlightStyles).toMatch(
+      /\.comment-highlight\.comment-highlight--pending\s*\{[^}]*hsl\(210 100% 52% \/ 0\.2\)[^}]*hsl\(210 100% 52% \/ 0\.55\)[^}]*cursor: default/,
+    );
+    expect(highlightStyles.indexOf(".comment-highlight:hover")).toBeLessThan(
+      highlightStyles.indexOf(".comment-highlight.comment-highlight--active"),
+    );
+    expect(
+      highlightStyles.indexOf(".comment-highlight.comment-highlight--active"),
+    ).toBeLessThan(
+      highlightStyles.indexOf(".comment-highlight.comment-highlight--pending"),
+    );
+    expect(highlightStyles).toContain(
+      "@media (prefers-reduced-motion: reduce)",
+    );
+    expect(highlightStyles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.comment-highlight\s*\{[^}]*transition: none/,
+    );
+  });
+
   it("opens the selected inline thread for reply and closes it on deselection", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",
@@ -462,6 +577,42 @@ describe("comments sidebar layout", () => {
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 
+  it("keeps the pending composer in normal flow in the anchored card", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("alignToAnchors");
+    expect(source).toContain('"relative mx-2 mt-3"');
+    expect(source).toContain(": undefined");
+  });
+
+  it("keeps comment drafts open until their mutation succeeds", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    const submit = source.slice(
+      source.indexOf("const handlePendingSubmit ="),
+      source.indexOf("const handlePendingCancel ="),
+    );
+    const failure = submit.slice(submit.indexOf("catch (error)"));
+
+    expect(submit).toContain("pendingSubmitting");
+    expect(submit).toContain("ambiguousCreate()");
+    expect(submit).toContain("const id = pendingComment.id;");
+    expect(submit).toMatch(
+      /onPendingChange\(id, \(\) => \(\{ submitting: true \}\)\)[\s\S]*?const result = await createComment\.mutateAsync\([\s\S]*?onPendingDone\(id, result\.threadId\);[\s\S]*?catch \(error\)/,
+    );
+    expect(failure).toContain(
+      "onPendingChange(id, () => ({ submitting: false }));",
+    );
+    expect(failure).toContain('toast.error(t("empty.genericError")');
+    expect(failure).not.toMatch(
+      /onPendingDone|setPendingComment|text:|mentions:/,
+    );
+  });
+
   it("keeps card height estimates based on the thread reply count", () => {
     const thread = {
       comments: [{ id: "root" }, { id: "reply" }],
@@ -487,5 +638,28 @@ describe("comments sidebar layout", () => {
       "(alignToAnchors || suggestion.id === activeSuggestionId)",
     );
     expect(source).not.toContain("!activeSuggestionId ||");
+  });
+
+  it("keeps stale decision feedback in the shared discussion shell", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source).toContain('suggestion.status === "stale"');
+    expect(source).toContain('t("editor.toolbar.conflict")');
+    expect(source).toContain('role="alert"');
+  });
+
+  it("does not give the desktop comment rail its own scroll container", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("data-comments-sidebar");
+    expect(source).toContain(
+      "relative flow-root w-full min-w-0 shrink-0 pb-16",
+    );
+    expect(source).not.toContain("w-80 shrink-0 overflow-auto");
+    expect(source).not.toContain("overflow-auto relative");
   });
 });

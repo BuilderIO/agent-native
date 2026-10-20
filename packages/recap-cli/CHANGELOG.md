@@ -1,5 +1,24 @@
 # @agent-native/recap-cli
 
+## 0.5.77
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.76
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.75
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+
 ## 0.5.74
 
 ### Patch Changes

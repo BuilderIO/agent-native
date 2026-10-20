@@ -196,16 +196,16 @@ test("selected Pen anchors round independently and survive undo, redo, and reloa
     await selectAnchor(index);
     await radiusField.fill(String(radius));
     await radiusField.press("Enter");
-    await expect(radiusField).toHaveValue(String(radius));
+    await expect(radiusField).toHaveValue(`${radius}px`);
   };
 
   await setRadius(1, 12);
   await setRadius(3, 18);
   await expect.poll(savedRadii).toEqual([null, 12, null, 18]);
   await selectAnchor(1);
-  await expect(radiusField).toHaveValue("12");
+  await expect(radiusField).toHaveValue("12px");
   await selectAnchor(3);
-  await expect(radiusField).toHaveValue("18");
+  await expect(radiusField).toHaveValue("18px");
 
   await page.keyboard.press("Escape");
   await page.keyboard.press("ControlOrMeta+Z");
@@ -222,13 +222,12 @@ test("selected Pen anchors round independently and survive undo, redo, and reloa
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
   await selectAnchor(1);
-  await expect(radiusField).toHaveValue("12");
+  await expect(radiusField).toHaveValue("12px");
   await selectAnchor(3);
-  await expect(radiusField).toHaveValue("18");
+  await expect(radiusField).toHaveValue("18px");
 });
 
-// fixme: product bug: Dragging the top anchor does not move it: the saved anchor stays at (309,305) and the drag pulls out vertical handles
-test.fixme("Escape leaves an ellipse untouched, and dragging its top anchor converts it to a path in place", async ({
+test("Escape leaves an ellipse untouched, and dragging its top anchor converts it to a path in place", async ({
   app,
 }) => {
   const id = await openFixture(app);
@@ -259,7 +258,9 @@ test.fixme("Escape leaves an ellipse untouched, and dragging its top anchor conv
     .toBe("svg");
   await app.settled();
   const pen = await renderedPen(app, "editable-ellipse");
-  const anchors = pen.map((node) => node.anchor).sort((a, b) => a.y - b.y);
+  const anchors = pen
+    .map((node) => node.anchor)
+    .sort((a, b) => Math.round(a.y) - Math.round(b.y) || a.x - b.x);
   expectNear(anchors[0], target, "dragged top anchor");
   expectNear(anchors[1], { x: 285, y: 329 }, "left anchor");
   expectNear(anchors[2], { x: 333, y: 329 }, "right anchor");
