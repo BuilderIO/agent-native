@@ -497,7 +497,7 @@ jobs:
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
-        timeout-minutes: 6
+        timeout-minutes: 8
         env:
           E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
@@ -524,7 +524,7 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
-        timeout-minutes: 7
+        timeout-minutes: 8
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           E2E_LOG_TEST_PROGRESS: "1"

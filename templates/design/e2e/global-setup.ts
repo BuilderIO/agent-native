@@ -331,6 +331,15 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
+  const warmupDeadline = Date.now() + 3 * 60_000;
+  const warmupTimeout = (requestedMs: number) => {
+    const remainingMs = warmupDeadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error("the three-minute global setup warmup budget expired");
+    }
+    return Math.min(requestedMs, remainingMs);
+  };
+
   if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
     await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
     await startHttpsAttachmentStorage(
@@ -416,11 +425,11 @@ export default async function globalSetup(config: FullConfig) {
       try {
         await warmupPage.goto(`${baseURL}/design/${designId}`, {
           waitUntil: "domcontentloaded",
-          timeout: 180_000,
+          timeout: warmupTimeout(180_000),
         });
         await warmupPage
           .getByRole("button", { name: "Move", exact: true })
-          .waitFor({ timeout: 180_000 });
+          .waitFor({ timeout: warmupTimeout(180_000) });
         // eslint-disable-next-line no-console
         console.log("[e2e] editor warm");
       } catch (error) {
@@ -435,39 +444,44 @@ export default async function globalSetup(config: FullConfig) {
 
       const homeURL = `${baseURL}/home`;
       const homeComposer = warmupPage.locator("[data-design-home-composer]");
-      await warmupPage.goto(homeURL, {
-        waitUntil: "domcontentloaded",
-        timeout: 180_000,
-      });
       let homeComposerWarmed = false;
       try {
-        await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+        await warmupPage.goto(homeURL, {
+          waitUntil: "domcontentloaded",
+          timeout: warmupTimeout(180_000),
+        });
+        await homeComposer.waitFor({
+          state: "visible",
+          timeout: warmupTimeout(30_000),
+        });
         homeComposerWarmed = true;
       } catch (error) {
-        if (
-          !new URL(warmupPage.url()).searchParams.has("__an_vite_dev_recovery")
-        ) {
-          throw error;
-        }
-        try {
-          await warmupPage.goto(homeURL, {
-            waitUntil: "domcontentloaded",
-            timeout: 180_000,
-          });
-          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
-          homeComposerWarmed = true;
-        } catch (recoveryError) {
-          if (
-            !new URL(warmupPage.url()).searchParams.has(
-              "__an_vite_dev_recovery",
-            )
-          ) {
-            throw recoveryError;
+        const hasViteRecoveryMarker = new URL(
+          warmupPage.url(),
+        ).searchParams.has("__an_vite_dev_recovery");
+        if (hasViteRecoveryMarker) {
+          try {
+            await warmupPage.goto(homeURL, {
+              waitUntil: "domcontentloaded",
+              timeout: warmupTimeout(180_000),
+            });
+            await homeComposer.waitFor({
+              state: "visible",
+              timeout: warmupTimeout(30_000),
+            });
+            homeComposerWarmed = true;
+          } catch (recoveryError) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[e2e] home warmup did not finish after Vite recovery (${(recoveryError as Error).message.split("\n")[0]}); ` +
+                "the first test touching /home will pay the compile.",
+            );
           }
+        } else {
           // Home tests remain responsible for reporting any warmup failure.
           // eslint-disable-next-line no-console
           console.warn(
-            `[e2e] home warmup did not finish after Vite recovery (${(recoveryError as Error).message.split("\n")[0]}); ` +
+            `[e2e] home warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
               "the first test touching /home will pay the compile.",
           );
         }
