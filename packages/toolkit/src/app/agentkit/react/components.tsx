@@ -4911,10 +4911,14 @@ export function AgentKitChat({
     fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
     setFileDragActive(fileDragDepthRef.current > 0);
   };
-  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
+  const handleFileDropCapture = (event: ReactDragEvent<HTMLElement>) => {
     if (!canDropFiles || !hasFiles(event)) return;
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
+  };
+  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
+    if (!canDropFiles || !hasFiles(event)) return;
+    handleFileDropCapture(event);
     if (event.defaultPrevented) return;
     event.preventDefault();
     event.stopPropagation();
@@ -5493,6 +5497,7 @@ export function AgentKitChat({
         onDragEnter={handleFileDragEnter}
         onDragOver={handleFileDragOver}
         onDragLeave={handleFileDragLeave}
+        onDropCapture={handleFileDropCapture}
         onDrop={handleFileDrop}
       >
         {fileDragActive ? (

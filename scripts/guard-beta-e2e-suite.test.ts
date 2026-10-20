@@ -111,6 +111,80 @@ describe("guard:beta-e2e-suite", () => {
     assert.match(output, /guard:beta-e2e-suite passed/);
   });
 
+  it("treats grep as literal title text before passing it to Playwright", () => {
+    const workflow = parse(
+      readFileSync(
+        path.join(repoRoot, ".github/workflows/beta-e2e.yml"),
+        "utf8",
+      ),
+    ) as {
+      jobs?: {
+        discover?: {
+          steps?: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const matrixStep = workflow.jobs?.discover?.steps?.find(
+      (step) => step.name === "Build the host matrix",
+    );
+    const script = matrixStep?.run?.match(
+      /node <<'NODE'\n([\s\S]*?)\nNODE\s*$/,
+    )?.[1];
+    assert.ok(script, "host-matrix script must remain extractable");
+
+    const dir = mkdtempSync(path.join(tmpdir(), "beta-e2e-grep-input-"));
+    try {
+      const scriptsDir = path.join(dir, "scripts");
+      mkdirSync(scriptsDir, { recursive: true });
+      writeFileSync(
+        path.join(scriptsDir, "netlify-beta-sites.json"),
+        JSON.stringify([{ id: "chat" }]),
+      );
+      const outputPath = path.join(dir, "github-output");
+      writeFileSync(outputPath, "");
+      const title =
+        "[chat-reliability] refresh mid-run restores the complete answer";
+      const result = spawnSync(process.execPath, ["-e", script], {
+        cwd: dir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          REQUESTED_APPS: "chat",
+          REQUESTED_GREP: title,
+          GITHUB_OUTPUT: outputPath,
+        },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const escaped = readFileSync(outputPath, "utf8").match(
+        /^grep=(.*)$/m,
+      )?.[1];
+      assert.equal(
+        escaped,
+        "\\[chat-reliability\\] refresh mid-run restores the complete answer",
+      );
+      assert.ok(new RegExp(escaped ?? "", "i").test(title));
+      assert.throws(
+        () => new RegExp(title, "i"),
+        /Range out of order in character class/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps every workflow lane on the escaped title filter", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e.yml",
+          "BETA_E2E_GREP: ${{ needs.discover.outputs.grep }}",
+          "BETA_E2E_GREP: ${{ inputs.grep || '' }}",
+        ),
+      /must escape grep as a literal title substring in discover and pass that result to every lane/,
+    );
+  });
+
   it("keeps unattended scheduled Beta E2E unauthenticated and scoped", () => {
     rejects(
       (files) =>
@@ -466,7 +540,7 @@ describe("guard:beta-e2e-suite", () => {
       diagnostic_run: "123456789",
       apps,
       lane: "authed",
-      grep: String.raw`\[chat-reliability\] refresh mid-run restores the complete answer`,
+      grep: "[chat-reliability] refresh mid-run restores the complete answer",
     });
     assert.equal(invoke(valid("content")).status, 0);
     assert.equal(invoke(valid("content,dispatch")).status, 0);

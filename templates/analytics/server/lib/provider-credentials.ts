@@ -2,6 +2,7 @@ import {
   fail,
   isAgentConnectionRequiredError,
 } from "@agent-native/core/action";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import {
   isProviderApiId,
   resolveProviderApiOAuthAccessToken,
@@ -48,6 +49,7 @@ const GONG_LEGACY_API_KEY = "GONG_API_KEY";
 
 export type AnalyticsProviderCredentialSource =
   | "workspace_connection"
+  | "analytics_oauth"
   | "analytics_local";
 
 export interface AnalyticsProviderCredential {
@@ -424,6 +426,41 @@ export async function resolveLocalAnalyticsProviderCredential(
   return null;
 }
 
+async function resolveAnalyticsOwnedGitHubOAuthCredential(
+  options: ResolveProviderCredentialOptions,
+  keys: string[],
+): Promise<AnalyticsProviderCredential | null> {
+  const provider = options.provider.trim().toLowerCase();
+  if (
+    options.workspaceConnection === false ||
+    options.connectionId?.trim() ||
+    provider !== "github" ||
+    !keys.includes("GITHUB_TOKEN") ||
+    !options.ctx.userEmail
+  ) {
+    return null;
+  }
+
+  const accounts = await listOAuthAccountsByOwner(
+    provider,
+    options.ctx.userEmail,
+  );
+  const account = accounts.find(
+    (item) => typeof item.tokens?.accessToken === "string",
+  );
+  const value = account?.tokens?.accessToken;
+  if (typeof value !== "string" || !value) return null;
+
+  return {
+    value,
+    key: "GITHUB_TOKEN",
+    provider,
+    source: "analytics_oauth",
+    scope: "user",
+    scopeId: options.ctx.userEmail,
+  };
+}
+
 async function resolveLegacyGongProviderCredential(
   options: ResolveProviderCredentialOptions,
   requestedKey: string,
@@ -465,6 +502,10 @@ export async function resolveAnalyticsProviderCredential(
   const workspaceCredential =
     await resolveWorkspaceConnectionProviderCredential({ ...options, keys });
   if (workspaceCredential) return workspaceCredential;
+
+  const ownedGitHubOAuthCredential =
+    await resolveAnalyticsOwnedGitHubOAuthCredential(options, keys);
+  if (ownedGitHubOAuthCredential) return ownedGitHubOAuthCredential;
 
   if (!options.connectionId?.trim()) {
     const localCredential = await resolveLocalAnalyticsProviderCredential({

@@ -1218,6 +1218,36 @@ describe("AgentKitChat interactions", () => {
       expect(container.textContent).not.toContain("Drop files to attach");
       expect(container.textContent).toContain("drop.txt");
 
+      const nestedEditor = document.createElement("div");
+      nestedEditor.addEventListener("drop", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      chat?.appendChild(nestedEditor);
+
+      const nestedDragEnter = new Event("dragenter", {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(nestedDragEnter, "dataTransfer", {
+        value: dataTransfer,
+      });
+      await act(async () => {
+        nestedEditor.dispatchEvent(nestedDragEnter);
+        await Promise.resolve();
+      });
+      expect(container.textContent).toContain("Drop files to attach");
+
+      const nestedDrop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(nestedDrop, "dataTransfer", {
+        value: dataTransfer,
+      });
+      await act(async () => {
+        nestedEditor.dispatchEvent(nestedDrop);
+        await Promise.resolve();
+      });
+      expect(container.textContent).not.toContain("Drop files to attach");
+
       const oversizedFile = new Proxy(
         new File(["small body"], "too-large.txt", { type: "text/plain" }),
         {

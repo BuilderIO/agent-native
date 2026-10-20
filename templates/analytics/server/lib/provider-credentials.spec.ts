@@ -10,7 +10,16 @@ const mocks = vi.hoisted(() => ({
   oauthResult: null as unknown,
   oauthError: null as Error | null,
   oauthCalls: [] as Array<Record<string, unknown>>,
+  ownedOAuthAccounts: [] as Array<Record<string, unknown>>,
+  ownedOAuthCalls: [] as Array<Array<unknown>>,
   requestContext: {} as object,
+}));
+
+vi.mock("@agent-native/core/oauth-tokens", () => ({
+  listOAuthAccountsByOwner: vi.fn(async (...args) => {
+    mocks.ownedOAuthCalls.push(args);
+    return mocks.ownedOAuthAccounts;
+  }),
 }));
 
 vi.mock("@agent-native/core/provider-api", () => ({
@@ -82,6 +91,8 @@ describe("analytics provider credentials", () => {
     mocks.oauthResult = null;
     mocks.oauthError = null;
     mocks.oauthCalls = [];
+    mocks.ownedOAuthAccounts = [];
+    mocks.ownedOAuthCalls = [];
     mocks.requestContext = {};
   });
 
@@ -361,6 +372,64 @@ describe("analytics provider credentials", () => {
       value: "local-token",
       source: "analytics_local",
     });
+  });
+
+  it("uses the caller-owned Analytics GitHub OAuth account before the local PAT", async () => {
+    mocks.ownedOAuthAccounts = [
+      {
+        accountId: "github-account",
+        displayName: "Steve Sewell",
+        tokens: { accessToken: "user-oauth-token" },
+      },
+    ];
+    mocks.localCredentials.set("GITHUB_TOKEN", "organization-token");
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      key: "GITHUB_TOKEN",
+      provider: "github",
+      source: "analytics_oauth",
+      scope: "user",
+      scopeId: "owner@example.test",
+    });
+    expect(mocks.ownedOAuthCalls).toEqual([["github", "owner@example.test"]]);
+  });
+
+  it("does not use caller-owned GitHub OAuth for a specific connection", async () => {
+    mocks.ownedOAuthAccounts = [
+      { accountId: "github-account", tokens: { accessToken: "user-token" } },
+    ];
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "specific-connection",
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.ownedOAuthCalls).toEqual([]);
+  });
+
+  it("does not use caller-owned GitHub OAuth when workspace lookup is disabled", async () => {
+    mocks.ownedOAuthAccounts = [
+      { accountId: "github-account", tokens: { accessToken: "user-token" } },
+    ];
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "github",
+        keys: ["GITHUB_TOKEN"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        workspaceConnection: false,
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.ownedOAuthCalls).toEqual([]);
   });
 
   it("binds workspace lookup to a requested connection without local fallback", async () => {

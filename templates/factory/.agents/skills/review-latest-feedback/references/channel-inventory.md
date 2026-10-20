@@ -50,9 +50,18 @@ place of Slack source messages.
   `ts >= effectiveCutoffTs`, and record the exact `oldest` in `oldestQuery`.
 - Record `scope.channelIds` as the exact IDs requested and scanned. The default
   sweep lists all three default feedback channels. For an explicitly narrowed
-  invocation, inspect the active user request itself; it must explicitly limit
-  scope and name every selected channel by exact ID or `#channel-name`. A
-  permalink or time anchor does not narrow channel scope. Ask the user if the
+  invocation, inspect the active user request itself. It can name the exact
+  channel set with an explicit limit such as “only” and exact IDs or
+  `#channel-name`s. It can also select exactly two channels by linking one
+  report permalink in the first channel and directly asking for “the same in
+  channel-name” (with or without `#`) in the second; that direct linked-report
+  form selects exactly those two channels and does not need an exclusivity
+  word. It requires exactly one linked root and one direct “same in” target. In
+  that clause only, accept a single adjacent transposition in the channel name
+  only when it uniquely resolves to one canonical channel in the requested
+  set. Do not infer scope from incidental or quoted channel mentions or a
+  channel-name prefix. A permalink or time anchor by itself does not narrow
+  channel scope. Ask the user if the
   requested channels are unclear. Store the exact instruction in
   `scope.userRequest` and `scope.narrowingJudgment`, then create a separate
   `.tmp/feedback-scope-confirmation.json` from that active request with
@@ -85,10 +94,12 @@ place of Slack source messages.
   `administrative` decision, and a human rationale tied to that text. This is
   an attributed human triage judgment; the checker verifies its presence and
   source-text linkage but cannot prove the interpretation is correct.
-  For every classified root, including administrative posts, capture a
+  For every unheld classified root, including administrative posts, capture a
   complete thread read and make `sourceText` exactly match its `rootText`.
-  Search output can confuse user-authored `Files:` or `Reactions:` lines with
-  connector metadata, so do not classify from a truncated search excerpt.
+  A held root keeps the exact channel-scan `sourceText` and direct reaction
+  evidence but has no thread-derived fields. Search output can confuse
+  user-authored `Files:` or `Reactions:` lines with connector metadata, so do
+  not classify from a truncated search excerpt.
   For a canonical Slack message permalink, inspect its `thread_ts` query value:
   if it differs from the message's `ts`, the message is a reply and that value
   is its root. A self-valued `thread_ts` or a canonical root permalink without
@@ -194,9 +205,9 @@ place of Slack source messages.
   root message.
   Read and capture a complete, oldest-first `threadSnapshot` after the final
   channel page for every in-scope classified root, including administrative
-  posts, unmarked roots, and roots with no replies. The checker rejects a
-  classified root without this read or with `rootText` that differs from its
-  `sourceText`.
+  posts, unmarked roots, and roots with no replies, except roots held by the
+  reaction ownership boundary below. The checker rejects a classified root
+  without this read or with `rootText` that differs from its `sourceText`.
   Supplemental roots must strictly predate the oldest `sourceTimestamps` entry
   across every scanned page, as well as `cutoffTs`; a root inside the scanned
   source range must have its own source-manifest row even when it predates the
@@ -205,8 +216,8 @@ place of Slack source messages.
   `ts === threadParentTs` and must not be duplicated in `threadRoots`. A
   supplemental root exists to resolve an in-window reply;
   its presence does not make the older report a new in-scope claim. Read its
-  exact root reactions and complete thread, then apply the ownership gate to
-  the root itself. Do not add `👀`, `✅`, or `🎫`, or post a status, just because
+  exact root reactions, then apply the ownership gate before opening the thread.
+  Do not add `👀`, `✅`, or `🎫`, or post a status, just because
   an unowned older root appears as context. If this actor already owns a mark
   on that older root, reconcile its current status and scopes as usual; record
   another actor's marks as ownership evidence and leave them untouched. Their
@@ -214,29 +225,42 @@ place of Slack source messages.
   shows an open disposition; a later closed status makes that eye historical.
   Keep
   the root disposition and any open scope in the audit row without claiming it.
-  The inventory checker still requires a complete, oldest-first
-  `threadSnapshot` for each supplemental root, including unowned roots, so a
-  reply cannot predate or otherwise contradict its reported root.
-- After the regular bounded channel scans, discover this actor's older owned
-  roots with three separate unbounded `slack_search_public` queries per scoped
-  channel: `in:<#CHANNEL> hasmy::eyes`,
-  `in:<#CHANNEL> hasmy::white_check_mark`, and
-  `in:<#CHANNEL> hasmy::ticket`. Use the same bot-inclusive detailed search
-  arguments as the channel scan, but omit `after`, `before`, keywords, semantic
-  search, and all other filters. Follow every cursor to explicit exhaustion. If
-  Slack caps a cursor before exhaustion, preserve that capped page and record
-  the exact `page_limit_exceeded` response in that search's
+  For an unheld supplemental root, the inventory checker still requires a
+  complete, oldest-first `threadSnapshot`, so a reply cannot predate or
+  otherwise contradict its reported root.
+- **Held thread:** If the exact root reaction read shows another actor owns any
+  workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, do not open or
+  read the thread, inspect reply reactions, react, or reply. Record an
+  `ownershipSkip` with the root timestamp and `foreign_workflow_mark` or
+  `mag_opt_out`; use `Skipped` and leave thread-derived fields empty. Mark every
+  channel reply linked to that root with the same skip reference. The checker
+  requires direct root reaction evidence and the matching skip reason, but no
+  full-thread snapshot. For a linked pre-window root without source text, use
+  `unclassified`; do not guess from its in-window reply. This boundary also
+  applies when the other actor's eye has no visible status reply: ownership is
+  not permission to inspect.
+- After each bounded channel scan, search this actor's `👀`, `✅`, and `🎫`
+  separately with `slack_search_public`. Each query uses only
+  `in:<#CHANNEL> hasmy::EMOJI:` and the exact same inclusive `after` value as
+  that channel's `scanQuery`. Exhaust every cursor within that window. Do not
+  omit `after` or expand an anchored or default-window sweep to older, unrelated
+  roots. Reconcile owned marks on every in-window root and every older root
+  linked by an in-window reply; unheld roots already have exact reaction and
+  full-thread evidence in the source or supplemental-root audit. Unreferenced
+  pre-window marks stay outside this invocation's scope.
+  If Slack caps a cursor before exhaustion, preserve that capped page and
+  record the exact `page_limit_exceeded` response in that search's
   `pageLimitRecoveries[]`, including its failed cursor and request args, raw
   response, read time, and the capped page's oldest result as `boundaryTs`.
-  Restart the same exact `hasmy` query at `cursor: null` with an inclusive
-  `before` exactly one microsecond below that boundary. Keep that `before` on
-  every page in the restarted cursor slice and in each raw request wrapper; the
-  base `filters` query remains unchanged. Follow the restarted slice to
-  exhaustion, and repeat this recovery for every later cap. The checker proves
-  each failed cursor against exactly one restarted slice, checks the boundary
-  and read order, and requires explicit exhaustion. If Slack does not let you
-  recover a capped tail, report the historical ownership search as incomplete;
-  do not claim every owned mark was reconciled.
+  Restart the same `hasmy` query at `cursor: null` with the same inclusive
+  `after` and a `before` exactly one microsecond below that boundary. Keep both
+  bounds on every page in the restarted cursor slice and in each raw request
+  wrapper. Follow the restarted slice to exhaustion and repeat this recovery
+  for every later cap. The checker proves each failed cursor against exactly
+  one restarted slice, checks the boundary and read order, and requires
+  explicit exhaustion. If Slack does not let you recover a capped tail, report
+  the in-window ownership search as incomplete; do not claim every scoped mark
+  was reconciled.
   Record each exact query and page in `ownedMarkSearches`; save raw wrappers
   named `owned-marks-{channelName}-{eyes|white_check_mark|ticket}-00.json` and
   continue numbering for each cursor page. Each wrapper preserves exact
@@ -252,16 +276,19 @@ place of Slack source messages.
   evidence; if the exact read fails or is incomplete, leave ownership
   unresolved rather than treating the query as confirmation. A result with
   `ts !== root` is reply-level evidence: resolve and preserve its parent, but
-  never count it as a root checkoff. Verify reply reactions from the exact
-  reply read-back in its complete thread snapshot; if that historical reply
-  cannot be read back, report reply-level reconciliation as incomplete.
-  Deduplicate confirmed roots across the three searches. For any
-  exact-readback-confirmed root missing from the bounded source pages and
-  `threadRootAudits`, add a
-  full root audit row to `ownedRootAudits`; an in-scope root must instead
-  appear in the source pages. Reconcile each discovered root's latest human
-  message, status reply, scopes, and exact current reaction state. Read its
-  full thread after the final ownership-search page and preserve every raw
+  never count it as a root checkoff. For an unheld root, verify reply reactions
+  from the exact reply read-back in its complete thread snapshot; if that
+  historical reply cannot be read back, report reply-level reconciliation as
+  incomplete. For a held root, preserve the reply parent and matching skip
+  reason without opening the thread.
+  Deduplicate confirmed roots across the three searches. Every in-window root
+  candidate must appear in the source pages. An older root linked by an
+  in-window reply belongs in `threadRoots` and `threadRootAudits`. If a bounded
+  search hit has no matching source row or linked supplemental root, rerun the
+  source scan and include the missing evidence; do not invent an audit row.
+  Reconcile each unheld discovered root's latest human message, status reply,
+  scopes, and exact current reaction state. Read its full thread after the final
+  ownership-search page and preserve every raw
   `slack_read_thread` page under `thread-{channelName}-{rootTs}-00.json` and
   contiguous page numbers. Each wrapper records exact request `args`,
   requested `cursor`, raw response, and `readAt`; the raw response must
@@ -495,18 +522,18 @@ to follow the final channel page.
 The normal inventory check also requires every source, owned-mark search, and
 thread page or snapshot to have been read within the last 15 minutes, allows at
 most one minute of local clock skew, and requires owned-root reaction and thread
-read-backs to follow all three exhaustive mark searches. An old, complete
-inventory is stale: rerun the channel scan and historical mark searches, then
+read-backs to follow all three cutoff-bounded mark searches. An old, complete
+inventory is stale: rerun the channel scan and in-window mark searches, then
 read every marked root thread again before recap. This freshness gate prevents
 a complete earlier scan from silently omitting reports or replies that arrived
 during investigation.
 
 The inventory checker requires a complete `threadSnapshot` for every in-scope
-classified root, every supplemental root included to resolve an in-scope reply,
-and every older root discovered by the exhaustive owned-mark searches. It checks
-raw thread page cursor exhaustion, Slack's reply count, exact source text,
-attachments, and snapshot order, and rejects a newer human or sweep reply than
-the recorded status. A failed check means the sweep is not reconciled.
+classified root and every supplemental root included to resolve an in-scope
+reply, except roots recorded under the held-thread boundary. For unheld roots it
+checks raw thread page cursor exhaustion, Slack's reply count, exact source
+text, attachments, and snapshot order, and rejects a newer human or sweep reply
+than the recorded status. A failed check means the sweep is not reconciled.
 
 A grouped CI report or attachment is a discovery index, never a replacement for
 the channel-message inventory.

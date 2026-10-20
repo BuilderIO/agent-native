@@ -3824,6 +3824,75 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("reuses a replayed runtime run ID for the same thread and turn", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async () => ({
+      id: "turn-replayed",
+      runId: "runtime-run-replayed",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    const first = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Start")],
+    });
+    const replay = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Replay")],
+    });
+
+    expect(replay.runId).toBe(first.runId);
+    expect(startTurn).toHaveBeenCalledTimes(2);
+    await transport.dispose();
+  });
+
+  it("rejects a duplicate run ID for a different runtime turn", async () => {
+    let turn = 0;
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn: async () => ({
+            id: `turn-${++turn}`,
+            runId: "runtime-run-duplicate",
+            sessionId: "thread-1",
+            events: events(),
+          }),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Start")],
+    });
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Different turn")],
+      }),
+    ).rejects.toThrow("Duplicate AgentKit run id: runtime-run-duplicate");
+    await transport.dispose();
+  });
+
   it("reuses a queued start while restoring its runtime successor", async () => {
     let releaseTurn!: (turn: AgentChatRuntimeTurn) => void;
     const turnPromise = new Promise<AgentChatRuntimeTurn>((resolve) => {
