@@ -80,9 +80,11 @@ export function usePanelCostNotice(dashboardId: string | undefined) {
       );
       const options = {
         id: `panel-cost:${dashboardId}:${panelId}`,
+        // The hint goes on its own line under the cost.
         description: over
-          ? `${cost} ${t("sqlDashboard.panelCostOverHint")}`
+          ? `${cost}\n${t("sqlDashboard.panelCostOverHint")}`
           : cost,
+        classNames: { description: "whitespace-pre-line" },
         duration: over ? Number.POSITIVE_INFINITY : NOTICE_MS,
         closeButton: over,
       };

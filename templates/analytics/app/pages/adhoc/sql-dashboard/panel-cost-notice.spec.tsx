@@ -112,7 +112,7 @@ describe("usePanelCostNotice", () => {
       '"Signups" is expensive to refresh',
       expect.objectContaining({
         description:
-          "~200 GiB scanned · $1.22 per refresh · no email reports A narrower date range or fewer columns scans less.",
+          "~200 GiB scanned · $1.22 per refresh · no email reports\nA narrower date range or fewer columns scans less.",
         duration: Number.POSITIVE_INFINITY,
         closeButton: true,
       }),
