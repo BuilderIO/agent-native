@@ -1737,13 +1737,11 @@ export interface VisualEditorPersistenceController {
 }
 
 export function shouldFlushVisualEditorDraft({
-  editable,
   hasUserEditIntent,
 }: {
-  editable: boolean;
   hasUserEditIntent: boolean;
 }) {
-  return editable && hasUserEditIntent;
+  return hasUserEditIntent;
 }
 
 export function suggestionReplacementIntentForTransaction(
@@ -3427,7 +3425,7 @@ export function VisualEditor({
             : ("unchanged" as const);
         scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
-        if (localFileMode && normalized === content)
+        if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
         if (
           !shouldPersistEffectivelyEmptyEditorUpdate({
@@ -3797,12 +3795,12 @@ export function VisualEditor({
       flushLatest: async () => {
         if (
           !shouldFlushVisualEditorDraft({
-            editable,
             hasUserEditIntent: hasUserEditIntentRef.current,
           })
         ) {
           return true;
         }
+        // The save callback owns permission for drafts entered before an edit lock.
         const result = await Promise.resolve(
           persistEditorContent(editor, {
             immediate: true,

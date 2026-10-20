@@ -11,6 +11,7 @@ export interface BlockFieldSaveController {
   readonly hasSavedLocally: boolean;
   readonly version: number;
   readonly lastError: unknown;
+  readonly isClean: boolean;
 }
 
 export function createBlockFieldSaveController(args: {
@@ -33,6 +34,15 @@ export function createBlockFieldSaveController(args: {
   let lastError: unknown = null;
 
   let inFlight: Promise<void> | null = null;
+
+  function isClean() {
+    return (
+      pending === lastSaved &&
+      timer === null &&
+      inFlight === null &&
+      lastError === null
+    );
+  }
 
   function clearTimer() {
     if (timer !== null) {
@@ -65,7 +75,7 @@ export function createBlockFieldSaveController(args: {
 
   return {
     change(content: string) {
-      version += 1;
+      if (content !== pending) version += 1;
       pending = content;
       clearTimer();
       if (content === lastSaved) return;
@@ -121,6 +131,9 @@ export function createBlockFieldSaveController(args: {
     },
     get lastError() {
       return lastError;
+    },
+    get isClean() {
+      return isClean();
     },
   };
 }

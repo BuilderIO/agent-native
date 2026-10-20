@@ -1,21 +1,35 @@
 // @vitest-environment happy-dom
 
+import { createHash } from "node:crypto";
+
 import type { Document, DocumentPropertiesResponse } from "@shared/api";
 import { legacyBlocksFieldIdentity } from "@shared/blocks-field-identity";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
+import type { PageEditorSession } from "./DocumentEditor";
 import type { useDocumentReconcileRecovery } from "./useDocumentReconcileRecovery";
-import type { VisualEditor } from "./VisualEditor";
+import type {
+  VisualEditor,
+  VisualEditorPersistenceController,
+} from "./VisualEditor";
 
 const fixture = vi.hoisted(() => ({
   page: null as Document | null,
   fields: null as DocumentPropertiesResponse | null,
+  realAdditionalEditors: false,
+  lockAdditionalForSuggestions: false,
+  session: null as PageEditorSession | null,
+  fieldEditor: null as Editor | null,
+  fieldProps: null as ComponentProps<typeof VisualEditor> | null,
+  fieldController: null as VisualEditorPersistenceController | null,
+  fieldSave: vi.fn(),
   visualFlush: vi.fn(),
   onCollabEvent: null as
     | ((event: { source: string; key: string }) => void)
@@ -36,6 +50,21 @@ const fixture = vi.hoisted(() => ({
     | ((event: { source: string; key: string }) => void)
     | null,
 }));
+
+vi.mock("./DocumentBlockFields", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./DocumentBlockFields")>();
+  const React = await import("react");
+  return {
+    ...actual,
+    DocumentBlockFields: (
+      props: ComponentProps<typeof actual.DocumentBlockFields>,
+    ) =>
+      React.createElement(actual.DocumentBlockFields, {
+        ...props,
+        suggesting: fixture.lockAdditionalForSuggestions || props.suggesting,
+      }),
+  };
+});
 
 vi.mock("@agent-native/core/client/application-state", () => ({
   readClientAppState: fixture.readAppState,
@@ -84,15 +113,9 @@ vi.mock("@agent-native/core/client/review", () => ({
   useDecideResourceSuggestionProposal: () => fixture.mutation,
   useUpdateResourceSuggestion: () => fixture.mutation,
 }));
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/client/agent-chat")>()),
   generateTabId: () => "recovery-tab",
-}));
-vi.mock("@agent-native/toolkit/app/blocks", () => ({
-  BlockRegistryProvider: ({ children }: { children: ReactNode }) => children,
-}));
-vi.mock("@/blocks/contentBlockRegistry", () => ({
-  contentBlockRegistry: {},
-  createContentBlockRenderContext: () => ({}),
 }));
 vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
@@ -158,7 +181,7 @@ vi.mock("@/hooks/use-document-properties", async (original) => ({
   useConfigureDocumentProperty: () => fixture.mutation,
   useDeleteDocumentProperty: () => fixture.mutation,
   useReorderDocumentProperty: () => fixture.mutation,
-  useSetDocumentProperty: () => fixture.mutation,
+  useSetDocumentProperty: () => ({ mutateAsync: fixture.fieldSave }),
 }));
 vi.mock("./DocumentDatabase", () => ({ DocumentDatabase: () => null }));
 vi.mock("./DocumentInfoPanel", () => ({ DocumentInfoPanel: () => null }));
@@ -168,15 +191,46 @@ vi.mock("./LinkedLocalDocumentAgentBridge", () => ({
 vi.mock("./DocumentReconcileRecovery", () => ({
   DocumentReconcileRecovery: () => null,
 }));
-vi.mock("./VisualEditor", async () => {
+vi.mock("@tiptap/react", async (original) => {
+  const actual = await original<typeof import("@tiptap/react")>();
+  return {
+    ...actual,
+    useEditor: (...args: Parameters<typeof actual.useEditor>) => {
+      const editor = actual.useEditor(...args);
+      fixture.fieldEditor = editor;
+      return editor;
+    },
+  };
+});
+vi.mock("./VisualEditor", async (original) => {
+  const actual = await original<typeof import("./VisualEditor")>();
   const React = await import("react");
+  function RealAdditionalEditor(props: ComponentProps<typeof VisualEditor>) {
+    const current = React.useRef(props);
+    current.current = props;
+    fixture.fieldProps = props;
+    const publish = React.useCallback(
+      (next: VisualEditorPersistenceController | null) => {
+        fixture.fieldController = next;
+        current.current.onPersistenceControllerChange?.(next);
+      },
+      [],
+    );
+    return React.createElement(actual.VisualEditor, {
+      ...props,
+      onPersistenceControllerChange: publish,
+    });
+  }
   return {
     VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
+      if (fixture.realAdditionalEditors && props.localFileMode)
+        return React.createElement(RealAdditionalEditor, props);
+      const primary = !props.localFileMode;
       const current = React.useRef(props);
       current.current = props;
       const draft = React.useRef(props.content);
       const version = React.useRef({}).current;
-      if (props.onPersistenceControllerChange)
+      if (primary)
         fixture.editor = {
           ...props,
           onChange: (content) => {
@@ -189,7 +243,7 @@ vi.mock("./VisualEditor", async () => {
         props.onPersistenceControllerChange({
           version,
           flushLatest: async () => {
-            fixture.visualFlush(draft.current);
+            if (primary) fixture.visualFlush(draft.current);
             const result = await current.current.onSaveContent!(draft.current);
             return result !== false && result !== "failed";
           },
@@ -197,9 +251,7 @@ vi.mock("./VisualEditor", async () => {
         return () => props.onPersistenceControllerChange!(null);
       }, [props.onPersistenceControllerChange, version]);
       return React.createElement("div", {
-        "data-visual-body": props.onPersistenceControllerChange
-          ? "primary"
-          : "additional",
+        "data-visual-body": primary ? "primary" : "additional",
       });
     },
   };
@@ -231,10 +283,10 @@ vi.mock("./useDocumentReconcileRecovery", async (importOriginal) => {
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { createBlockFieldSaveController } from "./blockFieldSaveController";
 import {
-  acquireBlockFieldSaveController,
   __resetBlockFieldSaveRegistry,
+  flushAllBlockFieldSaveControllersForDocument,
+  peekBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import { PageEditorSurface } from "./DocumentEditor";
 
@@ -290,6 +342,13 @@ beforeEach(() => {
     );
   fixture.editor = null;
   fixture.fields = null;
+  fixture.realAdditionalEditors = false;
+  fixture.lockAdditionalForSuggestions = false;
+  fixture.session = null;
+  fixture.fieldEditor = null;
+  fixture.fieldProps = null;
+  fixture.fieldController = null;
+  fixture.fieldSave.mockReset().mockResolvedValue({});
   fixture.visualFlush.mockReset();
   fixture.onCollabEvent = null;
   fixture.readAppState.mockReset().mockResolvedValue(null);
@@ -308,7 +367,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  const fieldEditor = fixture.fieldEditor;
   await act(async () => root.unmount());
+  if (fieldEditor && !fieldEditor.isDestroyed) fieldEditor.destroy();
   fixture.awareness!.destroy();
   ydoc.destroy();
   queryClient.clear();
@@ -333,6 +394,9 @@ function renderEditor() {
           createElement(PageEditorSurface, {
             documentId: fixture.page!.id,
             host: "preview",
+            onSessionChange: (session) => {
+              fixture.session = session;
+            },
           }),
         ),
       ),
@@ -667,16 +731,9 @@ it("cannot promote a held save into a prepared claim before expiry", async () =>
 
 it("confirms an exact additional field independently of a dirty primary body and invalidates later field input", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  collectionFields();
   await act(async () => renderEditor());
-  const fieldSave = vi.fn(async () => {});
-  const controller = acquireBlockFieldSaveController(
-    `${fixture.page!.id}:notes`,
-    () =>
-      createBlockFieldSaveController({
-        initialContent: "Saved additional field",
-        save: fieldSave,
-      }),
-  );
+  const controller = peekBlockFieldSaveController(`${fixture.page!.id}:notes`)!;
   act(() => fixture.editor!.onChange("Unrelated dirty primary body"));
   await deliver(flushRequest("prepare", "field-prepare", "notes"));
   await act(async () => {
@@ -694,7 +751,7 @@ it("confirms an exact additional field independently of a dirty primary body and
     },
   });
   expect(fixture.save).not.toHaveBeenCalled();
-  expect(fieldSave).not.toHaveBeenCalled();
+  expect(fixture.fieldSave).not.toHaveBeenCalled();
   controller.change("New additional field input");
   await deliver(flushRequest("verify", "field-prepare", "notes"));
   expect(publishedAcks()[publishedAcks().length - 1]).toHaveProperty(
@@ -841,4 +898,440 @@ it("republishes a newer acknowledged save when an obsolete retry is consumed", a
   });
   expect(publish).toHaveBeenCalledOnce();
   publish.mockRestore();
+});
+
+describe("actual additional field freshness", () => {
+  async function mountField() {
+    fixture.realAdditionalEditors = true;
+    collectionFields();
+    acknowledgeCurrentSaves();
+    fixture.fieldSave.mockImplementation(async (input) => {
+      fixture.fields = {
+        ...fixture.fields!,
+        properties: fixture.fields!.properties.map((field) =>
+          field.definition.id === input.propertyId
+            ? {
+                ...field,
+                value: input.value,
+                blocksField: {
+                  ...field.blocksField!,
+                  revision: field.blocksField!.revision + 1,
+                },
+              }
+            : field,
+        ),
+      };
+      return fixture.fields;
+    });
+    await act(async () => renderEditor());
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[role="tab"][data-block-field-id="notes"]',
+        )!
+        .click(),
+    );
+    expect(fixture.fieldEditor!.getText()).toBe("Additional body");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  }
+  function fieldInput(text: string) {
+    act(() => {
+      const editor = fixture.fieldEditor!;
+      editor.view.dom.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          inputType: "insertText",
+          data: text,
+        }),
+      );
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      editor.view.dispatch(editor.state.tr.insertText(text));
+    });
+  }
+  async function fieldAcks(count: number) {
+    for (let i = 0; i < 30 && publishedAcks().length < count; i++)
+      await act(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+      });
+    expect(publishedAcks()).toHaveLength(count);
+    return publishedAcks()[count - 1];
+  }
+  async function fieldPhase(
+    phase: "prepare" | "verify",
+    token: string,
+    count: number,
+  ) {
+    await deliver(flushRequest(phase, token, "notes"));
+    return fieldAcks(count);
+  }
+  function fieldState() {
+    return peekBlockFieldSaveController(`${fixture.page!.id}:notes`)!;
+  }
+
+  async function saveThenLockField() {
+    await mountField();
+    fieldInput(" saved before suggesting");
+    await act(async () => {
+      expect(await fixture.fieldController!.flushLatest()).toBe(true);
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(fieldState().isClean).toBe(true);
+    expect(fieldState().lastSaved).toBe(
+      "Additional body saved before suggesting",
+    );
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+    const editor = fixture.fieldEditor;
+    fixture.lockAdditionalForSuggestions = true;
+    await act(async () => renderEditor());
+    expect(fixture.fieldEditor).toBe(editor);
+    expect(editor!.isEditable).toBe(false);
+    expect(fieldState().isClean).toBe(true);
+  }
+
+  it.each(["field navigation helper", "parent session"] as const)(
+    "flushes an acknowledged unchanged suggestion-locked field through the %s without writing again",
+    async (path) => {
+      await saveThenLockField();
+      const version = fieldState().version;
+      await act(async () => {
+        if (path === "field navigation helper")
+          await expect(
+            flushAllBlockFieldSaveControllersForDocument(fixture.page!.id),
+          ).resolves.toBeUndefined();
+        else {
+          expect(fixture.session).not.toBeNull();
+          await expect(fixture.session!.flush()).resolves.toBeUndefined();
+        }
+      });
+      expect(fieldState().version).toBe(version);
+      expect(fixture.fieldSave).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("refuses a different actual serialization in a clean suggestion-locked field", async () => {
+    await saveThenLockField();
+    fieldInput(" new locked input");
+    expect(fixture.fieldEditor!.getText()).toBe(
+      "Additional body saved before suggesting new locked input",
+    );
+    expect(fieldState().isClean).toBe(true);
+    await act(async () => {
+      await expect(
+        flushAllBlockFieldSaveControllersForDocument(fixture.page!.id),
+      ).rejects.toThrow("A Blocks field could not be saved before reading it.");
+    });
+    expect(fieldState().lastSaved).toBe(
+      "Additional body saved before suggesting",
+    );
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+  });
+
+  it("refuses an acknowledged-looking locked field after a failed save and real change-back", async () => {
+    await mountField();
+    const failure = new Error("Blocks field revision conflict");
+    fixture.fieldSave.mockRejectedValue(failure);
+    fieldInput(" rejected edit");
+    await act(async () => {
+      expect(await fixture.fieldController!.flushLatest()).toBe(false);
+    });
+    expect(fieldState().pending).toBe("Additional body");
+    expect(fieldState().lastSaved).toBe("Additional body");
+    expect(fieldState().lastError).toBe(failure);
+    act(() => {
+      const editor = fixture.fieldEditor!;
+      editor.view.dispatch(
+        editor.state.tr.delete(
+          "Additional body".length + 1,
+          editor.state.doc.content.size - 1,
+        ),
+      );
+    });
+    expect(fixture.fieldEditor!.getText()).toBe("Additional body");
+    fixture.lockAdditionalForSuggestions = true;
+    await act(async () => renderEditor());
+    expect(fixture.fieldEditor!.isEditable).toBe(false);
+    await act(async () => {
+      await expect(fixture.session!.flush()).rejects.toThrow(
+        "editor.pageSaveBeforeNavigationFailed",
+      );
+    });
+    expect(fieldState().lastError).toBe(failure);
+    expect(fieldState().isClean).toBe(false);
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+  });
+
+  it("drains real un-emitted field input before prepare then confirms a stable retry beside a dirty primary", async () => {
+    await mountField();
+    act(() => fixture.editor!.onChange("Unrelated dirty primary"));
+    fieldInput(" new field input");
+    expect(fieldState().pending).toBe("Additional body");
+    expect(fixture.fieldEditor!.getText()).toBe(
+      "Additional body new field input",
+    );
+    expect(await fieldPhase("prepare", "first", 1)).toHaveProperty(
+      "status",
+      "changed",
+    );
+    expect(fixture.fieldSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        propertyId: "notes",
+        value: "Additional body new field input",
+      }),
+    );
+    expect(fieldState().lastSaved).toBe("Additional body new field input");
+    const prepared = await fieldPhase("prepare", "stable", 2);
+    expect(prepared).toMatchObject({
+      status: "prepared",
+      claim: {
+        kind: "property",
+        propertyId: "notes",
+        contentHash:
+          "sha256:" +
+          createHash("sha256")
+            .update("Additional body new field input")
+            .digest("hex"),
+      },
+    });
+    expect(await fieldPhase("verify", "stable", 3)).toMatchObject({
+      status: "verified",
+      stabilityToken: prepared.stabilityToken,
+    });
+    expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+  });
+
+  it("invalidates verify for real field input before its deferred parent callback", async () => {
+    await mountField();
+    expect(await fieldPhase("prepare", "before-input", 1)).toHaveProperty(
+      "status",
+      "prepared",
+    );
+    fieldInput(" later input");
+    expect(fieldState().pending).toBe("Additional body");
+    expect(fixture.fieldSave).not.toHaveBeenCalled();
+    expect(await fieldPhase("verify", "before-input", 2)).toHaveProperty(
+      "status",
+      "changed",
+    );
+    expect(fieldState().pending).toBe("Additional body");
+  });
+
+  it("invalidates real visual change-back while both ordinary field callbacks are held", async () => {
+    await mountField();
+    expect(await fieldPhase("prepare", "change-back", 1)).toHaveProperty(
+      "status",
+      "prepared",
+    );
+    fieldInput("x");
+    act(() => {
+      const editor = fixture.fieldEditor!;
+      const end = editor.state.doc.content.size - 1;
+      editor.view.dispatch(editor.state.tr.delete(end - 1, end));
+    });
+    expect(fixture.fieldEditor!.getText()).toBe("Additional body");
+    expect(fieldState().pending).toBe("Additional body");
+    expect(fixture.fieldSave).not.toHaveBeenCalled();
+    expect(await fieldPhase("verify", "change-back", 2)).toHaveProperty(
+      "status",
+      "changed",
+    );
+  });
+
+  it("prepares and verifies a previously edited settled field without manufacturing another save version", async () => {
+    await mountField();
+    fieldInput(" edited and settled");
+    await act(async () => {
+      expect(await fixture.fieldController!.flushLatest()).toBe(true);
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(fieldState().lastSaved).toBe("Additional body edited and settled");
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+    const version = fieldState().version;
+    const prepared = await fieldPhase("prepare", "settled", 1);
+    expect(prepared).toHaveProperty("status", "prepared");
+    expect(await fieldPhase("verify", "settled", 2)).toMatchObject({
+      status: "verified",
+      stabilityToken: prepared.stabilityToken,
+    });
+    expect(fieldState().version).toBe(version);
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a hidden field's same live controller valid through verification", async () => {
+    await mountField();
+    expect(await fieldPhase("prepare", "hidden", 1)).toHaveProperty(
+      "status",
+      "prepared",
+    );
+    const controller = fixture.fieldController;
+    const editor = fixture.fieldEditor;
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[role="tab"][data-block-field-id="content"]',
+        )!
+        .click(),
+    );
+    expect(
+      container.querySelector<HTMLElement>(
+        '[role="tabpanel"][data-block-field-id="notes"]',
+      )!.hidden,
+    ).toBe(true);
+    expect(fixture.fieldController).toBe(controller);
+    expect(fixture.fieldEditor).toBe(editor);
+    expect(await fieldPhase("verify", "hidden", 2)).toHaveProperty(
+      "status",
+      "verified",
+    );
+  });
+
+  it.each(["prepare", "verify"] as const)(
+    "refuses an unavailable live field controller at %s",
+    async (phase) => {
+      await mountField();
+      if (phase === "verify")
+        expect(await fieldPhase("prepare", "missing", 1)).toHaveProperty(
+          "status",
+          "prepared",
+        );
+      fixture.fieldProps!.onPersistenceControllerChange!(null);
+      const answer = await fieldPhase(
+        phase,
+        "missing",
+        phase === "prepare" ? 1 : 2,
+      );
+      expect(answer).toMatchObject(
+        phase === "prepare"
+          ? { status: "error", errorCode: "editor_flush_failed" }
+          : { status: "changed" },
+      );
+      fixture.fieldProps!.onPersistenceControllerChange!(
+        fixture.fieldController,
+      );
+    },
+  );
+
+  it("invalidates a prepared interval after an actual field unmount and remount", async () => {
+    await mountField();
+    expect(await fieldPhase("prepare", "replace", 1)).toHaveProperty(
+      "status",
+      "prepared",
+    );
+    const oldEditor = fixture.fieldEditor!;
+    const oldController = fixture.fieldController;
+    const oldField = fixture.fields!.properties.find(
+      (field) => field.definition.id === "notes",
+    )!;
+    fixture.fields = {
+      ...fixture.fields!,
+      properties: fixture.fields!.properties.filter(
+        (field) => field !== oldField,
+      ),
+    };
+    await act(async () => renderEditor());
+    await act(async () => vi.advanceTimersByTimeAsync(2));
+    expect(oldEditor.isDestroyed).toBe(true);
+    expect(
+      peekBlockFieldSaveController(`${fixture.page!.id}:notes`),
+    ).toBeUndefined();
+    fixture.fields = {
+      ...fixture.fields!,
+      properties: [...fixture.fields!.properties, oldField],
+    };
+    await act(async () => renderEditor());
+    expect(fixture.fieldEditor).not.toBe(oldEditor);
+    expect(fixture.fieldController).not.toBe(oldController);
+    expect(await fieldPhase("verify", "replace", 2)).toHaveProperty(
+      "status",
+      "changed",
+    );
+  });
+
+  it("invalidates input across a held field save await and then confirms the newer current body", async () => {
+    await mountField();
+    const persist = fixture.fieldSave.getMockImplementation()!;
+    const release: Array<() => Promise<void>> = [];
+    fixture.fieldSave.mockImplementation(
+      (input) =>
+        new Promise((resolve) => {
+          release.push(async () => resolve(await persist(input)));
+        }),
+    );
+    fieldInput(" first");
+    await deliver(flushRequest("prepare", "held-first", "notes"));
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+    expect(publishedAcks()).toHaveLength(0);
+    fieldInput(" second");
+    await act(async () => release.shift()!());
+    expect(await fieldAcks(1)).toHaveProperty("status", "changed");
+    expect(fixture.fieldEditor!.getText()).toBe("Additional body first second");
+    await deliver(flushRequest("prepare", "held-second", "notes"));
+    expect(fixture.fieldSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ value: "Additional body first second" }),
+    );
+    expect(publishedAcks()).toHaveLength(1);
+    await act(async () => release.shift()!());
+    expect(await fieldAcks(2)).toHaveProperty("status", "changed");
+    expect(await fieldPhase("prepare", "current", 3)).toHaveProperty(
+      "status",
+      "prepared",
+    );
+    expect(await fieldPhase("verify", "current", 4)).toHaveProperty(
+      "status",
+      "verified",
+    );
+    expect(fieldState().lastSaved).toBe("Additional body first second");
+  });
+
+  it("publishes a typed refusal when actual field persistence keeps failing", async () => {
+    await mountField();
+    const failure = new Error("field save unavailable");
+    fixture.fieldSave.mockRejectedValue(failure);
+    fieldInput(" failed input");
+    expect(await fieldPhase("prepare", "failed-first", 1)).toHaveProperty(
+      "status",
+      "changed",
+    );
+    expect(fieldState().lastError).toBe(failure);
+    expect(await fieldPhase("prepare", "failed-retry", 2)).toMatchObject({
+      status: "error",
+      errorCode: "editor_flush_failed",
+    });
+    expect(publishedAcks().some((ack) => ack.status === "prepared")).toBe(
+      false,
+    );
+  });
+
+  it("refuses un-emitted field input when the field becomes read-only before prepare", async () => {
+    await mountField();
+    fieldInput(" before permission changed");
+    fixture.fields = { ...fixture.fields!, canEditValues: false };
+    await act(async () => renderEditor());
+    expect(fixture.fieldEditor!.isEditable).toBe(false);
+    expect(fieldState().pending).toBe("Additional body");
+    expect(await fieldPhase("prepare", "locked", 1)).toMatchObject({
+      status: "error",
+      errorCode: "editor_flush_failed",
+    });
+    expect(fixture.fieldSave).not.toHaveBeenCalled();
+  });
+
+  it("cannot acknowledge a field save held past the request deadline", async () => {
+    await mountField();
+    const persist = fixture.fieldSave.getMockImplementation()!;
+    let release!: () => Promise<void>;
+    fixture.fieldSave.mockImplementation(
+      (input) =>
+        new Promise((resolve) => {
+          release = async () => resolve(await persist(input));
+        }),
+    );
+    fieldInput(" held input");
+    await deliver(flushRequest("prepare", "expired", "notes"));
+    expect(fixture.fieldSave).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(publishedAcks()).toHaveLength(0);
+    await act(async () => release());
+    expect(publishedAcks()).toHaveLength(0);
+    expect(fieldState().lastSaved).toBe("Additional body held input");
+  });
 });

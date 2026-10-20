@@ -3,7 +3,7 @@
 import type { DocumentFlushRequest } from "@shared/document-flush-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -38,7 +38,25 @@ let container: HTMLDivElement;
 let queryClient: QueryClient;
 let controller: VisualEditorPersistenceController | null;
 const onChange = vi.fn();
-const onSaveContent = vi.fn(async () => "persisted" as const);
+const onSaveContent = vi.fn(
+  async (): Promise<"persisted" | "failed"> => "persisted",
+);
+let setEditable: (editable: boolean) => void;
+
+function VisualHarness() {
+  const [editable, set] = useState(true);
+  setEditable = set;
+  return createElement(VisualEditor, {
+    content: "Saved body",
+    contentUpdatedAt: "2026-10-19T12:00:00Z",
+    editable,
+    onChange,
+    onSaveContent,
+    onPersistenceControllerChange: (next) => {
+      controller = next;
+    },
+  });
+}
 
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -70,16 +88,7 @@ beforeEach(async () => {
           createElement(
             QueryClientProvider,
             { client: queryClient },
-            createElement(VisualEditor, {
-              content: "Saved body",
-              contentUpdatedAt: "2026-10-19T12:00:00Z",
-              editable: true,
-              onChange,
-              onSaveContent,
-              onPersistenceControllerChange: (next) => {
-                controller = next;
-              },
-            }),
+            createElement(VisualHarness),
           ),
         ),
       ),
@@ -205,4 +214,17 @@ it("keeps verification stable for selection-only transactions", async () => {
   });
   await flow.verify();
   expect(flow.acks()[1].status).toBe("verified");
+});
+
+it("checks a pre-lock draft through its save callback and preserves a refusal", async () => {
+  input(" pre-lock draft");
+  await act(async () => setEditable(false));
+  expect(fixture.editor!.isEditable).toBe(false);
+  await expect(controller!.flushLatest()).resolves.toBe(true);
+  expect(onSaveContent).toHaveBeenCalledExactlyOnceWith(
+    "Saved body pre-lock draft",
+  );
+  onSaveContent.mockResolvedValueOnce("failed");
+  await expect(controller!.flushLatest()).resolves.toBe(false);
+  expect(onSaveContent).toHaveBeenCalledTimes(2);
 });

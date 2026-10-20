@@ -78,6 +78,7 @@ import {
 import {
   acquireBlockFieldSaveController,
   blockFieldSaveImplRef,
+  createBlockFieldPersistenceRef,
   forgetBlockFieldSaveController,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
@@ -101,7 +102,10 @@ import {
   type BlockFieldSeen,
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
-import { VisualEditor } from "./VisualEditor";
+import {
+  VisualEditor,
+  type VisualEditorPersistenceController,
+} from "./VisualEditor";
 
 const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 // The default `auto` track grows to its widest unbreakable line, which widens
@@ -1693,7 +1697,11 @@ export function useBlockFieldEditor({
   editorResetVersion: number;
   onChange: (markdown: string) => void;
   onSaveContent: (markdown: string) => Promise<boolean>;
+  isAcknowledgedContent: (markdown: string) => boolean;
   isPendingContent: (markdown: string) => boolean;
+  onPersistenceControllerChange: (
+    controller: VisualEditorPersistenceController | null,
+  ) => void;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -1723,6 +1731,13 @@ export function useBlockFieldEditor({
   };
 
   const controllerRef = useRef<BlockFieldSaveController | null>(null);
+  const persistenceRef = useMemo(createBlockFieldPersistenceRef, [key]);
+  const onPersistenceControllerChange = useCallback(
+    (controller: VisualEditorPersistenceController | null) => {
+      persistenceRef.current = controller;
+    },
+    [persistenceRef],
+  );
 
   const factory = () =>
     createBlockFieldSaveController({
@@ -1742,16 +1757,22 @@ export function useBlockFieldEditor({
       },
     });
 
-  useEffect(() => {
-    controllerRef.current = acquireBlockFieldSaveController(key, factory);
+  useLayoutEffect(() => {
+    controllerRef.current = acquireBlockFieldSaveController(
+      key,
+      factory,
+      persistenceRef,
+    );
     return () => {
       controllerRef.current = null;
-      void releaseBlockFieldSaveController(key).then((evicted) => {
-        onReleaseSettledRef.current?.(evicted);
-      });
+      void releaseBlockFieldSaveController(key, persistenceRef).then(
+        (evicted) => {
+          onReleaseSettledRef.current?.(evicted);
+        },
+      );
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, persistenceRef]);
 
   const [content, setContent] = useState(() => {
     const existing = peekBlockFieldSaveController(key);
@@ -1809,11 +1830,21 @@ export function useBlockFieldEditor({
     if (!controller) return false;
     controller.change(markdown);
     await controller.flush();
-    return controller.lastSaved === markdown;
+    return controller.isClean && controller.lastSaved === markdown;
   }
 
   function isPendingContent(markdown: string) {
     return controllerRef.current?.pending === markdown;
+  }
+
+  function isAcknowledgedContent(markdown: string) {
+    const controller = controllerRef.current;
+    return (
+      controller !== null &&
+      controller.isClean &&
+      controller.pending === markdown &&
+      controller.lastSaved === markdown
+    );
   }
 
   return {
@@ -1821,7 +1852,9 @@ export function useBlockFieldEditor({
     editorResetVersion,
     onChange,
     onSaveContent,
+    isAcknowledgedContent,
     isPendingContent,
+    onPersistenceControllerChange,
   };
 }
 
@@ -1858,7 +1891,9 @@ function AdditionalBlockEditor({
     editorResetVersion,
     onChange,
     onSaveContent,
+    isAcknowledgedContent,
     isPendingContent,
+    onPersistenceControllerChange,
   } = useBlockFieldEditor({
     documentId,
     propertyId,
@@ -1885,11 +1920,13 @@ function AdditionalBlockEditor({
         if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
+        if (isAcknowledgedContent(markdown)) return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
       editable={canEdit}
+      onPersistenceControllerChange={onPersistenceControllerChange}
       localFileMode
     />
   );

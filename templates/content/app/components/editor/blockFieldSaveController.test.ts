@@ -11,6 +11,54 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("blockFieldSaveController", () => {
+  it("keeps pending, in-flight and failed work distinguishable from an acknowledged unchanged value", async () => {
+    let finish!: () => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const controller = createBlockFieldSaveController({
+      initialContent: "Saved",
+      save,
+    });
+    expect(controller.isClean).toBe(true);
+    controller.change("Pending");
+    expect(controller.isClean).toBe(false);
+    const flush = controller.flush();
+    expect(controller.isClean).toBe(false);
+    finish();
+    await flush;
+    expect(controller.isClean).toBe(true);
+    const failure = new Error("unavailable");
+    save.mockRejectedValue(failure);
+    controller.change("Failed");
+    await controller.flush();
+    expect(controller.lastError).toBe(failure);
+    controller.discardPending();
+    controller.change("Pending");
+    await controller.flush();
+    expect(controller.lastSaved).toBe("Pending");
+    expect(controller.lastError).toBe(failure);
+    expect(controller.isClean).toBe(false);
+  });
+
+  it("does not invent a version for an already acknowledged unchanged serialization", async () => {
+    const save = vi.fn(async () => {});
+    const controller = createBlockFieldSaveController({
+      initialContent: "Initial",
+      save,
+    });
+    controller.change("Edited and saved");
+    await controller.flush();
+    const version = controller.version;
+    controller.change("Edited and saved");
+    await controller.flush();
+    expect(controller.version).toBe(version);
+    expect(save).toHaveBeenCalledExactlyOnceWith("Edited and saved");
+  });
+
   it("debounces a save and persists after the delay", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = createBlockFieldSaveController({ initialContent: "", save });

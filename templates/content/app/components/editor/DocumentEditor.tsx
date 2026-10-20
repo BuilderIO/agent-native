@@ -195,6 +195,7 @@ import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
   peekBlockFieldSaveController,
+  readBlockFieldEditorState,
 } from "./blockFieldSaveRegistry";
 import {
   blockFieldVisit,
@@ -5435,24 +5436,17 @@ function PageEditorSessionBody({
           ? editorSessionIdRef.current!
           : "inactive";
       if (propertyId) {
-        const controller = peekBlockFieldSaveController(
-          `${documentId}:${propertyId}`,
-        );
+        const field = readBlockFieldEditorState(`${documentId}:${propertyId}`);
+        const controller = field?.controller;
         return {
           identity,
           generation: controller?.version ?? -1,
           observation: 0,
           valueEpoch: controller?.version ?? -1,
-          visualVersion: null,
+          visualVersion: field?.visualVersion ?? null,
           title: "",
           content: controller?.pending ?? "",
-          clean:
-            identity !== "inactive" &&
-            !!controller &&
-            !controller.isSaving &&
-            !controller.hasPendingTimer &&
-            controller.lastError === null &&
-            controller.pending === controller.lastSaved,
+          clean: identity !== "inactive" && field?.clean === true,
           claim: null,
         };
       }

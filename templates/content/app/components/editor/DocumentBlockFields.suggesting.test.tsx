@@ -36,12 +36,33 @@ vi.mock("@/hooks/use-document-properties", () => ({
 vi.mock("@/components/QueryErrorState", () => ({
   QueryErrorState: () => createElement("div", { "data-query-error": "" }),
 }));
-vi.mock("./VisualEditor", () => ({
-  VisualEditor: (props: Record<string, unknown>) => {
-    mocks.editorProps = props;
-    return createElement("div", { "data-editable": String(props.editable) });
-  },
-}));
+vi.mock("./VisualEditor", async () => {
+  const React = await import("react");
+  return {
+    VisualEditor: (props: Record<string, unknown>) => {
+      mocks.editorProps = props;
+      const latest = React.useRef(props);
+      latest.current = props;
+      const version = React.useRef({}).current;
+      React.useEffect(() => {
+        const publish = props.onPersistenceControllerChange as
+          | ((controller: unknown) => void)
+          | undefined;
+        publish?.({
+          version,
+          flushLatest: async () => {
+            const save = latest.current.onSaveContent as (
+              content: string,
+            ) => Promise<string>;
+            return (await save(String(latest.current.content))) !== "failed";
+          },
+        });
+        return () => publish?.(null);
+      }, [props.onPersistenceControllerChange, version]);
+      return createElement("div", { "data-editable": String(props.editable) });
+    },
+  };
+});
 
 import {
   __resetBlockFieldSaveRegistry,
@@ -270,6 +291,6 @@ describe("DocumentBlockFields suggestion boundary", () => {
       (mocks.editorProps?.onSaveContent as (value: string) => Promise<string>)(
         "Pre-entry draft",
       ),
-    ).resolves.toBe("failed");
+    ).resolves.toBe("unchanged");
   });
 });

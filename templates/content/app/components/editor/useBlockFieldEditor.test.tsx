@@ -27,6 +27,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     container?.remove();
     container = null;
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     __resetBlockFieldSaveRegistry();
   });
 
@@ -70,16 +71,21 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     onReady,
   }: {
     save: (req: SaveCall) => Promise<unknown>;
-    onReady: (onSaveContent: (markdown: string) => Promise<boolean>) => void;
+    onReady: (
+      onSaveContent: (markdown: string) => Promise<boolean>,
+      isAcknowledgedContent: (markdown: string) => boolean,
+      onChange: (markdown: string) => void,
+    ) => void;
   }) {
-    const { onSaveContent } = useBlockFieldEditor({
-      documentId: "doc",
-      propertyId: "field",
-      initialContent: "",
-      initialRevision: 0,
-      save,
-    });
-    onReady(onSaveContent);
+    const { onSaveContent, isAcknowledgedContent, onChange } =
+      useBlockFieldEditor({
+        documentId: "doc",
+        propertyId: "field",
+        initialContent: "",
+        initialRevision: 0,
+        save,
+      });
+    onReady(onSaveContent, isAcknowledgedContent, onChange);
     return null;
   }
 
@@ -108,6 +114,63 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       value: "persisted now",
       expectedBlocksFieldRevision: 0,
     });
+  });
+
+  it("acknowledges only the exact settled value, including change-back across an in-flight save and retained errors", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    let release!: () => void;
+    const save = vi.fn(async (_request: SaveCall) => {});
+    save.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    let onSaveContent!: (markdown: string) => Promise<boolean>;
+    let isAcknowledgedContent!: (markdown: string) => boolean;
+    let onChange!: (markdown: string) => void;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(ImmediateSaveHarness, {
+          save,
+          onReady: (persist, acknowledged, change) => {
+            onSaveContent = persist;
+            isAcknowledgedContent = acknowledged;
+            onChange = change;
+          },
+        }),
+      );
+    });
+    expect(isAcknowledgedContent("")).toBe(true);
+    expect(isAcknowledgedContent("different serialization")).toBe(false);
+    act(() => onChange("next"));
+    expect(isAcknowledgedContent("next")).toBe(false);
+    expect(isAcknowledgedContent("")).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = onSaveContent("next");
+    });
+    expect(save).toHaveBeenCalledOnce();
+    act(() => onChange(""));
+    expect(isAcknowledgedContent("")).toBe(false);
+    await act(async () => {
+      release();
+      expect(await saving).toBe(false);
+    });
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(isAcknowledgedContent("")).toBe(true);
+    const failure = new Error("Blocks field revision conflict");
+    save.mockRejectedValueOnce(failure);
+    await act(async () => {
+      expect(await onSaveContent("rejected draft")).toBe(false);
+    });
+    expect(isAcknowledgedContent("rejected draft")).toBe(false);
+    expect(isAcknowledgedContent("")).toBe(false);
   });
 
   it("reports release only after the final persistence settles", async () => {
