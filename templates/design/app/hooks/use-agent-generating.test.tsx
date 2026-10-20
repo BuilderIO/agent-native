@@ -327,6 +327,42 @@ describe("useAgentGenerating", () => {
       undefined,
     );
 
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+    expect(onStale).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("surfaces a retry state when restored-run status stays unreadable", async () => {
+    const onComplete = vi.fn();
+    const onStale = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe onComplete={onComplete} onStale={onStale} onStopped={vi.fn()} />,
+      );
+    });
+    await act(async () => {
+      latest!.track("design_tab", { resumingStoredRun: true });
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 3_000);
+    });
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    expect(latest!.generating).toBe(false);
+    expect(onStale).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+
     await act(async () => root.unmount());
     container.remove();
   });
