@@ -1472,6 +1472,20 @@ describe("EmailList keyboard navigation interactions", () => {
     ).toEqual(["thread-row-4", "thread-row-5", "thread-row-6"]);
   });
 
+  it("does not prefetch from a pointer-down on an inline control, only from the row body", () => {
+    render(<Harness />);
+    vi.mocked(warmThreads).mockClear();
+
+    const row = rows()[1];
+    fireEvent.pointerDown(
+      within(row).getByRole("button", { name: "mail.actions.star" }),
+    );
+    expect(warmThreads).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(row);
+    expect(warmThreads).toHaveBeenCalledTimes(1);
+  });
+
   it("prefetches on hover through the cooldown-gated path and opens on click directly", () => {
     vi.useFakeTimers();
     render(<Harness />);

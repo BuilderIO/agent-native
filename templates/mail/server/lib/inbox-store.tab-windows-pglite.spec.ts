@@ -281,7 +281,22 @@ describe("inbox tab windows match the in-memory partition in PGlite", () => {
         pageOffset: INBOX_MAX_PAGE_OFFSET + 1,
         pageLimit: 50,
       }),
-    ).rejects.toThrow(/exceeds/);
+    ).rejects.toThrow(/readable range/);
+    // The cap itself is not readable; the last readable offset is.
+    await expect(
+      store.readInboxTabWindows({
+        ...base,
+        pageOffset: INBOX_MAX_PAGE_OFFSET,
+        pageLimit: 50,
+      }),
+    ).rejects.toThrow(/readable range/);
+    await expect(
+      store.readInboxTabWindows({
+        ...base,
+        pageOffset: INBOX_MAX_PAGE_OFFSET - 1,
+        pageLimit: 50,
+      }),
+    ).resolves.toMatchObject({ page: [] });
     exec.execute = originalExecute as typeof exec.execute;
   }, 60_000);
 });

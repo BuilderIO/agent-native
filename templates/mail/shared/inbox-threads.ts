@@ -41,6 +41,17 @@ export type InboxPushWatch = "active" | "fallback";
 export const INBOX_MAX_PAGE_OFFSET = 2_000;
 
 /**
+ * Rows from index `INBOX_MAX_PAGE_OFFSET` on are not readable, so a page must
+ * start below it. The last readable page ends at the cap and reports
+ * `reachedCap`; the client never requests a page that starts at the cap.
+ */
+export function isReadableInboxPageOffset(offset: number): boolean {
+  return (
+    Number.isInteger(offset) && offset >= 0 && offset < INBOX_MAX_PAGE_OFFSET
+  );
+}
+
+/**
  * Sync poll cadence, shared by the server freshness gate and the client
  * poller so a steady account syncs at most once per interval.
  */

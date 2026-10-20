@@ -869,9 +869,14 @@ describe("list-inbox-threads action — managed workspace grant (no per-user OAu
   it("rejects a pagination offset past the deepest readable page", async () => {
     const { INBOX_MAX_PAGE_OFFSET } = await import("@shared/inbox-threads.js");
     const schema = (action as any).schema;
+    // A page must start below the cap: the one starting at it is not readable.
+    expect(
+      schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET - 1 })
+        .success,
+    ).toBe(true);
     expect(
       schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET }).success,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       schema.safeParse({ limit: 50, offset: INBOX_MAX_PAGE_OFFSET + 1 })
         .success,

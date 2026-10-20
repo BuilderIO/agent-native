@@ -4,6 +4,7 @@ import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 import {
   INBOX_MAX_PAGE_OFFSET,
+  isReadableInboxPageOffset,
   type InboxThreadItem,
 } from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
@@ -277,9 +278,9 @@ export async function readInboxTabWindows(params: {
   if (accounts.length === 0) {
     throw new Error("readInboxTabWindows needs at least one account");
   }
-  if (params.pageOffset > INBOX_MAX_PAGE_OFFSET) {
+  if (!isReadableInboxPageOffset(params.pageOffset)) {
     throw new Error(
-      `inbox page offset ${params.pageOffset} exceeds ${INBOX_MAX_PAGE_OFFSET}`,
+      `inbox page offset ${params.pageOffset} is past the readable range (below ${INBOX_MAX_PAGE_OFFSET})`,
     );
   }
   const pageTab = params.tabs.find((tab) => tab.id === params.pageTabId);

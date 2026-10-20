@@ -26,6 +26,7 @@ import {
   useState,
   useCallback,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Link } from "react-router";
 
@@ -46,6 +47,9 @@ import { mailLabelDisplayName } from "@/lib/label-display";
 import { THREAD_PREFETCH_INTENT_MS } from "@/lib/thread-cache";
 import type { ThreadSummary } from "@/lib/threads";
 import { cn, formatEmailDate } from "@/lib/utils";
+
+const INTERACTIVE_ROW_CONTROL_SELECTOR =
+  'button, a, input, [role="checkbox"], [data-row-action]';
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -342,9 +346,19 @@ export const EmailListItem = memo(function EmailListItem({
   }, []);
   useEffect(() => cancelPrefetch, [cancelPrefetch]);
 
-  const handleRowPointerDown = useCallback(() => {
-    if (thread) onPrefetch?.(thread);
-  }, [onPrefetch, thread]);
+  const handleRowPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      // Pointer-downs from inline controls (star, archive, select) bubble here.
+      // Triage is not a request to open the thread, so they must not prefetch.
+      const control =
+        event.target instanceof Element
+          ? event.target.closest(INTERACTIVE_ROW_CONTROL_SELECTOR)
+          : null;
+      if (control && event.currentTarget.contains(control)) return;
+      if (thread) onPrefetch?.(thread);
+    },
+    [onPrefetch, thread],
+  );
 
   const handleRowMouseEnter = useCallback(() => {
     if (!thread || !onPrefetch) return;

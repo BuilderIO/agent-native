@@ -269,10 +269,10 @@ export default defineAction({
       .number()
       .int()
       .min(0)
-      .max(INBOX_MAX_PAGE_OFFSET)
+      .max(INBOX_MAX_PAGE_OFFSET - 1)
       .default(0)
       .describe(
-        `Row offset for pagination (default 0, at most ${INBOX_MAX_PAGE_OFFSET})`,
+        `Row offset for pagination (default 0; a page must start below ${INBOX_MAX_PAGE_OFFSET})`,
       ),
     unreadOnly: z.coerce
       .boolean()
