@@ -11,6 +11,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Comments return to the prior Interact screen and device, stay open when that return is blocked, and fall back to Design if that screen was removed. Layers search toggles closed.
 - Public Design viewers no longer see repeated PNG export errors
 - Design resizes more high-resolution reference images before adding them to a prompt.
 - Review menus no longer trigger canvas gestures, and rewrite previews and proposal controls follow the uniquely resolved target.
@@ -29,6 +30,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Reply and Edit on a comment, in the sidebar or on a canvas pin, put the cursor in the box, after the text when editing.
 - Comment mode no longer selects or hovers the design underneath, and pan and zoom work while commenting.
 - Text color adapts when layers move between screens with different backgrounds
 - Text keeps readable contrast when moved between screens with different backgrounds.

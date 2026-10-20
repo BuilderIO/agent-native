@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.211.0
+
+### Patch Changes
+
+- 4fdf78c: Preserve file attachments when nested drop handlers stop event propagation.
+- ab1a9e8: Keep the hosted harness picker exclusive to Agent-Native Desktop.
+- 67514ae: Mark block menu actions and drag moves from the editor drag handle as user edits, so collaborative saves keep them.
+- b451cb2: Improve Gong setup with a click-to-connect flow that appears only when workspace permissions allow it.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.211.0
+
 ## 0.210.2
 
 ### Patch Changes
@@ -1244,13 +1256,5 @@
   worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
   25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
   config merges it in.
-
-## 0.12.1
-
-### Patch Changes
-
-- 89e5910: Memoize the composer runtime adapters context value so consumer effects stop
-  re-running on every provider render. The voice input preference was re-read from
-  app state, and the sidebar-state listener re-subscribed, once per render.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
