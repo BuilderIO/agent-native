@@ -1,4 +1,8 @@
 import {
+  readServiceAccountIdentity,
+  type ServiceAccountIdentity,
+} from "../google-analytics.js";
+import {
   CONTENT_COLLECTION_STEPS,
   stepEnabled,
   type ContentCollectionStepId,
@@ -33,6 +37,8 @@ export type ContentCollectionStatus = {
   enabled: boolean;
   ownerEmail: string | null;
   config: ContentCollection["config"] | null;
+  /** Who a Search Console or GA4 property owner grants access to. */
+  serviceAccount: ServiceAccountIdentity;
   steps: ContentStepStatus[];
 };
 
@@ -44,12 +50,14 @@ export async function readContentCollectionStatus(
     orgId,
     ownerEmail: userEmail,
   });
+  const serviceAccount = await readServiceAccountIdentity();
   if (!collection) {
     return {
       configured: false,
       enabled: false,
       ownerEmail: null,
       config: null,
+      serviceAccount,
       steps: [],
     };
   }
@@ -82,6 +90,7 @@ export async function readContentCollectionStatus(
     enabled: collection.enabled,
     ownerEmail: collection.ownerEmail,
     config: collection.config,
+    serviceAccount,
     steps,
   };
 }

@@ -136,6 +136,14 @@ as 0. These tables cannot be joined with `analytics_events` in one query. Turn
 collection on with `configure-content-collection`, check it with
 `get-content-collection`, and rerun a step with `run-content-collection`.
 
+Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
+`search_console_impressions` (per article, plus non-article pages stored as
+`search_console` items). Search Console data is two to three days late, so the
+newest days have no row yet; read them as still arriving. Search Console
+collection stays off until a property owner adds the service account that
+`get-content-collection` returns as `serviceAccount.email`; then set its
+`searchConsoleSites` and turn it on.
+
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
 
 AI-generated first-party panels are dashboard-time-bound by default. Set

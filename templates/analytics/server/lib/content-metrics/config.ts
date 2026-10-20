@@ -4,13 +4,34 @@ import { z } from "zod";
  * Collection steps, in the order the daily job runs them. A step's id is the
  * `step` stored on its collection runs and the `source` on what it writes.
  */
-export const CONTENT_COLLECTION_STEPS = ["builder_blog"] as const;
+export const CONTENT_COLLECTION_STEPS = [
+  "builder_blog",
+  "ga4",
+  "search_console",
+] as const;
 export type ContentCollectionStepId = (typeof CONTENT_COLLECTION_STEPS)[number];
 
 const stepToggleSchema = z.object({ enabled: z.boolean() });
 
+/**
+ * A Search Console property: `sc-domain:example.com` or a URL-prefix
+ * property such as `https://www.example.com/`. `pathPrefix` keeps a large
+ * site to the pages the Content view tracks.
+ */
+export const searchConsoleSiteSchema = z.object({
+  siteUrl: z.string().trim().min(1),
+  pathPrefix: z.string().trim().startsWith("/").optional(),
+});
+export type SearchConsoleSite = z.infer<typeof searchConsoleSiteSchema>;
+
 export const contentCollectionConfigSchema = z.object({
   builderBlog: stepToggleSchema.default({ enabled: true }),
+  ga4: stepToggleSchema.default({ enabled: true }),
+  // Off until a property owner grants the service account access; a run
+  // before then would only record "no access".
+  searchConsole: stepToggleSchema
+    .extend({ sites: z.array(searchConsoleSiteSchema).max(20).default([]) })
+    .default({ enabled: false, sites: [] }),
 });
 
 export type ContentCollectionConfig = z.infer<
@@ -28,6 +49,10 @@ export function stepEnabled(
   switch (step) {
     case "builder_blog":
       return config.builderBlog.enabled;
+    case "ga4":
+      return config.ga4.enabled;
+    case "search_console":
+      return config.searchConsole.enabled;
   }
 }
 
