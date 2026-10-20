@@ -66,6 +66,12 @@ export type SyncDegraded = {
   hydrate: string[];
   verify: string[];
   kind: string | null;
+  /**
+   * Retry schedule per failing id, keyed `h:<id>` (hydrate) or `v:<id>`
+   * (verify): attempts so far and when the next one is due. An id with no entry
+   * is due now.
+   */
+  attempts?: Record<string, { count: number; nextAt: number }>;
 };
 
 // Sync-state columns that cannot be read are never "nothing pending": the
@@ -105,10 +111,27 @@ const readDegraded = (parsed: unknown): SyncDegraded | null => {
   const hydrate = readIdList(value?.hydrate);
   const verify = readIdList(value?.verify);
   if (!hydrate || !verify) return null;
+  const attempts: NonNullable<SyncDegraded["attempts"]> = {};
+  if (value?.attempts !== undefined) {
+    if (
+      typeof value.attempts !== "object" ||
+      value.attempts === null ||
+      Array.isArray(value.attempts)
+    ) {
+      return null;
+    }
+    for (const [key, entry] of Object.entries(value.attempts)) {
+      if (!Number.isFinite(entry?.count) || !Number.isFinite(entry?.nextAt)) {
+        return null;
+      }
+      attempts[key] = { count: entry.count, nextAt: entry.nextAt };
+    }
+  }
   return {
     hydrate,
     verify,
     kind: typeof value?.kind === "string" ? value.kind : null,
+    attempts,
   };
 };
 

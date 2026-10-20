@@ -66,16 +66,43 @@ export function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
  * Work the next sync step still has to do or retry. A steady account has none,
  * so the freshness gate must not treat it as fresh while any is outstanding.
  */
-export function hasOutstandingSyncWork(row: SyncAccountRow): boolean {
+export function hasOutstandingSyncWork(
+  row: SyncAccountRow,
+  now: number,
+): boolean {
+  // Corrupt state is a diagnostic: it shows in the status but is not work, so it
+  // never defeats the freshness gate. A failing id counts only once its retry is
+  // due; between retries a permanent failure costs no Gmail calls.
   return (
     row.historyPending ||
     row.archiveHistoryPending ||
     row.hydratePendingIds.length > 0 ||
     row.archivePendingIds.length > 0 ||
-    row.degraded.hydrate.length > 0 ||
-    row.degraded.verify.length > 0 ||
-    Object.keys(row.corrupt).length > 0
+    row.degraded.hydrate.some((id) => retryDue(row.degraded, "h", id, now)) ||
+    row.degraded.verify.some((id) => retryDue(row.degraded, "v", id, now))
   );
+}
+
+const RETRY_BACKOFF_BASE_MS = 60_000;
+const RETRY_BACKOFF_MAX_MS = 6 * 60 * 60_000;
+
+/** Exponential wait before attempt `count + 1` of a failing id. */
+export function retryBackoffMs(count: number): number {
+  return Math.min(
+    RETRY_BACKOFF_MAX_MS,
+    RETRY_BACKOFF_BASE_MS * 2 ** Math.max(0, count - 1),
+  );
+}
+
+/** Whether a failing id's next attempt is due (an id with no entry is due). */
+export function retryDue(
+  degraded: SyncAccountRow["degraded"],
+  list: "h" | "v",
+  id: string,
+  now: number,
+): boolean {
+  const entry = degraded.attempts?.[`${list}:${id}`];
+  return entry === undefined || entry.nextAt <= now;
 }
 
 const STATE_RANK: Record<InboxSyncAccountStatus["state"], number> = {

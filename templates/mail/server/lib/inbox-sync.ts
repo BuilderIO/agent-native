@@ -24,6 +24,8 @@ import { pushWatchState, steadyPollMaxAgeMs } from "./inbox-push-watch.js";
 import {
   hasOutstandingSyncWork,
   mergeSyncStatuses,
+  retryBackoffMs,
+  retryDue,
   statusFromRow,
   withCorruptState,
 } from "./inbox-status.js";
@@ -919,22 +921,26 @@ async function runIncrementalSyncStep(
   // carries INBOX (a 404 means the thread is gone). A thread the inbox stream
   // returned is hydrated anyway, and a thread with no cached in-inbox row has
   // nothing to delete.
-  // Threads that failed before are retried every step but queue last and stay
-  // out of the pending lists, which hold only work the next step will attempt.
+  // Threads that failed before queue last and stay out of the pending lists,
+  // which hold only work the next step will attempt. They are retried on an
+  // exponential backoff, so a permanent failure is attempted only when due.
+  const stepNow = Date.now();
   const priorFailedHydrate = new Set(row.degraded.hydrate);
   const priorFailedVerify = new Set(row.degraded.verify);
+  const dueDegradedHydrate = row.degraded.hydrate.filter((id) =>
+    retryDue(row.degraded, "h", id, stepNow),
+  );
+  const dueDegradedVerify = row.degraded.verify.filter((id) =>
+    retryDue(row.degraded, "v", id, stepNow),
+  );
   const hydrateQueue = [
-    ...new Set([
-      ...row.hydratePendingIds,
-      ...threadIds,
-      ...row.degraded.hydrate,
-    ]),
+    ...new Set([...row.hydratePendingIds, ...threadIds, ...dueDegradedHydrate]),
   ];
   const archiveCandidates = [
     ...new Set([
       ...row.archivePendingIds,
       ...archivedThreadIds,
-      ...row.degraded.verify,
+      ...dueDegradedVerify,
     ]),
   ];
   const cachedCandidates = new Set<string>();
@@ -1160,20 +1166,45 @@ async function runIncrementalSyncStep(
     ...archiveOverlap.filter((id) => !hydrateSucceeded(id)),
   ];
   const failureKinds = [...hydrateFailed.values(), ...verifyFailed.values()];
+  // Failing ids that were not due this step wait where they were; ids that
+  // failed again get the next, longer wait.
+  const queuedHydrate = new Set(hydrateQueue);
+  const queuedVerify = new Set(verifyQueue);
+  const degradedHydrate = [
+    ...new Set([
+      ...row.degraded.hydrate.filter((id) => !queuedHydrate.has(id)),
+      ...hydrateUntried.filter((id) => priorFailedHydrate.has(id)),
+      ...hydrateFailed.keys(),
+    ]),
+  ];
+  const degradedVerify = [
+    ...new Set([
+      ...row.degraded.verify.filter((id) => !queuedVerify.has(id)),
+      ...verifyUntried.filter((id) => priorFailedVerify.has(id)),
+      ...verifyFailed.keys(),
+    ]),
+  ];
+  const attempts: NonNullable<SyncDegraded["attempts"]> = {};
+  for (const [list, ids, failed] of [
+    ["h", degradedHydrate, hydrateFailed],
+    ["v", degradedVerify, verifyFailed],
+  ] as const) {
+    for (const id of ids) {
+      const key = `${list}:${id}`;
+      const previous = row.degraded.attempts?.[key];
+      if (failed.has(id)) {
+        const count = (previous?.count ?? 0) + 1;
+        attempts[key] = { count, nextAt: stepNow + retryBackoffMs(count) };
+      } else if (previous) {
+        attempts[key] = previous;
+      }
+    }
+  }
   const degraded: SyncDegraded = {
-    hydrate: [
-      ...new Set([
-        ...hydrateUntried.filter((id) => priorFailedHydrate.has(id)),
-        ...hydrateFailed.keys(),
-      ]),
-    ],
-    verify: [
-      ...new Set([
-        ...verifyUntried.filter((id) => priorFailedVerify.has(id)),
-        ...verifyFailed.keys(),
-      ]),
-    ],
+    hydrate: degradedHydrate,
+    verify: degradedVerify,
     kind: failureKinds[failureKinds.length - 1] ?? row.degraded.kind,
+    attempts,
   };
   const corruptCount = Object.keys(row.corrupt).length;
   const degradedCount =
@@ -1596,7 +1627,7 @@ function isFreshSteadyAccount(
     row.status === "idle" &&
     row.fullSyncPageToken == null &&
     row.fullSyncPhase == null &&
-    !hasOutstandingSyncWork(row) &&
+    !hasOutstandingSyncWork(row, now) &&
     row.lastPushGeneration >= pushGeneration &&
     row.lastSyncedAt != null &&
     now - row.lastSyncedAt < maxAgeMs

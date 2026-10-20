@@ -169,6 +169,7 @@ import {
 } from "./inbox-sync.js";
 
 const OWNER = "owner@example.com";
+const RETRY_HOUR = 60 * 60_000;
 const ACCOUNT = "acct1@example.com";
 
 function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -1821,7 +1822,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(hydrated).toEqual(["new"]);
     // Failed candidates are held apart from pending work and reported as degraded.
     expect(currentRow.archivePendingIds).toEqual([]);
-    expect(currentRow.degraded).toEqual({
+    expect(currentRow.degraded).toMatchObject({
       hydrate: [],
       verify: ["bad"],
       kind: "http_500",
@@ -2011,8 +2012,12 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
         ),
     );
 
+    // Each step runs after the longest backoff, so the retries are due every time.
+    const base = Date.now();
+    const clock = vi.spyOn(Date, "now");
     const perStep: string[][] = [];
     for (let step = 0; step < 4; step++) {
+      clock.mockReturnValue(base + step * 7 * RETRY_HOUR);
       const before = mocks.gmailBatchGetThreads.mock.calls.length;
       await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
       perStep.push(
@@ -2022,6 +2027,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       );
     }
 
+    clock.mockRestore();
     for (const ids of perStep) {
       expect(ids.length).toBeLessThanOrEqual(70);
       expect(ids).toEqual(expect.arrayContaining(["bad1", "bad2"]));
@@ -2184,7 +2190,12 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(mocks.tryDeleteInboxThreadRow).not.toHaveBeenCalled();
 
     hydrateFails = false;
+    // The failed hydration is retried once its backoff has passed.
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + 7 * RETRY_HOUR);
     await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    clock.mockRestore();
 
     // Hydration now settles the thread from its payload; nothing is left over.
     expect(currentRow.archivePendingIds).toEqual([]);
@@ -2237,7 +2248,7 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
       expect.any(Number),
       {},
     );
-    expect(currentRow.degraded).toEqual({
+    expect(currentRow.degraded).toMatchObject({
       hydrate: [],
       verify: [],
       kind: "http_500",
@@ -2978,7 +2989,6 @@ describe("syncInbox — steady-account short-circuit", () => {
       "degraded reads",
       { degraded: { hydrate: ["t1"], verify: [], kind: "http_500" } },
     ],
-    ["corrupt stored state", { corrupt: { archive_pending_ids_json: "{" } }],
   ])("never treats an account with %s as steady", async (_name, overrides) => {
     steadyRow({
       lastSyncedAt: Date.now() - 1_000,
@@ -2991,6 +3001,66 @@ describe("syncInbox — steady-account short-circuit", () => {
 
     // The fast cadence continues: the account is synced, not short-circuited.
     expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps corrupt stored state as a diagnostic that does not defeat the freshness gate", async () => {
+    steadyRow({
+      lastSyncedAt: Date.now() - 1_000,
+      lastWatchRenewedAt: Date.now() - HOUR,
+      corrupt: { archive_pending_ids_json: "{" },
+    });
+
+    const result = await syncInbox(OWNER);
+
+    expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
+    expect(result.accounts[0].degraded).toMatchObject({
+      kind: "corrupt_state",
+    });
+  });
+
+  it("stops a permanent failure from forcing per-poll Gmail calls but retries it on the backoff schedule", async () => {
+    const t0 = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(t0);
+    steadyRow({
+      lastSyncedAt: t0 - 1_000,
+      lastWatchRenewedAt: t0 - HOUR,
+      degraded: {
+        hydrate: ["bad"],
+        verify: [],
+        kind: "http_500",
+        attempts: { "h:bad": { count: 1, nextAt: t0 + 60_000 } },
+      },
+    });
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[]) =>
+        requested.map((id) => ({
+          id,
+          data: null,
+          error: "HTTP 500 backend",
+        })),
+    );
+
+    // Polls inside the wait are short-circuited: no claim, no Gmail call.
+    await syncInbox(OWNER);
+    clock.mockReturnValue(t0 + 30_000);
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
+    expect(mocks.gmailBatchGetThreads).not.toHaveBeenCalled();
+
+    // Once the retry is due the next poll syncs, fails again, and waits longer.
+    clock.mockReturnValue(t0 + 61_000);
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailBatchGetThreads).toHaveBeenCalledTimes(1);
+    expect(currentRow.degraded.attempts["h:bad"]).toEqual({
+      count: 2,
+      nextAt: t0 + 61_000 + 120_000,
+    });
+
+    clock.mockReturnValue(t0 + 62_000);
+    await syncInbox(OWNER);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(1);
+    clock.mockRestore();
   });
 
   it("reports the inbox history drain and the push watch from the one status function", async () => {
