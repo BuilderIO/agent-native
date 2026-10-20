@@ -3904,6 +3904,9 @@ describe("createAgentKitProtocolAdapter", () => {
 
   it("reuses a replayed runtime run ID for the same thread and turn", async () => {
     let startCount = 0;
+    const discardedStreamRead = vi.fn(
+      () => new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+    );
     const discardedStreamClosed = vi.fn(async () => ({
       done: true as const,
       value: undefined,
@@ -3914,8 +3917,7 @@ describe("createAgentKitProtocolAdapter", () => {
     }));
     const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
       [Symbol.asyncIterator]: () => ({
-        next: () =>
-          new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
+        next: discardedStreamRead,
         return: discardedStreamClosed,
       }),
     };
@@ -3959,8 +3961,11 @@ describe("createAgentKitProtocolAdapter", () => {
 
     expect(replay.runId).toBe(first.runId);
     expect(startTurn).toHaveBeenCalledTimes(2);
-    expect(discardedStreamClosed).toHaveBeenCalledOnce();
-    expect(discardedTurnClosed).toHaveBeenCalledOnce();
+    // The discarded stream is drained, not closed early: closing it needs a
+    // transport abort, and turn.cancel would cancel the live run.
+    expect(discardedStreamRead).toHaveBeenCalled();
+    expect(discardedStreamClosed).not.toHaveBeenCalled();
+    expect(discardedTurnClosed).not.toHaveBeenCalled();
     expect(discardedTurnCancelled).not.toHaveBeenCalled();
     await transport.dispose();
   });
