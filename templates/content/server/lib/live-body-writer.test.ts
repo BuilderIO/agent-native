@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec } from "@agent-native/core/db";
 import { getFeatureFlagRulesStrict } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putOrgSetting, putSetting } from "@agent-native/core/settings";
@@ -127,7 +127,87 @@ afterAll(() => {
 });
 
 describe("live-body writer gate", () => {
-  it("rejects a transaction without its matching row database", async () => {
+  it("rejects inherited or accessor contexts without selecting an executor", async () => {
+    const original = Object.getOwnPropertyDescriptor(
+      Object.prototype,
+      "context",
+    );
+    let selected = 0;
+    Object.defineProperty(Object.prototype, "context", {
+      configurable: true,
+      get() {
+        selected += 1;
+        return getDbExec();
+      },
+    });
+    try {
+      await expect(
+        gate.liveBodyWriterGate("missing", {}),
+      ).rejects.toMatchObject({
+        code: "LIVE_BODY_READ_CONTEXT_INVALID",
+      });
+      expect(selected).toBe(0);
+    } finally {
+      if (original)
+        Object.defineProperty(Object.prototype, "context", original);
+      else Reflect.deleteProperty(Object.prototype, "context");
+    }
+    let accessed = 0;
+    const options = Object.defineProperty({}, "context", {
+      get() {
+        accessed += 1;
+        return getDbExec();
+      },
+    });
+    await expect(
+      gate.liveBodyWriterGate("missing", options),
+    ).rejects.toMatchObject({
+      code: "LIVE_BODY_READ_CONTEXT_INVALID",
+    });
+    expect(accessed).toBe(0);
+  });
+
+  it("keeps normal settings reads in the request snapshot", async () => {
+    await setFlags({
+      shadow: { emails: [OWNER] },
+      writer: { emails: [OWNER] },
+    });
+    await insertPage("cached");
+    const executor = getDbExec();
+    let flagReads = 0;
+    const database = {
+      execute: async (statement: Parameters<typeof executor.execute>[0]) => {
+        const query = typeof statement === "string" ? statement : statement.sql;
+        if (/SELECT value FROM public.settings WHERE key/i.test(query))
+          flagReads += 1;
+        return executor.execute(statement);
+      },
+    };
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      withDbExec(database, async () => {
+        await expect(gate.liveBodyWriterGate("cached")).resolves.toEqual({
+          writePath: "live_copy",
+        });
+        const firstReads = flagReads;
+        expect(firstReads).toBe(2);
+        await runWithRequestContext({}, () =>
+          setFlags({ shadow: { emails: [OWNER] } }),
+        );
+        await expect(gate.liveBodyWriterGate("cached")).resolves.toEqual({
+          writePath: "live_copy",
+        });
+        expect(flagReads).toBe(firstReads);
+      }),
+    );
+    await runWithRequestContext({}, async () => {
+      await expect(gate.liveBodyWriterGate("cached")).resolves.toEqual({
+        writePath: "legacy",
+        reason: "flag_off",
+      });
+    });
+  });
+
+  it("requires an explicit transaction context and rejects separate handles", async () => {
     await insertPage("switched");
     await getDb().transaction(async (tx) => {
       await tx
@@ -145,7 +225,7 @@ describe("live-body writer gate", () => {
       }
       await expect(
         gate.liveBodyWriterGate("switched", {
-          context: getDbExec(),
+          context: { kind: "transaction", executor: getDbExec() },
         }),
       ).resolves.toEqual({ writePath: "legacy", reason: "live_copy_behind" });
       let foreignReads = 0;
@@ -164,7 +244,31 @@ describe("live-body writer gate", () => {
         { [Symbol("foreign")]: foreign },
         { db: tx, transaction: foreign },
         { context: foreign, db: tx },
+        { context: undefined },
         { context: null },
+        { context: { kind: "request", executor: foreign } },
+        { context: { kind: "transaction" } },
+        { context: { kind: "unknown", executor: foreign } },
+        { context: Object.create({ kind: "transaction", executor: foreign }) },
+        {
+          context: Object.defineProperty({}, "kind", {
+            get() {
+              foreignReads += 1;
+              return "request";
+            },
+          }),
+        },
+        {
+          context: {
+            kind: "transaction",
+            executor: Object.defineProperty({}, "execute", {
+              get() {
+                foreignReads += 1;
+                return foreign.execute;
+              },
+            }),
+          },
+        },
         { context: {} },
         { context: { db: tx, transaction: getDbExec() } },
       ]) {
@@ -405,12 +509,12 @@ describe("live-body writer gate", () => {
         ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
         await expect(
           gate.liveBodyWriterGate("switched", {
-            context: getDbExec(),
+            context: { kind: "transaction", executor: getDbExec() },
           }),
         ).resolves.toEqual({ writePath: "legacy", reason: "flag_off" });
         await expect(
           gate.isLiveBodyWriterPage("switched", {
-            context: getDbExec(),
+            context: { kind: "transaction", executor: getDbExec() },
           }),
         ).resolves.toBe(false);
         for (const read of [

@@ -2,7 +2,6 @@ import {
   createBoundedTaskRunner,
   defineLiveCopy,
 } from "@agent-native/core/collab";
-import { getDbExec } from "@agent-native/core/db";
 
 import { LIVE_BODY_FIELD } from "../../shared/live-body.js";
 import { liveBodyWriterGate } from "../lib/live-body-writer.js";
@@ -17,21 +16,14 @@ export const CONTENT_LIVE_COPY_EDITS = {
 
 /**
  * Content's page bodies as live copies. A page is covered while the D2 gate
- * says `live_copy`, and while it is being switched. The gate reads through
- * `getDbExec()` so a caller's transaction sees its own writes.
+ * says `live_copy`, and while it is being switched. Eligibility uses the
+ * request's flag snapshot; persist rechecks flags in its locked transaction.
  */
 export const contentLiveCopy = defineLiveCopy({
   name: "content-body",
   appliesTo: async (documentId) => {
     if (liveBodyConversionFor(documentId) !== undefined) return true;
-    const transaction = getDbExec();
-    return (
-      (
-        await liveBodyWriterGate(documentId, {
-          context: transaction,
-        })
-      ).writePath === "live_copy"
-    );
+    return (await liveBodyWriterGate(documentId)).writePath === "live_copy";
   },
   runner: createBoundedTaskRunner({ source }),
   field: LIVE_BODY_FIELD,

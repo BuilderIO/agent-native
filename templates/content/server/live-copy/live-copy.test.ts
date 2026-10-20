@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
 import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
@@ -902,6 +902,7 @@ describe("a page whose write path changes mid-write", () => {
     const context = getDbExec();
     let reads = 0;
     const racing: ReturnType<typeof getDbExec> = {
+      transaction: context.transaction?.bind(context),
       execute: async (statement) => {
         const result = await context.execute(statement);
         const sql = typeof statement === "string" ? statement : statement.sql;
@@ -912,7 +913,7 @@ describe("a page whose write path changes mid-write", () => {
     };
 
     await expect(
-      liveBodyWriterGate("torn", { context: racing }),
+      withDbExec(racing, () => liveBodyWriterGate("torn")),
     ).resolves.toEqual({ writePath: "live_copy" });
     await expect(gateFor("torn")).resolves.toEqual({ writePath: "live_copy" });
   });
