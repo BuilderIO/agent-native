@@ -240,11 +240,17 @@ export function DatabaseLayoutListRow({
         ? "border-database-blue bg-database-blue text-database-blue-foreground"
         : "border-muted-foreground/60",
     );
-    const mark = checked ? <IconCheck className="size-3" stroke={3} /> : null;
-    // In Edit rows the whole slot is a button, so the box is only a picture.
+    const mark = checked ? (
+      <IconCheck aria-hidden="true" className="size-3" stroke={3} />
+    ) : null;
+    // In Edit rows the whole slot is a button, so the box is only a picture,
+    // with its field and state as text for screen readers.
     leading = editing ? (
-      <span aria-hidden="true" className={box}>
+      <span className={box}>
         {mark}
+        <span className="sr-only">
+          {`${leadingProperty.definition.name}: ${dbText(checked ? "checked" : "unchecked")}`}
+        </span>
       </span>
     ) : (
       <button
