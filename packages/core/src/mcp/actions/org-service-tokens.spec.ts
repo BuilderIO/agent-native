@@ -582,6 +582,13 @@ describe("list-org-service-tokens", () => {
 });
 
 describe("revoke-org-service-token", () => {
+  it("asks for approval on every call and stays agent- and MCP-callable", () => {
+    expect(revokeAction.needsApproval).toBe(true);
+    expect(revokeAction.allowPersistentApproval).toBe(false);
+    expect(revokeAction.agentTool).not.toBe(false);
+    expect(isActionExposedToExternalAgents(revokeAction)).toBe(true);
+  });
+
   it("revokes for an org admin, scoped to the caller's org", async () => {
     const res = await revokeAction.run({ id: "tok-1" }, CTX());
     expect(revokeOrgServiceTokenMock).toHaveBeenCalledWith("org-1", "tok-1");

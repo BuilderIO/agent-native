@@ -25,6 +25,11 @@ vi.mock("../server/lib/provider-api.js", () => ({
   executeProviderApiRequest: vi.fn(),
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
+
 import action from "./provider-api-request";
 
 const OWNER = "owner@example.com";
@@ -36,10 +41,14 @@ async function gate(args: GateArgs, caller: "tool" | "automation") {
   if (typeof needsApproval !== "function") {
     throw new Error("provider-api-request must define a needsApproval gate");
   }
-  return needsApproval(args as Parameters<typeof needsApproval>[0], {
-    caller,
-    userEmail: OWNER,
-  });
+  // Every caller's gate judges the call as prepared: validated, defaults
+  // applied.
+  const intent = await actionCallIntent(action, args);
+  if (!intent.valid) throw intent.error;
+  return needsApproval(
+    preparedCallArguments(intent) as Parameters<typeof needsApproval>[0],
+    { caller, userEmail: OWNER },
+  );
 }
 
 describe("provider-api-request approval gate", () => {
@@ -50,7 +59,6 @@ describe("provider-api-request approval gate", () => {
 
   it.each([
     ["POST", "/users/me/messages/abc123/modify"],
-    ["post", "/users/me/messages/abc123/modify"],
     ["POST", "/gmail/v1/users/me/messages/abc123/modify"],
     ["POST", "/users/me/threads/thread-1/modify"],
     ["POST", "/users/me/messages/batchModify"],
@@ -82,9 +90,14 @@ describe("provider-api-request approval gate", () => {
     },
   );
 
+  it("reads a request without a method as the schema's default GET", async () => {
+    await expect(
+      gate({ provider: "gmail", path: "/users/me/messages/send" }, "tool"),
+    ).resolves.toBe(false);
+  });
+
   it.each([
     ["POST", "/users/me/messages/send"],
-    ["post", "/users/me/messages/send"],
     ["POST", "/gmail/v1/users/me/messages/send"],
     ["POST", "//users/me/messages/send"],
     ["POST", "///users/me/drafts/send"],

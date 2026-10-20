@@ -20,6 +20,10 @@ export default defineAction({
       .default([])
       .describe("App IDs to expose when mode is selected-apps."),
   }),
+  // It changes who may use an app or what they may do in it: every call
+  // needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     const agents = await discoverAgents("dispatch");
     const knownIds = new Set(["dispatch", ...agents.map((agent) => agent.id)]);

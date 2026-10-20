@@ -4,7 +4,7 @@ import {
   actionCallIntent,
   isActionContractError,
   recordInvalidActionCall,
-  preparedCallArguments,
+  preparedCallNeedsApproval,
   runPreparedActionCall,
   type ActionExecutionOutcome,
   type ActionRunContext,
@@ -866,23 +866,13 @@ async function authorizeApproval(
   if (entry.needsApproval === undefined) {
     return { status: "authorized", clientAccepted: false };
   }
-  let mustApprove = false;
-  try {
-    mustApprove =
-      typeof entry.needsApproval === "function"
-        ? Boolean(
-            await entry.needsApproval(preparedCallArguments(prepared), {
-              userEmail: getRequestUserEmail(),
-              orgId: getRequestOrgId() ?? null,
-              appId: context.appId,
-              caller: "mcp",
-              actionName: name,
-            }),
-          )
-        : entry.needsApproval === true;
-  } catch {
-    mustApprove = true;
-  }
+  const mustApprove = await preparedCallNeedsApproval(entry, prepared, {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId() ?? null,
+    appId: context.appId,
+    caller: "mcp",
+    actionName: name,
+  });
   if (!mustApprove) return { status: "authorized", clientAccepted: false };
 
   if (!hasVerifiedUserIdentity) {
