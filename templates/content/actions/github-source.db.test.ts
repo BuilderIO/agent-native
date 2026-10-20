@@ -653,6 +653,8 @@ describe("GitHub folder source", () => {
       );
       expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
       expect(synced.source).toBeNull();
+      expect(synced.followUpFailed).toEqual(["refresh_signal", "source_read"]);
+      expect(synced.summary).toContain("they show them once they reload");
       expect(warn).toHaveBeenCalledTimes(2);
     } finally {
       afterSyncFailure.signal = false;
@@ -676,6 +678,7 @@ describe("GitHub folder source", () => {
     });
     const synced = await as(() => syncFolder.run({ databaseId: database.id }));
     expect(synced.sync).toMatchObject({ state: "synced", updated: 1 });
+    expect(synced.followUpFailed).toEqual([]);
     const [updated] = (await liveRows(database.id)).filter(
       (row) => row.documentId === faq.documentId,
     );

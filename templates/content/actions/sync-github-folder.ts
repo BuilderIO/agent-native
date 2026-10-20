@@ -39,7 +39,7 @@ const syncGitHubFolderSchema = z
 
 export default defineAction({
   description:
-    "Sync a collection linked to a GitHub folder now: check the branch for new commits and bring rows up to date. An edited file replaces its page's body, and a deleted file moves its page to Trash. Returns what changed, the commit the rows match, and any problem reading GitHub.",
+    "Sync a collection linked to a GitHub folder now: check the branch for new commits and bring rows up to date. An edited file replaces its page's body, and a deleted file moves its page to Trash. Returns what changed, the commit the rows match, and any problem reading GitHub. followUpFailed names any step after the sync that failed; the sync itself still stands.",
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: false,
@@ -68,18 +68,24 @@ export default defineAction({
       sourceId: linked.id,
       budgetMs: SYNC_BUDGET_MS,
     });
+    const failed: SyncFollowUp[] = [];
     if (sync.state !== "unchanged" && sync.state !== "busy") {
-      await afterSync("refresh signal", () =>
+      await afterSync("refresh_signal", failed, () =>
         writeAppState("refresh-signal", { ts: Date.now() }),
       );
     }
+    const source = await afterSync("source_read", failed, () =>
+      getContentDatabaseSourceSnapshot(database),
+    );
     return {
       database: serializeDatabase(database),
       sync,
-      source: await afterSync("source read", () =>
-        getContentDatabaseSourceSnapshot(database),
-      ),
-      summary: githubSyncSummary(linked.sourceName, sync),
+      source,
+      followUpFailed: failed,
+      summary: [
+        githubSyncSummary(linked.sourceName, sync),
+        ...failed.map((step) => FOLLOW_UP_FAILED[step]),
+      ].join(" "),
     };
   },
   // Everyone reading the collection gets the synced rows, not just the caller.
@@ -89,18 +95,30 @@ export default defineAction({
       : null,
 });
 
+type SyncFollowUp = "refresh_signal" | "source_read";
+
+const FOLLOW_UP_FAILED: Record<SyncFollowUp, string> = {
+  refresh_signal:
+    "Other open tabs couldn't be told about the changes; they show them once they reload.",
+  source_read:
+    "The link's status couldn't be read after the sync, so source is null; read the collection again for it.",
+};
+
 /**
  * The sync has already written its rows, so a failed read or signal after it
- * mustn't report the whole sync as failed.
+ * mustn't report the whole sync as failed. It's named in `failed` instead, so
+ * a null source after a failed read isn't mistaken for an unlinked collection.
  */
 async function afterSync<T>(
-  step: string,
+  step: SyncFollowUp,
+  failed: SyncFollowUp[],
   run: () => Promise<T>,
 ): Promise<T | null> {
   try {
     return await run();
   } catch (error) {
     console.warn(`[sync-github-folder] ${step} failed after the sync`, error);
+    failed.push(step);
     return null;
   }
 }
