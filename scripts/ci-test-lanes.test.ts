@@ -202,6 +202,20 @@ test("keeps packages whole when they are unshardable or too small to split", () 
   );
 });
 
+test("starts Slides 2 fast tests in two fresh Vitest processes", () => {
+  assert.deepEqual(
+    splitLargePackages(
+      [{ name: "slides-2", files: 455, shardable: true }],
+      8,
+      0,
+    ),
+    [
+      { name: "slides-2", files: 228, shard: "1/2" },
+      { name: "slides-2", files: 227, shard: "2/2" },
+    ],
+  );
+});
+
 test("shards a targeted package alongside changed core tests", () => {
   const rest = [{ name: "design", files: 800, shardable: true }];
   const lanes = partitionTargetedWeighted(rest, 4, 4, "changed", [

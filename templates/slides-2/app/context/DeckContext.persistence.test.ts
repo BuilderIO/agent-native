@@ -7537,6 +7537,9 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it("undoes quick content writes one step at a time only when they ask for separate steps", async () => {
@@ -7587,6 +7590,9 @@ describe("DeckContext deck creation persistence", () => {
     write(2, false);
     await act(async () => result.current.undo("shared-deck"));
     expect(contentOf()).toContain(">0<");
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it("keeps an image move separate from a nearby content edit through undo and redo", async () => {
@@ -7718,6 +7724,9 @@ describe("DeckContext deck creation persistence", () => {
     await waitFor(() =>
       expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(1),
     );
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it.each([
@@ -7728,13 +7737,14 @@ describe("DeckContext deck creation persistence", () => {
   ] as const)(
     "ignores the $shortcut shortcut on $pathname after editing a deck",
     async ({ pathname, shortcut }) => {
-      window.history.pushState({}, "", "/deck/shared-deck");
+      const deckId = `${pathname.slice(1)}-${shortcut}-deck`;
+      window.history.pushState({}, "", `/deck/${deckId}`);
       const { setAccessibleDeck, getAccessibleDeck } = setupFetch();
       const { result } = renderHook(() => useDecks(), { wrapper });
 
       await waitFor(() => expect(result.current.loading).toBe(false));
       setAccessibleDeck({
-        id: "shared-deck",
+        id: deckId,
         title: "Original title",
         createdAt: "2026-05-12T00:00:00.000Z",
         updatedAt: "2026-05-12T00:00:00.000Z",
@@ -7745,8 +7755,8 @@ describe("DeckContext deck creation persistence", () => {
       });
 
       await act(async () => {
-        result.current.updateDeck("shared-deck", { title: "Edited title" });
-        await result.current.flushDeckSave("shared-deck");
+        result.current.updateDeck(deckId, { title: "Edited title" });
+        await result.current.flushDeckSave(deckId);
       });
       await waitFor(() =>
         expect(getAccessibleDeck()?.title).toBe("Edited title"),
@@ -7756,8 +7766,8 @@ describe("DeckContext deck creation persistence", () => {
         shortcut === "undo" ? "Edited title" : "Original title";
       if (shortcut === "redo") {
         await act(async () => {
-          await result.current.undo("shared-deck");
-          await result.current.flushDeckSave("shared-deck");
+          await result.current.undo(deckId);
+          await result.current.flushDeckSave(deckId);
         });
         await waitFor(() =>
           expect(getAccessibleDeck()?.title).toBe("Original title"),
@@ -7773,7 +7783,7 @@ describe("DeckContext deck creation persistence", () => {
       act(() => window.dispatchEvent(shortcutEvent));
 
       expect(shortcutEvent.defaultPrevented).toBe(false);
-      expect(result.current.getDeck("shared-deck")?.title).toBe(expectedTitle);
+      expect(result.current.getDeck(deckId)?.title).toBe(expectedTitle);
       expect(getAccessibleDeck()?.title).toBe(expectedTitle);
     },
   );
@@ -7781,7 +7791,8 @@ describe("DeckContext deck creation persistence", () => {
   it.each(["undo", "redo"] as const)(
     "ignores the %s shortcut when no editor deck is active despite a stale deck URL",
     async (shortcut) => {
-      window.history.pushState({}, "", "/deck/shared-deck");
+      const deckId = `inactive-${shortcut}-deck`;
+      window.history.pushState({}, "", `/deck/${deckId}`);
       const { setAccessibleDeck, getAccessibleDeck } = setupFetch();
       const inactiveDeckWrapper = ({ children }: { children: ReactNode }) =>
         createElement(
@@ -7799,7 +7810,7 @@ describe("DeckContext deck creation persistence", () => {
 
       await waitFor(() => expect(result.current.loading).toBe(false));
       setAccessibleDeck({
-        id: "shared-deck",
+        id: deckId,
         title: "Original title",
         createdAt: "2026-05-12T00:00:00.000Z",
         updatedAt: "2026-05-12T00:00:00.000Z",
@@ -7810,8 +7821,8 @@ describe("DeckContext deck creation persistence", () => {
       });
 
       await act(async () => {
-        result.current.updateDeck("shared-deck", { title: "Edited title" });
-        await result.current.flushDeckSave("shared-deck");
+        result.current.updateDeck(deckId, { title: "Edited title" });
+        await result.current.flushDeckSave(deckId);
       });
       await waitFor(() =>
         expect(getAccessibleDeck()?.title).toBe("Edited title"),
@@ -7821,8 +7832,8 @@ describe("DeckContext deck creation persistence", () => {
         shortcut === "undo" ? "Edited title" : "Original title";
       if (shortcut === "redo") {
         await act(async () => {
-          await result.current.undo("shared-deck");
-          await result.current.flushDeckSave("shared-deck");
+          await result.current.undo(deckId);
+          await result.current.flushDeckSave(deckId);
         });
         await waitFor(() =>
           expect(getAccessibleDeck()?.title).toBe("Original title"),
@@ -7837,7 +7848,7 @@ describe("DeckContext deck creation persistence", () => {
       act(() => window.dispatchEvent(shortcutEvent));
 
       expect(shortcutEvent.defaultPrevented).toBe(false);
-      expect(result.current.getDeck("shared-deck")?.title).toBe(expectedTitle);
+      expect(result.current.getDeck(deckId)?.title).toBe(expectedTitle);
       expect(getAccessibleDeck()?.title).toBe(expectedTitle);
     },
   );
@@ -7902,6 +7913,9 @@ describe("DeckContext deck creation persistence", () => {
         "<div>Edited</div>",
       ),
     );
+    await act(async () => {
+      await result.current.flushDeckSave("shared-deck");
+    });
   });
 
   it("tells subscribers which objects an undo and redo changed", async () => {
