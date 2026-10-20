@@ -12084,6 +12084,14 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function resolveNodeHtmlPreviewTarget(target) {
       if (!target || typeof target !== "object") return null;
+      var selector = target.selector;
+      if (typeof selector === "string" && selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0) {
+        var sourceSelectorMatch = resolveSourceEquivalentSelector(
+          document,
+          selector
+        );
+        return sourceSelectorMatch && !isLayerInteractionBlocked(sourceSelectorMatch) ? sourceSelectorMatch : null;
+      }
       var nodeId = target.nodeId;
       if (typeof nodeId === "string" && nodeId) {
         try {
@@ -12096,7 +12104,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       }
-      var selector = target.selector;
       if (typeof selector !== "string" || !selector) return null;
       try {
         var selectorMatch = document.querySelector(selector);

@@ -1314,18 +1314,34 @@ export const hitTestBridgeScript: string = `"use strict";
         "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]"
       );
       var matchCounts = {};
+      var sourceMatches = {};
+      var plainIdMatches = {};
+      var mixedIdentityCollisions = {};
       for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
         var candidate = candidates[candidateIndex];
         var candidateId = getNodeId(candidate);
         if (candidateId && wanted[candidateId]) {
           if (isSourceLocationMatch(candidate, candidateId)) {
             matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+            sourceMatches[candidateId] = sourceMatches[candidateId] || candidate;
+            if (plainIdMatches[candidateId] && plainIdMatches[candidateId] !== candidate) {
+              mixedIdentityCollisions[candidateId] = true;
+            }
+          }
+          if (candidate.id === candidateId) {
+            plainIdMatches[candidateId] = plainIdMatches[candidateId] || candidate;
+            if (sourceMatches[candidateId] && sourceMatches[candidateId] !== candidate) {
+              mixedIdentityCollisions[candidateId] = true;
+            }
           }
           if (!found[candidateId]) found[candidateId] = candidate;
         }
       }
       Object.keys(matchCounts).forEach(function(repeatedId) {
         if (matchCounts[repeatedId] > 1) delete found[repeatedId];
+      });
+      Object.keys(mixedIdentityCollisions).forEach(function(collidingId) {
+        delete found[collidingId];
       });
       return found;
     }

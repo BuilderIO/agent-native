@@ -222,7 +222,7 @@ export function NodeRewriteProposal({
       postToPreview({
         type: "node-html-preview",
         proposalId: current.proposalId,
-        target: current.resolvedTarget,
+        target: current.target,
         operation: "restore",
       });
     },
@@ -317,7 +317,7 @@ export function NodeRewriteProposal({
       const sent = postToPreview({
         type: "node-html-preview",
         proposalId: proposal.proposalId,
-        target: proposal.resolvedTarget,
+        target: proposal.target,
         html: variant.html,
         operation: "preview",
       });
@@ -406,7 +406,7 @@ export function NodeRewriteProposal({
             postToPreview({
               type: "node-html-preview",
               proposalId: proposal.proposalId,
-              target: proposal.resolvedTarget,
+              target: proposal.target,
               html: variant.html,
               operation: "preview",
             });

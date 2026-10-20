@@ -195,6 +195,65 @@ describe("NodeRewriteProposal overview positioning", () => {
     expect(mocks.setClientAppState).not.toHaveBeenCalled();
   });
 
+  it("uses the saved instance selector for preview and restore messages", async () => {
+    const target = {
+      nodeId: "hero-code-layer",
+      selector:
+        "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+    };
+    proposalSnapshot = {
+      ...proposalSnapshot,
+      target,
+      resolvedTarget: {
+        nodeId: "hero-code-layer",
+        selector: '[data-loc="shared-hero"]',
+      },
+    };
+    const postMessage = vi
+      .spyOn(iframe.contentWindow!, "postMessage")
+      .mockImplementation(() => {});
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "node-html-preview",
+        operation: "preview",
+        target,
+      }),
+      "*",
+    );
+
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={null}
+        />,
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "node-html-preview",
+        operation: "restore",
+        target,
+      }),
+      "*",
+    );
+  });
+
   it("does not erase a newer pending refinement when delivery fails", async () => {
     mocks.sendToAgent.mockResolvedValue({
       delivered: false,

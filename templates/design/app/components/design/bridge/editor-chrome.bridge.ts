@@ -15131,6 +15131,20 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function resolveNodeHtmlPreviewTarget(target: unknown): Element | null {
     if (!target || typeof target !== "object") return null;
+    var selector = (target as { selector?: unknown }).selector;
+    if (
+      typeof selector === "string" &&
+      selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0
+    ) {
+      var sourceSelectorMatch = resolveSourceEquivalentSelector(
+        document,
+        selector,
+      );
+      return sourceSelectorMatch &&
+        !isLayerInteractionBlocked(sourceSelectorMatch)
+        ? sourceSelectorMatch
+        : null;
+    }
     var nodeId = (target as { nodeId?: unknown }).nodeId;
     if (typeof nodeId === "string" && nodeId) {
       try {
@@ -15142,7 +15156,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         }
       } catch (_err) {}
     }
-    var selector = (target as { selector?: unknown }).selector;
     if (typeof selector !== "string" || !selector) return null;
     try {
       var selectorMatch = document.querySelector(selector);

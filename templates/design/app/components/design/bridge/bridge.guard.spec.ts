@@ -14446,6 +14446,9 @@ it(
     <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
     <div data-agent-native-node-id="nested-parent" style="position:absolute;left:700px;top:100px;width:160px;height:100px"><span data-agent-native-node-id="nested-child" style="display:block;width:120px;height:60px">Nested identity</span></div>
     <section data-loc="src:nested-source" style="position:absolute;left:500px;top:300px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested source location</span></section>
+    <div id="hero" style="position:absolute;left:100px;top:200px;width:50px;height:40px">Plain id</div>
+    <section data-loc="hero" style="position:absolute;left:300px;top:200px;width:80px;height:40px">Source location</section>
+    <section id="same-identity" data-loc="same-identity" style="position:absolute;left:400px;top:200px;width:80px;height:40px">One element, two identity kinds</section>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
@@ -14506,7 +14509,7 @@ it(
           {
             type: "agent-native:review-node-rects",
             correlationId: "review-rects",
-            nodeIds: ["hero-title"],
+            nodeIds: ["hero-title", "hero", "same-identity"],
           },
           "agent-native:review-node-rects-result",
         );
@@ -14557,14 +14560,105 @@ it(
       expect(result.rects).toMatchObject({
         rects: {
           "hero-title": { left: 40, top: 40, width: 320, height: 80 },
+          "same-identity": { left: 400, top: 200, width: 80, height: 40 },
         },
         viewportWidth: 900,
         viewportHeight: 700,
       });
+      expect(
+        (result.rects as { rects?: Record<string, unknown> }).rects?.hero,
+      ).toBeUndefined();
       expect(result.selectorRects).toMatchObject({
         rect: { left: 40, top: 40, width: 320, height: 80 },
       });
       expect(result.focus).toMatchObject({ focused: true });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge resolves source-equivalent node preview targets before node ids and restores the selected repeated instance",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <body style="margin:0">
+    <button id="node-id-target" data-agent-native-node-id="hero" data-loc="src:shared">Node id target</button>
+    <button id="selector-target" data-loc="src:shared">Repeated source target</button>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      const originalSelectorTarget = await page
+        .locator("#selector-target")
+        .evaluate((element) => element.outerHTML);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                event.data?.type !== "agent-native:node-html-preview-applied" ||
+                event.data.proposalId !== "repeated-source-preview"
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              {
+                type: "node-html-preview",
+                operation: "preview",
+                proposalId: "repeated-source-preview",
+                target: {
+                  nodeId: "hero",
+                  selector: "source-equivalent:v1:body > button:nth-of-type(2)",
+                },
+                html: '<button id="preview-target">Preview target</button>',
+              },
+              "*",
+            );
+          }),
+      );
+
+      expect(await page.locator("#node-id-target").textContent()).toBe(
+        "Node id target",
+      );
+      expect(await page.locator("#selector-target").count()).toBe(0);
+      expect(await page.locator("#preview-target").textContent()).toBe(
+        "Preview target",
+      );
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "node-html-preview",
+            operation: "restore",
+            proposalId: "repeated-source-preview",
+          },
+          "*",
+        );
+      });
+
+      expect(
+        await page
+          .locator("#selector-target")
+          .evaluate((element) => element.outerHTML),
+      ).toBe(originalSelectorTarget);
+      expect(await page.locator("#preview-target").count()).toBe(0);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
