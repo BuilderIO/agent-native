@@ -628,6 +628,14 @@ export async function startCommentAiRequest(
     });
     if (source.root.resolved)
       throw new Error("Reopen the comment before asking AI");
+    if (source.root.fieldId) {
+      // Ask AI reads and edits the page body; a thread in another Blocks
+      // field tab would get answers about text it isn't on.
+      fail("Ask AI works on comments in the page body only", {
+        statusCode: 400,
+        errorCode: "comment_ai_field_unsupported",
+      });
+    }
     if (
       source.comments.length > 100 ||
       source.comments.reduce(

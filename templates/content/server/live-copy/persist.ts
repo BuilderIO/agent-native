@@ -12,6 +12,7 @@ import {
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
 import { documentContentHash } from "../../actions/_document-edit-mutation.js";
+import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
 import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
@@ -99,6 +100,9 @@ const pageColumns = {
   orgId: schema.documents.orgId,
   updatedAt: schema.documents.updatedAt,
   trashedAt: schema.documents.trashedAt,
+  sourceMode: schema.documents.sourceMode,
+  sourceRootPath: schema.documents.sourceRootPath,
+  sourcePath: schema.documents.sourcePath,
 };
 
 export type PageRow = {
@@ -113,6 +117,9 @@ export type PageRow = {
   orgId: string | null;
   updatedAt: string;
   trashedAt: string | null;
+  sourceMode: string | null;
+  sourceRootPath: string | null;
+  sourcePath: string | null;
 };
 
 type BlocksFields = Awaited<ReturnType<typeof lockPrimaryBlocksFields>>;
@@ -247,7 +254,7 @@ function writePathChanged(documentId: string, reason: string): never {
   );
 }
 
-// A page in Trash refuses body writes, as update-document refuses them.
+// Live-copy commits bypass update-document's mutation checks.
 function assertEditablePage(page: PageRow): void {
   if (page.trashedAt) {
     throw new ActionContractError("Document not found.", {
@@ -255,6 +262,7 @@ function assertEditablePage(page: PageRow): void {
       statusCode: 404,
     });
   }
+  assertSourceAllowsPageEdit(page);
 }
 
 /**

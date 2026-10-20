@@ -432,6 +432,87 @@ describe("switching a page to its live copy", () => {
   });
 });
 
+describe("GitHub source policy on a live copy", () => {
+  it("refuses to switch a GitHub page without changing its body or live copy", async () => {
+    await switchedPage("github-store-fixture", "Other body");
+    await insertPage("github-switch", "Canonical body");
+    await getDb()
+      .update(schema.documents)
+      .set({ sourceMode: "github" })
+      .where(eq(schema.documents.id, "github-switch"));
+    const before = await page("github-switch");
+
+    await expect(
+      switching.switchPageToLiveCopy("github-switch"),
+    ).rejects.toMatchObject({ errorCode: "SOURCE_READ_ONLY" });
+    expect(await page("github-switch")).toEqual(before);
+    expect(await collabVersion("github-switch")).toBeUndefined();
+    expect(await history("github-switch")).toEqual([]);
+  });
+
+  it.each(["editor", "server", "unchanged"] as const)(
+    "refuses an existing live copy's %s write after its page becomes GitHub-backed",
+    async (kind) => {
+      const id = `github-${kind}`;
+      await switchedPage(id, "Canonical body");
+      const update = await appendParagraphUpdate(id, "Unapproved edit");
+      const before = await page(id);
+      const version = await collabVersion(id);
+      const previousHistory = await history(id);
+      await getDb()
+        .update(schema.documents)
+        .set({ sourceMode: "github" })
+        .where(eq(schema.documents.id, id));
+
+      await expect(
+        asOwner(async () =>
+          kind === "editor"
+            ? collab.applyUpdate(id, update)
+            : writer.editContentLiveCopy(id, {
+                cause: { operation: "test-source-policy", origin: "test" },
+                edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+                input: {
+                  content:
+                    kind === "unchanged" ? "Canonical body" : "Unapproved edit",
+                  expected: "Canonical body",
+                },
+              }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "SOURCE_READ_ONLY" });
+      expect(await page(id)).toEqual(before);
+      expect(await collabVersion(id)).toBe(version);
+      expect(await history(id)).toEqual(previousHistory);
+      expect(await bodyIntents(id)).toEqual([]);
+    },
+  );
+
+  it("rechecks source policy when a GitHub link arrives after conversion is built", async () => {
+    const id = "github-conversion-race";
+    await insertPage(id, "Canonical body");
+    const before = await page(id);
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .update(schema.documents)
+        .set({ sourceMode: "github" })
+        .where(eq(schema.documents.id, id));
+      return result;
+    });
+    try {
+      await expect(switching.switchPageToLiveCopy(id)).rejects.toMatchObject({
+        errorCode: "SOURCE_READ_ONLY",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await page(id)).toEqual(before);
+    expect(await collabVersion(id)).toBeUndefined();
+    expect(await history(id)).toEqual([]);
+  });
+});
+
 describe("writes through a switched page's live copy", () => {
   it("derives the page, its revision and History from a server edit, in the commit", async () => {
     await switchedPage("server", "Hello there");

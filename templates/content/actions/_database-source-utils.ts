@@ -63,6 +63,10 @@ import {
   processWithConcurrency,
 } from "./_batch-utils.js";
 import {
+  githubSourceCapabilities,
+  githubSourceStatus,
+} from "./_github-source-metadata.js";
+import {
   LOCAL_FOLDER_SOURCE_TYPE,
   localFolderSourceIdentityFromMetadata,
 } from "./_local-folder-source.js";
@@ -472,7 +476,8 @@ function normalizeSourceType(
     value === "builder-cms" ||
     value === "local-table" ||
     value === "notion-database" ||
-    value === "local-folder"
+    value === "local-folder" ||
+    value === "github"
   )
     return value;
   return "mock-local";
@@ -566,6 +571,7 @@ function sourceMetadataLabel(
   if (sourceType === "local-table") return `local.table.${sourceTable}`;
   if (sourceType === "notion-database") return `notion.database.${sourceTable}`;
   if (sourceType === "local-folder") return `local.folder.${sourceTable}`;
+  if (sourceType === "github") return `github.folder.${sourceTable}`;
   return `mock-local.${sourceTable}`;
 }
 
@@ -4930,6 +4936,8 @@ async function loadSourceSnapshot(
         : undefined,
       builderModelFields: metadata.builderModelFields,
       federation: normalizeSourceFederation(metadata.federation),
+      github:
+        sourceType === "github" ? githubSourceStatus(metadata) : undefined,
     },
     fields,
     rows,
@@ -5165,6 +5173,9 @@ export function sourceCapabilitiesForType(
       liveWritesEnabled: false,
       readOnlyRefresh: true,
     });
+  }
+  if (sourceType === "github") {
+    return serializeSourceCapabilitiesRecord(githubSourceCapabilities());
   }
   if (sourceType === "notion-database") {
     return serializeSourceCapabilitiesRecord({

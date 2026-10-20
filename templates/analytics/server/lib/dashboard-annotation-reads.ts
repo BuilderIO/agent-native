@@ -15,11 +15,16 @@ import { listDataNotes } from "./data-notes-store.js";
 import { listKeyDateSets } from "./key-dates-store.js";
 import { openDashboard } from "./open-dashboard.js";
 
-/** The key-date sets and data notes one dashboard draws, read from the scope it draws them from. */
+/**
+ * The key-date sets and data notes one dashboard draws, read from the scope it
+ * draws them from. `searchParams` are the page's URL filters when it is on
+ * screen.
+ */
 export async function loadDashboardAnnotationSummary(
   drawn: DashboardAnnotationScope,
   dashboardId: string,
   config: Record<string, unknown>,
+  searchParams?: Record<string, string>,
 ): Promise<DashboardAnnotationSummary | DashboardAnnotationsUnreadable> {
   try {
     const [sets, notes] = await Promise.all([
@@ -31,6 +36,7 @@ export async function loadDashboardAnnotationSummary(
       config,
       sets,
       notes,
+      { searchParams },
     );
     if (drawn.editable) return summary;
     // As list-key-dates and list-data-notes: no sets where no chart can draw
