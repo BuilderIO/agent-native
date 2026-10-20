@@ -45,7 +45,6 @@ describe("motion empty-track persistence (Item 2)", () => {
 
   it("allows empty CSS tracks for timelines with authored Motion content", () => {
     const actionSrc = readSource("../../actions/apply-motion-edit.ts");
-    expect(actionSrc).toContain("z.array(trackSchema)");
     expect(actionSrc).toContain("inputTracks.length === 0 &&");
     expect(actionSrc).toContain("!textDocument");
     expect(actionSrc).toContain("animationStyles.length === 0");

@@ -21,7 +21,7 @@ interface AssetLibraryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectAsset?: (url: string) => void;
-  anchorRef?: React.RefObject<HTMLButtonElement | null>;
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
 export default function AssetLibraryPanel({

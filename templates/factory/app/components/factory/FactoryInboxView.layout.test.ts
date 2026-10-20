@@ -71,6 +71,19 @@ describe("FactoryInboxView", () => {
     expect(source).not.toContain('t("factoryRoute.selectObservation")');
   });
 
+  it("lets a person resolve or reopen an item without going through automation", () => {
+    const source = readViewSource();
+    expect(source).toContain("TriageOutcomeMenu");
+    expect(source).toContain("aria-pressed={selectedId === id}");
+    // The selection control and outcome menu are separate native buttons.
+    expect(source).toContain(
+      '<button\n                            type="button"',
+    );
+    expect(source).not.toContain('role="button"');
+    const rowAt = source.indexOf("<div\n                        key={id}");
+    expect(rowAt).toBeGreaterThan(-1);
+  });
+
   it("surfaces the latest task summary before the reason, evidence, and log", () => {
     const source = readViewSource();
     expect(source).toContain("InboxMessageCard");

@@ -499,6 +499,60 @@ describe("workspace deploy", () => {
     ).toContain('AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated"');
   });
 
+  it("routes embedded HTML and PCK assets without replacing the app root shell", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    execFile.mockImplementation(((_cmd, args) => {
+      const app = String(args[1]);
+      writeAppBuildOutput(tmpDir, app);
+      const publicDir = path.join(tmpDir, "apps", app, "dist", app);
+      const rendererDir = path.join(publicDir, "living-world", "godot");
+      fs.mkdirSync(rendererDir, { recursive: true });
+      fs.writeFileSync(path.join(publicDir, "index.html"), "root shell");
+      fs.writeFileSync(path.join(rendererDir, "index.html"), "renderer entry");
+      fs.writeFileSync(path.join(rendererDir, "index.pck"), "renderer payload");
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const redirects = fs.readFileSync(
+      path.join(tmpDir, "dist", "_redirects"),
+      "utf8",
+    );
+    for (const file of ["index.html", "index.pck"]) {
+      const publicPath = `/dispatch/living-world/godot/${file}`;
+      expect(redirects).toContain(
+        `${publicPath} /_workspace_static${publicPath} 200`,
+      );
+    }
+    expect(redirects).not.toContain(
+      "/dispatch/index.html /_workspace_static/dispatch/index.html 200",
+    );
+
+    const entry = await import(
+      pathToFileURL(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "dispatch-server",
+          "dispatch-server.mjs",
+        ),
+      ).href
+    );
+    expect(entry.config.excludedPath).toContain(
+      "/dispatch/living-world/godot/index.html",
+    );
+    expect(entry.config.excludedPath).toContain(
+      "/dispatch/living-world/godot/index.pck",
+    );
+    expect(entry.config.excludedPath).not.toContain("/dispatch/index.html");
+  });
+
   it.each([
     { app: "assets", mounted: true },
     { app: "starter", mounted: true },
@@ -1333,24 +1387,53 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
-    expect(config.routes).toContainEqual({
-      src: "/dispatch/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+    const immutableAssetRoutes = config.routes.filter(
+      (route: { headers?: Record<string, string> }) =>
+        route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+    expect(immutableAssetRoutes).toEqual([
+      {
+        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
-    expect(config.routes).toContainEqual({
-      src: "/starter/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      {
+        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
+    ]);
+    expect(immutableAssetRoutes).toHaveLength(2);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/chunks/chunk-12345678.js"),
+      ),
+    ).toEqual([true, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/starter/assets/app-aB12_cdE.js"),
+      ),
+    ).toEqual([false, true]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/app.js"),
+      ),
+    ).toEqual([false, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test(
+          "/dispatch/assets/nested/missing-aB12_cdE.js",
+        ),
+      ),
+    ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(
       expect.objectContaining({ src: "/dispatch/assets/app\\.js" }),
     );
@@ -2564,6 +2647,11 @@ function writeVercelAppBuildOutput(
   fs.writeFileSync(path.join(staticDir, "assets", "app.js"), "export {};");
   fs.writeFileSync(
     path.join(staticDir, "assets", "app-aB12_cdE.js"),
+    "export {};",
+  );
+  fs.mkdirSync(path.join(staticDir, "assets", "chunks"), { recursive: true });
+  fs.writeFileSync(
+    path.join(staticDir, "assets", "chunks", "chunk-12345678.js"),
     "export {};",
   );
   fs.writeFileSync(path.join(staticDir, "favicon.ico"), "");

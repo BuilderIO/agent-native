@@ -164,7 +164,7 @@ const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const BUTTON_PRIMARY_ICON = cn(
   BUTTON_BASE,
-  "size-10 shrink-0 bg-primary p-0 text-primary-foreground hover:bg-primary/90 sm:size-8",
+  "size-9 shrink-0 bg-primary p-0 text-primary-foreground hover:bg-primary/90",
 );
 const BUTTON_GHOST_ICON = cn(
   BUTTON_BASE,
@@ -874,7 +874,13 @@ function SharePanel(
         </div>
       ) : null}
 
-      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
+      {showShareLinks && shareUrlPlacement === "bottom" ? (
+        // The tabbed layout reorders its sections with `order-*`, so links
+        // placed at the bottom need an order of their own to stay last.
+        <div className={props.agentTabContent ? "order-3" : undefined}>
+          {shareLinks}
+        </div>
+      ) : null}
 
       {props.shareFooterContent}
     </div>
@@ -1178,7 +1184,7 @@ function MemberAutocomplete({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
-        <div className="flex h-10 min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-card focus-within:ring-1 focus-within:ring-ring sm:h-8">
+        <div className="flex h-9 min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-card focus-within:ring-1 focus-within:ring-ring">
           <input
             ref={inputRef}
             type="text"

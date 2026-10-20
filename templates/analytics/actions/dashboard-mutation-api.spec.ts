@@ -230,12 +230,62 @@ describe("dashboard mutation api", () => {
     ]);
   });
 
+  it("rejects setHeight when the selected panel is a section", () => {
+    for (const statement of [
+      'dashboard.section("section").setHeight(2);',
+      'dashboard.panel("section").setHeight(2);',
+    ]) {
+      expect(() => parseDashboardMutationScript(config(), statement)).toThrow(
+        /setHeight is not supported on section panels/,
+      );
+    }
+  });
+
+  it("parses and applies clearHeight as a return to content-based height", () => {
+    const root = clone(config());
+    const selected = root.panels[0] as Record<string, unknown>;
+    selected.height = 3;
+
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.panel("a").clearHeight();',
+    );
+    expect(operations).toEqual([{ op: "clearPanelHeight", panelId: "a" }]);
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(selected).not.toHaveProperty("height");
+    expect(result.changedPanelIds).toEqual(["a"]);
+    expect(result.commandLog).toEqual(["clearPanelHeight(a)"]);
+  });
+
+  it("rejects clearHeight on sections and with arguments", () => {
+    for (const statement of [
+      'dashboard.section("section").clearHeight();',
+      'dashboard.panel("section").clearHeight();',
+      'dashboard.panel("a").clearHeight(2);',
+    ]) {
+      expect(() => parseDashboardMutationScript(config(), statement)).toThrow(
+        statement.includes("clearHeight(2)")
+          ? /clearHeight does not accept arguments/
+          : /clearHeight is not supported on section panels/,
+      );
+    }
+
+    expect(() =>
+      applyDashboardMutationOperations(clone(config()), [
+        { op: "clearPanelHeight", panelId: "section" },
+      ]),
+    ).toThrow(/operation 1 \(clearPanelHeight\).*clearHeight is not supported/);
+  });
+
   it("supports bulk field edits and nested config path edits", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(
       root,
       [
         'dashboard.panelsMatching({"titleIncludes":"Signed-In"}).setWidth(2);',
+        'dashboard.panels(["b","c"]).setHeight(3);',
         'dashboard.panels(["b","c"]).setConfigPath("yAxis.format","percent");',
       ].join("\n"),
     );
@@ -246,6 +296,7 @@ describe("dashboard mutation api", () => {
     );
 
     expect(signedInPanels.map((p) => p.width)).toEqual([2, 2]);
+    expect(signedInPanels.map((p) => p.height)).toEqual([3, 3]);
     expect(signedInPanels.map((p) => p.config)).toEqual([
       { yAxis: { format: "percent" } },
       { yAxis: { format: "percent" } },
@@ -254,6 +305,8 @@ describe("dashboard mutation api", () => {
     expect(result.commandLog).toEqual([
       "updatePanel(b: width)",
       "updatePanel(c: width)",
+      "updatePanel(b: height)",
+      "updatePanel(c: height)",
       "updatePanelPath(b: config.yAxis.format)",
       "updatePanelPath(c: config.yAxis.format)",
     ]);
@@ -530,6 +583,10 @@ describe("dashboard mutation api", () => {
   });
 
   it("teaches only config keys the renderer honors", () => {
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain(
+      'type SectionSelection = Omit<PanelSelection, "setHeight" | "clearHeight"> & {',
+    );
+    expect(DASHBOARD_MUTATION_API_TYPES).toContain("clearHeight(): void;");
     expect(DASHBOARD_MUTATION_API_TYPES).not.toContain("yAxis");
     expect(DASHBOARD_MUTATION_API_TYPES).toContain('e.g. "yFormatter"');
     expect(DASHBOARD_MUTATION_EXAMPLES).toContain(

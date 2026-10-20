@@ -7,7 +7,10 @@ import {
   alignSelectionAvailability,
   runAlignSelection,
 } from "@/pages/design-editor/commands/align-selection";
-import type { AlignableRect } from "@/pages/design-editor/layout-operations";
+import type {
+  AlignableRect,
+  NodePositionPatch,
+} from "@/pages/design-editor/layout-operations";
 
 const HTML = `<!doctype html>
 <html>
@@ -77,7 +80,7 @@ function runArgs(
   const commitNodePositions = vi.fn(
     (
       _baseContent: string,
-      _positions: ReadonlyMap<string, { x: number; y: number }>,
+      _positions: ReadonlyMap<string, NodePositionPatch>,
     ) => true,
   );
   const handleGeometryCommit = vi.fn();
@@ -200,12 +203,12 @@ describe("runAlignSelection", () => {
     });
     runAlignSelection(args, "right");
     expect(commitNodePositions.mock.calls[0]![1]).toEqual(
-      new Map([[fixture.absChild.id, { x: 680, y: 250 }]]),
+      new Map([[fixture.absChild.id, { x: 680 }]]),
     );
     commitNodePositions.mockClear();
     runAlignSelection(args, "left");
     expect(commitNodePositions.mock.calls[0]![1]).toEqual(
-      new Map([[fixture.absChild.id, { x: 0, y: 250 }]]),
+      new Map([[fixture.absChild.id, { x: 0 }]]),
     );
   });
 });

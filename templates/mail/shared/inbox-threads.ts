@@ -25,6 +25,50 @@ export type InboxTab = {
   totalIsLowerBound?: boolean;
 };
 
+/**
+ * `active` — a Gmail push watch was renewed recently, so new mail arrives by
+ * push and a steady account only needs an occasional sync poll.
+ * `fallback` — no watch, or its renewals lapsed; the account polls on the
+ * short cadence so it never goes stale silently.
+ */
+export type InboxPushWatch = "active" | "fallback";
+
+/**
+ * Deepest row offset the inbox list reads. Past it a page would rank every
+ * row in the tab, so the list must page by a new cursor instead. Matches the
+ * per-account cache cap.
+ */
+export const INBOX_MAX_PAGE_OFFSET = 2_000;
+
+/**
+ * Rows from index `INBOX_MAX_PAGE_OFFSET` on are not readable, so a page must
+ * start below it. The last readable page ends at the cap and reports
+ * `reachedCap`; the client never requests a page that starts at the cap.
+ */
+export function isReadableInboxPageOffset(offset: number): boolean {
+  return (
+    Number.isInteger(offset) && offset >= 0 && offset < INBOX_MAX_PAGE_OFFSET
+  );
+}
+
+/** The rows a page actually returns: its end is clamped to the cap. */
+export function effectiveInboxPageLimit(offset: number, limit: number): number {
+  return Math.min(limit, INBOX_MAX_PAGE_OFFSET - offset);
+}
+
+/**
+ * Sync poll cadence, shared by the server freshness gate and the client
+ * poller so a steady account syncs at most once per interval.
+ */
+export const INBOX_SYNC_POLL_MS = {
+  /** First sync, backfill, or pending push/work: keep the fast cadence. */
+  pending: 3_000,
+  /** Steady account with an active push watch. */
+  pushActive: 60_000,
+  /** Steady account without a push watch, or with a lapsed one. */
+  fallback: 20_000,
+} as const;
+
 export type InboxSyncAccountStatus = {
   accountEmail: string;
   /**
@@ -36,6 +80,7 @@ export type InboxSyncAccountStatus = {
    */
   state: "initial" | "ready" | "error" | "needs_reauth";
   backfillPending?: boolean;
+  pushWatch?: InboxPushWatch;
   lastSyncedAt: number | null;
   error?: string;
 };
@@ -55,6 +100,13 @@ export type ListInboxThreadsResult = {
   tabPreviews: Record<string, InboxThreadItem[]>;
   total: number;
   complete?: boolean;
+  /** Older rows exist past this page and can be paged to. */
+  hasMore?: boolean;
+  /**
+   * The page ends at `INBOX_MAX_PAGE_OFFSET` while older rows exist. Paging
+   * stops here; older mail is reached through All Mail or search.
+   */
+  reachedCap?: boolean;
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
   labels: Label[];

@@ -10,7 +10,7 @@ interface ExecCall {
 const execCalls: ExecCall[] = [];
 let staleSelectRows: Array<{ id: string }> = [];
 
-const mockDb = {
+const mockDb: any = {
   execute: vi.fn(
     async (
       statement:
@@ -23,9 +23,10 @@ const mockDb = {
           },
     ) => {
       const sql = typeof statement === "string" ? statement : statement.sql;
+      const args = typeof statement === "string" ? [] : (statement.args ?? []);
       execCalls.push({
         sql,
-        args: typeof statement === "string" ? [] : (statement.args ?? []),
+        args,
         timeoutMs:
           typeof statement === "string" ? undefined : statement.timeoutMs,
         maxAttempts:
@@ -37,6 +38,26 @@ const mockDb = {
       ) {
         return { rows: staleSelectRows.slice(0, 1), rowsAffected: 0 };
       }
+      if (
+        /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id\s+FROM agent_runs WHERE id = \?/i.test(
+          sql,
+        )
+      ) {
+        return {
+          rows: [{ thread_id: "thread-dead", turn_id: String(args[0]) }],
+          rowsAffected: 0,
+        };
+      }
+      if (
+        /SELECT status, worker_generation FROM agent_runs WHERE id = \? FOR UPDATE/i.test(
+          sql,
+        )
+      ) {
+        return {
+          rows: [{ status: "running", worker_generation: null }],
+          rowsAffected: 0,
+        };
+      }
       if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(sql)) {
         return { rows: staleSelectRows, rowsAffected: 0 };
       }
@@ -47,6 +68,9 @@ const mockDb = {
     },
   ),
 };
+mockDb.transaction = vi.fn(async (fn: (tx: any) => Promise<unknown>) =>
+  fn(mockDb),
+);
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
@@ -89,10 +113,9 @@ describe("stale reap accounting", () => {
   it("records completed_at from the liveness basis, never the reap time", async () => {
     staleSelectRows = [{ id: "run-dead" }];
     await reapAllStaleRuns();
-    await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const updates = staleReapUpdates();
-    expect(updates.length).toBe(3);
+    expect(updates).toHaveLength(1);
     for (const update of updates) {
       expect(update.sql).toMatch(
         /completed_at = COALESCE\(completed_at, \(CASE WHEN COALESCE\(last_progress_at/,
@@ -110,15 +133,30 @@ describe("stale reap accounting", () => {
   it("writes one terminal_reason for one outcome, matching the reconciler's error:<code>", async () => {
     staleSelectRows = [{ id: "run-dead" }];
     await reapAllStaleRuns();
-    await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const updates = staleReapUpdates();
-    expect(updates.length).toBe(3);
+    expect(updates).toHaveLength(1);
     expect(STALE_RUN_TERMINAL_REASON).toBe("error:stale_run");
     for (const update of updates) {
       expect(update.args).toContain(STALE_RUN_TERMINAL_REASON);
       expect(update.args).toContain("stale_run");
     }
+  });
+
+  it("does not update stale status independently during cleanup", async () => {
+    await cleanupOldRuns(24 * 60 * 60 * 1000);
+
+    expect(staleReapUpdates()).toHaveLength(0);
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = 'errored'/i.test(call.sql),
+      ),
+    ).toBe(false);
+    expect(execCalls.some((call) => /OR started_at < \?/i.test(call.sql))).toBe(
+      false,
+    );
   });
 
   it("bounds the heartbeat write well inside the stale window it defends", async () => {

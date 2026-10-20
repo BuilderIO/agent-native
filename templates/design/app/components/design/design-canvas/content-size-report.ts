@@ -180,6 +180,7 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
   var frame = 0;
   function report() {
     frame = 0;
+    if (window.__agentNativeLayerMoveActive) return;
     applyDeviceVh();
     applyViewportHeightGuard();
     // Natural content sizing is opt-in for explicit Hug screens. Most
@@ -286,6 +287,7 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
   }
   window.addEventListener("resize", scheduleReport);
   window.addEventListener("load", scheduleReport);
+  window.addEventListener("agent-native:layer-move-change", scheduleReport);
   // Late webfont / Tailwind-JIT reflows: a few settle passes catch height
   // changes that land after the initial paint without a permanent timer.
   [0, 120, 400, 1000].forEach(function (delay) {

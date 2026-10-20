@@ -12,7 +12,7 @@ describe("VisualEditor read-only mode", () => {
 
     expect(source).toContain("const isEditable = editor.isEditable");
     expect(source).toMatch(
-      /\{isEditable \? \(\s*<input[\s\S]*className="notion-toggle__summary"[\s\S]*\) : \(\s*<span className="notion-toggle__summary" contentEditable=\{false\}>/,
+      /\{isEditable \? \(\s*<input[\s\S]*className="content-toggle__summary"[\s\S]*\) : \(\s*<span className="content-toggle__summary" contentEditable=\{false\}>/,
     );
   });
 
@@ -55,6 +55,8 @@ describe("VisualEditor read-only mode", () => {
     expect(source).toContain(
       'session.sourceBlock.classList.add("notion-block--dragging");',
     );
-    expect(source).toContain("session.view.dispatch(tr.scrollIntoView());");
+    expect(source).toContain(
+      "session.view.dispatch(markUserAction(tr).scrollIntoView());",
+    );
   });
 });

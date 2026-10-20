@@ -234,6 +234,11 @@ vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
     mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
+
 import action from "./delete-file.js";
 
 describe("delete-file", () => {
@@ -245,12 +250,18 @@ describe("delete-file", () => {
         { caller: "mcp", actionName: "delete-file" },
       ),
     ).toBe(true);
-    // MCP checks approval on raw tool args before schema boolean coercion.
+    // Every caller's gate judges the call as prepared, so a stringified
+    // flag arrives as the boolean the schema coerces it to.
+    const intent = await actionCallIntent(action, {
+      id: "file-b",
+      allowLockedLayers: "true",
+    });
+    if (!intent.valid) throw intent.error;
     expect(
-      await action.needsApproval?.(
-        { id: "file-b", allowLockedLayers: "true" } as never,
-        { caller: "mcp", actionName: "delete-file" },
-      ),
+      await action.needsApproval?.(preparedCallArguments(intent) as never, {
+        caller: "mcp",
+        actionName: "delete-file",
+      }),
     ).toBe(true);
     expect(
       await action.needsApproval?.(

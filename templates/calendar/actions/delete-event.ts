@@ -11,7 +11,6 @@ import {
   cliBoolean,
   googleEventResultId,
   normalizeWritableGoogleEventId,
-  rawCliBoolean,
   requireActionUserEmail,
   resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
@@ -53,8 +52,7 @@ export default defineAction({
   }),
   toolCallable: false,
   needsApproval: ({ sendUpdates, notificationMessage, removeOnly }) =>
-    !rawCliBoolean(removeOnly) &&
-    (sendUpdates === "all" || !!notificationMessage?.trim()),
+    !removeOnly && (sendUpdates === "all" || !!notificationMessage?.trim()),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {

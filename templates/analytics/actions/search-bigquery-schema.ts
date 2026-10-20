@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   matchSearchFields,
   semanticScopeCompatibility,
+  semanticScopeForCandidate,
   semanticScopeForSearch,
 } from "../server/lib/analytics-term-matcher.js";
 import {
@@ -515,7 +516,7 @@ async function searchAcrossDatasets(
         });
         const match = scoreSearch(metadata, search);
         if (match.score <= 0) return null;
-        const semanticScope = semanticScopeForSearch(
+        const semanticScope = semanticScopeForCandidate(
           [
             metadata.tableReference?.tableId,
             metadata.friendlyName,
@@ -773,7 +774,7 @@ export default defineAction({
     const ranked = metadata.flatMap((meta) => {
       const match = scoreSearch(meta, search);
       if (match.score <= 0) return [];
-      const candidateScope = semanticScopeForSearch(
+      const candidateScope = semanticScopeForCandidate(
         [
           meta.tableReference?.tableId,
           meta.friendlyName,

@@ -8,6 +8,7 @@ import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
 import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { isYouTubeUrl } from "@shared/youtube.js";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -49,6 +50,7 @@ import {
   failLoomImport,
 } from "./lib/loom-import-job.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
+import { importYouTubeVideo } from "./lib/youtube-import.js";
 
 export { enqueueFirstImportEmailIfEligible };
 
@@ -74,7 +76,7 @@ const ImportLoomRecordingSchema = z.object({
     .min(1)
     .max(2048)
     .describe(
-      "Loom share/embed URL, or a direct link to an MP4/WebM video file",
+      "Loom share/embed URL, YouTube video URL, or a direct link to an MP4/WebM video file",
     ),
   title: z
     .string()
@@ -82,7 +84,7 @@ const ImportLoomRecordingSchema = z.object({
     .max(200)
     .optional()
     .describe(
-      "Optional title override; defaults to Loom's oEmbed title when available",
+      "Optional title override; defaults to Loom's or YouTube's oEmbed title when available",
     ),
   folderId: z.string().nullish().describe("Optional folder ID"),
   spaceIds: z
@@ -183,9 +185,13 @@ async function fetchLoomOembed(shareUrl: string) {
 
 export default defineAction({
   description:
-    "Import a public Loom share URL, or a direct link to a video file, into Clips as a playable recording. Loom links create the recording immediately and download/reupload Loom's public MP4 when available, or keep a playable Loom embed when Loom allows playback but not MP4 export; public transcripts are imported in the background. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
+    "Import a public Loom share URL, a YouTube video URL, or a direct link to a video file, into Clips as a playable recording. YouTube links (watch, Shorts, youtu.be) create a ready clip that plays in YouTube's embedded player: nothing is downloaded, so frames, editing and transcription aren't available, and its transcript has to come from import-transcript. Loom links create the recording immediately and download/reupload Loom's public MP4 when available, or keep a playable Loom embed when Loom allows playback but not MP4 export; public transcripts are imported in the background. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
   schema: ImportLoomRecordingSchema,
   run: async (args, actionContext) => {
+    // YouTube videos are never downloaded, so they skip storage entirely.
+    if (isYouTubeUrl(args.url)) {
+      return importYouTubeVideo(args, actionContext);
+    }
     const loomId = extractLoomVideoId(args.url);
     const isLoom = Boolean(loomId);
     const loomShareUrl = isLoom ? normalizeLoomShareUrl(args.url) : null;

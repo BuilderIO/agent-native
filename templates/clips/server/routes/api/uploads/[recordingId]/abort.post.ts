@@ -16,6 +16,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
@@ -633,6 +634,10 @@ export async function handleAbortRecordingUpload(
       }
     }
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     return { ok: true, recordingId, chunksCleared: cleared };
   });

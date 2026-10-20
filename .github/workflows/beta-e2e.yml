@@ -54,7 +54,7 @@ on:
         default: "beta"
         type: string
       grep:
-        description: "Only run tests whose title matches this (optional)"
+        description: "Only run tests whose title contains this literal text (optional)"
         required: false
         default: ""
         type: string
@@ -112,11 +112,11 @@ on:
           - dedicated
           - shared
       grep:
-        description: "Only run tests whose title matches this (optional)"
+        description: "Only run tests whose title contains this literal text (optional)"
         required: false
         default: ""
       diagnostic_run:
-        description: "Read a prior failed refresh-test thread only; requires lane=authed, apps=content/dispatch, and the exact refresh-test grep."
+        description: "Read a prior failed refresh-test thread only; requires lane=authed, apps=content/dispatch, and the exact refresh-test title substring."
         required: false
         default: ""
 
@@ -140,6 +140,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       apps: ${{ steps.matrix.outputs.apps }}
+      grep: ${{ steps.matrix.outputs.grep }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -151,6 +152,7 @@ jobs:
         id: matrix
         env:
           REQUESTED_APPS: ${{ inputs.apps }}
+          REQUESTED_GREP: ${{ inputs.grep }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -184,10 +186,18 @@ jobs:
           if (apps.length === 0) {
             throw new Error("The app selection resolved to nothing to test.");
           }
+          const requestedGrep = process.env.REQUESTED_GREP || "";
+          if (/[\r\n]/.test(requestedGrep)) {
+            throw new Error("The grep filter must be a single-line title substring.");
+          }
+          const playwrightGrep = requestedGrep.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&",
+          );
           const matrix = { app: apps };
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `matrix=${JSON.stringify(matrix)}\napps=${apps.join(",")}\n`,
+            `matrix=${JSON.stringify(matrix)}\napps=${apps.join(",")}\ngrep=${playwrightGrep}\n`,
           );
           console.log(`Sharding ${apps.length} host(s): ${apps.join(", ")}`);
           NODE
@@ -217,7 +227,7 @@ jobs:
             const runId = inputs?.diagnostic_run;
             const apps = inputs?.apps;
             const grep = inputs?.grep;
-            const exactGrep = String.raw`\[chat-reliability\] refresh mid-run restores the complete answer`;
+            const exactGrep = "[chat-reliability] refresh mid-run restores the complete answer";
             if (
               process.env.GITHUB_EVENT_NAME !== "workflow_dispatch" ||
               process.env.GITHUB_REPOSITORY !== "BuilderIO/agent-native" ||
@@ -259,7 +269,7 @@ jobs:
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
       BETA_E2E_APPS: ${{ matrix.app }}
-      BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      BETA_E2E_GREP: ${{ needs.discover.outputs.grep }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: public-${{ matrix.app }}
       BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "7"
@@ -291,7 +301,7 @@ jobs:
     timeout-minutes: 10
     env:
       BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
-      BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      BETA_E2E_GREP: ${{ needs.discover.outputs.grep }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: fleet
       BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "7"
@@ -428,7 +438,7 @@ jobs:
       # was selected (design has its own slot).
       SHARD_SELECTED: ${{ matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app)) }}
       BETA_E2E_APPS: ${{ matrix.app || needs.discover.outputs.apps }}
-      BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      BETA_E2E_GREP: ${{ needs.discover.outputs.grep }}
       # True when the caller narrowed the run (an app list or a title filter), so
       # a slot with nothing to run is expected rather than a broken partition.
       BETA_E2E_NARROWED: ${{ (inputs.apps != '' && inputs.apps != 'all') || inputs.grep != '' }}
@@ -540,7 +550,7 @@ jobs:
     timeout-minutes: 10
     env:
       BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
-      BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      BETA_E2E_GREP: ${{ needs.discover.outputs.grep }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: advisory
       BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "7"

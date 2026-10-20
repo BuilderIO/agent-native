@@ -22,6 +22,7 @@ import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
 import { e2eBaseURL } from "./base-url";
 import {
   appPath,
+  cdpScreenshot,
   enableLab,
   enterDirectMode,
   gotoEditor,
@@ -35,7 +36,19 @@ const alpineTransitionNodeId = "alpine-transition-target";
 const inlineAnimationNodeId = "inline-animation-target";
 const source = `<!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8"><title>Motion HTML source</title><style>@keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }</style></head>
+  <head><meta charset="utf-8"><title>Motion HTML source</title><style>
+#${nodeId} {
+  animation-name: pulse;
+  animation-duration: 900ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+@keyframes pulse {
+  from { opacity: 0.5; transform: translateY(12px); }
+  50% { opacity: 0.75; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0px); }
+}
+</style></head>
   <body>
     <main x-data="{ open: true }">
       <button id="alpine-toggle" type="button" @click="open = !open">Toggle visibility</button>
@@ -266,7 +279,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
   test("writes HTML Motion, preserves Alpine, and imports direct CSS edits", async ({
     page,
     request,
-  }) => {
+  }, testInfo) => {
     const opened = await postAction(request, "add-localhost-screens", {
       connectionId,
       designId,
@@ -303,6 +316,43 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       "data-agent-native-motion-source-hash",
       initialSourceHash,
     );
+    const authoredMotion = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+      targetNodeIds: [nodeId],
+      previewModulePath: sourcePath,
+      previewModuleVersionHash: initialSourceHash,
+    });
+    expect(authoredMotion.timelines).toMatchObject([
+      {
+        source: "recovered-html",
+        durationMs: 900,
+        tracks: [
+          {
+            targetNodeId: nodeId,
+            property: "opacity",
+            keyframes: [
+              { t: 0, value: "0.5", ease: "ease-out" },
+              { t: 0.5, value: "0.75", ease: "ease-out" },
+              { t: 1, value: "1" },
+            ],
+          },
+          {
+            targetNodeId: nodeId,
+            property: "transform",
+            keyframes: [
+              { t: 0, value: "translateY(12px)", ease: "ease-out" },
+              { t: 0.5, value: "translateY(6px)", ease: "ease-out" },
+              { t: 1, value: "translateY(0px)" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const authoredTracks = authoredMotion.timelines[0]?.tracks;
+    if (!Array.isArray(authoredTracks) || authoredTracks.length !== 2) {
+      throw new Error("Authored HTML CSS Motion tracks were not recovered.");
+    }
     await postAction(request, "grant-localhost-write-consent", {
       designId,
       connectionId,
@@ -401,7 +451,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
         timelineVersionHash: initialSourceHash,
         renderedNodeIds: [nodeId],
       },
-      tracks: [expectedTrack],
+      tracks: [...authoredTracks, expectedTrack],
       durationMs: 1000,
       playbackMode: "once",
       defaultEase: "linear",
@@ -443,10 +493,21 @@ test.describe.serial("HTML Motion source browser writeback", () => {
 
     const directSource = managedSource
       .replace("translate: 0px 0px;", "translate: 6px 0px;")
-      .replace("animation-duration: 1s;", "animation-duration: 1.2s;")
       .replace(
-        "animation-timing-function: linear;",
-        "animation-timing-function: ease-in;",
+        /(animation-duration:\s*)([^;]+);/g,
+        (_match, prefix: string, values: string) =>
+          `${prefix}${values
+            .split(",")
+            .map(() => "1.2s")
+            .join(", ")};`,
+      )
+      .replace(
+        /(animation-timing-function:\s*)([^;]+);/g,
+        (_match, prefix: string, values: string) =>
+          `${prefix}${values
+            .split(",")
+            .map(() => "linear")
+            .join(", ")};`,
       );
     expect(directSource).not.toBe(managedSource);
     const refreshedMotionQueries: Array<{ query: string; result: any }> = [];
@@ -540,7 +601,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       .reverse()
       .find(({ result }) => resultHasSourceVersion(result, directHash));
     expect(refreshedTimelineQuery?.result).toMatchObject({
-      timelines: [{ sourceVersionHash: directHash, durationMs: 1200 }],
+      timelines: [{ sourceVersionHash: directHash, durationMs: 1000 }],
     });
 
     const timeline = await getAction(request, "get-motion-timeline", {
@@ -549,13 +610,34 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     });
     expect(timeline.timelines[0]).toMatchObject({
       sourceVersionHash: directHash,
-      durationMs: 1200,
+      durationMs: 1000,
       tracks: [
         {
           targetNodeId: nodeId,
-          property: "translate",
+          property: "opacity",
+          durationMs: 1200,
           keyframes: [
-            { t: 0, value: "6px 0px", ease: "ease-in" },
+            { t: 0, value: "0.5", ease: "linear" },
+            { t: 0.5, value: "0.75", ease: "linear" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId: nodeId,
+          property: "transform",
+          durationMs: 1200,
+          keyframes: [
+            { t: 0, value: "translateY(12px)", ease: "linear" },
+            { t: 0.5, value: "translateY(6px)", ease: "linear" },
+            { t: 1, value: "translateY(0px)", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId: nodeId,
+          property: "translate",
+          durationMs: 1200,
+          keyframes: [
+            { t: 0, value: "6px 0px", ease: "linear" },
             { t: 1, value: "24px 0px", ease: "linear" },
           ],
         },
@@ -564,11 +646,73 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await expect(
       page.locator('[data-motion-property-row="translate"]'),
     ).toContainText("Position");
-    await expect(durationInput).toHaveValue("1200");
+    await expect(
+      page.locator('[data-motion-property-row="opacity"]'),
+    ).toContainText("Opacity");
+    await expect(
+      page.locator('[data-motion-property-row="transform"]'),
+    ).toContainText("transform");
+    await expect(durationInput).toHaveValue("1000");
     await expect(frame.locator(`#${alpineTransitionNodeId}`)).toHaveAttribute(
       "x-transition.opacity",
       "",
     );
+    const trackRows = await page
+      .locator("[data-motion-property-row]")
+      .evaluateAll((rows) =>
+        rows.map((row) => {
+          const rect = row.getBoundingClientRect();
+          return {
+            property: row.getAttribute("data-motion-property-row"),
+            text: row.textContent?.trim() ?? "",
+            rect: {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            },
+          };
+        }),
+      );
+    const viewport = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio,
+    }));
+    const evidenceDirectory = process.env.E2E_MOTION_EVIDENCE_DIR?.trim();
+    const evidenceJsonPath = evidenceDirectory
+      ? path.resolve(
+          evidenceDirectory,
+          "motion-html-css-alpine-multitrack.json",
+        )
+      : testInfo.outputPath("motion-html-css-alpine-multitrack.json");
+    const evidencePngPath = evidenceDirectory
+      ? path.resolve(evidenceDirectory, "motion-html-css-alpine-multitrack.png")
+      : testInfo.outputPath("motion-html-css-alpine-multitrack.png");
+    fs.mkdirSync(path.dirname(evidenceJsonPath), { recursive: true });
+    fs.writeFileSync(
+      evidenceJsonPath,
+      `${JSON.stringify(
+        {
+          viewport,
+          sourceVersionHash: directHash,
+          durationMs: timeline.timelines[0]?.durationMs,
+          tracks: timeline.timelines[0]?.tracks,
+          trackRows,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await cdpScreenshot(page, evidencePngPath);
+    await testInfo.attach("html-css-alpine-multitrack-data", {
+      path: evidenceJsonPath,
+      contentType: "application/json",
+    });
+    await testInfo.attach("html-css-alpine-multitrack-screenshot", {
+      path: evidencePngPath,
+      contentType: "image/png",
+    });
 
     const motionCodeSave = page.waitForResponse(
       (response) =>
@@ -591,7 +735,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       .update(savedSource)
       .digest("hex");
     expect(savedSource).toContain("translate: 6px 0px;");
-    expect(savedSource).toContain("animation-timing-function: ease-in;");
+    expect(savedSource).toContain("animation-timing-function: linear;");
     expect(
       await getAction(request, "get-motion-timeline", {
         designId,
@@ -605,9 +749,29 @@ test.describe.serial("HTML Motion source browser writeback", () => {
           tracks: [
             {
               targetNodeId: nodeId,
+              property: "opacity",
+              durationMs: 1200,
+              keyframes: [
+                { t: 0, value: "0.5", ease: "linear" },
+                { t: 0.5, value: "0.75", ease: "linear" },
+                { t: 1, value: "1", ease: "linear" },
+              ],
+            },
+            {
+              targetNodeId: nodeId,
+              property: "transform",
+              durationMs: 1200,
+              keyframes: [
+                { t: 0, value: "translateY(12px)", ease: "linear" },
+                { t: 0.5, value: "translateY(6px)", ease: "linear" },
+                { t: 1, value: "translateY(0px)", ease: "linear" },
+              ],
+            },
+            {
+              targetNodeId: nodeId,
               property: "translate",
               keyframes: [
-                { t: 0, value: "6px 0px", ease: "ease-in" },
+                { t: 0, value: "6px 0px", ease: "linear" },
                 { t: 1, value: "24px 0px", ease: "linear" },
               ],
             },
@@ -623,7 +787,39 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       .poll(() =>
         browserTarget.evaluate((element) => element.getAnimations().length),
       )
-      .toBeGreaterThan(0);
+      .toBe(3);
+    const renderedValues = await browserTarget.evaluate(async (element) => {
+      const properties = ["opacity", "transform", "translate"];
+      const animations = properties.map((property) => {
+        const animation = element
+          .getAnimations()
+          .find((candidate) =>
+            (candidate.effect as KeyframeEffect | null)
+              ?.getKeyframes()
+              .some((keyframe) => property in keyframe),
+          );
+        if (!animation)
+          throw new Error(`HTML ${property} animation is missing`);
+        animation.pause();
+        return animation;
+      });
+      await Promise.all(animations.map((animation) => animation.ready));
+      for (const animation of animations) animation.currentTime = 600;
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      const style = getComputedStyle(element);
+      return {
+        opacity: style.opacity,
+        transformY: new DOMMatrixReadOnly(style.transform).m42,
+        translate: style.translate,
+      };
+    });
+    expect(renderedValues).toEqual({
+      opacity: "0.75",
+      transformY: 6,
+      translate: "15px",
+    });
     await page.getByRole("button", { name: "Toggle visibility" }).click();
     await expect(browserTarget).toBeHidden();
     await page.getByRole("button", { name: "Toggle visibility" }).click();

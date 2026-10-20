@@ -9,6 +9,10 @@ import {
   refreshAgentChatContext,
 } from "./agent-chat.js";
 import { useAgentChatContext } from "./use-agent-chat-context.js";
+import {
+  _resetChangeVersionStoreForTests,
+  bumpChangeVersion,
+} from "./use-change-version.js";
 
 const { agentChatContextState } = vi.hoisted(() => ({
   agentChatContextState: { items: [], updatedAt: 0 },
@@ -44,6 +48,7 @@ describe("useAgentChatContext", () => {
     agentChatContextState.items = [];
     agentChatContextState.updatedAt = 0;
     vi.mocked(refreshAgentChatContext).mockClear();
+    _resetChangeVersionStoreForTests();
   });
 
   afterEach(() => {
@@ -87,5 +92,31 @@ describe("useAgentChatContext", () => {
     expect(filterAgentChatContextItems(agentChatContextState.items)).toEqual([
       agentChatContextState.items[0],
     ]);
+  });
+
+  it("refreshes for agent chat context and wildcard state changes only", async () => {
+    await act(async () => {
+      root.render(<Probe enabled />);
+      await Promise.resolve();
+    });
+    expect(refreshAgentChatContext).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      bumpChangeVersion("app-state:selection", 1);
+      await Promise.resolve();
+    });
+    expect(refreshAgentChatContext).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      bumpChangeVersion("app-state:agent-chat-context", 2);
+      await Promise.resolve();
+    });
+    expect(refreshAgentChatContext).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      bumpChangeVersion("app-state:*", 3);
+      await Promise.resolve();
+    });
+    expect(refreshAgentChatContext).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderMarkdown } from "./Markdown";
+import { renderInlineLinks, renderMarkdown } from "./Markdown";
 
 describe("renderMarkdown", () => {
   it("escapes raw HTML", () => {
@@ -49,5 +49,30 @@ describe("renderMarkdown", () => {
 
     expect(html).toContain("Embed blocked");
     expect(html).not.toContain("<iframe");
+  });
+});
+
+describe("renderInlineLinks", () => {
+  it("renders safe Markdown links and escapes surrounding text", () => {
+    const html = renderInlineLinks(
+      "<b>Read</b> [the docs](https://example.com/metrics) now",
+    );
+
+    expect(html).toContain("&lt;b&gt;Read&lt;/b&gt;");
+    expect(html).toContain(
+      '<a href="https://example.com/metrics" target="_blank" rel="noopener noreferrer"',
+    );
+    expect(html).toContain(">the docs</a> now");
+  });
+
+  it("keeps unsafe links and image syntax as escaped text", () => {
+    const html = renderInlineLinks(
+      "[bad](javascript:alert(1)) ![image](https://example.com/image.png)",
+    );
+
+    expect(html).not.toContain("<a ");
+    expect(html).not.toContain("<img ");
+    expect(html).toContain("[bad](javascript:alert(1))");
+    expect(html).toContain("![image](https://example.com/image.png)");
   });
 });

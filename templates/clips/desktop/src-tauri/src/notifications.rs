@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -359,6 +358,7 @@ pub async fn notify_meeting_starting(
     platform: Option<String>,
     auto_start: Option<bool>,
     notification_type: Option<String>,
+    browser_bundle_id: Option<String>,
 ) -> Result<(), String> {
     let kind = notification_type
         .as_deref()
@@ -390,6 +390,7 @@ pub async fn notify_meeting_starting(
         "meetingId": meeting_id.clone(),
         "joinUrl": join_url,
         "platform": platform,
+        "browserBundleId": browser_bundle_id,
         "scheduledStart": scheduled_start,
         "scheduledEnd": scheduled_end,
         "autoStart": auto_start.unwrap_or(false),

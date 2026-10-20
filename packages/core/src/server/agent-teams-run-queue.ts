@@ -1,5 +1,14 @@
-import { ensureRunTables } from "../agent/run-store.js";
-import { getDbExec, withDbExec } from "../db/client.js";
+import {
+  currentExecutionFence,
+  StaleExecutionFenceError,
+  type ExecutionFence,
+} from "../agent/execution-fence.js";
+import {
+  ensureRunTables,
+  lockTaskExecutionLease,
+  revokeTaskExecutionLease,
+} from "../agent/run-store.js";
+import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -164,18 +173,13 @@ export async function claimAgentTeamRun(
   const now = Date.now();
   const stuckCutoff =
     now - (options.stuckAfterMs ?? RUN_DISPATCH_STUCK_AFTER_MS);
-  const result = await client.execute({
+  const { rows } = await client.execute({
     sql: `UPDATE agent_team_run_queue
             SET status = 'running', attempts = attempts + 1, updated_at = ?
           WHERE task_id = ?
-            AND (status = 'queued' OR (status = 'running' AND updated_at < ?))`,
+            AND (status = 'queued' OR (status = 'running' AND updated_at < ?))
+          RETURNING *`,
     args: [now, taskId, stuckCutoff],
-  });
-  if (getAffectedRowCount(result) === 0) return null;
-
-  const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_team_run_queue WHERE task_id = ?`,
-    args: [taskId],
   });
   if (rows.length === 0) return null;
   return rowToQueueRow(rows[0]);
@@ -261,6 +265,7 @@ export async function withCurrentAgentTeamRunAttempt<T>(
   options: {
     statuses?: readonly AgentTeamRunQueueStatus[];
     expectedUpdatedAt?: number;
+    revokeExecutionLease?: boolean;
   } = {},
 ): Promise<{ current: false } | { current: true; value: T }> {
   await ensureTable();
@@ -271,7 +276,7 @@ export async function withCurrentAgentTeamRunAttempt<T>(
 
   return client.transaction(async (tx) => {
     const { rows } = await tx.execute({
-      sql: `SELECT status, attempts, updated_at FROM agent_team_run_queue WHERE task_id = ? FOR UPDATE`,
+      sql: `SELECT status, attempts, updated_at, thread_id, payload FROM agent_team_run_queue WHERE task_id = ? FOR UPDATE`,
       args: [taskId],
     });
     const row = rows[0];
@@ -286,9 +291,63 @@ export async function withCurrentAgentTeamRunAttempt<T>(
       return { current: false };
     }
 
+    const fence = currentExecutionFence();
+    if (fence) {
+      if (
+        row.thread_id !== fence.threadId ||
+        queuePayloadTurnId(row.payload) !== fence.turnId
+      ) {
+        throw new StaleExecutionFenceError(fence);
+      }
+      await assertExecutionFenceCurrent(tx, fence);
+    }
+
+    if (options.revokeExecutionLease) {
+      const turnId = queuePayloadTurnId(row.payload);
+      if (!turnId) {
+        throw new Error("Agent Teams queue payload is unreadable.");
+      }
+      const threadId = String(row.thread_id);
+      await lockTaskExecutionLease(tx, threadId, turnId);
+      await revokeTaskExecutionLease(tx, threadId, turnId);
+    }
+
     const value = await withDbExec(tx, write);
     return { current: true, value };
   });
+}
+
+function queuePayloadTurnId(payload: unknown): string | undefined {
+  if (typeof payload !== "string") return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(payload);
+  } catch {
+    throw new Error("Agent Teams queue payload is unreadable.");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Agent Teams queue payload is unreadable.");
+  }
+  const turnId = (value as { turnId?: unknown }).turnId;
+  return typeof turnId === "string" ? turnId : undefined;
+}
+
+async function assertExecutionFenceCurrent(
+  tx: DbExec,
+  fence: ExecutionFence,
+): Promise<void> {
+  const { rows } = await tx.execute({
+    sql: `SELECT generation
+          FROM agent_execution_leases
+          WHERE thread_id = ?
+            AND turn_id = ?
+            AND owner_run_id = ?
+            AND generation = CAST(? AS BIGINT)
+            AND lease_expires_at > clock_timestamp()
+          FOR UPDATE`,
+    args: [fence.threadId, fence.turnId, fence.runId, fence.generation],
+  });
+  if (rows.length !== 1) throw new StaleExecutionFenceError(fence);
 }
 
 export async function persistAgentTeamRunEventIfCurrent(input: {
@@ -303,17 +362,44 @@ export async function persistAgentTeamRunEventIfCurrent(input: {
   const statuses = input.terminal
     ? "'queued', 'running', 'done', 'failed'"
     : "'running'";
+  const fence = currentExecutionFence();
+  if (fence && fence.runId !== input.runId) {
+    throw new StaleExecutionFenceError(fence);
+  }
+  const attemptScope = fence
+    ? "AND thread_id = ? AND (CAST(payload AS JSONB)->>'turnId') = ?"
+    : "";
+  const executionLeaseCte = fence
+    ? `, current_execution_lease AS MATERIALIZED (
+            SELECT generation
+            FROM agent_execution_leases
+            WHERE thread_id = ?
+              AND turn_id = ?
+              AND owner_run_id = ?
+              AND generation = CAST(? AS BIGINT)
+              AND lease_expires_at > clock_timestamp()
+            FOR UPDATE
+          )`
+    : "";
+  const eventSource = fence
+    ? "FROM current_attempt CROSS JOIN current_execution_lease"
+    : "FROM current_attempt";
+  const currentPredicate = fence
+    ? `EXISTS (SELECT 1 FROM current_attempt)
+              AND EXISTS (SELECT 1 FROM current_execution_lease)`
+    : "EXISTS (SELECT 1 FROM current_attempt)";
   // Keep the queue lock and event write together so a reclaim cannot overtake a stale event.
   const { rows } = await getDbExec().execute({
     sql: `WITH current_attempt AS MATERIALIZED (
             SELECT task_id
             FROM agent_team_run_queue
             WHERE task_id = ? AND attempts = ? AND status IN (${statuses})
+              ${attemptScope}
             FOR UPDATE
-          ), inserted_event AS (
+          )${executionLeaseCte}, inserted_event AS (
             INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
             SELECT ?, ?, ?, ?
-            FROM current_attempt
+            ${eventSource}
             WHERE NOT EXISTS (
               SELECT 1 FROM agent_runs
               WHERE id = ? AND status <> 'running'
@@ -321,10 +407,14 @@ export async function persistAgentTeamRunEventIfCurrent(input: {
             ON CONFLICT (run_id, seq) DO NOTHING
             RETURNING 1
           )
-          SELECT EXISTS (SELECT 1 FROM current_attempt) AS is_current`,
+          SELECT ${currentPredicate} AS is_current`,
     args: [
       input.taskId,
       input.claimedAttempts,
+      ...(fence ? [fence.threadId, fence.turnId] : []),
+      ...(fence
+        ? [fence.threadId, fence.turnId, fence.runId, fence.generation]
+        : []),
       input.runId,
       input.seq,
       Date.now(),
