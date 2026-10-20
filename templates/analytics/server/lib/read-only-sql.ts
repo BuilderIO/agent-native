@@ -46,8 +46,13 @@ function sanitizeSqlForInspection(
     if (state === "single" || state === "double" || state === "backtick") {
       const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
       if (dialect === "bigquery" && ch === "\\" && !rawString) {
-        // BigQuery escape forms are rejected so they cannot hide statement boundaries.
-        rejectSourceSql("Source SQL string escapes are not supported.");
+        if (next === undefined || next === "\n" || next === "\r") {
+          rejectSourceSql("Source SQL contains an incomplete string escape.");
+        }
+        // An escaped quote belongs to the literal, including in triple quotes.
+        out += "  ";
+        i += 1;
+        continue;
       }
       if (quoteLength === 3) {
         if (ch === quote && sql[i + 1] === quote && sql[i + 2] === quote) {

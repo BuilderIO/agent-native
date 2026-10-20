@@ -240,6 +240,45 @@ describe("unknownPanelConfigKeys", () => {
     ...extra,
   });
 
+  it("accepts declared record SQL on supported charts and rejects malformed declarations", () => {
+    const extra = { source: "bigquery", chartType: "bar" };
+    expect(
+      unknownPanelConfigKeys(
+        panel(
+          { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+          extra,
+        ),
+      ),
+    ).toEqual([]);
+    for (const drilldown of [
+      {},
+      { sql: " " },
+      { sql: "x".repeat(50_001) },
+      { sql: "SELECT 1", extra: true },
+    ]) {
+      expect(unknownPanelConfigKeys(panel({ drilldown }, extra))).toEqual([
+        expect.objectContaining({ kind: "invalid-value", key: "drilldown" }),
+      ]);
+    }
+    expect(
+      unknownPanelConfigKeys(
+        panel(
+          { drilldown: { sql: "SELECT 1" } },
+          { ...extra, chartType: "table" },
+        ),
+      ),
+    ).toEqual([
+      expect.objectContaining({ kind: "wrong-chart-type", key: "drilldown" }),
+    ]);
+    expect(
+      unknownPanelConfigKeys(
+        panel({ drilldown: { sql: "SELECT 1" } }, { source: "prometheus" }),
+      ),
+    ).toEqual([
+      expect.objectContaining({ kind: "invalid-value", key: "drilldown" }),
+    ]);
+  });
+
   it("suggests yFormatter for yAxis and names the panel", () => {
     const [issue] = unknownPanelConfigKeys(
       panel({ yAxis: { format: "percent" } }),

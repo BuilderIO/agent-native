@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { assertReadOnlySql } from "./read-only-sql";
 
 describe("assertReadOnlySql", () => {
@@ -31,13 +32,41 @@ describe("assertReadOnlySql", () => {
     expect(() => assertReadOnlySql(sql)).toThrow();
   });
 
-  it("rejects BigQuery backslash escapes before they can hide another statement", () => {
+  it("inspects statements after escaped BigQuery literals", () => {
     expect(() =>
       assertReadOnlySql(
         String.raw`SELECT 'it\'s'; DELETE FROM target`,
         "bigquery",
       ),
-    ).toThrow(/escapes are not supported/);
+    ).toThrow(/single statement/);
+  });
+
+  it.each([
+    "O'Brien",
+    String.raw`folder\file`,
+    "quote'; DELETE FROM target --",
+    '"quoted"',
+    "line\nvalue",
+  ])("accepts safely interpolated BigQuery click values: %s", (drillX) => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT '{{drillX}}' AS value",
+      { drillX },
+      { source: "bigquery" },
+    );
+    expect(() => assertReadOnlySql(sql, "bigquery")).not.toThrow();
+    expect(() =>
+      assertReadOnlySql(`${sql}; DELETE FROM target`, "bigquery"),
+    ).toThrow(/single statement/);
+  });
+
+  it.each([
+    String.raw`SELECT 'ends in \\'; DELETE FROM target`,
+    String.raw`SELECT "it\"s"; DELETE FROM target`,
+    String.raw`SELECT '''it\'s'''; DELETE FROM target`,
+    String.raw`SELECT 'not closed\'`,
+    "SELECT 'unfinished\\",
+  ])("rejects trailing statements and incomplete literals: %s", (sql) => {
+    expect(() => assertReadOnlySql(sql, "bigquery")).toThrow();
   });
 
   it("inspects BigQuery triple-quoted string contents without treating them as SQL", () => {

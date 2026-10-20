@@ -14,6 +14,7 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import { isValidPanelDrilldown } from "./panel-drilldown";
 import { isValidPanelEvent, panelEventProblem } from "./panel-events";
 import { isValidPanelBreakdowns } from "./row-breakdown";
 import {
@@ -77,6 +78,9 @@ export const PANEL_CONFIG_KEYS = {
   sortable: {},
   columns: {},
   breakdowns: { onlyFor: ["table"] },
+  drilldown: {
+    onlyFor: ["line", "area", "bar", "combo", "pie", "funnel", "heatmap"],
+  },
   limit: {},
   extensionId: {},
   extensionSlotId: {},
@@ -303,6 +307,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
     expected:
       "a non-empty array of { column: result column identifier, label?: string } with no repeated column; the panel SQL selects and groups by the column inside a {{?breakdown}}…{{/breakdown}} block",
   },
+  drilldown: {
+    valid: isValidPanelDrilldown,
+    expected:
+      "an object with only sql, a non-empty SQL template of at most 50000 characters using drillX, drillSeries and dashboard filter variables",
+  },
   funnelOutcomes: {
     valid: (value) =>
       funnelOutcomeKeys(value) !== null &&
@@ -402,6 +411,20 @@ export function unknownPanelConfigKeys(
   }
 
   if (isRecord(panel.config)) {
+    if (
+      panel.config.drilldown != null &&
+      panel.source !== "bigquery" &&
+      panel.source !== "first-party" &&
+      (changedConfig("drilldown", panel.config) || changedTopLevel("source"))
+    ) {
+      issues.push({
+        panelId,
+        path: "config.drilldown",
+        key: "drilldown",
+        kind: "invalid-value",
+        message: `${label} config.drilldown requires a BigQuery or first-party panel.`,
+      });
+    }
     for (const [key, value] of Object.entries(panel.config)) {
       if (value == null) continue;
       if (!hasOwn(CONFIG_KEY_INFO, key)) {

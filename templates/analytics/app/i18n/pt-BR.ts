@@ -1431,6 +1431,10 @@ export default {
     drilldownHideSql: "Ocultar SQL",
     drilldownDownloadCsv: "Baixar CSV",
     drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownShowingLoaded:
+      "Mostrando {{shown}} de {{loaded}} registros carregados; total desconhecido.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Exportação incompleta: há mais registros correspondentes do que foram carregados; este arquivo inclui {{exported}} de {{loaded}} registros carregados após a filtragem.",
     drilldownCsvTruncated:
       "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
     drilldownCountMismatch:

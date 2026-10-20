@@ -457,6 +457,20 @@ groups, so make it a count such as people, not an average or a rate.
 Breakdowns don't work on a pivoted table (`config.pivot`). The
 open breakdown is in `view-screen` as `rowBreakdown`.
 
+BigQuery and first-party charts can declare `config.drilldown: { sql: "…" }`
+to open records for a clicked point instead of aggregate rows. The template
+receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
+`{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.
+Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded
+record list such as `LIMIT 500`; the dialog hides that count column and reports
+truncation. The declared SQL runs only when a point is opened and reuses a
+completed result for the same account, source, SQL and dashboard scope.
+Record drill-downs have a fixed 50 GiB server byte cap; measure their scan
+before enabling them, since a row limit does not reduce scanned bytes.
+Without a declaration, supported first-party catalog panels retain their
+record templates and other charts open their aggregate rows. Normal panel SQL
+is unchanged by this declaration.
+
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
 with the original before retiring the extension-backed version. Do not invent

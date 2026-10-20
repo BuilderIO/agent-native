@@ -46,7 +46,7 @@ export interface SqlQueryResult extends Omit<
 }
 
 /** Why a query runs; the server applies the matching billed-byte cap. */
-export type SqlQueryPurpose = "row-breakdown";
+export type SqlQueryPurpose = "row-breakdown" | "panel-drilldown";
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;

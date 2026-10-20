@@ -21,8 +21,8 @@ export default defineAction({
     query: z.unknown(),
     forceRefresh: z.boolean().optional(),
     // The cap is fixed here, not sent by the browser, so a client can't
-    // raise what one row breakdown may bill.
-    purpose: z.enum(["row-breakdown"]).optional(),
+    // raise what one interactive breakdown or record drill-down may bill.
+    purpose: z.enum(["row-breakdown", "panel-drilldown"]).optional(),
   }),
   http: { method: "POST" },
   readOnly: true,
@@ -43,7 +43,7 @@ export default defineAction({
           query,
           ...(args.forceRefresh ? { forceRefresh: true } : {}),
           ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
-          ...(breakdown
+          ...(args.purpose
             ? { maxBytesBilled: ROW_BREAKDOWN_MAX_BYTES_BILLED }
             : {}),
         },

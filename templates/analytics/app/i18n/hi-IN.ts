@@ -1371,6 +1371,10 @@ export default {
     drilldownHideSql: "SQL छिपाएँ",
     drilldownDownloadCsv: "CSV डाउनलोड करें",
     drilldownShowing: "{{total}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं",
+    drilldownShowingLoaded:
+      "लोड किए गए {{loaded}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं; कुल संख्या अज्ञात है।",
+    drilldownCsvTruncatedUnknownTotal:
+      "अधूरा निर्यात: लोड किए गए रिकॉर्ड से अधिक रिकॉर्ड मेल खाते हैं; फ़िल्टर करने के बाद इस फ़ाइल में लोड किए गए {{loaded}} में से {{exported}} रिकॉर्ड हैं।",
     drilldownCsvTruncated:
       "अधूरा निर्यात: क्वेरी में {{total}} रिकॉर्ड मिले, लेकिन केवल पहले {{loaded}} लोड किए गए; फ़िल्टर के बाद इस फ़ाइल में {{exported}} शामिल हैं।",
     drilldownCountMismatch:

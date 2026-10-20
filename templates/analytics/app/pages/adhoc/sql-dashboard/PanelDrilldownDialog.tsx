@@ -93,11 +93,24 @@ export function PanelDrilldownDialog({
   const aggregateSql = serializePanelSql(resolvedSql ?? panel.sql);
 
   const drilldownQuery = useQuery({
-    queryKey: ["panel-drilldown-template", panel.id, panel.source, panel.sql],
+    queryKey: [
+      "panel-drilldown-template",
+      panel.id,
+      panel.source,
+      panel.sql,
+      panel.config?.drilldown,
+    ],
     queryFn: ({ signal }) =>
       callAction(
         "get-panel-drilldown",
-        { panelId: panel.id, panelSource: panel.source, panelSql: panel.sql },
+        {
+          panelId: panel.id,
+          panelSource: panel.source,
+          panelSql: panel.sql,
+          ...(panel.config?.drilldown !== undefined
+            ? { drilldown: panel.config.drilldown }
+            : {}),
+        },
         { method: "POST", signal },
       ),
     enabled: open,
@@ -130,10 +143,14 @@ export function PanelDrilldownDialog({
   );
 
   const recordQuery = useSqlQuery(
-    ["panel-drilldown", scopeId, panel.id, recordSql],
+    ["panel-drilldown", scopeId, panel.id, panel.source, recordSql],
     recordSql,
     panel.source,
-    { enabled: open && hasRecordQuery },
+    {
+      enabled: open && hasRecordQuery,
+      purpose: "panel-drilldown",
+      reuseCompletedOnEnable: true,
+    },
   );
   // Same key as the chart's own query, so this reads the cached aggregate rows.
   const aggregateQuery = useSqlQuery(
@@ -163,9 +180,22 @@ export function PanelDrilldownDialog({
       ),
     [allRows, hasRecordQuery],
   );
-  const totalMatching = hasRecordQuery
-    ? Number(allRows[0]?.total_matching ?? allRows.length)
-    : allRows.length;
+  const reportedTotal = hasRecordQuery ? allRows[0]?.total_matching : undefined;
+  const count =
+    reportedTotal !== null &&
+    reportedTotal !== undefined &&
+    reportedTotal !== ""
+      ? Number(reportedTotal)
+      : null;
+  const totalMatching =
+    count !== null &&
+    Number.isSafeInteger(count) &&
+    count >= allRows.length &&
+    (!activeQuery.data?.truncated || count > allRows.length)
+      ? count
+      : activeQuery.data?.truncated
+        ? null
+        : allRows.length;
 
   const rows = useMemo(() => {
     const needle = filterText.trim().toLowerCase();
@@ -177,13 +207,18 @@ export function PanelDrilldownDialog({
     );
   }, [allRows, columns, filterText]);
   const csvTruncationMessage =
-    totalMatching > allRows.length
-      ? t("sqlDashboard.drilldownCsvTruncated", {
-          total: formatNumber(totalMatching),
+    totalMatching === null
+      ? t("sqlDashboard.drilldownCsvTruncatedUnknownTotal", {
           loaded: formatNumber(allRows.length),
           exported: formatNumber(rows.length),
         })
-      : undefined;
+      : totalMatching > allRows.length || activeQuery.data?.truncated
+        ? t("sqlDashboard.drilldownCsvTruncated", {
+            total: formatNumber(totalMatching),
+            loaded: formatNumber(allRows.length),
+            exported: formatNumber(rows.length),
+          })
+        : undefined;
 
   const isHighlighted = (row: Record<string, unknown>) =>
     !hasRecordQuery &&
@@ -193,6 +228,7 @@ export function PanelDrilldownDialog({
   const chartValue = Number(datum?.value);
   const showMismatch =
     hasRecordQuery &&
+    totalMatching !== null &&
     Number.isFinite(chartValue) &&
     datum?.value !== undefined &&
     !loading &&
@@ -226,10 +262,15 @@ export function PanelDrilldownDialog({
             className="h-8 max-w-xs"
           />
           <span className="text-xs text-muted-foreground tabular-nums">
-            {t("sqlDashboard.drilldownShowing", {
-              shown: formatNumber(rows.length),
-              total: formatNumber(totalMatching),
-            })}
+            {totalMatching === null
+              ? t("sqlDashboard.drilldownShowingLoaded", {
+                  shown: formatNumber(rows.length),
+                  loaded: formatNumber(allRows.length),
+                })
+              : t("sqlDashboard.drilldownShowing", {
+                  shown: formatNumber(rows.length),
+                  total: formatNumber(totalMatching),
+                })}
           </span>
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -259,7 +300,7 @@ export function PanelDrilldownDialog({
             {csvTruncationMessage}
           </p>
         ) : null}
-        {showMismatch ? (
+        {showMismatch && totalMatching !== null ? (
           <p className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
             {t("sqlDashboard.drilldownCountMismatch", {
               chart: formatNumber(chartValue),

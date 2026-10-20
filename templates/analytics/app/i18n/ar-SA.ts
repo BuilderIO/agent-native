@@ -1383,6 +1383,10 @@ export default {
     drilldownHideSql: "إخفاء SQL",
     drilldownDownloadCsv: "تنزيل CSV",
     drilldownShowing: "عرض {{shown}} من {{total}} سجل",
+    drilldownShowingLoaded:
+      "عرض {{shown}} من {{loaded}} سجل تم تحميلها؛ العدد الإجمالي غير معروف.",
+    drilldownCsvTruncatedUnknownTotal:
+      "تصدير غير مكتمل: عدد السجلات المطابقة أكبر من عدد السجلات المحملة؛ يتضمن هذا الملف {{exported}} من {{loaded}} سجل محمّل بعد التصفية.",
     drilldownCsvTruncated:
       "تصدير غير مكتمل: عثر الاستعلام على {{total}} سجلًا، لكن تم تحميل أول {{loaded}} فقط؛ يحتوي هذا الملف على {{exported}} بعد التصفية.",
     drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
