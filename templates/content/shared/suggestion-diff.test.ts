@@ -582,6 +582,65 @@ describe("suggestion decomposition", () => {
     expectIntactOperations(before, after, operations);
   });
 
+  it("keeps text and a new paragraph as one edit when another block also changes", () => {
+    const before =
+      "Alpha one has a few words.\nBravo two sits in the middle.\nCharlie three is next.\nDelta four closes it out.";
+    const paragraphOnly = before.replace(
+      "words.\n",
+      "words. More alpha.\nAlpha follow-up paragraph.\n",
+    );
+    const after = paragraphOnly.replace("it out.", "it out. Delta extra.");
+    const changes = (operations: ReturnType<typeof markdownSuggestionOperations>) =>
+      operations.map((item) => [
+        item.anchor.from,
+        item.before.changedText,
+        item.after.changedText,
+      ]);
+
+    expect(changes(markdownSuggestionOperations(before, paragraphOnly))).toEqual([
+      [26, "", " More alpha.\nAlpha follow-up paragraph."],
+    ]);
+    const operations = markdownSuggestionOperations(before, after);
+    expect(changes(operations)).toEqual([
+      [26, "", " More alpha.\nAlpha follow-up paragraph."],
+      [105, "", " Delta extra."],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps edits at the end of one block and the start of the next separate", () => {
+    const before = "Alpha ends here\nBravo starts here\nCharlie";
+    const after = "Alpha ends here now\nSo Bravo starts here\nCharlie stays";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(operations.map((item) => item.after.changedText)).toEqual([
+      " now",
+      "So ",
+      " stays",
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps a replacement across a paragraph break as one edit", () => {
+    const before = "Alpha one has a few words.\nBravo two sits in the middle.";
+    const from = before.indexOf("has a few");
+    const to = before.indexOf(" sits");
+    const after = `${before.slice(0, from)}is now joined with${before.slice(to)}`;
+    const operations = markdownSuggestionOperationsForReplacements({
+      before,
+      after,
+      replacements: [{ from, to }],
+    });
+
+    expect(
+      operations.map((item) => [
+        item.anchor.from,
+        item.anchor.to,
+        item.after.changedText,
+      ]),
+    ).toEqual([[from, to, "is now joined with"]]);
+    expect(proposedFrom(before, operations)).toBe(after);
+  });
+
   it("returns no edit for an unchanged replacement", () => {
     expect(
       markdownSuggestionOperationsForFindReplace({
