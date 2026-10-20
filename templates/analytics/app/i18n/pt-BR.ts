@@ -759,6 +759,7 @@ export default {
       properties: "Propriedades",
       siteLabel: "Propriedade",
       pathLabel: "Prefixo do caminho",
+      pathInvalid: "O prefixo do caminho deve começar com /.",
       addProperty: "Adicionar propriedade",
       removeProperty: "Remover propriedade",
       save: "Salvar",

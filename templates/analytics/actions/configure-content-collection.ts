@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js";
 import {
   contentCollectionConfigSchema,
   searchConsoleSiteSchema,
@@ -18,6 +19,8 @@ import {
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
 import { cliBoolean } from "./schema-helpers.js";
 
+const CONTENT_VIEW_DASHBOARD_ID = "content-view";
+
 export default defineAction({
   mcpAnnotations: {
     readOnlyHint: false,
@@ -25,7 +28,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values.",
+    "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values. Turning collection on also lists the built-in Content dashboard in the organization's Dashboards; the result's contentDashboardId opens it at /dashboards/<id>.",
   schema: z.object({
     enabled: cliBoolean.describe("Whether the daily collection runs."),
     builderBlog: cliBoolean
@@ -74,7 +77,16 @@ export default defineAction({
         .max(20)
         .parse(config.searchConsole.sites);
     }
+    if (enabled) {
+      await installBuiltinDashboardOnce(
+        { email: admin.userEmail, orgId: admin.orgId },
+        CONTENT_VIEW_DASHBOARD_ID,
+      );
+    }
     await writeContentCollection(scope, { enabled, config });
-    return readContentCollectionStatus(admin.orgId, admin.userEmail);
+    return {
+      ...(await readContentCollectionStatus(admin.orgId, admin.userEmail)),
+      contentDashboardId: enabled ? CONTENT_VIEW_DASHBOARD_ID : null,
+    };
   },
 });

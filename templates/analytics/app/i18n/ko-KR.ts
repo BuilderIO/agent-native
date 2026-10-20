@@ -731,6 +731,7 @@ export default {
       properties: "속성",
       siteLabel: "속성",
       pathLabel: "경로 접두사",
+      pathInvalid: "경로 접두사는 /로 시작해야 합니다.",
       addProperty: "속성 추가",
       removeProperty: "속성 제거",
       save: "저장",

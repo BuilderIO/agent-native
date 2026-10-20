@@ -693,6 +693,7 @@ export default {
       properties: "資源",
       siteLabel: "資源",
       pathLabel: "路徑前綴",
+      pathInvalid: "路徑前綴必須以 / 開頭。",
       addProperty: "新增資源",
       removeProperty: "移除資源",
       save: "儲存",
