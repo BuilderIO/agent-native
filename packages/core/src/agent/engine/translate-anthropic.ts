@@ -250,6 +250,22 @@ export function backfillEngineMessagesToolResults(
         else pendingById.set(id, [pending]);
       }
     }
+    const legacyResultCounts = new Map<string, number>();
+    for (const part of msg.content) {
+      if (part.type !== "tool-result" || part.executionStepId) continue;
+      const parsedToolInput = parseToolInput(part.toolInput);
+      if (parsedToolInput.status !== "parsed") continue;
+      const toolName =
+        typeof part.toolName === "string" && part.toolName.trim().length > 0
+          ? part.toolName.trim()
+          : undefined;
+      const key = JSON.stringify([
+        part.toolCallId,
+        toolName ?? null,
+        toolCallInputSignature(parsedToolInput.value),
+      ]);
+      legacyResultCounts.set(key, (legacyResultCounts.get(key) ?? 0) + 1);
+    }
     const matchedPendingToolIds = new Set<string>();
     const matchedPendingToolResults = new Map<string, EngineContentPart>();
     for (const part of msg.content) {
@@ -284,6 +300,19 @@ export function backfillEngineMessagesToolResults(
                 toolCallInputSignature(parsedToolInput.value),
             )
           : [];
+      const legacyResultKey =
+        part.executionStepId || parsedToolInput.status !== "parsed"
+          ? undefined
+          : JSON.stringify([
+              part.toolCallId,
+              requestedToolName ?? null,
+              toolCallInputSignature(parsedToolInput.value),
+            ]);
+      const canPairIdenticalLegacyCalls =
+        fingerprintMatches.length > 1 &&
+        legacyResultKey !== undefined &&
+        legacyResultCounts.get(legacyResultKey) === fingerprintMatches.length &&
+        new Set(fingerprintMatches.map((pending) => pending.name)).size === 1;
       const stepMatches = part.executionStepId
         ? namedPendingCandidates.filter(
             (pending) => pending.executionStepId === part.executionStepId,
@@ -299,7 +328,9 @@ export function backfillEngineMessagesToolResults(
               ? legacyPendingCandidates[0]
               : fingerprintMatches.length === 1
                 ? fingerprintMatches[0]
-                : undefined;
+                : canPairIdenticalLegacyCalls
+                  ? fingerprintMatches[0]
+                  : undefined;
       if (pendingLookup) matchedPendingToolIds.add(pendingLookup.id);
       const toolName =
         typeof part.toolName === "string" && part.toolName.trim().length > 0

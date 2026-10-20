@@ -591,6 +591,61 @@ describe("engineMessagesToAnthropic", () => {
     expect(content.at(-1)).toMatchObject({ type: "text" });
   });
 
+  it("pairs identical legacy calls and results one to one in order", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "duplicate-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+          {
+            type: "tool-call",
+            id: "duplicate-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "duplicate-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            content: "First created",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "duplicate-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            content: "Second created",
+          },
+        ],
+      },
+    ];
+
+    const result = backfillEngineMessagesToolResults(messages);
+    const toolResults = result[1]!.content.filter(
+      (part) => part.type === "tool-result",
+    );
+
+    expect(
+      toolResults.map((part) =>
+        part.type === "tool-result" ? [part.toolCallId, part.content] : [],
+      ),
+    ).toEqual([
+      ["duplicate-call-id", "First created"],
+      ["duplicate-call-id-2", "Second created"],
+    ]);
+  });
+
   it("pairs reused identical calls by execution step identity", () => {
     const messages: EngineMessage[] = [
       {
