@@ -1421,7 +1421,9 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
     ...(hasCoreDep("cron-parser", cwd)
       ? ["@agent-native/core > cron-parser"]
       : []),
-    ...(hasCoreDep("ajv", cwd) ? ["@agent-native/core > ajv"] : []),
+    ...(hasCoreDep("ajv", cwd)
+      ? ["@agent-native/core > ajv", "@agent-native/core > ajv/dist/2020.js"]
+      : []),
     ...(hasDep("react", cwd) ? ["react"] : []),
     ...(hasDep("react-dom", cwd)
       ? ["react-dom", "react-dom/client", "react-dom/server"]
