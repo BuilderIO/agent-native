@@ -458,6 +458,15 @@ const canonicalDispositions = new Set([
   "Owned elsewhere",
 ]);
 
+const historicalCheckmarkDispositions = new Set([
+  "Fixed",
+  "Partially fixed",
+  "Shipped",
+  "Live verified",
+  "Resolved elsewhere",
+  "Verified locally",
+]);
+
 const openDispositions = new Set([
   "Partially fixed",
   "Open - no question",
@@ -1474,7 +1483,7 @@ function replyDirectlyRequestsHandoff(text: string, handoff: Handoff): boolean {
   return (
     requestsAssignedWork &&
     replyNamesHandoffOwner(text, handoff) &&
-    replyNamesRecordedAction(text, handoff.action, handoff.publicActionSummary)
+    replyNamesHandoffAction(text, handoff.action)
   );
 }
 
@@ -1511,6 +1520,16 @@ function replyExplicitlyAcceptsHandoff(text: string): boolean {
   }
   return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on)\b|(?:i|we)(?:'m|\s+am)\s+(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
     normalized,
+  );
+}
+
+function replyExplicitlyAcceptsRecordedHandoff(
+  text: string,
+  handoff: Handoff,
+): boolean {
+  return (
+    replyExplicitlyAcceptsHandoff(text) &&
+    replyNamesHandoffAction(text, handoff.action)
   );
 }
 
@@ -1593,12 +1612,7 @@ function validateHandoffAcceptance(
   }
   const explicitlyAcceptsAction =
     !!acceptance &&
-    replyExplicitlyAcceptsHandoff(acceptance.text) &&
-    replyNamesRecordedAction(
-      acceptance.text,
-      handoff.action,
-      handoff.publicActionSummary,
-    );
+    replyExplicitlyAcceptsRecordedHandoff(acceptance.text, handoff);
   if (
     !isSlackUserId(handoff.ownerSlackId) ||
     handoff.ownerSlackId === sweepActorId ||
@@ -1859,9 +1873,7 @@ function validateHistoricalReactionMarks(
     }
     if (
       mark.emoji === "white_check_mark" &&
-      (!["Fixed", "Partially fixed", "Verified locally"].includes(
-        previous.disposition,
-      ) ||
+      (!historicalCheckmarkDispositions.has(previous.disposition) ||
         !replyStartsWithDisposition(previous.text, previous.disposition))
     ) {
       throw new Error(
@@ -2110,13 +2122,10 @@ function validateHistoricalReactionMarks(
       acceptance.ts,
       `${label}.acceptanceReply.ts`,
     );
-    const explicitAcceptance =
-      replyExplicitlyAcceptsHandoff(acceptance.text) &&
-      replyNamesRecordedAction(
-        acceptance.text,
-        handoff.action,
-        handoff.publicActionSummary,
-      );
+    const explicitAcceptance = replyExplicitlyAcceptsRecordedHandoff(
+      acceptance.text,
+      handoff,
+    );
     const request = handoff.requestReply;
     if (
       !explicitAcceptance &&
@@ -9743,6 +9752,49 @@ if (args[0] === "--self-test" && args.length === 1) {
       ],
     });
   };
+  const withSummarizedActionTicket = (
+    acceptanceText: string,
+    requestText?: string,
+  ): Inventory =>
+    withUnownedTicket({
+      latestRelevantHumanReply: {
+        ts: "11.500000",
+        actorId: "UOTHER",
+        text: acceptanceText,
+      },
+      handoffs: [
+        {
+          scope: "scheduled canary credentials",
+          owner: "Alex Rivera",
+          ownerSlackId: "UOTHER",
+          action: "set up the preview service in the deployment pipeline",
+          publicActionSummary: "set up the preview service",
+          ...(requestText === undefined
+            ? {}
+            : {
+                requestReply: {
+                  ts: "11.250000",
+                  threadParentTs: "10.000000",
+                  actorId: "USWEEPER",
+                  text: requestText,
+                },
+              }),
+          acceptanceReply: {
+            ts: "11.500000",
+            threadParentTs: "10.000000",
+            actorId: "UOTHER",
+            text: acceptanceText,
+          },
+        },
+      ],
+      statusReply: {
+        ...firstPage.parents[1]!.statusReply!,
+        disposition: "In progress",
+        evidence: "Alex Rivera will set up the preview service",
+        text: "In progress: Alex Rivera will set up the preview service. this was sent from a bot.",
+        pendingActionSummary: "Alex Rivera will set up the preview service",
+      },
+    });
   const invalid = [
     {
       name: "inventory must record its requested channel scope",
@@ -12255,6 +12307,19 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "ticket acceptance must include the full action beyond its public summary",
+      inventory: withSummarizedActionTicket(
+        "I will set up the preview service.",
+      ),
+    },
+    {
+      name: "contextual assent needs a request for the full action",
+      inventory: withSummarizedActionTicket(
+        "Yes.",
+        "<@UOTHER> can you set up the preview service?",
+      ),
+    },
+    {
       name: "completed handoff needs completion evidence",
       inventory: withUnownedTicket({
         handoffs: [
@@ -12959,6 +13024,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
     "ticket acceptance must name the recorded action":
       "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
+    "ticket acceptance must include the full action beyond its public summary":
+      "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
+    "contextual assent needs a request for the full action":
+      "direct handoff request must name the assigned human and exact recorded action",
     "completed handoff needs completion evidence":
       "a completed handoff needs evidence and a source URL or owner reply",
     "ticket refusal is not acceptance":
@@ -13085,6 +13154,12 @@ if (args[0] === "--self-test" && args.length === 1) {
           pendingActionSummary: "Alex Rivera will set up the preview service",
         },
       }),
+    );
+    validateTestInventory(
+      withSummarizedActionTicket(
+        "Yes.",
+        "<@UOTHER> can you set up the preview service in the deployment pipeline?",
+      ),
     );
     validateStatusReactionLanguage(
       "self-test reporter request",
@@ -13718,6 +13793,38 @@ if (args[0] === "--self-test" && args.length === 1) {
       statusReply: historicalCheckStatus,
     });
     validateTestInventory(historicalCheckInventory);
+    for (const disposition of [
+      "Shipped",
+      "Live verified",
+      "Resolved elsewhere",
+    ] as const) {
+      const historicalCheckWithVerifiedDisposition = structuredClone(
+        historicalCheckInventory,
+      );
+      historicalCheckWithVerifiedDisposition.channels[0]!.pages[0]!.parents =
+        historicalCheckWithVerifiedDisposition.channels[0]!.pages[0]!.parents.map(
+          (parent) =>
+            parent.ts === "10.000000"
+              ? {
+                  ...parent,
+                  historicalReactionMarks: parent.historicalReactionMarks?.map(
+                    (mark) =>
+                      mark.emoji === "white_check_mark"
+                        ? {
+                            ...mark,
+                            previousStatus: {
+                              ...mark.previousStatus,
+                              disposition,
+                              text: `${disposition}: The initial route screen works now. this was sent from a bot.`,
+                            },
+                          }
+                        : mark,
+                  ),
+                }
+              : parent,
+        );
+      validateTestInventory(historicalCheckWithVerifiedDisposition);
+    }
 
     const ticketHistoryBase = withUnownedTicket();
     const ticketHistoryParent =
@@ -13730,6 +13837,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       action:
         "choose the remaining behavior for the remaining design choice in the canvas",
       publicActionSummary: "choose the remaining behavior",
+      acceptanceReply: {
+        ...ticketHistoryParent.handoffs![0]!.acceptanceReply!,
+        text: "I will choose the remaining behavior for the remaining design choice in the canvas.",
+      },
     };
     const originalTicketStatus: StatusReply = {
       ...ticketHistoryParent.statusReply!,
@@ -13856,6 +13967,38 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    const historicalTicketWithIncompleteAcceptance = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithIncompleteAcceptance.channels[0]!.pages[0]!.parents =
+      historicalTicketWithIncompleteAcceptance.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket" && mark.handoff?.acceptanceReply
+                      ? {
+                          ...mark,
+                          handoff: {
+                            ...mark.handoff,
+                            acceptanceReply: {
+                              ...mark.handoff.acceptanceReply,
+                              text: "I will choose the remaining behavior.",
+                            },
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket acceptance must include the full action",
+      historicalTicketWithIncompleteAcceptance,
+      "historical 🎫 still needs exact owner acceptance of the action",
+    );
     const historicalCheckWithoutScope = structuredClone(
       historicalCheckInventory,
     );
