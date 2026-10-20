@@ -280,7 +280,7 @@ Explore the [full app gallery](https://agent-native.com/apps?utm_source=github&u
 
 ## Contributing
 
-Working on this repository itself? See [DEVELOPMENT.md](./DEVELOPMENT.md) for local setup, workspace structure, and guard scripts.
+Want to send a change back? Start with [CONTRIBUTING.md](./CONTRIBUTING.md). [DEVELOPMENT.md](./DEVELOPMENT.md) covers local setup, workspace structure, and guard scripts.
 
 ## License
 
