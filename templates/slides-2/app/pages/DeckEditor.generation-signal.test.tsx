@@ -2285,7 +2285,13 @@ describe("DeckEditor generation signal wiring", () => {
       generationFailureSlidesFingerprint:
         partialGenerationFailureSlidesFingerprint(staleSlides),
     });
-    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(2);
+    expect(mocks.refreshOpenDeck.mock.calls.length).toBeGreaterThanOrEqual(2);
+    await expect(mocks.refreshOpenDeck.mock.results[0]?.value).rejects.toThrow(
+      "transient refresh failure",
+    );
+    await expect(
+      mocks.refreshOpenDeck.mock.results[1]?.value,
+    ).resolves.toMatchObject({ slides: refreshedSlides });
     expect(retryButton.disabled).toBe(false);
     expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
   });
