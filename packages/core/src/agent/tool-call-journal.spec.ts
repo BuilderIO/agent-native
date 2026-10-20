@@ -6,6 +6,7 @@ import type { EngineMessage } from "./engine/types.js";
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
+  findInterruptedJournalEntryForCall,
   findReplayableJournalEntry,
   isJournalEmpty,
   journalEntriesRepresentedInHistory,
@@ -920,6 +921,233 @@ describe("recorded call effects", () => {
     expect(journalEntriesRepresentedInHistory(journal, history)).toEqual(
       new Set([journal.completed[0]!.key]),
     );
+  });
+
+  it("attributes a later reused-id result by its result instead of journal order", () => {
+    const input = { message: "same" };
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "first sent",
+        completedSideEffect: true,
+      },
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "second sent",
+        completedSideEffect: true,
+      },
+    ]);
+    const represented = journalEntriesRepresentedInHistory(journal, [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "second sent",
+          },
+        ],
+      },
+    ]);
+
+    expect(represented).toEqual(new Set([journal.completed[1]!.key]));
+  });
+
+  it("leaves identical legacy occurrences unrepresented when their order is ambiguous", () => {
+    const input = { message: "same" };
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+      },
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+      },
+    ]);
+    const represented = journalEntriesRepresentedInHistory(journal, [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent",
+          },
+        ],
+      },
+    ]);
+
+    expect(represented).toEqual(new Set());
+  });
+
+  it("pairs a retried step after the provider changes its call id", () => {
+    const input = { id: "doc-1" };
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "before-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+      },
+    ]);
+
+    expect(
+      findInterruptedJournalEntryForCall(
+        journal,
+        "get-document",
+        actionArgumentsHash(input),
+        input,
+      ),
+    ).toMatchObject({ executionStepId: "stable-step" });
+  });
+
+  it("closes retried starts for the same step when the provider id changes", () => {
+    const input = { id: "doc-1" };
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        id: "before-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+      },
+      {
+        type: "tool_start",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "after-reconnect",
+        executionStepId: "stable-step",
+        tool: "get-document",
+        input,
+        result: "document",
+      },
+    ]);
+
+    expect(journal.interrupted).toEqual([]);
+    expect(journal.completed).toHaveLength(1);
+    expect(journal.completed[0]).toMatchObject({
+      id: "after-reconnect",
+      executionStepId: "stable-step",
+      result: "document",
+    });
+  });
+
+  it("replays the unrepresented write before a represented write with reused input", () => {
+    const input = { message: "same" };
+    const argumentsHash = actionArgumentsHash(input);
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "first sent",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "second sent",
+        completedSideEffect: true,
+        argumentsHash,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call",
+            name: "send",
+            input,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "first sent",
+          },
+        ],
+      },
+    ];
+    const representedKeys = journalEntriesRepresentedInHistory(
+      journal,
+      history,
+    );
+
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        argumentsHash,
+        new Set(),
+        { input },
+        representedKeys,
+      ),
+    ).toMatchObject({ result: "second sent" });
   });
 
   it("replays a call sharing its id with another only for its own identity", () => {

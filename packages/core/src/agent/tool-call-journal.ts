@@ -18,6 +18,7 @@ export interface ToolCallJournalEntry {
   key: string;
   tool: string;
   id?: string;
+  executionStepId?: string;
   input?: AgentToolInput;
   inputFingerprint?: string;
   inputStoredFingerprint?: string;
@@ -48,37 +49,111 @@ export function journalEntriesRepresentedInHistory(
   journal: ToolCallJournal,
   history: readonly EngineMessage[],
 ): Set<string> {
-  const calls = new Map<string, number>();
-  const results = new Map<string, number>();
-  const count = (entries: Map<string, number>, key: string) =>
+  const callsByStep = new Map<string, number>();
+  const resultsByStep = new Map<string, number>();
+  const callsByLegacyIdentity = new Map<string, number>();
+  const resultsByLegacyIdentity = new Map<string, number>();
+  const resultCountsByLegacyIdentity = new Map<string, number>();
+  const count = (entries: Map<string, number>, key: string) => {
     entries.set(key, (entries.get(key) ?? 0) + 1);
+  };
+  const legacyIdentity = (toolName: string, id: string, fingerprint: string) =>
+    JSON.stringify([toolName, id, fingerprint]);
+  const legacyResultIdentity = (
+    toolName: string,
+    id: string,
+    fingerprint: string,
+    result: string,
+  ) => JSON.stringify([toolName, id, fingerprint, result]);
+
   for (const message of history) {
     for (const part of message.content) {
       if (message.role === "assistant" && part.type === "tool-call") {
-        count(calls, JSON.stringify([part.name, part.id]));
+        if (part.executionStepId) {
+          count(callsByStep, JSON.stringify([part.name, part.executionStepId]));
+        } else {
+          count(
+            callsByLegacyIdentity,
+            legacyIdentity(
+              part.name,
+              part.id,
+              part.inputFingerprint ?? toolCallInputFingerprint(part.input),
+            ),
+          );
+        }
       } else if (message.role !== "assistant" && part.type === "tool-result") {
-        count(results, JSON.stringify([part.toolName, part.toolCallId]));
+        if (part.executionStepId) {
+          count(
+            resultsByStep,
+            JSON.stringify([part.toolName, part.executionStepId]),
+          );
+        } else {
+          let input: unknown;
+          try {
+            input = JSON.parse(part.toolInput);
+          } catch {
+            continue;
+          }
+          const fingerprint =
+            part.inputFingerprint ?? toolCallInputFingerprint(input);
+          const baseIdentity = legacyIdentity(
+            part.toolName,
+            part.toolCallId,
+            fingerprint,
+          );
+          const resultIdentity = legacyResultIdentity(
+            part.toolName,
+            part.toolCallId,
+            fingerprint,
+            part.content,
+          );
+          count(resultsByLegacyIdentity, resultIdentity);
+          count(resultCountsByLegacyIdentity, baseIdentity);
+        }
       }
-    }
-  }
-  const representedCounts = new Map<string, number>();
-  for (const [key, callCount] of calls) {
-    const resultCount = results.get(key) ?? 0;
-    if (resultCount > 0) {
-      representedCounts.set(key, Math.min(callCount, resultCount));
     }
   }
 
   const represented = new Set<string>();
-  for (const entry of [...journal.completed].sort(
-    (a, b) => a.order - b.order,
-  )) {
-    if (entry.id === undefined) continue;
-    const key = JSON.stringify([entry.tool, entry.id]);
-    const remaining = representedCounts.get(key) ?? 0;
-    if (remaining === 0) continue;
-    represented.add(entry.key);
-    representedCounts.set(key, remaining - 1);
+  const entriesByLegacyIdentity = new Map<string, ToolCallJournalEntry[]>();
+  for (const entry of journal.completed) {
+    if (entry.executionStepId) {
+      const identity = JSON.stringify([entry.tool, entry.executionStepId]);
+      if (
+        callsByStep.get(identity) === 1 &&
+        resultsByStep.get(identity) === 1
+      ) {
+        represented.add(entry.key);
+      }
+      continue;
+    }
+    if (entry.id === undefined || entry.input === undefined) continue;
+    const fingerprint =
+      entry.inputFingerprint ?? toolCallInputFingerprint(entry.input);
+    const identity = legacyResultIdentity(
+      entry.tool,
+      entry.id,
+      fingerprint,
+      entry.result ?? "",
+    );
+    const entries = entriesByLegacyIdentity.get(identity);
+    if (entries) entries.push(entry);
+    else entriesByLegacyIdentity.set(identity, [entry]);
+  }
+  for (const [identity, entries] of entriesByLegacyIdentity) {
+    const [toolName, id, fingerprint] = JSON.parse(identity) as [
+      string,
+      string,
+      string,
+      string,
+    ];
+    const baseIdentity = legacyIdentity(toolName, id, fingerprint);
+    const callCount = callsByLegacyIdentity.get(baseIdentity) ?? 0;
+    const resultCount = resultCountsByLegacyIdentity.get(baseIdentity) ?? 0;
+    const matchingResultCount = resultsByLegacyIdentity.get(identity) ?? 0;
+    if (resultCount > callCount) continue;
+    if (matchingResultCount !== entries.length) continue;
+    for (const entry of entries) represented.add(entry.key);
   }
   return represented;
 }
@@ -192,6 +267,9 @@ export function classifyToolCallJournal(
         key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
         ...(event.id !== undefined ? { id: event.id } : {}),
+        ...(event.executionStepId !== undefined
+          ? { executionStepId: event.executionStepId }
+          : {}),
         ...(input ? { input } : {}),
         ...(event.inputFingerprint
           ? { inputFingerprint: event.inputFingerprint }
@@ -282,6 +360,12 @@ function takeMatchingOpenEntry(
       : toolCallInputFingerprint(event.input));
   const matches = queue.filter((entry) => {
     if (
+      event.executionStepId !== undefined &&
+      entry.executionStepId !== event.executionStepId
+    ) {
+      return false;
+    }
+    if (
       !isConsistentToolCallInputFingerprint(
         entry.input,
         entry.inputFingerprint,
@@ -289,7 +373,13 @@ function takeMatchingOpenEntry(
       )
     )
       return false;
-    if (event.id !== undefined && entry.id !== event.id) return false;
+    if (
+      event.executionStepId === undefined &&
+      event.id !== undefined &&
+      entry.id !== event.id
+    ) {
+      return false;
+    }
     if (
       doneFingerprint !== undefined &&
       (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) !==
@@ -312,8 +402,18 @@ function takeMatchingOpenEntry(
         )
     );
   });
+  if (matches.length === 0) return undefined;
+  if (event.executionStepId !== undefined) {
+    const matched = new Set(matches);
+    const latest = matches[matches.length - 1];
+    if (!latest) return undefined;
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (matched.has(queue[i]!)) queue.splice(i, 1);
+    }
+    return latest;
+  }
   if (matches.length !== 1) return undefined;
-  return queue.splice(queue.indexOf(matches[0]), 1)[0];
+  return queue.splice(queue.indexOf(matches[0]!), 1)[0];
 }
 
 function isNonCompletedToolDone(
@@ -440,23 +540,59 @@ export function findReplayableJournalEntry(
   argumentsHash: string,
   consumedKeys?: Set<string>,
   rawWrite?: { input: unknown },
+  representedKeys?: ReadonlySet<string>,
+  executionStepId?: string,
+  allowRepresentedLegacyEntry = false,
 ): ToolCallJournalEntry | undefined {
-  const entry = journal.completed.find(
-    (candidate) =>
-      candidate.tool === toolName &&
-      !consumedKeys?.has(candidate.key) &&
-      (candidate.argumentsHash === undefined
-        ? rawWrite !== undefined &&
-          (candidate.inputFingerprint
-            ? candidate.inputFingerprint ===
-              toolCallInputFingerprint(rawWrite.input)
-            : inputSignature(candidate.input) ===
-              inputSignature(rawWrite.input))
-        : candidate.committed === true &&
-          candidate.argumentsHash === argumentsHash),
-  );
+  const matches = (candidate: ToolCallJournalEntry) =>
+    candidate.tool === toolName &&
+    !consumedKeys?.has(candidate.key) &&
+    (candidate.argumentsHash === undefined
+      ? rawWrite !== undefined &&
+        (candidate.inputFingerprint
+          ? candidate.inputFingerprint ===
+            toolCallInputFingerprint(rawWrite.input)
+          : inputSignature(candidate.input) === inputSignature(rawWrite.input))
+      : candidate.committed === true &&
+        candidate.argumentsHash === argumentsHash);
+  const candidates = journal.completed.filter((candidate) => {
+    const represented = representedKeys?.has(candidate.key) === true;
+    const identityMatches =
+      executionStepId === undefined
+        ? candidate.executionStepId === undefined &&
+          (allowRepresentedLegacyEntry || !represented)
+        : candidate.executionStepId === executionStepId ||
+          (allowRepresentedLegacyEntry &&
+            candidate.executionStepId === undefined);
+    return identityMatches && matches(candidate);
+  });
+  const candidate = candidates.length === 1 ? candidates[0] : undefined;
+  const entry = candidate;
   if (entry) consumedKeys?.add(entry.key);
   return entry;
+}
+
+export function findInterruptedJournalEntryForCall(
+  journal: ToolCallJournal,
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): ToolCallJournalEntry | undefined {
+  const inputFingerprint = toolCallInputFingerprint(input);
+  const matches = journal.interrupted.filter((entry) => {
+    if (entry.tool !== toolName || !entry.executionStepId) return false;
+    if (entry.argumentsHash !== undefined && argumentsHash !== undefined) {
+      return entry.argumentsHash === argumentsHash;
+    }
+    if (entry.inputFingerprint !== undefined) {
+      return entry.inputFingerprint === inputFingerprint;
+    }
+    return (
+      entry.input !== undefined &&
+      inputSignature(entry.input) === inputSignature(input)
+    );
+  });
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function summarizeResult(result: string | undefined): string {

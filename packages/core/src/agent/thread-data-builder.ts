@@ -51,6 +51,8 @@ interface ContentPart {
   text?: string;
   toolCallId?: string;
   toolName?: string;
+  executionStepId?: string;
+  inputFingerprint?: string;
   argsText?: string;
   args?: Record<string, unknown>;
   result?: string;
@@ -344,15 +346,23 @@ export function buildAssistantMessage(
 
     if (event.type === "tool_start") {
       const explicitToolCallId = event.id?.trim();
-      if (explicitToolCallId) {
-        const replayed = content.some(
-          (part) =>
-            part.type === "tool-call" &&
-            part.toolCallId === explicitToolCallId &&
-            part.toolName === (event.tool ?? "unknown"),
+      const executionStepId = event.executionStepId?.trim();
+      const replayed = content.some((part) => {
+        if (part.type !== "tool-call") return false;
+        if (executionStepId) {
+          return part.executionStepId === executionStepId;
+        }
+        return (
+          explicitToolCallId !== undefined &&
+          part.toolCallId === explicitToolCallId &&
+          part.toolName === (event.tool ?? "unknown") &&
+          (event.inputFingerprint !== undefined
+            ? part.inputFingerprint === event.inputFingerprint
+            : event.input === undefined ||
+              toolInputsMatch(part.args, event.input))
         );
-        if (replayed) continue;
-      }
+      });
+      if (replayed) continue;
       toolCallCounter += 1;
       const toolCallId =
         explicitToolCallId ||
@@ -364,6 +374,10 @@ export function buildAssistantMessage(
         toolName: event.tool ?? "unknown",
         argsText: JSON.stringify(args),
         args,
+        ...(executionStepId ? { executionStepId } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
       });
       continue;
     }
@@ -393,38 +407,58 @@ export function buildAssistantMessage(
     if (event.type === "tool_done") {
       const eventToolCallId = event.id?.trim();
       let matchingIndex = -1;
-
-      if (eventToolCallId) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolCallId === eventToolCallId &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+      const executionStepId = event.executionStepId?.trim();
+      const candidates = content.flatMap((part, index) => {
+        if (
+          part.type !== "tool-call" ||
+          part.result !== undefined ||
+          part.toolName !== (event.tool ?? "unknown")
+        ) {
+          return [];
         }
-      }
-
-      if (matchingIndex === -1) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolName === event.tool &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+        if (executionStepId) {
+          return part.executionStepId === executionStepId ? [index] : [];
         }
+        if (
+          event.inputFingerprint !== undefined &&
+          part.inputFingerprint !== event.inputFingerprint
+        ) {
+          return [];
+        }
+        if (
+          event.input !== undefined &&
+          !toolInputsMatch(part.args, event.input)
+        ) {
+          return [];
+        }
+        return [index];
+      });
+      const idCandidates =
+        eventToolCallId === undefined
+          ? candidates
+          : candidates.filter(
+              (index) =>
+                content[index]?.type === "tool-call" &&
+                content[index]?.toolCallId === eventToolCallId,
+            );
+      const matchingCandidates =
+        idCandidates.length > 0 || eventToolCallId === undefined
+          ? idCandidates
+          : candidates;
+      if (matchingCandidates.length === 1) {
+        matchingIndex = matchingCandidates[0]!;
+      } else if (executionStepId && matchingCandidates.length > 1) {
+        const latest = matchingCandidates[matchingCandidates.length - 1];
+        if (latest !== undefined) matchingIndex = latest;
       }
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
+        if (executionStepId) part.executionStepId = executionStepId;
+        if (event.inputFingerprint) {
+          part.inputFingerprint = event.inputFingerprint;
+        }
         // Older journals have approval_required but no pause marker on tool_done.
         const inferredLegacyPause =
           event.approvalPause === undefined &&
@@ -1152,7 +1186,18 @@ function assistantReplayContent(
     const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
     if (!id || !name) continue;
     const input = replayedToolInput(part.args);
-    assistant.push({ type: "tool-call", id, name, input });
+    assistant.push({
+      type: "tool-call",
+      id,
+      name,
+      input,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
+    });
     const result = replayedToolResult(part);
     results.push({
       type: "tool-result",
@@ -1160,6 +1205,12 @@ function assistantReplayContent(
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
       ...result,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
       ...(part.approvalPause === true ? { approvalPause: true } : {}),
       ...(typeof part.approval?.askId === "string"
         ? { approvalAskId: part.approval.askId }

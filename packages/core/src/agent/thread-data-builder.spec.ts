@@ -756,6 +756,60 @@ describe("buildAssistantMessage", () => {
     expect(toolCalls).toHaveLength(2);
   });
 
+  it("keeps calls with a reused provider id when their inputs differ", () => {
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          id: "reused",
+          tool: "query",
+          input: { id: "first" },
+        },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "tool_done",
+          id: "reused",
+          tool: "query",
+          input: { id: "first" },
+          result: "first result",
+        },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_start",
+          id: "reused",
+          tool: "query",
+          input: { id: "second" },
+        },
+      },
+      {
+        seq: 3,
+        event: {
+          type: "tool_done",
+          id: "reused",
+          tool: "query",
+          input: { id: "second" },
+          result: "second result",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-id-reuse");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls).toMatchObject([
+      { args: { id: "first" }, result: "first result" },
+      { args: { id: "second" }, result: "second result" },
+    ]);
+  });
+
   it("clears rejected draft text while preserving completed tool results", () => {
     const events: RunEvent[] = [
       {

@@ -63,7 +63,11 @@ vi.mock("./run-store.js", async (importOriginal) => {
   };
 });
 
-const { runAgentLoop } = await import("./production-agent.js");
+const {
+  AGENT_INTERNAL_CONTINUE_PROMPT,
+  AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+  runAgentLoop,
+} = await import("./production-agent.js");
 
 const fence = {
   threadId: "durable-thread",
@@ -136,6 +140,182 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("preserves separate durable identities when one response reuses a provider call id", async () => {
+    const actionRun = vi.fn(
+      async (input: { id: string }) => `Deck ${input.id}`,
+    );
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: {
+          type: "object" as const,
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const seenMessages: string[] = [];
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [
+              toolCall("reused-provider-id", { id: "first" }),
+              toolCall("reused-provider-id", { id: "second" }),
+            ],
+            [text("Both decks are ready.")],
+          ],
+          seenMessages,
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Create both decks." }],
+          },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(2);
+    expect(durableStep.completedSteps).toHaveLength(2);
+    expect(durableStep.completedSteps[0]?.stepId).not.toBe(
+      durableStep.completedSteps[1]?.stepId,
+    );
+    expect(
+      events
+        .filter((event) => event.type === "tool_done")
+        .map((event) => event.executionStepId),
+    ).toEqual([
+      durableStep.completedSteps[0]?.stepId,
+      durableStep.completedSteps[1]?.stepId,
+    ]);
+    const history = JSON.parse(seenMessages[1]!) as Array<{
+      role: string;
+      content: Array<{ type: string; executionStepId?: string }>;
+    }>;
+    const calls = history.flatMap((message) =>
+      message.role === "assistant"
+        ? message.content.filter((part) => part.type === "tool-call")
+        : [],
+    );
+    const results = history.flatMap((message) =>
+      message.role === "user"
+        ? message.content.filter((part) => part.type === "tool-result")
+        : [],
+    );
+    expect(calls.map((part) => part.executionStepId)).toEqual(
+      results.map((part) => part.executionStepId),
+    );
+  });
+
+  it("retries an interrupted safe call with its persisted identity after continuation context changes", async () => {
+    const input = { id: "doc-1" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "provider-id-before-reconnect",
+        executionStepId: "stable-read-step",
+        tool: "get-document",
+        input,
+      },
+    ];
+    const actionRun = vi.fn(async () => "Document contents");
+    const action = {
+      tool: {
+        description: "Read a document",
+        parameters: {
+          type: "object" as const,
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      readOnly: true,
+      run: actionRun,
+    };
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(
+      async (intent) => {
+        expect(intent.stepId).toBe("stable-read-step");
+        return { status: "execute", wasDispatched: true };
+      },
+    );
+    const events: AgentChatEvent[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "Read doc-1." }],
+      },
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: `${AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT}\n\npartial output`,
+          },
+        ],
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: Tool-call journal from the interrupted attempt`,
+          },
+        ],
+      },
+    ];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [
+              {
+                type: "tool-call",
+                id: "provider-id-after-reconnect",
+                name: "get-document",
+                input,
+              },
+            ],
+            [text("The document is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages,
+        actions: { "get-document": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "provider-id-after-reconnect",
+        executionStepId: "stable-read-step",
+        result: "Document contents",
+      }),
+    );
+  });
+
   it("does not dispatch a write if cancellation arrives during the dispatch marker", async () => {
     const actionRun = vi.fn(async () => "Deck saved");
     const action = {
