@@ -2067,6 +2067,9 @@ export function createAgentKitProtocolAdapter(
       runId: input.runId,
       threadId: input.threadId,
       session,
+      ...(state?.status !== "missing" && state?.startMessageId
+        ? { startMessageId: state.startMessageId }
+        : {}),
       turn: runAuthority
         ? turn
         : {
@@ -2195,16 +2198,16 @@ export function createAgentKitProtocolAdapter(
       ? findRun(threadId, runId)
       : undefined;
     if (existingRun) {
-      if (turn.id !== undefined && existingRun.turn.id === turn.id) {
-        await closeDiscardedTurnEvents(turn);
-        return existingRun.runId;
-      }
       if (
         start.messageId === undefined ||
         existingRun.startMessageId !== start.messageId
       ) {
         await closeDiscardedTurnEvents(turn);
         throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
+      if (turn.id !== undefined && existingRun.turn.id === turn.id) {
+        await closeDiscardedTurnEvents(turn);
+        return existingRun.runId;
       }
       // A duplicate queued submission is answered with the run that already
       // took it, replayed from its first event. This adapter reads that run

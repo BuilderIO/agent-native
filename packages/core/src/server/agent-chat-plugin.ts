@@ -7201,10 +7201,51 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const pendingConnectionRequestId = includePendingConnectionRequest
               ? await getRunPendingConnectionRequestId(run.id)
               : undefined;
+            const record = (
+              value: unknown,
+            ): Record<string, unknown> | undefined =>
+              value && typeof value === "object" && !Array.isArray(value)
+                ? (value as Record<string, unknown>)
+                : undefined;
+            const customMetadata = (message: unknown) =>
+              record(record(record(message)?.metadata)?.custom);
+            const thread = await getThread(threadId);
+            const threadData = record(JSON.parse(thread?.threadData || "{}"));
+            const messages = Array.isArray(threadData?.messages)
+              ? threadData.messages
+              : [];
+            const matchingTurnMessages = run.turnId
+              ? messages.filter((message: unknown) => {
+                  const messageRecord = record(message);
+                  const custom = customMetadata(message);
+                  return (
+                    messageRecord?.role === "user" &&
+                    custom?.submittedTurnId === run.turnId
+                  );
+                })
+              : [];
+            const matchingMessages =
+              matchingTurnMessages.length > 0
+                ? matchingTurnMessages
+                : messages.filter((message: unknown) => {
+                    const messageRecord = record(message);
+                    const custom = customMetadata(message);
+                    return (
+                      messageRecord?.role === "user" &&
+                      custom?.submittedRunId === run.id
+                    );
+                  });
+            const startMessageId =
+              matchingMessages.length === 1
+                ? customMetadata(matchingMessages[0])?.agentKitMessageId
+                : undefined;
             return {
               runId: run.id,
               threadId: run.threadId,
               turnId: run.turnId ?? null,
+              ...(typeof startMessageId === "string" && startMessageId.trim()
+                ? { startMessageId }
+                : {}),
               startedAt: run.startedAt,
               status: run.status,
               heartbeatAt: run.heartbeatAt,
