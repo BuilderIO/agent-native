@@ -1407,8 +1407,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^    timeout-minutes: 105$/m,
-    "the standalone Design job must cover both PR setup cycles, loopback E2E, and artifacts",
+    /^    timeout-minutes: 120$/m,
+    "the standalone Design job must reserve setup and artifact time after the PR E2E budgets",
   );
   assert.match(
     designE2eWorkflow,
@@ -1429,6 +1429,14 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     designE2eWorkflow,
     /^      - name: Run PR marquee E2E\n        if: matrix\.shard != 'runtime-budget' && github\.event_name == 'pull_request'\n        working-directory: templates\/design\n        timeout-minutes: 37$/m,
     "the PR marquee run must have its own setup and test budget",
+  );
+  const standaloneJobTimeoutMinutes = Number(
+    designE2eWorkflow.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
+  const standalonePrStepBudgetsMinutes = 37 + 37 + 21;
+  assert.ok(
+    standaloneJobTimeoutMinutes >= standalonePrStepBudgetsMinutes + 25,
+    `the standalone Design job must reserve 25 minutes beyond the sequential PR E2E step caps (job ${standaloneJobTimeoutMinutes}, steps ${standalonePrStepBudgetsMinutes})`,
   );
   assert.match(
     designGlobalSetup,
