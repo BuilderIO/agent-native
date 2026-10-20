@@ -118,14 +118,15 @@ export function applyContentDatabaseTableQuery(
         itemSearchText(item, properties).toLowerCase().includes(search),
       )
     : items;
-  const activeFilters = query.filters.filter(isActiveFilter);
-  const filtered = activeFilters.length
+  const filterTree = query.filters.some(isActiveFilter)
+    ? contentDatabaseFilterTree(query.filters, query.filterMode)
+    : null;
+  const filtered = filterTree
     ? searched.filter((item) =>
-        itemMatchesFilterTree(
-          item,
-          properties,
-          activeFilters,
-          query.filterMode,
+        reduceContentDatabaseFilterTree(
+          filterTree,
+          (filter) => itemMatchesFilter(item, properties, filter),
+          combineMatches,
         ),
       )
     : searched;
@@ -157,36 +158,195 @@ export function contentDatabaseTableQueryUsesProperties(
   );
 }
 
-function itemMatchesFilterTree(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  filters: ContentDatabaseFilter[],
-  filterMode: ContentDatabaseFilterMode,
-) {
-  const rootFilters = filters.filter((filter) => !filter.parentFilterGroupId);
-  const nestedGroups = new Map<string, ContentDatabaseFilter[]>();
+// A filter group's And/Or lives on its rules, because filter objects survive
+// every save path while new view-level keys do not: `filterGroupMode` names the
+// mode of the rule's `filterGroupId`, and `parentFilterGroupMode` the mode of
+// its `parentFilterGroupId`. Older clients add rules without either field and
+// can leave a group's rules disagreeing, so the first rule that carries a mode
+// decides, and a group without one inherits the view's mode.
+export function contentDatabaseFilterGroupMode(
+  filters: readonly ContentDatabaseFilter[],
+  groupId: string,
+  viewMode: ContentDatabaseFilterMode,
+): ContentDatabaseFilterMode {
+  return (
+    filters.find(
+      (filter) => filter.filterGroupId === groupId && filter.filterGroupMode,
+    )?.filterGroupMode ??
+    filters.find(
+      (filter) =>
+        filter.parentFilterGroupId === groupId && filter.parentFilterGroupMode,
+    )?.parentFilterGroupMode ??
+    viewMode
+  );
+}
+
+export function withContentDatabaseFilterGroupMode<
+  T extends ContentDatabaseFilter,
+>(
+  filters: readonly T[],
+  groupId: string,
+  mode: ContentDatabaseFilterMode,
+): T[] {
+  return filters.map((filter) => {
+    let next = filter;
+    if (filter.filterGroupId === groupId && filter.filterGroupMode !== mode) {
+      next = { ...next, filterGroupMode: mode };
+    }
+    if (
+      filter.parentFilterGroupId === groupId &&
+      filter.parentFilterGroupMode !== mode
+    ) {
+      next = { ...next, parentFilterGroupMode: mode };
+    }
+    return next;
+  });
+}
+
+/**
+ * Writes every group's current mode onto all of its rules, so a later change
+ * to the view's mode no longer reaches groups that were inheriting it.
+ */
+export function materializeContentDatabaseFilterGroupModes<
+  T extends ContentDatabaseFilter,
+>(filters: readonly T[], viewMode: ContentDatabaseFilterMode): T[] {
+  const groupIds = new Set<string>();
   for (const filter of filters) {
-    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
-    nestedGroups.set(filter.filterGroupId, [
-      ...(nestedGroups.get(filter.filterGroupId) ?? []),
-      filter,
-    ]);
+    if (filter.filterGroupId) groupIds.add(filter.filterGroupId);
+    if (filter.parentFilterGroupId) groupIds.add(filter.parentFilterGroupId);
   }
-  const matches = [
-    ...rootFilters.map((filter) => itemMatchesFilter(item, properties, filter)),
-    ...[...nestedGroups.values()].map((group) =>
-      combineMatches(
-        group.map((filter) => itemMatchesFilter(item, properties, filter)),
-        filterMode,
-      ),
+  let next = [...filters];
+  for (const groupId of groupIds) {
+    next = withContentDatabaseFilterGroupMode(
+      next,
+      groupId,
+      contentDatabaseFilterGroupMode(filters, groupId, viewMode),
+    );
+  }
+  return next;
+}
+
+export interface ContentDatabaseFilterGroup<
+  T extends ContentDatabaseFilter = ContentDatabaseFilter,
+> {
+  /** Null for the view level. */
+  id: string | null;
+  mode: ContentDatabaseFilterMode;
+  filters: T[];
+  groups: ContentDatabaseFilterGroup<T>[];
+}
+
+/**
+ * Builds the view's filter tree from its active rules. The view level holds
+ * ungrouped rules and every top-level group: a `filterGroupId` used without a
+ * parent, or a `parentFilterGroupId` that nested rules name. A nested group
+ * sits under its parent, or at the view level when that parent is itself only
+ * a nested group, so the tree never grows deeper or loops. A rule with a
+ * parent but no group of its own belongs nowhere and is ignored. Modes are
+ * read from every rule, active or not.
+ */
+export function contentDatabaseFilterTree<T extends ContentDatabaseFilter>(
+  filters: readonly T[],
+  viewMode: ContentDatabaseFilterMode,
+  isActive: (filter: T) => boolean = isActiveFilter,
+): ContentDatabaseFilterGroup<T> {
+  const group = (id: string): ContentDatabaseFilterGroup<T> => ({
+    id,
+    mode: contentDatabaseFilterGroupMode(filters, id, viewMode),
+    filters: [],
+    groups: [],
+  });
+  const viewFilters: T[] = [];
+  const topLevel = new Map<string, ContentDatabaseFilterGroup<T>>();
+  const nested = new Map<
+    string,
+    { parentId: string; group: ContentDatabaseFilterGroup<T> }
+  >();
+  for (const filter of filters) {
+    if (!isActive(filter)) continue;
+    if (filter.parentFilterGroupId) {
+      if (!filter.filterGroupId) continue;
+      let entry = nested.get(filter.filterGroupId);
+      if (!entry) {
+        entry = {
+          parentId: filter.parentFilterGroupId,
+          group: group(filter.filterGroupId),
+        };
+        nested.set(filter.filterGroupId, entry);
+      }
+      entry.group.filters.push(filter);
+    } else if (filter.filterGroupId) {
+      let entry = topLevel.get(filter.filterGroupId);
+      if (!entry) {
+        entry = group(filter.filterGroupId);
+        topLevel.set(filter.filterGroupId, entry);
+      }
+      entry.filters.push(filter);
+    } else {
+      viewFilters.push(filter);
+    }
+  }
+  const viewGroups: ContentDatabaseFilterGroup<T>[] = [];
+  const directTopLevelIds = new Set(topLevel.keys());
+  for (const { parentId, group: nestedGroup } of nested.values()) {
+    if (nested.has(parentId) && !directTopLevelIds.has(parentId)) {
+      viewGroups.push(nestedGroup);
+      continue;
+    }
+    let parent = topLevel.get(parentId);
+    if (!parent) {
+      parent = group(parentId);
+      topLevel.set(parentId, parent);
+    }
+    parent.groups.push(nestedGroup);
+  }
+  return {
+    id: null,
+    mode: viewMode,
+    filters: viewFilters,
+    groups: [...topLevel.values(), ...viewGroups],
+  };
+}
+
+export function reduceContentDatabaseFilterTree<
+  T extends ContentDatabaseFilter,
+  R,
+>(
+  group: ContentDatabaseFilterGroup<T>,
+  leaf: (filter: T) => R,
+  combine: (mode: ContentDatabaseFilterMode, members: R[]) => R,
+): R {
+  return combine(group.mode, [
+    ...group.filters.map(leaf),
+    ...group.groups.map((child) =>
+      reduceContentDatabaseFilterTree(child, leaf, combine),
     ),
-  ];
-  return combineMatches(matches, filterMode);
+  ]);
+}
+
+/**
+ * The active rules every matching row satisfies: each level on the rule's
+ * path combines with "and" or has exactly one member.
+ */
+export function contentDatabaseRequiredFilters<T extends ContentDatabaseFilter>(
+  filters: readonly T[],
+  viewMode: ContentDatabaseFilterMode,
+  isActive: (filter: T) => boolean = isActiveFilter,
+): Set<T> {
+  const required = new Set<T>();
+  const visit = (group: ContentDatabaseFilterGroup<T>) => {
+    if (group.mode === "or" && group.filters.length + group.groups.length > 1)
+      return;
+    for (const filter of group.filters) required.add(filter);
+    for (const child of group.groups) visit(child);
+  };
+  visit(contentDatabaseFilterTree(filters, viewMode, isActive));
+  return required;
 }
 
 function combineMatches(
-  matches: boolean[],
   filterMode: ContentDatabaseFilterMode,
+  matches: boolean[],
 ) {
   if (matches.length === 0) return true;
   return filterMode === "or" ? matches.some(Boolean) : matches.every(Boolean);

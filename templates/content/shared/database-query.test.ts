@@ -7,8 +7,12 @@ import type {
 } from "./api";
 import {
   applyContentDatabaseTableQuery,
+  contentDatabaseFilterGroupMode,
   contentDatabaseFilterOperatorsForType,
+  contentDatabaseFilterTree,
   contentDatabaseTableQueryUsesProperties,
+  materializeContentDatabaseFilterGroupModes,
+  withContentDatabaseFilterGroupMode,
 } from "./database-query";
 
 function item(id: string, title: string, date: string): ContentDatabaseItem {
@@ -242,5 +246,300 @@ describe("content database number filters", () => {
     expect(contentDatabaseFilterOperatorsForType("text")).not.toContain(
       "greater_than_or_equal",
     );
+  });
+});
+
+function advancedRule(
+  operator: ContentDatabaseFilter["operator"],
+  value = "",
+  mode?: "and" | "or",
+): ContentDatabaseFilter {
+  return {
+    ...rankFilter(operator, value),
+    filterGroupId: "advanced",
+    ...(mode ? { filterGroupMode: mode } : {}),
+  };
+}
+
+function nestedRule(
+  groupId: string,
+  operator: ContentDatabaseFilter["operator"],
+  value = "",
+  modes: { group?: "and" | "or"; parent?: "and" | "or" } = {},
+): ContentDatabaseFilter {
+  return {
+    ...rankFilter(operator, value),
+    filterGroupId: groupId,
+    parentFilterGroupId: "advanced",
+    ...(modes.group ? { filterGroupMode: modes.group } : {}),
+    ...(modes.parent ? { parentFilterGroupMode: modes.parent } : {}),
+  };
+}
+
+// How views combined rules before groups had their own modes: every root rule
+// and every nested group under the view's one mode.
+function flatMatchingIds(
+  filters: ContentDatabaseFilter[],
+  filterMode: "and" | "or",
+) {
+  const matchesBy = new Map(
+    filters.map((filter) => [
+      filter,
+      new Set(matchingIds([rankFilter(filter.operator, filter.value)])),
+    ]),
+  );
+  const combine = (matches: boolean[]) =>
+    matches.length === 0 ||
+    (filterMode === "or" ? matches.some(Boolean) : matches.every(Boolean));
+  const nested = new Map<string, ContentDatabaseFilter[]>();
+  for (const filter of filters) {
+    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
+    nested.set(filter.filterGroupId, [
+      ...(nested.get(filter.filterGroupId) ?? []),
+      filter,
+    ]);
+  }
+  return rankedItems
+    .map((row) => row.document.id)
+    .filter((id) =>
+      combine([
+        ...filters
+          .filter((filter) => !filter.parentFilterGroupId)
+          .map((filter) => matchesBy.get(filter)!.has(id)),
+        ...[...nested.values()].map((group) =>
+          combine(group.map((filter) => matchesBy.get(filter)!.has(id))),
+        ),
+      ]),
+    );
+}
+
+describe("content database filter groups", () => {
+  it("combines groups without stored modes exactly as before", () => {
+    const views: ContentDatabaseFilter[][] = [
+      [rankFilter("is_not_empty"), advancedRule("less_than", "25")],
+      [
+        rankFilter("greater_than", "4"),
+        advancedRule("less_than", "12"),
+        nestedRule("advanced-a", "equals", "25"),
+        nestedRule("advanced-a", "greater_than_or_equal", "30"),
+      ],
+      [
+        nestedRule("advanced-a", "less_than", "5"),
+        nestedRule("advanced-b", "greater_than", "25"),
+        { ...rankFilter("equals", "12"), parentFilterGroupId: "advanced" },
+      ],
+    ];
+    for (const filters of views) {
+      for (const filterMode of ["and", "or"] as const) {
+        expect(matchingIds(filters, filterMode)).toEqual(
+          flatMatchingIds(filters, filterMode),
+        );
+      }
+    }
+  });
+
+  it("combines the advanced filter with its own Or inside an And view", () => {
+    expect(
+      matchingIds(
+        [
+          rankFilter("is_not_empty"),
+          advancedRule("less_than", "5", "or"),
+          advancedRule("greater_than", "25", "or"),
+        ],
+        "and",
+      ),
+    ).toEqual(["rank-4", "rank-30"]);
+  });
+
+  it("combines a nested group with its own Or inside an And advanced filter", () => {
+    const filters = [
+      advancedRule("greater_than_or_equal", "5", "and"),
+      nestedRule("advanced-a", "less_than", "6", {
+        group: "or",
+        parent: "and",
+      }),
+      nestedRule("advanced-a", "greater_than", "25", {
+        group: "or",
+        parent: "and",
+      }),
+    ];
+    expect(matchingIds(filters, "and")).toEqual(["rank-5", "rank-30"]);
+    // The view's Any reaches only its own members: the chip and the advanced
+    // filter as a whole.
+    expect(matchingIds([rankFilter("equals", "12"), ...filters], "or")).toEqual(
+      ["rank-5", "rank-12", "rank-30"],
+    );
+  });
+
+  it("creates the advanced parent for nested groups that have no rule of their own", () => {
+    const filters = [
+      rankFilter("less_than", "30"),
+      nestedRule("advanced-a", "greater_than_or_equal", "5", {
+        group: "and",
+        parent: "or",
+      }),
+      nestedRule("advanced-a", "less_than_or_equal", "5", {
+        group: "and",
+        parent: "or",
+      }),
+      nestedRule("advanced-b", "greater_than_or_equal", "25", {
+        group: "and",
+        parent: "or",
+      }),
+    ];
+
+    expect(matchingIds(filters, "and")).toEqual(["rank-5", "rank-25"]);
+    const tree = contentDatabaseFilterTree(filters, "and");
+    expect(tree.filters).toEqual([filters[0]]);
+    expect(tree.groups).toMatchObject([
+      {
+        id: "advanced",
+        mode: "or",
+        filters: [],
+        groups: [
+          { id: "advanced-a", mode: "and" },
+          { id: "advanced-b", mode: "and" },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps the tree two levels deep and ignores rules that name only a parent", () => {
+    const deep = {
+      ...rankFilter("equals", "4"),
+      filterGroupId: "advanced-deep",
+      parentFilterGroupId: "advanced-a",
+    };
+    const parentOnly = {
+      ...rankFilter("equals", "5"),
+      parentFilterGroupId: "advanced",
+    };
+    const filters = [
+      nestedRule("advanced-a", "equals", "12"),
+      deep,
+      parentOnly,
+    ];
+    const tree = contentDatabaseFilterTree(filters, "or");
+
+    expect(tree.groups.map((group) => group.id)).toEqual([
+      "advanced",
+      "advanced-deep",
+    ]);
+    expect(tree.groups[0]?.groups.map((group) => group.id)).toEqual([
+      "advanced-a",
+    ]);
+    expect(tree.groups[1]?.groups).toEqual([]);
+    expect(matchingIds(filters, "or")).toEqual(["rank-4", "rank-12"]);
+  });
+
+  it("reads a group's mode from the first rule that stores one", () => {
+    const mixed = [
+      rankFilter("is_not_empty"),
+      advancedRule("less_than", "5"),
+      advancedRule("greater_than", "25", "or"),
+      advancedRule("equals", "12", "and"),
+    ];
+    expect(contentDatabaseFilterGroupMode(mixed, "advanced", "and")).toBe("or");
+    expect(matchingIds(mixed, "and")).toEqual(["rank-4", "rank-12", "rank-30"]);
+
+    const nestedOnly = [
+      nestedRule("advanced-a", "less_than", "5"),
+      nestedRule("advanced-a", "equals", "12", { parent: "or" }),
+      nestedRule("advanced-b", "equals", "30", { parent: "and" }),
+    ];
+    expect(contentDatabaseFilterGroupMode(nestedOnly, "advanced", "and")).toBe(
+      "or",
+    );
+    expect(contentDatabaseFilterGroupMode(nestedOnly, "advanced-a", "or")).toBe(
+      "or",
+    );
+    expect(
+      contentDatabaseFilterGroupMode(nestedOnly, "advanced-a", "and"),
+    ).toBe("and");
+  });
+
+  it("reads a group's mode from its inactive rules too", () => {
+    expect(
+      matchingIds(
+        [
+          advancedRule("less_than", "", "or"),
+          advancedRule("less_than", "5"),
+          advancedRule("greater_than", "25"),
+        ],
+        "and",
+      ),
+    ).toEqual(["rank-4", "rank-30"]);
+  });
+
+  it("writes a group's mode onto its rules and onto its nested rules as their parent mode", () => {
+    const chip = rankFilter("is_not_empty");
+    const filters = [
+      chip,
+      advancedRule("less_than", "5"),
+      nestedRule("advanced-a", "equals", "12"),
+      nestedRule("advanced-b", "equals", "30"),
+    ];
+
+    const advancedOr = withContentDatabaseFilterGroupMode(
+      filters,
+      "advanced",
+      "or",
+    );
+    expect(advancedOr[0]).toBe(chip);
+    expect(advancedOr[1]).toMatchObject({ filterGroupMode: "or" });
+    expect(advancedOr[1]).not.toHaveProperty("parentFilterGroupMode");
+    expect(advancedOr[2]).toMatchObject({ parentFilterGroupMode: "or" });
+    expect(advancedOr[2]).not.toHaveProperty("filterGroupMode");
+    expect(contentDatabaseFilterGroupMode(advancedOr, "advanced", "and")).toBe(
+      "or",
+    );
+
+    const nestedAnd = withContentDatabaseFilterGroupMode(
+      advancedOr,
+      "advanced-a",
+      "and",
+    );
+    expect(nestedAnd[2]).toMatchObject({
+      filterGroupMode: "and",
+      parentFilterGroupMode: "or",
+    });
+    expect(nestedAnd[3]).toMatchObject({ parentFilterGroupMode: "or" });
+    expect(nestedAnd[3]).not.toHaveProperty("filterGroupMode");
+    expect(filters[1]).not.toHaveProperty("filterGroupMode");
+  });
+
+  it("freezes inherited group modes so a later view mode change leaves them alone", () => {
+    const chip = rankFilter("is_not_empty");
+    const filters = [
+      chip,
+      advancedRule("less_than", "5"),
+      advancedRule("greater_than", "25", "and"),
+      nestedRule("advanced-a", "equals", "4"),
+      nestedRule("advanced-a", "equals", "30"),
+    ];
+    const frozen = materializeContentDatabaseFilterGroupModes(filters, "or");
+    expect(frozen[0]).toBe(chip);
+    expect(frozen.slice(1).map((filter) => filter.filterGroupMode)).toEqual([
+      "and",
+      "and",
+      "or",
+      "or",
+    ]);
+    expect(
+      frozen.slice(3).map((filter) => filter.parentFilterGroupMode),
+    ).toEqual(["and", "and"]);
+    expect(matchingIds(frozen, "or")).toEqual(matchingIds(filters, "or"));
+
+    const inheriting = [
+      chip,
+      advancedRule("less_than", "5"),
+      advancedRule("greater_than", "25"),
+    ];
+    const frozenOr = materializeContentDatabaseFilterGroupModes(
+      inheriting,
+      "or",
+    );
+    expect(matchingIds(inheriting, "and")).toEqual([]);
+    expect(matchingIds(frozenOr, "and")).toEqual(["rank-4", "rank-30"]);
   });
 });
