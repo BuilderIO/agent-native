@@ -3,6 +3,7 @@ import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { describe, expect, it } from "vitest";
 
 import {
+  proposalGroups,
   receiptSuggestion,
   reviewedInThread,
   suggestionLineExcerpt,
@@ -46,6 +47,29 @@ describe("suggestionsByThread", () => {
     expect(grouped.get("t1")!.map((entry) => entry.id)).toEqual([
       "earlier",
       "later",
+    ]);
+  });
+});
+
+describe("proposalGroups", () => {
+  const at = (from: number) => [{ anchor: { from, to: from + 1 } }];
+  it("keeps a proposal's edits together in Page order, and other suggestions alone", () => {
+    const groups = proposalGroups([
+      suggestion("alone", fromThread("t1")),
+      suggestion("second", fromThread("t1"), undefined, {
+        proposalId: "p1",
+        operations: at(40) as ResourceSuggestion["operations"],
+      }),
+      suggestion("later", fromThread("t1")),
+      suggestion("first", fromThread("t1"), undefined, {
+        proposalId: "p1",
+        operations: at(3) as ResourceSuggestion["operations"],
+      }),
+    ]);
+    expect(groups.map((group) => group.map((entry) => entry.id))).toEqual([
+      ["alone"],
+      ["first", "second"],
+      ["later"],
     ]);
   });
 });
