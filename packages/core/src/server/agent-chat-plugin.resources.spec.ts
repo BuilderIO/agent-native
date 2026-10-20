@@ -2,7 +2,6 @@ import { createApp, H3Event } from "h3";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDbExec } from "../db/client.js";
-
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 
 const mocks = vi.hoisted(() => ({
