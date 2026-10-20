@@ -349,17 +349,9 @@ export function buildAssistantMessage(
       const executionStepId = event.executionStepId?.trim();
       const replayed = content.some((part) => {
         if (part.type !== "tool-call") return false;
-        if (executionStepId) {
-          return part.executionStepId === executionStepId;
-        }
         return (
-          explicitToolCallId !== undefined &&
-          part.toolCallId === explicitToolCallId &&
-          part.toolName === (event.tool ?? "unknown") &&
-          (event.inputFingerprint !== undefined
-            ? part.inputFingerprint === event.inputFingerprint
-            : event.input === undefined ||
-              toolInputsMatch(part.args, event.input))
+          executionStepId !== undefined &&
+          part.executionStepId === executionStepId
         );
       });
       if (replayed) continue;
@@ -433,10 +425,29 @@ export function buildAssistantMessage(
         }
         return [index];
       });
+      const legacyCandidates = executionStepId
+        ? content.flatMap((part, index) => {
+            if (
+              part.type !== "tool-call" ||
+              part.result !== undefined ||
+              part.executionStepId !== undefined ||
+              part.toolName !== (event.tool ?? "unknown") ||
+              (event.inputFingerprint !== undefined &&
+                part.inputFingerprint !== event.inputFingerprint) ||
+              (event.input !== undefined &&
+                !toolInputsMatch(part.args, event.input))
+            ) {
+              return [];
+            }
+            return [index];
+          })
+        : candidates;
+      const candidateMatches =
+        candidates.length > 0 ? candidates : legacyCandidates;
       const idCandidates =
         eventToolCallId === undefined
-          ? candidates
-          : candidates.filter(
+          ? candidateMatches
+          : candidateMatches.filter(
               (index) =>
                 content[index]?.type === "tool-call" &&
                 content[index]?.toolCallId === eventToolCallId,
@@ -444,16 +455,33 @@ export function buildAssistantMessage(
       const matchingCandidates =
         idCandidates.length > 0 || eventToolCallId === undefined
           ? idCandidates
-          : candidates;
-      if (matchingCandidates.length === 1) {
+          : candidateMatches;
+      if (matchingCandidates.length > 0) {
+        // Legacy event pairs have no occurrence ID, so preserve them in order.
         matchingIndex = matchingCandidates[0]!;
-      } else if (executionStepId && matchingCandidates.length > 1) {
-        const latest = matchingCandidates[matchingCandidates.length - 1];
-        if (latest !== undefined) matchingIndex = latest;
       }
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
+        if (event.replayed === true && !executionStepId) {
+          const earlierDuplicate = content.findIndex(
+            (candidate, index) =>
+              index !== matchingIndex &&
+              candidate.type === "tool-call" &&
+              candidate.result !== undefined &&
+              candidate.toolCallId === part.toolCallId &&
+              candidate.toolName === part.toolName &&
+              (event.inputFingerprint !== undefined
+                ? candidate.inputFingerprint === event.inputFingerprint
+                : event.input === undefined ||
+                  toolInputsMatch(candidate.args, event.input)),
+          );
+          if (earlierDuplicate >= 0) {
+            content.splice(matchingIndex, 1);
+            approvalPauseCandidates.delete(part);
+            continue;
+          }
+        }
         part.result = event.result ?? "";
         if (executionStepId) part.executionStepId = executionStepId;
         if (event.inputFingerprint) {

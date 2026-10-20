@@ -717,6 +717,66 @@ export function findInterruptedJournalEntryForCall(
   return match;
 }
 
+export function findInterruptedLegacyJournalEntryForCall(
+  journal: ToolCallJournal,
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  history: readonly EngineMessage[],
+  consumedKeys?: Set<string>,
+):
+  | { status: "none" }
+  | { status: "ambiguous" }
+  | { status: "matched"; entry: ToolCallJournalEntry; stepId: string } {
+  const inputFingerprint = toolCallInputFingerprint(input);
+  const matchesInput = (entry: ToolCallJournalEntry) =>
+    entry.argumentsHash !== undefined && argumentsHash !== undefined
+      ? entry.argumentsHash === argumentsHash
+      : entry.inputFingerprint !== undefined
+        ? entry.inputFingerprint === inputFingerprint
+        : entry.input !== undefined &&
+          inputSignature(entry.input) === inputSignature(input);
+  const candidates = journal.interrupted.filter(
+    (entry) =>
+      entry.executionStepId === undefined &&
+      entry.id !== undefined &&
+      entry.id.length > 0 &&
+      entry.tool === toolName &&
+      !consumedKeys?.has(entry.key) &&
+      matchesInput(entry),
+  );
+  if (candidates.length === 0) return { status: "none" };
+  if (candidates.length !== 1) return { status: "ambiguous" };
+
+  const entry = candidates[0]!;
+  const stepId = entry.id!;
+  const sameIdJournalEntries = [
+    ...journal.completed,
+    ...journal.interrupted,
+  ].filter((candidate) => candidate.id === stepId);
+  const sameIdHistoryCalls = history.flatMap((message) =>
+    message.role === "assistant"
+      ? message.content.filter(
+          (part) => part.type === "tool-call" && part.id === stepId,
+        )
+      : [],
+  );
+  if (
+    sameIdJournalEntries.length !== 1 ||
+    sameIdHistoryCalls.length > 1 ||
+    (sameIdHistoryCalls.length === 1 &&
+      (sameIdHistoryCalls[0]?.type !== "tool-call" ||
+        sameIdHistoryCalls[0].name !== toolName ||
+        toolCallInputFingerprint(sameIdHistoryCalls[0].input) !==
+          inputFingerprint))
+  ) {
+    return { status: "ambiguous" };
+  }
+
+  consumedKeys?.add(entry.key);
+  return { status: "matched", entry, stepId };
+}
+
 function summarizeResult(result: string | undefined): string {
   if (!result) return "(no result recorded)";
   const oneLine = result.replace(/\s+/g, " ").trim();

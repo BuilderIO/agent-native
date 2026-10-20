@@ -169,6 +169,7 @@ export function backfillEngineMessagesToolResults(
     originalId: string;
     name: string;
     input: unknown;
+    executionStepId?: string;
   };
 
   type ParsedToolInput =
@@ -224,6 +225,9 @@ export function backfillEngineMessagesToolResults(
           originalId: part.id,
           name: part.name,
           input: part.input,
+          ...(part.executionStepId
+            ? { executionStepId: part.executionStepId }
+            : {}),
         };
         pendingToolUses.push(pending);
         toolUseById.set(id, { name: part.name, input: part.input });
@@ -275,12 +279,21 @@ export function backfillEngineMessagesToolResults(
                 toolCallInputSignature(parsedToolInput.value),
             )
           : [];
+      const stepMatches = part.executionStepId
+        ? namedPendingCandidates.filter(
+            (pending) => pending.executionStepId === part.executionStepId,
+          )
+        : [];
       const pendingLookup =
-        namedPendingCandidates.length === 1
-          ? namedPendingCandidates[0]
-          : fingerprintMatches.length === 1
-            ? fingerprintMatches[0]
-            : undefined;
+        stepMatches.length === 1
+          ? stepMatches[0]
+          : stepMatches.length > 1
+            ? undefined
+            : namedPendingCandidates.length === 1
+              ? namedPendingCandidates[0]
+              : fingerprintMatches.length === 1
+                ? fingerprintMatches[0]
+                : undefined;
       if (pendingLookup) matchedPendingToolIds.add(pendingLookup.id);
       const toolName =
         typeof part.toolName === "string" && part.toolName.trim().length > 0

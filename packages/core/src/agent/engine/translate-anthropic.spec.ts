@@ -591,6 +591,71 @@ describe("engineMessagesToAnthropic", () => {
     expect(content.at(-1)).toMatchObject({ type: "text" });
   });
 
+  it("pairs reused identical calls by execution step identity", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+            executionStepId: "step-one",
+          },
+          {
+            type: "tool-call",
+            id: "shared-call-id",
+            name: "create-record",
+            input: { title: "Same" },
+            executionStepId: "step-two",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            executionStepId: "step-two",
+            content: "Second created",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "shared-call-id",
+            toolName: "create-record",
+            toolInput: '{"title":"Same"}',
+            executionStepId: "step-one",
+            content: "First created",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolUses = (result[0]!.content as any[]).filter(
+      (part: any) => part.type === "tool_use",
+    );
+    const toolResults = (result[1]!.content as any[]).filter(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolUses.map((part: any) => [part.id, part.input.title])).toEqual([
+      ["shared-call-id", "Same"],
+      ["shared-call-id-2", "Same"],
+    ]);
+    expect(
+      toolResults.map((part: any) => [part.tool_use_id, part.content]),
+    ).toEqual([
+      ["shared-call-id", "First created"],
+      ["shared-call-id-2", "Second created"],
+    ]);
+    expect(JSON.stringify(result)).not.toContain("Its outcome is UNKNOWN");
+  });
+
   it("backfills tool_name and tool_input from the matching tool_use when omitted", () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "ping" }] },

@@ -521,6 +521,178 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("recovers an in-flight durable step stored under the legacy provider id", async () => {
+    const input = { id: "deck-legacy" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "legacy-provider-id",
+        tool: "create-deck",
+        input,
+      },
+    ];
+    durableStep.completedSteps.push({
+      stepId: "legacy-provider-id",
+      operationId: "legacy-provider-id",
+      toolName: "create-deck",
+      inputJson: JSON.stringify({ input }),
+      resultJson: JSON.stringify({
+        result: "Deck saved before reconnect",
+        isError: false,
+        completedSideEffect: true,
+      }),
+    });
+    const actionRun = vi.fn(async () => "Deck saved again");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("resumed-provider-id", input)],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "legacy-provider-id",
+                name: "create-deck",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "resumed-provider-id",
+        executionStepId: "legacy-provider-id",
+        result: expect.stringContaining("Deck saved before reconnect"),
+        replayed: true,
+      }),
+    );
+  });
+
+  it("does not dispatch a write when legacy interrupted identity is ambiguous", async () => {
+    const input = { id: "deck-ambiguous" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "legacy-provider-id",
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_start",
+        id: "legacy-provider-id",
+        tool: "create-deck",
+        input,
+      },
+    ];
+    const actionRun = vi.fn(async () => "Deck saved");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed-provider-id", input)], [text("Stopped safely.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "legacy-provider-id",
+                name: "create-deck",
+                input,
+              },
+              {
+                type: "tool-call",
+                id: "legacy-provider-id",
+                name: "create-deck",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            retrySafe: true,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "resumed-provider-id",
+        isError: true,
+        result: expect.stringContaining("stopped without running it again"),
+      }),
+    );
+  });
+
   it("keeps the durable step identity when tool input repair replaces the call object", async () => {
     let streamCall = 0;
     const engine: AgentEngine = {

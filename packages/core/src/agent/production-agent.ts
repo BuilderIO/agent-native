@@ -420,6 +420,7 @@ import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
   findAmbiguousLegacyJournalEntryForCall,
   findInterruptedJournalEntryForCall,
+  findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
@@ -9037,12 +9038,34 @@ export async function runAgentLoop(opts: {
               consumedInterruptedJournalKeys,
             )
           : undefined;
+      const legacyInterruptedStep =
+        executionFence && toolCallJournal && !interruptedStep
+          ? findInterruptedLegacyJournalEntryForCall(
+              toolCallJournal,
+              toolCall.name,
+              argumentsHash,
+              preparedCallArguments(intent),
+              messages.slice(findCurrentTurnStartForContinuation(messages)),
+              consumedInterruptedJournalKeys,
+            )
+          : { status: "none" as const };
+      const legacyInterruptedStepId =
+        legacyInterruptedStep.status === "matched"
+          ? (opts.durableStepIdForToolCall?.(legacyInterruptedStep.stepId) ??
+            legacyInterruptedStep.stepId)
+          : undefined;
+      const interruptedStepId =
+        interruptedStep?.executionStepId ?? legacyInterruptedStepId;
+      const ambiguousLegacyInterruptedWrite =
+        !actionIsReadOnly && legacyInterruptedStep.status === "ambiguous";
       executionStepId = executionFence
-        ? (interruptedStep?.executionStepId ??
-          (logicalExecutionStepId
-            ? (opts.durableStepIdForToolCall?.(logicalExecutionStepId) ??
-              logicalExecutionStepId)
-            : undefined))
+        ? (interruptedStepId ??
+          (ambiguousLegacyInterruptedWrite
+            ? undefined
+            : logicalExecutionStepId
+              ? (opts.durableStepIdForToolCall?.(logicalExecutionStepId) ??
+                logicalExecutionStepId)
+              : undefined))
         : undefined;
       const historyToolCall = historyToolCallByCall.get(originalToolCall);
       if (historyToolCall?.type === "tool-call" && executionStepId) {
@@ -9079,25 +9102,26 @@ export async function runAgentLoop(opts: {
       const preparedCallKey = preparedToolCallKey(toolCall.name, argumentsHash);
       const ambiguousLegacyWrite =
         !actionIsReadOnly &&
-        !actionRetrySafe &&
-        toolCallJournal !== null &&
-        findAmbiguousLegacyJournalEntryForCall(
-          toolCallJournal,
-          journalEntriesAmbiguous,
-          journalEntriesAlreadyRepresented,
-          toolCall.name,
-          argumentsHash,
-          toolCall.input,
-          consumedJournalKeys,
-          internalContinuationTurn,
-        ) !== undefined;
+        (ambiguousLegacyInterruptedWrite ||
+          (!actionRetrySafe &&
+            toolCallJournal !== null &&
+            findAmbiguousLegacyJournalEntryForCall(
+              toolCallJournal,
+              journalEntriesAmbiguous,
+              journalEntriesAlreadyRepresented,
+              toolCall.name,
+              argumentsHash,
+              toolCall.input,
+              consumedJournalKeys,
+              internalContinuationTurn,
+            ) !== undefined));
       const interruptedCallMatchesStep =
         executionStepAdmission?.status === "execute" &&
         executionStepAdmission.wasDispatched &&
         (actionIsReadOnly || actionRetrySafe) &&
-        interruptedStep?.executionStepId === executionStepId;
+        interruptedStepId === executionStepId;
       if (
-        interruptedStep &&
+        interruptedStepId &&
         (actionIsReadOnly || actionRetrySafe) &&
         (interruptedCallMatchesStep ||
           executionStepAdmission?.status === "completed")

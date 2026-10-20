@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep tool-call replay scoped to the turn so reused provider IDs preserve prior results, and safely attach duplicate queued submissions to their live run.
+Preserve repeated tool-call occurrences, pair results by execution-step identity, recover in-flight steps created with the prior provider-ID key, and safely attach duplicate queued submissions to their live run.
