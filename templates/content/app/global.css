@@ -1390,6 +1390,19 @@ div[data-notion-column] > :last-child {
   opacity: 0.82;
 }
 
+.media-empty-block__trigger--static,
+.media-empty-block__trigger--static:hover {
+  cursor: default;
+  background: hsl(var(--muted) / 0.48);
+  color: hsl(var(--muted-foreground));
+}
+
+.media-empty-block__note {
+  margin-left: auto;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
 .media-source-panel {
   position: absolute;
   top: calc(100% + 4px);
@@ -2456,6 +2469,29 @@ audio.media-block__content {
 }
 .comment-marker:hover {
   background-color: hsl(45 93% 47% / 0.15);
+}
+
+/* A table cell's Comment card. Its thread and composer cards draw their own
+   frame, so the layer only places them. */
+.database-cell-comment-card {
+  z-index: 290;
+  width: 20rem;
+  max-width: calc(100vw - 1.5rem);
+  outline: none;
+  --comment-popover-max-height: min(
+    32rem,
+    calc(var(--radix-popover-content-available-height) - 0.5rem)
+  );
+  max-height: calc(var(--radix-popover-content-available-height) - 0.5rem);
+}
+/* Threads taller than the room scroll rather than run off the screen. Only
+   then, since scrolling clips the cards' shadows. */
+.database-cell-comment-card[data-overflowing] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.database-cell-comment-card [data-comments-sidebar] {
+  padding-bottom: 0;
 }
 
 .content-editor .suggestion-settling-original {

@@ -42,6 +42,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestContext.mockReturnValue({
     requestOrigin: "https://clips.example",
+    authUserId: "user-1",
   });
   mocks.createRecordingRun.mockResolvedValue({
     id: "rec-1",
@@ -93,6 +94,7 @@ describe("create-recording-upload", () => {
     expect(mocks.createRecordingUploadTicket).toHaveBeenCalledWith(
       "owner@example.com",
       "rec-1",
+      "user-1",
     );
     expect(
       mocks.createRecordingUploadTicket.mock.invocationCallOrder[0],

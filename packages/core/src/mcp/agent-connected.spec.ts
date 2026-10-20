@@ -13,7 +13,7 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 let database: Awaited<ReturnType<typeof createTestPglite>>;
 let storageUnavailable = false;
 const trackMock = vi.hoisted(() => vi.fn());
-const providersMock = vi.hoisted(() => vi.fn(() => ["first-party"]));
+const providersMock = vi.hoisted(() => vi.fn((): string[] => []));
 vi.mock("../tracking/registry.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../tracking/registry.js")>()),
   track: trackMock,
@@ -38,6 +38,8 @@ const { trackAgentConnected, connectionApp, deviceFlowClients } =
   await import("./agent-connected.js");
 const { defineAppConfig, resetAppConfigForTests } =
   await import("../app-config/index.js");
+const { AGENT_NATIVE_ANALYTICS_PROVIDER } =
+  await import("../tracking/providers.js");
 
 beforeAll(async () => {
   database = await createTestPglite();
@@ -50,7 +52,7 @@ beforeEach(async () => {
   await database.exec("DELETE FROM settings");
   storageUnavailable = false;
   trackMock.mockClear();
-  providersMock.mockReturnValue(["first-party"]);
+  providersMock.mockReturnValue([AGENT_NATIVE_ANALYTICS_PROVIDER]);
   resetAppConfigForTests();
 });
 
@@ -200,7 +202,7 @@ describe("agent connection attribution", () => {
   it("does not claim while tracking is disabled and reports unreadable storage distinctly", async () => {
     providersMock.mockReturnValue([]);
     expect(await trackAgentConnected(connection)).toBe("disabled");
-    providersMock.mockReturnValue(["first-party"]);
+    providersMock.mockReturnValue([AGENT_NATIVE_ANALYTICS_PROVIDER]);
     storageUnavailable = true;
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await trackAgentConnected(connection)).toBe("failed");
@@ -208,6 +210,20 @@ describe("agent connection attribution", () => {
     storageUnavailable = false;
     expect(await trackAgentConnected(connection)).toBe("emitted");
     error.mockRestore();
+  });
+
+  it("leaves the claim for first-party analytics while only vendor providers track", async () => {
+    providersMock.mockReturnValue(["posthog", "webhook"]);
+    expect(await trackAgentConnected(connection)).toBe("disabled");
+    expect(trackMock).not.toHaveBeenCalled();
+    expect(
+      (await database.query("SELECT key FROM settings")).rows,
+    ).toHaveLength(0);
+    providersMock.mockReturnValue(["posthog", AGENT_NATIVE_ANALYTICS_PROVIDER]);
+    expect(await trackAgentConnected({ ...connection, method: "oauth" })).toBe(
+      "emitted",
+    );
+    expect(trackMock).toHaveBeenCalledTimes(1);
   });
 
   it("prefers explicit and configured app identity over beta hostnames", () => {

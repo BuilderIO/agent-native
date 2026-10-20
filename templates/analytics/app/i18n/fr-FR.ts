@@ -112,65 +112,20 @@ export default {
     sigmaRetryConnection: "Vérifiez la connexion, puis réessayez.",
     sigmaRetry: "Réessayer",
     sigmaNoWorkbooks: "Aucun classeur Sigma n’est disponible.",
-    sigmaWorkbook: "Classeur",
-    sigmaChooseWorkbook: "Choisir un classeur",
-    sigmaStatusNotImported: "Non importé",
-    sigmaStatusImporting: "Importation en cours",
-    sigmaStatusImported: "Importé",
-    sigmaStatusFailed: "Échec de l’importation",
+    sigmaSearchWorkbooks: "Rechercher des classeurs…",
+    sigmaNoMatchingWorkbooks: "Aucun classeur correspondant",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "Aucun classeur correspondant chargé pour l'instant. Chargez plus de classeurs pour rechercher le reste.",
+    sigmaOpenMigratedDashboard:
+      "Ouvrir le tableau de bord importé dans un nouvel onglet",
+    sigmaOwnedBy: "Propriétaire",
+    sigmaMigratingTooltip: "Migration en cours par {{name}}",
+    sigmaMigrate: "Migrer",
+    sigmaMigrateComingSoon: "Bientôt disponible",
     sigmaArchived: "Archivé",
-    sigmaPreviewTitle: "Contenu du classeur",
-    sigmaPreviewFailed: "Impossible de prévisualiser ce classeur",
-    sigmaRetryPreview: "Réessayez de charger l’aperçu du classeur.",
-    sigmaImportableCount: "{{count}} importables",
-    sigmaUnsupportedCount: "{{count}} non pris en charge",
-    sigmaImportable: "Importable",
-    sigmaUnsupported: "Non pris en charge",
-    sigmaNoElements: "Aucun élément n’a été trouvé dans ce classeur.",
-    sigmaPreviewOnly:
-      "Aperçu uniquement pour le moment : Sigma ne fournit pas de correspondance de projet BigQuery qu’Analytics puisse vérifier. L’importation restera désactivée jusqu’à ce que cette correspondance soit disponible.",
-    sigmaPreviewTruncated: "{{shown}} éléments sur {{total}} affichés.",
-    sigmaImportWorkbook: "Importer le classeur",
-    sigmaImporting: "Importation du classeur…",
-    sigmaImportInProgress: "L’importation de ce classeur est déjà en cours.",
-    sigmaMigrationFailed: "Impossible d’importer ce classeur. Réessayez.",
-    sigmaMigrationResultInvalid:
-      "La réponse d’importation était incomplète. Rechargez la liste des classeurs pour vérifier son état.",
-    sigmaImportComplete: "Tableau de bord créé",
-    sigmaImportSummary:
-      "{{imported}} éléments importés ; les {{unsupported}} éléments non pris en charge sont conservés comme alertes à vérifier.",
-    sigmaAlreadyImported: "Ce classeur a déjà été importé.",
-    sigmaImportedNoDashboard:
-      "Le tableau de bord a été importé, mais ce compte ne peut pas l’ouvrir.",
-    sigmaReviewRequiredCount: "{{count}} à vérifier",
-    sigmaBetaRepresentationWarning:
-      "Cette importation bêta peut représenter certaines visualisations différemment de Sigma.",
-    sigmaReasonUnsupportedElement:
-      "Ce type d’élément n’est pas pris en charge pour l’importation.",
-    sigmaReasonUnsupportedSource:
-      "Cet élément utilise une source qui n’est pas prise en charge.",
-    sigmaReasonSourceMappingRequired:
-      "Sigma ne fournit pas de correspondance avec un projet BigQuery qu’Analytics puisse vérifier. Ce SQL ne peut donc pas encore être importé.",
-    sigmaReasonSourceUnavailable:
-      "Sigma n’a pas autorisé l’accès à cette connexion source. Vérifiez ses autorisations.",
-    sigmaReasonQueryUnavailable:
-      "Sigma n’a pas fourni de requête importable pour cet élément.",
-    sigmaReasonUnsafeSql:
-      "Ce type de requête ne peut pas être importé en toute sécurité.",
-    sigmaReasonVisualizationReview:
-      "Les données peuvent être importées, mais vérifiez la visualisation après l’importation.",
-    sigmaRetryOwnerOnly:
-      "Seule la personne qui a lancé cet import peut réessayer.",
-    sigmaImportedByTeammate: "Importé par un membre de l’équipe",
-    sigmaFlaggedCount: "{{count}} à vérifier",
     sigmaMoreWorkbooksFailed: "Impossible de charger d’autres classeurs",
     sigmaLoadingMore: "Chargement des classeurs…",
     sigmaLoadMore: "Charger d’autres classeurs",
-    sigmaOpenDashboard: "Ouvrir le tableau de bord",
-    sigmaReviewWithAgent: "Examiner avec l’agent",
-    sigmaReviewContext: "Tableau de bord Sigma importé",
-    sigmaReviewPrompt:
-      "Examinez le tableau de bord Sigma importé {{name}}. Vérifiez les panneaux importés et les éléments non pris en charge, puis proposez des corrections.",
   },
   sidebar: {
     collapseSidebar: "Réduire la barre latérale",

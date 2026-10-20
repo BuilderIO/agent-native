@@ -32,6 +32,7 @@ import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
 } from "./_database-source-utils.js";
+import { assertNotGitHubSource } from "./_document-source.js";
 import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -384,6 +385,7 @@ export default defineAction({
     if (!source) {
       throw new Error("Source field does not belong to this database.");
     }
+    assertNotGitHubSource(source);
     if (field.propertyId) {
       throw new Error("Source field is already mapped to a property.");
     }

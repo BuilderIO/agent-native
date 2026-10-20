@@ -31,7 +31,10 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
       databaseId,
     );
     const [source] = await tx
-      .select({ id: schema.contentDatabaseSources.id })
+      .select({
+        id: schema.contentDatabaseSources.id,
+        sourceType: schema.contentDatabaseSources.sourceType,
+      })
       .from(schema.contentDatabaseSources)
       .where(
         and(
@@ -68,6 +71,30 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
         "Cannot disconnect this source while a Builder execution is running or awaiting reconciliation.",
         { errorCode: "builder_execution_running", statusCode: 409 },
       );
+    }
+    if (source.sourceType === "github") {
+      // Without the link, the pages are ordinary pages again and editable.
+      await tx
+        .update(schema.documents)
+        .set({
+          sourceMode: null,
+          sourceKind: null,
+          sourcePath: null,
+          sourceRootPath: null,
+          sourceUpdatedAt: null,
+        })
+        .where(
+          and(
+            eq(schema.documents.sourceMode, "github"),
+            inArray(
+              schema.documents.id,
+              tx
+                .select({ id: schema.contentDatabaseItems.documentId })
+                .from(schema.contentDatabaseItems)
+                .where(eq(schema.contentDatabaseItems.databaseId, databaseId)),
+            ),
+          ),
+        );
     }
     await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
