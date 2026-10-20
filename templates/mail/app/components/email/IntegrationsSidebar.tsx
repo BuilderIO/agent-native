@@ -534,7 +534,7 @@ function IntegrationRow({
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => disconnect.mutate()}
-                  className="text-[12px] text-red-400/80"
+                  className="text-[12px] text-destructive/80"
                 >
                   {t("mail.integrations.disconnect")}
                 </DropdownMenuItem>

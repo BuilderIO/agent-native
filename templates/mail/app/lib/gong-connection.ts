@@ -18,13 +18,10 @@ export function hasConnectedGongMcpServer(
 }
 
 function isGongMcpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      url.origin === "https://mcp.gong.io" &&
-      url.pathname.replace(/\/+$/, "") === "/mcp"
-    );
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.origin === "https://mcp.gong.io" &&
+    url.pathname.replace(/\/+$/, "") === "/mcp"
+  );
 }
