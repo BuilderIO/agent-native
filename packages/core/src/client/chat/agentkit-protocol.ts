@@ -2208,7 +2208,7 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
   ): Promise<void> {
     const iterator = turn.events[Symbol.asyncIterator]();
-    await iterator.return?.();
+    await Promise.all([turn.closeEvents?.(), iterator.return?.()]);
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {

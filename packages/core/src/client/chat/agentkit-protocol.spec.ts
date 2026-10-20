@@ -3830,6 +3830,10 @@ describe("createAgentKitProtocolAdapter", () => {
       done: true as const,
       value: undefined,
     }));
+    const discardedTurnClosed = vi.fn();
+    const discardedTurnCancelled = vi.fn(async () => ({
+      status: "cancelled" as const,
+    }));
     const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
       [Symbol.asyncIterator]: () => ({
         next: () =>
@@ -3847,6 +3851,12 @@ describe("createAgentKitProtocolAdapter", () => {
         runId: "runtime-run-replayed",
         sessionId: "thread-1",
         events: startCount === 1 ? events() : discardedEvents,
+        ...(startCount === 1
+          ? {}
+          : {
+              closeEvents: discardedTurnClosed,
+              cancel: discardedTurnCancelled,
+            }),
       };
     });
     const runtime = createRuntime(events, {
@@ -3872,6 +3882,8 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(replay.runId).toBe(first.runId);
     expect(startTurn).toHaveBeenCalledTimes(2);
     expect(discardedStreamClosed).toHaveBeenCalledOnce();
+    expect(discardedTurnClosed).toHaveBeenCalledOnce();
+    expect(discardedTurnCancelled).not.toHaveBeenCalled();
     await transport.dispose();
   });
 
