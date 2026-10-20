@@ -1477,22 +1477,20 @@ async function applyFile(
 }
 
 /**
- * Takes the lock disconnect takes, then confirms the link still exists. A
- * disconnect that lands while this sync reads GitHub has made the pages
- * ordinary again, so the sync stops instead of writing to them.
- */
-/**
- * Locks the collection for one write and checks the link is still this run's.
- * Relinking the same folder makes the same source id, so the source alone
- * can't tell; the lease can, and it also stops a run whose lease ran out and
- * another sync took over.
+ * Takes the lock disconnect takes, then checks the link is still this run's.
+ * A disconnect that lands while this sync reads GitHub has made the pages
+ * ordinary again, and relinking the same folder makes the same source id, so
+ * the source alone can't tell; the lease can. Updating the link's row, not
+ * only reading it, holds it until the write commits, so another sync can't
+ * claim the link partway through a write.
  */
 async function lockLinkedCollection(tx: Db, run: SyncRun) {
   await lockContentDatabaseMutation(tx, run.database.id);
   const [source] = await tx
-    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, run.sourceId));
+    .update(schema.contentDatabaseSources)
+    .set({ updatedAt: sql`${schema.contentDatabaseSources.updatedAt}` })
+    .where(eq(schema.contentDatabaseSources.id, run.sourceId))
+    .returning({ metadataJson: schema.contentDatabaseSources.metadataJson });
   if (!source) {
     throw new ActionContractError(
       "This collection isn't linked to a GitHub folder.",
