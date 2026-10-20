@@ -2384,6 +2384,10 @@ export default function DataSources() {
   };
 
   const searchConsoleLabel = {
+    unavailable: {
+      label: t("dataSources.statusUnknown"),
+      className: "text-destructive",
+    },
     collecting: {
       label: t("dataSources.searchConsole.statusCollecting"),
       className: "text-emerald-500",
@@ -2400,7 +2404,7 @@ export default function DataSources() {
       label: t("dataSources.notConfigured"),
       className: "text-muted-foreground",
     },
-  }[searchConsoleState(contentCollection.data)];
+  }[searchConsoleState(contentCollection.data, contentCollection.error)];
   const searchConsoleEntry: SourceEntry = {
     id: "google-search-console",
     name: t("dataSources.searchConsole.name"),
@@ -2415,7 +2419,9 @@ export default function DataSources() {
     ),
     status: contentCollection.isLoading ? undefined : searchConsoleLabel.label,
     statusClassName: searchConsoleLabel.className,
-    connected: searchConsoleState(contentCollection.data) === "collecting",
+    connected:
+      searchConsoleState(contentCollection.data, contentCollection.error) ===
+      "collecting",
     searchText: [
       t("dataSources.searchConsole.name"),
       t("dataSources.searchConsole.description"),

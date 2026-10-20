@@ -1,8 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { searchConsoleSiteSchema } from "./config";
+import {
+  contentCollectionConfigSchema,
+  searchConsoleSiteSchema,
+} from "./config";
 
 describe("searchConsoleSiteSchema", () => {
+  it("reads legacy property names while rejecting them in new input", () => {
+    const stored = {
+      searchConsole: { enabled: true, sites: [{ siteUrl: "example.test" }] },
+    };
+    expect(
+      contentCollectionConfigSchema.parse(stored).searchConsole.sites,
+    ).toEqual(stored.searchConsole.sites);
+    expect(
+      searchConsoleSiteSchema.safeParse(stored.searchConsole.sites[0]).success,
+    ).toBe(false);
+    expect(
+      contentCollectionConfigSchema.safeParse({
+        searchConsole: { sites: [{ siteUrl: 123 }] },
+      }).success,
+    ).toBe(false);
+  });
   it("saves Domain properties as Search Console names them", () => {
     expect(
       searchConsoleSiteSchema.parse({

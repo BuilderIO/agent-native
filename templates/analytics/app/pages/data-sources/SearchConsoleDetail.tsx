@@ -46,11 +46,14 @@ export type SearchConsoleState =
   | "collecting"
   | "needs_access"
   | "failed"
+  | "unavailable"
   | "off";
 
 export function searchConsoleState(
   status: ContentCollectionStatus | undefined,
+  error?: unknown,
 ): SearchConsoleState {
+  if (error || !status) return "unavailable";
   const step = status?.steps.find((entry) => entry.step === "search_console");
   if (!status?.enabled || !step?.enabled) return "off";
   switch (step.lastRun?.status) {
@@ -59,7 +62,9 @@ export function searchConsoleState(
     case undefined:
       return "collecting";
     case "not_configured":
-      return "needs_access";
+      return step.lastRun?.errorCode === "no_search_console_sites"
+        ? "off"
+        : "needs_access";
     default:
       return "failed";
   }
@@ -153,7 +158,9 @@ function LastRun({ run }: { run: StepRun }) {
     run.status === "succeeded"
       ? t("dataSources.searchConsole.runSucceeded", { when })
       : run.status === "not_configured"
-        ? t("dataSources.searchConsole.runNeedsAccess", { when })
+        ? run.errorCode === "no_search_console_sites"
+          ? t("dataSources.notConfigured")
+          : t("dataSources.searchConsole.runNeedsAccess", { when })
         : run.status === "running"
           ? t("dataSources.searchConsole.runRunning", { when })
           : t("dataSources.searchConsole.runFailed", { when });
@@ -266,13 +273,13 @@ export function SearchConsoleDetail() {
     (step) => step.step === "search_console",
   )?.lastRun;
 
-  const save = (enabled: boolean) => {
+  const save = (enabled: boolean, includeDraft = true) => {
     configure.mutate({
       // Turning Search Console on turns the daily collection on with it;
       // turning it off leaves the other steps as they were.
       enabled: enabled || status.enabled,
       searchConsole: enabled,
-      searchConsoleSites: cleanSites,
+      ...(includeDraft ? { searchConsoleSites: cleanSites } : {}),
     });
   };
 
@@ -363,7 +370,11 @@ export function SearchConsoleDetail() {
               <Button
                 size="sm"
                 onClick={() => save(savedEnabled)}
-                disabled={configure.isPending || hasProblem}
+                disabled={
+                  configure.isPending ||
+                  hasProblem ||
+                  (savedEnabled && cleanSites.length === 0)
+                }
                 className="text-xs"
               >
                 {t("dataSources.searchConsole.save")}
@@ -388,7 +399,7 @@ export function SearchConsoleDetail() {
             configure.isPending ||
             (!checked && (cleanSites.length === 0 || hasProblem))
           }
-          onCheckedChange={(checked) => save(checked)}
+          onCheckedChange={(checked) => save(checked, checked)}
         />
       </div>
       {!canManageOrg && (

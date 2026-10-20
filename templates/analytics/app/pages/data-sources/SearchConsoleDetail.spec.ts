@@ -10,6 +10,7 @@ function status(
     enabled?: boolean;
     stepEnabled?: boolean;
     lastRun?: string | null;
+    errorCode?: string;
   } = {},
 ): ContentCollectionStatus {
   return {
@@ -27,7 +28,7 @@ function status(
             : {
                 status: overrides.lastRun,
                 startedAt: "2026-10-15T07:00:00.000Z",
-                errorCode: null,
+                errorCode: overrides.errorCode ?? null,
                 errorMessage: null,
               },
       },
@@ -37,9 +38,26 @@ function status(
 
 describe("searchConsoleState", () => {
   it("is off until both the collection and the step are on", () => {
-    expect(searchConsoleState(undefined)).toBe("off");
     expect(searchConsoleState(status({ enabled: false }))).toBe("off");
     expect(searchConsoleState(status({ stepEnabled: false }))).toBe("off");
+  });
+
+  it("keeps unreadable status distinct from disabled configuration", () => {
+    expect(searchConsoleState(undefined)).toBe("unavailable");
+    expect(searchConsoleState(status(), new Error("read failed"))).toBe(
+      "unavailable",
+    );
+  });
+
+  it("shows missing properties as not configured instead of needing access", () => {
+    expect(
+      searchConsoleState(
+        status({
+          lastRun: "not_configured",
+          errorCode: "no_search_console_sites",
+        }),
+      ),
+    ).toBe("off");
   });
 
   it("names a run without access as needing access, not as collecting", () => {
