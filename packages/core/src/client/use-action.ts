@@ -328,18 +328,31 @@ function presentUiCapability(
   options: InternalActionFetchOptions | undefined,
   signal: AbortSignal | undefined,
 ): Promise<void> | undefined {
-  if (options?.uiOnly) return ensureUiActionCapability(signal);
-  if (
+  const identity = currentSessionIdentity();
+  let pending: Promise<void>;
+  if (options?.uiOnly) {
+    pending = ensureUiActionCapability(signal);
+  } else if (
     method === "GET" ||
     options?.keepalive ||
     typeof window === "undefined" ||
     isEmbedAuthActive() ||
-    typeof currentSessionIdentity() !== "string"
+    typeof identity !== "string"
   ) {
     return undefined;
+  } else {
+    pending = ensureUiActionCapability(signal).catch((error) => {
+      if (signal?.aborted) throw error;
+    });
   }
-  return ensureUiActionCapability(signal).catch((error) => {
-    if (signal?.aborted) throw error;
+  if (typeof identity !== "string") return pending;
+  // The write leaves only after the mint, and the browser sends whichever
+  // session's cookies it holds by then: a user who changed in between must not
+  // receive the first user's write.
+  return pending.then(() => {
+    if (currentSessionIdentity() !== identity) {
+      throw new Error("The signed-in user changed before this write was sent.");
+    }
   });
 }
 

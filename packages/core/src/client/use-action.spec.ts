@@ -1746,6 +1746,23 @@ describe("the UI capability on writes from the signed-in app", () => {
     await expect(attempt.completion).resolves.toEqual({ ok: true });
   });
 
+  it("drops a write when the signed-in user changes during its mint", async () => {
+    signIn("user-1");
+    let settleMint: (response: Response) => void = () => {};
+    const fetchMock = routeFetch(
+      () => new Promise<Response>((resolve) => (settleMint = resolve)),
+    );
+
+    const write = callAction("delete-file", { id: "file-1" });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    recordSessionIdentity(null);
+    recordSessionIdentity("user-2");
+    settleMint(jsonResponse({ ok: true }));
+
+    await expect(write).rejects.toThrow(/signed-in user changed/);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
+  });
+
   it("re-mints when the server rejects a remembered capability", async () => {
     signIn();
     let actionCalls = 0;
