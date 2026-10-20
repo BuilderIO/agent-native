@@ -4,7 +4,7 @@ import type { SigmaWorkbookInspection } from "../server/lib/bi-migration/sigma-a
 import { summarizeSigmaElementReview } from "./inspect-sigma-workbook.js";
 
 describe("summarizeSigmaElementReview", () => {
-  it("blocks BigQuery SQL until the Sigma source is mapped to Analytics", () => {
+  it("marks a BigQuery panel importable", () => {
     const inspection: SigmaWorkbookInspection = {
       workbook: { workbookId: "workbook_1", name: "Revenue" },
       pages: [],
@@ -40,9 +40,8 @@ describe("summarizeSigmaElementReview", () => {
         id: "element_1",
         name: "Revenue table",
         type: "table",
-        importable: false,
+        importable: true,
         visualizationPreserved: false,
-        reason: "source_mapping_required",
       },
     ]);
   });

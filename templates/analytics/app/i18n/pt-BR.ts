@@ -120,7 +120,31 @@ export default {
     sigmaOwnedBy: "Proprietário",
     sigmaMigratingTooltip: "Sendo migrado por {{name}}",
     sigmaMigrate: "Migrar",
-    sigmaMigrateComingSoon: "Em breve",
+    sigmaMigrating: "Migrando…",
+    sigmaMigrateSucceeded: "{{name}} migrado",
+    sigmaSharedOnlyWithYou: "Compartilhado só com você por enquanto.",
+    sigmaPanelsNeedReview: "Painéis para revisar: {{count}}.",
+    sigmaOpenDashboard: "Abrir",
+    sigmaLastImportFailed: "A última importação falhou",
+    sigmaReviewWithAgent: "Revisar com o agente",
+    sigmaReviewContext: "Migração do Sigma",
+    sigmaReviewPrompt:
+      "A pasta de trabalho do Sigma {{name}} não foi migrada para o Analytics: {{error}} Descubra o que está bloqueando e como corrigir.",
+    sigmaErrorExportUnsupported:
+      "O Sigma ainda não consegue exportar esta pasta de trabalho.",
+    sigmaErrorNoImportable:
+      "Esta pasta de trabalho não tem painéis do BigQuery para importar.",
+    sigmaErrorNoRunnable:
+      "Nenhum painel desta pasta de trabalho rodou no BigQuery.",
+    sigmaErrorBigQueryRequired:
+      "Conecte o BigQuery em Fontes de dados primeiro.",
+    sigmaErrorBigQueryUnavailable:
+      "O BigQuery não conseguiu verificar esta pasta de trabalho. Tente novamente.",
+    sigmaErrorOriginalMigrator:
+      "Só a pessoa que migrou esta pasta de trabalho pode reimportá-la.",
+    sigmaErrorInProgress: "Alguém já está migrando esta pasta de trabalho.",
+    sigmaErrorAlreadyMigrated: "Esta pasta de trabalho já foi migrada.",
+    sigmaErrorGeneric: "A migração falhou. Tente novamente.",
     sigmaArchived: "Arquivado",
     sigmaMoreWorkbooksFailed:
       "Não foi possível carregar mais pastas de trabalho",

@@ -120,7 +120,29 @@ export default {
     sigmaOwnedBy: "Propiedad de",
     sigmaMigratingTooltip: "{{name}} lo está migrando",
     sigmaMigrate: "Migrar",
-    sigmaMigrateComingSoon: "Próximamente",
+    sigmaMigrating: "Migrando…",
+    sigmaMigrateSucceeded: "{{name}} migrado",
+    sigmaSharedOnlyWithYou: "Compartido solo contigo por ahora.",
+    sigmaPanelsNeedReview: "Paneles por revisar: {{count}}.",
+    sigmaOpenDashboard: "Abrir",
+    sigmaLastImportFailed: "La última importación falló",
+    sigmaReviewWithAgent: "Revisar con el agente",
+    sigmaReviewContext: "Migración de Sigma",
+    sigmaReviewPrompt:
+      "El libro de Sigma {{name}} no se migró a Analytics: {{error}} Averigua qué lo bloquea y cómo solucionarlo.",
+    sigmaErrorExportUnsupported: "Sigma aún no puede exportar este libro.",
+    sigmaErrorNoImportable:
+      "Este libro no tiene paneles de BigQuery que importar.",
+    sigmaErrorNoRunnable:
+      "Ninguno de los paneles de este libro se ejecutó en BigQuery.",
+    sigmaErrorBigQueryRequired: "Conecta BigQuery en Fuentes de datos primero.",
+    sigmaErrorBigQueryUnavailable:
+      "BigQuery no pudo comprobar este libro. Inténtalo de nuevo.",
+    sigmaErrorOriginalMigrator:
+      "Solo la persona que migró este libro puede volver a importarlo.",
+    sigmaErrorInProgress: "Alguien ya está migrando este libro.",
+    sigmaErrorAlreadyMigrated: "Este libro ya se migró.",
+    sigmaErrorGeneric: "La migración falló. Inténtalo de nuevo.",
     sigmaArchived: "Archivado",
     sigmaMoreWorkbooksFailed: "No se pudieron cargar más libros de trabajo",
     sigmaLoadingMore: "Cargando libros de trabajo…",

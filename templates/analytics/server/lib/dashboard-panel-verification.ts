@@ -142,7 +142,7 @@ export interface VerifyOptions {
 
 export const PANEL_VERIFICATION_BUDGET_MS = 18_000;
 const DEFAULT_MAX_EXECUTED = 6;
-const DEFAULT_MAX_BYTES_TO_EXECUTE = 50 * 1024 ** 3;
+export const DEFAULT_MAX_BYTES_TO_EXECUTE = 50 * 1024 ** 3;
 const MAX_SAMPLE_ROWS = 20;
 const MAX_COLUMNS_LISTED = 60;
 const MAX_COLUMNS_IN_MESSAGE = 6;
@@ -494,7 +494,7 @@ function fixHint(
   return `Add ${missingKeys.join(", ")} to the SQL select list, or remove it from config (xKey, yKey, yKeys, rightYKeys, columns).`;
 }
 
-async function runPool<T, R>(
+export async function runPool<T, R>(
   items: T[],
   concurrency: number,
   fn: (item: T) => Promise<R>,

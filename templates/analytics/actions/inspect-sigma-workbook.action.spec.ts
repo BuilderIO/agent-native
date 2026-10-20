@@ -46,7 +46,7 @@ beforeEach(() => {
 });
 
 describe("inspect-sigma-workbook action", () => {
-  it("keeps unverified BigQuery workbooks in the preview-only state", async () => {
+  it("marks BigQuery panels importable for migrate to prove", async () => {
     mocks.inspectWorkbook.mockResolvedValue({
       workbook: { workbookId: "workbook_1", name: "Revenue" },
       pages: [],
@@ -80,9 +80,9 @@ describe("inspect-sigma-workbook action", () => {
         connectionId: "connection_1",
       }),
     ).resolves.toMatchObject({
-      importableCount: 0,
-      sourceMappingRequiredCount: 1,
-      elements: [{ importable: false, reason: "source_mapping_required" }],
+      importableCount: 1,
+      unsupportedCount: 0,
+      elements: [{ importable: true }],
     });
     expect(mocks.inspectWorkbook).toHaveBeenCalledWith({
       connectionId: "connection_1",

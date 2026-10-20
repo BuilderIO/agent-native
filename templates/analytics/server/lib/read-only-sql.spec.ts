@@ -31,13 +31,44 @@ describe("assertReadOnlySql", () => {
     expect(() => assertReadOnlySql(sql)).toThrow();
   });
 
-  it("rejects BigQuery backslash escapes before they can hide another statement", () => {
+  it.each([
+    String.raw`SELECT 'it\'s' AS note FROM source`,
+    String.raw`SELECT REGEXP_CONTAINS(value, '\\d+') FROM source`,
+    String.raw`SELECT REGEXP_REPLACE(value, '\\s+', ' ') FROM source`,
+    String.raw`SELECT "a\"; DELETE" AS note`,
+  ])("allows BigQuery backslash escapes inside strings: %s", (sql) => {
+    expect(() => assertReadOnlySql(sql, "bigquery")).not.toThrow();
+  });
+
+  it.each([
+    String.raw`SELECT 'it\'s'; DELETE FROM target`,
+    String.raw`SELECT 'a\\'; DELETE FROM target`,
+  ])("still finds a statement after an escaped string: %s", (sql) => {
+    expect(() => assertReadOnlySql(sql, "bigquery")).toThrow(
+      /single statement/,
+    );
+  });
+
+  it("rejects a BigQuery string that ends in an escape", () => {
     expect(() =>
-      assertReadOnlySql(
-        String.raw`SELECT 'it\'s'; DELETE FROM target`,
-        "bigquery",
-      ),
-    ).toThrow(/escapes are not supported/);
+      assertReadOnlySql(String.raw`SELECT 'abc\'`, "bigquery"),
+    ).toThrow(/unterminated/);
+  });
+
+  it.each([
+    "SELECT REPLACE(name, 'a', 'b') AS name FROM source",
+    "SELECT * REPLACE (UPPER(name) AS name) FROM source",
+    "SELECT * replace(1 AS id) FROM source",
+  ])("allows the REPLACE function and SELECT * REPLACE: %s", (sql) => {
+    expect(() => assertReadOnlySql(sql, "bigquery")).not.toThrow();
+  });
+
+  it.each([
+    "WITH t AS (SELECT 1) REPLACE INTO target SELECT * FROM t",
+    "WITH t AS (SELECT 1) REPLACE target SELECT * FROM t",
+    "WITH t AS (SELECT 1) CREATE OR REPLACE TABLE target AS SELECT 1",
+  ])("still rejects REPLACE statements: %s", (sql) => {
+    expect(() => assertReadOnlySql(sql, "bigquery")).toThrow();
   });
 
   it("inspects BigQuery triple-quoted string contents without treating them as SQL", () => {

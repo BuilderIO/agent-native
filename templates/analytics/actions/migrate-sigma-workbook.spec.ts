@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   assignToFolder: vi.fn(),
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
+  proveSql: vi.fn(),
+  verifyPanels: vi.fn(),
+  abandonImport: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -57,8 +60,15 @@ vi.mock("../server/lib/dashboards-store.js", () => ({
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
 }));
-vi.mock("../server/lib/read-only-sql.js", () => ({
-  assertReadOnlySql: vi.fn(),
+vi.mock("../server/lib/bi-migration/sigma-sql-proof.js", () => ({
+  proveSigmaPanelSql: mocks.proveSql,
+}));
+vi.mock("../server/lib/bi-migration/unfinished-import.js", () => ({
+  abandonSigmaImport: mocks.abandonImport,
+}));
+vi.mock("../server/lib/dashboard-panel-verification.js", () => ({
+  DEFAULT_MAX_BYTES_TO_EXECUTE: 1000,
+  verifyDashboardPanels: mocks.verifyPanels,
 }));
 const { default: migrateSigmaWorkbook, sigmaDashboardName } =
   await import("./migrate-sigma-workbook.js");
@@ -77,6 +87,63 @@ const panel = {
   source: { connectionId: "connection_1" },
   columns: [],
 };
+const bigQuerySource = {
+  connectionId: "connection_1",
+  sigmaType: "bigquery",
+  targetProviderCandidate: "bigquery",
+};
+
+function panelElement(id: string, title: string) {
+  return { ...panel, id, title };
+}
+
+function workbookWith(elements: unknown[]) {
+  mocks.inspectWorkbook.mockResolvedValue({
+    workbook: { workbookId, name: "Revenue" },
+    elements,
+    sourceConnections: [bigQuerySource],
+    sqlQueries: [],
+    diagnostics: [],
+  });
+}
+
+function claimed(targetDashboardId: string | null = null) {
+  mocks.claimMigration.mockResolvedValue({
+    claimed: true,
+    claimToken: "token_1",
+    record: { targetDashboardId },
+  });
+  // The dashboard reads back as written once the upsert has run.
+  mocks.getDashboard.mockImplementation(async (id: string) => {
+    const call = mocks.upsertDashboard.mock.calls.at(-1);
+    if (!call) return null;
+    return {
+      id,
+      kind: "sql",
+      title: call[2].name,
+      config: call[2],
+      visibility: "private",
+      ownerEmail: context.userEmail,
+      orgId: context.orgId,
+    };
+  });
+}
+
+function verifiedPanels(
+  statuses: Record<string, string> = {},
+): (config: { panels: { id: string }[] }, ids: string[]) => unknown {
+  return (_config, ids) => ({
+    verified: true,
+    blocking: false,
+    filterState: "defaults",
+    budgetMs: 12_000,
+    ms: 1,
+    panels: ids.map((panelId) => ({
+      panelId,
+      status: statuses[panelId] ?? "ok",
+    })),
+  });
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -106,6 +173,9 @@ beforeEach(() => {
   mocks.upsertDashboard.mockResolvedValue(undefined);
   mocks.completeMigration.mockResolvedValue({});
   mocks.failMigration.mockResolvedValue({});
+  mocks.proveSql.mockResolvedValue(new Map());
+  mocks.verifyPanels.mockImplementation(verifiedPanels());
+  mocks.abandonImport.mockResolvedValue(undefined);
 });
 
 describe("migrate-sigma-workbook", () => {
@@ -140,36 +210,174 @@ describe("migrate-sigma-workbook", () => {
     ]);
   });
 
-  it("rejects an unmapped workbook before loading its SQL pages", async () => {
-    mocks.inspectWorkbook.mockResolvedValue({
-      workbook: { workbookId, name: "Revenue" },
-      elements: [panel],
-      sourceConnections: [
-        {
-          connectionId: "connection_1",
-          sigmaType: "bigquery",
-          targetProviderCandidate: "bigquery",
-        },
-      ],
-      sqlQueries: [],
-      diagnostics: [],
-    });
+  it("refuses a workbook whose panels all fail the dry run, before claiming", async () => {
+    workbookWith([panelElement("element_1", "Revenue")]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([
+        ["element_1", { ok: false, reason: "bigquery_dry_run_failed" }],
+      ]),
+    );
 
     await expect(
       migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
-    ).rejects.toMatchObject({ errorCode: "sigma_source_mapping_required" });
-
-    expect(mocks.inspectWorkbook).toHaveBeenCalledTimes(1);
+    ).rejects.toMatchObject({
+      errorCode: "sigma_no_runnable_panels",
+      statusCode: 422,
+      details: {
+        elements: [
+          {
+            id: "element_1",
+            name: "Revenue",
+            reason: "bigquery_dry_run_failed",
+          },
+        ],
+      },
+    });
     expect(mocks.inspectWorkbook).toHaveBeenCalledWith({
       connectionId: "connection_1",
       workbookId,
-      includeSqlQueries: false,
+      includeSqlQueries: true,
     });
-    expect(mocks.createMigration).not.toHaveBeenCalled();
     expect(mocks.claimMigration).not.toHaveBeenCalled();
   });
 
-  it("keeps source lookup failures retryable before loading SQL", async () => {
+  it("imports proven panels and turns the rest into flagged callouts", async () => {
+    workbookWith([
+      panelElement("element_1", "Revenue"),
+      panelElement("element_2", "Pipeline"),
+      panelElement("element_3", "Churn"),
+      {
+        kind: "unsupported",
+        id: "element_4",
+        title: "Region filter",
+        sigmaKind: "control-filter",
+      },
+    ]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([
+        ["element_1", { ok: true, sql: "SELECT 1 AS revenue" }],
+        ["element_2", { ok: false, reason: "unsafe_sql" }],
+        [
+          "element_3",
+          { ok: true, sql: "SELECT 3 AS churn", estimatedBytes: 5000 },
+        ],
+      ]),
+    );
+    claimed();
+
+    const result = await migrateSigmaWorkbook.run({
+      workbookId,
+      connectionId: "connection_1",
+    });
+
+    expect(mocks.proveSql).toHaveBeenCalledWith(expect.anything(), [
+      "element_1",
+      "element_2",
+      "element_3",
+    ]);
+    const [, , config] = mocks.upsertDashboard.mock.calls[0];
+    expect(
+      config.panels.map((p: { chartType: string }) => p.chartType),
+    ).toEqual(["table", "callout", "table", "callout"]);
+    expect(config.panels[0].sql).toBe("SELECT 1 AS revenue");
+    expect(config.panels[1].sql).toContain("not a single read-only query");
+    // A panel over the byte limit is imported but never executed.
+    const [, verifiedIds] = mocks.verifyPanels.mock.calls[0];
+    expect(verifiedIds).toEqual([config.panels[0].id]);
+    expect(mocks.verifyPanels.mock.calls[0][2]).toMatchObject({
+      dryRun: false,
+    });
+    expect(mocks.completeMigration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claimToken: "token_1",
+        flaggedCount: 3,
+        elementDiagnostics: [
+          expect.objectContaining({
+            id: "element_2",
+            status: "red",
+            reason: "unsafe_sql",
+          }),
+          expect.objectContaining({
+            id: "element_3",
+            status: "yellow",
+            reason: "too_expensive",
+          }),
+          expect.objectContaining({
+            id: "element_4",
+            status: "red",
+            reason: "unsupported_filter",
+          }),
+        ],
+      }),
+    );
+    expect(result).toMatchObject({
+      status: "completed",
+      importedCount: 2,
+      unsupportedCount: 2,
+      flaggedCount: 3,
+    });
+  });
+
+  it("flags panels that dry-run but fail or return nothing", async () => {
+    workbookWith([
+      panelElement("element_1", "Revenue"),
+      panelElement("element_2", "Pipeline"),
+    ]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([
+        ["element_1", { ok: true, sql: "SELECT 1 AS revenue" }],
+        ["element_2", { ok: true, sql: "SELECT 2 AS pipeline" }],
+      ]),
+    );
+    claimed();
+    mocks.verifyPanels.mockImplementation((config, ids) =>
+      verifiedPanels({
+        [ids[0]]: "empty",
+        [ids[1]]: "query-error",
+      })(config, ids),
+    );
+
+    const result = await migrateSigmaWorkbook.run({
+      workbookId,
+      connectionId: "connection_1",
+    });
+
+    expect(mocks.upsertDashboard).toHaveBeenCalled();
+    expect(mocks.completeMigration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        elementDiagnostics: [
+          expect.objectContaining({ status: "yellow", reason: "no_rows" }),
+          expect.objectContaining({ status: "red", reason: "query_failed" }),
+        ],
+      }),
+    );
+    expect(result).toMatchObject({ status: "completed", flaggedCount: 2 });
+  });
+
+  it("cleans up through the claim when a step after the claim fails", async () => {
+    workbookWith([panelElement("element_1", "Revenue")]);
+    mocks.proveSql.mockResolvedValue(
+      new Map([["element_1", { ok: true, sql: "SELECT 1 AS revenue" }]]),
+    );
+    claimed();
+    const writeError = new Error("folder write failed");
+    mocks.assignToFolder.mockRejectedValue(writeError);
+
+    await expect(
+      migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
+    ).rejects.toBe(writeError);
+    expect(mocks.abandonImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claimToken: "token_1",
+        wroteDashboard: true,
+        previousDashboardId: null,
+        failureCode: "dashboard_write_failed",
+      }),
+    );
+    expect(mocks.completeMigration).not.toHaveBeenCalled();
+  });
+
+  it("keeps source lookup failures retryable before claiming", async () => {
     mocks.inspectWorkbook.mockResolvedValue({
       workbook: { workbookId, name: "Revenue" },
       elements: [panel],
@@ -193,11 +401,7 @@ describe("migrate-sigma-workbook", () => {
     });
 
     expect(mocks.inspectWorkbook).toHaveBeenCalledTimes(1);
-    expect(mocks.inspectWorkbook).toHaveBeenCalledWith({
-      connectionId: "connection_1",
-      workbookId,
-      includeSqlQueries: false,
-    });
+    expect(mocks.proveSql).not.toHaveBeenCalled();
     expect(mocks.createMigration).not.toHaveBeenCalled();
     expect(mocks.claimMigration).not.toHaveBeenCalled();
   });

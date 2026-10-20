@@ -493,13 +493,14 @@ visualizations outside these contracts may remain Custom Blocks.
 
 The dashboard menu opens the Sigma import flow: a searchable table of every
 workbook the user can see in Sigma, with the owner of each migrated one and a
-Migrate button on the rest. Imports remain disabled for elements whose source project
-Analytics cannot verify: Sigma's connection API reports provider type and
-metadata but does not expose a BigQuery project identifier. Do not call
-`migrate-sigma-workbook` for an unverified source or treat an Analytics
-BigQuery credential as proof that it targets Sigma's project. Users can list
-workbooks with `list-sigma-workbooks` and inspect one with
-`inspect-sigma-workbook`. The feature is controlled by
+Migrate button on the rest. Migrate builds a private dashboard in the user's
+"Sigma" folder: each BigQuery panel's Sigma SQL is dry-run on Analytics'
+BigQuery, panels that run are imported as tables, and the rest become review
+callouts. Only the dialog calls `migrate-sigma-workbook`; the agent cannot. When
+the user asks you to review a failed migration, inspect the workbook with
+`inspect-sigma-workbook`, check the failing panels' tables with BigQuery, and
+explain what blocks them. Users can list workbooks with `list-sigma-workbooks`.
+The feature is controlled by
 `analytics.sigma-dashboard-migration` and requires a Sigma connection granted
 to Analytics.
 

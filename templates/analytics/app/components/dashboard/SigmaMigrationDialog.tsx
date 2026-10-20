@@ -3,6 +3,7 @@ import {
   useActionMutation,
   useActionQuery,
   useAvatarUrl,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
@@ -10,6 +11,7 @@ import {
   SIGMA_API_BASE_URLS,
   SIGMA_DEFAULT_API_BASE_URL,
 } from "@agent-native/core/connections/sigma-api";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { useOrgSwitcherAppLinks } from "@agent-native/toolkit/app/org/workspace-app-links";
 import { saveApiKeyValue } from "@agent-native/toolkit/app/settings/api-keys/api-keys-client";
 import {
@@ -19,8 +21,9 @@ import {
   IconLoader2,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +93,25 @@ type SigmaWorkbookListResult = {
 };
 
 type LoadedWorkbookPage = { cursor?: string; workbooks: SigmaWorkbook[] };
+type MigrateArgs = {
+  workbookId: string;
+  connectionId: string;
+  recoverMissingDashboard?: boolean;
+};
+type MigrateResult =
+  | {
+      status: "completed";
+      dashboardId: string;
+      dashboardName: string;
+      flaggedCount: number;
+    }
+  | { status: "already_migrated"; dashboardId?: string }
+  | { status: "in_progress" };
+/** This dialog's own Migrate clicks, shown until the list catches up. */
+type MigrationRun =
+  | { state: "running" }
+  | { state: "done"; dashboardId: string }
+  | { state: "failed"; message: string; reviewable: boolean };
 type SigmaConnectionSaveResult = {
   connectionId: string;
   status: string;
@@ -792,6 +814,7 @@ export function SigmaMigrationDialog({
                     />
                   </div>
                   <WorkbookTable
+                    connectionId={connectionId}
                     workbooks={visibleWorkbooks}
                     emptyMessage={
                       hasMoreWorkbooks
@@ -960,14 +983,111 @@ function isOptionalName(value: unknown): boolean {
   return value === undefined || value === null || typeof value === "string";
 }
 
+const MIGRATE_ERROR_KEYS: Record<string, string> = {
+  sigma_export_unsupported: "dashboardOverview.sigmaErrorExportUnsupported",
+  sigma_no_importable_elements: "dashboardOverview.sigmaErrorNoImportable",
+  sigma_no_runnable_panels: "dashboardOverview.sigmaErrorNoRunnable",
+  analytics_bigquery_required: "dashboardOverview.sigmaErrorBigQueryRequired",
+  bigquery_dry_run_unavailable:
+    "dashboardOverview.sigmaErrorBigQueryUnavailable",
+  original_migrator_required: "dashboardOverview.sigmaErrorOriginalMigrator",
+};
+
 function WorkbookTable({
+  connectionId,
   workbooks,
   emptyMessage,
 }: {
+  connectionId: string | null;
   workbooks: SigmaWorkbook[];
   emptyMessage: string;
 }) {
   const t = useT();
+  const { session } = useSession();
+  const { send, codeRequiredDialog } = useSendToAgentChat();
+  const migrate = useActionMutation<
+    MigrateResult,
+    MigrateArgs,
+    "migrate-sigma-workbook"
+  >("migrate-sigma-workbook");
+  const [runs, setRuns] = useState<Record<string, MigrationRun>>({});
+  const setRun = useCallback(
+    (workbookId: string, run: MigrationRun) =>
+      setRuns((current) => ({ ...current, [workbookId]: run })),
+    [],
+  );
+
+  const startMigration = async (workbook: SigmaWorkbook) => {
+    if (!connectionId) return;
+    setRun(workbook.id, { state: "running" });
+    try {
+      const result = await migrate.mutateAsync({
+        workbookId: workbook.id,
+        connectionId,
+        ...(workbook.canRecoverMissingDashboard
+          ? { recoverMissingDashboard: true }
+          : {}),
+      });
+      if (result.status === "completed") {
+        setRun(workbook.id, { state: "done", dashboardId: result.dashboardId });
+        const path = safeDashboardPath(result.dashboardId);
+        toast.success(
+          t("dashboardOverview.sigmaMigrateSucceeded", { name: workbook.name }),
+          {
+            description: [
+              t("dashboardOverview.sigmaSharedOnlyWithYou"),
+              result.flaggedCount > 0
+                ? t("dashboardOverview.sigmaPanelsNeedReview", {
+                    count: result.flaggedCount,
+                  })
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" "),
+            ...(path
+              ? {
+                  action: {
+                    label: t("dashboardOverview.sigmaOpenDashboard"),
+                    onClick: () =>
+                      window.open(appPath(path), "_blank", "noopener"),
+                  },
+                }
+              : {}),
+          },
+        );
+        return;
+      }
+      setRun(workbook.id, {
+        state: "failed",
+        message: t(
+          result.status === "in_progress"
+            ? "dashboardOverview.sigmaErrorInProgress"
+            : "dashboardOverview.sigmaErrorAlreadyMigrated",
+        ),
+        reviewable: false,
+      });
+    } catch (error) {
+      const key = MIGRATE_ERROR_KEYS[actionErrorCode(error) ?? ""];
+      setRun(workbook.id, {
+        state: "failed",
+        message: t(key ?? "dashboardOverview.sigmaErrorGeneric"),
+        reviewable: true,
+      });
+    }
+  };
+
+  const reviewFailure = (workbook: SigmaWorkbook, message: string) => {
+    send({
+      message: t("dashboardOverview.sigmaReviewPrompt", {
+        name: workbook.name,
+        error: message,
+      }),
+      context: JSON.stringify({ workbookId: workbook.id, source: "sigma" }),
+      contextLabel: t("dashboardOverview.sigmaReviewContext"),
+      submit: true,
+    });
+  };
+
   return (
     <TooltipProvider delayDuration={200}>
       {/* A fixed height keeps the dialog still while the search narrows it. */}
@@ -978,37 +1098,87 @@ function WorkbookTable({
         <Table>
           <TableBody>
             {workbooks.map((workbook) => (
-              <WorkbookRow key={workbook.id} workbook={workbook} t={t} />
+              <WorkbookRow
+                key={workbook.id}
+                workbook={withRun(workbook, runs[workbook.id], session?.email)}
+                run={runs[workbook.id]}
+                canStart={Boolean(connectionId)}
+                onMigrate={() => void startMigration(workbook)}
+                onReview={(message) => reviewFailure(workbook, message)}
+                t={t}
+              />
             ))}
           </TableBody>
         </Table>
       </div>
+      {codeRequiredDialog}
     </TooltipProvider>
   );
 }
 
+/**
+ * A finished run shows as migrated by this user right away; the list's own
+ * row takes over once it reports the migration.
+ */
+function withRun(
+  workbook: SigmaWorkbook,
+  run: MigrationRun | undefined,
+  email: string | undefined,
+): SigmaWorkbook {
+  if (run?.state !== "done" || workbook.status === "migrated" || !email) {
+    return workbook;
+  }
+  return {
+    ...workbook,
+    status: "migrated",
+    dashboardId: run.dashboardId,
+    migratedOwnerEmail: email,
+    migratedOwnerName: null,
+    canStartImport: false,
+    canRecoverMissingDashboard: false,
+  };
+}
+
 function WorkbookRow({
   workbook,
+  run,
+  canStart,
+  onMigrate,
+  onReview,
   t,
 }: {
   workbook: SigmaWorkbook;
+  run: MigrationRun | undefined;
+  canStart: boolean;
+  onMigrate: () => void;
+  onReview: (message: string) => void;
   t: ReturnType<typeof useT>;
 }) {
+  const running = run?.state === "running";
+  const failure = run?.state === "failed" ? run : null;
   // Migrate shows only where the server would let this user start an import,
   // or recover their own import whose dashboard is gone.
   const canMigrate =
-    workbook.canStartImport || Boolean(workbook.canRecoverMissingDashboard);
+    !running &&
+    (workbook.canStartImport || Boolean(workbook.canRecoverMissingDashboard));
+  const hasDashboard =
+    workbook.status === "migrated" || workbook.status === "failed";
   const dashboardPath =
-    workbook.status === "migrated" && !canMigrate
+    hasDashboard && !canMigrate && !running
       ? safeDashboardPath(workbook.dashboardId ?? null)
       : null;
   const migrating = workbook.status === "migrating" && !canMigrate;
   const migratingBy = migrating ? (workbook.migratingByEmail ?? null) : null;
   const ownerEmail =
-    workbook.status === "migrated" && !canMigrate
+    hasDashboard && !canMigrate && !running
       ? (workbook.migratedOwnerEmail ?? null)
       : null;
-  const muted = !canMigrate;
+  const muted = !canMigrate && !running;
+  const note =
+    failure?.message ??
+    (workbook.status === "failed" && !running
+      ? t("dashboardOverview.sigmaLastImportFailed")
+      : null);
   return (
     <TableRow
       data-workbook-id={workbook.id}
@@ -1048,9 +1218,29 @@ function WorkbookRow({
             </Badge>
           ) : null}
         </div>
+        {note ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{note}</span>
+            {failure?.reviewable ? (
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                onClick={() => onReview(failure.message)}
+              >
+                {t("dashboardOverview.sigmaReviewWithAgent")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </TableCell>
       <TableCell className="w-px whitespace-nowrap text-end">
-        {ownerEmail ? (
+        {running ? (
+          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            <IconLoader2 aria-hidden="true" className="size-4 animate-spin" />
+            {t("dashboardOverview.sigmaMigrating")}
+          </span>
+        ) : ownerEmail ? (
           <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
             {t("dashboardOverview.sigmaOwnedBy")}
             <OwnerAvatar
@@ -1073,19 +1263,14 @@ function WorkbookRow({
             ) : null}
           </span>
         ) : canMigrate ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              {/* A disabled button gets no pointer events, so the span carries the hover. */}
-              <span className="inline-flex" tabIndex={0}>
-                <Button type="button" size="sm" disabled>
-                  {t("dashboardOverview.sigmaMigrate")}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("dashboardOverview.sigmaMigrateComingSoon")}
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!canStart}
+            onClick={onMigrate}
+          >
+            {t("dashboardOverview.sigmaMigrate")}
+          </Button>
         ) : null}
       </TableCell>
     </TableRow>

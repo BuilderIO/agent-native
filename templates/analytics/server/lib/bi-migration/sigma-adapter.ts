@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import { executeProviderApiRequest } from "../provider-api";
 
 const SIGMA_PAGE_SIZE = 100;
@@ -1199,6 +1201,15 @@ export async function inspectSigmaWorkbook(
     connectionId,
     path: `/v2/workbooks/${encodeURIComponent(workbookId)}`,
     query: { includeContents: true },
+  }).catch((error: unknown) => {
+    // Sigma answers 501 for workbooks it has no code representation for.
+    if (error instanceof SigmaApiRequestError && error.status === 501) {
+      fail("Sigma can't export this workbook yet.", {
+        errorCode: "sigma_export_unsupported",
+        statusCode: 422,
+      });
+    }
+    throw error;
   });
   if (!isRecord(payload) || !isRecord(payload.contents)) {
     throw new Error(

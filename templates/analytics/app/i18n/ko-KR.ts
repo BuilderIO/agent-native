@@ -116,7 +116,29 @@ export default {
     sigmaOwnedBy: "소유자",
     sigmaMigratingTooltip: "{{name}} 님이 마이그레이션 중",
     sigmaMigrate: "마이그레이션",
-    sigmaMigrateComingSoon: "곧 제공 예정",
+    sigmaMigrating: "마이그레이션 중…",
+    sigmaMigrateSucceeded: "{{name}} 마이그레이션 완료",
+    sigmaSharedOnlyWithYou: "지금은 나에게만 공유됩니다.",
+    sigmaPanelsNeedReview: "검토할 패널: {{count}}개.",
+    sigmaOpenDashboard: "열기",
+    sigmaLastImportFailed: "마지막 가져오기 실패",
+    sigmaReviewWithAgent: "에이전트로 검토",
+    sigmaReviewContext: "Sigma 마이그레이션",
+    sigmaReviewPrompt:
+      "Sigma 워크북 {{name}}을(를) Analytics로 마이그레이션하지 못했습니다: {{error}} 무엇이 막고 있는지와 해결 방법을 찾아 주세요.",
+    sigmaErrorExportUnsupported:
+      "Sigma에서 아직 이 워크북을 내보낼 수 없습니다.",
+    sigmaErrorNoImportable: "이 워크북에는 가져올 BigQuery 패널이 없습니다.",
+    sigmaErrorNoRunnable:
+      "이 워크북의 패널 중 BigQuery에서 실행된 것이 없습니다.",
+    sigmaErrorBigQueryRequired: "먼저 데이터 소스에서 BigQuery를 연결하세요.",
+    sigmaErrorBigQueryUnavailable:
+      "BigQuery가 이 워크북을 확인하지 못했습니다. 다시 시도하세요.",
+    sigmaErrorOriginalMigrator:
+      "이 워크북을 마이그레이션한 사람만 다시 가져올 수 있습니다.",
+    sigmaErrorInProgress: "누군가 이미 이 워크북을 마이그레이션하고 있습니다.",
+    sigmaErrorAlreadyMigrated: "이 워크북은 이미 마이그레이션되었습니다.",
+    sigmaErrorGeneric: "마이그레이션에 실패했습니다. 다시 시도하세요.",
     sigmaArchived: "보관됨",
     sigmaMoreWorkbooksFailed: "추가 워크북을 불러오지 못했습니다",
     sigmaLoadingMore: "워크북 불러오는 중…",

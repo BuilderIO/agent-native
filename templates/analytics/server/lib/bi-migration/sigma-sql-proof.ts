@@ -1,0 +1,114 @@
+import { fail, isActionContractError } from "@agent-native/core/action";
+
+import {
+  BigQueryDryRunPreparationError,
+  dryRunQuerySchema,
+} from "../bigquery.js";
+import { runPool } from "../dashboard-panel-verification.js";
+import { assertReadOnlySql } from "../read-only-sql.js";
+import type {
+  SigmaWorkbookInspection,
+  SigmaWorkbookSqlQuery,
+} from "./sigma-adapter.js";
+
+export type SigmaSqlProofFailure =
+  | "query_unavailable"
+  | "sql_too_large"
+  | "unsafe_sql"
+  | "bigquery_dry_run_failed"
+  | "bigquery_dry_run_unavailable";
+
+export type SigmaSqlProof =
+  | { ok: true; sql: string; estimatedBytes?: number }
+  | { ok: false; reason: SigmaSqlProofFailure };
+
+const DRY_RUN_CONCURRENCY = 4;
+
+/**
+ * Check each Sigma element's compiled SQL the way a panel would run it: one
+ * read-only statement that Analytics' BigQuery credential can dry-run.
+ * Throws when BigQuery cannot be reached at all, so a missing credential
+ * never reads as every panel's SQL being wrong.
+ */
+export async function proveSigmaPanelSql(
+  inspection: SigmaWorkbookInspection,
+  elementIds: readonly string[],
+): Promise<Map<string, SigmaSqlProof>> {
+  const queriesByElementId = new Map<string, SigmaWorkbookSqlQuery[]>();
+  for (const query of inspection.sqlQueries) {
+    if (!query.elementId) continue;
+    const queries = queriesByElementId.get(query.elementId) ?? [];
+    queries.push(query);
+    queriesByElementId.set(query.elementId, queries);
+  }
+  const proofs = await runPool(
+    [...elementIds],
+    DRY_RUN_CONCURRENCY,
+    async (elementId) =>
+      [
+        elementId,
+        await proveOne(queriesByElementId.get(elementId) ?? []),
+      ] as const,
+  );
+  return new Map(proofs);
+}
+
+async function proveOne(
+  queries: SigmaWorkbookSqlQuery[],
+): Promise<SigmaSqlProof> {
+  // A panel runs one query; an element Sigma splits into several has no
+  // single statement to import.
+  if (queries.length !== 1) return { ok: false, reason: "query_unavailable" };
+  const [query] = queries;
+  if (!query.sql) {
+    const tooLarge =
+      query.sqlOmittedReason === "query-too-large" ||
+      query.sqlOmittedReason === "total-sql-limit";
+    return {
+      ok: false,
+      reason: tooLarge ? "sql_too_large" : "query_unavailable",
+    };
+  }
+  try {
+    assertReadOnlySql(query.sql, "bigquery");
+  } catch (error) {
+    if (!isActionContractError(error)) throw error;
+    return { ok: false, reason: "unsafe_sql" };
+  }
+
+  let dryRun: Awaited<ReturnType<typeof dryRunQuerySchema>>;
+  try {
+    dryRun = await dryRunQuerySchema(query.sql, {
+      wrapPreparationErrors: true,
+    });
+  } catch (error) {
+    if (!(error instanceof BigQueryDryRunPreparationError)) throw error;
+    if (error.notConfigured) {
+      fail("Connect an Analytics BigQuery source before importing Sigma SQL.", {
+        errorCode: "analytics_bigquery_required",
+        statusCode: 409,
+      });
+    }
+    fail("BigQuery could not check this workbook's SQL. Try again.", {
+      errorCode: "bigquery_dry_run_unavailable",
+      statusCode: 503,
+    });
+  }
+  if (dryRun.error === null) {
+    return {
+      ok: true,
+      sql: query.sql,
+      ...(dryRun.totalBytesProcessed !== undefined
+        ? { estimatedBytes: dryRun.totalBytesProcessed }
+        : {}),
+    };
+  }
+  // A timeout or a BigQuery outage says nothing about the SQL itself.
+  const unavailable = dryRun.timedOut === true || (dryRun.status ?? 0) >= 500;
+  return {
+    ok: false,
+    reason: unavailable
+      ? "bigquery_dry_run_unavailable"
+      : "bigquery_dry_run_failed",
+  };
+}

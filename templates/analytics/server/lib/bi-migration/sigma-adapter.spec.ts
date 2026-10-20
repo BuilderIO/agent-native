@@ -546,6 +546,23 @@ describe("Sigma read-only migration adapter", () => {
     );
   });
 
+  it("reports a workbook Sigma cannot export as its own error", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      apiResponse({}, { ok: false, status: 501 }),
+    );
+
+    await expect(
+      inspectSigmaWorkbook({
+        connectionId: CONNECTION_ID,
+        workbookId: WORKBOOK_ID,
+        includeSqlQueries: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_export_unsupported",
+      statusCode: 422,
+    });
+  });
+
   it("rejects truncated provider responses instead of using partial JSON", async () => {
     mocks.executeProviderApiRequest.mockResolvedValue(
       apiResponse({ entries: [], nextPage: null }, { truncated: true }),

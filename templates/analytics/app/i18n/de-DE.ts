@@ -121,7 +121,30 @@ export default {
     sigmaOwnedBy: "Eigentümer",
     sigmaMigratingTooltip: "Wird von {{name}} migriert",
     sigmaMigrate: "Migrieren",
-    sigmaMigrateComingSoon: "Bald verfügbar",
+    sigmaMigrating: "Wird migriert…",
+    sigmaMigrateSucceeded: "{{name}} migriert",
+    sigmaSharedOnlyWithYou: "Vorerst nur für dich freigegeben.",
+    sigmaPanelsNeedReview: "Zu prüfende Panels: {{count}}.",
+    sigmaOpenDashboard: "Öffnen",
+    sigmaLastImportFailed: "Letzter Import fehlgeschlagen",
+    sigmaReviewWithAgent: "Mit Agent prüfen",
+    sigmaReviewContext: "Sigma-Migration",
+    sigmaReviewPrompt:
+      "Die Sigma-Arbeitsmappe {{name}} wurde nicht zu Analytics migriert: {{error}} Finde heraus, was sie blockiert und wie es sich beheben lässt.",
+    sigmaErrorExportUnsupported:
+      "Sigma kann diese Arbeitsmappe noch nicht exportieren.",
+    sigmaErrorNoImportable:
+      "Diese Arbeitsmappe hat keine BigQuery-Panels zum Importieren.",
+    sigmaErrorNoRunnable:
+      "Keines der Panels dieser Arbeitsmappe lief auf BigQuery.",
+    sigmaErrorBigQueryRequired: "Verbinde zuerst BigQuery unter Datenquellen.",
+    sigmaErrorBigQueryUnavailable:
+      "BigQuery konnte diese Arbeitsmappe nicht prüfen. Versuche es erneut.",
+    sigmaErrorOriginalMigrator:
+      "Nur die Person, die diese Arbeitsmappe migriert hat, kann sie erneut importieren.",
+    sigmaErrorInProgress: "Diese Arbeitsmappe wird bereits migriert.",
+    sigmaErrorAlreadyMigrated: "Diese Arbeitsmappe wurde bereits migriert.",
+    sigmaErrorGeneric: "Migration fehlgeschlagen. Versuche es erneut.",
     sigmaArchived: "Archiviert",
     sigmaMoreWorkbooksFailed:
       "Weitere Arbeitsmappen konnten nicht geladen werden",

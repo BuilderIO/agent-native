@@ -1,14 +1,15 @@
-import { fail } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   failMigration: vi.fn(),
+  holdClaim: vi.fn(),
   listMigrations: vi.fn(),
   removeDashboard: vi.fn(),
 }));
 
 vi.mock("./external-dashboards-store.js", () => ({
   failExternalDashboard: mocks.failMigration,
+  holdExternalDashboardClaim: mocks.holdClaim,
   listExternalDashboards: mocks.listMigrations,
 }));
 vi.mock("../dashboards-store.js", () => ({
@@ -26,32 +27,32 @@ const base = {
   ctx,
 };
 
-function claimExpired(): Error {
-  try {
-    fail("The migration claim is no longer active.", {
-      errorCode: "migration_claim_expired",
-      statusCode: 409,
-    });
-  } catch (error) {
-    return error as Error;
-  }
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  mocks.holdClaim.mockResolvedValue(true);
   mocks.failMigration.mockResolvedValue({});
   mocks.listMigrations.mockResolvedValue([]);
   mocks.removeDashboard.mockResolvedValue(undefined);
 });
 
 describe("abandonSigmaImport", () => {
-  it("deletes a first import's dashboard after recording the failure", async () => {
+  it("deletes a first import's dashboard before releasing the claim", async () => {
     await abandonSigmaImport({
       ...base,
       wroteDashboard: true,
       previousDashboardId: null,
     });
 
+    expect(mocks.holdClaim).toHaveBeenCalledWith({
+      provider: "sigma",
+      sourceId: "workbook_1",
+      claimToken: "token_1",
+    });
+    expect(mocks.removeDashboard).toHaveBeenCalledWith(
+      "sigma-alice-workbook_1",
+      ctx,
+    );
     expect(mocks.failMigration).toHaveBeenCalledWith({
       provider: "sigma",
       sourceId: "workbook_1",
@@ -59,23 +60,30 @@ describe("abandonSigmaImport", () => {
       failureCode: "verification_failed",
       preservePreviousMigration: false,
     });
-    expect(mocks.removeDashboard).toHaveBeenCalledWith(
-      "sigma-alice-workbook_1",
-      ctx,
-    );
+    // A same-user retry can only claim after the release, so the dashboard it
+    // writes at the same id is never the one deleted here.
+    const [hold] = mocks.holdClaim.mock.invocationCallOrder;
+    const [remove] = mocks.removeDashboard.mock.invocationCallOrder;
+    const [release] = mocks.failMigration.mock.invocationCallOrder;
+    expect(hold).toBeLessThan(remove);
+    expect(remove).toBeLessThan(release);
   });
 
-  it("keeps the previous migration when nothing was written", async () => {
+  it("deletes an earlier run's dashboard when this first import wrote nothing", async () => {
+    // A same-user takeover of a stuck first import shares its dashboard id.
     await abandonSigmaImport({
       ...base,
       wroteDashboard: false,
       previousDashboardId: null,
     });
 
+    expect(mocks.removeDashboard).toHaveBeenCalledWith(
+      "sigma-alice-workbook_1",
+      ctx,
+    );
     expect(mocks.failMigration).toHaveBeenCalledWith(
       expect.objectContaining({ preservePreviousMigration: true }),
     );
-    expect(mocks.removeDashboard).not.toHaveBeenCalled();
   });
 
   it("never deletes the dashboard a re-import or its retry wrote over", async () => {
@@ -88,57 +96,82 @@ describe("abandonSigmaImport", () => {
     });
 
     expect(mocks.removeDashboard).not.toHaveBeenCalled();
+    expect(mocks.failMigration).toHaveBeenCalled();
+  });
+
+  it("still releases the claim when the delete fails", async () => {
+    mocks.removeDashboard.mockRejectedValue(new Error("delete failed"));
+
+    await expect(
+      abandonSigmaImport({
+        ...base,
+        wroteDashboard: true,
+        previousDashboardId: null,
+      }),
+    ).resolves.toBeUndefined();
+    expect(mocks.failMigration).toHaveBeenCalled();
+  });
+
+  it("does not throw when recording the failure fails", async () => {
+    // The caller rethrows the import's own error; this one is only logged.
+    mocks.failMigration.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      abandonSigmaImport({
+        ...base,
+        wroteDashboard: true,
+        previousDashboardId: null,
+      }),
+    ).resolves.toBeUndefined();
+    expect(console.warn).toHaveBeenCalled();
   });
 
   it("deletes its dashboard when a teammate took over the claim", async () => {
-    const expired = claimExpired();
-    mocks.failMigration.mockRejectedValue(expired);
+    mocks.holdClaim.mockResolvedValue(false);
     mocks.listMigrations.mockResolvedValue([
       { status: "migrating", migratedByCurrentUser: false },
     ]);
 
-    await expect(
-      abandonSigmaImport({
-        ...base,
-        wroteDashboard: true,
-        previousDashboardId: null,
-      }),
-    ).rejects.toBe(expired);
+    await abandonSigmaImport({
+      ...base,
+      wroteDashboard: true,
+      previousDashboardId: null,
+    });
+
     expect(mocks.removeDashboard).toHaveBeenCalledWith(
       "sigma-alice-workbook_1",
       ctx,
     );
+    expect(mocks.failMigration).not.toHaveBeenCalled();
   });
 
   it("keeps the dashboard when the same person took over the claim", async () => {
     // Their new run writes the same dashboard id.
-    const expired = claimExpired();
-    mocks.failMigration.mockRejectedValue(expired);
+    mocks.holdClaim.mockResolvedValue(false);
     mocks.listMigrations.mockResolvedValue([
       { status: "migrating", migratedByCurrentUser: true },
     ]);
 
-    await expect(
-      abandonSigmaImport({
-        ...base,
-        wroteDashboard: true,
-        previousDashboardId: null,
-      }),
-    ).rejects.toBe(expired);
+    await abandonSigmaImport({
+      ...base,
+      wroteDashboard: true,
+      previousDashboardId: null,
+    });
+
     expect(mocks.removeDashboard).not.toHaveBeenCalled();
+    expect(mocks.failMigration).not.toHaveBeenCalled();
   });
 
-  it("passes on any other failure without deleting", async () => {
-    const outage = new Error("database unavailable");
-    mocks.failMigration.mockRejectedValue(outage);
+  it("leaves the dashboard alone after losing a claim it never wrote under", async () => {
+    mocks.holdClaim.mockResolvedValue(false);
 
-    await expect(
-      abandonSigmaImport({
-        ...base,
-        wroteDashboard: true,
-        previousDashboardId: null,
-      }),
-    ).rejects.toBe(outage);
+    await abandonSigmaImport({
+      ...base,
+      wroteDashboard: false,
+      previousDashboardId: null,
+    });
+
+    expect(mocks.listMigrations).not.toHaveBeenCalled();
     expect(mocks.removeDashboard).not.toHaveBeenCalled();
   });
 });

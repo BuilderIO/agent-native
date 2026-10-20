@@ -4,8 +4,10 @@ function rejectSourceSql(message: string): never {
   return fail(message, { errorCode: "invalid_source_sql", statusCode: 400 });
 }
 
+// `replace` followed by `(` is the string function or BigQuery's
+// `SELECT * REPLACE (...)`; `REPLACE INTO` is still rejected.
 const MUTATING_WORD_RE =
-  /(^|[^\p{ID_Continue}$])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^\p{ID_Continue}$]|$)/iu;
+  /(^|[^\p{ID_Continue}$])(insert|update|delete|replace(?!\s*\()|create|alter|drop|truncate|merge)(?=[^\p{ID_Continue}$]|$)/iu;
 
 function hasBigQueryRawStringPrefix(sql: string, quoteIndex: number): boolean {
   const prefix = sql.slice(0, quoteIndex).match(/([bBrR]{1,2})$/)?.[1];
@@ -46,8 +48,12 @@ function sanitizeSqlForInspection(
     if (state === "single" || state === "double" || state === "backtick") {
       const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
       if (dialect === "bigquery" && ch === "\\" && !rawString) {
-        // BigQuery escape forms are rejected so they cannot hide statement boundaries.
-        rejectSourceSql("Source SQL string escapes are not supported.");
+        // A BigQuery escape always consumes the next character, so an
+        // escaped quote stays inside the string as it does for BigQuery.
+        // A trailing backslash leaves the string unterminated.
+        out += next === undefined ? " " : "  ";
+        i += 1;
+        continue;
       }
       if (quoteLength === 3) {
         if (ch === quote && sql[i + 1] === quote && sql[i + 2] === quote) {

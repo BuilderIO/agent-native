@@ -75,6 +75,13 @@ export const EXTERNAL_DASHBOARD_ELEMENT_REASONS = [
   "query_unavailable",
   "manual_review_required",
   "other",
+  "sql_too_large",
+  "unsafe_sql",
+  "bigquery_dry_run_failed",
+  "bigquery_dry_run_unavailable",
+  "too_expensive",
+  "no_rows",
+  "query_failed",
 ] as const;
 
 const ProviderSchema = z.literal("sigma");
@@ -189,6 +196,14 @@ const CompleteSchema = z
       });
     }
   });
+
+const HoldSchema = z
+  .object({
+    provider: ProviderSchema,
+    sourceId: SourceIdSchema,
+    claimToken: z.string().uuid(),
+  })
+  .strict();
 
 const FailSchema = z
   .object({
@@ -495,6 +510,36 @@ export async function claimExternalDashboard(input: {
     return { claimed: false, reason: "already_migrated" };
   }
   return { claimed: false, reason: "in_progress" };
+}
+
+/**
+ * Renew a claim this run still holds, so nobody can claim the source while
+ * the run cleans up. Returns false when the claim was taken over or released.
+ */
+export async function holdExternalDashboardClaim(input: {
+  provider: "sigma";
+  sourceId: string;
+  claimToken: string;
+}): Promise<boolean> {
+  const parsed = HoldSchema.parse(input);
+  const { orgId, userEmail } = requireExternalDashboardContext();
+  const table = schema.externalDashboardMigrations;
+  const nowIso = new Date().toISOString();
+  const rows = await getDb()
+    .update(table)
+    .set({ migrationClaimedAt: nowIso, updatedAt: nowIso })
+    .where(
+      and(
+        eq(table.orgId, orgId),
+        eq(table.provider, parsed.provider),
+        eq(table.sourceId, parsed.sourceId),
+        eq(table.status, "migrating"),
+        eq(table.originalMigratorEmail, userEmail),
+        eq(table.migrationClaimToken, parsed.claimToken),
+      ),
+    )
+    .returning({ id: table.id });
+  return rows.length > 0;
 }
 
 async function finishClaim(

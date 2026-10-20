@@ -29,6 +29,9 @@ const clientMocks = vi.hoisted(() => ({
     cleanupPending: true,
   })),
   saveApiKeyValue: vi.fn(async () => undefined),
+  migrate: vi.fn(),
+  send: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -69,11 +72,27 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       refetch: vi.fn(),
     };
   },
-  useActionMutation: () => ({
+  useActionMutation: (action: string) => ({
     isPending: false,
-    mutateAsync: clientMocks.saveConnection,
+    mutateAsync:
+      action === "migrate-sigma-workbook"
+        ? clientMocks.migrate
+        : clientMocks.saveConnection,
   }),
   useAvatarUrl: () => null,
+  useSession: () => ({ session: { email: "alice@example.com" } }),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  useSendToAgentChat: () => ({
+    send: clientMocks.send,
+    isGenerating: false,
+    codeRequiredDialog: null,
+  }),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: clientMocks.toastSuccess },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -454,6 +473,9 @@ describe("SigmaMigrationDialog", () => {
         name: "Pipeline Forecast",
         status: "failed",
         canStartImport: false,
+        dashboardId: "sigma-pipeline-forecast",
+        migratedOwnerEmail: "bob@example.com",
+        migratedOwnerName: "Bob Lee",
       },
     ];
 
@@ -526,17 +548,134 @@ describe("SigmaMigrationDialog", () => {
       expect(imported.querySelector("button")).toBeNull();
     });
 
-    it("offers Migrate on a workbook nobody has imported, disabled for now", async () => {
-      await renderDialog();
-      const fresh = row("workbook-new");
-
-      const button = fresh.querySelector("button");
+    async function clickMigrate(workbookId: string) {
+      const button = row(workbookId).querySelector("button");
       expect(button?.textContent).toBe("dashboardOverview.sigmaMigrate");
-      expect(button?.disabled).toBe(true);
-      expect(fresh.querySelector('[role="tooltip"]')?.textContent).toBe(
-        "dashboardOverview.sigmaMigrateComingSoon",
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+
+    it("migrates on one click, showing progress right away", async () => {
+      let finish: (value: unknown) => void = () => {};
+      clientMocks.migrate.mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
       );
-      expect(fresh.querySelector("a")).toBeNull();
+      await renderDialog();
+
+      await clickMigrate("workbook-new");
+
+      expect(clientMocks.migrate).toHaveBeenCalledWith({
+        workbookId: "workbook-new",
+        connectionId: "analytics-sigma-direct",
+      });
+      const running = row("workbook-new");
+      expect(running.textContent).toContain("dashboardOverview.sigmaMigrating");
+      expect(running.querySelector("button")).toBeNull();
+
+      await act(async () => {
+        finish({
+          status: "completed",
+          dashboardId: "sigma-pipeline-review",
+          dashboardName: "Sigma: Pipeline Review",
+          flaggedCount: 2,
+        });
+      });
+
+      const done = row("workbook-new");
+      expect(done.getAttribute("data-state")).toBe("taken");
+      expect(done.querySelector("a")?.getAttribute("href")).toBe(
+        "/dashboards/sigma-pipeline-review",
+      );
+      expect(done.textContent).toContain("dashboardOverview.sigmaOwnedBy");
+      expect(clientMocks.toastSuccess).toHaveBeenCalledWith(
+        "dashboardOverview.sigmaMigrateSucceeded(Pipeline Review)",
+        expect.objectContaining({
+          description:
+            "dashboardOverview.sigmaSharedOnlyWithYou dashboardOverview.sigmaPanelsNeedReview(2)",
+          action: expect.objectContaining({
+            label: "dashboardOverview.sigmaOpenDashboard",
+          }),
+        }),
+      );
+    });
+
+    it("shows a failure on its row and reviews it with the agent only on request", async () => {
+      clientMocks.migrate.mockRejectedValue(
+        Object.assign(new Error("No runnable panels"), {
+          errorCode: "sigma_no_runnable_panels",
+        }),
+      );
+      await renderDialog();
+
+      await clickMigrate("workbook-new");
+
+      const failed = row("workbook-new");
+      expect(failed.textContent).toContain(
+        "dashboardOverview.sigmaErrorNoRunnable",
+      );
+      expect(clientMocks.send).not.toHaveBeenCalled();
+      const review = [...failed.querySelectorAll("button")].find(
+        (button) =>
+          button.textContent === "dashboardOverview.sigmaReviewWithAgent",
+      );
+      expect(review).toBeDefined();
+      // Migrate stays available for a retry.
+      expect(
+        [...failed.querySelectorAll("button")].some(
+          (button) => button.textContent === "dashboardOverview.sigmaMigrate",
+        ),
+      ).toBe(true);
+
+      await act(async () => {
+        review?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+      expect(clientMocks.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message:
+            "dashboardOverview.sigmaReviewPrompt(Pipeline Review, dashboardOverview.sigmaErrorNoRunnable)",
+          context: JSON.stringify({
+            workbookId: "workbook-new",
+            source: "sigma",
+          }),
+          submit: true,
+        }),
+      );
+    });
+
+    it("recovers the user's own import whose dashboard is gone", async () => {
+      clientMocks.migrate.mockResolvedValue({ status: "in_progress" });
+      clientMocks.listResult = {
+        ...clientMocks.listResult,
+        workbooks: [
+          {
+            id: "workbook-mine-deleted",
+            canStartImport: false,
+            canRecoverMissingDashboard: true,
+            name: "Renewals",
+            status: "migrated",
+            migratedOwnerEmail: "alice@example.com",
+          },
+        ],
+      };
+      await renderDialog();
+
+      await clickMigrate("workbook-mine-deleted");
+
+      expect(clientMocks.migrate).toHaveBeenCalledWith({
+        workbookId: "workbook-mine-deleted",
+        connectionId: "analytics-sigma-direct",
+        recoverMissingDashboard: true,
+      });
+      expect(row("workbook-mine-deleted").textContent).toContain(
+        "dashboardOverview.sigmaErrorInProgress",
+      );
+      expect(row("workbook-mine-deleted").textContent).not.toContain(
+        "dashboardOverview.sigmaReviewWithAgent",
+      );
     });
 
     it("shows who is importing a workbook right now, by email when there is no name", async () => {
@@ -586,12 +725,21 @@ describe("SigmaMigrationDialog", () => {
       expect(deleted.textContent).toContain("dashboardOverview.sigmaOwnedBy");
     });
 
-    it("does not offer Migrate on a teammate's failed re-import", async () => {
+    it("shows a teammate's failed re-import with their dashboard, without Migrate", async () => {
       await renderDialog();
       const reimport = row("workbook-teammate-failed-reimport");
 
       expect(reimport.getAttribute("data-state")).toBe("taken");
       expect(reimport.querySelector("button")).toBeNull();
+      expect(reimport.querySelector("a")?.getAttribute("href")).toBe(
+        "/dashboards/sigma-pipeline-forecast",
+      );
+      expect(reimport.textContent).toContain(
+        "dashboardOverview.sigmaLastImportFailed",
+      );
+      expect(reimport.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "Bob Lee · bob@example.com",
+      );
     });
 
     it("offers Migrate on a teammate's failed or stalled import", async () => {
