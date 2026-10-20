@@ -163,6 +163,9 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
       await expect(
         transport.continueRun!({ threadId: "thread-1", runId: "core-run-1" }),
       ).rejects.toThrow("Duplicate AgentKit run id: core-run-1");
+      expect(continueTurn).toHaveBeenCalledTimes(1);
+      // A drain would start in a microtask; give it a turn of the event loop.
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(continuedDrained).toBe(false);
     } finally {
       await transport.dispose();
