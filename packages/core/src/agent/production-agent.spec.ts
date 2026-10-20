@@ -63,6 +63,7 @@ import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "./durable-background.js";
+import { tagEngineCredentialOwner } from "./engine/credential-owner.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import type {
@@ -103,6 +104,7 @@ import {
   isCachedToolResultVisibleInContext,
   isContextTooLongError,
   isRetryableError,
+  maxRetriesForError,
   actionsToEngineTools,
   filterActionsByAllowedNames,
   filterInitialEngineTools,
@@ -20095,6 +20097,47 @@ describe("isTransientProviderRateLimitError", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("maxRetriesForError", () => {
+  function engineOwnedBy(owner: "builder" | "deployment" | "customer") {
+    const engine = { name: "anthropic", stream: vi.fn() } as any;
+    tagEngineCredentialOwner(engine, owner);
+    return engine;
+  }
+
+  it("does not blind-retry a 429 on a customer's own key", () => {
+    const err = new EngineError("rate limited", {
+      statusCode: 429,
+      errorCode: "http_429",
+    });
+    expect(maxRetriesForError(err, engineOwnedBy("customer"))).toBe(0);
+  });
+
+  it("waits once for a customer-key 429 that names a Retry-After", () => {
+    const err = new EngineError("rate limited", {
+      statusCode: 429,
+      errorCode: "http_429",
+      retryAfterMs: 20_000,
+    });
+    expect(maxRetriesForError(err, engineOwnedBy("customer"))).toBe(1);
+  });
+
+  it("keeps the full budget for deployment keys and provider overload", () => {
+    const rateLimited = new EngineError("rate limited", {
+      statusCode: 429,
+      errorCode: "http_429",
+    });
+    const overloaded = new EngineError("overloaded", {
+      statusCode: 529,
+      errorCode: "http_529",
+    });
+    expect(maxRetriesForError(rateLimited, engineOwnedBy("deployment"))).toBe(
+      3,
+    );
+    expect(maxRetriesForError(rateLimited)).toBe(3);
+    expect(maxRetriesForError(overloaded, engineOwnedBy("customer"))).toBe(3);
   });
 });
 

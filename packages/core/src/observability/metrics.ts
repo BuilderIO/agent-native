@@ -7,6 +7,7 @@
  * a migration plan.
  */
 
+import type { EngineCredentialOwner } from "../agent/engine/credential-owner.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { agentTroubleCauseForCode } from "../shared/analytics-events.js";
 import {
@@ -229,6 +230,8 @@ export interface GenAiChatMetric {
   requestModel: string;
   /** The engine name; a closed, registered set. */
   providerName?: string;
+  /** Whose key served the call; a closed set. */
+  credentialOwner?: EngineCredentialOwner;
   supportedModels?: readonly string[];
   durationMs?: number;
   failed?: boolean;
@@ -257,6 +260,9 @@ export function recordGenAiChat(call: GenAiChatMetric): void {
       call.supportedModels,
     ),
     ...(call.providerName ? { "gen_ai.provider.name": call.providerName } : {}),
+    ...(call.credentialOwner
+      ? { "agent_native.credential.owner": call.credentialOwner }
+      : {}),
   };
   if (call.durationMs !== undefined) {
     recorded.genAiOperationDuration.record(

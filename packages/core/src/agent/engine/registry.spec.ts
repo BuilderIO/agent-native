@@ -4132,6 +4132,9 @@ describe("AgentEngine registry", () => {
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
+      const { getEngineCredentialOwner } =
+        await import("./credential-owner.js");
+      expect(getEngineCredentialOwner(resolved)).toBe("customer");
     });
 
     it("does not replace an unreadable endpoint with deploy configuration", async () => {

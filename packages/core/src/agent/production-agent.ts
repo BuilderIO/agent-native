@@ -247,6 +247,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
+import { getEngineCredentialOwner } from "./engine/credential-owner.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
@@ -2157,9 +2158,18 @@ export async function runCompletionCallbackWithDatabaseRetry(
 const BUILDER_GATEWAY_ERROR_MAX_RETRIES = 1;
 const RETRY_BASE_DELAY_MS = 2000;
 
-function maxRetriesForError(err: unknown): number {
+/** @internal exported for unit tests only */
+export function maxRetriesForError(err: unknown, engine?: AgentEngine): number {
   if (err instanceof EngineError) {
     const code = (err.errorCode ?? "").toLowerCase();
+    // A customer key's 429 is that key's per-minute quota, so seconds-apart
+    // retries only re-hit it; wait only when the provider says how long.
+    if (
+      (err.statusCode === 429 || code === "http_429") &&
+      getEngineCredentialOwner(engine) === "customer"
+    ) {
+      return err.retryAfterMs !== undefined ? 1 : 0;
+    }
     if (code === "builder_gateway_error") {
       if (isTransientProviderRateLimitError(err)) return MAX_RETRIES;
       return BUILDER_GATEWAY_ERROR_MAX_RETRIES;
@@ -7859,7 +7869,7 @@ export async function runAgentLoop(opts: {
         const retryAfterMs =
           err instanceof EngineError ? err.retryAfterMs : undefined;
         if (
-          retry < maxRetriesForError(err) &&
+          retry < maxRetriesForError(err, engine) &&
           isRetryableError(err) &&
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
@@ -7867,7 +7877,7 @@ export async function runAgentLoop(opts: {
           if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
             send({
               type: "activity",
-              label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err) + 1})`,
+              label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err, engine) + 1})`,
             });
           }
           send({ type: "clear" });
@@ -7907,7 +7917,7 @@ export async function runAgentLoop(opts: {
             usage.model = fallbackModel;
             // The sibling shares the throttled quota, so it gets this one
             // attempt; a fresh retry budget only re-hits the same limit.
-            retry = maxRetriesForError(err) - 1;
+            retry = maxRetriesForError(err, engine) - 1;
             continue;
           }
         }
