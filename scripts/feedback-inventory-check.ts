@@ -956,7 +956,13 @@ function validateThreadSnapshot(
           ": requestReply must be this actor's exact in-thread request before or in the current status",
       );
     }
-    if (!replyNamesHandoffAction(request.text, reporterRequest.action)) {
+    if (
+      !replyNamesRecordedAction(
+        request.text,
+        reporterRequest.action,
+        reporterRequest.publicActionSummary,
+      )
+    ) {
       throw new Error(label + ": request must name the exact requested action");
     }
   }
@@ -1156,6 +1162,21 @@ function publicActionSummaryForReply(
   return typeof publicActionSummary === "string" ? publicActionSummary : "";
 }
 
+function replyNamesRecordedAction(
+  text: string,
+  action: string,
+  publicActionSummary?: unknown,
+): boolean {
+  return (
+    replyNamesHandoffAction(
+      text,
+      publicActionSummaryForReply(action, publicActionSummary),
+    ) &&
+    (publicActionSummary === undefined ||
+      publicActionSummaryMatchesAction(action, publicActionSummary))
+  );
+}
+
 function replyNamesHandoffOwner(text: string, handoff: Handoff): boolean {
   const normalizedReply = ` ${normalizeReplyPhrase(text)} `;
   const normalizedOwner = normalizeReplyPhrase(handoff.owner);
@@ -1176,7 +1197,7 @@ function replyDirectlyRequestsHandoff(text: string, handoff: Handoff): boolean {
   return (
     requestsAssignedWork &&
     replyNamesHandoffOwner(text, handoff) &&
-    replyNamesHandoffAction(text, handoff.action)
+    replyNamesRecordedAction(text, handoff.action, handoff.publicActionSummary)
   );
 }
 
@@ -1280,7 +1301,11 @@ function validateHandoffAcceptance(
         requestTs >= statusReplyTs ||
         typeof request.text !== "string" ||
         !request.text.trim() ||
-        !replyNamesHandoffAction(request.text, handoff.action)
+        !replyNamesRecordedAction(
+          request.text,
+          handoff.action,
+          handoff.publicActionSummary,
+        )
       ) {
         throw new Error(
           `${parentName}: an unassigned handoff request must be this actor's read-back in the source thread and name the recorded action`,
@@ -1292,7 +1317,11 @@ function validateHandoffAcceptance(
   const explicitlyAcceptsAction =
     !!acceptance &&
     replyExplicitlyAcceptsHandoff(acceptance.text) &&
-    replyNamesHandoffAction(acceptance.text, handoff.action);
+    replyNamesRecordedAction(
+      acceptance.text,
+      handoff.action,
+      handoff.publicActionSummary,
+    );
   if (
     !isSlackUserId(handoff.ownerSlackId) ||
     handoff.ownerSlackId === sweepActorId ||
@@ -1604,6 +1633,20 @@ function validateHistoricalReactionMarks(
       }
       const request = closedReporterRequest.requestReply;
       if (
+        closedReporterRequest.publicActionSummary !== undefined &&
+        (typeof closedReporterRequest.publicActionSummary !== "string" ||
+          !closedReporterRequest.publicActionSummary.trim() ||
+          typeof closedReporterRequest.action !== "string" ||
+          !publicActionSummaryMatchesAction(
+            closedReporterRequest.action,
+            closedReporterRequest.publicActionSummary,
+          ))
+      ) {
+        throw new Error(
+          `${label}: historical reporter publicActionSummary must be a concise prefix of its action`,
+        );
+      }
+      if (
         typeof closedReporterRequest.scope !== "string" ||
         !closedReporterRequest.scope.trim() ||
         typeof closedReporterRequest.action !== "string" ||
@@ -1632,14 +1675,22 @@ function validateHistoricalReactionMarks(
         requestReadback?.actorId !== sweepActorId ||
         requestReadback.kind !== "sweep" ||
         requestReadback.text !== request.text ||
-        !replyNamesHandoffAction(request.text, closedReporterRequest.action)
+        !replyNamesRecordedAction(
+          request.text,
+          closedReporterRequest.action,
+          closedReporterRequest.publicActionSummary,
+        )
       ) {
         throw new Error(
           `${label}: historical reporter request must tie its exact action to the captured request`,
         );
       }
       if (
-        !replyNamesHandoffAction(previous.text, closedReporterRequest.action)
+        !replyNamesRecordedAction(
+          previous.text,
+          closedReporterRequest.action,
+          closedReporterRequest.publicActionSummary,
+        )
       ) {
         throw new Error(
           `${label}: historical reporter action must match its prior captured status`,
@@ -1731,7 +1782,26 @@ function validateHistoricalReactionMarks(
         `${label}: a historical 🎫 needs the original accepted handoff and its withdrawal`,
       );
     }
-    if (!replyNamesHandoffAction(previous.text, handoff.action)) {
+    if (
+      handoff.publicActionSummary !== undefined &&
+      (typeof handoff.publicActionSummary !== "string" ||
+        !handoff.publicActionSummary.trim() ||
+        !publicActionSummaryMatchesAction(
+          handoff.action,
+          handoff.publicActionSummary,
+        ))
+    ) {
+      throw new Error(
+        `${label}: historical handoff publicActionSummary must be a concise prefix of its action`,
+      );
+    }
+    if (
+      !replyNamesRecordedAction(
+        previous.text,
+        handoff.action,
+        handoff.publicActionSummary,
+      )
+    ) {
       throw new Error(
         `${label}: historical handoff action must match its prior captured status`,
       );
@@ -1766,7 +1836,11 @@ function validateHistoricalReactionMarks(
     );
     const explicitAcceptance =
       replyExplicitlyAcceptsHandoff(acceptance.text) &&
-      replyNamesHandoffAction(acceptance.text, handoff.action);
+      replyNamesRecordedAction(
+        acceptance.text,
+        handoff.action,
+        handoff.publicActionSummary,
+      );
     const request = handoff.requestReply;
     if (
       !explicitAcceptance &&
@@ -1825,7 +1899,11 @@ function validateHistoricalReactionMarks(
       withdrawalReadback.actorId !== withdrawal.actorId ||
       withdrawalReadback.kind !== "human" ||
       withdrawalReadback.text !== withdrawal.text ||
-      !replyNamesHandoffAction(withdrawal.text, handoff.action) ||
+      !replyNamesRecordedAction(
+        withdrawal.text,
+        handoff.action,
+        handoff.publicActionSummary,
+      ) ||
       previousTs >= withdrawalTs
     ) {
       throw new Error(
@@ -8223,13 +8301,20 @@ if (args[0] === "--self-test" && args.length === 1) {
             if (parent.ts !== "10.000000") return parent;
             const originalStatus = parent.statusReply!;
             const reportScope = "reproduce the reported flow";
-            const action = parent.reporterRequests![0]!.action;
+            const action =
+              "send the link to check the flow from the browser session";
+            const publicActionSummary = "send the link";
             const previousStatus: StatusReply = {
               ...originalStatus,
-              text: originalStatus.text.replace(
-                " this was sent from a bot.",
-                ` Reporter request scope: ${reportScope}. this was sent from a bot.`,
-              ),
+              text: originalStatus.text
+                .replace(
+                  "Please send the link to check the flow",
+                  "Please send the link",
+                )
+                .replace(
+                  " this was sent from a bot.",
+                  ` Reporter request scope: ${reportScope}. this was sent from a bot.`,
+                ),
             };
             const requestReply: ReporterRequestReply = {
               ts: previousStatus.ts,
@@ -8258,12 +8343,13 @@ if (args[0] === "--self-test" && args.length === 1) {
               ts: answered ? "13.000000" : "345612.000000",
               disposition: statusDisposition,
               evidence: statusEvidence,
-              text: `${statusDisposition}: ${statusEvidence}. Reporter request scope: ${reportScope}. Historical 🎫 action ${action}: ${reason}. No :white_check_mark: — no scope has passed direct verification. this was sent from a bot.`,
+              text: `${statusDisposition}: ${statusEvidence}. Reporter request scope: ${reportScope}. Historical 🎫 action ${publicActionSummary}: ${reason}. No :white_check_mark: — no scope has passed direct verification. this was sent from a bot.`,
             };
             const closedReporterRequest: ClosedReporterRequest = answered
               ? {
                   scope: reportScope,
                   action,
+                  publicActionSummary,
                   requestReply,
                   resolution,
                   closureReply,
@@ -8271,6 +8357,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               : {
                   scope: reportScope,
                   action,
+                  publicActionSummary,
                   requestReply,
                   resolution,
                 };
@@ -8283,7 +8370,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               historicalReactionMarks: [
                 {
                   emoji: "ticket",
-                  scope: action,
+                  scope: reportScope,
                   reason,
                   previousStatus,
                   closedReporterRequest,
@@ -11702,12 +11789,16 @@ if (args[0] === "--self-test" && args.length === 1) {
       ticketHistoryBase.channels[0]!.pages[0]!.parents.find(
         (parent) => parent.ts === "10.000000",
       )!;
-    const originalHandoff = ticketHistoryParent.handoffs![0]!;
+    const originalHandoff: Handoff = {
+      ...ticketHistoryParent.handoffs![0]!,
+      action:
+        "choose the remaining behavior for the remaining design choice in the canvas",
+      publicActionSummary: "choose the remaining behavior",
+    };
     const originalTicketStatus: StatusReply = {
       ...ticketHistoryParent.statusReply!,
-      evidence:
-        "Alex Rivera will choose the remaining behavior for the remaining design choice",
-      text: "In progress: Alex Rivera will choose the remaining behavior for the remaining design choice. this was sent from a bot.",
+      evidence: "Alex Rivera will choose the remaining behavior",
+      text: "In progress: Alex Rivera will choose the remaining behavior. The remaining design choice is open. this was sent from a bot.",
     };
     const withdrawalReply = {
       ts: "12.500000",
@@ -11974,6 +12065,63 @@ if (args[0] === "--self-test" && args.length === 1) {
       "historical ticket with an unverified handoff owner",
       historicalTicketWithUnverifiedOwner,
       "historical handoff owner must match its prior captured status",
+    );
+    const historicalTicketWithInvalidPublicSummary = structuredClone(
+      historicalTicketInventory,
+    );
+    historicalTicketWithInvalidPublicSummary.channels[0]!.pages[0]!.parents =
+      historicalTicketWithInvalidPublicSummary.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.emoji === "ticket" && mark.handoff
+                      ? {
+                          ...mark,
+                          handoff: {
+                            ...mark.handoff,
+                            publicActionSummary: "review the billing flow",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical ticket with an unrelated public action summary",
+      historicalTicketWithInvalidPublicSummary,
+      "historical handoff publicActionSummary must be a concise prefix of its action",
+    );
+    const historicalReporterWithInvalidPublicSummary =
+      withClosedReporterRequestHistory();
+    historicalReporterWithInvalidPublicSummary.channels[0]!.pages[0]!.parents =
+      historicalReporterWithInvalidPublicSummary.channels[0]!.pages[0]!.parents.map(
+        (parent) =>
+          parent.ts === "10.000000"
+            ? {
+                ...parent,
+                historicalReactionMarks: parent.historicalReactionMarks?.map(
+                  (mark) =>
+                    mark.closedReporterRequest
+                      ? {
+                          ...mark,
+                          closedReporterRequest: {
+                            ...mark.closedReporterRequest,
+                            publicActionSummary: "open the billing flow",
+                          },
+                        }
+                      : mark,
+                ),
+              }
+            : parent,
+      );
+    expectHistoricalMarkFailure(
+      "historical reporter request with an unrelated public action summary",
+      historicalReporterWithInvalidPublicSummary,
+      "historical reporter publicActionSummary must be a concise prefix of its action",
     );
     const historicalCheckWithoutStatedDisposition = structuredClone(
       historicalCheckInventory,

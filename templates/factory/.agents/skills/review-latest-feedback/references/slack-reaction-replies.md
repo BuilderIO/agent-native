@@ -176,8 +176,9 @@ tracked by `🎫`, also preserve the exact earlier accepted `handoff` and owner
 `withdrawalReply`, and move it out of current `handoffs[]`. Keep that history
 in the internal ledger. The recorded evidence must appear in the captured prior
 status reply. For a historical `🎫`, that reply must name both the accepted
-action and its owner. The checker validates these records against the captured
-thread; never remove or clean up a reaction.
+action and its owner. When a recorded action has a validated `publicActionSummary`,
+captured replies may use that summary. The checker validates it against the
+recorded action and captured thread; never remove or clean up a reaction.
 Add `🎫` for each distinct unfinished team or engineering action that another
 person or team must perform outside this workflow, whether or not a named
 person has accepted it or an external tracker ticket exists. Record each such
