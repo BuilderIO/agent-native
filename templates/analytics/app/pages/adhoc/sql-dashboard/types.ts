@@ -1,3 +1,5 @@
+import type { PanelBreakdown } from "@shared/row-breakdown";
+
 export type DataSourceType =
   | "bigquery"
   | "ga4"
@@ -110,6 +112,7 @@ export interface PanelEvent {
   /** IANA zone for `time`, e.g. "America/New_York"; UTC when omitted. */
   timeZone?: string;
   label: string;
+  /** Optional SVG-safe hex color: #RGB, #RGBA, #RRGGBB, or #RRGGBBAA. */
   color?: string;
 }
 
@@ -134,6 +137,8 @@ export interface SqlPanelConfig {
   valueLabels?: Record<string, string>;
   sortable?: boolean;
   columns?: TableColumnConfig[];
+  /** Table only: columns a clicked row can be split by in the side panel. */
+  breakdowns?: PanelBreakdown[];
   limit?: number;
   extensionId?: string;
   extensionSlotId?: string;
@@ -190,6 +195,8 @@ export interface SqlDashboardConfig {
   columns?: number;
   panels: SqlPanel[];
   annotations?: DashboardAnnotations;
+  /** Panels the repair already delivered; a removed one stays removed only while this survives whole-config saves. */
+  introducedPanels?: string[];
 }
 
 /** Dashboard-level settings for key dates and data notes; per-panel `events` stay in panel config. */

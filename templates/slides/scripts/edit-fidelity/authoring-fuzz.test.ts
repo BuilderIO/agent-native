@@ -57,6 +57,9 @@ import {
   isExpectedSaveReloadRetiredBrowserSessionCorsError,
   isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
+  isRecoveredSaveReloadActionAbort,
+  isRecoverableSaveReloadActionAbortCandidate,
+  waitForPendingSaveReloadActionAbortRecoveries,
   isExpectedReadOnlyStatusProbeAbort,
   isExpectedReadOnlyStatusProbeCorsConsoleError,
   isRecentReadOnlyStatusProbeSettle,
@@ -1495,9 +1498,38 @@ it("defers status probes to strict navigation evidence in the reload abort match
       "/_agent-native/actions/get-deck-access-status",
       "NS_BINDING_ABORTED",
       "save/reload",
-      undefined,
+      "GET",
       true,
       100,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      true,
+      30_000,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      30_000,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSameOriginSaveReloadAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "GET",
+      true,
     ),
   ).toBe(false);
   expect(
@@ -1698,7 +1730,7 @@ it("defers status probes to strict navigation evidence in the reload abort match
       "/_agent-native/actions/get-deck-access-status",
       "net::ERR_ABORTED",
       "save/reload",
-      undefined,
+      "GET",
       true,
       100,
     ),
@@ -1761,6 +1793,116 @@ it("does not suppress cross-origin request aborts", () => {
       false,
     ),
   ).toBe(false);
+});
+
+it("only recovers a quick deck-status abort after the same reload request succeeds", () => {
+  const aborted = {
+    pathname: "/_agent-native/actions/get-deck-access-status",
+    method: "GET",
+    errorText: "net::ERR_ABORTED",
+    activePhase: "save/reload",
+    requestStartedAt: 1_943,
+    failedAt: 1_955,
+    reloadStartedAt: 0,
+    sameOrigin: true,
+  };
+  expect(isRecoverableSaveReloadActionAbortCandidate(aborted)).toBe(true);
+  expect(
+    isRecoverableSaveReloadActionAbortCandidate({
+      ...aborted,
+      errorText: "Failed to fetch",
+    }),
+  ).toBe(false);
+  expect(
+    isRecoverableSaveReloadActionAbortCandidate({
+      ...aborted,
+      failedAt: aborted.requestStartedAt + 251,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoverableSaveReloadActionAbortCandidate({
+      ...aborted,
+      requestStartedAt: 9_000,
+    }),
+  ).toBe(false);
+
+  const url =
+    "http://localhost:50868/_agent-native/actions/get-deck-access-status?deckId=deck-1";
+  const pendingAbort = { url, failedAt: aborted.failedAt };
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 1_968,
+      status: 200,
+    }),
+  ).toBe(true);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url: `${url}&another=1`,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 1_968,
+      status: 200,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_954,
+      responseAt: 1_968,
+      status: 200,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 1_968,
+      status: 500,
+    }),
+  ).toBe(false);
+  expect(
+    isRecoveredSaveReloadActionAbort(pendingAbort, {
+      url,
+      method: "GET",
+      requestStartedAt: 1_956,
+      responseAt: 2_956,
+      status: 200,
+    }),
+  ).toBe(false);
+});
+
+it("waits through the deck-status retry window before failing a pending abort", async () => {
+  vi.useFakeTimers();
+  try {
+    const url =
+      "http://localhost:50868/_agent-native/actions/get-deck-access-status?deckId=deck-1";
+    const pending = new Map([
+      [url, { failedAt: Date.now(), message: `request failed: ${url}` }],
+    ]);
+    let errors: string[] | undefined;
+    const waiting = waitForPendingSaveReloadActionAbortRecoveries(pending).then(
+      (result) => {
+        errors = result;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(errors).toBeUndefined();
+    expect(pending.has(url)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await waiting;
+    expect(errors).toEqual([`request failed: ${url}`]);
+    expect(pending.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("ignores only WebKit CORS console errors for requests canceled by reload", () => {

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import type { DesignPaintType } from "./DesignColorPicker";
+
 /**
  * A request for the second picker that opens beside the panel, level with the
  * row whose swatch was clicked: one gradient stop, or one shader color.
@@ -19,6 +21,10 @@ export interface NestedColorRequest {
    * picker offers neither opacity nor the wide-gamut modes.
    */
   opaqueSrgb?: boolean;
+  supportedPaintTypes?: DesignPaintType[];
+  maxGradientStops?: number;
+  showReverseStops?: boolean;
+  disabled?: boolean;
 }
 
 /**

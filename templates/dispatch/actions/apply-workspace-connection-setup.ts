@@ -67,6 +67,11 @@ function assertSafeCredentialRefKey(key: string) {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Apply a planned workspace integration setup or repair using credential reference names only.",
   chatUI: {
@@ -113,6 +118,10 @@ export default defineAction({
       .optional()
       .describe("Workspace user group IDs allowed to use the connection."),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {

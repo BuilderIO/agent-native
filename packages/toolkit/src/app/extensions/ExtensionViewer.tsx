@@ -53,6 +53,10 @@ import {
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
 import {
+  extensionFrameNameWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+import {
   extensionLoadError,
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
@@ -104,8 +108,10 @@ const THEME_CSS_VARS = [
   "--sidebar-ring",
 ];
 
-const EXTENSION_IFRAME_SANDBOX =
-  normalizeAgentNativeExtensionSandbox(undefined);
+const EXTENSION_IFRAME_SANDBOX = normalizeAgentNativeExtensionSandbox(
+  undefined,
+  { mode: "nonce" },
+);
 
 function getParentThemeVars(): Record<string, string> {
   const computed = getComputedStyle(document.documentElement);
@@ -181,6 +187,8 @@ function buildExtensionViewerSrcDoc(
   extension: Extension,
   isDark: boolean,
   metaCsp: string,
+  linkNonce: string | undefined,
+  enableExternalLinkBridge: boolean,
 ): string {
   const role = extensionRole(extension.role);
   return buildExtensionHtml(
@@ -197,6 +205,8 @@ function buildExtensionViewerSrcDoc(
       permissions: extension.source?.permissions,
     },
     metaCsp,
+    linkNonce,
+    enableExternalLinkBridge,
   );
 }
 
@@ -1035,6 +1045,39 @@ export function ExtensionViewer({
   });
 
   toolRef.current = extension ?? null;
+  const iframeKey = `${extension?.updatedAt ?? ""}-${refreshKey}`;
+  const usesSrcDoc = !!extension?.content && isEmbedMcpChatBridgeActive();
+  // The srcDoc frame applies the deployment's configured img-src / media-src,
+  // fetched from the server; wait for it rather than loading the frame twice.
+  const iframeMetaCsp = useExtensionIframeMetaCsp(usesSrcDoc);
+  const linkDocumentIdentity = useMemo(
+    () => ({
+      iframeKey,
+      extensionId: usesSrcDoc ? extension?.id : undefined,
+      content: usesSrcDoc ? extension?.content : undefined,
+      ownerEmail: usesSrcDoc ? extension?.ownerEmail : undefined,
+      role: usesSrcDoc ? extension?.role : undefined,
+      sourceMode: usesSrcDoc ? extension?.source?.mode : undefined,
+      permissions: usesSrcDoc ? extension?.source?.permissions : undefined,
+      isDark: usesSrcDoc ? isDark : undefined,
+      metaCsp: usesSrcDoc ? iframeMetaCsp : undefined,
+    }),
+    [
+      extension?.content,
+      extension?.id,
+      extension?.ownerEmail,
+      extension?.role,
+      extension?.source?.mode,
+      extension?.source?.permissions,
+      iframeKey,
+      iframeMetaCsp,
+      isDark,
+      usesSrcDoc,
+    ],
+  );
+  const linkNonce = useExternalExtensionLinks(iframeRef, linkDocumentIdentity, {
+    enabled: true,
+  });
 
   useEffect(() => {
     if (!extension) return;
@@ -1059,22 +1102,23 @@ export function ExtensionViewer({
     return applyCanonicalLink(canonicalPath);
   }, [extension, location.hash, location.pathname, location.search, navigate]);
 
-  const iframeSrc = useMemo(
-    () =>
-      agentNativePath(
-        `/_agent-native/extensions/${extensionId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(extension?.updatedAt ?? "")}&r=${refreshKey}`,
-      ),
-    [extensionId, extension?.updatedAt, refreshKey],
-  );
-  const usesSrcDoc = !!extension?.content && isEmbedMcpChatBridgeActive();
-  // The srcDoc frame applies the deployment's configured img-src / media-src,
-  // fetched from the server; wait for it rather than loading the frame twice.
-  const iframeMetaCsp = useExtensionIframeMetaCsp(usesSrcDoc);
+  const iframeSrc = useMemo(() => {
+    return agentNativePath(
+      `/_agent-native/extensions/${extensionId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(extension?.updatedAt ?? "")}&r=${refreshKey}`,
+    );
+  }, [extensionId, extension?.updatedAt, refreshKey]);
   const iframeSrcDoc = useMemo(() => {
-    if (!extension || !usesSrcDoc || !iframeMetaCsp) return undefined;
-    return buildExtensionViewerSrcDoc(extension, isDark, iframeMetaCsp);
-  }, [extension, iframeMetaCsp, isDark, usesSrcDoc]);
-
+    if (!extension || !usesSrcDoc || !iframeMetaCsp || !linkNonce) {
+      return undefined;
+    }
+    return buildExtensionViewerSrcDoc(
+      extension,
+      isDark,
+      iframeMetaCsp,
+      linkNonce,
+      true,
+    );
+  }, [extension, iframeMetaCsp, isDark, linkNonce, usesSrcDoc]);
   const frameKey = useExtensionFrameKey(
     `${extensionId}|${extension?.updatedAt}|${refreshKey}|${usesSrcDoc ? "" : iframeSrc}|${iframeSrcDoc ?? ""}`,
   );
@@ -1305,9 +1349,14 @@ export function ExtensionViewer({
           <iframe
             {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
-            key={`${extension.updatedAt}-${refreshKey}-${frameKey}`}
-            src={usesSrcDoc ? undefined : iframeSrc}
-            srcDoc={iframeSrcDoc}
+            key={`${extension.updatedAt}-${refreshKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
+            name={
+              extension && !usesSrcDoc && linkNonce
+                ? extensionFrameNameWithLinkNonce(linkNonce)
+                : undefined
+            }
+            src={extension && !usesSrcDoc && linkNonce ? iframeSrc : undefined}
+            srcDoc={usesSrcDoc ? iframeSrcDoc : undefined}
             className="h-full w-full border-0"
             sandbox={EXTENSION_IFRAME_SANDBOX}
             title={extension.name}

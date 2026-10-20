@@ -1,7 +1,12 @@
 import { useParams } from "react-router";
 
+import {
+  DesignStylesheetsContext,
+  designStylesheetsKey,
+} from "@/components/design/design-canvas/linked-stylesheets";
 import { useContainHorizontalOverscroll } from "@/hooks/use-contain-horizontal-overscroll";
 
+import { AgentChatContextBookkeeping } from "./design-editor/agent-chat-context-bookkeeping";
 import { renderDesignEditorView } from "./design-editor/design-editor-view";
 import { useEditorActiveScreenAndGeometry } from "./design-editor/domains/use-editor-active-screen-and-geometry";
 import { useEditorCanvasAndScreens } from "./design-editor/domains/use-editor-canvas-and-screens";
@@ -256,7 +261,7 @@ function DesignEditor() {
     editorLayerActions,
     editorSourceAndSync,
   });
-  return renderDesignEditorView({
+  const view = renderDesignEditorView({
     editorCore,
     editorHistory,
     editorGenerationAndAccess,
@@ -279,4 +284,15 @@ function DesignEditor() {
     editorSourceAndSync,
     editorScreenRendering,
   });
+  return (
+    <DesignStylesheetsContext.Provider
+      value={designStylesheetsKey(editorFilesAndSaving.files)}
+    >
+      <AgentChatContextBookkeeping
+        enabled={editorCore.isSignedIn}
+        presentRef={editorToolsAndVectors.composerContextHasOurKeyRef}
+      />
+      {view}
+    </DesignStylesheetsContext.Provider>
+  );
 }

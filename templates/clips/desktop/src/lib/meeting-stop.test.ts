@@ -6,11 +6,43 @@ import {
   isTerminalMeetingStopError,
   isTerminalTranscriptSaveError,
   isTerminalTranscriptSaveResult,
+  resolveMeetingStopCompletion,
   shouldHoldQuitForTranscriptRecovery,
   stopMeetingBeforeTranscriptFlush,
 } from "./meeting-stop";
 
 describe("stopMeetingBeforeTranscriptFlush", () => {
+  it("propagates incomplete stops to concurrent callers", () => {
+    const error = new ClipsActionError(
+      "Transcript could not be saved",
+      403,
+      "forbidden",
+    );
+
+    expect(() =>
+      resolveMeetingStopCompletion({
+        completed: false,
+        holdQuit: false,
+        error,
+      }),
+    ).toThrow(error);
+  });
+
+  it("keeps quit pending and accepts only confirmed stop completion", () => {
+    expect(
+      resolveMeetingStopCompletion({
+        completed: false,
+        holdQuit: true,
+        error: new ClipsActionError(
+          "Transcript could not be saved",
+          403,
+          "forbidden",
+        ),
+      }),
+    ).toBe("hold-quit");
+    expect(resolveMeetingStopCompletion({ completed: true })).toBe("completed");
+  });
+
   it("only discards a terminally unsaved meeting for its queued replacement", () => {
     const request = {
       quitting: false,

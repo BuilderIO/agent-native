@@ -48,7 +48,9 @@ export function designEditorCommandFromSearchParams(
 ): DesignEditorCommand | null {
   const requestedEditorView = designEditorViewFromSearchParams(searchParams);
   const editorView =
-    requestedEditorView === "single" ? "overview" : requestedEditorView;
+    requestedEditorView === "single" && !searchParams.has("editorView")
+      ? "overview"
+      : requestedEditorView;
   const inspector = searchParams.get("inspector");
   const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
   const screen =
@@ -57,7 +59,9 @@ export function designEditorCommandFromSearchParams(
     searchParams.get("filename");
   const selection = searchParams.get("selection");
   const rawZoom =
-    requestedEditorView === "single" ? null : searchParams.get("zoom");
+    requestedEditorView === "single" && editorView === "overview"
+      ? null
+      : searchParams.get("zoom");
   const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
   if (

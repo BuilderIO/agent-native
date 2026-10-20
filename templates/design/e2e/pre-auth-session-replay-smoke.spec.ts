@@ -68,6 +68,9 @@ function watchPage(page: Page, baseURL: string) {
   const consoleErrors: string[] = [];
   const failedResponses: string[] = [];
   const requestFailures: string[] = [];
+  // A query the app cancels and refetches while sign-in settles aborts its first
+  // request; only an abort that nothing later retried is a failure.
+  const unretriedAborts = new Map<string, string>();
   const appOrigin = new URL(baseURL).origin;
   page.on("console", (message) => {
     const text = message.text();
@@ -79,6 +82,7 @@ function watchPage(page: Page, baseURL: string) {
   page.on("response", (response) => {
     const { origin, pathname } = new URL(response.url());
     if (origin !== appOrigin) return;
+    if (response.ok()) unretriedAborts.delete(response.url());
     // Vite can invalidate one lazy dependency while optimizing a cold dev server.
     if (
       response.status() >= 400 &&
@@ -100,19 +104,24 @@ function watchPage(page: Page, baseURL: string) {
       ) {
         return;
       }
+      if (errorText === "net::ERR_ABORTED") {
+        unretriedAborts.set(request.url(), `${pathname} ${errorText}`);
+        return;
+      }
       requestFailures.push(`${pathname} ${errorText}`);
     }
   });
   return {
     consoleErrors,
     failedResponses,
-    requestFailures,
+    get requestFailures() {
+      return [...requestFailures, ...unretriedAborts.values()];
+    },
   };
 }
 
 // Coverage is limited to payload privacy and auth continuity.
-// fixme: needs a different environment
-test.fixme("pre-auth recording stays anonymous through signup and masks abandonment", async ({
+test("pre-auth recording stays anonymous through signup and masks abandonment", async ({
   browser,
 }, testInfo) => {
   // The isolated auth setup is a payload-test precondition.

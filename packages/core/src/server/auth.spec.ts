@@ -3772,6 +3772,17 @@ describe("server/auth", () => {
     it("allows standalone Dispatch APIs for organization members", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
+      // Mocked because the worker's shared database may or may not already
+      // hold the org tables, and the real check allows Dispatch when they are
+      // missing — so an unmocked run passes or fails on earlier specs.
+      const isWorkspaceAppAccessAllowed = vi.fn(async () => true);
+      vi.doMock("../org/workspace-app-access.js", async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../org/workspace-app-access.js")
+        >()),
+        isWorkspaceAppAccessAllowed,
+        checkWorkspaceAppAccess: isWorkspaceAppAccessAllowed,
+      }));
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -3791,6 +3802,10 @@ describe("server/auth", () => {
 
       await expect(guard(event)).resolves.toBeUndefined();
       expect(event.res.status).not.toBe(403);
+      expect(isWorkspaceAppAccessAllowed).toHaveBeenCalledWith("dispatch", {
+        email: "member@example.com",
+        orgId: "org-1",
+      });
     });
 
     it("does not apply Dispatch access to a renamed Dispatch scaffold", async () => {

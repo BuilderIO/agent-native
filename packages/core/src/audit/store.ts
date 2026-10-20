@@ -68,16 +68,9 @@ export const auditStore = defineStore({
         ];
 
         await ensureTableExists("agent_audit_log", AGENT_AUDIT_LOG_CREATE_SQL);
-        // `app` and the attribution columns are added here rather than in the
-        // base CREATE, which org migration 1032 replays verbatim.
-        for (const column of [
-          ...lineageColumns,
-          "app",
-          "reported_client_name",
-          "reported_client_version",
-          "oauth_client_id",
-          "approval",
-        ]) {
+        // `app` is added here rather than in the base CREATE, which org
+        // migration 1032 replays verbatim.
+        for (const column of [...lineageColumns, "app"]) {
           await ensureColumnExists(
             "agent_audit_log",
             column,
@@ -114,11 +107,29 @@ export const auditStore = defineStore({
         );
       },
     },
+    {
+      // Not in the base CREATE either, for the same reason as `app`.
+      name: "mcp-client-attribution",
+      sql: [
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS reported_client_name TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS reported_client_version TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS oauth_client_id TEXT",
+        "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS approval TEXT",
+      ],
+    },
   ],
 });
 
 export function ensureAuditTables(): Promise<void> {
   return auditStore.ready();
+}
+
+// PostgreSQL text cannot hold NUL. One in any value, such as a summary built
+// from the call's arguments, would fail the insert and lose the whole row.
+function storableText(value: unknown): unknown {
+  return typeof value === "string"
+    ? value.replaceAll("\u0000", "\uFFFD")
+    : value;
 }
 
 export async function insertAuditEvent(event: AuditEvent): Promise<void> {
@@ -166,7 +177,7 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
       event.reportedClientVersion ?? null,
       event.oauthClientId ?? null,
       event.approval ?? null,
-    ],
+    ].map(storableText),
   });
 }
 

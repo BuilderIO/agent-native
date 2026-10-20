@@ -168,16 +168,16 @@ describe("runPastedImageFiles", () => {
     expect(createObjectURL).toHaveBeenCalledWith(file);
     expect(updates).toHaveLength(0);
     expect(previews[0]).toContain('src="blob:preview"');
-    expect(previews[0]).toContain("width: 160px");
-    expect(previews[0]).toContain("height: 90px");
+    expect(previews[0]).toMatch(/width:\s*160px/);
+    expect(previews[0]).toMatch(/height:\s*90px/);
     expect(upload).toHaveBeenCalledWith(file);
 
     resolveUpload("https://cdn.example/photo.png");
     await vi.waitFor(() => expect(updates).toHaveLength(1));
 
     expect(updates[0]?.content).toContain("https://cdn.example/photo.png");
-    expect(updates[0]?.content).toContain("width: 160px");
-    expect(updates[0]?.content).toContain("height: 90px");
+    expect(updates[0]?.content).toMatch(/width:\s*160px/);
+    expect(updates[0]?.content).toMatch(/height:\s*90px/);
     expect(updates[0]?.content).not.toContain("blob:preview");
     expect(updates[0]?.persist).toBeUndefined();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview");
@@ -203,10 +203,10 @@ describe("runPastedImageFiles", () => {
     );
 
     await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
-    expect(previews[0]).toContain("width: 17px");
-    expect(previews[0]).toContain("height: 9px");
-    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toContain("width: 17px");
-    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toContain("height: 9px");
+    expect(previews[0]).toMatch(/width:\s*17px/);
+    expect(previews[0]).toMatch(/height:\s*9px/);
+    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toMatch(/width:\s*17px/);
+    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toMatch(/height:\s*9px/);
   });
 
   it("removes the local preview when the upload returns no URL", async () => {
@@ -355,8 +355,8 @@ describe("runPastedImageFiles", () => {
       '<video src="blob:preview-video"',
     );
     expect(currentContent).toContain('src="https://cdn.example/prototype.mp4"');
-    expect(currentContent).toContain("width: 640px");
-    expect(currentContent).toContain("height: 360px");
+    expect(currentContent).toMatch(/width:\s*640px/);
+    expect(currentContent).toMatch(/height:\s*360px/);
     expect(currentContent).not.toContain("blob:preview-video");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-video");
   });

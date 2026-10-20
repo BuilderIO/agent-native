@@ -74,6 +74,8 @@ const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
 const saveOAuthTokens = vi.fn();
+const resolveOAuthTokenBundleAccess = vi.fn();
+let tokenBundleRefreshTail = Promise.resolve();
 const deleteOAuthTokens = vi.fn();
 const resolveWorkspaceConnectionForApp = vi.fn();
 const resolveWorkspaceConnectionCredentialForApp = vi.fn();
@@ -95,6 +97,7 @@ vi.mock("../extensions/url-safety.js", () => ({
 vi.mock("../oauth-tokens/index.js", () => ({
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
+  resolveOAuthTokenBundleAccess,
   saveOAuthTokens,
 }));
 
@@ -184,6 +187,56 @@ describe("provider API runtime", () => {
     listOAuthAccountsByOwner.mockReset();
     listOAuthAccountsByOwner.mockResolvedValue([]);
     saveOAuthTokens.mockReset();
+    tokenBundleRefreshTail = Promise.resolve();
+    resolveOAuthTokenBundleAccess.mockReset();
+    resolveOAuthTokenBundleAccess.mockImplementation(
+      async (
+        identity: { provider: string; accountId: string },
+        options: {
+          storageOwner: string;
+          shouldRefresh: (
+            tokens: Record<string, unknown>,
+            now: number,
+          ) => boolean;
+          refresh: (
+            tokens: Record<string, unknown>,
+          ) => Promise<Record<string, unknown>>;
+        },
+      ) => {
+        const previous = tokenBundleRefreshTail;
+        let release!: () => void;
+        tokenBundleRefreshTail = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          const account = (
+            await listOAuthAccountsByOwner(
+              identity.provider,
+              options.storageOwner,
+            )
+          ).find(
+            (candidate: { accountId: string }) =>
+              candidate.accountId === identity.accountId,
+          );
+          const tokens = account?.tokens as Record<string, unknown> | undefined;
+          if (!tokens || typeof tokens.access_token !== "string") {
+            throw new Error("OAuth token bundle is no longer available.");
+          }
+          if (!options.shouldRefresh(tokens, Date.now())) return tokens;
+          const refreshed = await options.refresh(tokens);
+          await saveOAuthTokens(
+            identity.provider,
+            identity.accountId,
+            refreshed,
+            options.storageOwner,
+          );
+          return refreshed;
+        } finally {
+          release();
+        }
+      },
+    );
     deleteOAuthTokens.mockReset();
     resolveWorkspaceConnectionForApp.mockReset();
     resolveWorkspaceConnectionCredentialForApp.mockReset();
@@ -269,11 +322,12 @@ describe("provider API runtime", () => {
         connectionId?: string | null;
         ctx: typeof credentialContext;
       }) => {
-        if (key === "SIGMA_BASE_URL") return null;
         const value =
-          key === "SIGMA_CLIENT_ID"
-            ? "fake-sigma-client-id"
-            : "fake-sigma-client-secret";
+          key === "SIGMA_BASE_URL"
+            ? "https://tenant.sigmacomputing.com"
+            : key === "SIGMA_CLIENT_ID"
+              ? "fake-sigma-client-id"
+              : "fake-sigma-client-secret";
         return {
           key,
           value,
@@ -312,7 +366,7 @@ describe("provider API runtime", () => {
         "SIGMA_CLIENT_SECRET",
         "SIGMA_BASE_URL",
       ],
-      auth: "oauth-client-credentials:sigma",
+      auth: "oauth-bearer:sigma-or-oauth-client-credentials:sigma",
     });
     expect(resolveCredential).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -325,7 +379,7 @@ describe("provider API runtime", () => {
     );
     expect(calls).toHaveLength(2);
     expect(calls[0]?.url).toBe(
-      "https://aws-api.sigmacomputing.com/v2/auth/token",
+      "https://tenant.sigmacomputing.com/v2/auth/token",
     );
     expect(calls[0]?.init?.method).toBe("POST");
     const tokenBody = new URLSearchParams(String(calls[0]?.init?.body));
@@ -333,7 +387,7 @@ describe("provider API runtime", () => {
     expect(tokenBody.get("client_id")).toBe("fake-sigma-client-id");
     expect(tokenBody.get("client_secret")).toBe("fake-sigma-client-secret");
     expect(calls[1]?.url).toBe(
-      "https://aws-api.sigmacomputing.com/v2/workbooks",
+      "https://tenant.sigmacomputing.com/v2/workbooks",
     );
     expect(calls[1]?.init?.headers).toMatchObject({
       Authorization: "Bearer fake-sigma-token",
@@ -374,11 +428,271 @@ describe("provider API runtime", () => {
           path: "/v2/workbooks",
           connectionId: "sigma-connection",
         }),
-      ).rejects.toThrow(/configured provider host/);
+      ).rejects.toThrow(/region is not supported/);
       expect(globalThis.fetch).not.toHaveBeenCalled();
       expect(resolveCredential).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("uses the selected Sigma OAuth connection and refreshes its token", async () => {
+    const connection = {
+      id: "sigma-oauth-connection",
+      provider: "sigma",
+      label: "Sigma: Ada",
+      accountId: "org-1:user-1::ada@example.com",
+      ownerEmail: "ada@example.com",
+      orgId: "org-1",
+      config: {
+        credentialMode: "oauth",
+        sigmaBaseUrl: "https://aws-api.sigmacomputing.com",
+      },
+      scopes: ["api:access"],
+      status: "connected",
+    };
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection,
+      appAccess: { available: true },
+      reason: "",
+    });
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: connection.accountId,
+        displayName: "Ada",
+        tokens: {
+          access_token: "expired-sigma-token",
+          expiry_date: Date.now() - 1_000,
+          refresh_token: "sigma-refresh-token",
+          sigma_api_base_url: "https://aws-api.sigmacomputing.com",
+          sigma_token_url: "https://aws-api.sigmacomputing.com/mcp/token",
+          sigma_client_id: "sigma-oauth-client-id",
+          sigma_token_endpoint_auth_method: "none",
+        },
+      },
+    ]);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/mcp/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "fresh-access-token",
+              refresh_token: "rotated-sigma-refresh-token",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: vi.fn(),
+    });
+
+    const result = await runtime.executeRequest({
+      provider: "sigma",
+      path: "/v2/workbooks",
+      connectionId: connection.id,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://aws-api.sigmacomputing.com/mcp/token",
+    );
+    const refreshBody = new URLSearchParams(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    );
+    expect(refreshBody.get("refresh_token")).toBe("sigma-refresh-token");
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer fresh-access-token",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "sigma",
+      connection.accountId,
+      expect.objectContaining({
+        access_token: "fresh-access-token",
+        refresh_token: "rotated-sigma-refresh-token",
+      }),
+      "ada@example.com",
+    );
+    expect(JSON.stringify(result)).not.toContain("fresh-access-token");
+  });
+
+  it("refreshes a rotating Sigma token only once when requests race", async () => {
+    const connection = {
+      id: "sigma-oauth-connection",
+      provider: "sigma",
+      label: "Sigma: Ada",
+      accountId: "org-1:user-1::ada@example.com",
+      ownerEmail: "ada@example.com",
+      orgId: "org-1",
+      config: {
+        credentialMode: "oauth",
+        sigmaBaseUrl: "https://aws-api.sigmacomputing.com",
+      },
+      scopes: ["api:access"],
+      status: "connected",
+    };
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection,
+      appAccess: { available: true },
+      reason: "",
+    });
+    const originalTokens = {
+      access_token: "expired-sigma-token",
+      expiry_date: Date.now() - 1_000,
+      refresh_token: "sigma-refresh-token",
+      sigma_api_base_url: "https://aws-api.sigmacomputing.com",
+      sigma_token_url: "https://aws-api.sigmacomputing.com/mcp/token",
+      sigma_client_id: "sigma-oauth-client-id",
+      sigma_token_endpoint_auth_method: "none" as const,
+    };
+    let storedTokens: Record<string, unknown> = originalTokens;
+    listOAuthAccountsByOwner.mockImplementation(async () => [
+      {
+        accountId: connection.accountId,
+        displayName: "Ada",
+        tokens: { ...storedTokens },
+      },
+    ]);
+    saveOAuthTokens.mockImplementation(
+      async (_provider, _accountId, tokens) => {
+        storedTokens = { ...storedTokens, ...tokens };
+      },
+    );
+
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/mcp/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "fresh-access-token",
+              refresh_token: "rotated-sigma-refresh-token",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: vi.fn(),
+    });
+
+    await Promise.all([
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        query: { page: 1 },
+        connectionId: connection.id,
+      }),
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        query: { page: 2 },
+        connectionId: connection.id,
+      }),
+    ]);
+
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/mcp/token"),
+      ),
+    ).toHaveLength(1);
+    expect(saveOAuthTokens).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.filter(([, init]) =>
+        String(
+          init?.headers && new Headers(init.headers).get("Authorization"),
+        ).includes("fresh-access-token"),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("rejects a Sigma refresh response without a valid token lifetime", async () => {
+    const connection = {
+      id: "sigma-oauth-connection",
+      provider: "sigma",
+      label: "Sigma: Ada",
+      accountId: "org-1:user-1::ada@example.com",
+      ownerEmail: "ada@example.com",
+      orgId: "org-1",
+      config: {
+        credentialMode: "oauth",
+        sigmaBaseUrl: "https://aws-api.sigmacomputing.com",
+      },
+      scopes: ["api:access"],
+      status: "connected",
+    };
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection,
+      appAccess: { available: true },
+      reason: "",
+    });
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: connection.accountId,
+        displayName: "Ada",
+        tokens: {
+          access_token: "expired-sigma-token",
+          expiry_date: Date.now() - 1_000,
+          refresh_token: "sigma-refresh-token",
+          sigma_api_base_url: "https://aws-api.sigmacomputing.com",
+          sigma_token_url: "https://aws-api.sigmacomputing.com/mcp/token",
+          sigma_client_id: "sigma-oauth-client-id",
+          sigma_token_endpoint_auth_method: "none",
+        },
+      },
+    ]);
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: RequestInfo | URL) =>
+        String(input).endsWith("/mcp/token")
+          ? new Response(
+              JSON.stringify({ access_token: "fresh-access-token" }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            )
+          : new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: vi.fn(),
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        connectionId: connection.id,
+      }),
+    ).rejects.toThrow(
+      "Sigma OAuth refresh returned an invalid token lifetime.",
+    );
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
 
   it("allows the configured provider origin alongside registered host suffixes", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
@@ -3952,6 +4266,214 @@ describe("provider API runtime", () => {
     expect(result.content.mode).toBe("matches");
     expect(result.content.totalMatches).toBe(2);
     expect(result.content.matches[0].match).toBe("GET /crm/v3/objects/deals");
+  });
+
+  describe("docs redirects", () => {
+    const docsRuntime = () =>
+      createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+      });
+    const redirect = (location: string | null, status = 308) =>
+      new Response(null, {
+        status,
+        headers: location ? { location } : {},
+      });
+    const docsPage = () =>
+      new Response(
+        `<!doctype html><html><body><main><h1>Moved Deals API</h1><a href="pagination">Pagination</a></main></body></html>`,
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+
+    it("stops reading at the byte cap and never reads a redirect body", async () => {
+      // An endless body with no Content-Length: reading it to the end would
+      // never finish, so the request only returns if the reader stops.
+      const endless = (status: number, headers: Record<string, string>) => {
+        const chunk = new TextEncoder().encode("x".repeat(600));
+        const body = { pulls: 0, cancelled: false };
+        const response = new Response(
+          new ReadableStream(
+            {
+              pull(controller) {
+                body.pulls++;
+                controller.enqueue(chunk);
+              },
+              cancel() {
+                body.cancelled = true;
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { status, headers },
+        );
+        return { response, body };
+      };
+      const hop = endless(308, { location: "/docs/moved" });
+      const page = endless(200, { "content-type": "text/plain" });
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(hop.response)
+        .mockResolvedValueOnce(page.response);
+
+      const result = (await docsRuntime().fetchDocs({
+        provider: "hubspot",
+        url: "https://developers.hubspot.com/docs/old",
+        maxBytes: 1_000,
+        responseMode: "raw",
+      })) as any;
+
+      expect(hop.body).toEqual({ pulls: 0, cancelled: true });
+      expect(page.body).toEqual({ pulls: 2, cancelled: true });
+      expect(result.response).toMatchObject({
+        truncated: true,
+        size: 1_200,
+        sizeIsLowerBound: true,
+      });
+      expect(result.response.text).toHaveLength(1_000);
+    });
+
+    it("follows a public redirect without credentials and reports the final URL", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(redirect("/docs/reference/api/crm/deals"))
+        .mockResolvedValueOnce(
+          redirect("https://docs.hubspot.example/reference/deals/", 301),
+        )
+        .mockResolvedValueOnce(docsPage());
+
+      const result = (await docsRuntime().fetchDocs({
+        provider: "hubspot",
+        url: "https://developers.hubspot.com/docs/api/crm/deals",
+      })) as any;
+
+      expect(result.request).toEqual({
+        url: "https://developers.hubspot.com/docs/api/crm/deals",
+        finalUrl: "https://docs.hubspot.example/reference/deals/",
+      });
+      expect(result.response).toMatchObject({ status: 200, ok: true });
+      expect(result.content.content).toContain("Moved Deals API");
+      expect(result.content.links).toEqual([
+        {
+          text: "Pagination",
+          url: "https://docs.hubspot.example/reference/deals/pagination",
+        },
+      ]);
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+        "https://developers.hubspot.com/docs/api/crm/deals",
+        "https://developers.hubspot.com/docs/reference/api/crm/deals",
+        "https://docs.hubspot.example/reference/deals/",
+      ]);
+      for (const [, init] of fetchMock.mock.calls) {
+        expect(init?.redirect).toBe("manual");
+        expect(init?.headers).toBeUndefined();
+      }
+      expect(vi.mocked(isBlockedExtensionUrlWithDns).mock.calls).toEqual([
+        ["https://developers.hubspot.com/docs/api/crm/deals"],
+        ["https://developers.hubspot.com/docs/reference/api/crm/deals"],
+        ["https://docs.hubspot.example/reference/deals/"],
+      ]);
+    });
+
+    it("blocks a redirect to a private address before fetching it", async () => {
+      isBlockedExtensionUrlWithDns.mockImplementation(async (url: string) =>
+        url.startsWith("http://127.0.0.1"),
+      );
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(redirect("http://127.0.0.1:8080/admin", 302));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_blocked",
+        message: expect.stringContaining("http://127.0.0.1:8080/admin"),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("blocks a redirect to a non-http(s) URL", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        redirect("file:///etc/passwd", 302),
+      );
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({ errorCode: "provider_docs_redirect_blocked" });
+    });
+
+    it("fails after too many redirects", async () => {
+      let hop = 0;
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async () => redirect(`/docs/hop-${++hop}`));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_too_many_redirects",
+        details: expect.objectContaining({ redirects: 5 }),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    });
+
+    it("fails on a redirect loop", async () => {
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(redirect("/docs/b"))
+        .mockResolvedValueOnce(redirect("/docs/a#top"));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/a",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_loop",
+        message: expect.stringContaining("loop"),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails on a redirect without a Location", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(redirect(null));
+
+      await expect(
+        docsRuntime().fetchDocs({
+          provider: "hubspot",
+          url: "https://developers.hubspot.com/docs/api/crm/deals",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "provider_docs_redirect_missing_location",
+      });
+    });
+
+    it("does not follow redirects on credentialed provider requests", async () => {
+      resolveCredential.mockResolvedValue("hubspot-token");
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          redirect("https://attacker.example/crm/v3/objects/deals"),
+        );
+
+      const result = (await docsRuntime().executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+      })) as any;
+
+      expect(result.response).toMatchObject({ status: 308, ok: false });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
+    });
   });
 
   it("deletes stale Google OAuth grants after permanent refresh failures", async () => {

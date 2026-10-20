@@ -11,14 +11,17 @@ import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finaliz
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
-export function skippedFinalizeResult(meetingId: string) {
+export function skippedFinalizeResult(
+  meetingId: string,
+  reason: "no-transcript" | "transcript-pending" = "no-transcript",
+) {
   return {
     meetingId,
     summaryMd: "",
     bullets: [],
     actionItems: [],
     provider: null,
-    skipped: "no-transcript" as const,
+    skipped: reason,
   };
 }
 
@@ -68,6 +71,9 @@ export default defineAction({
       transcriptText = t?.fullText ?? "";
     }
     if (!transcriptText.trim()) {
+      if (meeting.transcriptStatus === "pending") {
+        return skippedFinalizeResult(args.meetingId, "transcript-pending");
+      }
       await db
         .update(schema.meetings)
         .set({

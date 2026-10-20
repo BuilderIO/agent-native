@@ -32,6 +32,10 @@ import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
 import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
+  resolveSourceEquivalentSelector,
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+} from "../../../../shared/source-equivalent-selector";
+import {
   isAutoLayoutDisplay,
   marginHandlesApply,
 } from "../../../../shared/spacing-handle-rule";
@@ -41,6 +45,7 @@ import {
   paintsBox,
   TEXT_LAYER_TAGS,
 } from "../../../../shared/text-layer-rule";
+import { NATIVE_EDITOR_VIEWPORT_CLIP_RULE } from "./native-region-export";
 
 declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
@@ -948,7 +953,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       '@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' +
       // A clipped root is a hidden viewport: the wheel reaches a live page in
       // Interact and moves nothing. Interact owns scrolling, so it is released.
-      "html:not([data-agent-native-interact]){overflow:clip}" +
+      NATIVE_EDITOR_VIEWPORT_CLIP_RULE +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -3889,6 +3894,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return target;
   }
 
+  function modifierClickSelectionTarget(hit: Element | null): Element | null {
+    var entersSelectedContainer = Boolean(
+      selectedEl && selectedEl.contains && hit && selectedEl.contains(hit),
+    );
+    return selectionTargetForHit(hit, entersSelectedContainer);
+  }
+
   // Climbs from `el` to the ancestor that is a direct child of `scope`
   // (inclusive: returns `el` itself when `el === scope`). Bounded at
   // document.body/documentElement even if `scope` is never reached, so a
@@ -3952,10 +3964,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   }
 
   /*
-   * Screen contents use direct selection on a plain click:
-   * Screen contents intentionally select the deepest block under a plain
-   * single click, while the infinite-canvas board uses container-first
-   * selection. These are distinct interaction modes.
+   * Screen contents select the deepest block on a plain click unless an
+   * already-selected ancestor owns that hit.
    */
   function plainClickSelectionTarget(hit: Element | null): Element | null {
     if (!designCanvasBoardSurface) {
@@ -3965,17 +3975,84 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return containerFirstSelectionTarget(hit);
   }
 
+  function selectedContainerForPlainClick(
+    hit: Element | null,
+    ev?: MouseEvent | null,
+  ): Element | null {
+    if (
+      !ev ||
+      ev.metaKey ||
+      ev.ctrlKey ||
+      ev.shiftKey ||
+      ev.altKey ||
+      !hit ||
+      !selectedEl ||
+      !document.documentElement.contains(selectedEl)
+    ) {
+      return null;
+    }
+    if (
+      selectionContainerScope &&
+      document.documentElement.contains(selectionContainerScope) &&
+      selectionContainerScope !== selectedEl &&
+      selectionContainerScope.contains(selectedEl)
+    ) {
+      return null;
+    }
+    // The parent echoes an auto-layout selection back through select-element.
+    // After that echo, the next plain click inside the row should select its
+    // child instead of keeping the row selected indefinitely.
+    if (
+      selectionContainerScope === selectedEl &&
+      selectedEl.getAttribute("data-an-primitive") !== "frame" &&
+      selectedEl.getAttribute("data-agent-native-group") !== "true" &&
+      isAutoLayoutElement(selectedEl) &&
+      canOpenSelectionContainer(selectedEl)
+    ) {
+      return null;
+    }
+    if (!hasSelectableLayerChildren(selectedEl)) return null;
+    var target = selectionTargetForHit(hit, true);
+    return target && target !== selectedEl && selectedEl.contains(target)
+      ? selectedEl
+      : null;
+  }
+
+  function rememberAutoLayoutContainerScopeForSelection(
+    target: Element | null,
+  ): void {
+    if (
+      target &&
+      target.getAttribute("data-an-primitive") !== "frame" &&
+      target.getAttribute("data-agent-native-group") !== "true" &&
+      isAutoLayoutElement(target) &&
+      canOpenSelectionContainer(target)
+    ) {
+      selectionContainerScope = target;
+    }
+  }
+
   function clickThroughSelectionTarget(
     hit: Element | null,
-    ev: MouseEvent,
+    ev?: MouseEvent | null,
+    repeatedMouseClick = false,
   ): Element | null {
-    if (ev.detail > 1) return null;
-    if (!selectedEl || !document.documentElement.contains(selectedEl)) {
+    var isRepeatedMouseClick = Boolean(
+      repeatedMouseClick || (ev?.type === "mouseup" && ev.detail > 1),
+    );
+    if (
+      !selectedEl ||
+      !document.documentElement.contains(selectedEl) ||
+      !selectionContainerScope ||
+      selectionContainerScope === selectedEl ||
+      !selectionContainerScope.contains(selectedEl)
+    ) {
       return null;
     }
     if (hostSelectedEl === selectedEl) return null;
     if (!hasSelectableLayerChildren(selectedEl)) return null;
     if (collectMoveGroupMembers(selectedEl).length > 1) return null;
+    if (isRepeatedMouseClick) return selectedEl;
     if (!hit || isDocumentRootElement(hit)) return null;
     var svgRoot = outermostSvgAncestor(hit);
     var raw =
@@ -5775,6 +5852,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     );
   }
 
+  function authoredOpacityForEditor(
+    el: Element,
+    computedOpacity: string,
+  ): string {
+    if (
+      !el.hasAttribute("data-an-native-fill-suppressed") &&
+      !el.hasAttribute("data-an-native-layer-suppressed") &&
+      !el.hasAttribute("data-an-native-scene-suppressed") &&
+      !el.hasAttribute("data-an-native-receiver-suppressed")
+    )
+      return computedOpacity;
+    var saved = el.getAttribute("data-an-native-authored-opacity");
+    var opacity = saved === null || !saved.trim() ? NaN : Number(saved);
+    if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+      throw Object.assign(new Error("Native authored opacity is unavailable"), {
+        code: "native-authored-opacity-unavailable",
+      });
+    return String(opacity);
+  }
+
   type TypedStyleValue =
     | { status: "available"; value: string | undefined }
     | { status: "failed"; error: unknown };
@@ -5973,7 +6070,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
-      var value = cs[property] || cs.getPropertyValue(property);
+      var value =
+        property === "opacity"
+          ? authoredOpacityForEditor(el, cs.opacity)
+          : cs[property] || cs.getPropertyValue(property);
       var inlineValue = hostStyle && hostStyle.getPropertyValue(property);
       if (
         typeof value === "string" &&
@@ -6491,6 +6591,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       marginLeft: cs.marginLeft,
       borderWidth: cs.borderWidth,
       borderStyle: cs.borderStyle,
+      boxSizing: cs.boxSizing,
       borderColor: cs.borderColor,
       borderTopWidth: cs.borderTopWidth,
       borderRightWidth: cs.borderRightWidth,
@@ -6761,6 +6862,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     };
   }
 
+  // The inspector overlays the previewed state's own rules on these, so they
+  // must be the element's default-state values.
+  function collectDefaultStateComputedStyles(
+    el: Element,
+    cs: CSSStyleDeclaration,
+    paintCs: CSSStyleDeclaration,
+  ): Record<string, string> {
+    var previewState = el.getAttribute("data-an-state-preview");
+    if (!previewState) return collectElementComputedStyles(el, cs, paintCs);
+    el.removeAttribute("data-an-state-preview");
+    try {
+      return collectElementComputedStyles(el, cs, paintCs);
+    } finally {
+      el.setAttribute("data-an-state-preview", previewState);
+    }
+  }
+
   function collectElementComputedStyles(
     el: Element,
     cs: CSSStyleDeclaration,
@@ -6771,6 +6889,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    computed.opacity = authoredOpacityForEditor(el, cs.opacity);
+    if (!vectorPaintTarget(el)) computed.vectorOpacity = computed.opacity;
     var paintTarget =
       vectorPaintTarget(el) ||
       (el.tagName.toLowerCase() === "path" &&
@@ -6984,7 +7104,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       pendingNodeId: pendingNodeId || undefined,
       selector: getSelector(el),
       classes: Array.from(el.classList),
-      computedStyles: collectElementComputedStyles(el, cs, paintCs),
+      computedStyles: collectDefaultStateComputedStyles(el, cs, paintCs),
       inlineStyles: collectElementInlineStyles(el),
       authoredSizeStyles: authoredSizeStyles,
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
@@ -7057,7 +7177,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       layers.push({
         backgroundColor: paint.backgroundColor,
         backgroundImage: paint.backgroundImage,
-        opacity: paint.opacity,
+        opacity: authoredOpacityForEditor(node, paint.opacity),
         mixBlendMode: paint.mixBlendMode,
       });
       node = node.parentElement;
@@ -8058,8 +8178,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     originalPointerEvents: string;
     lastReorder: { anchor: Element; placement: string; axis?: string } | null;
   } | null = null;
+  // Pointerup detail is always 0, and canceled pointerdown suppresses mousedown.
+  var lastShieldMouseClick: {
+    x: number;
+    y: number;
+    hit: Element;
+    selected: Element | null;
+    timestamp: number;
+  } | null = null;
+  var MOUSE_DOUBLE_CLICK_WINDOW_MS = 500;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer: ReturnType<typeof setTimeout> | null = null;
+  var lastShieldModifierCyclePoint: { x: number; y: number } | null = null;
+  var lastShieldModifierCycleTarget: Element | null = null;
+  function resetShieldModifierCycleState() {
+    lastShieldModifierCyclePoint = null;
+    lastShieldModifierCycleTarget = null;
+  }
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -8241,6 +8376,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     postEditorDragState(true);
   }
 
+  // The editor claims keyboard focus from the canvas iframe on its own; only
+  // the whole window losing focus means the release may never arrive here.
+  function editorWindowLostFocus(): boolean {
+    try {
+      return !window.top?.document.hasFocus();
+    } catch (_crossOriginEditor) {
+      return true;
+    }
+  }
+
+  // A layer mid-move is not content yet: the screen's content-size reporter
+  // waits for the drop before it grows the frame around it.
+  function setLayerMoveActive(active: boolean): void {
+    var win = window as Window & { __agentNativeLayerMoveActive?: boolean };
+    if (Boolean(win.__agentNativeLayerMoveActive) === active) return;
+    win.__agentNativeLayerMoveActive = active;
+    window.dispatchEvent(new Event("agent-native:layer-move-change"));
+  }
+
   function clearActiveDragCancel(cancel?: () => boolean): void {
     if (cancel && activeDragCancel !== cancel) return;
     if (!activeDragCancel) return;
@@ -8309,6 +8463,37 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }, MOVE_CANCEL_RACE_GRACE_MS);
   }
 
+  // Only a host holding keyboard focus forwards Escape. Its cancel was posted
+  // before the release ran, so a commit behind a self-posted message sees it.
+  var RELEASE_COMMIT_BARRIER = "agent-native:release-commit-barrier";
+  var pendingReleaseCommit: {
+    releasedAt: number;
+    commit: () => void;
+    cancel: () => void;
+  } | null = null;
+  function commitAfterForwardedCancels(
+    releasedAt: number,
+    commit: () => void,
+    cancel: () => void,
+  ): void {
+    if (document.hasFocus()) {
+      commit();
+      return;
+    }
+    pendingReleaseCommit = {
+      releasedAt: releasedAt,
+      commit: commit,
+      cancel: cancel,
+    };
+    window.postMessage({ type: RELEASE_COMMIT_BARRIER }, "*");
+  }
+  window.addEventListener("message", function (e) {
+    if (e.source !== window || e.data?.type !== RELEASE_COMMIT_BARRIER) return;
+    var release = pendingReleaseCommit;
+    pendingReleaseCommit = null;
+    if (release) release.commit();
+  });
+
   // Used ONLY by the "agent-native:cancel-active-drag" message handler, so
   // the grace window above is never reachable from the plain-keydown Escape
   // path (which keeps calling cancelActiveBridgeDrag directly, touching only
@@ -8339,6 +8524,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         activeDragStartedAt <= pressedAt)
     ) {
       if (cancelActiveBridgeDrag()) return true;
+    }
+    if (
+      pendingReleaseCommit &&
+      typeof pressedAt === "number" &&
+      pressedAt < pendingReleaseCommit.releasedAt
+    ) {
+      var release = pendingReleaseCommit;
+      pendingReleaseCommit = null;
+      release.cancel();
+      return true;
     }
     if (
       pendingMoveCommitRevert &&
@@ -9583,7 +9778,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (!nextDoc || !nextDoc.body) return;
 
     var persistentNodes = Array.prototype.slice.call(
-      document.querySelectorAll("[data-agent-native-edit-overlay]"),
+      document.querySelectorAll(
+        [
+          "[data-agent-native-edit-overlay]",
+          "script[data-agent-native-motion-preview-bridge]",
+          "script[data-agent-native-shader-runtime]",
+          "script[data-agent-native-shader-fill-preview-bridge]",
+          "script[data-agent-native-tweak-bridge]",
+          "script[data-agent-native-zoom-bridge]",
+          "script[data-agent-native-nav-bridge]",
+          "script[data-agent-native-preview-theme-bridge]",
+          "script[data-agent-native-hit-test-bridge]",
+          "script[data-agent-native-embedded-wheel-bridge]",
+          "script[data-agent-native-editor-theme]",
+          "script[data-agent-native-editor-chrome-bridge]",
+          "script[data-agent-native-content-size-bridge]",
+        ].join(","),
+      ),
     );
     var activeSelector =
       preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
@@ -13035,7 +13246,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var overlay = passiveSelectionOverlays[index];
       if (overlay) positionOverlay(overlay, el);
     });
-    if (passiveSelectionEls.length > 0) hideSizeBadge();
     positionMultiSelectionBounds();
     positionGradientOverlay();
     refreshFrameNameLabels();
@@ -14301,8 +14511,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     hoveredSpacingHandleKey = "";
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
-        ? selectionTargetForHit(target)
-        : plainClickSelectionTarget(target);
+        ? modifierClickSelectionTarget(target)
+        : selectedContainerForPlainClick(target, e) ||
+          plainClickSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -14316,6 +14527,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       !selectionContainerScope.contains(selectedEl)
     )
       selectionContainerScope = null;
+    rememberAutoLayoutContainerScopeForSelection(selectedEl);
     if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
       selectedEl = null;
       hideSelectionOverlay();
@@ -14331,6 +14543,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   }
 
   function suppressNextShieldClickBriefly() {
+    armShieldClickSuppression();
+    // A gesture cancelled while the button is still held (Escape mid-drag)
+    // clicks at release, which can come long after the window above.
+    listenForHeldPressRelease(true);
+  }
+
+  function armShieldClickSuppression() {
     suppressNextShieldClick = true;
     if (suppressNextShieldClickTimer !== null) {
       clearTimeout(suppressNextShieldClickTimer);
@@ -14339,6 +14558,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       suppressNextShieldClick = false;
       suppressNextShieldClickTimer = null;
     }, 250);
+  }
+
+  function listenForHeldPressRelease(listen: boolean) {
+    var toggle = listen
+      ? document.addEventListener.bind(document)
+      : document.removeEventListener.bind(document);
+    toggle("pointerup", onHeldPressRelease, true);
+    toggle("mouseup", onHeldPressRelease, true);
+    toggle("pointerdown", onNewPressAfterSuppression, true);
+    toggle("mousedown", onNewPressAfterSuppression, true);
+  }
+
+  function onHeldPressRelease() {
+    listenForHeldPressRelease(false);
+    armShieldClickSuppression();
+  }
+
+  function onNewPressAfterSuppression() {
+    listenForHeldPressRelease(false);
   }
 
   function clearActiveMarqueeSelection(): void {
@@ -14893,27 +15131,87 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function resolveNodeHtmlPreviewTarget(target: unknown): Element | null {
     if (!target || typeof target !== "object") return null;
+    var selector = (target as { selector?: unknown }).selector;
+    var isSourceEquivalentSelector =
+      typeof selector === "string" &&
+      selector.indexOf(SOURCE_EQUIVALENT_SELECTOR_PREFIX) === 0;
+    var selectorMatch: Element | null = null;
+    if (isSourceEquivalentSelector) {
+      selectorMatch = resolveSourceEquivalentSelector(
+        document,
+        selector as string,
+      );
+    }
     var nodeId = (target as { nodeId?: unknown }).nodeId;
     if (typeof nodeId === "string" && nodeId) {
-      try {
-        var nodeMatch = document.querySelector(
+      var nodeMatches = document.querySelectorAll(
+        [
           '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
-        );
-        if (nodeMatch && !isLayerInteractionBlocked(nodeMatch)) {
-          return nodeMatch;
+          '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+          '[data-loc="' + escapeAttribute(nodeId) + '"]',
+          '[id="' + escapeAttribute(nodeId) + '"]',
+        ].join(","),
+      );
+      if (nodeMatches.length === 1) {
+        var uniqueNodeMatch = nodeMatches[0];
+        return uniqueNodeMatch && !isLayerInteractionBlocked(uniqueNodeMatch)
+          ? uniqueNodeMatch
+          : null;
+      }
+      if (nodeMatches.length > 1) {
+        if (
+          !selectorMatch &&
+          typeof selector === "string" &&
+          selector &&
+          !isSourceEquivalentSelector
+        ) {
+          try {
+            selectorMatch = document.querySelector(selector);
+          } catch (error) {
+            if (
+              typeof error === "object" &&
+              error !== null &&
+              "name" in error &&
+              error.name !== "SyntaxError"
+            ) {
+              throw error;
+            }
+          }
         }
-      } catch (_err) {}
+        if (
+          selectorMatch &&
+          Array.prototype.indexOf.call(nodeMatches, selectorMatch) !== -1 &&
+          !isLayerInteractionBlocked(selectorMatch)
+        ) {
+          return selectorMatch;
+        }
+        return null;
+      }
     }
-    var selector = (target as { selector?: unknown }).selector;
-    if (typeof selector !== "string" || !selector) return null;
-    try {
-      var selectorMatch = document.querySelector(selector);
-      return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
-        ? selectorMatch
-        : null;
-    } catch (_err) {
-      return null;
+    if (
+      !selectorMatch &&
+      typeof selector === "string" &&
+      selector &&
+      !isSourceEquivalentSelector
+    ) {
+      try {
+        selectorMatch = document.querySelector(selector);
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          error.name !== "SyntaxError"
+        ) {
+          throw error;
+        }
+      }
     }
+    return selectorMatch && !isLayerInteractionBlocked(selectorMatch)
+      ? selectorMatch
+      : null;
   }
 
   function postNodeHtmlPreviewApplied(proposalId: string): void {
@@ -14921,6 +15219,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       {
         type: "agent-native:node-html-preview-applied",
         proposalId: proposalId,
+      },
+      "*",
+    );
+  }
+
+  function postNodeHtmlPreviewFailed(
+    proposalId: string,
+    reason:
+      | "target-unresolved"
+      | "preview-invalid"
+      | "preview-replacement-failed",
+  ): void {
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:node-html-preview-failed",
+        proposalId: proposalId,
+        reason: reason,
       },
       "*",
     );
@@ -14990,19 +15305,25 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return;
     }
     var nextElement = parseNodeHtmlPreviewElement(data.html);
-    if (!nextElement) return;
+    if (!nextElement) {
+      postNodeHtmlPreviewFailed(proposalId, "preview-invalid");
+      return;
+    }
     if (
       activeNodeHtmlPreview &&
       activeNodeHtmlPreview.proposalId === proposalId
     ) {
       if (replaceNodeHtmlPreviewElement(activeNodeHtmlPreview, nextElement)) {
         postNodeHtmlPreviewApplied(proposalId);
+      } else {
+        postNodeHtmlPreviewFailed(proposalId, "preview-replacement-failed");
       }
       return;
     }
     if (activeNodeHtmlPreview) restoreActiveNodeHtmlPreview();
     var target = resolveNodeHtmlPreviewTarget(data.target);
     if (!target || !target.parentNode || target === document.documentElement) {
+      postNodeHtmlPreviewFailed(proposalId, "target-unresolved");
       return;
     }
     var originalOuterHTML = target.outerHTML;
@@ -15083,7 +15404,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           }
         } catch (_err) {}
       }
-      if (matches.size > 1) return null;
+      var hasSourceEquivalentSelector =
+        typeof selector === "string" &&
+        selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX);
+      if (matches.size > 1 && !hasSourceEquivalentSelector) return null;
       if (matches.size === 1) {
         var sourceMatch = Array.from(matches)[0];
         return sourceMatch &&
@@ -15100,6 +15424,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !(typeof sourceId === "string" && sourceId) &&
         !(typeof pendingId === "string" && pendingId)
         ? document.body
+        : null;
+    }
+    if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      var sourceMatch = resolveSourceEquivalentSelector(document, selector);
+      return sourceMatch &&
+        (matches.size === 0 || matches.has(sourceMatch)) &&
+        sourceMatch !== document.documentElement &&
+        (allowDocumentBody || sourceMatch !== document.body) &&
+        !isOverlayElement(sourceMatch) &&
+        !isLayerInteractionBlocked(sourceMatch)
+        ? sourceMatch
         : null;
     }
     try {
@@ -18479,6 +18814,21 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     );
   }
 
+  function applyContainingBlockForDrop(container: Element): void {
+    (container as HTMLElement).style.position = "relative";
+    var styles = { position: "relative" };
+    (window.parent as Window).postMessage(
+      {
+        type: "visual-style-change",
+        selector: getSelector(container),
+        styles: styles,
+        originalStyles: originalInlineStylesForPatch(container, styles),
+        payload: getElementInfo(container),
+      },
+      "*",
+    );
+  }
+
   var BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
 
   function parseCssRgb(
@@ -19068,7 +19418,42 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   function cloneHtmlForPersistence(el: Element): string {
     var clone = el.cloneNode(true) as Element;
     clone.removeAttribute("data-agent-native-transient-drag-clone");
+    restoreHeldCopyFlowStyle(clone, el);
     return clone.outerHTML;
+  }
+
+  // A held copy of a flow child is absolutely positioned over its source, so
+  // it takes no slot in the source's parent until the drop places it.
+  var heldCopyFlowStyles = new WeakMap<Element, string | null>();
+  function holdCopyOutOfFlow(
+    copy: HTMLElement,
+    source: Element,
+    sourceSize: { width: string; height: string },
+  ): void {
+    heldCopyFlowStyles.set(copy, copy.getAttribute("style"));
+    copy.style.setProperty("position", "absolute", "important");
+    copy.style.setProperty("width", sourceSize.width, "important");
+    copy.style.setProperty("height", sourceSize.height, "important");
+    copy.style.setProperty("left", "0px", "important");
+    copy.style.setProperty("top", "0px", "important");
+    var placed = copy.getBoundingClientRect();
+    var sourceRect = source.getBoundingClientRect();
+    copy.style.setProperty(
+      "left",
+      sourceRect.left - placed.left + "px",
+      "important",
+    );
+    copy.style.setProperty(
+      "top",
+      sourceRect.top - placed.top + "px",
+      "important",
+    );
+  }
+  function restoreHeldCopyFlowStyle(target: Element, heldCopy: Element): void {
+    if (!heldCopyFlowStyles.has(heldCopy)) return;
+    var style = heldCopyFlowStyles.get(heldCopy);
+    if (typeof style === "string") target.setAttribute("style", style);
+    else target.removeAttribute("style");
   }
 
   var BRIDGE_CONTAINER_TAGS = [
@@ -19970,15 +20355,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           ) {
             return betweenChildren;
           }
+          var absoluteContainer =
+            isAbsolutePrimitiveContainer(hit) ||
+            isFreeformRelativeContainer(hit);
+          // The point is on the box itself, so it is clear of every child.
+          var freeAreaOfContentBox =
+            !absoluteContainer &&
+            !isAutoLayoutElement(hit) &&
+            !hit.contains(el) &&
+            !isEmptyDropContainer(hit, dragged);
           return {
             anchor: hit,
             placement: "inside",
             axis: parentFlowAxis(hit),
             dropMode:
-              isAbsolutePrimitiveContainer(hit) ||
-              isFreeformRelativeContainer(hit)
+              absoluteContainer || freeAreaOfContentBox
                 ? "absolute-container"
                 : "flow-insert",
+            needsContainingBlock:
+              freeAreaOfContentBox &&
+              window.getComputedStyle(hit).position === "static",
           };
         }
         return {
@@ -21337,6 +21733,83 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     htmlEl.style.top = Math.round(baseTop + localDy) + "px";
   }
 
+  // An empty-cell drop appends the item, and auto-placement only reaches that
+  // cell when it is the next free one.
+  function pinGridItemToEmptyCell(el: HTMLElement, target): void {
+    var layout = gridTrackLayoutForElement(el.parentElement);
+    if (!layout) return;
+    var rect = el.getBoundingClientRect();
+    var column = gridTrackRangeForRect(rect, layout.columnBounds, "column");
+    var row = gridTrackRangeForRect(rect, layout.rowBounds, "row");
+    if (!column || !row) return;
+    if (
+      column.start === target.gridCell.column &&
+      row.start === target.gridCell.row
+    ) {
+      return;
+    }
+    var placement = {
+      column: target.gridCell.column + 1,
+      columnEnd: target.gridCell.column + 1 + (column.end - column.start),
+      row: target.gridCell.row + 1,
+      rowEnd: target.gridCell.row + 1 + (row.end - row.start),
+    };
+    el.style.gridColumn = `${placement.column} / ${placement.columnEnd}`;
+    el.style.gridRow = `${placement.row} / ${placement.rowEnd}`;
+    target.gridPlacement = placement;
+  }
+
+  // Authored placement pins an item whatever its DOM order, so a line drop
+  // moves it into the cell past the line. A line on the grid's outer edge
+  // leads to no cell and keeps the placement.
+  function placeGridItemBeyondLine(
+    el: HTMLElement,
+    anchor: Element,
+    placement: "before" | "after",
+    target,
+  ): void {
+    var layout = gridTrackLayoutForElement(el.parentElement);
+    if (!layout) return;
+    var column = gridItemAxisPlacement(el, layout, "column");
+    var row = gridItemAxisPlacement(el, layout, "row");
+    if (
+      column.authoredStart === null ||
+      row.authoredStart === null ||
+      column.span !== 1 ||
+      row.span !== 1
+    ) {
+      return;
+    }
+    var anchorRect = anchor.getBoundingClientRect();
+    var anchorColumn = gridTrackRangeForRect(
+      anchorRect,
+      layout.columnBounds,
+      "column",
+    );
+    var anchorRow = gridTrackRangeForRect(anchorRect, layout.rowBounds, "row");
+    if (!anchorColumn || !anchorRow) return;
+    var cellColumn = anchorColumn.start;
+    var cellRow = anchorRow.start;
+    if (placement === "after" && target.axis === "y")
+      cellRow = anchorRow.end + 1;
+    else if (placement === "after") cellColumn = anchorColumn.end + 1;
+    if (
+      cellColumn >= layout.columnBounds.length ||
+      cellRow >= layout.rowBounds.length
+    ) {
+      return;
+    }
+    var gridPlacement = {
+      column: cellColumn + 1,
+      columnEnd: cellColumn + 2,
+      row: cellRow + 1,
+      rowEnd: cellRow + 2,
+    };
+    el.style.gridColumn = `${gridPlacement.column} / ${gridPlacement.columnEnd}`;
+    el.style.gridRow = `${gridPlacement.row} / ${gridPlacement.rowEnd}`;
+    target.gridPlacement = gridPlacement;
+  }
+
   function applyRuntimeReorder(
     el,
     target,
@@ -21444,6 +21917,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         Number.isFinite(rowStart) &&
         Number.isFinite(rowEnd)
       ) {
+        var targetFlowsByColumn =
+          window
+            .getComputedStyle(target.anchor)
+            .gridAutoFlow.split(/\s+/)[0] === "column";
         var allocatedDisplacementPlacements: Array<{
           column: number;
           columnEnd: number;
@@ -21588,22 +22065,36 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
               addCandidateCoordinates(displacementRow, displacementColumn);
             }
           }
-          for (
-            var candidateIndex = 0;
-            candidateIndex < candidateCoordinates.length &&
-            !displacementPlacement;
-            candidateIndex += 1
-          ) {
-            var coordinate = candidateCoordinates[candidateIndex];
-            if (coordinate) {
-              var candidate = {
-                column: coordinate.column,
-                columnEnd: coordinate.column + displacedColumnSpan,
-                row: coordinate.row,
-                rowEnd: coordinate.row + displacedRowSpan,
-              };
-              if (!placementOverlaps(candidate, occupiedGridPlacements)) {
-                displacementPlacement = candidate;
+          // Prefer cells inside the tracks auto-placement cannot grow.
+          var fixedTrackCount = targetFlowsByColumn
+            ? targetGridLayout!.rowBounds.length
+            : targetGridLayout!.columnBounds.length;
+          for (var pass = 0; pass < 2 && !displacementPlacement; pass += 1) {
+            for (
+              var candidateIndex = 0;
+              candidateIndex < candidateCoordinates.length &&
+              !displacementPlacement;
+              candidateIndex += 1
+            ) {
+              var coordinate = candidateCoordinates[candidateIndex];
+              if (coordinate) {
+                var candidate = {
+                  column: coordinate.column,
+                  columnEnd: coordinate.column + displacedColumnSpan,
+                  row: coordinate.row,
+                  rowEnd: coordinate.row + displacedRowSpan,
+                };
+                var fitsFixedTracks =
+                  (targetFlowsByColumn
+                    ? candidate.rowEnd
+                    : candidate.columnEnd) <=
+                  fixedTrackCount + 1;
+                if (
+                  (pass === 1 || fitsFixedTracks) &&
+                  !placementOverlaps(candidate, occupiedGridPlacements)
+                ) {
+                  displacementPlacement = candidate;
+                }
               }
             }
           }
@@ -21645,6 +22136,28 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       } else {
         parent.insertBefore(el, persistenceAnchor.nextSibling);
       }
+    }
+    if (
+      target.gridCell &&
+      !target.gridPlacement &&
+      persistencePlacement === "inside" &&
+      el.parentElement === persistenceAnchor
+    ) {
+      pinGridItemToEmptyCell(el, target);
+    }
+    if (
+      !preview &&
+      !target.gridCell &&
+      !target.gridPlacement &&
+      persistencePlacement !== "inside" &&
+      el.parentElement === persistenceAnchor.parentElement
+    ) {
+      placeGridItemBeyondLine(
+        el,
+        persistenceAnchor,
+        persistencePlacement,
+        target,
+      );
     }
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
     var runtimeMutationApplied =
@@ -21951,7 +22464,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var prevInlineGridStyles = snapshotInlineGridStyles(member);
       adaptAutoTextColorForNest(member, container);
       if (
-        applyRuntimeReorder(member, memberTarget, preview, members) &&
+        applyRuntimeReorder(member, memberTarget, preview, members.slice(i)) &&
         !preview
       ) {
         postVisualStructureChange(
@@ -23351,6 +23864,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         clearReorderReflow();
         var sourceEl = reorderEl;
         var sourceRect = sourceEl.getBoundingClientRect();
+        var sourceStyles = window.getComputedStyle(sourceEl);
+        var sourceSize = {
+          width: sourceStyles.width,
+          height: sourceStyles.height,
+        };
         var clone = sourceEl.cloneNode(true) as HTMLElement;
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         clone.setAttribute("data-agent-native-clone-root", "true");
@@ -23359,6 +23877,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           sourceEl.parentElement.insertBefore(clone, sourceEl.nextSibling);
         }
         resetFlowDuplicateGridPlacement(clone);
+        reorderStyleSnapshot = collectPortableStyleSnapshot(clone);
+        holdCopyOutOfFlow(clone, sourceEl, sourceSize);
         publishSourceDocumentProvenance(undefined, true);
         duplicatedForDrag = true;
         selectedEl = clone;
@@ -23387,7 +23907,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           x: reorderPointerStart.clientX - reorderRect.left,
           y: reorderPointerStart.clientY - reorderRect.top,
         };
-        reorderStyleSnapshot = collectPortableStyleSnapshot(clone);
         reorderLastTargetKey = null;
         crossScreenClaimedByHost = false;
         postCrossScreenDrag("cancel");
@@ -23611,6 +24130,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         reflowKey = key;
         var originalNextSibling = reorderEl.nextSibling;
         var placeholder = reorderEl.cloneNode(true) as HTMLElement;
+        restoreHeldCopyFlowStyle(placeholder, reorderEl);
         placeholder.removeAttribute("data-agent-native-node-id");
         placeholder.setAttribute("data-agent-native-reflow-placeholder", "");
         placeholder.style.visibility = "hidden";
@@ -23843,6 +24363,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           clearReorderLift();
           clearReorderReflow();
           postEditorDragState(true, { phase: "clear" });
+          reorderLastTargetKey = null;
           showTransformBadge(
             duplicatedForDrag ? "Duplicate layer" : "Move layer",
             cx,
@@ -23895,11 +24416,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         }
       }
       function cleanupReorderDrag() {
+        setLayerMoveActive(false);
         clearGroupGridPreview();
+        detachReorderListeners();
+        clearReorderLift();
+        clearReorderReflow();
+      }
+      function detachReorderListeners() {
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
         document.removeEventListener("pointercancel", onReorderEscape, true);
-        window.removeEventListener("blur", onReorderEscape, true);
+        window.removeEventListener("blur", onReorderWindowBlur, true);
         document.removeEventListener(
           "visibilitychange",
           onReorderVisibilityChange,
@@ -23908,12 +24435,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         document.removeEventListener("keydown", onReorderKeyDown, true);
         document.removeEventListener("keyup", onReorderKeyUp, true);
         clearActiveDragCancel(onReorderEscape);
-        clearReorderLift();
-        clearReorderReflow();
         suppressNextShieldClickBriefly();
       }
       function onReorderVisibilityChange() {
         if (document.visibilityState === "hidden") onReorderEscape();
+      }
+      function onReorderWindowBlur() {
+        if (!editorWindowLostFocus()) return;
+        onReorderEscape();
       }
       function onReorderEscape() {
         resetBridgeDragModifierStateOnCancel();
@@ -23979,6 +24508,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           onReorderEscape();
           return;
         }
+        detachReorderListeners();
+        commitAfterForwardedCancels(
+          eventEpochMilliseconds(ev) ?? Date.now(),
+          function () {
+            finishReorderRelease(ev);
+          },
+          onReorderEscape,
+        );
+      }
+      function finishReorderRelease(ev) {
         cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
@@ -24078,11 +24617,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           resetReorderModifierState();
           return;
         }
+        restoreHeldCopyFlowStyle(reorderEl, reorderEl);
+        heldCopyFlowStyles.delete(reorderEl);
         if (
           currentTarget.needsAutoLayoutConversion &&
           currentTarget.conversionTarget
         ) {
           applyAutoLayoutConversionForDrop(currentTarget.conversionTarget);
+        }
+        if (currentTarget.needsContainingBlock) {
+          applyContainingBlockForDrop(dropContainerForTarget(currentTarget));
         }
         prepareFlowMembersForAbsoluteDrop(
           groupEls,
@@ -24165,7 +24709,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
       document.addEventListener("pointercancel", onReorderEscape, true);
-      window.addEventListener("blur", onReorderEscape, true);
+      window.addEventListener("blur", onReorderWindowBlur, true);
       document.addEventListener(
         "visibilitychange",
         onReorderVisibilityChange,
@@ -24174,6 +24718,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       document.addEventListener("keydown", onReorderKeyDown, true);
       document.addEventListener("keyup", onReorderKeyUp, true);
       setActiveDragCancel(onReorderEscape);
+      setLayerMoveActive(true);
       return;
     }
     var memberStates = groupEls.map(function (member) {
@@ -24203,6 +24748,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var dragEl = gestureEl;
     var gestureViewport = bridgeGestureViewport();
     var DRAG_THRESHOLD = 3;
+    var lastPointerClientX = startX;
+    var lastPointerClientY = startY;
+    var lateAltStartClientX: number | null = null;
+    var lateAltStartClientY: number | null = null;
     var bridgeMoveController = createCanvasGestureController({
       capabilities: { move: true, resize: true },
       drag: {
@@ -24229,6 +24778,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       canvas: { width: gestureViewport.width, height: gestureViewport.height },
     });
     var moved = false;
+    var lastMoveClient = { x: startX, y: startY };
     dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
     var currentAutoLayoutTarget: {
       anchor: Element;
@@ -24262,6 +24812,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       };
     } | null = null;
     var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
+    var snapCandidateContainer = dragEl.parentElement;
     var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
     var dragElStartWidth = dragElStartRect.width;
     var dragElStartHeight = dragElStartRect.height;
@@ -24439,6 +24990,22 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           ignoreAutoLayoutHeld(point),
         );
         currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+        // The guides belong to the parent the drag started in; a drop into
+        // another container must not be pulled onto them.
+        var snapContainer =
+          currentAutoLayoutTarget &&
+          currentAutoLayoutTarget.dropMode === "absolute-container"
+            ? currentAutoLayoutTarget.placement === "inside"
+              ? currentAutoLayoutTarget.anchor
+              : currentAutoLayoutTarget.anchor.parentElement
+            : dragEl.parentElement;
+        if (snapContainer !== snapCandidateContainer) {
+          snapCandidateContainer = snapContainer;
+          snapCandidateRects =
+            snapContainer === dragEl.parentElement
+              ? collectSnapCandidateRects(dragEl, groupOthers)
+              : [];
+        }
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
           if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
@@ -24614,7 +25181,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       positionOverlay(selectionOverlay, selectedEl);
       postElementSelect(selectedEl);
     }
-    function onMove(ev) {
+    function onMove(ev, isRelease) {
+      lastMoveClient = { x: ev.clientX, y: ev.clientY };
       var controllerMove = bridgeMoveController.pointerMove(
         bridgeGesturePointer(ev),
       );
@@ -24625,9 +25193,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       ) {
         moved = true;
       }
-      if (ev.altKey && moved && !duplicatedForDrag) {
+      // A late Alt copies on the next real move; the release replay is not one.
+      var movedSinceLateAlt =
+        lateAltStartClientX === null ||
+        ev.clientX !== lateAltStartClientX ||
+        ev.clientY !== lateAltStartClientY;
+      if (
+        ev.type === events.move &&
+        !isRelease &&
+        ev.altKey &&
+        moved &&
+        movedSinceLateAlt &&
+        !duplicatedForDrag
+      ) {
         activateLateDuplicate(ev);
       }
+      lastPointerClientX = ev.clientX;
+      lastPointerClientY = ev.clientY;
       var rawDx = controllerMove.gesture.canvasDelta.x;
       var rawDy = controllerMove.gesture.canvasDelta.y;
       var nextLeft = originLeft + rawDx;
@@ -24768,14 +25350,18 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       positionOverlay(selectionOverlay, selectedEl);
     }
     function cleanupMoveDrag() {
+      setLayerMoveActive(false);
       cancelAutoLayoutTargetResolution();
       refreshOverlaysGeneration += 1;
       refreshOverlaysScheduled = false;
+      detachMoveDrag();
+      restoreOverflowOnAncestors(liftedClippingAncestors);
+    }
+    function detachMoveDrag() {
       document.removeEventListener(events.move, onMove, true);
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);
       clearActiveDragCancel(cancelMoveDrag);
-      restoreOverflowOnAncestors(liftedClippingAncestors);
       crossScreenDragMoveScheduled = false;
       crossScreenDragMovePendingEv = null;
       suppressNextShieldClickBriefly();
@@ -24807,12 +25393,30 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return true;
     }
     function onMoveKeyDown(ev) {
+      if (ev.key === "Alt" && !ev.repeat && !duplicatedForDrag) {
+        lateAltStartClientX = lastPointerClientX;
+        lateAltStartClientY = lastPointerClientY;
+      }
       if (ev.key !== "Escape") return;
       stopNativeInteraction(ev);
       cancelMoveDrag();
     }
     function onUp(ev) {
-      onMove(ev);
+      // Replay only a release point no move applied: replaying the same point
+      // re-snaps against drop targets resolved since and shifts the layer.
+      if (ev.clientX !== lastMoveClient.x || ev.clientY !== lastMoveClient.y) {
+        onMove(ev, true);
+      }
+      detachMoveDrag();
+      commitAfterForwardedCancels(
+        eventEpochMilliseconds(ev) ?? Date.now(),
+        function () {
+          finishMoveRelease(ev);
+        },
+        cancelMoveDrag,
+      );
+    }
+    function finishMoveRelease(ev) {
       var controllerEnd = bridgeMoveController.pointerUp(
         bridgeGesturePointer(ev),
       );
@@ -24909,6 +25513,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         return;
       }
       if (duplicatedForDrag) {
+        stripAbsolutePositioningForFlowInsert(dragEl, currentAutoLayoutTarget);
         postVisualDuplicateChange(
           originalSelectedEl,
           dragEl,
@@ -24957,8 +25562,19 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           }
         }
       } else {
-        dndLog("commit:free-absolute", { count: memberStates.length });
-        memberStates.forEach(function (state) {
+        var movedStates = memberStates.filter(function (state) {
+          return (
+            state.el.style.position !== state.originalPosition ||
+            state.el.style.left !== state.originalLeft ||
+            state.el.style.top !== state.originalTop
+          );
+        });
+        dndLog("commit:free-absolute", { count: movedStates.length });
+        if (!movedStates.length) {
+          if (!isGroupDrag) postCrossScreenDrag("cancel");
+          return;
+        }
+        movedStates.forEach(function (state) {
           var styles = {
             position: state.el.style.position,
             left: state.el.style.left,
@@ -24980,7 +25596,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           moveGestureId,
           performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
           function () {
-            memberStates.forEach(function (state) {
+            movedStates.forEach(function (state) {
               state.el.style.position = state.originalPosition;
               state.el.style.left = state.originalLeft;
               state.el.style.top = state.originalTop;
@@ -25016,6 +25632,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onMoveKeyDown, true);
     setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
+    setLayerMoveActive(true);
     // A listener added mid-dispatch never sees the move that started the drag.
     if (pointerStartParam) onMove(e);
   }
@@ -25077,6 +25694,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     typedStyleMap: StylePropertyMap | null,
   ) {
     var inlineValue = (el as HTMLElement).style?.getPropertyValue(property);
+    // Chrome snaps computed border and outline widths to whole device pixels.
+    if (
+      /^(?:border-\w+|outline)-width$/.test(property) &&
+      /px$/i.test(inlineValue || "")
+    ) {
+      return inlineValue;
+    }
     return typedStyleMap
       ? typedStyleMap.get(property)?.toString() || inlineValue || ""
       : inlineValue || "";
@@ -25163,6 +25787,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !outerSvgViewport?.hasAttribute("viewBox"),
       );
       var isSvgViewBoxContent = isInsideScaledSvgViewBox(el);
+      var computedStyle = window.getComputedStyle(el);
+      var hasOutline =
+        computedStyle.outlineStyle !== "none" &&
+        computedStyle.outlineStyle !== "hidden";
       var borderWidthProperties = [
         "border-top-width",
         "border-right-width",
@@ -25189,6 +25817,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       ) {
         var property = KSCALE_LENGTH_PROPERTIES[propertyIndex];
         if (isSvgViewBoxContent) continue;
+        if (
+          (property === "outline-width" || property === "outline-offset") &&
+          !hasOutline
+        ) {
+          continue;
+        }
         if (
           isSvgViewBoxRoot &&
           (property === "font-size" ||
@@ -25233,19 +25867,32 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         var borderWidthValues = borderWidthProperties.map(function (property) {
           return typedKScaleValue(el, property, typedStyleMap);
         });
-        if (
-          borderWidthValues.every(function (value) {
-            return /^[-+]?\d*\.?\d+px$/i.test(value);
-          }) &&
-          borderWidthValues.some(function (value) {
-            return Number.parseFloat(value) !== 0;
-          })
-        ) {
+        var visibleBorderSides = [0, 1, 2, 3].filter(function (side) {
+          var style = computedStyle.getPropertyValue(
+            borderWidthProperties[side].replace("-width", "-style"),
+          );
+          return (
+            style !== "none" &&
+            style !== "hidden" &&
+            /^[-+]?\d*\.?\d+px$/i.test(borderWidthValues[side]) &&
+            Number.parseFloat(borderWidthValues[side]) !== 0
+          );
+        });
+        if (visibleBorderSides.length === 4) {
           originalStyles["border-width"] = {
             value: el.style.getPropertyValue("border-width"),
             priority: el.style.getPropertyPriority("border-width"),
           };
           scaledStyles["border-width"] = borderWidthValues.join(" ");
+        } else {
+          visibleBorderSides.forEach(function (side) {
+            var property = borderWidthProperties[side];
+            originalStyles[property] = {
+              value: el.style.getPropertyValue(property),
+              priority: el.style.getPropertyPriority(property),
+            };
+            scaledStyles[property] = borderWidthValues[side];
+          });
         }
       }
 
@@ -25560,16 +26207,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var top = origin.top;
       var width = origin.width;
       var height = origin.height;
+      var grow = ev.altKey ? 2 : 1;
       if (handle.indexOf("w") !== -1) {
         left = origin.left + dx;
-        width = origin.width - dx;
+        width = origin.width - dx * grow;
       }
-      if (handle.indexOf("e") !== -1) width = origin.width + dx;
+      if (handle.indexOf("e") !== -1) width = origin.width + dx * grow;
       if (handle.indexOf("n") !== -1) {
         top = origin.top + dy;
-        height = origin.height - dy;
+        height = origin.height - dy * grow;
       }
-      if (handle.indexOf("s") !== -1) height = origin.height + dy;
+      if (handle.indexOf("s") !== -1) height = origin.height + dy * grow;
       if (ev.shiftKey) {
         if (handle === "e" || handle === "w") {
           height = width / origin.ratio;
@@ -25881,6 +26529,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         originHeight: 0,
         originCenterX: 0,
         originCenterY: 0,
+        originBoxWidth: 0,
+        originBoxHeight: 0,
+        hugsWidth: false,
+        hugsHeight: false,
       };
       rememberLiveVisualEditOriginalStyles(el);
       ensurePositionable(el);
@@ -25894,8 +26546,28 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       snapshot.originTop = readPx(el.style.top || cs.top);
       snapshot.originWidth = readPx(cs.width);
       snapshot.originHeight = readPx(cs.height);
+      var computedSize = el.computedStyleMap();
+      snapshot.hugsWidth = String(computedSize.get("width")) === "auto";
+      snapshot.hugsHeight = String(computedSize.get("height")) === "auto";
       snapshot.originCenterX = rect.left + rect.width / 2;
       snapshot.originCenterY = rect.top + rect.height / 2;
+      var contentBox = cs.boxSizing !== "border-box";
+      snapshot.originBoxWidth =
+        snapshot.originWidth +
+        (contentBox
+          ? readPx(cs.paddingLeft) +
+            readPx(cs.paddingRight) +
+            readPx(cs.borderLeftWidth) +
+            readPx(cs.borderRightWidth)
+          : 0);
+      snapshot.originBoxHeight =
+        snapshot.originHeight +
+        (contentBox
+          ? readPx(cs.paddingTop) +
+            readPx(cs.paddingBottom) +
+            readPx(cs.borderTopWidth) +
+            readPx(cs.borderBottomWidth)
+          : 0);
       return snapshot;
     });
     var groupWidth = Math.max(1, groupRight - groupLeft);
@@ -26015,22 +26687,28 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         var nextCenterY = anchorY + (state.originCenterY - anchorY) * factor.y;
         var nextWidth = state.originWidth * factor.x;
         var nextHeight = state.originHeight * factor.y;
+        // K also scales padding and borders, so the whole box grows, not just its content.
+        var growX = scaleToolEnabled
+          ? state.originBoxWidth * (factor.x - 1)
+          : nextWidth - state.originWidth;
+        var growY = scaleToolEnabled
+          ? state.originBoxHeight * (factor.y - 1)
+          : nextHeight - state.originHeight;
         var nextLeft =
-          state.originLeft +
-          (nextCenterX - state.originCenterX) -
-          (nextWidth - state.originWidth) / 2;
+          state.originLeft + (nextCenterX - state.originCenterX) - growX / 2;
         var nextTop =
-          state.originTop +
-          (nextCenterY - state.originCenterY) -
-          (nextHeight - state.originHeight) / 2;
+          state.originTop + (nextCenterY - state.originCenterY) - growY / 2;
         state.el.style.left =
           (scaleToolEnabled ? nextLeft : Math.round(nextLeft)) + "px";
         state.el.style.top =
           (scaleToolEnabled ? nextTop : Math.round(nextTop)) + "px";
-        state.el.style.width =
-          (scaleToolEnabled ? nextWidth : Math.round(nextWidth)) + "px";
-        state.el.style.height =
-          (scaleToolEnabled ? nextHeight : Math.round(nextHeight)) + "px";
+        // A hugging layer's K-scaled font size already resizes it.
+        if (!scaleToolEnabled || !state.hugsWidth)
+          state.el.style.width =
+            (scaleToolEnabled ? nextWidth : Math.round(nextWidth)) + "px";
+        if (!scaleToolEnabled || !state.hugsHeight)
+          state.el.style.height =
+            (scaleToolEnabled ? nextHeight : Math.round(nextHeight)) + "px";
       });
       if (kScaleTargetsForMove) {
         applyKScaleStyleTargets(kScaleTargetsForMove, factor.x);
@@ -26871,6 +27549,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !selectionContainerScope.contains(selectedEl)
       )
         selectionContainerScope = null;
+      rememberAutoLayoutContainerScopeForSelection(selectedEl);
       positionOverlay(selectionOverlay, selectedEl);
       if (!ev?.shiftKey && passiveSelectionEls.length) {
         setPassiveSelectionElements([]);
@@ -26928,27 +27607,96 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     function onUp(ev) {
       clearPendingShieldDrag();
-      if (didStartDrag) return;
+      var repeatedMouseClick = Boolean(
+        (ev?.type === "pointerup" &&
+          (ev as PointerEvent).pointerType === "mouse" &&
+          lastShieldMouseClick &&
+          Date.now() - lastShieldMouseClick.timestamp <=
+            MOUSE_DOUBLE_CLICK_WINDOW_MS &&
+          Math.hypot(
+            e.clientX - lastShieldMouseClick.x,
+            e.clientY - lastShieldMouseClick.y,
+          ) <= 4 &&
+          hit === lastShieldMouseClick.hit &&
+          selectedEl === lastShieldMouseClick.selected) ||
+        (ev?.type === "mouseup" && ev.detail > 1),
+      );
+      var isModifierCycleClick = Boolean(
+        !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey,
+      );
+      var continuesModifierCycle = Boolean(
+        isModifierCycleClick &&
+        selectedEl &&
+        lastShieldModifierCycleTarget === selectedEl &&
+        lastShieldModifierCyclePoint &&
+        Math.hypot(
+          e.clientX - lastShieldModifierCyclePoint.x,
+          e.clientY - lastShieldModifierCyclePoint.y,
+        ) <= 4,
+      );
+      if (didStartDrag) {
+        lastShieldMouseClick = null;
+        resetShieldModifierCycleState();
+        return;
+      }
       if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
       if (ev) stopNativeInteraction(ev);
-      var cycledEl =
-        !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
-          ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
-          : null;
+      var cycledEl = isModifierCycleClick
+        ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
+        : null;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
-          ? selectionTargetForHit(hit)
+          ? modifierClickSelectionTarget(hit)
           : !designCanvasBoardSurface
-            ? plainClickSelectionTarget(hit)
+            ? selectedContainerForPlainClick(hit, ev) ||
+              plainClickSelectionTarget(hit)
             : (!readOnly && !e.shiftKey
-                ? clickThroughSelectionTarget(hit, ev)
+                ? selectedContainerForPlainClick(hit, ev) ||
+                  clickThroughSelectionTarget(hit, ev, repeatedMouseClick)
                 : null) || containerFirstSelectionTarget(hit);
-      if (cycledEl) {
-        selectTarget(cycledEl, ev, true);
+      var preservesNestedHit = Boolean(
+        isModifierCycleClick &&
+        !continuesModifierCycle &&
+        selectedEl &&
+        hit &&
+        selectedEl.contains(hit) &&
+        primaryClickTarget &&
+        primaryClickTarget !== selectedEl,
+      );
+      var cycleTarget =
+        cycledEl && cycledEl !== selectedEl && !preservesNestedHit
+          ? cycledEl
+          : null;
+      var nextClickTarget = cycleTarget || primaryClickTarget || dragTarget;
+      selectTarget(nextClickTarget, ev, true);
+      if (isModifierCycleClick && selectedEl) {
+        lastShieldModifierCyclePoint = {
+          x: e.clientX,
+          y: e.clientY,
+        };
+        lastShieldModifierCycleTarget = selectedEl;
       } else {
-        selectTarget(primaryClickTarget || dragTarget, ev, true);
+        resetShieldModifierCycleState();
+      }
+      if (
+        ev?.type === "pointerup" &&
+        (ev as PointerEvent).pointerType === "mouse" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey
+      ) {
+        lastShieldMouseClick = {
+          x: e.clientX,
+          y: e.clientY,
+          hit: hit,
+          selected: selectedEl,
+          timestamp: Date.now(),
+        };
+      } else {
+        lastShieldMouseClick = null;
       }
       suppressNextShieldClickBriefly();
     }
@@ -27234,11 +27982,49 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     true,
   );
 
+  // macOS fires contextmenu on Ctrl+press, but Ctrl is also the Ignore Auto
+  // Layout drag modifier: the menu waits for a release that never dragged.
+  var macCtrlPrimaryPress: { x: number; y: number } | null = null;
+  window.addEventListener(
+    "pointerdown",
+    function (e) {
+      macCtrlPrimaryPress =
+        e.button === 0 && e.ctrlKey && isApplePlatformBridge()
+          ? { x: e.clientX, y: e.clientY }
+          : null;
+    },
+    true,
+  );
+  function openContextMenuUnlessCtrlDrag(e) {
+    var press = macCtrlPrimaryPress;
+    if (!press) {
+      openContextMenuAtEvent(e);
+      return;
+    }
+    stopNativeInteraction(e);
+    window.addEventListener(
+      "pointerup",
+      function (up) {
+        if (macCtrlPrimaryPress !== press) return;
+        macCtrlPrimaryPress = null;
+        if (Math.hypot(up.clientX - press.x, up.clientY - press.y) > 3) return;
+        window.setTimeout(function () {
+          openContextMenuAtEvent(e);
+        }, 0);
+      },
+      { capture: true, once: true },
+    );
+  }
+
   shieldOverlay.addEventListener("click", selectElementAtEvent, true);
-  shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
+  shieldOverlay.addEventListener(
+    "contextmenu",
+    openContextMenuUnlessCtrlDrag,
+    true,
+  );
   selectionOverlay.addEventListener(
     "contextmenu",
-    openContextMenuAtEvent,
+    openContextMenuUnlessCtrlDrag,
     true,
   );
   document.addEventListener(
@@ -27246,7 +28032,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     function (e) {
       if (interactionMode) return;
       if (isOverlayElement(e.target)) return;
-      openContextMenuAtEvent(e);
+      openContextMenuUnlessCtrlDrag(e);
     },
     true,
   );
@@ -29000,8 +29786,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var tookTarget = activeTextEditEl === textTarget;
       var beginInsertLanded = false;
       if (beginInsertText) {
+        // Owed text was typed before anything a left session already put in the node.
+        var beginAtStart =
+          tookTarget && collapseSelectionIntoContents(textTarget, true);
         beginInsertLanded =
           tookTarget && insertPlainTextAtSelection(beginInsertText);
+        if (beginAtStart) collapseSelectionIntoContents(textTarget);
         postTextEditInsertResult(nodeId, beginInsertLanded);
       }
       if (beginCommitImmediately) {
@@ -29210,7 +30000,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var measureSelector: string =
         typeof e.data.selector === "string" ? e.data.selector : "";
       var measureTarget: Element | null = null;
-      if (measureSelector) {
+      if (measureSelector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        measureTarget = resolveSourceEquivalentSelector(
+          document,
+          measureSelector,
+        );
+      } else if (measureSelector) {
         try {
           measureTarget = document.querySelector(measureSelector);
         } catch (_err) {
@@ -30082,7 +30877,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           move.el.removeAttribute("data-agent-native-transient-drag-clone");
         }
         if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
-          applyRuntimeReorder(move.el, move.target);
+          // Grid placement was decided and saved at drop time; re-deciding it
+          // against the moved DOM would displace peers the save never recorded.
+          applyRuntimeReorder(move.el, { ...move.target, gridCell: undefined });
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);

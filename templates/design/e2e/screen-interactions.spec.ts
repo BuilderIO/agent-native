@@ -270,14 +270,18 @@ test("Cmd+R renames a Screen selected on canvas or in Layers without renaming th
     .first();
   await screenTitle.hover();
   const titleBounds = await screenTitle.boundingBox();
-  const interactBounds = await page
-    .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
-    .locator("[data-frame-full-view]")
+  const screenShell = page.locator(
+    `[data-screen-shell][data-frame-id="${fileId}"]`,
+  );
+  const screenCardBounds = await screenShell
+    .locator("[data-screen-card]")
     .boundingBox();
   expect(titleBounds).not.toBeNull();
-  expect(interactBounds).not.toBeNull();
+  expect(screenCardBounds).not.toBeNull();
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveCount(0);
+  expect(titleBounds!.x).toBeGreaterThanOrEqual(screenCardBounds!.x - 1);
   expect(titleBounds!.x + titleBounds!.width).toBeLessThanOrEqual(
-    interactBounds!.x,
+    screenCardBounds!.x + screenCardBounds!.width + 1,
   );
   await screenTitle.click();
   const rename = page.getByRole("textbox", {
@@ -536,6 +540,8 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
   page,
   request,
 }) => {
+  // CI boots the editor and Monaco in about 15 s, twice per test.
+  test.setTimeout(240_000);
   const designId = await createDesign(app, "Hidden Code source reads");
   const fileId = await createScreen(request, designId, {
     content: FILL_HTML,
@@ -1367,8 +1373,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
   await expect(hugShell.locator("iframe")).toHaveCount(0);
 });
 
-// fixme: product bug: All-screens PDF vertically squashes auto-height screens: render-export-png captures the screen at its 844 px preview viewport (payload
-test.fixme("all-screens PDF reports a broken image and can retry after it recovers", async ({
+test("all-screens PDF reports a broken image and can retry after it recovers", async ({
   app,
   page,
   request,
@@ -1384,6 +1389,10 @@ test.fixme("all-screens PDF reports a broken image and can retry after it recove
   app.allowFailure(
     /^console\.error PDF image readiness failed: Error: A screen image failed to load\./,
     "the app logs the broken image it reports",
+  );
+  app.allowFailure(
+    /^console\.error (All-screens PDF export|PDF capture) failed: PngCaptureError: PNG capture blob-failed/,
+    "the export command and its error reporter log the failure they report",
   );
   const designId = await createDesign(app, "PDF image failure recovery");
   let assetAvailable = false;

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { H3Event } from "h3";
 import { createError, getHeader, readRawBody } from "h3";
 
+import { approvalKeyWithArguments } from "../../agent/approval-key.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import { getRequestContext } from "../../server/request-context.js";
@@ -2033,7 +2034,11 @@ function createSlackRunProgress(
             channelId: channel,
             messageTs: streamTs,
             runId: context.lineage?.runId ?? null,
-            approvalKey: event.approvalKey,
+            // Approving echoes this key back with no approval record to
+            // check, so it carries the arguments it binds.
+            approvalKey: event.argumentsHash
+              ? approvalKeyWithArguments(event.approvalKey, event.argumentsHash)
+              : event.approvalKey,
             incoming,
           };
           const [approve, deny] = await Promise.all([

@@ -10,6 +10,8 @@ import {
   matchSearchFields as matchScore,
   paginateSearchResults,
   semanticScopeCompatibility,
+  semanticScopeForCandidate,
+  semanticScopeForDictionaryEntry,
   semanticScopeForSearch,
   searchTerms,
   stripNonPositiveInstructions,
@@ -335,12 +337,16 @@ const SEMANTIC_SCOPES = new Set([
   "crm_record",
 ]);
 
-function inferSemanticScope(value: string): string {
+function inferRequestedSemanticScope(value: string): string {
   return semanticScopeForSearch(value);
 }
 
+function inferCandidateSemanticScope(value: string): string {
+  return semanticScopeForCandidate(value);
+}
+
 function isMembershipRosterRequest(search: string): boolean {
-  return inferSemanticScope(search) === "membership_roster";
+  return inferRequestedSemanticScope(search) === "membership_roster";
 }
 
 function requestedTemporalUnit(search: string): string | null {
@@ -2219,13 +2225,19 @@ function hasExplicitActivityEvidence(
   }
   if (
     candidate.kind === "data-dictionary" &&
+    candidate.semanticScope === "person"
+  ) {
+    return false;
+  }
+  if (
+    candidate.kind === "data-dictionary" &&
     !isStaleGeneratedSourceIndexEntry(candidate) &&
     (candidate.semanticScope === "membership" ||
       candidate.semanticScope === "membership_roster")
   ) {
     return false;
   }
-  return inferSemanticScope(searchable) === "product_activity";
+  return inferCandidateSemanticScope(searchable) === "product_activity";
 }
 
 function hasActiveOnlyMembershipEvidence(
@@ -2255,6 +2267,26 @@ function hasActiveOnlyMembershipEvidence(
     .replace(/[_-]+/g, " ");
   return /(?:\b(?<!non )active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b|\b(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?(?<!non )active\b)/.test(
     searchable,
+  );
+}
+
+function isTimeScopedActivityRequest(search: string, scope: string): boolean {
+  if (scope === "active_user_activity") return true;
+  if (scope !== "product_activity") return false;
+  return (
+    requestedTemporalUnit(search) !== null ||
+    /\b(?:daily|weekly|monthly|quarterly|yearly|annually|today|yesterday|this week|this month|this quarter|this year)\b|\b20\d{2}\b|\b\d{4}-\d{2}-\d{2}\b/i.test(
+      search,
+    )
+  );
+}
+
+function isNonActivityPersonCandidate(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  return (
+    candidateSemanticScope(candidate) === "person" &&
+    !hasExplicitActivityEvidence(candidate)
   );
 }
 
@@ -2373,23 +2405,10 @@ export function candidateSemanticScope(
     return "unknown";
   }
   if (candidate.kind === "data-dictionary") {
-    const declared = candidate.semanticScope;
-    if (declared && declared !== "unknown" && SEMANTIC_SCOPES.has(declared)) {
-      return declared;
-    }
-    return inferSemanticScope(
-      [
-        candidate.metric,
-        candidate.definition,
-        candidate.source,
-        candidate.table,
-      ]
-        .filter(Boolean)
-        .join(" "),
-    );
+    return semanticScopeForDictionaryEntry(candidate);
   }
   if (hasMembershipRosterEvidence(candidate)) return "membership_roster";
-  return inferSemanticScope(
+  return inferCandidateSemanticScope(
     [
       candidate.dashboardTitle,
       candidate.dashboardDescription,
@@ -2407,7 +2426,7 @@ export function candidateSemanticScope(
 }
 
 function requestedSemanticScope(search: string): string {
-  return inferSemanticScope(search);
+  return inferRequestedSemanticScope(search);
 }
 
 export function candidateScopeCompatibility(
@@ -2586,15 +2605,7 @@ function dictionaryCandidates(
     if (rawScore <= 0) return [];
     const score = Math.max(1, rawScore - metricNamePenalty);
     const isSourceIndex = entry.sourceIndex === true;
-    const declaredScope = text(entry.semanticScope);
-    const semanticScope =
-      declaredScope && declaredScope !== "unknown"
-        ? declaredScope
-        : inferSemanticScope(
-            [entry.metric, entry.definition, entry.source, entry.table]
-              .filter(Boolean)
-              .join(" "),
-          );
+    const semanticScope = semanticScopeForDictionaryEntry(entry);
     const entrySourceKind = sourceKind(entry.sourceKind);
     const entryType = sourceEntryType(entry.entryType);
     const status = sourceEntryStatus(entry.status);
@@ -2915,6 +2926,10 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
   const excludesMembershipForActivity = requestedScope === "product_activity";
+  const excludesPersonRosterForActivity = isTimeScopedActivityRequest(
+    rankingIntent,
+    requestedScope,
+  );
   const excludesActiveOnlyMembership =
     !requestedActiveMembers &&
     (rosterRequest || plainMembershipRequest || activeMemberIntent.negated);
@@ -2941,6 +2956,10 @@ export function rankAnalyticsQueryCatalogPage(args: {
       !(
         excludesActiveOnlyMembership &&
         hasActiveOnlyMembershipEvidence(candidate)
+      ) &&
+      !(
+        excludesPersonRosterForActivity &&
+        isNonActivityPersonCandidate(candidate)
       ) &&
       !(
         aggregateMembershipIsNotRelevant &&
@@ -2980,6 +2999,15 @@ export function rankAnalyticsQueryCatalogPage(args: {
         ? eligibleCandidates.filter(({ candidate, scope, trust }) => {
             if (isStaleGeneratedSourceIndexEntry(candidate)) return true;
             if (scope === 2) return true;
+            if (
+              requestedScope === "active_user_activity" &&
+              requestsRoleDetail &&
+              ["membership", "membership_roster"].includes(
+                candidateSemanticScope(candidate),
+              )
+            ) {
+              return true;
+            }
             if (requestedScope === "product_activity") {
               return scope === 1 && trust > bestScopeTrust;
             }

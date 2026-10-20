@@ -69,6 +69,12 @@ export default {
     sigmaChooseConnectionPlaceholder: "اختر اتصالًا",
     sigmaChooseConnectionDescription: "اختر مساحة عمل Sigma لتصفح مصنفاتها.",
     sigmaNoConnection: "Sigma غير متصل",
+    sigmaApiRegion: "منطقة Sigma API",
+    sigmaOAuthConnect: "ربط حساب Sigma الشخصي",
+    sigmaOAuthAddAnother: "ربط حساب Sigma آخر",
+    sigmaOAuthCancel: "إلغاء",
+    sigmaOAuthDescription:
+      "سجّل الدخول إلى Sigma بحسابك لتصفح المصنفات التي يمكنك الوصول إليها.",
     sigmaClientId: "معرّف العميل",
     sigmaClientSecret: "سر العميل",
     sigmaBaseUrl: "عنوان URL الأساسي لواجهة API (اختياري)",
@@ -80,8 +86,7 @@ export default {
     sigmaCredentialStageFailed:
       "تعذر تخزين بيانات اعتماد Sigma المؤقتة. تحقق من إمكانية الوصول إلى Vault ثم حاول مرة أخرى.",
     sigmaCredentialsRequired: "احفظ معرّف عميل Sigma وسر العميل أولًا.",
-    sigmaBaseUrlInvalid:
-      "استخدم عنوان HTTPS لواجهة Sigma API ضمن نطاق sigmacomputing.com.",
+    sigmaBaseUrlInvalid: "اختر عنوان URL رسميًا لمنطقة Sigma API مدعومة.",
     sigmaPersistenceUnavailable:
       "لا يمكن لـ Analytics حفظ اتصال Sigma بأمان حاليًا. حاول مرة أخرى.",
     sigmaPolicyInvalid:
@@ -96,68 +101,27 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "تعذرت قراءة بيانات اعتماد Sigma المحفوظة في Analytics. يمكن لمسؤول المؤسسة إعادة الاتصال عبر Dispatch أو إدخال بيانات الاعتماد مجددًا في Analytics.",
     sigmaNoConnectionDescription:
-      "أدخل بيانات الاعتماد هنا لإنشاء اتصال مخصص لـ Analytics. تظهر هنا تلقائيًا اتصالات Sigma الممنوحة لـ Analytics في Dispatch؛ ولا يمكن حفظ بيانات الاعتماد مباشرةً إلا لمسؤولي المؤسسة.",
+      "اربط حساب Sigma الشخصي أو استخدم بيانات اعتماد حفظها مسؤول المؤسسة. تظهر هنا أيضًا اتصالات Dispatch الممنوحة لـ Analytics.",
     sigmaOpenDispatch: "الاتصال عبر Dispatch",
     sigmaOpenVault: "فتح Vault",
     sigmaWorkbooksLoadFailed: "تعذر تحميل مصنفات Sigma",
     sigmaRetryConnection: "تحقق من الاتصال وحاول مرة أخرى.",
     sigmaRetry: "إعادة المحاولة",
     sigmaNoWorkbooks: "لا توجد مصنفات Sigma متاحة.",
-    sigmaWorkbook: "المصنف",
-    sigmaChooseWorkbook: "اختر مصنفًا",
-    sigmaStatusNotImported: "لم يتم الاستيراد",
-    sigmaStatusImporting: "جارٍ الاستيراد",
-    sigmaStatusImported: "تم الاستيراد",
-    sigmaStatusFailed: "فشل الاستيراد",
+    sigmaSearchWorkbooks: "ابحث في المصنفات…",
+    sigmaNoMatchingWorkbooks: "لا توجد مصنفات مطابقة",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "لم يتم تحميل مصنفات مطابقة بعد. حمّل مزيدًا من المصنفات للبحث في الباقي.",
+    sigmaOpenMigratedDashboard:
+      "افتح لوحة المعلومات المستوردة في علامة تبويب جديدة",
+    sigmaOwnedBy: "المالك",
+    sigmaMigratingTooltip: "يجري ترحيله بواسطة {{name}}",
+    sigmaMigrate: "ترحيل",
+    sigmaMigrateComingSoon: "قريبًا",
     sigmaArchived: "مؤرشف",
-    sigmaPreviewTitle: "محتويات المصنف",
-    sigmaPreviewFailed: "تعذرت معاينة هذا المصنف",
-    sigmaRetryPreview: "حاول مرة أخرى لتحميل معاينة المصنف.",
-    sigmaImportableCount: "{{count}} قابل للاستيراد",
-    sigmaUnsupportedCount: "{{count}} غير مدعوم",
-    sigmaImportable: "قابل للاستيراد",
-    sigmaUnsupported: "غير مدعوم",
-    sigmaNoElements: "لم يتم العثور على عناصر في المصنف.",
-    sigmaPreviewOnly:
-      "المعاينة فقط حاليًا: لا تكشف Sigma عن تعيين لمشروع BigQuery يمكن لـ Analytics التحقق منه، لذا يظل الاستيراد معطّلًا حتى يتوفر هذا التعيين.",
-    sigmaPreviewTruncated: "يتم عرض {{shown}} من {{total}} عنصرًا.",
-    sigmaImportWorkbook: "استيراد المصنف",
-    sigmaImporting: "جارٍ استيراد المصنف…",
-    sigmaImportInProgress: "هناك عملية استيراد لهذا المصنف قيد التنفيذ بالفعل.",
-    sigmaMigrationFailed: "تعذر استيراد هذا المصنف. حاول مرة أخرى.",
-    sigmaMigrationResultInvalid:
-      "كانت استجابة الاستيراد غير مكتملة. أعد تحميل قائمة المصنفات للتحقق من حالتها.",
-    sigmaImportComplete: "تم إنشاء لوحة المعلومات",
-    sigmaImportSummary:
-      "تم استيراد {{imported}} عنصرًا، مع الاحتفاظ بـ {{unsupported}} عنصرًا غير مدعوم كتنبيهات للمراجعة.",
-    sigmaAlreadyImported: "تم استيراد هذا المصنف من قبل.",
-    sigmaImportedNoDashboard:
-      "تم استيراد لوحة المعلومات، لكن لا يمكن فتحها من هذا الحساب.",
-    sigmaReviewRequiredCount: "{{count}} بحاجة إلى مراجعة",
-    sigmaBetaRepresentationWarning:
-      "قد يعرض هذا الاستيراد التجريبي بعض التصورات بطريقة مختلفة عن Sigma.",
-    sigmaReasonUnsupportedElement: "نوع هذا العنصر غير مدعوم للاستيراد.",
-    sigmaReasonUnsupportedSource: "يستخدم هذا العنصر مصدرًا غير مدعوم للاستيراد.",
-    sigmaReasonSourceMappingRequired:
-      "لا تعرض Sigma ربطًا بمشروع BigQuery يمكن لـ Analytics التحقق منه، لذلك لا يمكن استيراد SQL هذا بعد.",
-    sigmaReasonSourceUnavailable:
-      "لم تسمح Sigma بالوصول إلى اتصال المصدر هذا. تحقق من أذوناته.",
-    sigmaReasonQueryUnavailable:
-      "لم تُرجع Sigma استعلامًا قابلًا للاستيراد لهذا العنصر.",
-    sigmaReasonUnsafeSql: "لا يمكن استيراد نمط هذا الاستعلام بأمان.",
-    sigmaReasonVisualizationReview:
-      "يمكن استيراد البيانات، لكن تحقّق من التصور بعد الاستيراد.",
-    sigmaRetryOwnerOnly: "يمكن لمن بدأ هذا الاستيراد وحده إعادة المحاولة.",
-    sigmaImportedByTeammate: "استورده أحد الزملاء",
-    sigmaFlaggedCount: "{{count}} معلّم للمراجعة",
     sigmaMoreWorkbooksFailed: "تعذّر تحميل مزيد من المصنفات",
     sigmaLoadingMore: "جارٍ تحميل المصنفات…",
     sigmaLoadMore: "تحميل مزيد من المصنفات",
-    sigmaOpenDashboard: "فتح لوحة المعلومات",
-    sigmaReviewWithAgent: "مراجعة مع الوكيل",
-    sigmaReviewContext: "لوحة معلومات مستوردة من Sigma",
-    sigmaReviewPrompt:
-      "راجع لوحة معلومات Sigma المستوردة {{name}}. تحقق من اللوحات المستوردة والعناصر غير المدعومة، ثم اقترح أي تصحيحات.",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",
@@ -625,6 +589,7 @@ export default {
     notConnected: "غير متصل",
     needsReauth: "يلزم إعادة المصادقة",
     error: "خطأ",
+    unknown: "غير معروف",
     indexNotImported: "لم يتم استيراد فهرس مُنشأ.",
     indexUnreadable: "تعذرت قراءة الفهرس المحفوظ. ارفع فهرسًا صالحًا.",
     indexReadFailed: "تعذر تحميل حالة الفهرس.",
@@ -710,6 +675,43 @@ export default {
     sameNameCheckFailed: "تعذّر التحقق من وجود إدخالات لهذا المقياس.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "النقرات ومرات الظهور اليومية لكل صفحة لعرض المحتوى.",
+      serviceAccount: "حساب الخدمة",
+      copyEmail: "نسخ البريد الإلكتروني",
+      grantHint:
+        "أضف هذا البريد الإلكتروني كمستخدم في كل موقع على Search Console، من الإعدادات ← المستخدمون والأذونات.",
+      noServiceAccount: "أضف مفتاح حساب خدمة Google أولاً.",
+      openGoogleCloud: "فتح Google Cloud",
+      invalidServiceAccount: "تتعذر قراءة مفتاح حساب الخدمة المحفوظ.",
+      properties: "المواقع",
+      siteLabel: "الموقع",
+      pathLabel: "بادئة المسار",
+      pathInvalid: "ابدأ بادئة المسار بـ /.",
+      addProperty: "إضافة موقع",
+      removeProperty: "إزالة الموقع",
+      save: "حفظ",
+      collectDaily: "الجمع يوميًا",
+      adminOnly: "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير هذا.",
+      statusCollecting: "جارٍ الجمع",
+      statusNeedsAccess: "يلزم الوصول",
+      statusFailed: "فشل آخر تشغيل",
+      runSucceeded: "تم الجمع {{when}}",
+      runNeedsAccess: "لا يوجد وصول حتى {{when}}",
+      runRunning: "جارٍ الجمع منذ {{when}}",
+      runFailed: "فشل {{when}}",
+      unavailable: "حالة الجمع غير متاحة: {{message}}",
+      keyUnreadable:
+        "تعذرت قراءة مفتاح حساب الخدمة المحفوظ. احفظه مرة أخرى ضمن Google Cloud.",
+      propertyBareDomain: "لموقع النطاق، استخدم {{suggestion}}.",
+      propertyInvalidDomain:
+        "اكتب النطاق فقط بعد sc-domain: ، مثل {{suggestion}}.",
+      propertyMissingSlash:
+        "تنتهي مواقع بادئة عنوان URL بالرمز /. استخدم {{suggestion}}.",
+      propertyUnrecognized:
+        "استخدم sc-domain:example.com، أو موقع بادئة عنوان URL ينتهي بالرمز /.",
+    },
     uploadFile: "تحميل الملف",
     googleSheetsExport: "تصدير Google Sheets",
     googleSheetsExportDescription:
@@ -807,6 +809,7 @@ export default {
     bigQueryHealthUnavailable:
       "تعذّر التحقق من ضغط Analytics للطرف الأول. أعد التحميل وحاول مجدداً قبل تغيير الخلفية.",
     analyticsEventCount: "الأحداث الملحوظة",
+    analyticsRecentEventCount: "الأحداث الملحوظة (آخر 30 يومًا)",
     slowQueries24h: "الاستعلامات البطيئة (24 ساعة)",
     maxQueryDuration: "أقصى زمن للاستعلام",
     defaultKeyName: "القوالب المستضافة",
@@ -1202,6 +1205,8 @@ export default {
     addEventToSeeResults: "أضف حدثًا وحدده لرؤية النتائج",
     queryError: "Query error: {{message}}",
     noDataReturned: "لم يتم إرجاع أية بيانات",
+    incompleteResultsWarning:
+      "قد تكون هذه النتيجة غير مكتملة. قد تؤثر الصفوف أو بيانات المصدر المفقودة في الإجماليات.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "تصفية حسب",
     pickPropertyToFilter: "اختر خاصية لتصفيتها",
@@ -1283,6 +1288,14 @@ export default {
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",
     saveFailed: "تعذر حفظ لوحة البيانات",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: 'تكلفة BigQuery لـ "{{title}}"',
+    panelCostOverTitle: 'تحديث "{{title}}" مكلف',
+    panelCostScheduled:
+      "~{{size}} يتم فحصها · {{perRun}} لكل تحديث · ~{{perMonth}}/شهريًا في تقارير البريد الإلكتروني",
+    panelCostUnscheduled:
+      "~{{size}} يتم فحصها · {{perRun}} لكل تحديث · لا توجد تقارير بريد إلكتروني",
+    panelCostOverHint:
+      "نطاق تاريخ أضيق أو أعمدة أقل يقلل البيانات التي يتم فحصها.",
     archived: 'تمت أرشفة "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "تعذر أرشفة لوحة التحكم",
@@ -1291,6 +1304,10 @@ export default {
     dashboardActions: "تفاصيل وإجراءات لوحة التحكم",
     certifyForAi: "اعتماد لاستعلامات الذكاء الاصطناعي",
     certifiedForAi: "معتمد لاستعلامات الذكاء الاصطناعي",
+    duplicateToCustomize: "تكرار للتخصيص",
+    duplicateToCustomizeHint:
+      "تتحدّث لوحات المعلومات المضمّنة مع كل إصدار من Analytics. أنشئ نسختك الخاصة لتغيير هذه اللوحة.",
+    duplicateFailed: "تعذّر تكرار لوحة المعلومات هذه.",
     certificationSaved: "تم اعتماد لوحة المعلومات لاستعلامات الذكاء الاصطناعي",
     certificationFailed: "تعذر اعتماد لوحة المعلومات: {{message}}",
     details: "Details",
@@ -1324,6 +1341,22 @@ export default {
     resetFilters: "إعادة تعيين عوامل التصفية",
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
+    drilldownChartPoints: "نقاط المخطط",
+    drilldownPreviousPage: "الصفحة السابقة لنقاط المخطط",
+    drilldownNextPage: "الصفحة التالية لنقاط المخطط",
+    drilldownPageRange: "عرض {{start}}–{{end}} من إجمالي {{total}}",
+    drilldownFilterRows: "تصفية الصفوف",
+    drilldownShowSql: "عرض SQL",
+    drilldownHideSql: "إخفاء SQL",
+    drilldownDownloadCsv: "تنزيل CSV",
+    drilldownShowing: "عرض {{shown}} من {{total}} سجل",
+    drilldownCsvTruncated:
+      "تصدير غير مكتمل: عثر الاستعلام على {{total}} سجلًا، لكن تم تحميل أول {{loaded}} فقط؛ يحتوي هذا الملف على {{exported}} بعد التصفية.",
+    drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
+    drilldownAggregateOnly:
+      "تحتوي هذه اللوحة على صفوف مجمّعة فقط. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
+    drilldownNoRecords: "لا توجد سجلات مطابقة",
+    drilldownLoadFailed: "تعذّر تحميل السجلات",
     filterSeries: "Filter",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
@@ -1396,6 +1429,22 @@ export default {
     columnShowHidden: "إظهار الأعمدة المخفية",
     columnName: "اسم العمود",
     columnResize: "تغيير حجم العمود",
+    rowBreakdownBy: "التقسيم حسب",
+    rowBreakdownAll: "الكل",
+    rowBreakdownOther: "أخرى",
+    rowBreakdownOtherHint: "مجموعات أصغر، ومن يستبعدهم SQL هذه اللوحة",
+    rowBreakdownSmallGroup: "أقل من {{count}}: اقرأ النسب بحذر",
+    rowBreakdownNoValue: "(لا شيء)",
+    rowBreakdownEmpty: "لا توجد صفوف لهذا التقسيم.",
+    rowBreakdownUnavailable: "لا يحتوي SQL هذه اللوحة على تقسيم حسب {{column}}.",
+    rowBreakdownFromPanel: "من صفوف هذه اللوحة. لم تتم قراءة أي شيء.",
+    rowBreakdownFromCache: "من ذاكرة التخزين المؤقت. لم تتم قراءة أي شيء.",
+    rowBreakdownAlreadyLoaded: "تم التحميل مسبقًا. لم تتم قراءة أي شيء.",
+    rowBreakdownBytesRead: "تمت قراءة {{bytes}}",
+    rowBreakdownOverByteCap:
+      "قد يقرأ هذا التفصيل أكثر من {{gib}} غيغابايت، لذلك لم يُشغَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
+    rowBreakdownTruncated:
+      "تم اقتطاع النتيجة، لذلك بعض المجموعات مفقودة أو محسوبة ضمن «أخرى».",
     deleteSectionTitle: "هل تريد حذف القسم؟",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "هل تريد حذف اللوحة؟",
@@ -2061,10 +2110,6 @@ export default {
     noMatches: "لا توجد تعريفات تطابق بحثك.",
     searchPlaceholder: "ابحث في التعريفات",
     sourceIndex: "فهرس المصادر",
-    statusApproved: "معتمد",
-    statusSuggested: "مقترح",
-    statusUnreviewed: "غير مُراجَع",
-    unsourced: "بلا مصدر",
   },
   indexPanel: {
     presetDaily: "يوميًا في 06:00",
@@ -2121,6 +2166,8 @@ export default {
     dbtDisabled: "معطّل",
     dbtAdminOnly: "يمكن لمسؤولي المؤسسة فقط تغيير هذا الاتصال.",
     dbtReadFailed: "تعذّر تحميل اتصال dbt.",
+    dbtSeveralConnections:
+      "تم منح Analytics عدة اتصالات dbt، لذلك لا يمكن لهذه اللوحة تحرير أي منها. أزل الاتصالات الإضافية من الإعدادات ← التكاملات للاحتفاظ باتصال واحد.",
     dbtSave: "حفظ الاتصال",
     dbtChecking: "جارٍ التحقق",
     dbtSaveFailed: "تعذّر حفظ اتصال dbt.",

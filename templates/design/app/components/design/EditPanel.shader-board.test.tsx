@@ -14,6 +14,7 @@
  * for the editor: it holds the board's HTML and applies the edit it is given.
  */
 
+import { parseEffectsFromHtml } from "@shared/native-effects";
 import { applyShaderToHtml } from "@shared/shader-fills";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState } from "react";
@@ -181,6 +182,10 @@ const popover = () =>
   )!;
 const byLabel = (label: string) =>
   popover().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+const nativeDefinitionButton = (slug: string) =>
+  popover().querySelector<HTMLButtonElement>(
+    `[data-native-shader-panel="fill"] button[aria-label$="definitions.${slug}"]`,
+  );
 
 async function flush() {
   await act(async () => {
@@ -213,12 +218,12 @@ async function openPicker(activeFileId: string, initialBoard?: string) {
 async function pickMeshGradient(activeFileId: string) {
   const edited = await openPicker(activeFileId);
   act(() => byLabel("Shader")!.click());
-  await act(async () => byLabel("Mesh Gradient")!.click());
+  await act(async () => nativeDefinitionButton("mesh-anchors")!.click());
   await flush();
   return edited;
 }
 
-describe("EditPanel — a shader preset on a frame drawn on the board", () => {
+describe("EditPanel — a native fill shader on a frame drawn on the board", () => {
   it.each([
     ["the board is the active file", BOARD_ID],
     ["another screen is the active file", SCREEN_ID],
@@ -230,24 +235,28 @@ describe("EditPanel — a shader preset on a frame drawn on the board", () => {
       expect(mocks.toastError).not.toHaveBeenCalled();
       expect(edited).toHaveBeenCalledTimes(1);
       const html = edited.mock.calls[0]![0] as string;
-      expect(html).toContain('type="application/x-agent-native-shader"');
-      expect(html).toContain('data-shader-name="Mesh Gradient"');
-      expect(html).toMatch(
-        new RegExp(
-          `data-agent-native-node-id="${FRAME_ID}"[^>]*data-an-shader-fill="an-shader-`,
-        ),
+      const parsed = parseEffectsFromHtml(html);
+      expect(parsed.errors).toEqual([]);
+      expect(parsed.document?.instances).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            nodeId: FRAME_ID,
+            definitionId: "an-native-mesh-anchors",
+            placement: "fill",
+          }),
+        ]),
       );
-      // The source actions cannot see the board, so they are not asked to.
+      // The source actions cannot see the board, so the editor applies one native manifest edit.
       expect(mocks.applySourceEdit).not.toHaveBeenCalled();
+      expect(mocks.readSourceFile).not.toHaveBeenCalled();
     },
   );
 
-  it("switches the pane to the picked shader's controls", async () => {
+  it("shows the applied native shader in the board inspector", async () => {
     await pickMeshGradient(BOARD_ID);
-    expect(
-      popover().querySelector('button[aria-label="editPanel.shaders.more"]'),
-    ).not.toBeNull();
-    expect(byLabel("Glowing Wave")).toBeNull();
+    expect(container.textContent).toContain(
+      "editPanel.shaders.nativeCatalog.definitions.mesh-anchors",
+    );
   });
 });
 
@@ -284,26 +293,22 @@ const TWO_FRAMES = BOARD_HTML.replace(
   `<div data-agent-native-node-id="${OTHER_FRAME_ID}" data-an-primitive="frame"></div></body>`,
 );
 
-describe("EditPanel — Created by you on the board", () => {
-  it("lists the shader the agent made for another frame, so it can be applied to this one", async () => {
+describe("EditPanel — the board fill picker uses the native catalog", () => {
+  it("does not substitute legacy saved shaders for native definitions", async () => {
     const withAi = applyShaderToHtml(TWO_FRAMES, {
       nodeId: OTHER_FRAME_ID,
       def: AI_DEF,
       fallbackColor: "#4f2d8f",
     }).html;
-    const edited = await openPicker(BOARD_ID, withAi);
+    await openPicker(BOARD_ID, withAi);
     act(() => byLabel("Shader")!.click());
 
-    expect(byLabel("Aurora Drift")).not.toBeNull();
-
-    await act(async () => byLabel("Aurora Drift")!.click());
-    await flush();
-    const html = edited.mock.calls[0]![0] as string;
-    expect(html).toMatch(
-      new RegExp(
-        `data-agent-native-node-id="${FRAME_ID}"[^>]*data-an-shader-fill="${AI_DEF.id}"`,
-      ),
-    );
+    expect(
+      popover().querySelector('[data-native-shader-panel="fill"]'),
+    ).not.toBeNull();
+    expect(nativeDefinitionButton("nebula")).not.toBeNull();
+    expect(byLabel("Aurora Drift")).toBeNull();
+    expect(popover().textContent).not.toContain("editPanel.shaders.presets");
   });
 });
 
@@ -430,9 +435,36 @@ describe("EditPanel — reopening the picker on a frame on the board", () => {
 
     act(() => byLabel("Shader")!.click());
 
-    expect(shaderPane()).toBe("browse");
-    expect(popover().textContent).toContain("editPanel.shaders.createWithAi");
-    expect(byLabel("Mesh Gradient")).not.toBeNull();
+    expect(
+      popover().querySelector('[data-native-shader-panel="fill"]'),
+    ).not.toBeNull();
+    expect(nativeDefinitionButton("mesh-anchors")).not.toBeNull();
+    expect(popover().textContent).not.toContain("editPanel.shaders.presets");
     expect(popover().querySelector('[role="combobox"]')).toBeNull();
+  });
+
+  it("applies Nebula to the selected board frame through editor history", async () => {
+    const edited = await openPicker(BOARD_ID);
+
+    act(() => byLabel("Shader")!.click());
+    await act(async () => nativeDefinitionButton("nebula")!.click());
+    await flush();
+
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(edited).toHaveBeenCalledTimes(1);
+    const html = edited.mock.calls[0]![0] as string;
+    const parsed = parseEffectsFromHtml(html);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.document?.instances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: FRAME_ID,
+          definitionId: "an-native-nebula",
+          placement: "fill",
+        }),
+      ]),
+    );
+    expect(html).not.toContain("data-an-shader-fill");
+    expect(mocks.readSourceFile).not.toHaveBeenCalled();
   });
 });
