@@ -2748,8 +2748,10 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       );
     }
 
-    await page.getByRole("button", { name: "Speaker Notes" }).click();
-    const notes = page.getByPlaceholder("Add speaker notes...");
+    await page
+      .getByRole("button", { name: "Speaker notes", exact: true })
+      .click();
+    const notes = page.getByRole("textbox", { name: "Speaker notes" });
     const expectedNotes = await exerciseControl(notes, "speaker notes", true);
     let notesSlide: { notes?: string } | undefined;
     const notesSaved = await waitFor(
