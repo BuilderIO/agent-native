@@ -130,15 +130,19 @@ function articleAuthorIds(data: BuilderContentResult["data"]): {
   primary: string | null;
   all: string[];
 } {
-  const primary = referenceId(data?.author);
-  const listed = Array.isArray(data?.authors)
-    ? data.authors.map((entry) =>
-        referenceId((entry as { author?: unknown } | null)?.author),
+  const ids = (value: unknown): string[] => {
+    const entries = Array.isArray(value) ? value : [value];
+    return entries
+      .map(
+        (entry) =>
+          referenceId(entry) ??
+          referenceId((entry as { author?: unknown } | null)?.author),
       )
-    : [];
-  const all = [
-    ...new Set([primary, ...listed].filter((id): id is string => !!id)),
-  ];
+      .filter((id): id is string => id !== null);
+  };
+  const primaryIds = ids(data?.author);
+  const primary = primaryIds[0] ?? null;
+  const all = [...new Set([...primaryIds, ...ids(data?.authors)])];
   return { primary, all };
 }
 

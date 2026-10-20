@@ -185,6 +185,45 @@ describe("builder-blog-articles", () => {
     expect(none.authors).toEqual([]);
   });
 
+  it("keeps direct and wrapped references in both author fields", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "article-1",
+                data: {
+                  handle: "mixed",
+                  author: [
+                    { id: "a", model: "blog-author" },
+                    { author: { id: "b" } },
+                  ],
+                  authors: [
+                    { id: "c", model: "blog-author" },
+                    { author: { id: "a" } },
+                  ],
+                },
+              },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [] })));
+    const result = await builderBlogArticles.run({}, {
+      userEmail: "ada@example.com",
+      orgId: "org-1",
+    } as any);
+    expect(result.articles[0].author?.id).toBe("a");
+    expect(result.articles[0].authors.map((author) => author.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("fails loudly when the author lookup fails instead of returning nameless authors", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
