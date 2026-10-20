@@ -66,11 +66,8 @@ export async function readServiceAccountIdentity(): Promise<ServiceAccountIdenti
     throw error;
   }
   try {
-    const email = (JSON.parse(credsJson) as { client_email?: unknown })
-      .client_email;
-    return typeof email === "string" && email
-      ? { status: "ok", email }
-      : { status: "invalid" };
+    const creds = parseServiceAccountKey(credsJson);
+    return { status: "ok", email: creds.client_email };
   } catch {
     return { status: "invalid" };
   }
@@ -89,8 +86,10 @@ function unreadableServiceAccountKey(cause?: string): Error {
   );
 }
 
-async function getAccessToken(scope: string): Promise<string> {
-  const credsJson = await readServiceAccountJson();
+function parseServiceAccountKey(credsJson: string): {
+  client_email: string;
+  private_key: string;
+} {
   let creds: { client_email?: unknown; private_key?: unknown };
   try {
     creds = JSON.parse(credsJson);
@@ -107,6 +106,11 @@ async function getAccessToken(scope: string): Promise<string> {
   ) {
     throw unreadableServiceAccountKey();
   }
+  return { client_email: creds.client_email, private_key: creds.private_key };
+}
+
+async function getAccessToken(scope: string): Promise<string> {
+  const creds = parseServiceAccountKey(await readServiceAccountJson());
   const now = Math.floor(Date.now() / 1000);
 
   let jwt: string;

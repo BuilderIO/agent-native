@@ -60,6 +60,7 @@ export type ContentRunOutcome = {
   rowCount: number;
   windowStart?: string | null;
   windowEnd?: string | null;
+  configFingerprint?: string | null;
   bytesProcessed?: number | null;
   bytesCap?: number | null;
   costUsd?: number | null;
@@ -493,6 +494,7 @@ export async function completeContentRun(
         rowCount: outcome.rowCount,
         windowStart: outcome.windowStart ?? null,
         windowEnd: outcome.windowEnd ?? null,
+        configFingerprint: outcome.configFingerprint ?? null,
         bytesProcessed: outcome.bytesProcessed ?? null,
         bytesCap: outcome.bytesCap ?? null,
         costUsd: outcome.costUsd ?? null,
