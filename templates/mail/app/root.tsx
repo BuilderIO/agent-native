@@ -49,7 +49,11 @@ import {
 } from "@/lib/integration-status";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
-import { getThreadCacheOwner, setThreadCacheOwner } from "@/lib/thread-cache";
+import {
+  bindThreadCacheQueryClient,
+  getThreadCacheOwner,
+  setThreadCacheOwner,
+} from "@/lib/thread-cache";
 
 import { i18nCatalog } from "./i18n";
 
@@ -576,7 +580,11 @@ export function computeSessionBypass(): boolean {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const [queryClient] = useState(() => {
+    const client = createAgentNativeQueryClient();
+    bindThreadCacheQueryClient(client);
+    return client;
+  });
   return (
     <AppToolkitProvider>
       <AppProviders

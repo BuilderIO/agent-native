@@ -1,5 +1,10 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
+import {
+  currentActionQueryCacheBinding,
+  recordActionQueryBrowserPersist,
+} from "@agent-native/core/client/hooks";
 import type { EmailMessage } from "@shared/types";
+import type { QueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { beginProviderSnapshot } from "@/lib/provider-snapshot";
@@ -14,6 +19,8 @@ type CacheEntry = {
 type ThreadFetchResult = {
   messages: EmailMessage[];
   providerSnapshotId: number;
+  response?: Response;
+  cacheBinding?: object;
 };
 
 type WarmTarget = string | { id: string; accountEmail?: string };
@@ -21,6 +28,12 @@ type WarmTarget = string | { id: string; accountEmail?: string };
 const BACKGROUND_RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
 const BACKGROUND_AUTH_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const WARM_BATCH_LIMIT = 4;
+// Recently fetched threads are mirrored into the action query cache, whose
+// per-user persisted record (cleared on sign-out) paints them after a restart.
+// A restored thread is only a placeholder until its refetch lands.
+const PERSISTED_THREADS_KEY = ["action", "mail-thread-messages"] as const;
+const PERSISTED_THREAD_LIMIT = 20;
+let persistClient: QueryClient | undefined;
 
 type Globals = {
   __mailThreadCacheFormat?: number;
@@ -83,6 +96,70 @@ function keysForThread(threadId: string): string[] {
       ...versions.keys(),
     ]),
   ).filter((key) => threadIdFromCacheKey(key) === threadId);
+}
+
+/** Call before the persisted query cache restores, so restored threads keep `gcTime: Infinity`. */
+export function bindThreadCacheQueryClient(client: QueryClient): void {
+  persistClient = client;
+  client.setQueryDefaults([...PERSISTED_THREADS_KEY], { gcTime: Infinity });
+}
+
+function persistedThreadQueryKey(key: string) {
+  return [...PERSISTED_THREADS_KEY, sessionScope ?? null, key];
+}
+
+function persistThread(
+  key: string,
+  entry: CacheEntry,
+  result: ThreadFetchResult,
+) {
+  if (!persistClient || sessionScope === undefined) return;
+  const queryCache = persistClient.getQueryCache();
+  const queryKey = persistedThreadQueryKey(key);
+  persistClient.setQueryData(queryKey, entry.messages, {
+    updatedAt: entry.fetchedAt,
+  });
+  const query = queryCache.find({ queryKey, exact: true });
+  if (query) {
+    recordActionQueryBrowserPersist(
+      query,
+      result.response,
+      result.cacheBinding,
+    );
+  }
+  const persisted = queryCache
+    .findAll({ queryKey: [...PERSISTED_THREADS_KEY] })
+    .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
+  for (const evicted of persisted.slice(PERSISTED_THREAD_LIMIT)) {
+    queryCache.remove(evicted);
+  }
+}
+
+function forgetPersistedThread(key: string) {
+  persistClient?.removeQueries({
+    queryKey: persistedThreadQueryKey(key),
+    exact: true,
+  });
+}
+
+function cachedEntry(key: string): CacheEntry | undefined {
+  const hit = cache.get(key);
+  if (hit || !persistClient || sessionScope === undefined) return hit;
+  const query = persistClient
+    .getQueryCache()
+    .find({ queryKey: persistedThreadQueryKey(key), exact: true });
+  const messages = query?.state.data;
+  if (!query || !Array.isArray(messages)) return undefined;
+  const restored = {
+    messages: messages as EmailMessage[],
+    fetchedAt: query.state.dataUpdatedAt,
+  };
+  cache.set(key, restored);
+  const parsed = JSON.parse(key) as [unknown, string | null, string];
+  if (canRunBackgroundFetch() && !inflight.has(key)) {
+    void backgroundRefresh(parsed[2], parsed[1] ?? undefined);
+  }
+  return restored;
 }
 
 export function getThreadCacheOwner(): string | null {
@@ -200,6 +277,7 @@ async function fetchThread(
   accountEmail?: string,
 ): Promise<ThreadFetchResult> {
   const providerSnapshotId = beginProviderSnapshot();
+  const cacheBinding = currentActionQueryCacheBinding();
   const params = new URLSearchParams();
   if (accountEmail) params.set("accountEmail", accountEmail);
   const suffix = params.toString() ? `?${params}` : "";
@@ -231,7 +309,12 @@ async function fetchThread(
       retryAfterMs;
     throw error;
   }
-  return { messages: await res.json(), providerSnapshotId };
+  return {
+    messages: await res.json(),
+    providerSnapshotId,
+    response: res,
+    cacheBinding,
+  };
 }
 
 function clearLegacyThreadStorage() {
@@ -247,7 +330,7 @@ export function getCachedThread(
   threadId: string,
   accountEmail?: string,
 ): EmailMessage[] | undefined {
-  return cache.get(cacheKey(threadId, accountEmail))?.messages;
+  return cachedEntry(cacheKey(threadId, accountEmail))?.messages;
 }
 
 export function setCachedThread(
@@ -288,6 +371,7 @@ export function invalidateCachedThread(threadId: string) {
   if (keys.length === 0) keys.push(cacheKey(threadId));
   for (const key of keys) {
     cache.delete(key);
+    forgetPersistedThread(key);
     inflight.delete(key);
     versions.set(key, getVersion(key) + 1);
     notify(key);
@@ -301,7 +385,7 @@ export function ensureThread(
   accountEmail?: string,
 ): Promise<EmailMessage[]> {
   const key = cacheKey(threadId, accountEmail);
-  const cached = cache.get(key);
+  const cached = cachedEntry(key);
   if (cached) {
     if (
       Date.now() - cached.fetchedAt > STALE_AFTER &&
@@ -321,11 +405,13 @@ export function ensureThread(
         clearOwnedInflight(key, p);
         return result;
       }
-      cache.set(key, {
+      const entry = {
         messages: result.messages,
         fetchedAt: Date.now(),
         providerSnapshotId: result.providerSnapshotId,
-      });
+      };
+      cache.set(key, entry);
+      persistThread(key, entry, result);
       clearOwnedInflight(key, p);
       notify(key);
       return result;
@@ -356,11 +442,13 @@ function backgroundRefresh(
         return result;
       }
       const prev = cache.get(key);
-      cache.set(key, {
+      const entry = {
         messages: result.messages,
         fetchedAt: Date.now(),
         providerSnapshotId: result.providerSnapshotId,
-      });
+      };
+      cache.set(key, entry);
+      persistThread(key, entry, result);
       clearOwnedInflight(key, p);
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
       const nextJson = JSON.stringify(result.messages);
@@ -389,7 +477,7 @@ export function warmThreads(targets: WarmTarget[], concurrency = 2) {
     .map(normalizeTarget)
     .filter((target) => {
       const key = cacheKey(target.id, target.accountEmail);
-      return !cache.has(key) && !inflight.has(key);
+      return !cachedEntry(key) && !inflight.has(key);
     })
     .slice(0, WARM_BATCH_LIMIT);
   if (queue.length === 0) return;
@@ -448,7 +536,7 @@ export function useThreadCache(
       isLoading: false,
     };
   }
-  const hit = cache.get(key!);
+  const hit = cachedEntry(key!);
   if (hit) {
     return {
       messages: hit.messages,
