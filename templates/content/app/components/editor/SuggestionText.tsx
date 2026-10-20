@@ -9,8 +9,9 @@ import { Fragment, type ReactNode } from "react";
 
 function renderNode(node: SuggestionPresentationNode, key: string): ReactNode {
   if (node.type === "text") return <Fragment key={key}>{node.value}</Fragment>;
-  if (node.type === "indent")
+  if (node.type === "indent" || node.type === "block")
     return <Fragment key={key}>{node.value}</Fragment>;
+  if (node.type === "lineBreak") return <br key={key} />;
   const children = node.children.map((child, index) =>
     renderNode(child, `${key}-${index}`),
   );
@@ -42,16 +43,23 @@ export function SuggestionText({
   context?: SuggestionPresentationContext;
 }) {
   const t = useT();
-  const nodes = context
+  const presented = context
     ? suggestionTextPresentationForSource(content, context)
     : suggestionTextPresentation(content);
-  if (!nodes) {
+  if (!presented) {
     return (
       <span data-suggestion-text-unavailable="true">
         {t("editor.sourceComponent.previewUnavailable")}
       </span>
     );
   }
+  // A new paragraph's own line break would open or close the card with an
+  // empty line; the lines between stay.
+  let start = 0;
+  let end = presented.length;
+  while (start < end && presented[start]!.type === "lineBreak") start += 1;
+  while (end > start && presented[end - 1]!.type === "lineBreak") end -= 1;
+  const nodes = presented.slice(start, end);
   return (
     <span className="whitespace-pre-wrap break-words">
       {nodes.map((node, index) => renderNode(node, String(index)))}

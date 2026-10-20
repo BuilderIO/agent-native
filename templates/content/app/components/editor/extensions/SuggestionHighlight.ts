@@ -80,7 +80,11 @@ function appendPresentationNode(
   node: SuggestionPresentationNode,
   showLinkDestination: boolean,
 ): void {
-  if (node.type === "text" || node.type === "indent") {
+  if (node.type === "lineBreak") {
+    parent.append(document.createElement("br"));
+    return;
+  }
+  if (node.type === "text" || node.type === "indent" || node.type === "block") {
     parent.append(document.createTextNode(node.value));
     return;
   }
@@ -127,7 +131,38 @@ function appendSuggestionText(
   }
 }
 
-function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
+// While the reader can type, a click on suggested text that isn't in the
+// document places the caret where the widget sits instead of focusing it.
+function identifyWidget(
+  widget: HTMLElement,
+  spec: SuggestionHighlightSpec,
+  label: string,
+  position = spec.from,
+) {
+  widget.setAttribute("data-suggestion-id", spec.suggestionId);
+  widget.setAttribute("data-suggestion-widget", "true");
+  if (spec.editableBoundary) {
+    widget.setAttribute("data-suggestion-edit-boundary", "true");
+    widget.setAttribute("data-suggestion-position", String(position));
+  } else {
+    widget.setAttribute("role", "button");
+    widget.setAttribute("tabindex", "0");
+    widget.setAttribute("aria-label", label);
+  }
+}
+
+function insertionClass(spec: SuggestionHighlightSpec) {
+  return `${
+    spec.kind === "add_block" ? "suggestion-add-block" : "suggestion-insert"
+  } suggestion-proposed-text`;
+}
+
+function insertionWidget(
+  spec: SuggestionHighlightSpec,
+  active: boolean,
+  part?: { text: string; context?: SuggestionPresentationContext },
+  position?: number,
+) {
   return () => {
     const widget = document.createElement("span");
     if (spec.settling) {
@@ -142,46 +177,35 @@ function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
       return widget;
     }
     widget.className = classes(
-      `${
-        spec.kind === "add_block" ? "suggestion-add-block" : "suggestion-insert"
-      } suggestion-proposed-text suggestion-inline-widget`,
+      `${insertionClass(spec)} suggestion-inline-widget`,
       active,
     );
-    widget.setAttribute("data-suggestion-id", spec.suggestionId);
-    widget.setAttribute("data-suggestion-widget", "true");
-    widget.setAttribute("role", "button");
-    widget.setAttribute("tabindex", "0");
-    widget.setAttribute("aria-label", "Inspect suggested insertion");
+    identifyWidget(widget, spec, "Inspect suggested insertion", position);
     appendSuggestionText(
       widget,
-      spec.insertedText ?? "",
-      spec.insertedPresentation,
+      part ? part.text : (spec.insertedText ?? ""),
+      part ? part.context : spec.insertedPresentation,
     );
     return widget;
   };
 }
 
-function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
+function deletionWidget(
+  spec: SuggestionHighlightSpec,
+  active: boolean,
+  part?: { text: string; context?: SuggestionPresentationContext },
+) {
   return () => {
     const widget = document.createElement("span");
     widget.className = classes(
       "suggestion-delete-widget suggestion-deleted-text suggestion-inline-widget",
       active,
     );
-    widget.setAttribute("data-suggestion-id", spec.suggestionId);
-    widget.setAttribute("data-suggestion-widget", "true");
-    if (spec.editableBoundary) {
-      widget.setAttribute("data-suggestion-edit-boundary", "true");
-      widget.setAttribute("data-suggestion-position", String(spec.from));
-    } else {
-      widget.setAttribute("role", "button");
-      widget.setAttribute("tabindex", "0");
-      widget.setAttribute("aria-label", "Inspect suggested deletion");
-    }
+    identifyWidget(widget, spec, "Inspect suggested deletion");
     appendSuggestionText(
       widget,
-      spec.deletedText ?? "",
-      spec.deletedPresentation,
+      part ? part.text : (spec.deletedText ?? ""),
+      part ? part.context : spec.deletedPresentation,
     );
     return widget;
   };
@@ -197,6 +221,263 @@ export function editorDocumentSource(doc: ProseMirrorNode): string {
     documentSources.set(doc, source);
   }
   return source;
+}
+
+type SourceSpan = { from: number; to: number };
+
+// How suggested text with line breaks meets the lines around it: the part
+// that joins the line before the point, the whole lines it adds or removes,
+// and the part that joins the line after.
+interface SuggestedLines {
+  source: string;
+  head: SourceSpan | null;
+  lines: SourceSpan[];
+  tail: SourceSpan | null;
+  side: "before" | "after";
+}
+
+function suggestedLines(
+  text: string | undefined,
+  context: SuggestionPresentationContext | undefined,
+): SuggestedLines | null {
+  if (!text || !context || !text.includes("\n")) return null;
+  const { source, from, to } = context;
+  if (source.slice(from, to) !== text) return null;
+  const startsLine = from === 0 || source[from - 1] === "\n";
+  const endsLine = to === source.length || source[to] === "\n";
+  // Text that splits a line in two has no whole line to show on its own.
+  if (!startsLine && !endsLine) return null;
+  const spans: SourceSpan[] = [];
+  let start = from;
+  for (let index = from; index < to; index += 1) {
+    if (source[index] !== "\n") continue;
+    spans.push({ from: start, to: index });
+    start = index + 1;
+  }
+  spans.push({ from: start, to });
+  const head = startsLine ? null : spans.shift()!;
+  const tail = endsLine ? null : spans.pop()!;
+  const lines = spans.filter((span) => span.to > span.from);
+  if (!lines.length) return null;
+  return {
+    source,
+    head: head && head.to > head.from ? head : null,
+    lines,
+    tail: tail && tail.to > tail.from ? tail : null,
+    side: startsLine ? "before" : "after",
+  };
+}
+
+const LIST_LINE = /^\t*(?:[-*+] (\[[ xX]\] )?|(\d+)[.)] )/;
+const LIST_ITEM = /^(?:listItem|taskItem)$/;
+const LIST = /^(?:bulletList|orderedList|taskList)$/;
+
+// The document position beside the block at `point` where whole lines go,
+// outside any container the point sits at the edge of. A list item line
+// stays in its list.
+function lineBoundary(
+  doc: ProseMirrorNode,
+  point: number,
+  side: "before" | "after",
+  listLine: boolean,
+): { position: number; inList: boolean } | null {
+  if (point < 0 || point > doc.content.size) return null;
+  const $point = doc.resolve(point);
+  if (
+    !$point.parent.isTextblock ||
+    $point.parentOffset !== (side === "before" ? 0 : $point.parent.content.size)
+  )
+    return null;
+  let depth = $point.depth;
+  while (depth > 1) {
+    const container = $point.node(depth - 1);
+    if (listLine && LIST_ITEM.test(container.type.name)) {
+      depth -= 1;
+      break;
+    }
+    const index = $point.index(depth - 1);
+    if (side === "before" ? index !== 0 : index !== container.childCount - 1)
+      break;
+    depth -= 1;
+  }
+  return {
+    position: side === "before" ? $point.before(depth) : $point.after(depth),
+    inList: depth > 1 && LIST.test($point.node(depth - 1).type.name),
+  };
+}
+
+// A whole suggested line drawn as the block it would become.
+function lineWidget(
+  spec: SuggestionHighlightSpec,
+  active: boolean,
+  className: string,
+  label: string,
+  source: string,
+  line: SourceSpan,
+  inList: boolean,
+) {
+  return () => {
+    const text = source.slice(line.from, line.to);
+    const nodes = suggestionTextPresentationForSource(text, {
+      source,
+      from: line.from,
+      to: line.to,
+    });
+    const list = LIST_LINE.exec(text);
+    const heading = /^\t*(#{1,6}) /.exec(text);
+    const quote = /^\t*> /.test(text);
+    const widget = document.createElement(inList ? "li" : "div");
+    widget.className = classes(`${className} suggestion-block-widget`, active);
+    identifyWidget(widget, spec, label);
+    const block = document.createElement(
+      heading ? `h${heading[1]!.length}` : "p",
+    );
+    if (list?.[1])
+      block.append(document.createTextNode(/x/i.test(list[1]) ? "☑ " : "☐ "));
+    // The element shows the line's structure, so its marker isn't repeated;
+    // an empty paragraph keeps its pilcrow so the line can be seen.
+    for (const node of nodes ?? [])
+      if (node.type !== "block" || node.value === "¶")
+        appendPresentationNode(block, node, true);
+    let content: HTMLElement = block;
+    if (quote) {
+      content = document.createElement("blockquote");
+      content.append(block);
+    }
+    if (list && !inList) {
+      const item = document.createElement("li");
+      item.append(content);
+      content = document.createElement(list[2] ? "ol" : "ul");
+      content.append(item);
+    }
+    widget.append(content);
+    return widget;
+  };
+}
+
+// Whole suggested lines go beside the block at the point, in order; the
+// parts that join a line stay inline at the point.
+function lineDecorations(
+  doc: ProseMirrorNode,
+  spec: SuggestionHighlightSpec,
+  active: boolean,
+  lines: SuggestedLines,
+  deleted: boolean,
+  attrs: Record<string, string>,
+): Decoration[] | null {
+  const className = deleted
+    ? "suggestion-delete-widget suggestion-deleted-text"
+    : insertionClass(spec);
+  const label = deleted
+    ? "Inspect suggested deletion"
+    : "Inspect suggested insertion";
+  const placed = lines.lines.map((line) => ({
+    line,
+    boundary: lineBoundary(
+      doc,
+      spec.from,
+      lines.side,
+      LIST_LINE.test(lines.source.slice(line.from, line.to)),
+    ),
+  }));
+  if (placed.some(({ line, boundary }) => !boundary)) return null;
+  for (const { line } of placed) {
+    const text = lines.source.slice(line.from, line.to);
+    if (
+      !suggestionTextPresentationForSource(text, {
+        source: lines.source,
+        ...line,
+      })
+    )
+      return null;
+  }
+  const decorations: Decoration[] = [];
+  const inline = (span: SourceSpan | null, part: "head" | "tail") => {
+    if (!span) return;
+    const text = lines.source.slice(span.from, span.to);
+    const context = { source: lines.source, ...span };
+    decorations.push(
+      Decoration.widget(
+        spec.from,
+        deleted
+          ? deletionWidget(spec, active, { text, context })
+          : insertionWidget(spec, active, { text, context }),
+        {
+          key: JSON.stringify([
+            spec.suggestionId,
+            part,
+            spec.from,
+            text,
+            active,
+            !!spec.editableBoundary,
+          ]),
+          marks: [],
+          side: part === "head" ? 1 : 2,
+          ...attrs,
+        },
+      ),
+    );
+  };
+  inline(lines.head, "head");
+  placed.forEach(({ line, boundary }, index) => {
+    decorations.push(
+      Decoration.widget(
+        boundary!.position,
+        lineWidget(
+          spec,
+          active,
+          className,
+          label,
+          lines.source,
+          line,
+          boundary!.inList,
+        ),
+        {
+          key: JSON.stringify([
+            spec.suggestionId,
+            deleted ? "deleted-line" : "inserted-line",
+            boundary!.position,
+            lines.source.slice(line.from, line.to),
+            boundary!.inList,
+            active,
+            !!spec.editableBoundary,
+          ]),
+          marks: [],
+          side: lines.side === "before" ? index - placed.length : index + 1,
+          ...attrs,
+        },
+      ),
+    );
+  });
+  inline(lines.tail, "tail");
+  return decorations;
+}
+
+// Whole blocks a saved deletion removes are marked as blocks, so the
+// paragraph itself reads as removed rather than only its text.
+function deletedBlockDecorations(
+  doc: ProseMirrorNode,
+  range: Range,
+  active: boolean,
+): Decoration[] {
+  const decorations: Decoration[] = [];
+  doc.nodesBetween(range.from, range.to, (node, position) => {
+    if (!node.isTextblock) return true;
+    const contentFrom = position + 1;
+    const contentTo = position + 1 + node.content.size;
+    if (
+      node.content.size > 0 &&
+      range.from <= contentFrom &&
+      range.to >= contentTo
+    )
+      decorations.push(
+        Decoration.node(position, position + node.nodeSize, {
+          class: classes("suggestion-delete-block", active),
+        }),
+      );
+    return false;
+  });
+  return decorations;
 }
 
 function insertionAtOperationAnchor(
@@ -414,6 +695,8 @@ function buildDecorations(
             class: classes("suggestion-delete suggestion-deleted-text", active),
           }),
         );
+        if (spec.kind === "delete")
+          decorations.push(...deletedBlockDecorations(doc, range, active));
       }
     } else if (spec.kind === "mark" && range) {
       decorations.push(
@@ -429,20 +712,45 @@ function buildDecorations(
       spec.kind === "insert" ||
       spec.kind === "add_block"
     ) {
+      const lines =
+        spec.kind === "replace"
+          ? null
+          : suggestedLines(spec.insertedText, spec.insertedPresentation);
+      const lineParts =
+        lines && lineDecorations(doc, spec, active, lines, false, attrs);
       const anchor = clampPosition(
         spec.kind === "replace" && range ? range.to : spec.from,
         size,
       );
-      decorations.push(
-        Decoration.widget(anchor, insertionWidget(spec, active), {
-          key: `${spec.suggestionId}:inserted:${anchor}`,
-          marks: [],
-          side: 1,
-          ...attrs,
-        }),
-      );
+      if (lineParts) decorations.push(...lineParts);
+      else
+        decorations.push(
+          Decoration.widget(
+            anchor,
+            insertionWidget(spec, active, undefined, anchor),
+            {
+              // ProseMirror reuses a widget's element while its key holds, so
+              // the key covers everything the element shows.
+              key: `${spec.suggestionId}:inserted:${anchor}:${JSON.stringify([
+                spec.insertedText,
+                active,
+                !!spec.editableBoundary,
+              ])}`,
+              marks: [],
+              side: 1,
+              ...attrs,
+            },
+          ),
+        );
     }
-    if (spec.deletedText) {
+    const deletedLines =
+      spec.deletedText &&
+      suggestedLines(spec.deletedText, spec.deletedPresentation);
+    const deletedLineParts =
+      deletedLines &&
+      lineDecorations(doc, spec, active, deletedLines, true, attrs);
+    if (deletedLineParts) decorations.push(...deletedLineParts);
+    else if (spec.deletedText) {
       decorations.push(
         Decoration.widget(
           clampPosition(spec.from, size),
@@ -453,6 +761,7 @@ function buildDecorations(
               "deleted",
               spec.deletedText,
               active,
+              !!spec.editableBoundary,
             ]),
             marks: [],
             side: 1,

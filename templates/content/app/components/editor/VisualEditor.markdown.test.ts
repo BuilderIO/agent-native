@@ -2928,8 +2928,8 @@ describe("live suggestion presentation", () => {
           if (presentation === "draft") {
             expect(
               editor.view.dom.querySelector(".suggestion-delete-widget")
-                ?.textContent,
-            ).toBe("Upper↵Lower");
+                ?.innerHTML,
+            ).toBe("<strong>Upper</strong><br><strong>Lower</strong>");
             expect(
               editor.view.dom.querySelectorAll(
                 ".suggestion-delete-widget strong",
