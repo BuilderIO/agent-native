@@ -9,7 +9,7 @@ import {
   explainHunk,
   withinEmphasisLimit,
   withinParserLimits,
-} from "./stored-form-census-kinds";
+} from "./_stored-form-census-kinds";
 
 const L = (...lines: string[]) => lines.join("\n");
 
