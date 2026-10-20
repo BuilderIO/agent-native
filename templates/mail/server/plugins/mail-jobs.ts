@@ -579,6 +579,8 @@ export default () => {
         resolveConnectedAccounts: getConnectedAccountsWithErrors,
         deadlineAt: context.deadlineAt,
         after: typeof cursor?.after === "string" ? cursor.after : undefined,
+        onPageDone: (after) =>
+          writeSetting(INBOX_RETENTION_CURSOR_KEY, { after }),
       });
       if (summary.partial) {
         // Cut short by the deadline, not a failure: continue on the next sweep.

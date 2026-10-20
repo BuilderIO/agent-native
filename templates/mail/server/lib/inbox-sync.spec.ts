@@ -1683,6 +1683,124 @@ describe("syncInboxAccount — inbox cap and archived rows", () => {
     expect(result.backfillPending).toBeUndefined();
   });
 
+  it("runs the archive cleanup even when a new thread keeps failing to hydrate", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "gone" }];
+    mocks.gmailListHistory.mockImplementation(
+      async (_token: string, params: { labelId?: string }) =>
+        params.labelId === "INBOX"
+          ? {
+              history: [
+                {
+                  id: "1001",
+                  messagesAdded: [
+                    { message: { id: "bad-m1", threadId: "bad" } },
+                    { message: { id: "ok-m1", threadId: "ok" } },
+                  ],
+                },
+              ],
+              historyId: "1002",
+            }
+          : {
+              history: [
+                {
+                  id: "1002",
+                  labelsRemoved: [
+                    {
+                      labelIds: ["INBOX"],
+                      message: { id: "gone-m1", threadId: "gone" },
+                    },
+                  ],
+                },
+              ],
+              historyId: "1002",
+            },
+    );
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[], format: string) =>
+        requested.map((id) => {
+          if (format === "minimal") return minimalThread(id, [["TRASH"]]);
+          return id === "bad"
+            ? { id, data: null, error: "HTTP 500 backend" }
+            : {
+                id,
+                data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+              };
+        }),
+    );
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("ready");
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "gone",
+      expect.any(Number),
+      {},
+    );
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalled();
+    expect(currentRow.hydratePendingIds).toEqual(["bad"]);
+    // Only the failed thread is left, so the client is not kept in a sync loop.
+    expect(result.backfillPending).toBeUndefined();
+
+    // Next step: the failing id is retried alone and still cannot block anything.
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    expect(currentRow.hydratePendingIds).toEqual(["bad"]);
+  });
+
+  it("saves the pending lists and cleanup before rethrowing a whole-read hydrate failure", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    fakeRows = [{ threadId: "gone" }];
+    mocks.gmailListHistory.mockImplementation(
+      async (_token: string, params: { labelId?: string }) =>
+        params.labelId === "INBOX"
+          ? {
+              history: [
+                {
+                  id: "1001",
+                  messagesAdded: [{ message: { id: "n-m1", threadId: "n" } }],
+                },
+              ],
+              historyId: "1002",
+            }
+          : {
+              history: [
+                {
+                  id: "1002",
+                  labelsRemoved: [
+                    {
+                      labelIds: ["INBOX"],
+                      message: { id: "gone-m1", threadId: "gone" },
+                    },
+                  ],
+                },
+              ],
+              historyId: "1002",
+            },
+    );
+    mocks.gmailBatchGetThreads.mockImplementation(
+      async (_token: string, requested: string[], format: string) => {
+        if (format === "minimal") {
+          return requested.map((id) => minimalThread(id, [["TRASH"]]));
+        }
+        throw new mocks.GmailQuotaCooldownError(5);
+      },
+    );
+
+    await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.deleteInboxThreadRow).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      "gone",
+      expect.any(Number),
+      {},
+    );
+    expect(currentRow.historyId).toBe("1002");
+    expect(currentRow.hydratePendingIds).toEqual(["n"]);
+  });
+
   it("runs hydration after a quota cooldown ends verification, leaving candidates in place", async () => {
     currentRow = baseRow({ historyId: "1000" });
     fakeRows = [{ threadId: "t1" }, { threadId: "t2" }];

@@ -317,6 +317,9 @@ async function hydrateAndApply(
   claimId: string,
   lane: "interactive" | "incremental" | "backfill",
   onChanged?: () => void,
+  // When given, a thread whose read fails (not a 404) is recorded here and the
+  // rest still apply, instead of the whole call throwing.
+  failed?: string[],
 ): Promise<void> {
   for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
     const chunk = ids.slice(i, i + HYDRATE_CHUNK);
@@ -334,6 +337,10 @@ async function hydrateAndApply(
       if (part.error) {
         if (/HTTP 404/.test(part.error)) {
           deletes.push({ id: part.id, readStartedAt });
+          continue;
+        }
+        if (failed) {
+          failed.push(part.id);
           continue;
         }
         throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
@@ -963,22 +970,33 @@ async function runIncrementalSyncStep(
     }
   }
 
+  // A thread that fails to hydrate goes to the back of the queue; a failure of
+  // the whole read (quota, network) is rethrown only after the archive cleanup
+  // and the pending lists below are saved, so it cannot block either.
+  const hydrateFailed: string[] = [];
+  let hydrateError: unknown = null;
   if (hydrateNow.length > 0) {
-    const connected = await connectedEmailsLower(
-      ownerEmail,
-      accountEmail,
-      connectedAccountEmails,
-    );
-    await hydrateAndApply(
-      accessToken,
-      hydrateNow,
-      ownerEmail,
-      accountEmail,
-      connected,
-      claimId,
-      "incremental",
-      onChanged,
-    );
+    try {
+      const connected = await connectedEmailsLower(
+        ownerEmail,
+        accountEmail,
+        connectedAccountEmails,
+      );
+      await hydrateAndApply(
+        accessToken,
+        hydrateNow,
+        ownerEmail,
+        accountEmail,
+        connected,
+        claimId,
+        "incremental",
+        onChanged,
+        hydrateFailed,
+      );
+    } catch (error) {
+      if (error instanceof SyncClaimLostError) throw error;
+      hydrateError = error;
+    }
   }
 
   // Archived rows are deleted at once on an archive event. Rows the inbox stream
@@ -1010,8 +1028,12 @@ async function runIncrementalSyncStep(
   // Verified threads that still have INBOX mail are refreshed on the next step,
   // which keeps this step inside its read budget.
   const hydratePendingIds = [
-    ...hydrateQueue.slice(hydrateNow.length),
-    ...stillInbox,
+    ...new Set([
+      ...(hydrateError ? hydrateNow : []),
+      ...hydrateQueue.slice(hydrateNow.length),
+      ...stillInbox,
+      ...hydrateFailed,
+    ]),
   ];
   const archivePendingIds = [
     ...(verifyCooledDown ? verifyNow : []),
@@ -1019,6 +1041,13 @@ async function runIncrementalSyncStep(
     ...verifyFailed,
   ];
   const syncedAt = Date.now();
+  if (hydrateError) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      hydratePendingIds,
+      archivePendingIds,
+    });
+    throw hydrateError;
+  }
   await patchProgress(ownerEmail, accountEmail, claimId, {
     hydratePendingIds,
     archivePendingIds,
@@ -1032,7 +1061,7 @@ async function runIncrementalSyncStep(
       lastSyncedAt: syncedAt,
       ...(row.fullSyncPageToken ||
       row.fullSyncPhase === "reconcile" ||
-      hydratePendingIds.length > 0 ||
+      hydratePendingIds.some((id) => !hydrateFailed.includes(id)) ||
       // Candidates that only failed this step wait for the next trigger instead
       // of keeping the client in a tight sync loop.
       archivePendingIds.some((id) => !verifyFailed.includes(id))

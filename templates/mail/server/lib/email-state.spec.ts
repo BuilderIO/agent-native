@@ -28,6 +28,8 @@ import {
   markThreadRead,
   resolveMutationAccounts,
   resolveMutationAccount,
+  MutationAccountNotFoundError,
+  MutationAccountLookupError,
   resolveAccountEmail,
   getAccountToken,
 } from "./email-state.js";
@@ -47,6 +49,7 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: vi.fn(),
   gmailGetMessage: vi.fn(),
+  gmailGetThread: vi.fn(),
   gmailModifyMessage: vi.fn(),
   gmailModifyThread: vi.fn(),
   registerGmailAccountToken: vi.fn(),
@@ -90,6 +93,7 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 
 import {
   gmailGetMessage,
+  gmailGetThread,
   gmailModifyMessage,
   gmailModifyThread,
   gmailTrashThread,
@@ -1223,6 +1227,85 @@ describe("resolveMutationAccounts", () => {
         ),
       },
     ]);
+  });
+
+  describe("after the store has purged the archived row", () => {
+    function tokensPerAccount() {
+      mockTwoAccounts();
+      vi.mocked(getOAuthTokens).mockImplementation((async (
+        _provider: string,
+        accountId: string,
+      ) => ({
+        access_token: `token-${accountId}`,
+        expiry_date: Date.now() + 3600_000,
+      })) as any);
+    }
+
+    it("finds the owning account with a minimal threads.get per account", async () => {
+      tokensPerAccount();
+      vi.mocked(gmailGetThread).mockImplementation((async (token: string) => {
+        if (token === `token-${ACCT}`)
+          throw Object.assign(new Error("HTTP 404"), { status: 404 });
+        return { id: THREAD_ID };
+      }) as any);
+
+      const { resolved } = await resolveMutationAccounts(OWNER, [
+        { id: "m1", threadId: THREAD_ID },
+      ]);
+
+      expect(resolved).toEqual([
+        { id: "m1", threadId: THREAD_ID, accountEmail: ACCT2 },
+      ]);
+      expect(vi.mocked(gmailGetThread).mock.calls).toEqual([
+        [`token-${ACCT}`, THREAD_ID, "minimal"],
+        [`token-${ACCT2}`, THREAD_ID, "minimal"],
+      ]);
+    });
+
+    it("finds the owning account for a bare message id with messages.get", async () => {
+      tokensPerAccount();
+      vi.mocked(gmailGetMessage).mockImplementation((async (token: string) =>
+        token === `token-${ACCT2}` ? { id: "m1" } : { id: "other" }) as any);
+
+      await expect(
+        resolveMutationAccount(OWNER, undefined, { messageId: "m1" }),
+      ).resolves.toBe(ACCT2);
+      expect(vi.mocked(gmailGetMessage)).toHaveBeenCalledWith(
+        `token-${ACCT2}`,
+        "m1",
+        "minimal",
+      );
+    });
+
+    it("throws a typed not-found error when no account has the thread", async () => {
+      tokensPerAccount();
+      vi.mocked(gmailGetThread).mockRejectedValue(
+        Object.assign(new Error("HTTP 404"), { status: 404 }),
+      );
+
+      const error = await resolveMutationAccount(OWNER, undefined, {
+        threadId: THREAD_ID,
+      }).catch((err) => err);
+
+      expect(error).toBeInstanceOf(MutationAccountNotFoundError);
+      expect(error.code).toBe("account_not_found");
+    });
+
+    it("reports a lookup failure, not not-found, when an account cannot be checked", async () => {
+      tokensPerAccount();
+      vi.mocked(gmailGetThread).mockImplementation((async (token: string) => {
+        if (token === `token-${ACCT}`)
+          throw Object.assign(new Error("HTTP 404"), { status: 404 });
+        throw Object.assign(new Error("HTTP 503"), { status: 503 });
+      }) as any);
+
+      const error = await resolveMutationAccount(OWNER, undefined, {
+        threadId: THREAD_ID,
+      }).catch((err) => err);
+
+      expect(error).toBeInstanceOf(MutationAccountLookupError);
+      expect(error.code).toBe("account_lookup_failed");
+    });
   });
 
   it("resolves each target independently, mixing hits and misses", async () => {

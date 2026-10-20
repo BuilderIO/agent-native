@@ -9,6 +9,7 @@ import type { EmailMessage, Label } from "@shared/types.js";
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   gmailGetMessage,
+  gmailGetThread,
   gmailModifyMessage,
   gmailModifyThread,
   gmailTrashThread,
@@ -92,6 +93,60 @@ export async function getAccountToken(
   return token;
 }
 
+/** No connected account of the owner can see the thread or message. */
+export class MutationAccountNotFoundError extends Error {
+  readonly code = "account_not_found";
+  constructor(target: string) {
+    super(
+      `Cannot determine which connected account owns thread ${target}; pass accountEmail`,
+    );
+    this.name = "MutationAccountNotFoundError";
+  }
+}
+
+/** An account could not be checked, so "not found" would be a guess. */
+export class MutationAccountLookupError extends Error {
+  readonly code = "account_lookup_failed";
+  constructor(target: string, unreadable: number) {
+    super(
+      `Cannot determine which connected account owns thread ${target}: ${unreadable} account(s) could not be checked; retry or pass accountEmail`,
+    );
+    this.name = "MutationAccountLookupError";
+  }
+}
+
+// The synced store only keeps inbox rows, so a thread archived long enough ago
+// has none. With several accounts the owner is found by asking Gmail for a
+// minimal copy of the thread or message from each account until one has it.
+// Only a 404 means "not this account"; any other failure is counted as
+// unreadable so the caller never reports a lookup failure as "not found".
+async function probeAccountsForTarget(
+  ownerEmail: string,
+  accountIds: readonly string[],
+  ctx: { threadId?: string; messageId?: string },
+): Promise<{ accountId: string | null; unreadable: number }> {
+  let unreadable = 0;
+  for (const accountId of accountIds) {
+    try {
+      const token = await getToken(accountId, ownerEmail);
+      if (!token) {
+        unreadable++;
+        continue;
+      }
+      if (ctx.threadId) {
+        const thread = await gmailGetThread(token, ctx.threadId, "minimal");
+        if (thread?.id === ctx.threadId) return { accountId, unreadable };
+      } else if (ctx.messageId) {
+        const message = await gmailGetMessage(token, ctx.messageId, "minimal");
+        if (message?.id === ctx.messageId) return { accountId, unreadable };
+      }
+    } catch (error) {
+      if ((error as { status?: unknown } | null)?.status !== 404) unreadable++;
+    }
+  }
+  return { accountId: null, unreadable };
+}
+
 export async function resolveMutationAccount(
   ownerEmail: string,
   accountEmail: string | undefined,
@@ -119,10 +174,23 @@ export async function resolveMutationAccount(
     }
   }
 
-  throw new Error(
-    `Cannot determine which connected account owns thread ${
-      ctx.threadId ?? ctx.messageId ?? "unknown"
-    }; pass accountEmail`,
+  if (accounts.length > 1 && (ctx.threadId || ctx.messageId)) {
+    const probed = await probeAccountsForTarget(
+      ownerEmail,
+      accounts.map((account) => account.accountId),
+      ctx,
+    );
+    if (probed.accountId) return probed.accountId;
+    if (probed.unreadable > 0) {
+      throw new MutationAccountLookupError(
+        ctx.threadId ?? ctx.messageId ?? "unknown",
+        probed.unreadable,
+      );
+    }
+  }
+
+  throw new MutationAccountNotFoundError(
+    ctx.threadId ?? ctx.messageId ?? "unknown",
   );
 }
 

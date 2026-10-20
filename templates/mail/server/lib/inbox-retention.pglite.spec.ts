@@ -603,4 +603,87 @@ describe("runInboxRetention (PGlite)", () => {
     expect(await countRows("c-ok@example.com", "c-acct@example.com")).toBe(0);
     warn.mockRestore();
   });
+  describe("paged passes", () => {
+    const names = ["a", "b", "c", "d", "e"];
+    const syncId = (name: string) =>
+      `${name}-gone@example.com:${name}-acct@example.com`;
+    const rows = (name: string) =>
+      countRows(`${name}-gone@example.com`, `${name}-acct@example.com`);
+
+    async function seedFive() {
+      for (const name of names) {
+        await seedAccount(
+          `${name}-gone@example.com`,
+          `${name}-acct@example.com`,
+          {
+            lastSyncedAt: NOW - HOUR,
+          },
+        );
+      }
+    }
+
+    it("stops mid-page at the deadline, then resumes from the cursor over later pages", async () => {
+      await seedFive();
+      const deadlineAt = Date.now() + 60_000;
+      let clock: ReturnType<typeof vi.spyOn> | undefined;
+      const saved: string[] = [];
+
+      const first = await retention.runInboxRetention({
+        now: NOW,
+        pageSize: 3,
+        deadlineAt,
+        onPageDone: async (after) => {
+          saved.push(after);
+        },
+        resolveConnectedAccounts: async (owner: string) => {
+          // The clock passes the deadline while the second account is handled.
+          if (owner === "b-gone@example.com") {
+            clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
+          }
+          return { accounts: [], errors: [] };
+        },
+      });
+      clock?.mockRestore();
+
+      expect(first).toMatchObject({ partial: true, pairs: 3, pairsReset: 2 });
+      expect(first.resumeAfter).toBe(syncId("b"));
+      expect(saved).toEqual([]);
+      expect(await rows("c")).toBe(3);
+
+      const second = await retention.runInboxRetention({
+        now: NOW,
+        pageSize: 3,
+        after: first.resumeAfter!,
+        onPageDone: async (after) => {
+          saved.push(after);
+        },
+        resolveConnectedAccounts: noConnections,
+      });
+
+      expect(second).toMatchObject({ partial: false, pairs: 3, pairsReset: 3 });
+      expect(saved).toEqual([syncId("e")]);
+      for (const name of names) expect(await rows(name)).toBe(0);
+    });
+
+    it("stops on a page boundary without reading the next page", async () => {
+      await seedFive();
+      const deadlineAt = Date.now() + 60_000;
+      let clock: ReturnType<typeof vi.spyOn> | undefined;
+
+      const summary = await retention.runInboxRetention({
+        now: NOW,
+        pageSize: 2,
+        deadlineAt,
+        onPageDone: async () => {
+          clock = vi.spyOn(Date, "now").mockReturnValue(deadlineAt + 1);
+        },
+        resolveConnectedAccounts: noConnections,
+      });
+      clock?.mockRestore();
+
+      expect(summary).toMatchObject({ partial: true, pairs: 2, pairsReset: 2 });
+      expect(summary.resumeAfter).toBe(syncId("b"));
+      expect(await rows("c")).toBe(3);
+    });
+  });
 });

@@ -63,38 +63,32 @@ export type InboxRetentionSummary = {
   resumeAfter: string | null;
 };
 
-// One row per mail_sync_accounts row.
-export async function readRetentionPairs(
+// One keyset page of mail_sync_accounts rows after `after`. A pass reads one
+// page at a time, so it never holds every account in memory.
+export async function readRetentionPage(
   now: number,
-  after = "",
+  after: string,
+  limit: number = RETENTION_PAGE_SIZE,
 ): Promise<RetentionPair[]> {
-  const pairs: RetentionPair[] = [];
-  let cursor = after;
-  for (;;) {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT s.owner_email, s.account_email, s.id,
-          (SELECT MAX(COALESCE(o2.last_synced_at, o2.created_at))
-             FROM mail_sync_accounts o2
-             WHERE o2.owner_email = s.owner_email) AS owner_active_at,
-          (s.sync_claim_id IS NOT NULL AND COALESCE(s.sync_claimed_at, 0) >= $1) AS claimed
-        FROM mail_sync_accounts s
-        WHERE s.id > $2
-        ORDER BY s.id
-        LIMIT $3`,
-      args: [now - STALE_CLAIM_MS, cursor, RETENTION_PAGE_SIZE],
-    });
-    for (const row of rows as any[]) {
-      pairs.push({
-        ownerEmail: String(row.owner_email),
-        accountEmail: String(row.account_email),
-        syncId: String(row.id),
-        inactive: Number(row.owner_active_at) < now - INBOX_INACTIVE_AFTER_MS,
-        claimed: Boolean(row.claimed),
-      });
-    }
-    if (rows.length < RETENTION_PAGE_SIZE) return pairs;
-    cursor = String((rows as any[])[rows.length - 1].id);
-  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT s.owner_email, s.account_email, s.id,
+        (SELECT MAX(COALESCE(o2.last_synced_at, o2.created_at))
+           FROM mail_sync_accounts o2
+           WHERE o2.owner_email = s.owner_email) AS owner_active_at,
+        (s.sync_claim_id IS NOT NULL AND COALESCE(s.sync_claimed_at, 0) >= $1) AS claimed
+      FROM mail_sync_accounts s
+      WHERE s.id > $2
+      ORDER BY s.id
+      LIMIT $3`,
+    args: [now - STALE_CLAIM_MS, after, limit],
+  });
+  return (rows as any[]).map((row) => ({
+    ownerEmail: String(row.owner_email),
+    accountEmail: String(row.account_email),
+    syncId: String(row.id),
+    inactive: Number(row.owner_active_at) < now - INBOX_INACTIVE_AFTER_MS,
+    claimed: Boolean(row.claimed),
+  }));
 }
 
 // Purges archived rows and applies the cap trim under the account's sync row
@@ -207,11 +201,15 @@ export async function runInboxRetention(opts: {
   deadlineAt?: number;
   // Sync-account id the previous partial pass stopped after.
   after?: string;
+  pageSize?: number;
+  // Called after each finished page with the last processed sync-account id,
+  // so the resume point survives a pass that dies mid-way.
+  onPageDone?: (after: string) => Promise<void>;
 }): Promise<InboxRetentionSummary> {
   const now = opts.now ?? Date.now();
-  const pairs = await readRetentionPairs(now, opts.after ?? "");
+  const pageSize = opts.pageSize ?? RETENTION_PAGE_SIZE;
   const summary: InboxRetentionSummary = {
-    pairs: pairs.length,
+    pairs: 0,
     archivedRowsRemoved: 0,
     capRowsRemoved: 0,
     capOwners: 0,
@@ -274,24 +272,44 @@ export async function runInboxRetention(opts: {
 
   const ruleOwners = new Set<string>();
   let lastDone: string | null = null;
-  for (const pair of pairs) {
-    if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) {
+  const deadlineHit = () =>
+    opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt;
+  paging: for (;;) {
+    if (deadlineHit()) {
       summary.partial = true;
       summary.resumeAfter = lastDone ?? opts.after ?? null;
       break;
     }
-    try {
-      await processPair(pair);
-    } catch (error) {
-      const kind = String(
-        (error as { code?: unknown } | null)?.code ??
-          (error instanceof Error ? error.name : "unknown"),
-      );
-      summary.pairsFailed++;
-      summary.failureKinds[kind] = (summary.failureKinds[kind] ?? 0) + 1;
-      console.warn("[inbox-retention] pair failed", { kind });
+    const page = await readRetentionPage(
+      now,
+      lastDone ?? opts.after ?? "",
+      pageSize,
+    );
+    summary.pairs += page.length;
+    // Owner caches only help pairs of one owner, which sit together.
+    connectedByOwner.clear();
+    gmailGrantsByOwner.clear();
+    for (const pair of page) {
+      if (deadlineHit()) {
+        summary.partial = true;
+        summary.resumeAfter = lastDone ?? opts.after ?? null;
+        break paging;
+      }
+      try {
+        await processPair(pair);
+      } catch (error) {
+        const kind = String(
+          (error as { code?: unknown } | null)?.code ??
+            (error instanceof Error ? error.name : "unknown"),
+        );
+        summary.pairsFailed++;
+        summary.failureKinds[kind] = (summary.failureKinds[kind] ?? 0) + 1;
+        console.warn("[inbox-retention] pair failed", { kind });
+      }
+      lastDone = pair.syncId;
     }
-    lastDone = pair.syncId;
+    if (page.length > 0 && lastDone) await opts.onPageDone?.(lastDone);
+    if (page.length < pageSize) break;
   }
   summary.capOwners = cappedOwners.size;
   summary.ruleOwners = ruleOwners.size;
