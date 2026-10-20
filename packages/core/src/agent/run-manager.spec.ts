@@ -1721,6 +1721,56 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("retries a rejected event persistence chain before durable safe-boundary abort", async () => {
+    let seqZeroAttempts = 0;
+    let releaseSecondFailure!: () => void;
+    const secondFailureGate = new Promise<void>((resolve) => {
+      releaseSecondFailure = resolve;
+    });
+    const operationOrder: string[] = [];
+    const persistenceError = new Error("transient event persistence failure");
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      if (seq !== 0) return;
+      seqZeroAttempts += 1;
+      if (seqZeroAttempts === 1) throw persistenceError;
+      if (seqZeroAttempts === 2) {
+        await secondFailureGate;
+        throw persistenceError;
+      }
+      operationOrder.push("event-persisted");
+    });
+    vi.mocked(markRunAbortedAtSafeBoundary).mockImplementationOnce(async () => {
+      operationOrder.push("abort-marker");
+      return true;
+    });
+
+    const run = startRun(
+      "run-safe-boundary-event-retry",
+      "thread-safe-boundary-event-retry",
+      async (send, signal) => {
+        send({ type: "text", text: "pending event" });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(seqZeroAttempts).toBe(2));
+    const abort = abortRunAtSafeBoundaryDurably(run.runId, "user");
+    releaseSecondFailure();
+    await expect(abort).resolves.toBe(true);
+    await run.finalized;
+
+    expect(seqZeroAttempts).toBe(3);
+    expect(operationOrder).toEqual(["event-persisted", "abort-marker"]);
+    expect(markRunAbortedAtSafeBoundary).toHaveBeenCalledWith(
+      run.runId,
+      "user",
+    );
+  });
+
   it("aborts the in-process run before a turn-reference abort resolves", async () => {
     let observedAbortReason: unknown;
     const run = startRun(

@@ -431,6 +431,103 @@ describe.skipIf(!databaseUrl)(
       });
     }, 45_000);
 
+    it("does not acknowledge a durable abort before terminal persistence across worker retries", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:abort-thread`;
+        const turnId = `${prefix}:abort-turn`;
+        const runId = `${prefix}:abort-run`;
+        const suffix = randomUUID().replaceAll("-", "");
+        const trigger = `abort_event_gate_${suffix}`;
+        const sequence = `abort_event_failures_${suffix}`;
+
+        await withDbExec(executor(sql), () =>
+          insertRun(runId, threadId, turnId),
+        );
+        try {
+          await sql.unsafe(`CREATE SEQUENCE ${sequence} START WITH 1`);
+          await sql.unsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.run_id = '${runId}'
+                AND (NEW.event_data::jsonb ->> 'errorCode') = 'aborted_user' THEN
+                IF nextval('${sequence}') <= 2 THEN
+                  RAISE EXCEPTION 'injected terminal event failure';
+                END IF;
+              END IF;
+              RETURN NEW;
+            END $$`);
+          await sql.unsafe(`CREATE TRIGGER ${trigger} BEFORE INSERT ON agent_run_events
+            FOR EACH ROW EXECUTE FUNCTION ${trigger}()`);
+
+          const failedAttempt = await runWorker(
+            "durable-abort",
+            threadId,
+            turnId,
+            runId,
+            "user",
+          );
+          expect(failedAttempt.exitCode).toBe(1);
+          const failed = workerJson<{
+            error: string;
+            aborted?: boolean;
+            processId: number;
+            databaseBackendPid: number;
+          }>(failedAttempt);
+          expect(failed.error).toContain("injected terminal event failure");
+          expect(failed.aborted).not.toBe(true);
+
+          const [afterFailure] = await sql`
+            SELECT status, terminal_reason FROM agent_runs WHERE id = ${runId}
+          `;
+          expect(afterFailure).toMatchObject({
+            status: "aborted",
+            terminal_reason: "aborted:user",
+          });
+          const missingTerminal = await sql`
+            SELECT seq FROM agent_run_events
+            WHERE run_id = ${runId}
+              AND (event_data::jsonb ->> 'errorCode') = 'aborted_user'
+          `;
+          expect(missingTerminal).toHaveLength(0);
+
+          const retry = await runWorker(
+            "durable-abort",
+            threadId,
+            turnId,
+            runId,
+            "user",
+          );
+          expect(retry.exitCode).toBe(0);
+          const repaired = workerJson<{
+            aborted: boolean;
+            processId: number;
+            databaseBackendPid: number;
+          }>(retry);
+          expect(repaired.aborted).toBe(true);
+          expect(repaired.processId).not.toBe(failed.processId);
+          expect(repaired.databaseBackendPid).not.toBe(
+            failed.databaseBackendPid,
+          );
+
+          const terminalEvents = await sql`
+            SELECT seq, event_data::text AS event_data FROM agent_run_events
+            WHERE run_id = ${runId}
+              AND (event_data::jsonb ->> 'errorCode') = 'aborted_user'
+          `;
+          expect(terminalEvents).toHaveLength(1);
+          expect(JSON.parse(terminalEvents[0]!.event_data)).toMatchObject({
+            type: "error",
+            errorCode: "aborted_user",
+          });
+        } finally {
+          await sql.unsafe(
+            `DROP TRIGGER IF EXISTS ${trigger} ON agent_run_events`,
+          );
+          await sql.unsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
+          await sql.unsafe(`DROP SEQUENCE IF EXISTS ${sequence}`);
+        }
+      });
+    }, 45_000);
+
     it("serializes stale reapers across two PostgreSQL sessions", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const threadId = `${prefix}:reaper-thread`;

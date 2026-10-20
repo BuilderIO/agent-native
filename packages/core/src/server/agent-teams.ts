@@ -189,6 +189,8 @@ export interface AgentTask {
   terminalEffectsReconciled?: boolean;
   terminalProgressStatus?: TerminalProgressStatus;
   stopRequestedAt?: number;
+  stopRequestedRunId?: string;
+  stopRequestedReason?: string;
 }
 
 export interface AgentTeamOwnerScope {
@@ -2161,6 +2163,9 @@ async function finalizeAgentTeamRun(
     task.taskId,
     options.claimedAttempts,
     async () => {
+      const currentTask = await loadTask(task.taskId);
+      if (currentTask && currentTask.stopRequestedAt !== undefined) return null;
+
       if (options.hitContinuationLimit) {
         await bumpAgentTeamContinuation(task.taskId, options.claimedAttempts, {
           requeue: false,
@@ -2419,6 +2424,18 @@ export async function processAgentTeamRun(
           claimed.attempts,
         );
         return { ok: true, skipped: "task-terminal" };
+      }
+      if (task.stopRequestedAt !== undefined) {
+        const stopped = await stopAgentTeamBackgroundRun(
+          runId,
+          task.stopRequestedReason ?? "user",
+        );
+        if (!stopped.ok) {
+          throw new Error(
+            "The persisted agent task stop could not be resumed.",
+          );
+        }
+        return { ok: true, skipped: "stop-reconciled" };
       }
 
       const ownerEmail = claimed.ownerEmail ?? getRequestUserEmail() ?? "";
@@ -3227,11 +3244,13 @@ export async function stopAgentTeamBackgroundRun(
   const taskId = await resolveTaskIdFromBackgroundRunId(runId);
   const ownerScope = resolveOwnerScope(scope);
 
-  const markStopped = (currentTask: AgentTask) => {
+  const markStopped = (currentTask: AgentTask, stopReason: string) => {
     delete currentTask.stopRequestedAt;
+    delete currentTask.stopRequestedRunId;
+    delete currentTask.stopRequestedReason;
     currentTask.status = "errored";
     currentTask.summary =
-      reason === "user" ? "Task stopped." : `Task stopped: ${reason}`;
+      stopReason === "user" ? "Task stopped." : `Task stopped: ${stopReason}`;
     currentTask.error = currentTask.summary;
     currentTask.currentStep = "";
     currentTask.completedAt = Date.now();
@@ -3265,23 +3284,47 @@ export async function stopAgentTeamBackgroundRun(
         dispatch.continuationCount,
         dispatch.attempts,
       );
+      let stopRequestedAt: number | undefined;
+      let stopRequestedRunId: string | undefined;
+      let stopRequestedReason: string | undefined;
       const current = await withCurrentAgentTeamRunAttempt(
         taskId,
         dispatch.attempts,
         async () => {
           const currentTask = await loadTask(taskId);
-          return Boolean(
+          if (
             currentTask &&
             taskMatchesOwnerScope(currentTask, ownerScope) &&
-            currentTask.status === "running",
-          );
+            currentTask.status === "running"
+          ) {
+            const expectedTask = structuredClone(currentTask);
+            currentTask.stopRequestedAt ??= Date.now();
+            stopRequestedAt = currentTask.stopRequestedAt;
+            currentTask.stopRequestedRunId ??= runId;
+            stopRequestedRunId = currentTask.stopRequestedRunId;
+            currentTask.stopRequestedReason ??= reason;
+            stopRequestedReason = currentTask.stopRequestedReason;
+            return saveTaskIfCurrent(currentTask, expectedTask);
+          }
+          return false;
         },
         { statuses: ["queued", "running"] },
       );
-      if (!current.current || !current.value) continue;
+      if (
+        !current.current ||
+        !current.value ||
+        stopRequestedAt === undefined ||
+        stopRequestedRunId === undefined ||
+        stopRequestedReason === undefined
+      )
+        continue;
 
-      // Each queue attempt has its own run id, so this abort cannot stop its successor.
-      await abortRunDurably(runId, reason);
+      const requestedAt = stopRequestedAt;
+      const requestedRunId = stopRequestedRunId;
+      const requestedReason = stopRequestedReason;
+
+      // Keep retries pointed at the original run after the queue attempt is reclaimed.
+      await abortRunDurably(requestedRunId, requestedReason);
 
       const result = await withCurrentAgentTeamRunAttempt(
         taskId,
@@ -3291,13 +3334,19 @@ export async function stopAgentTeamBackgroundRun(
           if (
             !currentTask ||
             !taskMatchesOwnerScope(currentTask, ownerScope) ||
-            currentTask.status !== "running"
+            currentTask.status !== "running" ||
+            currentTask.stopRequestedAt !== requestedAt ||
+            currentTask.stopRequestedRunId !== requestedRunId ||
+            currentTask.stopRequestedReason !== requestedReason
           ) {
             return null;
           }
 
-          markStopped(currentTask);
-          await saveTask(currentTask);
+          const expectedTask = structuredClone(currentTask);
+          markStopped(currentTask, requestedReason);
+          if (!(await saveTaskIfCurrent(currentTask, expectedTask))) {
+            return null;
+          }
           if (
             !(await completeAgentTeamRun(taskId, "failed", dispatch.attempts))
           ) {
@@ -3317,23 +3366,31 @@ export async function stopAgentTeamBackgroundRun(
     const stopRequestedTask = {
       ...task,
       stopRequestedAt: task.stopRequestedAt ?? Date.now(),
+      stopRequestedRunId:
+        task.stopRequestedRunId ?? runningInMemoryTaskRunId(taskId),
+      stopRequestedReason: task.stopRequestedReason ?? reason,
     };
     if (!(await saveTaskIfCurrent(stopRequestedTask, expectedTask))) continue;
 
-    await abortRunDurably(runningInMemoryTaskRunId(taskId), reason);
+    await abortRunDurably(
+      stopRequestedTask.stopRequestedRunId,
+      stopRequestedTask.stopRequestedReason,
+    );
 
     const currentTask = await loadTask(taskId);
     if (
       !currentTask ||
       !taskMatchesOwnerScope(currentTask, ownerScope) ||
       currentTask.status !== "running" ||
-      currentTask.stopRequestedAt !== stopRequestedTask.stopRequestedAt
+      currentTask.stopRequestedAt !== stopRequestedTask.stopRequestedAt ||
+      currentTask.stopRequestedRunId !== stopRequestedTask.stopRequestedRunId ||
+      currentTask.stopRequestedReason !== stopRequestedTask.stopRequestedReason
     ) {
       return { ok: false, error: "Task is not running" };
     }
 
     const expectedStopRequestedTask = structuredClone(currentTask);
-    markStopped(currentTask);
+    markStopped(currentTask, stopRequestedTask.stopRequestedReason);
     if (await saveTaskIfCurrent(currentTask, expectedStopRequestedTask)) {
       stoppedTask = currentTask;
     }

@@ -487,9 +487,21 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+interface PendingRunEventPublication {
+  runEvent: RunEvent;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+  settled: boolean;
+}
+
+interface PendingRunEventWrite {
+  write: () => Promise<void>;
+  publications: PendingRunEventPublication[];
+}
+
 interface RunEventBatch {
   events: Array<{ seq: number; eventAt: number; eventData: string }>;
-  write: Promise<void>;
+  pendingWrite: PendingRunEventWrite;
 }
 
 function isBatchableRunEvent(event: AgentChatEvent): boolean {
@@ -833,7 +845,7 @@ export function startRun(
     });
   }
   const runControl: RunChunkControl = {
-    flushEvents: () => persistenceChain,
+    flushEvents: () => flushEventWrites(true),
     get turnSignal() {
       return abort.signal;
     },
@@ -985,7 +997,71 @@ export function startRun(
   };
 
   let persistenceChain: Promise<void> = Promise.resolve();
-  run.flushEvents = () => persistenceChain;
+  const pendingEventWrites: PendingRunEventWrite[] = [];
+  let persistenceDrain: Promise<void> | null = null;
+  let persistenceFailure: unknown;
+  let persistenceFailureBlocked = false;
+  const flushEventWrites = (retryAfterFailure: boolean): Promise<void> => {
+    if (persistenceDrain) {
+      const activeDrain = persistenceDrain;
+      const settledDrain = retryAfterFailure
+        ? activeDrain.catch(() => undefined)
+        : activeDrain;
+      const flush = settledDrain.then(() =>
+        pendingEventWrites.length > 0
+          ? flushEventWrites(retryAfterFailure)
+          : undefined,
+      );
+      persistenceChain = flush;
+      return flush;
+    }
+    if (pendingEventWrites.length === 0) {
+      persistenceChain = Promise.resolve();
+      return persistenceChain;
+    }
+    if (persistenceFailureBlocked && !retryAfterFailure) {
+      const blocked = Promise.reject(persistenceFailure);
+      persistenceChain = blocked;
+      return blocked;
+    }
+    if (retryAfterFailure) {
+      persistenceFailure = undefined;
+      persistenceFailureBlocked = false;
+    }
+    const drain = Promise.resolve().then(async () => {
+      while (pendingEventWrites.length > 0) {
+        const pending = pendingEventWrites[0];
+        try {
+          await pending.write();
+        } catch (error) {
+          persistenceFailure = error;
+          persistenceFailureBlocked = true;
+          for (const queued of pendingEventWrites) {
+            for (const publication of queued.publications) {
+              if (publication.settled) continue;
+              publication.settled = true;
+              publication.reject(error);
+            }
+          }
+          throw error;
+        }
+        pendingEventWrites.shift();
+        for (const publication of pending.publications) {
+          publishRunEvent(publication.runEvent);
+          if (publication.settled) continue;
+          publication.settled = true;
+          publication.resolve();
+        }
+      }
+    });
+    const activeDrain = drain.finally(() => {
+      if (persistenceDrain === activeDrain) persistenceDrain = null;
+    });
+    persistenceDrain = activeDrain;
+    persistenceChain = activeDrain;
+    return activeDrain;
+  };
+  run.flushEvents = () => flushEventWrites(true);
   // Streamed deltas arrive hundreds per tool call, and a write tool waits for
   // every queued event to persist first; one round trip per event put tens of
   // seconds between the model finishing and the tool starting.
@@ -1588,6 +1664,31 @@ export function startRun(
     }
   };
 
+  const queueRunEvent = (
+    pendingWrite: PendingRunEventWrite,
+    runEvent: RunEvent,
+  ): Promise<void> => {
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const publication = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    const pendingPublication: PendingRunEventPublication = {
+      runEvent,
+      resolve,
+      reject,
+      settled: false,
+    };
+    pendingWrite.publications.push(pendingPublication);
+    void flushEventWrites(false).catch((error) => {
+      if (pendingPublication.settled) return;
+      pendingPublication.settled = true;
+      pendingPublication.reject(error);
+    });
+    return publication;
+  };
+
   const emitRunEvent = (
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
@@ -1608,40 +1709,42 @@ export function startRun(
         await write();
       }
     };
-    let persistence: Promise<void>;
+    let publication: Promise<void>;
     if (isBatchableRunEvent(runEvent.event) && !persistEventHook) {
       if (!openEventBatch) {
         const batch: RunEventBatch = {
           events: [],
-          write: persistenceChain.then(() => {
-            if (openEventBatch === batch) openEventBatch = null;
-            return retryOnce(() =>
-              withWorkerFence(() => insertRunEvents(runId, batch.events)),
-            );
-          }),
+          pendingWrite: {
+            publications: [],
+            write: () => {
+              if (openEventBatch === batch) openEventBatch = null;
+              return retryOnce(() =>
+                withWorkerFence(() => insertRunEvents(runId, batch.events)),
+              );
+            },
+          },
         };
         openEventBatch = batch;
-        persistenceChain = batch.write;
+        pendingEventWrites.push(batch.pendingWrite);
       }
       openEventBatch.events.push({
         seq: runEvent.seq,
         eventAt,
         eventData,
       });
-      persistence = openEventBatch.write;
+      publication = queueRunEvent(openEventBatch.pendingWrite, runEvent);
     } else {
       // Anything emitted after this event must not persist before it.
       openEventBatch = null;
-      persistence = persistenceChain.then(() =>
-        retryOnce(() => persistRunEvent(runEvent, eventData, eventAt)),
-      );
-      persistenceChain = persistence;
-    }
-    if (!options?.surfacePersistenceError) {
-      persistence.catch(() => {});
+      const pendingWrite: PendingRunEventWrite = {
+        publications: [],
+        write: () =>
+          retryOnce(() => persistRunEvent(runEvent, eventData, eventAt)),
+      };
+      pendingEventWrites.push(pendingWrite);
+      publication = queueRunEvent(pendingWrite, runEvent);
     }
 
-    const publication = persistence.then(() => publishRunEvent(runEvent));
     if (!options?.surfacePersistenceError) publication.catch(() => {});
 
     checkSqlAbort();

@@ -387,10 +387,10 @@ type MockRequestContext = {
   run?: { allowedActionNames?: readonly string[] };
 };
 const requestContexts: MockRequestContext[] = [];
-let activeRequestContext: MockRequestContext | undefined;
+const requestContextStorage = new AsyncLocalStorage<MockRequestContext>();
 
 function requireMockRequestContext(): void {
-  if (!activeRequestContext?.userEmail) {
+  if (!requestContextStorage.getStore()?.userEmail) {
     throw new Error("missing mock request context");
   }
 }
@@ -781,26 +781,12 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("./request-context.js", () => ({
-  getRequestUserEmail: () => activeRequestContext?.userEmail,
-  getRequestOrgId: () => activeRequestContext?.orgId,
-  getRequestRunContext: () => activeRequestContext?.run,
+  getRequestUserEmail: () => requestContextStorage.getStore()?.userEmail,
+  getRequestOrgId: () => requestContextStorage.getStore()?.orgId,
+  getRequestRunContext: () => requestContextStorage.getStore()?.run,
   runWithRequestContext: (ctx: any, fn: () => any) => {
-    const previous = activeRequestContext;
-    activeRequestContext = ctx;
     requestContexts.push(ctx);
-    try {
-      const result = fn();
-      if (result && typeof result.then === "function") {
-        return result.finally(() => {
-          activeRequestContext = previous;
-        });
-      }
-      activeRequestContext = previous;
-      return result;
-    } catch (err) {
-      activeRequestContext = previous;
-      throw err;
-    }
+    return requestContextStorage.run(ctx, fn);
   },
 }));
 
@@ -891,7 +877,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     threadData.clear();
     dispatches.length = 0;
     requestContexts.length = 0;
-    activeRequestContext = undefined;
     activeRunMocks.clear();
     queue._agentTeamRunQueueForTests.resetInit();
     runAgentLoopMock.mockReset();
@@ -1905,7 +1890,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     let observedAllowedActionNames: readonly string[] | undefined;
     runAgentLoopMock.mockImplementation(async () => {
       observedAllowedActionNames =
-        activeRequestContext?.run?.allowedActionNames;
+        requestContextStorage.getStore()?.run?.allowedActionNames;
     });
     await seedTask("surface-context", undefined, ["allowed"]);
 
@@ -2912,6 +2897,75 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
   });
 
+  it("keeps Stop authoritative when the run finalizer races its abort", async () => {
+    const taskId = "stop-finalizer-race";
+    await seedTask(taskId);
+
+    let releaseLoop!: () => void;
+    let resolveLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      resolveLoopStarted = resolve;
+    });
+    const loopGate = new Promise<void>((resolve) => {
+      releaseLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async () => {
+      resolveLoopStarted();
+      await loopGate;
+    });
+
+    const processing = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      abortRunDurablyMock.mockImplementationOnce(async (runId, reason) => {
+        expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+          status: "running",
+          stopRequestedAt: expect.any(Number),
+        });
+        abortRunMock(runId, reason);
+        releaseLoop();
+
+        const worker = startRunWork.at(-1);
+        if (!worker) throw new Error("the run worker did not start");
+        await worker;
+
+        expect(appState.get(`agent-task:${taskId}`).status).toBe("running");
+        expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+          "running",
+        );
+        return true;
+      });
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+        ),
+      ).resolves.toEqual({ ok: true });
+      await processing;
+    } finally {
+      releaseLoop();
+      await Promise.allSettled(startRunWork);
+    }
+
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      summary: "Task stopped.",
+      terminalProgressStatus: "cancelled",
+    });
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+      "failed",
+    );
+    expect(abortRunMock).toHaveBeenCalledWith(
+      `run-task-${taskId}-a1-c0`,
+      "user",
+    );
+  });
+
   it("keeps Stop retryable when run abort persistence fails", async () => {
     await seedTask("stop-abort-persistence-failure");
     abortRunDurablyMock.mockRejectedValueOnce(
@@ -2949,6 +3003,87 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
         )
       )?.status,
     ).toBe("failed");
+  });
+
+  it("reconciles persisted Stop intent before a reclaimed attempt starts", async () => {
+    const taskId = "stop-intent-reclaimed-attempt";
+    await seedTask(taskId);
+
+    let releaseLoop!: () => void;
+    let resolveLoopStarted!: () => void;
+    const loopStarted = new Promise<void>((resolve) => {
+      resolveLoopStarted = resolve;
+    });
+    const loopGate = new Promise<void>((resolve) => {
+      releaseLoop = resolve;
+    });
+    runAgentLoopMock.mockImplementation(async () => {
+      resolveLoopStarted();
+      await loopGate;
+    });
+
+    const firstAttempt = processAgentTeamRun({
+      taskId,
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    try {
+      await loopStarted;
+      abortRunDurablyMock.mockRejectedValueOnce(
+        new Error("run abort persistence failed"),
+      );
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          stopAgentTeamBackgroundRun(`run-task-${taskId}`),
+        ),
+      ).rejects.toThrow("run abort persistence failed");
+
+      expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+        status: "running",
+        stopRequestedAt: expect.any(Number),
+        stopRequestedRunId: `run-task-${taskId}-a1-c0`,
+        stopRequestedReason: "user",
+      });
+
+      const dispatch = queueRows.find((row) => row.task_id === taskId);
+      if (!dispatch) throw new Error("the agent team run was not enqueued");
+      dispatch.updated_at = 0;
+      abortRunDurablyMock.mockImplementationOnce(async (runId, reason) => {
+        abortRunMock(runId, reason);
+        releaseLoop();
+        return true;
+      });
+
+      await expect(
+        processAgentTeamRun({
+          taskId,
+          mode: "start",
+          resolveConfig: async () => resolveConfig(),
+        }),
+      ).resolves.toEqual({ ok: true, skipped: "stop-reconciled" });
+      await firstAttempt;
+    } finally {
+      releaseLoop();
+      await Promise.allSettled(startRunWork);
+    }
+
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(abortRunDurablyMock).toHaveBeenLastCalledWith(
+      `run-task-${taskId}-a1-c0`,
+      "user",
+    );
+    expect(appState.get(`agent-task:${taskId}`)).toMatchObject({
+      status: "errored",
+      summary: "Task stopped.",
+      terminalProgressStatus: "cancelled",
+    });
+    expect(appState.get(`agent-task:${taskId}`)).not.toHaveProperty(
+      "stopRequestedAt",
+    );
+    expect((await queue.getAgentTeamRunDispatchState(taskId))?.status).toBe(
+      "failed",
+    );
   });
 
   it("stops the durable active chunk when it is running on another instance", async () => {
