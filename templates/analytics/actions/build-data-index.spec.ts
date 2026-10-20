@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   requireAnalyticsAdminContext: vi.fn(),
   getRequestOrgId: vi.fn(() => "org_1"),
   getRequestUserEmail: vi.fn(() => "admin@example.test"),
+  getRequestContext: vi.fn(() => ({
+    userEmail: "admin@example.test",
+    orgId: "org_1",
+  })),
+  runWithRequestContext: vi.fn((_context: unknown, fn: () => unknown) => fn()),
   getOrgSetting: vi.fn(),
   mutateOrgSetting: vi.fn(),
   putOrgSetting: vi.fn(),
@@ -26,6 +31,8 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
+  getRequestContext: mocks.getRequestContext,
+  runWithRequestContext: mocks.runWithRequestContext,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -170,6 +177,14 @@ describe("build-data-index", () => {
       bundle,
     );
     expect(mocks.invalidateSourceIndexCache).toHaveBeenCalledWith("org_1");
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: "admin@example.test",
+        orgId: "org_1",
+        credentialScope: "org",
+      }),
+      expect.any(Function),
+    );
     expect(mocks.finishSourceIndexRun).toHaveBeenCalledWith("run_1", "org_1", {
       status: "succeeded",
       entryCount: 2,

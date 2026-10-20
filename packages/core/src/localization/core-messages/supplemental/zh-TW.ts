@@ -102,6 +102,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "開啟完整連線頁面",
   mcpIdentityError: "無法載入此應用程式的連線資訊。",
   mcpRetry: "重試",
+  mcpOAuthBackToApp: "返回應用程式",
   mcpConnect: mcpConnectMessages,
 };
 

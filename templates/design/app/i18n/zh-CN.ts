@@ -2046,6 +2046,9 @@ export default {
       accept: "接受",
       reject: "拒绝",
       resolveFailed: "无法处理此提案",
+      previewTargetUnavailable:
+        "未找到所选元素，因此未显示此预览。请重新选择该元素后重试。",
+      previewFailed: "无法显示此预览。请重新选择该元素后重试。",
     },
     capabilities: {
       "deterministic-style-edit": "安全样式编辑",

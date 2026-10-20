@@ -1816,7 +1816,7 @@ const messages = {
     unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
     takeScreenshot: "التقاط لقطة شاشة",
-    importLoom: "Import Loom (مترجم)",
+    importLoom: "استيراد فيديو",
     importing: "Importing... (مترجم)",
     import: "Import (مترجم)",
     recordNew: "تسجيل جديد",
@@ -2065,8 +2065,8 @@ const messages = {
       "لا يزال هذا التسجيل قيد المعالجة، لذا احتفظ Clips بنسختك هنا. انتظر اكتمالها أو ارفعه مرة أخرى.",
   },
   importRoute: {
-    pageTitle: "استيراد Loom — Clips",
-    title: "استيراد Loom",
+    pageTitle: "استيراد فيديو — Clips",
+    title: "استيراد فيديو",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "استيراد",
     helperText:

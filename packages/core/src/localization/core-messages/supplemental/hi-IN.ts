@@ -108,6 +108,7 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "पूरी कनेक्शन पेज खोलें",
   mcpIdentityError: "इस ऐप की कनेक्शन जानकारी लोड नहीं हो सकी।",
   mcpRetry: "फिर से कोशिश करें",
+  mcpOAuthBackToApp: "ऐप पर वापस जाएँ",
   mcpConnect: mcpConnectMessages,
 };
 

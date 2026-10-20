@@ -27,13 +27,16 @@ import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
+  currentExecutionFence,
   MissingExecutionFenceError,
+  StaleExecutionFenceError,
   withExecutionFence,
   withExecutionLeaseRequested,
   type ExecutionFence,
 } from "./execution-fence.js";
 import {
   type AgentTurnInitiator,
+  AgentRunEventNotPersistedError,
   insertRun,
   insertRunEvent,
   insertRunEvents,
@@ -90,6 +93,7 @@ export interface ActiveRun {
   nextEventSeq?: number;
   pendingAbortEvent?: RunEvent;
   flushEvents?: () => Promise<void>;
+  waitForPersistence?: () => Promise<void>;
   abortReason?: string;
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
@@ -131,11 +135,19 @@ function reportAbortFlushFailure(run: ActiveRun, error: unknown): void {
   );
 }
 
-async function flushRunEventsBeforeAbort(run?: ActiveRun): Promise<void> {
+async function flushRunEventsBeforeAbort(
+  run?: ActiveRun,
+): Promise<AgentRunEventNotPersistedError | null> {
   try {
+    await run?.waitForPersistence?.();
     await run?.flushEvents?.();
+    return null;
   } catch (error) {
     if (run) reportAbortFlushFailure(run, error);
+    if (error instanceof AgentRunEventNotPersistedError && error.terminalRun) {
+      return error;
+    }
+    throw error;
   }
 }
 
@@ -486,9 +498,21 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+interface PendingRunEventPublication {
+  runEvent: RunEvent;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+  settled: boolean;
+}
+
+interface PendingRunEventWrite {
+  write: () => Promise<void>;
+  publications: PendingRunEventPublication[];
+}
+
 interface RunEventBatch {
   events: Array<{ seq: number; eventAt: number; eventData: string }>;
-  write: Promise<void>;
+  pendingWrite: PendingRunEventWrite;
 }
 
 function isBatchableRunEvent(event: AgentChatEvent): boolean {
@@ -832,7 +856,7 @@ export function startRun(
     });
   }
   const runControl: RunChunkControl = {
-    flushEvents: () => persistenceChain,
+    flushEvents: () => flushEventWrites(true),
     get turnSignal() {
       return abort.signal;
     },
@@ -984,7 +1008,86 @@ export function startRun(
   };
 
   let persistenceChain: Promise<void> = Promise.resolve();
-  run.flushEvents = () => persistenceChain;
+  const pendingEventWrites: PendingRunEventWrite[] = [];
+  let persistenceDrain: Promise<void> | null = null;
+  let persistenceFailure: unknown;
+  let persistenceFailureBlocked = false;
+  const flushEventWrites = (retryAfterFailure: boolean): Promise<void> => {
+    if (persistenceDrain) {
+      const activeDrain = persistenceDrain;
+      const settledDrain = retryAfterFailure
+        ? activeDrain.catch((error) => {
+            if (
+              error instanceof AgentRunEventNotPersistedError &&
+              error.terminalRun
+            ) {
+              throw error;
+            }
+          })
+        : activeDrain;
+      const flush = settledDrain.then(() =>
+        pendingEventWrites.length > 0
+          ? flushEventWrites(retryAfterFailure)
+          : undefined,
+      );
+      persistenceChain = flush;
+      return flush;
+    }
+    if (pendingEventWrites.length === 0) {
+      persistenceChain = Promise.resolve();
+      return persistenceChain;
+    }
+    if (persistenceFailureBlocked && !retryAfterFailure) {
+      const blocked = Promise.reject(persistenceFailure);
+      persistenceChain = blocked;
+      return blocked;
+    }
+    if (retryAfterFailure) {
+      persistenceFailure = undefined;
+      persistenceFailureBlocked = false;
+    }
+    const drain = Promise.resolve().then(async () => {
+      while (pendingEventWrites.length > 0) {
+        const pending = pendingEventWrites[0];
+        try {
+          await pending.write();
+        } catch (error) {
+          const terminalRun =
+            error instanceof AgentRunEventNotPersistedError &&
+            error.terminalRun;
+          persistenceFailure = terminalRun ? undefined : error;
+          persistenceFailureBlocked = !terminalRun;
+          for (const queued of pendingEventWrites) {
+            for (const publication of queued.publications) {
+              if (publication.settled) continue;
+              publication.settled = true;
+              publication.reject(error);
+            }
+          }
+          if (terminalRun) {
+            pendingEventWrites.length = 0;
+            openEventBatch = null;
+          }
+          throw error;
+        }
+        pendingEventWrites.shift();
+        for (const publication of pending.publications) {
+          publishRunEvent(publication.runEvent);
+          if (publication.settled) continue;
+          publication.settled = true;
+          publication.resolve();
+        }
+      }
+    });
+    const activeDrain = drain.finally(() => {
+      if (persistenceDrain === activeDrain) persistenceDrain = null;
+    });
+    persistenceDrain = activeDrain;
+    persistenceChain = activeDrain;
+    return activeDrain;
+  };
+  run.waitForPersistence = () => insertRunPromise;
+  run.flushEvents = () => flushEventWrites(true);
   // Streamed deltas arrive hundreds per tool call, and a write tool waits for
   // every queued event to persist first; one round trip per event put tens of
   // seconds between the model finishing and the tool starting.
@@ -1587,6 +1690,31 @@ export function startRun(
     }
   };
 
+  const queueRunEvent = (
+    pendingWrite: PendingRunEventWrite,
+    runEvent: RunEvent,
+  ): Promise<void> => {
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const publication = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    const pendingPublication: PendingRunEventPublication = {
+      runEvent,
+      resolve,
+      reject,
+      settled: false,
+    };
+    pendingWrite.publications.push(pendingPublication);
+    void flushEventWrites(false).catch((error) => {
+      if (pendingPublication.settled) return;
+      pendingPublication.settled = true;
+      pendingPublication.reject(error);
+    });
+    return publication;
+  };
+
   const emitRunEvent = (
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
@@ -1604,43 +1732,51 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
+        if (
+          error instanceof AgentRunEventNotPersistedError &&
+          error.terminalRun
+        ) {
+          throw error;
+        }
         await write();
       }
     };
-    let persistence: Promise<void>;
+    let publication: Promise<void>;
     if (isBatchableRunEvent(runEvent.event) && !persistEventHook) {
       if (!openEventBatch) {
         const batch: RunEventBatch = {
           events: [],
-          write: persistenceChain.then(() => {
-            if (openEventBatch === batch) openEventBatch = null;
-            return retryOnce(() =>
-              withWorkerFence(() => insertRunEvents(runId, batch.events)),
-            );
-          }),
+          pendingWrite: {
+            publications: [],
+            write: () => {
+              if (openEventBatch === batch) openEventBatch = null;
+              return retryOnce(() =>
+                withWorkerFence(() => insertRunEvents(runId, batch.events)),
+              );
+            },
+          },
         };
         openEventBatch = batch;
-        persistenceChain = batch.write;
+        pendingEventWrites.push(batch.pendingWrite);
       }
       openEventBatch.events.push({
         seq: runEvent.seq,
         eventAt,
         eventData,
       });
-      persistence = openEventBatch.write;
+      publication = queueRunEvent(openEventBatch.pendingWrite, runEvent);
     } else {
       // Anything emitted after this event must not persist before it.
       openEventBatch = null;
-      persistence = persistenceChain.then(() =>
-        retryOnce(() => persistRunEvent(runEvent, eventData, eventAt)),
-      );
-      persistenceChain = persistence;
-    }
-    if (!options?.surfacePersistenceError) {
-      persistence.catch(() => {});
+      const pendingWrite: PendingRunEventWrite = {
+        publications: [],
+        write: () =>
+          retryOnce(() => persistRunEvent(runEvent, eventData, eventAt)),
+      };
+      pendingEventWrites.push(pendingWrite);
+      publication = queueRunEvent(pendingWrite, runEvent);
     }
 
-    const publication = persistence.then(() => publishRunEvent(runEvent));
     if (!options?.surfacePersistenceError) publication.catch(() => {});
 
     checkSqlAbort();
@@ -2843,11 +2979,33 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       );
       if (isUnclaimedBackgroundDispatch && !stillInsideRedispatchBound) {
         const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
-          () => false,
+          (error) => {
+            captureError(error, {
+              route: "/_agent-native/agent-chat/runs/active",
+              aiTraceId: sqlRun.id,
+              tags: {
+                source: "agent-run-manager",
+                phase: "unclaimed-background-reap",
+              },
+              extra: { runId: sqlRun.id, threadId },
+            });
+            return false;
+          },
         );
         if (recovered) return null;
       }
-      const reaped = await reapIfStale(sqlRun.id).catch(() => false);
+      const reaped = await reapIfStale(sqlRun.id).catch((error) => {
+        captureError(error, {
+          route: "/_agent-native/agent-chat/runs/active",
+          aiTraceId: sqlRun.id,
+          tags: {
+            source: "agent-run-manager",
+            phase: "stale-run-reap",
+          },
+          extra: { runId: sqlRun.id, threadId },
+        });
+        return false;
+      });
       if (reaped) return null;
       return {
         runId: sqlRun.id,
@@ -2943,17 +3101,18 @@ function abortRunInMemory(runId: string, reason: string): boolean {
 export function abortRun(runId: string, reason: string = "user"): boolean {
   const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
+  const markAborted = () => markRunAborted(runId, reason);
   void flushRunEventsBeforeAbort(run)
-    .then(() => markRunAborted(runId, reason))
+    .then(markAborted, markAborted)
     .catch((error) => {
       captureError(error, {
         route: "/_agent-native/agent-chat/runs/:id/abort",
         aiTraceId: runId,
-        tags: { source: "agent-run-manager", phase: "abort-run" },
+        tags: { source: "agent-run-manager", phase: "abort-run-status" },
         extra: { runId, threadId: run?.threadId, reason },
       });
       console.error(
-        "[run-manager] durable abort persistence failed:",
+        "[run-manager] durable abort status write failed:",
         error instanceof Error ? error.message : error,
       );
     });
@@ -2969,12 +3128,29 @@ export function abortRun(runId: string, reason: string = "user"): boolean {
 export async function abortRunDurably(
   runId: string,
   reason: string = "user",
+  options?: { allowNotStarted?: boolean },
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
   try {
-    await flushRunEventsBeforeAbort(run);
-    await markRunAborted(runId, reason);
+    const eventFlushFailure = await flushRunEventsBeforeAbort(run);
+    const abortPersisted = await markRunAborted(runId, reason);
+    if (!abortPersisted || eventFlushFailure) {
+      const persistedStatus = await getRunStatus(runId);
+      if (persistedStatus === null) {
+        // Agent Teams persists Stop intent before run registration.
+        // Workers recheck it before dispatch.
+        if (options?.allowNotStarted && !run && !eventFlushFailure)
+          return false;
+        throw new Error(
+          `Cannot confirm durable abort for missing run ${runId}`,
+        );
+      }
+      if (!abortPersisted && persistedStatus === "running") {
+        throw new Error(`Durable abort did not transition run ${runId}`);
+      }
+    }
+    if (eventFlushFailure) throw eventFlushFailure;
   } catch (error) {
     captureError(error, {
       route: "/_agent-native/agent-chat/runs/:id/abort",
@@ -2994,8 +3170,59 @@ export async function abortRunDurably(
       "[run-manager] durable abort persistence failed:",
       error instanceof Error ? error.message : error,
     );
+    throw error;
   }
   return abortedInMemory;
+}
+
+interface SafeBoundaryAbortResult {
+  aborted: boolean;
+  eventFlushFailure: AgentRunEventNotPersistedError | null;
+}
+
+async function abortRunAtSafeBoundaryDurablyResult(
+  runId: string,
+  reason: string = "user",
+): Promise<SafeBoundaryAbortResult> {
+  const run = activeRuns.get(runId);
+  const eventFlushFailure = await flushRunEventsBeforeAbort(run);
+  let aborted: boolean;
+  try {
+    aborted = await markRunAbortedAtSafeBoundary(runId, reason);
+  } catch (error) {
+    try {
+      const state = await getRunAbortState(runId);
+      if (state.aborted && run) {
+        abortRunInMemory(runId, state.reason ?? reason);
+      }
+    } catch (stateError) {
+      captureError(stateError, {
+        route: "/_agent-native/agent-chat/runs/:id/abort",
+        aiTraceId: runId,
+        tags: {
+          source: "agent-run-manager",
+          phase: "safe-boundary-abort-state-read",
+        },
+        extra: {
+          runId,
+          reason,
+          abortError: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+    if (eventFlushFailure) {
+      throw new AggregateError(
+        [eventFlushFailure, error],
+        "Run abort event flush and marker persistence failed",
+      );
+    }
+    throw error;
+  }
+  if (!aborted) {
+    return { aborted: false, eventFlushFailure };
+  }
+  if (run) abortInMemoryRun(run, reason);
+  return { aborted: true, eventFlushFailure };
 }
 
 /** Abort after the durable run store confirms no model or tool work is in flight. */
@@ -3003,12 +3230,9 @@ export async function abortRunAtSafeBoundaryDurably(
   runId: string,
   reason: string = "user",
 ): Promise<boolean> {
-  const run = activeRuns.get(runId);
-  await flushRunEventsBeforeAbort(run);
-  const aborted = await markRunAbortedAtSafeBoundary(runId, reason);
-  if (!aborted) return false;
-  if (run) abortInMemoryRun(run, reason);
-  return true;
+  const result = await abortRunAtSafeBoundaryDurablyResult(runId, reason);
+  if (result.eventFlushFailure) throw result.eventFlushFailure;
+  return result.aborted;
 }
 
 export async function abortTurnByRefDurably(
@@ -3016,36 +3240,107 @@ export async function abortTurnByRefDurably(
   turnId: string,
   reason: string = "user",
 ): Promise<"aborted" | "already_terminal"> {
+  const fence = currentExecutionFence();
+  if (fence && (fence.threadId !== threadId || fence.turnId !== turnId)) {
+    throw new StaleExecutionFenceError(fence);
+  }
   const runsToFlush: ActiveRun[] = [];
   for (const run of activeRuns.values()) {
-    if (run.threadId === threadId && run.turnId === turnId) {
+    if (
+      run.threadId === threadId &&
+      run.turnId === turnId &&
+      (!fence || run.runId === fence.runId)
+    ) {
       abortInMemoryRun(run, reason);
       runsToFlush.push(run);
     }
   }
-  await Promise.all(runsToFlush.map((run) => flushRunEventsBeforeAbort(run)));
-  return markTurnAborted(threadId, turnId, reason);
+  const flushFailures = await Promise.all(
+    runsToFlush.map((run) => flushRunEventsBeforeAbort(run)),
+  );
+  let result: "aborted" | "already_terminal";
+  try {
+    result = await markTurnAborted(threadId, turnId, reason);
+  } catch (error) {
+    const eventFlushFailure = flushFailures.find(Boolean);
+    if (eventFlushFailure) {
+      throw new AggregateError(
+        [eventFlushFailure, error],
+        "Turn abort event flush and marker persistence failed",
+      );
+    }
+    throw error;
+  }
+  const eventFlushFailure = flushFailures.find(Boolean);
+  if (eventFlushFailure) throw eventFlushFailure;
+  return result;
 }
 
 export async function abortTurnDurably(
   runId: string,
   reason: string = "user",
-): Promise<void> {
+): Promise<"aborted" | "already_terminal"> {
   const memRun = activeRuns.get(runId);
-  const ref = memRun
-    ? { threadId: memRun.threadId, turnId: memRun.turnId }
-    : await getRunTurnRef(runId).catch(() => null);
-  if (!ref) return;
   try {
-    await abortTurnByRefDurably(ref.threadId, ref.turnId, reason);
+    const ref = memRun
+      ? { threadId: memRun.threadId, turnId: memRun.turnId }
+      : await getRunTurnRef(runId);
+    if (!ref) {
+      throw new Error(`Cannot durably abort turn for missing run ${runId}`);
+    }
+    return await abortTurnByRefDurably(ref.threadId, ref.turnId, reason);
   } catch (error) {
     captureError(error, {
       route: "/_agent-native/agent-chat/runs/:id/abort",
       aiTraceId: runId,
       tags: { source: "agent-run-manager", phase: "abort-turn" },
-      extra: { runId, reason, ...ref },
+      extra: { runId, reason },
     });
+    throw error;
   }
+}
+
+/** Persist a Stop's turn marker even when a terminal event flush must be reported. */
+export async function abortRunAndTurnDurably(
+  runId: string,
+  reason: string = "user",
+  options?: { safeBoundary?: boolean },
+): Promise<boolean> {
+  let abortedInMemory = false;
+  let terminalFlushFailure: AgentRunEventNotPersistedError | undefined;
+  try {
+    if (options?.safeBoundary) {
+      const result = await abortRunAtSafeBoundaryDurablyResult(runId, reason);
+      abortedInMemory = result.aborted;
+      terminalFlushFailure = result.eventFlushFailure ?? undefined;
+    } else {
+      abortedInMemory = await abortRunDurably(runId, reason);
+    }
+  } catch (error) {
+    if (
+      !(error instanceof AgentRunEventNotPersistedError) ||
+      !error.terminalRun
+    ) {
+      throw error;
+    }
+    terminalFlushFailure = error;
+  }
+
+  if (!options?.safeBoundary || abortedInMemory) {
+    try {
+      await abortTurnDurably(runId, reason);
+    } catch (error) {
+      if (terminalFlushFailure) {
+        throw new AggregateError(
+          [terminalFlushFailure, error],
+          "Run event flush and turn abort persistence failed",
+        );
+      }
+      throw error;
+    }
+  }
+  if (terminalFlushFailure) throw terminalFlushFailure;
+  return abortedInMemory;
 }
 
 export { getSlotHoldingRunId, tryClaimRunSlot } from "./run-store.js";

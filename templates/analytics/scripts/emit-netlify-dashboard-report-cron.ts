@@ -50,6 +50,10 @@ const RETENTION_SCHEDULED_NAME = "session-replay-retention-cron";
 const RETENTION_WORKER_NAME = "session-replay-retention-sweep-background";
 const RETENTION_ROUTE_PATH = "/api/session-replay/retention";
 const RETENTION_SCHEDULE = "0 3 * * *";
+const CONTENT_METRICS_SCHEDULED_NAME = "content-metrics-cron";
+const CONTENT_METRICS_WORKER_NAME = "content-metrics-collection-background";
+const CONTENT_METRICS_ROUTE_PATH = "/api/content-metrics/collect";
+const CONTENT_METRICS_SCHEDULE = "0 7 * * *";
 
 function ensureDir(dir: string) {
   mkdirSync(dir, { recursive: true });
@@ -619,12 +623,45 @@ export const config = {
   writeWorkerEntry(dest, BIGQUERY_WORKER_NAME, source);
 }
 
-function emitRetentionScheduledTrigger(token: string) {
-  const dest = path.join(FUNCTIONS_DIR, RETENTION_SCHEDULED_NAME);
+type DailyJobSpec = {
+  scheduledName: string;
+  workerName: string;
+  routePath: string;
+  schedule: string;
+  header: string;
+  runtimeFlag: string;
+  label: string;
+  logPrefix: string;
+};
+
+const RETENTION_JOB: DailyJobSpec = {
+  scheduledName: RETENTION_SCHEDULED_NAME,
+  workerName: RETENTION_WORKER_NAME,
+  routePath: RETENTION_ROUTE_PATH,
+  schedule: RETENTION_SCHEDULE,
+  header: "x-agent-native-session-replay-retention-cron",
+  runtimeFlag: "__AGENT_NATIVE_SESSION_REPLAY_RETENTION_SCHEDULED_RUNTIME__",
+  label: "session replay retention",
+  logPrefix: "session-replay-retention-cron",
+};
+
+const CONTENT_METRICS_JOB: DailyJobSpec = {
+  scheduledName: CONTENT_METRICS_SCHEDULED_NAME,
+  workerName: CONTENT_METRICS_WORKER_NAME,
+  routePath: CONTENT_METRICS_ROUTE_PATH,
+  schedule: CONTENT_METRICS_SCHEDULE,
+  header: "x-agent-native-content-metrics-cron",
+  runtimeFlag: "__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__",
+  label: "content metrics collection",
+  logPrefix: "content-metrics-cron",
+};
+
+function emitDailyScheduledTrigger(job: DailyJobSpec, token: string) {
+  const dest = path.join(FUNCTIONS_DIR, job.scheduledName);
   rmSync(dest, { recursive: true, force: true });
   ensureDir(dest);
 
-  const source = `const WORKER_PATH = "/.netlify/functions/${RETENTION_WORKER_NAME}";
+  const source = `const WORKER_PATH = "/.netlify/functions/${job.workerName}";
 const CRON_TOKEN = ${JSON.stringify(token)};
 
 function siteOrigin(request) {
@@ -640,14 +677,14 @@ export default async function handler(request) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-agent-native-session-replay-retention-cron": CRON_TOKEN,
+      "${job.header}": CRON_TOKEN,
     },
     body: JSON.stringify({ scheduled: true }),
   });
 
   if (!response.ok && response.status !== 202) {
     console.error(
-      "[session-replay-retention-cron] Background retention trigger failed:",
+      "[${job.logPrefix}] Background trigger failed:",
       response.status,
       // coercion-ok: the non-2xx status remains the failure signal; the body is diagnostics only.
       await response.text().catch(() => ""),
@@ -656,27 +693,27 @@ export default async function handler(request) {
 }
 
 export const config = {
-  name: "session replay retention cron trigger",
+  name: "${job.label} cron trigger",
   generator: "agent-native analytics build",
-  schedule: ${JSON.stringify(RETENTION_SCHEDULE)},
+  schedule: ${JSON.stringify(job.schedule)},
 };
 `;
 
-  writeFileSync(path.join(dest, `${RETENTION_SCHEDULED_NAME}.mjs`), source);
+  writeFileSync(path.join(dest, `${job.scheduledName}.mjs`), source);
 }
 
-function emitRetentionBackgroundWorker(token: string) {
-  const dest = path.join(FUNCTIONS_DIR, RETENTION_WORKER_NAME);
+function emitDailyBackgroundWorker(job: DailyJobSpec, token: string) {
+  const dest = path.join(FUNCTIONS_DIR, job.workerName);
   rmSync(dest, { recursive: true, force: true });
   cloneServerBundleForFunction(SERVER_DIR, dest);
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 globalThis.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true;
-globalThis.__AGENT_NATIVE_SESSION_REPLAY_RETENTION_SCHEDULED_RUNTIME__ = true;
+globalThis.${job.runtimeFlag} = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
-const ROUTE_PATH = ${JSON.stringify(RETENTION_ROUTE_PATH)};
+const ROUTE_PATH = ${JSON.stringify(job.routePath)};
 let cachedHandler;
 
 function timingSafeEquals(a, b) {
@@ -689,7 +726,7 @@ function timingSafeEquals(a, b) {
 }
 
 export default async function handler(request, context) {
-  const token = request.headers.get("x-agent-native-session-replay-retention-cron") || "";
+  const token = request.headers.get("${job.header}") || "";
   if (!timingSafeEquals(token, CRON_TOKEN)) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -709,7 +746,7 @@ export default async function handler(request, context) {
 }
 
 export const config = {
-  name: "session replay retention background sweep",
+  name: "${job.label} background sweep",
   generator: "agent-native analytics build",
   background: true,
   nodeBundler: "none",
@@ -718,7 +755,7 @@ export const config = {
 };
 `;
 
-  writeWorkerEntry(dest, RETENTION_WORKER_NAME, source);
+  writeWorkerEntry(dest, job.workerName, source);
 }
 
 function isDirectRun(): boolean {
@@ -743,6 +780,7 @@ function main(): void {
   const rollupToken = randomBytes(32).toString("hex");
   const bigQueryToken = randomBytes(32).toString("hex");
   const retentionToken = randomBytes(32).toString("hex");
+  const contentMetricsToken = randomBytes(32).toString("hex");
   emitScheduledTrigger(token);
   emitBackgroundWorker(token);
   emitAlertScheduledTrigger(alertToken);
@@ -753,8 +791,10 @@ function main(): void {
   emitRollupBackgroundWorker(rollupToken);
   emitBigQueryScheduledTrigger(bigQueryToken);
   emitBigQueryBackgroundWorker(bigQueryToken);
-  emitRetentionScheduledTrigger(retentionToken);
-  emitRetentionBackgroundWorker(retentionToken);
+  emitDailyScheduledTrigger(RETENTION_JOB, retentionToken);
+  emitDailyBackgroundWorker(RETENTION_JOB, retentionToken);
+  emitDailyScheduledTrigger(CONTENT_METRICS_JOB, contentMetricsToken);
+  emitDailyBackgroundWorker(CONTENT_METRICS_JOB, contentMetricsToken);
   console.log(
     `[dashboard-report-cron] Emitted Netlify scheduled trigger "${SCHEDULED_NAME}" (${SCHEDULE}) and background worker "${WORKER_NAME}".`,
   );
@@ -772,6 +812,9 @@ function main(): void {
   );
   console.log(
     `[session-replay-retention-cron] Emitted Netlify scheduled trigger "${RETENTION_SCHEDULED_NAME}" (${RETENTION_SCHEDULE}) and background worker "${RETENTION_WORKER_NAME}".`,
+  );
+  console.log(
+    `[content-metrics-cron] Emitted Netlify scheduled trigger "${CONTENT_METRICS_SCHEDULED_NAME}" (${CONTENT_METRICS_SCHEDULE}) and background worker "${CONTENT_METRICS_WORKER_NAME}".`,
   );
 }
 

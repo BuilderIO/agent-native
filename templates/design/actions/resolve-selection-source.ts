@@ -6,7 +6,7 @@ import {
   readLiveSourceFile,
   resolveSourceWorkspace,
 } from "../server/source-workspace.js";
-import { buildCodeLayerProjection } from "../shared/code-layer.js";
+import { resolveCodeLayerTarget } from "../shared/code-layer.js";
 
 function offsetToLineColumn(content: string, offset: number) {
   let line = 1;
@@ -53,28 +53,22 @@ export default defineAction({
     });
     const file = findSourceWorkspaceFile(workspace.files, { fileId, path });
     const live = await readLiveSourceFile(file);
-    const projection = buildCodeLayerProjection(live.content, {
-      source: {
-        kind: "design-file",
-        designId,
-        fileId: file.id,
-        filename: file.filename,
+    const { resolution } = resolveCodeLayerTarget(
+      live.content,
+      {
+        ...(nodeId ? { nodeId } : {}),
+        ...(selector ? { selector } : {}),
       },
-    });
-    const node =
-      projection.nodes.find(
-        (candidate) =>
-          candidate.id === nodeId ||
-          candidate.dataAttributes["data-agent-native-node-id"] === nodeId ||
-          candidate.dataAttributes["data-code-layer-id"] === nodeId,
-      ) ??
-      projection.nodes.find((candidate) =>
-        selector
-          ? candidate.selector === selector ||
-            candidate.path === selector ||
-            candidate.selectors.includes(selector)
-          : false,
-      );
+      {
+        source: {
+          kind: "design-file",
+          designId,
+          fileId: file.id,
+          filename: file.filename,
+        },
+      },
+    );
+    const node = resolution.status === "resolved" ? resolution.node : undefined;
 
     const start = node?.source?.openStart ?? node?.source?.start;
     const location =
@@ -96,6 +90,8 @@ export default defineAction({
       column: location?.column ?? null,
       snippet,
       resolved: Boolean(node),
+      resolutionStatus: resolution.status,
+      resolutionMessage: resolution.message ?? null,
     };
   },
 });

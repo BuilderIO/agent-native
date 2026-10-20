@@ -1794,7 +1794,7 @@ const messages = {
     unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
     takeScreenshot: "स्क्रीनशॉट लें",
-    importLoom: "Import Loom (स्थानीयकृत)",
+    importLoom: "वीडियो आयात करें",
     importing: "Importing... (स्थानीयकृत)",
     import: "Import (स्थानीयकृत)",
     recordNew: "नई रिकॉर्डिंग",
@@ -2043,8 +2043,8 @@ const messages = {
       "यह रिकॉर्डिंग अभी प्रोसेस हो रही है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है। इंतज़ार करें या इसे फिर से अपलोड करें।",
   },
   importRoute: {
-    pageTitle: "Loom आयात करें — Clips",
-    title: "Loom आयात करें",
+    pageTitle: "वीडियो आयात करें — Clips",
+    title: "वीडियो आयात करें",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "आयात करें",
     helperText:

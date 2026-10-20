@@ -1110,22 +1110,6 @@ export default function DeckEditor() {
     }
     setDrawMode(next);
   }, [drawMode]);
-  const togglePinMode = useCallback(() => {
-    const next = !pinMode;
-    if (next) {
-      trackEvent("slide_tool_selected", {
-        app_name: "slides",
-        template_name: "slides",
-        tool: "comment_pin",
-      });
-    }
-    if (next) {
-      setDrawMode(false);
-      setTextBoxMode(false);
-      setShapeType(null);
-    }
-    setPinMode(next);
-  }, [pinMode]);
   const toggleTextBoxMode = useCallback(() => {
     const next = !textBoxMode;
     if (next) {
@@ -1159,18 +1143,6 @@ export default function DeckEditor() {
     setTextBoxMode(false);
     setShapeType(type);
   }, []);
-  const toggleComments = useCallback(() => {
-    const opening = sidePanel !== "comments";
-    if (opening) {
-      trackEvent("slide_panel_opened", {
-        app_name: "slides",
-        template_name: "slides",
-        panel: "comments",
-      });
-    }
-    if (!opening) setSelectedCommentThreadId(null);
-    setSidePanel(opening ? "comments" : null);
-  }, [sidePanel]);
   const selectCommentThread = useCallback(
     (threadId: string) => {
       setSelectedCommentThreadId(threadId);
@@ -1301,6 +1273,29 @@ export default function DeckEditor() {
   const canEdit = deckRole.canEdit && !readOnlyWidget;
   // The widget's write grant carries no comment actions.
   const canComment = deckRole.canComment && !readOnlyWidget && !widgetEmbed;
+  const toggleComments = useCallback(() => {
+    if (sidePanel !== "comments") {
+      trackEvent("slide_panel_opened", {
+        app_name: "slides",
+        template_name: "slides",
+        panel: "comments",
+      });
+      setSidePanel("comments");
+    }
+    if (!canComment) return;
+    const arming = !pinMode;
+    if (arming) {
+      trackEvent("slide_tool_selected", {
+        app_name: "slides",
+        template_name: "slides",
+        tool: "comment_pin",
+      });
+      setDrawMode(false);
+      setTextBoxMode(false);
+      setShapeType(null);
+    }
+    setPinMode(arming);
+  }, [sidePanel, canComment, pinMode]);
   const generationContext =
     deck?.generationContext &&
     typeof deck.generationContext === "object" &&
@@ -2176,6 +2171,9 @@ export default function DeckEditor() {
   } = useDeckDesignSystem(deck?.designSystemId, deck?.id);
   useContrastAuditBridge(deck, designSystemRawData);
   const commentsOpen = sidePanel === "comments";
+  useEffect(() => {
+    if (!commentsOpen) setPinMode(false);
+  }, [commentsOpen]);
 
   const {
     questions: questionFlowQuestions,
@@ -4248,6 +4246,7 @@ export default function DeckEditor() {
         }
       } else {
         setPinMode(true);
+        setSidePanel("comments");
       }
     };
 
@@ -5310,7 +5309,6 @@ export default function DeckEditor() {
         deckId={id}
         deckTitle={deck.title}
         canEdit={canEdit}
-        canComment={canComment}
         onTitleChange={(title) => updateDeck(id, { title })}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}
@@ -5392,8 +5390,6 @@ export default function DeckEditor() {
         }}
         drawMode={drawMode}
         onToggleDrawMode={toggleDrawMode}
-        pinMode={pinMode}
-        onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
         onToggleTextBoxMode={toggleTextBoxMode}
         shapeType={shapeType}
@@ -6076,9 +6072,7 @@ export default function DeckEditor() {
             onCloseLayers={() => setLayersOpen(false)}
             onOpenAnimations={openAnimationsForTarget}
             onToggleAnimations={toggleAnimations}
-            commentsOpen={commentsOpen}
             onToggleComments={toggleComments}
-            onTogglePinMode={togglePinMode}
             onToggleDrawMode={toggleDrawMode}
             onSelectedAnimationTargetsChange={setAnimationTargets}
             slideId={currentSlide.id}

@@ -207,7 +207,9 @@ import {
   parseDashboardCertification,
   type FetchedDashboard,
 } from "./fetch-dashboard";
+import { editFilterPresets } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
+import { panelCostChange, usePanelCostNotice } from "./panel-cost-notice";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
@@ -221,7 +223,7 @@ import {
   PANEL_HEIGHT_UNIT_PX,
   mergeUnchangedPanelFields,
   type DashboardFilter,
-  type FilterPreset,
+  type FilterPresetEdit,
   type SqlDashboardConfig,
   type SqlPanel,
   type TableColumnConfig,
@@ -229,6 +231,12 @@ import {
 import { ViewsMenu } from "./ViewsMenu";
 
 const TAB_ID = generateTabId();
+
+const FILTER_PRESET_EVENTS = {
+  add: "dashboard_filter_preset_saved",
+  rename: "dashboard_filter_preset_renamed",
+  delete: "dashboard_filter_preset_deleted",
+} as const satisfies Record<FilterPresetEdit["kind"], string>;
 
 type DashboardTabGroup = {
   name: string;
@@ -1190,6 +1198,7 @@ function SqlDashboardPageContent({
     otherViewers: otherViewerCount(activeUsers, session?.email),
     onUndo: undoLatestSave,
   });
+  const panelCost = usePanelCostNotice(dashboardId);
 
   const updateCachedDashboardConfig = useCallback(
     (updated: SqlDashboardConfig) => {
@@ -2039,8 +2048,10 @@ function SqlDashboardPageContent({
           clampDashboardColumns(current.columns ?? DEFAULT_DASHBOARD_COLUMNS),
         ),
       }));
+      // A removed panel's cost notice would outlive it.
+      panelCost.clear(panelId);
     },
-    [persist],
+    [panelCost, persist],
   );
 
   const handleResizePanel = useCallback(
@@ -2073,6 +2084,7 @@ function SqlDashboardPageContent({
   );
   const handleSavePanel = useCallback(
     async (panel: SqlPanel, editorBaseline?: SqlPanel | null) => {
+      const cost: { change?: ReturnType<typeof panelCostChange> } = {};
       await persistThrow((current) => {
         const idx = current.panels.findIndex((p) => p.id === panel.id);
         if (editorBaseline && idx < 0) {
@@ -2086,30 +2098,43 @@ function SqlDashboardPageContent({
                 current.panels[idx],
               )
             : panel;
+        cost.change = panelCostChange(
+          idx >= 0 ? current.panels[idx] : null,
+          nextPanel,
+        );
         const nextPanels =
           idx >= 0
             ? current.panels.map((p, i) => (i === idx ? nextPanel : p))
             : [...current.panels, nextPanel];
         return { ...current, panels: nextPanels };
       });
+      if (cost.change === "notify")
+        void panelCost.notify(panel.id, panel.title);
+      // A panel turned into a section no longer costs what its notice said.
+      if (cost.change === "clear") panelCost.clear(panel.id);
     },
-    [persistThrow],
+    [panelCost, persistThrow],
   );
   const handleSaveSql = useCallback(
     async (panelId: string, sql: string) => {
+      const edit: { title?: string } = {};
       await persistThrow((current) => {
-        if (!current.panels.some((panel) => panel.id === panelId)) {
-          return current;
-        }
+        const panel = current.panels.find((p) => p.id === panelId);
+        edit.title =
+          panel && serializePanelSql(panel.sql) !== serializePanelSql(sql)
+            ? panel.title
+            : undefined;
+        if (!panel) return current;
         return {
           ...current,
-          panels: current.panels.map((panel) =>
-            panel.id === panelId ? { ...panel, sql } : panel,
+          panels: current.panels.map((p) =>
+            p.id === panelId ? { ...p, sql } : p,
           ),
         };
       });
+      if (edit.title !== undefined) void panelCost.notify(panelId, edit.title);
     },
-    [persistThrow],
+    [panelCost, persistThrow],
   );
   const handleSaveEditedPanel = useCallback(
     async (panel: SqlPanel) => {
@@ -2225,8 +2250,8 @@ function SqlDashboardPageContent({
     setEditingName(false);
   }, [nameInput, persist]);
 
-  const handleSaveFilterPreset = useCallback(
-    (filterId: string, preset: FilterPreset) => {
+  const handleEditFilterPreset = useCallback(
+    (filterId: string, edit: FilterPresetEdit) => {
       if (!dashboard?.filters) return;
       persist((current) =>
         current.filters
@@ -2236,21 +2261,19 @@ function SqlDashboardPageContent({
                 filter.id === filterId
                   ? {
                       ...filter,
-                      // The page reads config unvalidated, and the filter bar
-                      // skips malformed preset lists.
-                      presets: Array.isArray(filter.presets)
-                        ? [...filter.presets, preset]
-                        : [preset],
+                      presets: editFilterPresets(filter.presets, edit),
                     }
                   : filter,
               ),
             }
           : current,
       );
-      trackEvent("dashboard_filter_preset_saved", {
+      trackEvent(FILTER_PRESET_EVENTS[edit.kind], {
         app_name: "analytics",
         template_name: "analytics",
-        value_count: preset.values.length,
+        ...(edit.kind === "add"
+          ? { value_count: edit.preset.values.length }
+          : {}),
       });
     },
     [dashboard, persist],
@@ -3320,7 +3343,7 @@ function SqlDashboardPageContent({
                 ? handleSaveView
                 : undefined
             }
-            onSavePreset={editing ? handleSaveFilterPreset : undefined}
+            onEditPreset={editing ? handleEditFilterPreset : undefined}
             shared={dashboardShared}
           />
         )}

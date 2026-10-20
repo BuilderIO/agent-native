@@ -418,6 +418,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
+  githubSourceOpenFile: "In GitHub öffnen",
   textColor: "Textfarbe",
   backgroundColor: "Hintergrundfarbe",
   defaultColor: "Standard",
@@ -532,6 +535,7 @@ const editor = {
     imageDownloadStarted: "Bild-Download gestartet.",
     imageLinkHint: "Funktioniert mit jedem Bild aus dem Internet",
     imagePreview: "Bildvorschau",
+    imageUnavailable: "Bild nicht verfügbar",
     imageView: "Bildansicht",
     link: "Link [de-DE]",
     loadingAssetsPicker: "Assets-Auswahl wird geladen",
@@ -1011,6 +1015,7 @@ const comments = {
   openPropertyComments_other: "{{count}} offene Kommentare zu {{name}}",
   openRowComments_one: "{{count}} offener Kommentar zu {{title}}",
   openRowComments_other: "{{count}} offene Kommentare zu {{title}}",
+  openRow: "Zeile öffnen",
   suggestions: "Vorschläge",
   suggestionAdd: "Hinzufügen",
   suggestionDelete: "Löschen",
@@ -1220,6 +1225,7 @@ const history = {
   historyGroupAgent: "Agentenlauf",
   historyGroupHuman: "Bearbeitungssitzung",
   historyGroupLegacy: "Frühere Bearbeitungen",
+  historyGroupGitHub: "Aus GitHub synchronisiert",
   historyGroupOperation: "Vorgang",
   historyGroupRestore: "Wiederherstellung",
   historyLoadError: "Versionsverlauf konnte nicht geladen werden.",

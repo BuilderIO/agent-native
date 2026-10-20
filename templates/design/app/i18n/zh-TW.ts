@@ -1117,6 +1117,9 @@ export default {
       accept: "接受",
       reject: "拒絕",
       resolveFailed: "無法處理此提案",
+      previewTargetUnavailable:
+        "找不到所選元素，因此無法顯示此預覽。請重新選取該元素後再試一次。",
+      previewFailed: "無法顯示此預覽。請重新選取該元素後再試一次。",
     },
     autoLayoutSuggestion: {
       menuLabel: "建議自動版面配置…",

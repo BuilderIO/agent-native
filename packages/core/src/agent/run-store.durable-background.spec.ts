@@ -239,7 +239,10 @@ const mockDb: any = {
       return { rows: [], rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(sql)) {
-      return { rows: [], rowsAffected: 1 };
+      return {
+        rows: /\bRETURNING\b/i.test(sql) ? [{ seq: args[1] }] : [],
+        rowsAffected: 1,
+      };
     }
 
     return { rows: [], rowsAffected: 0 };

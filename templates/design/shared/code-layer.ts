@@ -54,6 +54,7 @@ import {
   removePropertyClass,
   utilityStem,
 } from "./responsive-classes.js";
+import { sourceEquivalentSelectorPath } from "./source-equivalent-selector";
 import type { DesignSourceType } from "./source-mode";
 import { commonPrefixLength, commonSuffixLength } from "./string-diff";
 import { parseSvgPathData } from "./svg-path-data";
@@ -4144,6 +4145,7 @@ export function buildCodeLayerTree(
 }
 
 function normalizeSelectorForMatch(selector: string): string {
+  selector = sourceEquivalentSelectorPath(selector);
   let normalized = "";
   let quote: string | null = null;
   let escaped = false;

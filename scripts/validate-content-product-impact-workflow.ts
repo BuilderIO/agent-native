@@ -32,7 +32,7 @@ const ALLOWED_GITHUB_EXPRESSIONS = new Set([
 const CHECKOUT_ACTION =
   "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5";
 const PNPM_ACTION =
-  "pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320";
+  "pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413";
 const NODE_ACTION =
   "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
 const CONTROLLER_REVISION = "72715043afb74b9e4ab82bdb763f812ce180becd";
