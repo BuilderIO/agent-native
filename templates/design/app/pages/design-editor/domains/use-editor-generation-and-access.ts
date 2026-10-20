@@ -699,7 +699,7 @@ export function useEditorGenerationAndAccess({
         !pending.currentRunId,
       );
       trackAgentGeneration(pending.runTabId, {
-        resumingStoredRun: Boolean(pending.currentRunId),
+        resumingStoredRun: true,
         ...(ignorePreviousRun
           ? {
               ignorePreviousRun: true,

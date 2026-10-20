@@ -241,6 +241,10 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         activeTabIdRef.current !== tabId ||
         (previousRunIdRef.current !== null &&
           (!runId || runId === previousRunIdRef.current)) ||
+        (previousRunIdRef.current !== null &&
+          currentRunIdRef.current === null &&
+          hasRunId &&
+          !correlatedContinuationRun) ||
         (continuationCorrelationRequired &&
           isDifferentTrackedRun &&
           !correlatedContinuationRun) ||
@@ -699,7 +703,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             previousRunIdRef.current = baseline?.runId ?? null;
             currentRunIdRef.current = baseline?.currentRunId ?? null;
             currentTurnIdRef.current = baseline?.currentTurnId ?? null;
-            resumingStoredRunRef.current = Boolean(baseline?.currentRunId);
+            resumingStoredRunRef.current = true;
             storedRunIdlePollCountRef.current = 0;
             requireActiveRunRef.current =
               baseline?.verified !== true && currentRunIdRef.current === null;

@@ -5464,6 +5464,63 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("propagates run snapshot lookup failures instead of returning in-memory status", async () => {
+    const run = startRun(
+      "run-snapshot-lookup-error",
+      "thread-snapshot-lookup-error",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-snapshot-lookup-error" },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    vi.mocked(getRunByThread).mockRejectedValueOnce(
+      new Error("SQL lookup unavailable"),
+    );
+
+    await expect(
+      getActiveRunForThreadAsync("thread-snapshot-lookup-error"),
+    ).rejects.toThrow("SQL lookup unavailable");
+    abortRun(run.runId, "test");
+  });
+
+  it("propagates same-turn successor lookup failures", async () => {
+    const run = startRun(
+      "run-successor-lookup-error",
+      "thread-successor-lookup-error",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-successor-lookup-error" },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: run.runId,
+        threadId: "thread-successor-lookup-error",
+        turnId: "turn-successor-lookup-error",
+        status: "running",
+        startedAt: run.startedAt,
+        heartbeatAt: run.startedAt,
+        completedAt: null,
+        lastProgressAt: null,
+      })
+      .mockRejectedValueOnce(new Error("Successor lookup unavailable"));
+
+    await expect(
+      getActiveRunForThreadAsync("thread-successor-lookup-error"),
+    ).rejects.toThrow("Successor lookup unavailable");
+    abortRun(run.runId, "test");
+  });
+
   it("FIX 1: prefers a newer running successor over a stale in-memory chunk-terminal run for the same turn", async () => {
     const run = startRun(
       "run-fix1-chunk0",

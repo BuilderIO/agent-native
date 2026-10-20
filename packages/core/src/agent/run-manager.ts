@@ -3069,42 +3069,34 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
 }
 
 async function fetchRunThreadSnapshot(runId: string, threadId: string) {
-  try {
-    const byThread = await getRunByThread(threadId, {
-      includeTerminal: true,
-    });
-    if (byThread && byThread.id === runId) return byThread;
-    return null;
-  } catch {
-    return null;
-  }
+  const byThread = await getRunByThread(threadId, {
+    includeTerminal: true,
+  });
+  if (byThread && byThread.id === runId) return byThread;
+  return null;
 }
 
 async function fetchNewerRunForSameTurn(
   threadId: string,
   memRun: ActiveRun,
 ): Promise<Awaited<ReturnType<typeof getRunByThread>> | null> {
-  try {
-    const latest = await getRunByThread(threadId, { includeTerminal: true });
-    const terminalAge = latest
-      ? Date.now() -
-        (latest.completedAt ?? latest.heartbeatAt ?? latest.startedAt)
-      : Infinity;
-    if (
-      latest &&
-      latest.id !== memRun.runId &&
-      latest.startedAt > memRun.startedAt &&
-      (latest.turnId ?? latest.id) === memRun.turnId &&
-      (latest.status === "running" ||
-        (RECONNECTABLE_TERMINAL_RUN_STATUSES.has(latest.status) &&
-          terminalAge <= TERMINAL_RUN_RECONNECT_WINDOW_MS))
-    ) {
-      return latest;
-    }
-    return null;
-  } catch {
-    return null;
+  const latest = await getRunByThread(threadId, { includeTerminal: true });
+  const terminalAge = latest
+    ? Date.now() -
+      (latest.completedAt ?? latest.heartbeatAt ?? latest.startedAt)
+    : Infinity;
+  if (
+    latest &&
+    latest.id !== memRun.runId &&
+    latest.startedAt > memRun.startedAt &&
+    (latest.turnId ?? latest.id) === memRun.turnId &&
+    (latest.status === "running" ||
+      (RECONNECTABLE_TERMINAL_RUN_STATUSES.has(latest.status) &&
+        terminalAge <= TERMINAL_RUN_RECONNECT_WINDOW_MS))
+  ) {
+    return latest;
   }
+  return null;
 }
 
 export function getRun(runId: string): ActiveRun | null {

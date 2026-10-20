@@ -8047,6 +8047,44 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it("preserves saved run state when active status is unreadable", async () => {
+    const threadId = "thread-unreadable-active-run-status";
+    const runId = "run-saved-before-unreadable-status";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "unknown" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [],
+            agentKit: {
+              messages: [],
+              activeRunIds: [runId],
+              runs: [
+                {
+                  id: runId,
+                  threadId,
+                  status: "running",
+                  lastSequence: 1,
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.activeRunIds).toContain(runId);
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({ id: runId, status: "running" }),
+    );
+    await transport.dispose();
+  });
+
   it.each([
     { status: "awaiting_approval", active: true },
     { status: "awaiting_input", active: true },

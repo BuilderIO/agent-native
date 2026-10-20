@@ -2992,6 +2992,7 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<AgentRunSnapshot | null | undefined> {
     const status = value.status;
     if (typeof value.active !== "boolean") return undefined;
+    if (status === "unknown") return undefined;
     // An idle thread has no run; a run that just finished keeps its id and
     // status for replay even though it is no longer `active`.
     if (value.active === false && (status === "idle" || !value.runId)) {
