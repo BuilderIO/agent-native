@@ -4375,7 +4375,7 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         name: "@agent-native/core",
         main: "index.js",
-        dependencies: { "cron-parser": "^5.5.0" },
+        dependencies: { "cron-parser": "^5.5.0", ajv: "^8.20.0" },
       }),
     );
     fs.writeFileSync(path.join(corePackageDir, "index.js"), "export {};\n");
@@ -4445,6 +4445,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
           "@agent-native/core > cron-parser",
+          "@agent-native/core > ajv",
           "@agent-native/toolkit > lowlight > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",

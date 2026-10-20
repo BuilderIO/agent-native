@@ -1,6 +1,8 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { __resetStoreLedgerSnapshotForTests } from "../db/store-registry.js";
+
 let database: PGlite;
 
 type QueryClient = { query(sql: string, args?: unknown[]): Promise<any> };
@@ -70,7 +72,9 @@ beforeEach(async () => {
       rowsAffected: result.affectedRows ?? 0,
     };
   });
+  __resetStoreLedgerSnapshotForTests();
   __resetAutomationSharingStoreForTests();
+  await ensureAutomationSharingTables();
 });
 
 afterEach(async () => database.close());
