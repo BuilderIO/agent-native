@@ -86,23 +86,40 @@ export function readRuntimeZoomSnapshot(
   const props = [...candidates][0]!;
   if (props.interactScreenId)
     throw new Error("runtime zoom measurement requires overview mode");
+  // Before the active-file effect settles, the editor can use its default file
+  // while activeId is still absent or stale. Those effective-file inputs are
+  // not canvas props, so wait for a resolved ID rather than guessing its basis.
+  if (
+    props.screens.length > 0 &&
+    (!props.activeId ||
+      (!props.screens.some((screen) => screen.id === props.activeId) &&
+        props.activeId !== props.board?.boardFileId))
+  )
+    return null;
   const screen =
     props.screens.find(
       (screen) =>
         screen.id === props.activeId && screen.id !== props.board?.boardFileId,
     ) ?? props.screens.find((screen) => screen.id !== props.board?.boardFileId);
   const device = props.previewDeviceFrame ?? "none";
+  const rawFrameWidth = screen
+    ? props.geometry?.geometryById?.[screen.id]?.width
+    : undefined;
+  const rawSourceWidth = screen
+    ? device === "none"
+      ? screen.width
+      : config.deviceWidths[device]
+    : undefined;
   const frameWidth = screen
-    ? (props.geometry?.geometryById?.[screen.id]?.width ??
-      config.defaultFrameWidth)
+    ? typeof rawFrameWidth === "number" && rawFrameWidth > 0
+      ? rawFrameWidth
+      : config.defaultFrameWidth
     : null;
   const sourceWidth = screen
-    ? device === "none"
-      ? (screen.width ?? config.defaultSourceWidth)
-      : config.deviceWidths[device]
+    ? typeof rawSourceWidth === "number" && rawSourceWidth > 0
+      ? rawSourceWidth
+      : config.defaultSourceWidth
     : null;
-  if (screen && (!(frameWidth! > 0) || !(sourceWidth! > 0)))
-    throw new Error("runtime zoom basis is invalid");
   const transform = world.style.transform;
   if (!transform) return null;
   const cameraScale = new DOMMatrixReadOnly(transform).a * 100;

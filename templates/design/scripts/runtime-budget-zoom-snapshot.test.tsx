@@ -193,6 +193,36 @@ describe("atomic runtime zoom snapshot", () => {
     ).toBeNull();
   });
 
+  it.each([0, -1, Number.NaN])(
+    "matches production dimension fallback for %s",
+    (width) => {
+      const render = fixture();
+      render({
+        screens: [{ id: "a", filename: "a.html", content: "", width }],
+      });
+      expect(readSnapshot()!.basis.scale).toBe(
+        getOverviewZoomScale({ frameWidth: 1440, sourceWidth: width }),
+      );
+      render({ geometry: { geometryById: { a: { width } } } });
+      expect(readSnapshot()!.basis.scale).toBe(
+        getOverviewZoomScale({ frameWidth: width, sourceWidth: 1280 }),
+      );
+    },
+  );
+
+  it("waits for an effective active screen instead of guessing the editor's default file", () => {
+    const render = fixture();
+    render({ activeId: null });
+    expect(readSnapshot()).toBeNull();
+    render({ activeId: "removed-screen" });
+    expect(readSnapshot()).toBeNull();
+    render({ activeId: "b", zoom: 100 });
+    expect(readSnapshot()!.basis.screenId).toBe("b");
+    expect(readSnapshot()!.basis.scale).toBeCloseTo(0.6);
+    render({ activeId: "board", board: { boardFileId: "board" } });
+    expect(readSnapshot()!.basis.screenId).toBe("a");
+  });
+
   it("fails loudly when the React measurement contract is unavailable", () => {
     document.body.innerHTML =
       '<div data-multi-screen-canvas-world style="transform:scale(1)"></div>';
