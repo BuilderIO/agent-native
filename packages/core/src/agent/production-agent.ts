@@ -417,9 +417,11 @@ import {
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
+  findAmbiguousLegacyJournalEntryForCall,
   findInterruptedJournalEntryForCall,
   findReplayableJournalEntry,
   isUnavailableToolCallInput,
+  journalEntriesAmbiguousInHistory,
   journalEntriesRepresentedInHistory,
   journalCallEffects,
   journalCallIdentities,
@@ -7139,6 +7141,8 @@ export async function runAgentLoop(opts: {
     runCtx.toolResults = toolResultHistory;
   }
   const consumedJournalKeys = new Set<string>();
+  const consumedInterruptedJournalKeys = new Set<string>();
+  const retryableInterruptedCallKeys = new Set<string>();
   const journalRead = await loadPriorTurnToolCallJournal(
     opts.threadId,
     opts.turnId,
@@ -7149,14 +7153,19 @@ export async function runAgentLoop(opts: {
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const journalHistory = messages.slice(
+    findCurrentTurnStartForContinuation(messages),
+  );
   const journalEntriesAlreadyRepresented = toolCallJournal
-    ? journalEntriesRepresentedInHistory(
-        toolCallJournal,
-        messages.slice(findCurrentTurnStartForContinuation(messages)),
-      )
+    ? journalEntriesRepresentedInHistory(toolCallJournal, journalHistory)
     : new Set<string>();
-  const allowRepresentedLegacyJournalReplay =
-    isInternalContinuationTurn(messages);
+  const journalEntriesAmbiguous = toolCallJournal
+    ? journalEntriesAmbiguousInHistory(toolCallJournal, journalHistory)
+    : new Set<string>();
+  const journalEntriesNotReplayable = new Set([
+    ...journalEntriesAlreadyRepresented,
+    ...journalEntriesAmbiguous,
+  ]);
   const journaledPriorToolCalls =
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
@@ -7267,6 +7276,22 @@ export async function runAgentLoop(opts: {
     priorCallIdentities,
     internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
   );
+  if (internalContinuationTurn) {
+    for (const entry of toolCallJournal?.completed ?? []) {
+      if (!journalEntriesAmbiguous.has(entry.key)) continue;
+      unknownOutcomes.tools.set(
+        entry.tool,
+        Math.max(unknownOutcomes.tools.get(entry.tool) ?? 0, 1),
+      );
+      if (entry.argumentsHash) {
+        const key = preparedToolCallKey(entry.tool, entry.argumentsHash);
+        unknownOutcomes.calls.set(
+          key,
+          Math.max(unknownOutcomes.calls.get(key) ?? 0, 1),
+        );
+      }
+    }
+  }
   // Names a caller shares between its own loops hold back writes, as before.
   for (const tool of opts.unknownWriteToolNames ?? []) {
     unknownOutcomes.tools.set(
@@ -8420,6 +8445,7 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      const originalToolCall = toolCall;
       noteToolNeeded(toolCall.name);
       const registeredEntry = actions[toolCall.name];
       const actionEntry = isUnavailableActionEntry(registeredEntry)
@@ -9021,7 +9047,8 @@ export async function runAgentLoop(opts: {
           : configuredToolMaxResultChars;
 
       const executionFence = currentExecutionFence();
-      const logicalExecutionStepId = logicalExecutionStepIds.get(toolCall);
+      const logicalExecutionStepId =
+        logicalExecutionStepIds.get(originalToolCall);
       const interruptedStep =
         executionFence && toolCallJournal
           ? findInterruptedJournalEntryForCall(
@@ -9029,6 +9056,7 @@ export async function runAgentLoop(opts: {
               toolCall.name,
               argumentsHash,
               toolCall.input,
+              consumedInterruptedJournalKeys,
             )
           : undefined;
       executionStepId = executionFence
@@ -9038,10 +9066,10 @@ export async function runAgentLoop(opts: {
               logicalExecutionStepId)
             : undefined))
         : undefined;
-      const historyToolCall = historyToolCallByCall.get(toolCall);
+      const historyToolCall = historyToolCallByCall.get(originalToolCall);
       if (historyToolCall?.type === "tool-call" && executionStepId) {
         historyToolCall.executionStepId = executionStepId;
-        durableExecutionStepIdsByCall.set(toolCall, executionStepId);
+        durableExecutionStepIdsByCall.set(originalToolCall, executionStepId);
       }
       const executionStepIntent: AgentExecutionStepIntent | null =
         executionFence && executionStepId
@@ -9070,6 +9098,33 @@ export async function runAgentLoop(opts: {
       const executionStepAdmission = executionStepIntent
         ? await beginAgentExecutionStep(executionStepIntent)
         : null;
+      const preparedCallKey = preparedToolCallKey(toolCall.name, argumentsHash);
+      const ambiguousLegacyWrite =
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        toolCallJournal !== null &&
+        findAmbiguousLegacyJournalEntryForCall(
+          toolCallJournal,
+          journalEntriesAmbiguous,
+          journalEntriesAlreadyRepresented,
+          toolCall.name,
+          argumentsHash,
+          toolCall.input,
+          consumedJournalKeys,
+        ) !== undefined;
+      const interruptedCallMatchesStep =
+        executionStepAdmission?.status === "execute" &&
+        executionStepAdmission.wasDispatched &&
+        (actionIsReadOnly || actionRetrySafe) &&
+        interruptedStep?.executionStepId === executionStepId;
+      if (
+        interruptedStep &&
+        (actionIsReadOnly || actionRetrySafe) &&
+        (interruptedCallMatchesStep ||
+          executionStepAdmission?.status === "completed")
+      ) {
+        retryableInterruptedCallKeys.add(preparedCallKey);
+      }
       const replayDurableExecutionStep = async (
         resultJson: string,
       ): Promise<EngineContentPart> => {
@@ -9199,9 +9254,8 @@ export async function runAgentLoop(opts: {
           argumentsHash,
           consumedJournalKeys,
           actionIsReadOnly ? undefined : { input: toolCall.input },
-          journalEntriesAlreadyRepresented,
+          journalEntriesNotReplayable,
           executionStepId,
-          allowRepresentedLegacyJournalReplay,
         );
         if (journaled) {
           rollbackRepeatedToolCall();
@@ -9260,17 +9314,14 @@ export async function runAgentLoop(opts: {
       // An unknown write cannot become fresh work merely by rewording its
       // arguments, or by eliding its tool pair from the replayed history.
       const priorInterruptionsBeforeStepReplay = actionIsReadOnly
-        ? (unknownOutcomes.calls.get(
-            preparedToolCallKey(toolCall.name, argumentsHash),
-          ) ?? 0)
+        ? (unknownOutcomes.calls.get(preparedCallKey) ?? 0)
         : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
-      const interruptedCallMatchesStep =
-        executionStepAdmission?.status === "execute" &&
-        executionStepAdmission.wasDispatched &&
-        (actionIsReadOnly || actionRetrySafe) &&
-        interruptedStep?.executionStepId === executionStepId;
-      const priorInterruptions =
-        interruptedCallMatchesStep && priorInterruptionsBeforeStepReplay === 1
+      const priorInterruptions = ambiguousLegacyWrite
+        ? Math.max(1, priorInterruptionsBeforeStepReplay)
+        : (interruptedCallMatchesStep ||
+              ((actionIsReadOnly || actionRetrySafe) &&
+                retryableInterruptedCallKeys.has(preparedCallKey))) &&
+            priorInterruptionsBeforeStepReplay > 0
           ? 0
           : priorInterruptionsBeforeStepReplay;
 
@@ -9279,7 +9330,7 @@ export async function runAgentLoop(opts: {
         // other leaves the earlier attempt unknown, so the call stops below
         // instead of running again.
         const ledgerResult =
-          opts.threadId && !executionStepIntent
+          !ambiguousLegacyWrite && opts.threadId && !executionStepIntent
             ? await waitForInterruptedToolLedgerEntry({
                 threadId: opts.threadId,
                 toolKey: preparedToolCallKey(toolCall.name, argumentsHash),
@@ -10127,6 +10178,19 @@ export async function runAgentLoop(opts: {
       const entry = actions[toolCall.name];
       if (!entry) return null;
       if (entry.needsApproval !== undefined || entry.endsTurn === true) {
+        return null;
+      }
+      if (
+        toolCallJournal &&
+        findInterruptedJournalEntryForCall(
+          toolCallJournal,
+          toolCall.name,
+          prepared?.status === "prepared" && prepared.intent.valid
+            ? prepared.intent.argumentsHash
+            : undefined,
+          toolCall.input,
+        )
+      ) {
         return null;
       }
       if (

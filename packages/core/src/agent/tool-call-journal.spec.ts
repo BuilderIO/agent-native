@@ -6,9 +6,11 @@ import type { EngineMessage } from "./engine/types.js";
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
+  findAmbiguousLegacyJournalEntryForCall,
   findInterruptedJournalEntryForCall,
   findReplayableJournalEntry,
   isJournalEmpty,
+  journalEntriesAmbiguousInHistory,
   journalEntriesRepresentedInHistory,
   journalCallEffects,
   journalCallIdentities,
@@ -1025,6 +1027,69 @@ describe("recorded call effects", () => {
     expect(represented).toEqual(new Set());
   });
 
+  it("blocks a legacy completion when duplicate history calls have one result", () => {
+    const input = { message: "same" };
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "reused-call", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "reused-call",
+        tool: "send",
+        input,
+        result: "sent",
+        completedSideEffect: true,
+      },
+    ]);
+    const history: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "reused-call", name: "send", input },
+          { type: "tool-call", id: "reused-call", name: "send", input },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call",
+            toolName: "send",
+            toolInput: JSON.stringify(input),
+            content: "sent",
+          },
+        ],
+      },
+    ];
+    const entry = journal.completed[0]!;
+    const represented = journalEntriesRepresentedInHistory(journal, history);
+    const ambiguous = journalEntriesAmbiguousInHistory(journal, history);
+
+    expect(represented).not.toContain(entry.key);
+    expect(ambiguous).toEqual(new Set([entry.key]));
+    expect(
+      findAmbiguousLegacyJournalEntryForCall(
+        journal,
+        ambiguous,
+        represented,
+        "send",
+        actionArgumentsHash(input),
+        input,
+      ),
+    ).toEqual(entry);
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        actionArgumentsHash(input),
+        undefined,
+        { input },
+        new Set([...represented, ...ambiguous]),
+        "resumed-step",
+      ),
+    ).toBeUndefined();
+  });
+
   it("pairs a retried step after the provider changes its call id", () => {
     const input = { id: "doc-1" };
     const journal = classifyToolCallJournal([
@@ -1146,6 +1211,7 @@ describe("recorded call effects", () => {
         new Set(),
         { input },
         representedKeys,
+        "resumed-step",
       ),
     ).toMatchObject({ result: "second sent" });
   });

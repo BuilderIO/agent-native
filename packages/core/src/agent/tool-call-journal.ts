@@ -49,6 +49,20 @@ export function journalEntriesRepresentedInHistory(
   journal: ToolCallJournal,
   history: readonly EngineMessage[],
 ): Set<string> {
+  return journalHistoryAttribution(journal, history).represented;
+}
+
+export function journalEntriesAmbiguousInHistory(
+  journal: ToolCallJournal,
+  history: readonly EngineMessage[],
+): Set<string> {
+  return journalHistoryAttribution(journal, history).ambiguous;
+}
+
+function journalHistoryAttribution(
+  journal: ToolCallJournal,
+  history: readonly EngineMessage[],
+): { represented: Set<string>; ambiguous: Set<string> } {
   const callsByStep = new Map<string, number>();
   const resultsByStep = new Map<string, number>();
   const callsByLegacyIdentity = new Map<string, number>();
@@ -115,7 +129,9 @@ export function journalEntriesRepresentedInHistory(
   }
 
   const represented = new Set<string>();
+  const ambiguous = new Set<string>();
   const entriesByLegacyIdentity = new Map<string, ToolCallJournalEntry[]>();
+  const entriesByLegacyBaseIdentity = new Map<string, ToolCallJournalEntry[]>();
   for (const entry of journal.completed) {
     if (entry.executionStepId) {
       const identity = JSON.stringify([entry.tool, entry.executionStepId]);
@@ -139,23 +155,63 @@ export function journalEntriesRepresentedInHistory(
     const entries = entriesByLegacyIdentity.get(identity);
     if (entries) entries.push(entry);
     else entriesByLegacyIdentity.set(identity, [entry]);
+    const baseIdentity = legacyIdentity(entry.tool, entry.id, fingerprint);
+    const baseEntries = entriesByLegacyBaseIdentity.get(baseIdentity);
+    if (baseEntries) baseEntries.push(entry);
+    else entriesByLegacyBaseIdentity.set(baseIdentity, [entry]);
   }
-  for (const [identity, entries] of entriesByLegacyIdentity) {
-    const [toolName, id, fingerprint] = JSON.parse(identity) as [
-      string,
-      string,
-      string,
-      string,
-    ];
-    const baseIdentity = legacyIdentity(toolName, id, fingerprint);
+  for (const [baseIdentity, entries] of entriesByLegacyBaseIdentity) {
     const callCount = callsByLegacyIdentity.get(baseIdentity) ?? 0;
     const resultCount = resultCountsByLegacyIdentity.get(baseIdentity) ?? 0;
-    const matchingResultCount = resultsByLegacyIdentity.get(identity) ?? 0;
-    if (resultCount > callCount) continue;
-    if (matchingResultCount !== entries.length) continue;
-    for (const entry of entries) represented.add(entry.key);
+    if (
+      resultCount > callCount ||
+      (callCount > 1 && resultCount !== callCount)
+    ) {
+      for (const entry of entries) ambiguous.add(entry.key);
+      continue;
+    }
+    if (callCount > 1) {
+      const exactAttribution =
+        entries.length === resultCount &&
+        [...entriesByLegacyIdentity].every(([identity, identityEntries]) => {
+          const [toolName, id, fingerprint] = JSON.parse(identity) as [
+            string,
+            string,
+            string,
+            string,
+          ];
+          if (legacyIdentity(toolName, id, fingerprint) !== baseIdentity) {
+            return true;
+          }
+          return (
+            (resultsByLegacyIdentity.get(identity) ?? 0) ===
+            identityEntries.length
+          );
+        });
+      for (const entry of entries) {
+        (exactAttribution ? represented : ambiguous).add(entry.key);
+      }
+      continue;
+    }
+    for (const [identity, identityEntries] of entriesByLegacyIdentity) {
+      const [toolName, id, fingerprint] = JSON.parse(identity) as [
+        string,
+        string,
+        string,
+        string,
+      ];
+      if (legacyIdentity(toolName, id, fingerprint) !== baseIdentity) continue;
+      const matchingResultCount = resultsByLegacyIdentity.get(identity) ?? 0;
+      if (matchingResultCount === 0) continue;
+      for (const entry of identityEntries) {
+        (matchingResultCount >= identityEntries.length
+          ? represented
+          : ambiguous
+        ).add(entry.key);
+      }
+    }
   }
-  return represented;
+  return { represented, ambiguous };
 }
 
 const INPUT_SIGNATURE_MAX_CHARS = 120;
@@ -170,6 +226,30 @@ function inputSignature(input: unknown): string {
     return JSON.stringify(canonicalizeForSignature(input));
   } catch {
     return String(input);
+  }
+}
+
+function replayOutcomeIdentity(entry: ToolCallJournalEntry): string {
+  try {
+    return JSON.stringify([
+      entry.id,
+      entry.executionStepId,
+      entry.argumentsHash,
+      entry.inputFingerprint,
+      entry.inputStoredFingerprint,
+      entry.result,
+      entry.isError,
+      entry.errorCode,
+      entry.committed,
+      entry.outcomeUnknown,
+      entry.artifacts,
+      entry.fileMutation,
+      entry.mcpApp,
+      entry.chatUI,
+      entry.chatUIResult,
+    ]);
+  } catch {
+    return entry.key;
   }
 }
 
@@ -542,7 +622,6 @@ export function findReplayableJournalEntry(
   rawWrite?: { input: unknown },
   representedKeys?: ReadonlySet<string>,
   executionStepId?: string,
-  allowRepresentedLegacyEntry = false,
 ): ToolCallJournalEntry | undefined {
   const matches = (candidate: ToolCallJournalEntry) =>
     candidate.tool === toolName &&
@@ -559,17 +638,67 @@ export function findReplayableJournalEntry(
     const represented = representedKeys?.has(candidate.key) === true;
     const identityMatches =
       executionStepId === undefined
-        ? candidate.executionStepId === undefined &&
-          (allowRepresentedLegacyEntry || !represented)
+        ? candidate.executionStepId === undefined && !represented
         : candidate.executionStepId === executionStepId ||
-          (allowRepresentedLegacyEntry &&
-            candidate.executionStepId === undefined);
+          (candidate.executionStepId === undefined && !represented);
     return identityMatches && matches(candidate);
   });
-  const candidate = candidates.length === 1 ? candidates[0] : undefined;
+  const firstCandidate = candidates[0];
+  const candidate =
+    candidates.length === 1
+      ? firstCandidate
+      : firstCandidate &&
+          candidates.every(
+            (entry) =>
+              replayOutcomeIdentity(entry) ===
+              replayOutcomeIdentity(firstCandidate),
+          )
+        ? candidates.at(-1)
+        : undefined;
   const entry = candidate;
   if (entry) consumedKeys?.add(entry.key);
   return entry;
+}
+
+export function findAmbiguousLegacyJournalEntryForCall(
+  journal: ToolCallJournal,
+  ambiguousKeys: ReadonlySet<string>,
+  representedKeys: ReadonlySet<string>,
+  toolName: string,
+  argumentsHash: string,
+  input: unknown,
+  consumedKeys?: ReadonlySet<string>,
+): ToolCallJournalEntry | undefined {
+  const inputFingerprint = toolCallInputFingerprint(input);
+  const matchesInput = (entry: ToolCallJournalEntry) =>
+    entry.argumentsHash === undefined
+      ? entry.inputFingerprint !== undefined
+        ? entry.inputFingerprint === inputFingerprint
+        : entry.input !== undefined &&
+          inputSignature(entry.input) === inputSignature(input)
+      : entry.argumentsHash === argumentsHash;
+  const matchingEntries = journal.completed.filter(
+    (entry) =>
+      !entry.executionStepId && entry.tool === toolName && matchesInput(entry),
+  );
+  const historyAmbiguity = matchingEntries.find((entry) =>
+    ambiguousKeys.has(entry.key),
+  );
+  if (historyAmbiguity) return historyAmbiguity;
+  const candidates = matchingEntries.filter(
+    (entry) =>
+      !ambiguousKeys.has(entry.key) &&
+      !representedKeys.has(entry.key) &&
+      !consumedKeys?.has(entry.key),
+  );
+  const firstCandidate = candidates[0];
+  if (!firstCandidate || candidates.length < 2) return undefined;
+  return candidates.every(
+    (entry) =>
+      replayOutcomeIdentity(entry) === replayOutcomeIdentity(firstCandidate),
+  )
+    ? undefined
+    : firstCandidate;
 }
 
 export function findInterruptedJournalEntryForCall(
@@ -577,10 +706,17 @@ export function findInterruptedJournalEntryForCall(
   toolName: string,
   argumentsHash: string | undefined,
   input: unknown,
+  consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
   const inputFingerprint = toolCallInputFingerprint(input);
   const matches = journal.interrupted.filter((entry) => {
-    if (entry.tool !== toolName || !entry.executionStepId) return false;
+    if (
+      entry.tool !== toolName ||
+      !entry.executionStepId ||
+      consumedKeys?.has(entry.key)
+    ) {
+      return false;
+    }
     if (entry.argumentsHash !== undefined && argumentsHash !== undefined) {
       return entry.argumentsHash === argumentsHash;
     }
@@ -592,7 +728,9 @@ export function findInterruptedJournalEntryForCall(
       inputSignature(entry.input) === inputSignature(input)
     );
   });
-  return matches.length === 1 ? matches[0] : undefined;
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
 }
 
 function summarizeResult(result: string | undefined): string {

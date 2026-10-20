@@ -366,6 +366,81 @@ describe("engineMessagesToAnthropic", () => {
     expect(tr).not.toHaveProperty("tool_input");
   });
 
+  it("renames duplicate provider call ids together with their tool results", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "reused-call-id",
+            name: "create-deck",
+            input: { id: "first" },
+          },
+          {
+            type: "tool-call",
+            id: "reused-call-id",
+            name: "create-deck",
+            input: { id: "second" },
+          },
+          {
+            type: "tool-call",
+            id: "reused-call-id-2",
+            name: "create-deck",
+            input: { id: "third" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id",
+            toolName: "create-deck",
+            toolInput: '{"id":"second"}',
+            content: "Second deck saved",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id",
+            toolName: "create-deck",
+            toolInput: '{"id":"first"}',
+            content: "First deck saved",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "reused-call-id-2",
+            toolName: "create-deck",
+            toolInput: '{"id":"third"}',
+            content: "Third deck saved",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const toolUses = (result[0]!.content as any[]).filter(
+      (part: any) => part.type === "tool_use",
+    );
+    const toolResults = (result[1]!.content as any[]).filter(
+      (part: any) => part.type === "tool_result",
+    );
+
+    expect(toolUses.map((part: any) => [part.id, part.input.id])).toEqual([
+      ["reused-call-id", "first"],
+      ["reused-call-id-3", "second"],
+      ["reused-call-id-2", "third"],
+    ]);
+    expect(
+      toolResults.map((part: any) => [part.tool_use_id, part.content]),
+    ).toEqual([
+      ["reused-call-id", "First deck saved"],
+      ["reused-call-id-3", "Second deck saved"],
+      ["reused-call-id-2", "Third deck saved"],
+    ]);
+  });
+
   it("backfills tool_name and tool_input from the matching tool_use when omitted", () => {
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "ping" }] },

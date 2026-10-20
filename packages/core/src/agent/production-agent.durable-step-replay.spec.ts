@@ -316,6 +316,287 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("binds an interrupted safe write to only one identical resumed call", async () => {
+    const input = { id: "deck-1" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "provider-id-before-reconnect",
+        executionStepId: "interrupted-create-step",
+        tool: "create-deck",
+        input,
+      },
+    ];
+    const actionRun = vi.fn(async () => `Write ${actionRun.mock.calls.length}`);
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: {
+          type: "object" as const,
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      readOnly: false,
+      retrySafe: true,
+      parallelSafe: true,
+      run: actionRun,
+    };
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(
+      async (intent) => {
+        expect(intent.stepId).toBe("interrupted-create-step");
+        return { status: "execute", wasDispatched: true };
+      },
+    );
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [
+              toolCall("provider-id-after-reconnect-one", input),
+              toolCall("provider-id-after-reconnect-two", input),
+            ],
+            [text("Both writes are ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(2);
+    expect(durableStep.completedSteps).toHaveLength(2);
+    expect(durableStep.completedSteps[0]?.stepId).toBe(
+      "interrupted-create-step",
+    );
+    expect(durableStep.completedSteps[1]?.stepId).not.toBe(
+      "interrupted-create-step",
+    );
+    expect(
+      events
+        .filter((event) => event.type === "tool_done")
+        .map(({ id, executionStepId, result }) => ({
+          id,
+          executionStepId,
+          result,
+        })),
+    ).toEqual([
+      expect.objectContaining({
+        id: "provider-id-after-reconnect-one",
+        executionStepId: "interrupted-create-step",
+        result: "Write 1",
+      }),
+      expect.objectContaining({
+        id: "provider-id-after-reconnect-two",
+        executionStepId: durableStep.completedSteps[1]?.stepId,
+        result: "Write 2",
+      }),
+    ]);
+  });
+
+  it("stops when a legacy write result cannot be attributed across duplicate history calls", async () => {
+    const input = { id: "deck-1" };
+    durableStep.priorEvents = [
+      {
+        type: "tool_start",
+        id: "legacy-provider-id",
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id: "legacy-provider-id",
+        tool: "create-deck",
+        input,
+        result: "Deck saved",
+        completedSideEffect: true,
+      },
+    ];
+    const actionRun = vi.fn(async () => "Deck saved again");
+    const historyCall = (id: string): EngineContentPart => ({
+      type: "tool-call",
+      id,
+      name: "create-deck",
+      input,
+    });
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed-provider-id", input)], [text("Stopped safely.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+          {
+            role: "assistant",
+            content: [
+              historyCall("legacy-provider-id"),
+              historyCall("legacy-provider-id"),
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "legacy-provider-id",
+                toolName: "create-deck",
+                toolInput: JSON.stringify(input),
+                content: "Deck saved",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "resumed-provider-id",
+        isError: true,
+        result: expect.stringContaining("I stopped without running it again"),
+      }),
+    );
+  });
+
+  it("keeps the durable step identity when tool input repair replaces the call object", async () => {
+    let streamCall = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCall += 1;
+        if (streamCall === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "repaired-provider-id",
+            name: "update-source",
+            input: {
+              id: "source-1",
+              config: '{"host":"db.example.com","port":5432}',
+            },
+            error: "input/config must be object",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [text("Updated.")],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const actionRun = vi.fn(async () => "Updated source");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Update the source." }],
+          },
+        ],
+        actions: {
+          "update-source": {
+            tool: {
+              description: "Update source",
+              parameters: {
+                type: "object" as const,
+                properties: {
+                  id: { type: "string" },
+                  config: { type: "object" },
+                },
+                required: ["id", "config"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const toolStart = events.find(
+      (event) =>
+        event.type === "tool_start" && event.id === "repaired-provider-id",
+    );
+    expect(actionRun).toHaveBeenCalledOnce();
+    expect(actionRun).toHaveBeenCalledWith(
+      { id: "source-1", config: { host: "db.example.com", port: 5432 } },
+      expect.any(Object),
+    );
+    expect(toolStart).toEqual(
+      expect.objectContaining({ executionStepId: expect.any(String) }),
+    );
+    expect(durableStep.completedSteps).toContainEqual(
+      expect.objectContaining({ stepId: toolStart?.executionStepId }),
+    );
+  });
+
   it("does not dispatch a write if cancellation arrives during the dispatch marker", async () => {
     const actionRun = vi.fn(async () => "Deck saved");
     const action = {
