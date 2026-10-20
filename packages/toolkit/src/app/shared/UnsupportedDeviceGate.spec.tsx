@@ -137,4 +137,21 @@ describe("UnsupportedDeviceGate", () => {
     });
     expect(buttonLabels()).toEqual(["agentChat.unsupportedDevice.copyFailed"]);
   });
+
+  it("subscribes through the deprecated listener API on old Safari", () => {
+    const addListener = vi.fn();
+    const removeListener = vi.fn();
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addListener,
+      removeListener,
+    })) as unknown as typeof window.matchMedia;
+    render();
+    expect(addListener).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("main")).not.toBeNull();
+    act(() => root.unmount());
+    expect(removeListener).toHaveBeenCalledTimes(1);
+    root = createRoot(container);
+  });
 });

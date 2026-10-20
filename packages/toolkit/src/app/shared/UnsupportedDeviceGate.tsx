@@ -12,8 +12,14 @@ const TABLET_SCREEN_MIN_SIDE = 744;
 
 function subscribe(onChange: () => void) {
   const query = window.matchMedia(TOUCH_QUERY);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
+  // Safari before 14 only has the deprecated listener API, and a throw here
+  // would take down the whole app, not just the notice.
+  if (typeof query.addEventListener === "function") {
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }
+  query.addListener(onChange);
+  return () => query.removeListener(onChange);
 }
 
 // The device's screen, not the window: an iPad in Split View or Slide Over has
