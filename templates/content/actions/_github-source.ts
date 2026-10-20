@@ -1612,6 +1612,8 @@ export interface SyncGitHubSourceOptions {
   force?: boolean;
   /** Rethrow a missing GitHub connection so an interactive caller can offer to connect. */
   throwConnectionErrors?: boolean;
+  /** Ends the sync early, as its time budget would, such as when the server stops. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -1659,6 +1661,10 @@ export async function syncGitHubSource(
     () => budget.abort(),
     Math.max(0, deadline - Date.now()),
   );
+  const endBudget = () => budget.abort();
+  if (options.signal?.aborted) endBudget();
+  options.signal?.addEventListener("abort", endBudget, { once: true });
+  const outOfTime = () => Date.now() >= deadline || budget.signal.aborted;
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
@@ -1826,7 +1832,7 @@ export async function syncGitHubSource(
     const skippedFiles = [...files.skipped];
     let done = 0;
     for (const file of work) {
-      if (Date.now() >= deadline) break;
+      if (outOfTime()) break;
       let outcome: Awaited<ReturnType<typeof applyFile>>;
       try {
         if (!file.row && !file.renamedFrom && goneById.size > 0) {
@@ -1865,7 +1871,7 @@ export async function syncGitHubSource(
     const remainingFiles = work.length - done;
     if (remainingFiles === 0) {
       for (const [, row] of gone) {
-        if (Date.now() >= deadline) break;
+        if (outOfTime()) break;
         await trashRow(run, row);
         gone.delete(rowState(row)?.path ?? "");
         result.trashed += 1;
@@ -1969,6 +1975,7 @@ export async function syncGitHubSource(
     return emptyResult("error", state.pendingCommitSha, problem);
   } finally {
     clearTimeout(budgetTimer);
+    options.signal?.removeEventListener("abort", endBudget);
   }
 }
 

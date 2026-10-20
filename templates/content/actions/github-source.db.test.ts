@@ -1502,6 +1502,49 @@ describe("GitHub folder freshness", () => {
     ).toContain("forum");
   });
 
+  it("stops a background sync when the server stops, keeping its progress", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+    // The server starts shutting down while the first file is read.
+    const stopping = new AbortController();
+    github.state.duringBlobRead = async () => stopping.abort();
+
+    const started = Date.now();
+    await runGitHubSourceSweep({
+      deadlineAt: Date.now() + 60_000,
+      signal: stopping.signal,
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
+      "Two",
+      "Three",
+    ]);
+    const [link] = await getDb()
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    expect(JSON.parse(link!.metadataJson).github).toMatchObject({
+      claim: null,
+      progress: { done: 1, total: 3 },
+    });
+  });
+
   it("tells every reader of the collection when a sync changes rows", async () => {
     const { database } = await linkBaseFolder();
     github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
