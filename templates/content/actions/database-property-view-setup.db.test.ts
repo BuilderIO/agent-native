@@ -446,7 +446,16 @@ describe("ordinary property and table-view setup", () => {
         viewConfigJson: JSON.stringify({
           activeViewId: "ideas",
           views: [
-            { id: "ideas", name: "Ideas", type: "list" },
+            {
+              id: "ideas",
+              name: "Ideas",
+              type: "list",
+              propertyOrderIds: [
+                propertyIds.Due,
+                propertyIds.Pitch,
+                propertyIds.Done,
+              ],
+            },
             { id: "default", name: "Table", type: "table" },
           ],
         }),
@@ -467,6 +476,19 @@ describe("ordinary property and table-view setup", () => {
           patch,
         } as never),
       );
+
+    // A view with no saved layout starts from its default rows, in the
+    // view's property order.
+    const started = await update("start-from-defaults", "ideas", {
+      itemLayout: { titleWeight: "bold" },
+    });
+    expect(started.value.itemLayout).toEqual({
+      leading: { kind: "page_icon", propertyId: null },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: [],
+      trailing: [propertyIds.Due, propertyIds.Pitch, propertyIds.Done],
+    });
 
     const checklist = await update("checklist", "ideas", {
       itemLayoutPreset: "checklist",
