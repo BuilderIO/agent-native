@@ -2115,6 +2115,7 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
     turnMetadata: Record<string, unknown> | undefined,
     observability?: Record<string, unknown>,
+    start: { attachReplayedRun?: boolean } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
     const runMetadata = mergeTrustedProtocolMetadata(
@@ -2169,7 +2170,9 @@ export function createAgentKitProtocolAdapter(
         "The AgentKit adapter was disposed during turn creation.",
       );
     }
-    const existingRun = findRun(threadId, runId);
+    const existingRun = start.attachReplayedRun
+      ? findRun(threadId, runId)
+      : undefined;
     if (existingRun) {
       // A duplicate queued submission is answered with the run that already
       // took it, replayed from its first event. This adapter reads that run
@@ -3894,7 +3897,16 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
-        return openStartedRun(input.threadId, session, turn, turnMetadata);
+        return openStartedRun(
+          input.threadId,
+          session,
+          turn,
+          turnMetadata,
+          undefined,
+          {
+            attachReplayedRun: true,
+          },
+        );
       };
       if (!queuePromotionKey) {
         return { runId: await createRun(), capabilities };

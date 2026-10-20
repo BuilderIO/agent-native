@@ -115,4 +115,57 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
     await expect(replay).rejects.toThrow("disposed during turn creation");
     await disposing;
   });
+
+  it("does not attach a continuation to a live run; its duplicate id still fails", async () => {
+    let continuedDrained = false;
+    const startTurn = vi.fn().mockResolvedValueOnce({
+      id: "turn-1",
+      runId: "core-run-1",
+      sessionId: "thread-1",
+      events: neverEnds(),
+    });
+    const continueTurn = vi.fn().mockResolvedValueOnce({
+      id: "turn-2",
+      runId: "core-run-1",
+      sessionId: "thread-1",
+      events: replayedEvents(() => {
+        continuedDrained = true;
+      }),
+    });
+    const runtime = {
+      id: "runtime-test",
+      kind: "external-agent",
+      label: "Test runtime",
+      capabilities: {
+        messages: { streaming: true, history: true, attachments: true },
+      },
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+          continueTurn,
+        };
+      },
+      async readRunState() {
+        return { status: "stopped", turnId: "turn-1" };
+      },
+      subscribe: () => neverEnds(),
+    } as unknown as AgentChatRuntime;
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    try {
+      await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Publish this")],
+      });
+
+      await expect(
+        transport.continueRun!({ threadId: "thread-1", runId: "core-run-1" }),
+      ).rejects.toThrow("Duplicate AgentKit run id: core-run-1");
+      expect(continuedDrained).toBe(false);
+    } finally {
+      await transport.dispose();
+    }
+  });
 });
