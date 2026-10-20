@@ -21,6 +21,11 @@ import { cliBoolean } from "./schema-helpers.js";
 const CONTENT_VIEW_DASHBOARD_ID = "content-view";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Turn the organization's daily Content view collection on or off and choose its steps. Requires an organization owner or admin. The caller becomes the stored owner: the daily job resolves provider connections as them. Omitted step settings keep their saved values. Turning collection on also lists the built-in Content dashboard in the organization's Dashboards; the result's contentDashboardId opens it at /dashboards/<id>.",
   schema: z.object({

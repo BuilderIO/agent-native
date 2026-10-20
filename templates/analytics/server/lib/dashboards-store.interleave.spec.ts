@@ -85,13 +85,23 @@ const state = vi.hoisted(() => ({
   revisions: [] as any[],
   analysisRevisions: [] as any[],
   otherDashboards: [] as DashboardRow[],
+  hideBeforeNextMutation: false,
   loseNextCas: false,
   alwaysLoseCas: false,
   updateAttempts: 0,
   peerAfterNextUpdate: false,
   inTransaction: false,
+  saveBeforeNextTransaction: false,
+  legacySettings: null as Record<string, unknown> | null,
   writes: [] as Array<{ table: string; inTransaction: boolean }>,
 }));
+
+function hideBeforeMutation() {
+  if (!state.hideBeforeNextMutation) return;
+  state.hideBeforeNextMutation = false;
+  state.dashboard.hiddenAt = "2026-10-01T00:00:00.000Z";
+  state.dashboard.hiddenBy = "analytics:builtin-dashboards";
+}
 
 function columnName(column: unknown): string | null {
   if (!column || typeof column !== "object") return null;
@@ -105,7 +115,13 @@ function matchesRow(predicate: unknown, row: Record<string, unknown>): boolean {
     column?: unknown;
     value?: unknown;
     conditions?: unknown[];
+    strings?: string[];
+    values?: unknown[];
   };
+  if (p.kind === "sql" && p.strings?.join("").includes("IS DISTINCT FROM")) {
+    const name = columnName(p.values?.[0]);
+    return name ? row[name] !== p.values?.[1] : false;
+  }
   if (p.kind === "and") {
     return (p.conditions ?? []).every((condition) =>
       matchesRow(condition, row),
@@ -122,6 +138,14 @@ function rowsResult(rows: unknown[]) {
   const result: any = Promise.resolve(rows);
   result.orderBy = () => rowsResult(rows);
   result.limit = () => rowsResult(rows);
+  result.for = () => {
+    hideBeforeMutation();
+    return rowsResult(
+      rows.map((row: any) =>
+        row.id === state.dashboard.id ? { ...state.dashboard } : row,
+      ),
+    );
+  };
   return result;
 }
 
@@ -145,8 +169,8 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   listSettingsByPrefix: async () => [],
-  getOrgSetting: async () => null,
-  getUserSetting: async () => null,
+  getOrgSetting: vi.fn(async () => state.legacySettings),
+  getUserSetting: vi.fn(async () => state.legacySettings),
   deleteOrgSetting: async () => undefined,
   deleteUserSetting: async () => undefined,
 }));
@@ -309,6 +333,12 @@ vi.mock("../db/index.js", () => {
     execute: async () => undefined,
     delete: (table: unknown) => ({
       where: async (predicate: unknown) => {
+        if (table === schema.dashboards) {
+          hideBeforeMutation();
+          return {
+            rowsAffected: matchesRow(predicate, state.dashboard) ? 1 : 0,
+          };
+        }
         if (table === schema.dashboardRevisions) {
           state.revisions = state.revisions.filter(
             (r) => !matchesRow(predicate, r),
@@ -341,6 +371,7 @@ vi.mock("../db/index.js", () => {
               return { rowsAffected: 1 };
             }
             if (table !== schema.dashboards) return { rowsAffected: 0 };
+            hideBeforeMutation();
             state.updateAttempts += 1;
             state.writes.push({
               table: "dashboards",
@@ -403,6 +434,14 @@ vi.mock("../db/index.js", () => {
       }),
     }),
     transaction: async (callback: (transactionDb: any) => unknown) => {
+      if (state.saveBeforeNextTransaction) {
+        state.saveBeforeNextTransaction = false;
+        state.dashboard = {
+          ...state.dashboard,
+          config: JSON.stringify({ name: "Traffic", panels: [panel("peer")] }),
+          updatedAt: "2026-07-09T00:00:00.001Z",
+        };
+      }
       state.inTransaction = true;
       try {
         return await callback(db);
@@ -417,6 +456,14 @@ vi.mock("../db/index.js", () => {
 
 const {
   getDashboard,
+  assertDashboardEditable,
+  archiveDashboard,
+  hideDashboard,
+  unhideDashboard,
+  removeDashboard,
+  certifyDashboardWithRetry,
+  saveDashboardView,
+  deleteDashboardView,
   upsertDashboard,
   upsertDashboardOutcome,
   upsertDashboardWithRetry,
@@ -444,6 +491,7 @@ function readPanelIds(): string[] {
 
 beforeEach(() => {
   state.dashboard = baseDashboard();
+  state.legacySettings = null;
   state.analysis = {
     ...state.analysis,
     updatedAt: "2026-07-09T00:00:00.000Z",
@@ -451,15 +499,204 @@ beforeEach(() => {
   state.revisions = [];
   state.analysisRevisions = [];
   state.otherDashboards = [];
+  state.hideBeforeNextMutation = false;
   state.loseNextCas = false;
   state.alwaysLoseCas = false;
   state.updateAttempts = 0;
   state.peerAfterNextUpdate = false;
   state.inTransaction = false;
+  state.saveBeforeNextTransaction = false;
   state.writes = [];
 });
 
 describe("dashboards-store concurrency", () => {
+  it("snapshots the version read under the lock after a concurrent save", async () => {
+    state.saveBeforeNextTransaction = true;
+
+    await createDashboardRevisionSnapshot("traffic", ctx);
+
+    expect(state.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(state.revisions[0].config).panels.map((p: any) => p.id),
+    ).toEqual(["peer"]);
+    expect(state.writes).toEqual([
+      { table: "dashboardRevisions", inTransaction: true },
+    ]);
+  });
+  it.each([
+    ["save", () => upsertDashboard("traffic", "sql", { name: "Changed" }, ctx)],
+    ["edit preflight", () => assertDashboardEditable("traffic", ctx)],
+    ["snapshot", () => createDashboardRevisionSnapshot("traffic", ctx)],
+    [
+      "revision restore",
+      () => restoreDashboardRevision("traffic", "revision-1", ctx),
+    ],
+    ["archive", () => archiveDashboard("traffic", ctx)],
+    ["unarchive", () => unarchiveDashboard("traffic", ctx)],
+    ["hide", () => hideDashboard("traffic", ctx)],
+    ["unhide", () => unhideDashboard("traffic", ctx)],
+    ["delete", () => removeDashboard("traffic", ctx)],
+    ["certify", () => certifyDashboardWithRetry("traffic", ctx)],
+    [
+      "visibility",
+      () =>
+        persistDashboardVisibilityChange(
+          { id: "traffic", title: "Traffic", orgId: null },
+          "org",
+          { visibility: "org" },
+          ctx,
+        ),
+    ],
+    [
+      "save view",
+      () => saveDashboardView("traffic", { name: "View", filters: {} }, ctx),
+    ],
+    ["delete view", () => deleteDashboardView("traffic", "view-1", ctx)],
+  ])(
+    "rejects %s on a copy hidden by the built-in deploy pass",
+    async (_name, mutate) => {
+      state.dashboard.hiddenAt = "2026-10-01T00:00:00.000Z";
+      state.dashboard.hiddenBy = "analytics:builtin-dashboards";
+      const before = { ...state.dashboard };
+
+      await expect(mutate()).rejects.toMatchObject({
+        errorCode: "builtin_dashboard_read_only",
+      });
+
+      expect(state.dashboard).toEqual(before);
+      expect(state.writes).toEqual([]);
+      expect(state.revisions).toEqual([]);
+    },
+  );
+
+  it.each([true, false])(
+    "rejects a save hidden between read and write (explicit fence: %s)",
+    async (explicitFence) => {
+      const before = { ...state.dashboard };
+      state.hideBeforeNextMutation = true;
+
+      await expect(
+        upsertDashboard(
+          "traffic",
+          "sql",
+          { name: "Traffic", panels: [panel("custom")] },
+          ctx,
+          explicitFence ? before.updatedAt : undefined,
+        ),
+      ).rejects.toThrow();
+
+      expect(state.dashboard.config).toBe(before.config);
+      expect(state.dashboard.updatedAt).toBe(before.updatedAt);
+      expect(state.dashboard.hiddenBy).toBe("analytics:builtin-dashboards");
+      expect(state.revisions).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["archive", () => archiveDashboard("traffic", ctx)],
+    ["hide", () => hideDashboard("traffic", ctx)],
+    ["delete", () => removeDashboard("traffic", ctx)],
+    ["unhide", () => unhideDashboard("traffic", ctx)],
+    [
+      "visibility",
+      () =>
+        persistDashboardVisibilityChange(
+          { id: "traffic", title: "Traffic", orgId: null },
+          "private",
+          { visibility: "public" },
+          ctx,
+        ),
+    ],
+  ])(
+    "rejects %s when the deploy pass hides after preflight",
+    async (_name, mutate) => {
+      const before = { ...state.dashboard };
+      state.hideBeforeNextMutation = true;
+
+      await expect(mutate()).rejects.toBeInstanceOf(DashboardConflictError);
+
+      expect(state.dashboard).toEqual({
+        ...before,
+        hiddenAt: "2026-10-01T00:00:00.000Z",
+        hiddenBy: "analytics:builtin-dashboards",
+      });
+    },
+  );
+
+  it("rejects revision restore hidden between read and write without adding history", async () => {
+    state.revisions = [
+      {
+        id: "revision-1",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Traffic",
+        config: JSON.stringify({
+          name: "Traffic",
+          panels: [panel("restored")],
+        }),
+        createdAt: state.dashboard.updatedAt,
+        createdBy: ctx.email,
+        chatContext: null,
+      },
+    ];
+    const before = { ...state.dashboard };
+    state.hideBeforeNextMutation = true;
+
+    await expect(
+      restoreDashboardRevision("traffic", "revision-1", ctx, before.updatedAt),
+    ).rejects.toBeInstanceOf(DashboardConflictError);
+
+    expect(state.dashboard.config).toBe(before.config);
+    expect(state.dashboard.updatedAt).toBe(before.updatedAt);
+    expect(state.revisions).toHaveLength(1);
+  });
+
+  it.each([
+    ["snapshot", () => createDashboardRevisionSnapshot("traffic", ctx)],
+    [
+      "save view",
+      () => saveDashboardView("traffic", { name: "View", filters: {} }, ctx),
+    ],
+    ["delete view", () => deleteDashboardView("traffic", "view-1", ctx)],
+  ])(
+    "rejects %s when hidden before acquiring the parent row lock",
+    async (_name, mutate) => {
+      state.hideBeforeNextMutation = true;
+
+      await expect(mutate()).rejects.toMatchObject({
+        errorCode: "builtin_dashboard_read_only",
+      });
+
+      expect(state.writes).toEqual([]);
+      expect(state.revisions).toEqual([]);
+    },
+  );
+
+  it("does not migrate legacy settings onto a built-in id", async () => {
+    state.legacySettings = {
+      name: "Legacy Google Analytics",
+      panels: [panel("legacy")],
+    };
+
+    await expect(getDashboard("google-analytics", ctx)).resolves.toBeNull();
+
+    expect(state.writes).toEqual([]);
+  });
+
+  it("keeps an already-saved edited row at a built-in seed id editable", async () => {
+    state.dashboard.id = "google-analytics";
+
+    const saved = await upsertDashboard(
+      "google-analytics",
+      "sql",
+      { name: "Edited analytics", panels: [panel("custom")] },
+      ctx,
+    );
+
+    expect(saved.title).toBe("Edited analytics");
+    expect(readPanelIds()).toEqual(["custom"]);
+  });
+
   it("skips an identical dashboard save without updating or creating history", async () => {
     const saved = await upsertDashboard(
       "traffic",

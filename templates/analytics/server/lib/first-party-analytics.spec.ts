@@ -27,7 +27,10 @@ const backendMocks = vi.hoisted(() => ({
   table: vi.fn(),
   insert: vi.fn(),
   insertWithResults: vi.fn(),
+  plan: vi.fn(),
   query: vi.fn(),
+  render: vi.fn(),
+  settle: vi.fn(),
 }));
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
@@ -137,7 +140,10 @@ vi.mock("./first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsTable: backendMocks.table,
   insertFirstPartyAnalyticsRows: backendMocks.insert,
   insertFirstPartyAnalyticsRowsWithResults: backendMocks.insertWithResults,
+  planFirstPartyEventsSource: backendMocks.plan,
   queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
+  renderFirstPartyAnalyticsBigQueryRequestSql: backendMocks.render,
+  settleFirstPartyEventsSource: backendMocks.settle,
 }));
 
 import { lexAgentSql } from "@agent-native/core/agent-sql";
@@ -147,8 +153,12 @@ import {
   normalizeAnalyticsTimestamp,
   parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
+  queryFirstPartyAnalyticsWithBackend,
+  FirstPartyAnalyticsBackendNotPostgresError,
   FirstPartyAnalyticsQueryTimeoutError,
+  firstPartyAnalyticsTableBackends,
   recordAnalyticsEvents,
+  renderFirstPartyAnalyticsBigQueryEstimateSql,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
   SESSION_RECORDING_FILTER_TABLES,
@@ -156,6 +166,7 @@ import {
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
 import { withFirstPartyCache } from "./first-party-analytics-cache";
+import { FirstPartyAnalyticsValidationError } from "./first-party-analytics-errors.js";
 import {
   buildOnboardingJourneyEventsSql,
   buildOnboardingJourneyFollowupSql,
@@ -215,6 +226,9 @@ beforeEach(() => {
       error: null,
     }));
   backendMocks.query.mockReset();
+  backendMocks.plan.mockReset();
+  backendMocks.render.mockReset();
+  backendMocks.settle.mockReset();
   exceptionMocks.ingest.mockReset();
   sessionEventIndexMocks.record.mockReset();
   sessionEventIndexMocks.record.mockResolvedValue(undefined);
@@ -898,6 +912,43 @@ describe("recordAnalyticsEvents", () => {
 });
 
 describe("validateFirstPartyAnalyticsSql", () => {
+  it("tags source and function validation failures for safe action guidance", () => {
+    const capture = (sql: string) => {
+      try {
+        validateFirstPartyAnalyticsSql(sql);
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    };
+    const sourceError = capture("SELECT user_id FROM dbt_mart.dim_users_core");
+    const functionError = capture(
+      "SELECT DIV(COUNT(*), 2) FROM analytics_event_daily_rollups",
+    );
+
+    expect(sourceError).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(sourceError).toMatchObject({ code: "disallowed_source" });
+    expect(functionError).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(functionError).toMatchObject({ code: "unsupported_function" });
+  });
+
+  it.each([
+    "UPDATE analytics_events SET event_name = 'private'",
+    "SELECT event_name FROM analytics_events; SELECT event_name FROM analytics_events",
+    "SELECT event_name FROM analytics_events, analytics_user_days",
+    "SELECT event_name FROM analytics_events WHERE event_name = $1",
+  ])("tags rejected query shape for safe recovery guidance: %s", (sql) => {
+    let error: unknown;
+    try {
+      validateFirstPartyAnalyticsSql(sql);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(error).toMatchObject({ code: "invalid_shape" });
+  });
+
   it("rejects PostgreSQL-style bind placeholders outside string literals", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
@@ -985,6 +1036,7 @@ describe("validateFirstPartyAnalyticsSql", () => {
       "SELECT ts_stat('SELECT * FROM analytics_events') FROM session_recordings LIMIT 1",
       "SELECT pg_sleep(1) FROM analytics_events",
       "SELECT public.sum(event_count) FROM analytics_event_daily_rollups",
+      "SELECT DIV(COUNT(*), NULLIF(COUNT(*), 0)) FROM analytics_event_daily_rollups",
     ]) {
       expect(() => validateFirstPartyAnalyticsSql(sql)).toThrow(
         "cannot call unapproved SQL function",
@@ -1001,6 +1053,11 @@ describe("validateFirstPartyAnalyticsSql", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 1.0 * COUNT(*) FILTER (WHERE event_date IS NOT NULL) / COUNT(*) END AS rate FROM analytics_events",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT 100.0 * COUNT(*) FILTER (WHERE event_name = 'signup') / NULLIF(COUNT(*), 0) AS rate FROM analytics_event_daily_rollups",
       ),
     ).not.toThrow();
     expect(() =>
@@ -1770,6 +1827,39 @@ describe("queryFirstPartyAnalytics", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("plans the events source from the caller's SQL and the configured model", async () => {
+    const plan = {
+      source: "model",
+      table: "example-project.dbt_mart.fact_events",
+    };
+    backendMocks.plan.mockReturnValueOnce(plan);
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      modelTable: "example-project.dbt_mart.fact_events",
+    });
+    const sql = "SELECT COUNT(*) AS count FROM analytics_events";
+
+    await queryFirstPartyAnalytics(
+      sql,
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      { eventsSource: "raw" },
+    );
+
+    // The scoped SQL adds the tenant filter; eligibility reads the caller's.
+    expect(backendMocks.plan).toHaveBeenCalledWith(
+      sql,
+      "example-project.dbt_mart.fact_events",
+      expect.objectContaining({ eventsSource: "raw" }),
+    );
+    expect(backendMocks.query).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      expect.objectContaining({ eventsSource: plan }),
+    );
+  });
+
   it("forwards the frozen onboarding range and records BigQuery read failures", async () => {
     const scope = { userEmail: "alice@example.com", orgId: "org_123" };
     healthMocks.classify.mockReturnValue("raw-events");
@@ -1991,12 +2081,118 @@ describe("queryFirstPartyAnalytics", () => {
       backfillCompleted: true,
     });
 
+    const error = await queryFirstPartyAnalytics(
+      "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(FirstPartyAnalyticsValidationError);
+    expect(error).toMatchObject({ code: "cross_backend_join" });
+    expect(error).toMatchObject({
+      message: expect.stringContaining("Cross-backend joins are not supported"),
+    });
+  });
+
+  describe("requireBackend: postgres", () => {
+    const scope = { userEmail: "alice@example.com", orgId: "org_123" };
+    const bigQuerySink = {
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+
+    it("fails closed before touching BigQuery when event tables route there", async () => {
+      backendMocks.get.mockResolvedValueOnce(bigQuerySink);
+
+      const query = queryFirstPartyAnalyticsWithBackend(
+        "SELECT event_date, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date",
+        scope,
+        { requireBackend: "postgres" },
+      );
+
+      await expect(query).rejects.toBeInstanceOf(
+        FirstPartyAnalyticsBackendNotPostgresError,
+      );
+      await expect(query).rejects.toMatchObject({
+        code: "first_party_backend_not_postgres",
+        bigQueryTables: ["analytics_event_daily_rollups"],
+      });
+      expect(backendMocks.table).not.toHaveBeenCalled();
+      expect(backendMocks.query).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("names the BigQuery tables instead of a cross-backend join error", async () => {
+      backendMocks.get.mockResolvedValueOnce(bigQuerySink);
+
+      await expect(
+        queryFirstPartyAnalytics(
+          "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+          scope,
+          { requireBackend: "postgres" },
+        ),
+      ).rejects.toMatchObject({
+        code: "first_party_backend_not_postgres",
+        bigQueryTables: ["analytics_events"],
+      });
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    });
+
+    it("runs on Postgres and reports it when the sink is Postgres", async () => {
+      execute.mockResolvedValue({ rows: [{ count: 1 }], rowsAffected: 0 });
+
+      await expect(
+        queryFirstPartyAnalyticsWithBackend(
+          "SELECT COUNT(*) AS count FROM analytics_events",
+          scope,
+          { requireBackend: "postgres" },
+        ),
+      ).resolves.toMatchObject({
+        rows: [{ count: 1 }],
+        schema: [{ name: "count", type: "number" }],
+        backend: "postgres",
+      });
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    });
+
+    it("still reads session_recordings from Postgres after the cutover", async () => {
+      backendMocks.get.mockResolvedValueOnce(bigQuerySink);
+      execute.mockResolvedValue({ rows: [{ recordings: 2 }], rowsAffected: 0 });
+
+      await expect(
+        queryFirstPartyAnalyticsWithBackend(
+          "SELECT COUNT(*) AS recordings FROM session_recordings",
+          scope,
+          { requireBackend: "postgres" },
+        ),
+      ).resolves.toMatchObject({ backend: "postgres" });
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    });
+  });
+
+  it("reports which backend served each query", async () => {
+    backendMocks.get.mockResolvedValueOnce({ sink: "bigquery", table: null });
+
     await expect(
-      queryFirstPartyAnalytics(
-        "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+      queryFirstPartyAnalyticsWithBackend(
+        "SELECT COUNT(*) AS count FROM analytics_events",
         { userEmail: "alice@example.com", orgId: "org_123" },
       ),
-    ).rejects.toThrow("Cross-backend joins are not supported");
+    ).resolves.toMatchObject({ backend: "bigquery" });
+  });
+
+  it("maps each queryable table to the backend its sink reads", () => {
+    expect(firstPartyAnalyticsTableBackends("dual")).toEqual({
+      analytics_events: "postgres",
+      analytics_event_daily_rollups: "postgres",
+      analytics_user_days: "postgres",
+      session_recordings: "postgres",
+    });
+    expect(firstPartyAnalyticsTableBackends("bigquery")).toEqual({
+      analytics_events: "bigquery",
+      analytics_event_daily_rollups: "bigquery",
+      analytics_user_days: "bigquery",
+      session_recordings: "postgres",
+    });
   });
 
   it("rejects unapproved functions before executing SQL-store queries", async () => {
@@ -2858,5 +3054,86 @@ describe("queryFirstPartyAnalytics", () => {
       cached: false,
       fetchedAt: expect.any(String),
     });
+  });
+});
+
+describe("renderFirstPartyAnalyticsBigQueryEstimateSql", () => {
+  const scope = { userEmail: "alice@example.com", orgId: "org_123" };
+  const model = "example-project.dbt_mart.fact_events";
+  const sql = "SELECT COUNT(*) AS count FROM analytics_events";
+
+  beforeEach(() => {
+    backendMocks.get.mockResolvedValue({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      modelTable: model,
+    });
+    backendMocks.render.mockReturnValue("SELECT 1");
+  });
+
+  it("prices the events model when the panel's query would read it", async () => {
+    const plan = { source: "model", table: model };
+    backendMocks.plan.mockReturnValueOnce(plan);
+    backendMocks.settle.mockResolvedValueOnce({
+      eventsSource: plan,
+      sourceGeneration: undefined,
+    });
+
+    await expect(
+      renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope),
+    ).resolves.toEqual({ target: "bigquery", sql: "SELECT 1" });
+
+    expect(backendMocks.plan).toHaveBeenCalledWith(sql, model, {
+      eventsSource: undefined,
+    });
+    expect(backendMocks.settle).toHaveBeenCalledWith(plan, undefined);
+    expect(backendMocks.render).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.objectContaining({ tableId: "first_party_analytics_events_raw" }),
+      { eventsModelTable: model },
+    );
+  });
+
+  it("passes a raw-table request to the plan, as alerts make", async () => {
+    backendMocks.plan.mockReturnValueOnce({
+      source: "raw",
+      modelSkipped: "raw_requested",
+    });
+    backendMocks.settle.mockImplementationOnce(async (eventsSource) => ({
+      eventsSource,
+      sourceGeneration: undefined,
+    }));
+
+    await renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope, undefined, {
+      eventsSource: "raw",
+    });
+
+    expect(backendMocks.plan).toHaveBeenCalledWith(sql, model, {
+      eventsSource: "raw",
+    });
+    expect(backendMocks.render).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      {},
+    );
+  });
+
+  it("prices the raw table when the model is not there to read", async () => {
+    backendMocks.plan.mockReturnValueOnce({ source: "model", table: model });
+    backendMocks.settle.mockResolvedValueOnce({
+      eventsSource: { source: "raw", modelSkipped: "model_not_found" },
+      sourceGeneration: undefined,
+    });
+
+    await renderFirstPartyAnalyticsBigQueryEstimateSql(sql, scope);
+
+    expect(backendMocks.render).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Object),
+      {},
+    );
   });
 });

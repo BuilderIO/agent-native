@@ -2,11 +2,30 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
   },
+  meetingBrowserConfirmation:
+    "Clips はこのブラウザのマイク使用を検出しましたが、会議中のタブを特定できません。",
+  meetingReplacement: {
+    title: "会議メモの確認が必要です",
+    description:
+      "前の会議のメモを保存できませんでした。この会議を開始する前にコピーしてください。",
+    copyAndStart: "メモをコピーして開始",
+    actionFailed: "会議の復旧を続行できませんでした。もう一度お試しください。",
+  },
+  quitRecovery: {
+    title: "会議の終了処理中です",
+    body: "Clips は会議を停止して保存する処理を完了していません。今終了すると、最新の文字起こしが失われる可能性があります。",
+    keepOpen: "Clips を開いたままにする",
+    quitAnyway: "終了する",
+    actionFailed:
+      "Clips の終了時の復旧状態を更新できませんでした。もう一度お試しください。",
+  },
   lookbackContext: {
     includeLast: "直前を含める",
     whatIsThis: "これは何ですか？",
     off: "オフ",
     none: "なし",
+    noneExplanation:
+      "「なし」は、新しいClipに録画前の画面を含めないという意味です。Rewindがオンの間は画面を録画し続けます。停止するには、下の「オフにする」を選択してください。",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",
@@ -34,13 +53,13 @@ const messages = {
       "Rewindの保存領域にアクセスできません。ディスクの空き容量とフォルダのアクセス権を確認して、もう一度お試しください。",
     rewindConsentTitle: "Rewindをオンにしますか？",
     rewindConsentBody:
-      "Clipsは画面を継続的に録画し、このデバイスに保存します。エージェントにはテキストの抜粋が提供され、動画は承認した場合にのみ共有されます。",
+      "Rewindがオンの間、Clipsは画面を継続的に録画し、選択した時間またはストレージの上限に達するまで最近の履歴をこのデバイスに保存します。「画面 + 音声」を選ぶと、マイクとシステム音声も録音します。接続したエージェントはClipsの承認なしで画面画像に直接アクセスできます。その後の画像の扱いはエージェントによって異なります。設定した以前の画面時間は新しいClipごとに自動で追加され、そのClipの共有設定が適用されます。選択した時間をClipとして共有するリクエストは、既定で送信前に確認されます。Rewind設定で送信前の確認をオフにすると、リクエストは自動送信されます。Clipには録音済みのマイク音声やシステム音声が含まれることがあります。Rewindをオフにすると新しい録画は停止しますが、保存済みの履歴は残ります。オフの間、履歴は時間またはストレージの上限を超えて残ることがあり、録画を再開すると上限が適用されます。「すべて削除」を選ぶと今すぐ履歴を消去できます。",
     rewindConsentCancel: "今はしない",
     rewindConsentConfirm: "Rewindをオンにする",
     rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
-      "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
+      "以前の画面を含めるには、まずRewindをオンにしてください。Rewindがオンの間は、このデバイスに最近の画面履歴を保存し、時間とストレージの上限に合わせて整理します。Rewindがオフの間は、録画が再開されるまで履歴が上限を超えて残ることがあります。今すぐ削除するには、Settings > Rewind > Storage > On this deviceを開き、Delete allを選んでください。Clipの共有リクエストは既定で送信前に確認されますが、Rewind設定で送信前の確認をオフにすると自動送信されます。",
     requestFailed:
       "録画前の画面を含められませんでした。録画はそのまま続きます。",
     localOnlyUnavailable:
@@ -675,6 +694,14 @@ const messages = {
     errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
     errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
   },
+  transcriptHistory: {
+    title: "以前のトランスクリプト",
+    automatic: "自動",
+    restore: "復元",
+    restored: "トランスクリプトを復元しました",
+    restoreFailed: "トランスクリプトを復元できませんでした",
+    undo: "元に戻す",
+  },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
     failedGif: "GIF の生成に失敗しました - より短い範囲を試してください",
@@ -945,8 +972,8 @@ const messages = {
     labMeetings: "会議と文字起こし",
     labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    labWisprFlow: "音声入力",
-    labWisprFlowDescription:
+    labVoiceDictation: "音声入力",
+    labVoiceDictationDescription:
       "Clips Desktop の音声入力を表示または非表示にします。",
     labLookbackContext: "以前の画面時間を含める",
     labLookbackContextDescription:
@@ -1375,6 +1402,15 @@ const messages = {
     playClip: "クリップを再生",
     unsupportedFormat:
       "このブラウザではこの動画を再生できません。Chrome、Edge、Firefoxでリンクを開いてみてください。",
+    youtubeLoading: "YouTube プレーヤーを読み込み中",
+    youtubeUnavailable: "この YouTube 動画は非公開か、削除されています。",
+    youtubeEmbedBlocked:
+      "この動画の所有者は YouTube 以外での再生を許可していません。",
+    youtubeInvalid: "この YouTube リンクは再生できる動画を指していません。",
+    youtubePlaybackFailed: "YouTube はここでこの動画を再生できませんでした。",
+    youtubeApiUnavailable:
+      "YouTube プレーヤーを読み込めませんでした。接続やコンテンツブロッカーを確認してから、再読み込みしてください。",
+    watchOnYouTube: "YouTube で見る",
   },
   searchBar: {
     placeholder: "録画を検索…",
@@ -1601,6 +1637,9 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
+    customKeys: "カスタムキー",
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
@@ -1621,8 +1660,7 @@ const messages = {
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    description:
-      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
+    description: "録画した動画の保存先を選びます。",
     createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
@@ -1650,16 +1688,32 @@ const messages = {
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },
+  chapterList: {
+    add: "チャプターを追加",
+    editLabel: "チャプターを編集",
+    placeholder: "0:00 はじめに\n1:30 次のセクション",
+    errorLineShape:
+      "{{line}} 行目: 時間の後にタイトルを入力してください（例: 「0:48 メモの日付を保存」）。",
+    errorBadTime:
+      "{{line}} 行目: 「{{value}}」は 0:48 のような時間ではありません。",
+    errorDuplicate: "{{line}} 行目: {{value}} にはすでにチャプターがあります。",
+    errorPastEnd: "{{line}} 行目: {{value}} はクリップの終わりより後です。",
+    changedWhileEditing:
+      "編集中にチャプターが変更されました。行を確認してから、もう一度保存すると置き換わります。",
+  },
   chapters: {
-    title: "Chapters (ローカライズ済み)",
-    addHere: "Add here (ローカライズ済み)",
-    empty: "No chapters yet. (ローカライズ済み)",
-    remove: "Remove chapter (ローカライズ済み)",
-    saveFailed: "Failed to save chapters (ローカライズ済み)",
-    duplicateAtPoint:
-      "A chapter already exists at this point (ローカライズ済み)",
-    defaultTitle: "Chapter {{count}} (ローカライズ済み)",
-    seekTo: "Seek to {{time}} (ローカライズ済み)",
+    title: "チャプター",
+    addHere: "ここに追加",
+    empty: "チャプターはまだありません。",
+    remove: "チャプターを削除",
+    saveFailed: "チャプターを保存できませんでした",
+    changedElsewhere:
+      "チャプターが別の場所で変更されたため、最後の変更は保存されませんでした。",
+    unreadable:
+      "保存済みのチャプターの一部を読み取れないため、ここでは変更を保存できません。エージェントにチャプターの置き換えを依頼してください。",
+    duplicateAtPoint: "この位置にはすでにチャプターがあります",
+    defaultTitle: "チャプター {{count}}",
+    seekTo: "{{time}} に移動",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
@@ -1939,6 +1993,8 @@ const messages = {
       "Storage needed to finish Loom import (ローカライズ済み)",
     loomImported: "Loom imported (ローカライズ済み)",
     couldNotImportLoom: "この Loom をインポートできませんでした。",
+    youtubeImported: "YouTube 動画を追加しました",
+    couldNotImportVideo: "この動画をインポートできませんでした。",
     recordingReadyToUpload: "Recording is ready to upload (ローカライズ済み)",
     recordingSaved: "Recording saved (ローカライズ済み)",
     linkCopied: "リンクをコピーしました",
@@ -2047,7 +2103,7 @@ const messages = {
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "インポート",
     helperText:
-      "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
+      "Loom と YouTube で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
     stageFetching: "動画を取り込んでいます…",
     stageUploading: "元の映像をアップロードしています…",
     stageTranscript:
@@ -2095,6 +2151,33 @@ const messages = {
     copy: "コピー",
     copied: "コピーしました",
     copyFailed: "コピーできませんでした",
+    flowStarting: "音声入力を開始しています…",
+    flowFinalizing: "音声入力を完了しています…",
+    flowBusy: "前の音声入力を完了しています…",
+    flowTranscribing: "文字起こし中…",
+    flowCleaning: "テキストを整えています…",
+    flowPasting: "テキストを貼り付けています…",
+    flowSavingHistory: "履歴に保存しています…",
+    flowPasted: "貼り付けました",
+    flowCopied: "クリップボードにコピーしました",
+    flowPastedHistoryFailed: "貼り付けましたが、履歴に保存できませんでした",
+    flowCopiedHistoryFailed: "コピーしましたが、履歴に保存できませんでした",
+    flowHistoryNotSaved: "音声入力を履歴に保存できませんでした",
+    flowPermissionFailed: "マイクの使用が許可されていません",
+    flowMicrophoneUnavailable: "マイクを利用できません",
+    flowProviderFailed: "音声を文字起こしできませんでした",
+    flowMeetingCaptureActive:
+      "文字起こしをする前に、会議の録音を停止してください",
+    flowPasteFailed: "文字起こしを貼り付けできませんでした",
+    flowCancelled: "音声入力をキャンセルしました",
+    flowRetryHistory: "履歴の保存を再試行",
+    flowDismiss: "閉じる",
+    flowTranscriptRecovery: "文字起こしの復元",
+    flowOriginalTranscript: "元の文字起こしを表示",
+    flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
+    flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowCancelDictation: "音声入力をキャンセル",
+    flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",
     aiCleaned: "AIでクリーンアップ済み",
     original: "オリジナル",

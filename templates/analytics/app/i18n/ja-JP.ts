@@ -69,6 +69,12 @@ export default {
     sigmaChooseConnectionDescription:
       "ワークブックを表示する Sigma ワークスペースを選択してください。",
     sigmaNoConnection: "Sigma が接続されていません",
+    sigmaApiRegion: "Sigma API リージョン",
+    sigmaOAuthConnect: "個人の Sigma アカウントを接続",
+    sigmaOAuthAddAnother: "別の Sigma アカウントを接続",
+    sigmaOAuthCancel: "キャンセル",
+    sigmaOAuthDescription:
+      "アカウントで Sigma にサインインして、アクセスできるワークブックを表示します。",
     sigmaClientId: "クライアント ID",
     sigmaClientSecret: "クライアントシークレット",
     sigmaBaseUrl: "API ベース URL（省略可）",
@@ -82,7 +88,7 @@ export default {
     sigmaCredentialsRequired:
       "先に Sigma のクライアント ID とクライアントシークレットを保存してください。",
     sigmaBaseUrlInvalid:
-      "sigmacomputing.com ドメインの HTTPS Sigma API URL を使用してください。",
+      "Sigma が公式にサポートする API リージョンの URL を選択してください。",
     sigmaPersistenceUnavailable:
       "現在、Analytics は Sigma 接続を安全に保存できません。もう一度お試しください。",
     sigmaPolicyInvalid:
@@ -97,7 +103,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics に保存された Sigma 認証情報を読み取れませんでした。組織の管理者は Dispatch で再接続するか、Analytics で認証情報を再入力できます。",
     sigmaNoConnectionDescription:
-      "ここに認証情報を入力すると Analytics 専用の接続を作成できます。Dispatch で Analytics に許可された Sigma 接続はここに自動で表示されます。認証情報を直接保存できるのは組織管理者のみです。",
+      "個人の Sigma アカウントを接続するか、組織管理者が保存した認証情報を使用してください。Analytics に許可された Dispatch 接続もここに表示されます。",
     sigmaOpenDispatch: "Dispatch で接続",
     sigmaOpenVault: "Vault を開く",
     sigmaWorkbooksLoadFailed: "Sigma のワークブックを読み込めませんでした",
@@ -639,6 +645,7 @@ export default {
     notConnected: "未接続",
     needsReauth: "再認証が必要",
     error: "エラー",
+    unknown: "不明",
     indexNotImported: "生成されたインデックスはまだインポートされていません。",
     indexUnreadable:
       "保存されたインデックスを読み取れません。有効なインデックスをアップロードしてください。",
@@ -864,6 +871,7 @@ export default {
     bigQueryHealthUnavailable:
       "ファーストパーティ Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
     analyticsEventCount: "観測イベント",
+    analyticsRecentEventCount: "観測イベント（過去30日間）",
     slowQueries24h: "遅いクエリ（24 時間）",
     maxQueryDuration: "最大クエリ時間",
     defaultKeyName: "ホストされたテンプレート",
@@ -1265,6 +1273,8 @@ export default {
     addEventToSeeResults: "イベントを追加し、選択して結果を確認します",
     queryError: "Query error: {{message}}",
     noDataReturned: "データが返されませんでした",
+    incompleteResultsWarning:
+      "この結果は不完全な可能性があります。行やソースデータの欠落により合計値が変わる場合があります。",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "フィルター条件",
     pickPropertyToFilter: "フィルタリングするプロパティを選択してください",
@@ -1392,6 +1402,23 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    drilldownChartPoints: "グラフのデータポイント",
+    drilldownPreviousPage: "グラフのデータポイントの前のページ",
+    drilldownNextPage: "グラフのデータポイントの次のページ",
+    drilldownPageRange: "全{{total}}件中{{start}}～{{end}}件を表示",
+    drilldownFilterRows: "行をフィルター",
+    drilldownShowSql: "SQLを表示",
+    drilldownHideSql: "SQLを非表示",
+    drilldownDownloadCsv: "CSVをダウンロード",
+    drilldownShowing: "{{total}} 件中 {{shown}} 件を表示",
+    drilldownCsvTruncated:
+      "不完全なエクスポート: クエリに一致した {{total}} 件のうち、最初の {{loaded}} 件のみ読み込まれました。フィルター適用後、このファイルには {{exported}} 件が含まれます。",
+    drilldownCountMismatch:
+      "グラフは {{chart}} ですが、一致したレコードは {{total}} 件です",
+    drilldownAggregateOnly:
+      "このパネルには集計行しかありません。クリックしたポイントに一致する行を強調表示しています。",
+    drilldownNoRecords: "一致するレコードがありません",
+    drilldownLoadFailed: "レコードを読み込めませんでした",
     filterSeries: "Filter",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",
@@ -1454,6 +1481,9 @@ export default {
       "Google スプレッドシートへのエクスポートに失敗しました: {{message}}",
     viewSql: "SQLを見る",
     dragToReorder: "ドラッグして並べ替えます",
+    resizePanelWidth: "パネルの幅を変更",
+    resizePanelHeight: "パネルの高さを変更",
+    resetPanelHeight: "パネルの高さをリセット",
     columnFormat: "形式",
     columnFormatText: "プレーンテキスト",
     columnFormatNumber: "数値",
@@ -1466,6 +1496,23 @@ export default {
     columnShowHidden: "非表示の列を表示",
     columnName: "列名",
     columnResize: "列の幅を変更",
+    rowBreakdownBy: "内訳の基準",
+    rowBreakdownAll: "すべて",
+    rowBreakdownOther: "その他",
+    rowBreakdownOtherHint: "小さなグループと、このパネルの SQL が除外する人",
+    rowBreakdownSmallGroup: "{{count}} 未満：率の解釈に注意してください",
+    rowBreakdownNoValue: "(なし)",
+    rowBreakdownEmpty: "この内訳には行がありません。",
+    rowBreakdownUnavailable:
+      "このパネルの SQL には {{column}} の内訳がありません。",
+    rowBreakdownFromPanel: "このパネルの行から表示。読み取りはありません。",
+    rowBreakdownFromCache: "キャッシュから表示。読み取りはありません。",
+    rowBreakdownAlreadyLoaded: "読み込み済み。読み取りはありません。",
+    rowBreakdownBytesRead: "{{bytes}} を読み取りました",
+    rowBreakdownOverByteCap:
+      "この内訳は {{gib}} GiB を超えて読み込むため、実行しませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
+    rowBreakdownTruncated:
+      "結果が途中で切れたため、一部のグループが表示されていないか「その他」に含まれています。",
     deleteSectionTitle: "セクションを削除しますか?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "パネルを削除しますか?",
@@ -2159,10 +2206,6 @@ export default {
     noMatches: "検索に一致する定義はありません。",
     searchPlaceholder: "定義を検索",
     sourceIndex: "ソースインデックス",
-    statusApproved: "承認済み",
-    statusSuggested: "提案",
-    statusUnreviewed: "未確認",
-    unsourced: "ソースなし",
   },
   indexPanel: {
     presetDaily: "毎日 06:00",
@@ -2219,6 +2262,8 @@ export default {
     dbtDisabled: "無効",
     dbtAdminOnly: "この接続を変更できるのは組織の管理者のみです。",
     dbtReadFailed: "dbt 接続を読み込めませんでした。",
+    dbtSeveralConnections:
+      "Analytics に複数の dbt 接続が許可されているため、このパネルでは編集できません。設定 → 連携 で余分な接続を削除し、1 つだけ残してください。",
     dbtSave: "接続を保存",
     dbtChecking: "確認中",
     dbtSaveFailed: "dbt 接続を保存できませんでした。",

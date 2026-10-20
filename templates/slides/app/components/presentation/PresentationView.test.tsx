@@ -48,6 +48,58 @@ const slides = [
 
 afterEach(() => cleanup());
 
+describe("PresentationView fullscreen on arrival", () => {
+  function withRequestFullscreen(run: (requestFullscreen: () => void) => void) {
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const descriptor = Object.getOwnPropertyDescriptor(
+      document.documentElement,
+      "requestFullscreen",
+    );
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    try {
+      run(requestFullscreen);
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(
+          document.documentElement,
+          "requestFullscreen",
+          descriptor,
+        );
+      } else {
+        delete (document.documentElement as { requestFullscreen?: unknown })
+          .requestFullscreen;
+      }
+    }
+  }
+
+  it("asks the browser for fullscreen by default", () => {
+    withRequestFullscreen((requestFullscreen) => {
+      render(
+        <MemoryRouter>
+          <PresentationView slides={slides} deckId="deck-1" />
+        </MemoryRouter>,
+      );
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("presents inside the tab without asking for fullscreen when windowed", () => {
+    withRequestFullscreen((requestFullscreen) => {
+      render(
+        <MemoryRouter>
+          <PresentationView slides={slides} deckId="deck-1" windowed />
+        </MemoryRouter>,
+      );
+
+      expect(requestFullscreen).not.toHaveBeenCalled();
+    });
+  });
+});
+
 describe("PresentationView keyboard shortcuts", () => {
   it("leaves focused video controls usable and keeps deck shortcuts elsewhere", () => {
     render(

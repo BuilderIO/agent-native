@@ -95,11 +95,11 @@ export async function querySearchAnalytics(
     const page = (await res.json()) as { rows?: SearchAnalyticsRow[] };
     const pageRows = page.rows ?? [];
     rows.push(...pageRows);
-    if (pageRows.length < PAGE_SIZE) return rows;
-    if (rows.length >= request.maxRows) {
+    if (rows.length > request.maxRows) {
       throw new Error(
         `Search Console returned more than ${request.maxRows} rows for ${request.siteUrl}; the read would be incomplete.`,
       );
     }
+    if (pageRows.length < PAGE_SIZE) return rows;
   }
 }

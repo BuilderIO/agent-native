@@ -249,6 +249,18 @@ describe("sensitive framework tables", () => {
     );
   });
 
+  it("keeps chat transcripts out of the raw database surface", () => {
+    expect(() =>
+      readRawDbReadStatement("SELECT thread_data FROM chat_threads"),
+    ).toThrow(/Sensitive framework table "chat_threads"/);
+    expect(() =>
+      readRawDbWriteStatement("UPDATE chat_threads SET preview = 'changed'"),
+    ).toThrow(/Sensitive framework table "chat_threads"/);
+    expect(() =>
+      assertNoSensitiveFrameworkTables("chat_threads", "patch"),
+    ).toThrow(/Sensitive framework table "chat_threads"/);
+  });
+
   it("ignores the names inside strings and comments", () => {
     expect(() =>
       readRawDbReadStatement(

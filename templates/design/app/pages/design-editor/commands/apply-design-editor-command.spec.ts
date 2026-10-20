@@ -328,8 +328,8 @@ describe("runApplyDesignEditorCommand: widget open", () => {
   });
 });
 
-describe("runApplyDesignEditorCommand: screen focus stays on All screens", () => {
-  it("keeps legacy single-screen focus commands in the overview and fits the target", () => {
+describe("runApplyDesignEditorCommand: single-screen focus", () => {
+  it("enters the requested screen without fitting the overview", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({
       files: [screenFile],
@@ -345,9 +345,9 @@ describe("runApplyDesignEditorCommand: screen focus stays on All screens", () =>
     });
     expect(applied).toBe(true);
     expect(args.setMode).toHaveBeenCalledWith("edit");
-    expect(args.setViewMode).toHaveBeenCalledWith("overview");
-    expect(args.setSelectedLayerIdsState).toHaveBeenCalledWith(["file-1"]);
-    expect(requestCameraFit).toHaveBeenCalledTimes(1);
+    expect(args.setViewMode).toHaveBeenCalledWith("single");
+    expect(args.setActiveFileId).toHaveBeenCalledWith("file-1");
+    expect(requestCameraFit).not.toHaveBeenCalled();
     expect(args.setScreenZoom).not.toHaveBeenCalled();
   });
 });

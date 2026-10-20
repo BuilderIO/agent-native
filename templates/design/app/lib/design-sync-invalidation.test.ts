@@ -51,6 +51,91 @@ const UNRELATED = [
 ];
 
 describe("design sync invalidation", () => {
+  const contextHeartbeat = {
+    source: "action",
+    key: "register-native-render-context",
+  };
+  const contextLedger = {
+    source: "app-state",
+    key: "native-render-contexts-v1",
+  };
+
+  it("refreshes export contexts without refetching source for a registration heartbeat", () => {
+    for (const events of [
+      [contextHeartbeat],
+      [contextLedger, contextHeartbeat],
+    ]) {
+      expect(
+        shouldInvalidateDesignQueryForSync(
+          query("get-native-render-contexts"),
+          events,
+        ),
+      ).toBe(true);
+      for (const name of [...DEPENDS_ON_CONTENT, ...UNRELATED, "get-shader"])
+        expect(shouldInvalidateDesignQueryForSync(query(name), events)).toBe(
+          false,
+        );
+    }
+  });
+
+  it("preserves collaborator file invalidation when a heartbeat shares the batch", () => {
+    const events = [contextLedger, contextHeartbeat, fileSave, yjsUpdate];
+    for (const name of [
+      ...DEPENDS_ON_CONTENT,
+      "get-native-render-contexts",
+      "get-shader",
+    ])
+      expect(shouldInvalidateDesignQueryForSync(query(name), events)).toBe(
+        true,
+      );
+    for (const name of UNRELATED)
+      expect(shouldInvalidateDesignQueryForSync(query(name), events)).toBe(
+        false,
+      );
+  });
+
+  it("preserves broad invalidation for unknown, settings and approval changes beside a heartbeat", () => {
+    for (const other of [
+      { source: "action", key: "unknown-write" },
+      { source: "settings", key: "active-org-id" },
+      { source: "action", key: "edit-native-shader" },
+    ]) {
+      for (const name of [
+        ...DEPENDS_ON_CONTENT,
+        ...UNRELATED,
+        "get-native-render-contexts",
+        "get-shader",
+      ])
+        expect(
+          shouldInvalidateDesignQueryForSync(query(name), [
+            contextHeartbeat,
+            contextLedger,
+            other,
+          ]),
+        ).toBe(true);
+    }
+  });
+
+  it("refreshes native shader approvals without a source-content change", () => {
+    expect(
+      shouldInvalidateDesignQueryForSync(
+        query("get-shader", { source: { designId: "d1", fileId: "f1" } }),
+        [
+          {
+            source: "app-state",
+            key: "design-native-effect-approvals:d1",
+            requestSource: "agent",
+          },
+          {
+            source: "action",
+            key: "edit-native-shader",
+            requestSource: "agent",
+          },
+        ],
+      ),
+    ).toBe(true);
+  });
+
   it("refetches what depends on a collaborator's file save and Yjs updates", () => {
     for (const name of DEPENDS_ON_CONTENT) {
       expect(

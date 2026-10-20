@@ -8,17 +8,12 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { loadBuiltinDashboard } from "../server/lib/builtin-dashboards";
 import {
-  getDashboard,
   listDashboardSummaries,
   normalizeDashboardName,
   upsertDashboard,
 } from "../server/lib/dashboards-store";
-import {
-  BUILTIN_DASHBOARD_HIDDEN_BY,
-  builtinDashboardIdFor,
-} from "../shared/builtin-dashboard-ids";
+import { openDashboard } from "../server/lib/open-dashboard";
 
 function copyName(title: string, taken: Set<string>): string {
   for (let n = 1; ; n++) {
@@ -43,6 +38,11 @@ export default defineAction({
       .describe('Name for the copy. Defaults to "<name> (copy)".'),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) {
@@ -53,14 +53,9 @@ export default defineAction({
     }
     const ctx = { email, orgId: getRequestOrgId() || null };
 
-    const row = await getDashboard(args.id, ctx);
-    const builtinId =
-      row?.kind === "sql" && row.hiddenBy !== BUILTIN_DASHBOARD_HIDDEN_BY
-        ? null
-        : builtinDashboardIdFor(args.id);
-    const builtin = builtinId
-      ? await loadBuiltinDashboard(builtinId, ctx)
-      : null;
+    const opened = await openDashboard(args.id, ctx);
+    const row = opened?.saved;
+    const builtin = opened?.builtin;
     const source = builtin
       ? { id: builtin.id, title: builtin.title, config: builtin.config }
       : row?.kind === "sql"

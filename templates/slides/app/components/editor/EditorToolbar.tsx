@@ -17,7 +17,6 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconCircle,
-  IconPlayerPlay,
   IconLayoutSidebar,
   IconPhoto,
   IconHistory,
@@ -40,7 +39,7 @@ import {
   IconSquare,
   IconTextSize,
   IconBolt,
-  IconLayersSubtract,
+  IconStack2,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -51,9 +50,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
-import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
@@ -84,10 +81,15 @@ import {
   type Deck,
   type Slide,
 } from "@/context/DeckContext";
+import { useDeckVisibility } from "@/hooks/use-deck-visibility";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { isDeckAccessLostStatus } from "@/lib/deck-access-lost";
 import { DeckBackupError } from "@/lib/deck-backup";
-import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
+import type { PresentRequest } from "@/lib/deck-present-url";
+import {
+  getDeckShareLinkOrder,
+  type DeckShareLinkKind,
+} from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import {
@@ -111,6 +113,8 @@ import {
   type SlideTransitionType,
 } from "../../../shared/slide-transitions";
 import { AppMenu } from "./AppMenu";
+import { DeckPrivacyBadge } from "./DeckPrivacyBadge";
+import { DeckShareAgentTab } from "./DeckShareAgentTab";
 import {
   registerEditorCommands,
   type EditorCommand,
@@ -120,12 +124,14 @@ import {
   type SlideShapeType,
 } from "./EditorActionCluster";
 import {
+  ExportDropdown,
   ExportMenu,
   ExportStatusDialog,
   ExportSubmenu,
   type ExportMenuHandle,
   type ExportStatus,
 } from "./ExportMenu";
+import { PresentMenu } from "./PresentMenu";
 import type { SlideCanvasCommands } from "./SlideEditor";
 import {
   SLIDE_TRANSITION_LABEL_KEYS,
@@ -133,9 +139,7 @@ import {
   type SlideTransitionPatch,
 } from "./SlideTransitionControl";
 
-export type PresentRequest = {
-  preserveNativeNavigation: true;
-};
+export type { PresentRequest };
 
 interface EditorToolbarProps {
   deck: Deck;
@@ -298,9 +302,13 @@ export default function EditorToolbar({
       description: t("editorToolbar.presentationLinkDescription"),
     },
   };
-  const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
-  const primaryShareLink = shareLinks[shareLinkOrder.primary];
-  const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
+  const visibility = useDeckVisibility(deckId, deck.visibility);
+  const shareLinkOrder = getDeckShareLinkOrder(visibility);
+  // The presentation link has nothing to open until the deck has a slide.
+  const visibleShareLink = (kind: DeckShareLinkKind) =>
+    kind === "editor" || hasSlides ? shareLinks[kind] : undefined;
+  const primaryShareLink = visibleShareLink(shareLinkOrder.primary);
+  const secondaryShareLink = visibleShareLink(shareLinkOrder.secondary);
 
   const { saving } = useSaveState();
   const conflict = useDeckContentConflicts(deckId)[0];
@@ -353,7 +361,7 @@ export default function EditorToolbar({
   const showSlideTools =
     (canEdit &&
       Boolean(
-        (currentSlide && (onToggleAnimations || onToggleLayers)) ||
+        (currentSlide && onToggleAnimations) ||
         onToggleTweaks ||
         onToggleDrawMode,
       )) ||
@@ -610,7 +618,7 @@ export default function EditorToolbar({
           group: "slideTools",
           label: t("editorToolbar.layers"),
           keywords: ["layers", "hierarchy", "stack"],
-          icon: IconLayersSubtract,
+          icon: IconStack2,
           active: layersOpen,
           run: onToggleLayers,
         });
@@ -811,22 +819,6 @@ export default function EditorToolbar({
     }, openTab);
   };
 
-  const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    if (event.button !== 0 && event.button !== 1) return;
-    const preserveNativeNavigation =
-      event.button === 1 ||
-      (event.button === 0 &&
-        (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
-    if (preserveNativeNavigation) {
-      if (onPresent?.({ preserveNativeNavigation: true }) === true) {
-        event.preventDefault();
-      }
-      return;
-    }
-    event.preventDefault();
-    onPresent?.();
-  };
-
   return (
     <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       <AppMenu
@@ -871,12 +863,9 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* New Slide and the text-box tool live at the head of the contextual
-       * toolbar below, which SlideEditor portals in at every viewport size
-       * (a wide inline row or a narrow standalone row) whenever there's a
-       * current slide. Render this fallback only when there isn't one — an
-       * empty deck — so those two rows never end up showing the same
-       * buttons twice. */}
+      {/* The contextual toolbar below carries the text-box tool whenever
+       * there's a current slide (New Slide lives in the sidebar then). Render
+       * this fallback only for an empty deck so the buttons never show twice. */}
       {canEdit && !contextToolbarVisible && (
         <EditorActionCluster
           textBoxMode={textBoxMode}
@@ -903,6 +892,7 @@ export default function EditorToolbar({
         className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
         spellCheck={false}
       />
+      <DeckPrivacyBadge visibility={visibility} />
 
       {/* Spacer */}
       <div className="w-2 shrink-0" />
@@ -1040,19 +1030,6 @@ export default function EditorToolbar({
                         {t("animations.title")}
                       </DropdownMenuItem>
                     )}
-                    {canEdit && currentSlide && onToggleLayers && (
-                      <DropdownMenuItem
-                        onSelect={onToggleLayers}
-                        className={
-                          layersOpen
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconLayersSubtract className="size-4" />
-                        {t("editorToolbar.layers")}
-                      </DropdownMenuItem>
-                    )}
                     {canEdit && onToggleTweaks && (
                       <DropdownMenuItem
                         onSelect={onToggleTweaks}
@@ -1158,10 +1135,18 @@ export default function EditorToolbar({
               description: t("editorToolbar.commenterRoleDescription"),
             },
           }}
-          shareUrl={showShareLink ? primaryShareLink.url : undefined}
-          shareUrlLabel={primaryShareLink.label}
-          shareUrlDescription={primaryShareLink.description}
-          showShareLinks={showShareLink}
+          shareUrl={primaryShareLink?.url}
+          shareUrlLabel={primaryShareLink?.label}
+          shareUrlDescription={primaryShareLink?.description}
+          secondaryShareUrl={secondaryShareLink?.url}
+          secondaryShareUrlLabel={secondaryShareLink?.label}
+          secondaryShareUrlDescription={secondaryShareLink?.description}
+          showShareLinks={Boolean(primaryShareLink || secondaryShareLink)}
+          shareUrlPlacement="bottom"
+          peopleAccessLabel={t("share.whoHasAccess")}
+          agentTabContent={
+            widgetEmbed ? undefined : <DeckShareAgentTab deckId={deckId} />
+          }
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed
@@ -1192,6 +1177,13 @@ export default function EditorToolbar({
           }
         />
       </div>
+      {!widgetEmbed && (
+        <ExportDropdown
+          exportMenuRef={exportMenuRef}
+          hasSlides={hasSlides}
+          showGoogleSlides={Boolean(onExportGoogleSlides)}
+        />
+      )}
       {widgetEmbed && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1211,27 +1203,12 @@ export default function EditorToolbar({
           </TooltipContent>
         </Tooltip>
       )}
-      {/* Present button — matches Share trigger height (h-9) */}
-      {hasSlides ? (
-        <Link
-          to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-          onClick={onPresent ? handlePresentClick : undefined}
-          onAuxClick={onPresent ? handlePresentClick : undefined}
-          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          <IconPlayerPlay className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-        </Link>
-      ) : (
-        <Button
-          type="button"
-          disabled
-          className="h-9 flex-shrink-0 gap-1.5 border border-border px-3 text-sm font-medium"
-        >
-          <IconPlayerPlay className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-        </Button>
-      )}
+      <PresentMenu
+        deckId={deckId}
+        currentSlideIndex={currentSlideIndex}
+        hasSlides={hasSlides}
+        onPresent={onPresent}
+      />
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

@@ -67,6 +67,11 @@ function assertSafeCredentialRefKey(key: string) {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Apply a planned workspace integration setup or repair using credential reference names only.",
   chatUI: {

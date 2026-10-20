@@ -4,7 +4,7 @@ const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
 const mockReturning = vi.hoisted(() =>
-  vi.fn(async () => [{ id: "updated-recording" }]),
+  vi.fn(async () => [{ id: "updated-recording", mediaUpdatedAt: "media-1" }]),
 );
 const mockUpdateWhere = vi.hoisted(() =>
   vi.fn(() => ({ returning: mockReturning })),
@@ -21,11 +21,16 @@ const mockInsertValues = vi.hoisted(() =>
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
     from: vi.fn(() => ({
-      where: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
+      where: vi.fn(() =>
+        Object.assign(Promise.resolve(mockSelectRows.queue.shift() ?? []), {
+          for: vi.fn(async () => [{ id: "updated-recording" }]),
+        }),
+      ),
     })),
   })),
   update: vi.fn(() => ({ set: mockUpdateSet })),
   insert: vi.fn(() => ({ values: mockInsertValues })),
+  transaction: vi.fn(async (run: (tx: any) => Promise<unknown>) => run(mockDb)),
 }));
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const mockUploadFile = vi.hoisted(() => vi.fn());
@@ -83,6 +88,7 @@ vi.mock("../../server/db/index.js", () => ({
       uploadLeaseExpiresAt: "uploadLeaseExpiresAt",
       status: "status",
       updatedAt: "updatedAt",
+      mediaUpdatedAt: "mediaUpdatedAt",
       durationMs: "durationMs",
       sourceWindowTitle: "sourceWindowTitle",
       createdAt: "createdAt",
@@ -146,7 +152,9 @@ describe("runLoomImportJob", () => {
     mockSelectRows.queue = [];
     mockUpdateWhere.mockClear();
     mockReturning.mockReset();
-    mockReturning.mockResolvedValue([{ id: "updated-recording" }]);
+    mockReturning.mockResolvedValue([
+      { id: "updated-recording", mediaUpdatedAt: "media-1" },
+    ]);
     mockUpdateSet.mockClear();
     mockInsertValues.mockClear();
     mockInsertOnConflict.mockClear();

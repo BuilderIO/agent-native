@@ -347,7 +347,7 @@ export default function Index() {
   const createFromTemplateMutation = useActionMutation(
     "create-design-from-template",
   );
-  const createFusionAppMutation = useActionMutation("create-fusion-app");
+  const createFusionAppMutation = useActionMutation("create-builder-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
@@ -1021,7 +1021,12 @@ export default function Index() {
         designSystemId,
         "prompt",
       );
-      handleGenerateDesignTitle(id, prompt, title);
+      // The title action needs the saved design, and create-design is still in flight.
+      void ready.then(
+        () => handleGenerateDesignTitle(id, prompt, title),
+        // coercion-ok: a failed create reports itself, and there is no design to title.
+        () => {},
+      );
 
       if (fullAppBuildingEnabled && newDesignMode === "app") {
         try {
@@ -1047,10 +1052,10 @@ export default function Index() {
               message: prompt,
               context:
                 `The user's request is to build this design as a full app. ` +
-                `create-fusion-app returned status "not-configured" for design ` +
+                `create-builder-app returned status "not-configured" for design ` +
                 `${id}. ${result?.message ?? ""} Help the user connect ` +
                 `Builder.io (see connect-builder-app), then retry ` +
-                `create-fusion-app with the user's prompt.`,
+                `create-builder-app with the user's prompt.`,
               submit: true,
             });
           })
@@ -1065,7 +1070,7 @@ export default function Index() {
                 `The user's request is to build this design as a full app. ` +
                 `Starting the full-app build for design ${id} failed: ` +
                 `${message}. Check whether the design row exists, Builder is ` +
-                `connected, and create-fusion-app can be retried safely.`,
+                `connected, and create-builder-app can be retried safely.`,
               submit: true,
             });
           });
@@ -1387,8 +1392,8 @@ export default function Index() {
               onOpenChange={() => {}}
               composerComponent={PromptComposer}
               composerRef={composerRef}
-              showModelSelector={agentEngineConfigured}
-              modelStatusChecksEnabled={agentEngineConfigured}
+              showModelSelector
+              modelStatusChecksEnabled
               requireAgentEngine
               showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}

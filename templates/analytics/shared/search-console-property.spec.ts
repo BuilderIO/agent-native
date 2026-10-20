@@ -28,6 +28,9 @@ describe("searchConsolePropertyProblem", () => {
       { kind: "invalid_domain", suggestion: "sc-domain:builder.io" },
     ],
     ["sc-domain:", { kind: "invalid_domain" }],
+    ["sc-domain:example.com-", { kind: "invalid_domain" }],
+    ["example.com-", { kind: "unrecognized" }],
+    ["https://example.com-/", { kind: "unrecognized" }],
     [
       "https://www.builder.io/blog",
       {

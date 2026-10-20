@@ -66,6 +66,13 @@ export function builtinDashboardIdForLegacyId(id: string): string | null {
     return nativeV2BuiltinDashboardId(native[1]);
   }
   if ((SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(id)) return id;
+  const settingsCopy = /^(.*)-legacy-[0-9a-f]{32}$/.exec(id);
+  if (
+    settingsCopy &&
+    (SEED_BUILTIN_DASHBOARD_IDS as readonly string[]).includes(settingsCopy[1])
+  ) {
+    return settingsCopy[1];
+  }
   return null;
 }
 

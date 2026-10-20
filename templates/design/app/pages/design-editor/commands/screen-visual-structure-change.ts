@@ -1,3 +1,4 @@
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -169,7 +170,7 @@ export function runScreenVisualStructureChange(
   );
   const canEditScreen =
     canEditDesign ||
-    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+    (isRunningAppSourceType(screenSourceType) && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
     if (!canEditScreen) return false;
     return handleVisualStructureChange(

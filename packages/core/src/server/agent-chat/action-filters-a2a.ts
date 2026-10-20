@@ -8,15 +8,21 @@ import {
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
-import type { AgentSkill } from "../../a2a/types.js";
+import type {
+  A2AActionExecutionResult,
+  A2AApprovalExecution,
+  AgentSkill,
+} from "../../a2a/types.js";
 import { isActionExposedToExternalAgents } from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
+  executeAgentToolCall,
   filterInitialEngineTools,
   resolveAgentRequestReasoningEffort,
   type ActionEntry,
   type AgentLoopOutcome,
+  type AgentToolCallExecutionResult,
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
@@ -587,6 +593,73 @@ export async function runA2AAgentLoop(
   } catch (error) {
     throw withAgentNativeErrorCode(error);
   }
+}
+
+/** A direct A2A call's result, with the effect a failed call can still report. */
+export function a2aActionResult(
+  result: Exclude<
+    AgentToolCallExecutionResult,
+    { status: "approval_required" }
+  >,
+): A2AActionExecutionResult {
+  return {
+    status: result.status,
+    output: result.output,
+    ...(result.completedSideEffect === undefined
+      ? {}
+      : { completedSideEffect: result.completedSideEffect }),
+  };
+}
+
+/**
+ * Runs the tool call an A2A task paused on, once its owner approved it, under
+ * the approval's execution lease: its thread, its turn, and its signal.
+ */
+export async function executeApprovedA2AToolCall(
+  approval: A2AApprovalExecution,
+  options: {
+    actions: Record<string, ActionEntry>;
+    appId?: string;
+    signal?: AbortSignal;
+    threadId?: string;
+    turnId?: string;
+  },
+): Promise<A2AActionExecutionResult> {
+  const result = await executeAgentToolCall({
+    actions: options.actions,
+    name: approval.tool,
+    input: approval.input,
+    signal: options.signal,
+    threadId: options.threadId,
+    turnId: options.turnId,
+    callId: approval.callId,
+    ownerEmail: approval.ownerEmail,
+    orgId: approval.orgId ?? null,
+    appId: options.appId,
+    approvedToolCalls: [approval.approvalKey],
+    // The replay runs under the lease's thread and turn, never the task's
+    // own: as the replay's thread and turn, the task id would load the task's
+    // journal and ledger, where an earlier identical call could stand in for
+    // this approved one. So the task id reaches the approved call's own audit
+    // rows only. Its caller app is not stored with the approval, so
+    // `networkPeer` stays empty.
+    auditOverride: {
+      networkProtocol: "a2a",
+      networkId: approval.taskId,
+      runId: approval.taskId,
+      threadId: approval.taskId,
+      turnId: approval.taskId,
+      approval: "a2a-review",
+    },
+  });
+  if (result.status === "approval_required") {
+    return {
+      status: "failed",
+      output:
+        "The approved action was unexpectedly gated again and did not run.",
+    };
+  }
+  return a2aActionResult(result);
 }
 
 export function runMCPAgentLoop(

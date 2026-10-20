@@ -13,7 +13,6 @@ import {
   saveCredential,
   getCredentialContextFromEvent,
 } from "../../lib/credentials";
-import { resolveSettingsScope } from "../../lib/scoped-settings";
 
 const GA4_CREDENTIAL_KEYS = new Set([
   "GA4_PROPERTY_ID",
@@ -113,8 +112,13 @@ export default defineEventHandler(async (event) => {
   const savedGaCred = [...GA4_CREDENTIAL_KEYS].some((k) => savedKeys.has(k));
   if (savedGaCred) {
     try {
-      const scope = await resolveSettingsScope(event);
-      await installBuiltinDashboardOnce(scope, GA_DASHBOARD_ID);
+      await installBuiltinDashboardOnce(
+        {
+          email: ctx.userEmail,
+          orgId: saveScope === "org" ? (ctx.orgId ?? null) : null,
+        },
+        GA_DASHBOARD_ID,
+      );
     } catch (err: any) {
       console.warn(
         "[credentials] failed to seed google-analytics dashboard:",

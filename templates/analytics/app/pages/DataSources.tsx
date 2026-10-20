@@ -157,9 +157,10 @@ interface FirstPartyAnalyticsHealthResponse {
   status: "healthy" | "monitor" | "recommend_bigquery" | "unavailable";
   externalBackendRecommendation?: "none" | "connect" | "use" | "unknown";
   metrics: {
-    eventCount: number;
-    slowQueryCount24h: number;
-    maxQueryDurationMs24h: number;
+    coverage: { kind: "all_time" | "recent_window" | "unavailable" };
+    eventCount: number | null;
+    slowQueryCount24h: number | null;
+    maxQueryDurationMs24h: number | null;
   };
   externalBackends?: Array<{
     id: "bigquery" | "amplitude";
@@ -1833,10 +1834,16 @@ function FirstPartyAnalyticsDetail() {
             <div className="mt-4 grid grid-cols-3 gap-2">
               <div>
                 <div className="text-muted-foreground">
-                  {t("dataSources.analyticsEventCount")}
+                  {t(
+                    health.metrics.coverage.kind === "recent_window"
+                      ? "dataSources.analyticsRecentEventCount"
+                      : "dataSources.analyticsEventCount",
+                  )}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.eventCount)}
+                  {health.metrics.eventCount === null
+                    ? t("dataSources.statusUnknown")
+                    : formatNumber(health.metrics.eventCount)}
                 </div>
               </div>
               <div>
@@ -1844,7 +1851,9 @@ function FirstPartyAnalyticsDetail() {
                   {t("dataSources.slowQueries24h")}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.slowQueryCount24h)}
+                  {health.metrics.slowQueryCount24h === null
+                    ? t("dataSources.statusUnknown")
+                    : formatNumber(health.metrics.slowQueryCount24h)}
                 </div>
               </div>
               <div>
@@ -1852,10 +1861,14 @@ function FirstPartyAnalyticsDetail() {
                   {t("dataSources.maxQueryDuration")}
                 </div>
                 <div className="font-medium text-foreground">
-                  {formatNumber(health.metrics.maxQueryDurationMs24h / 1_000, {
-                    maximumFractionDigits: 1,
-                  })}
-                  s
+                  {health.metrics.maxQueryDurationMs24h === null
+                    ? t("dataSources.statusUnknown")
+                    : `${formatNumber(
+                        health.metrics.maxQueryDurationMs24h / 1_000,
+                        {
+                          maximumFractionDigits: 1,
+                        },
+                      )}s`}
                 </div>
               </div>
             </div>
@@ -2371,6 +2384,10 @@ export default function DataSources() {
   };
 
   const searchConsoleLabel = {
+    unavailable: {
+      label: t("dataSources.statusUnknown"),
+      className: "text-destructive",
+    },
     collecting: {
       label: t("dataSources.searchConsole.statusCollecting"),
       className: "text-emerald-500",
@@ -2387,7 +2404,7 @@ export default function DataSources() {
       label: t("dataSources.notConfigured"),
       className: "text-muted-foreground",
     },
-  }[searchConsoleState(contentCollection.data)];
+  }[searchConsoleState(contentCollection.data, contentCollection.error)];
   const searchConsoleEntry: SourceEntry = {
     id: "google-search-console",
     name: t("dataSources.searchConsole.name"),
@@ -2402,7 +2419,9 @@ export default function DataSources() {
     ),
     status: contentCollection.isLoading ? undefined : searchConsoleLabel.label,
     statusClassName: searchConsoleLabel.className,
-    connected: searchConsoleState(contentCollection.data) === "collecting",
+    connected:
+      searchConsoleState(contentCollection.data, contentCollection.error) ===
+      "collecting",
     searchText: [
       t("dataSources.searchConsole.name"),
       t("dataSources.searchConsole.description"),

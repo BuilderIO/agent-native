@@ -3,12 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   deleteCredential: vi.fn(),
   deleteResolvedCredential: vi.fn(),
-  getScopedSettingRecord: vi.fn(),
   hasCredential: vi.fn(),
   installBuiltinDashboardOnce: vi.fn(),
-  putScopedSettingRecord: vi.fn(),
   resolveOrgRole: vi.fn(),
-  resolveRequestScope: vi.fn(),
   saveCredential: vi.fn(),
   tryRequestCredentialContext: vi.fn(),
 }));
@@ -41,12 +38,6 @@ vi.mock("../server/lib/builtin-dashboards", () => ({
   installBuiltinDashboardOnce: mocks.installBuiltinDashboardOnce,
 }));
 
-vi.mock("../server/lib/scoped-settings", () => ({
-  getScopedSettingRecord: mocks.getScopedSettingRecord,
-  putScopedSettingRecord: mocks.putScopedSettingRecord,
-  resolveRequestScope: mocks.resolveRequestScope,
-}));
-
 const { default: deleteDataSourceCredentials } =
   await import("./delete-data-source-credentials");
 const { default: updateDataSourceCredentials } =
@@ -56,12 +47,9 @@ describe("data source credential actions", () => {
   beforeEach(() => {
     mocks.deleteCredential.mockReset();
     mocks.deleteResolvedCredential.mockReset();
-    mocks.getScopedSettingRecord.mockReset();
     mocks.hasCredential.mockReset();
     mocks.installBuiltinDashboardOnce.mockReset();
-    mocks.putScopedSettingRecord.mockReset();
     mocks.resolveOrgRole.mockReset();
-    mocks.resolveRequestScope.mockReset();
     mocks.saveCredential.mockReset();
     mocks.tryRequestCredentialContext.mockReset();
     mockTrack.mockReset();
@@ -70,16 +58,11 @@ describe("data source credential actions", () => {
       userEmail: "ada@example.com",
       orgId: "org-1",
     });
-    mocks.resolveRequestScope.mockReturnValue({
-      email: "ada@example.com",
-      orgId: "org-1",
-    });
-    mocks.getScopedSettingRecord.mockResolvedValue(null);
     mocks.hasCredential.mockResolvedValue(false);
     mocks.resolveOrgRole.mockResolvedValue("member");
   });
 
-  it("saves recognized credentials and installs the GA built-in through action scope", async () => {
+  it("saves recognized credentials and installs the GA built-in in the personal credential scope", async () => {
     const serviceAccountJson = JSON.stringify({
       type: "service_account",
       private_key: "private-key",
@@ -120,7 +103,7 @@ describe("data source credential actions", () => {
       },
     );
     expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
-      { email: "ada@example.com", orgId: "org-1" },
+      { email: "ada@example.com", orgId: null },
       "google-analytics",
     );
   });
@@ -209,6 +192,10 @@ describe("data source credential actions", () => {
           "1234",
           { userEmail: "ada@example.com", orgId: "org-1", scope: "org" },
         );
+        expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+          { email: "ada@example.com", orgId: "org-1" },
+          "google-analytics",
+        );
       },
     );
 
@@ -216,11 +203,19 @@ describe("data source credential actions", () => {
       mocks.resolveOrgRole.mockResolvedValue("admin");
       await updateDataSourceCredentials.run({ vars, scope: "user" });
       expect(savedScopes()).toEqual(["user"]);
+      expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+        { email: "ada@example.com", orgId: null },
+        "google-analytics",
+      );
     });
 
     it("saves a member's credential personally by default", async () => {
       await updateDataSourceCredentials.run({ vars });
       expect(savedScopes()).toEqual(["user"]);
+      expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+        { email: "ada@example.com", orgId: null },
+        "google-analytics",
+      );
     });
 
     it("saves personally without an organization", async () => {
@@ -231,6 +226,10 @@ describe("data source credential actions", () => {
       await updateDataSourceCredentials.run({ vars });
       expect(savedScopes()).toEqual(["user"]);
       expect(mocks.resolveOrgRole).not.toHaveBeenCalled();
+      expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+        { email: "ada@example.com", orgId: null },
+        "google-analytics",
+      );
     });
 
     it("refuses a member's organization save with a 403 and writes nothing", async () => {
@@ -238,6 +237,7 @@ describe("data source credential actions", () => {
         updateDataSourceCredentials.run({ vars, scope: "org" }),
       ).rejects.toMatchObject({ statusCode: 403 });
       expect(mocks.saveCredential).not.toHaveBeenCalled();
+      expect(mocks.installBuiltinDashboardOnce).not.toHaveBeenCalled();
     });
 
     it("fails instead of saving personally when the role cannot be read", async () => {

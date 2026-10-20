@@ -149,9 +149,13 @@ export function runApplyDesignEditorCommand(
   }
 
   const editorView =
-    requestedEditorView === "single" || targetFile
-      ? "overview"
-      : requestedEditorView;
+    requestedEditorView === "single"
+      ? targetFile && !commandRequestsAnnotate(command)
+        ? "single"
+        : "overview"
+      : targetFile
+        ? "overview"
+        : requestedEditorView;
 
   const targetView = editorView ?? viewModeRef.current;
 
@@ -297,6 +301,14 @@ export function runApplyDesignEditorCommand(
           : undefined,
       );
     }
+  } else if (editorView === "single") {
+    viewModeRef.current = "single";
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setSelectedElement(null);
+    applyCommandTool("move");
+    setViewMode("single");
   } else if (effectiveCommandTool) {
     applyCommandTool("move");
   }

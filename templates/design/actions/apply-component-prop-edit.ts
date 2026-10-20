@@ -62,6 +62,7 @@ import {
   readLiteralJsxPropsAtAnchor,
   type LocalJsxSourceAnchor,
 } from "../shared/local-jsx-visual-edit.js";
+import { pruneDeletedNativeEffects } from "../shared/native-effect-pruning.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
@@ -764,6 +765,15 @@ async function persistLinkedComponentEdit(args: {
     };
   }
 
+  if (args.edit.kind === "structure") {
+    transformed = {
+      ...transformed,
+      changes: transformed.changes.map((change) => ({
+        ...change,
+        after: pruneDeletedNativeEffects(change.before, change.after),
+      })),
+    };
+  }
   const updated = new Map(
     transformed.changes.map((change) => [change.fileId, change.after]),
   );

@@ -45,22 +45,35 @@ vi.mock("@agent-native/core/settings", () => {
   };
 });
 
-import { BUILTIN_DASHBOARD_HIDDEN_BY } from "../../shared/builtin-dashboard-ids.js";
+import {
+  BUILTIN_DASHBOARD_HIDDEN_BY,
+  BUILTIN_DEMO_DASHBOARD_ID,
+  SEED_BUILTIN_DASHBOARD_IDS,
+} from "../../shared/builtin-dashboard-ids.js";
 import * as dbModule from "../db/index.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "./builtin-dashboard-checks-migration.js";
 import {
   restoreBuiltinDashboardPass,
   runBuiltinDashboardPass,
 } from "./builtin-dashboard-pass.js";
-import { loadBuiltinDashboard } from "./builtin-dashboards.js";
+import {
+  buildBuiltinDashboard,
+  installBuiltinDashboardOnce,
+  listBuiltinDashboards,
+  loadBuiltinDashboard,
+} from "./builtin-dashboards.js";
 import { DATA_NOTES_MIGRATION_SQL } from "./data-notes-migration.js";
-import { demoNodeExporterConfig } from "./demo-dashboards.js";
+import {
+  DEMO_DASHBOARD_STATE_KEY,
+  demoNodeExporterConfig,
+} from "./demo-dashboards.js";
 import {
   compileNativeV2Dashboard,
   getNativeV2DashboardManifest,
 } from "./native-v2-dashboards.js";
 
 const TABLES = [
+  `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE dashboards (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL,
     config TEXT NOT NULL, certification TEXT,
@@ -71,6 +84,7 @@ const TABLES = [
   )`,
   `CREATE TABLE dashboard_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL)`,
   `CREATE TABLE dashboard_views (id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL)`,
+  `CREATE TABLE dashboard_revisions (id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL)`,
   `CREATE TABLE dashboard_report_subscriptions (id TEXT PRIMARY KEY, dashboard_id TEXT NOT NULL)`,
   ...DATA_NOTES_MIGRATION_SQL,
   ...BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL,
@@ -216,6 +230,125 @@ describe("built-in dashboard deploy pass", () => {
     expect(checks.rows).toEqual([]);
   });
 
+  it("keeps a restored shipped config with revision history", async () => {
+    const id = "demo-node-exporter-00000001";
+    await insertCopy(id, legacyDemoConfig());
+    await client.query(`INSERT INTO dashboard_revisions VALUES ('r1', $1)`, [
+      id,
+    ]);
+
+    expect(await runBuiltinDashboardPass()).toMatchObject({
+      hidden: 0,
+      kept: 1,
+      keptByReason: { revisions: 1 },
+    });
+    expect((await row(id)).hidden_at).toBeNull();
+  });
+
+  it("keeps pristine copies whose bindings differ from the org install", async () => {
+    for (const suffix of ["0000000001", "0000000002"]) {
+      const config = compileNativeV2Dashboard(
+        getNativeV2DashboardManifest("customer-roi-v2"),
+        {
+          "roi.kpi": { programId: `dp-${suffix}-kpi` },
+          "roi.trend": { programId: `dp-${suffix}-trend` },
+          "roi.detail": { programId: `dp-${suffix}-detail` },
+        },
+        UPDATED_AT,
+      ) as unknown as Record<string, unknown>;
+      await insertCopy(`native-customer-roi-v2-${suffix}`, config, {
+        org_id: "org-1",
+        visibility: "org",
+      });
+    }
+
+    expect(await runBuiltinDashboardPass()).toMatchObject({
+      hidden: 1,
+      kept: 1,
+      keptByReason: { conflicting_install: 1 },
+    });
+    expect((await row("native-customer-roi-v2-0000000001")).hidden_by).toBe(
+      BUILTIN_DASHBOARD_HIDDEN_BY,
+    );
+    expect(
+      (await row("native-customer-roi-v2-0000000002")).hidden_at,
+    ).toBeNull();
+    const builtin = await loadBuiltinDashboard("builtin-customer-roi-v2", {
+      email: "alice@example.test",
+      orgId: "org-1",
+    });
+    expect(JSON.stringify(builtin?.config)).toContain("dp-0000000001-trend");
+  });
+
+  it("does not load or list a demo deleted by the reader", async () => {
+    mocks.settings.set(`u:alice@example.test:${DEMO_DASHBOARD_STATE_KEY}`, {
+      deleted: { "demo-node-exporter": UPDATED_AT },
+    });
+    const scope = { email: "alice@example.test", orgId: "org-1" };
+
+    expect(
+      await loadBuiltinDashboard(BUILTIN_DEMO_DASHBOARD_ID, scope),
+    ).toBeNull();
+    expect(
+      (await listBuiltinDashboards(scope)).map((dashboard) => dashboard.id),
+    ).not.toContain(BUILTIN_DEMO_DASHBOARD_ID);
+    expect(
+      await loadBuiltinDashboard(BUILTIN_DEMO_DASHBOARD_ID, {
+        ...scope,
+        email: "bob@example.test",
+      }),
+    ).not.toBeNull();
+  });
+
+  it("lists a personal GA install with an active org without sharing it", async () => {
+    await installBuiltinDashboardOnce(
+      { email: "alice@example.test", orgId: null },
+      "google-analytics",
+    );
+    const ownerScope = { email: "alice@example.test", orgId: "org-1" };
+    expect(
+      (await listBuiltinDashboards(ownerScope)).map(
+        (dashboard) => dashboard.id,
+      ),
+    ).toContain("google-analytics");
+    expect(
+      (
+        await listBuiltinDashboards({
+          ...ownerScope,
+          email: "bob@example.test",
+        })
+      ).map((dashboard) => dashboard.id),
+    ).not.toContain("google-analytics");
+
+    await installBuiltinDashboardOnce(ownerScope, "google-analytics");
+    expect(
+      mocks.settings.get("o:org-1:analytics-builtin-dashboards"),
+    ).toMatchObject({
+      "google-analytics": { installedBy: "alice@example.test" },
+    });
+    expect(
+      (
+        await listBuiltinDashboards({
+          ...ownerScope,
+          email: "bob@example.test",
+        })
+      ).map((dashboard) => dashboard.id),
+    ).toContain("google-analytics");
+    expect(
+      (await listBuiltinDashboards(ownerScope)).filter(
+        (dashboard) => dashboard.id === "google-analytics",
+      ),
+    ).toHaveLength(1);
+    expect(
+      (
+        await listBuiltinDashboards({
+          email: "bob@example.test",
+          orgId: "org-2",
+        })
+      ).map((dashboard) => dashboard.id),
+    ).not.toContain("google-analytics");
+  });
+
   it("restores what it hid, and never hides those copies again", async () => {
     await insertCopy("demo-node-exporter-0a1b2c3d", legacyDemoConfig());
     await runBuiltinDashboardPass();
@@ -264,4 +397,173 @@ describe("built-in dashboard deploy pass", () => {
     });
     expect(JSON.stringify(builtin?.config)).toContain("dp-roi-trend");
   });
+
+  it("does not adopt an edited copy's bindings before an untouched copy", async () => {
+    const manifest = getNativeV2DashboardManifest("customer-roi-v2");
+    for (const [suffix, edited] of [
+      ["0000000001", true],
+      ["0000000002", false],
+    ] as const) {
+      const config = compileNativeV2Dashboard(
+        manifest,
+        {
+          "roi.kpi": { programId: `dp-${suffix}-kpi` },
+          "roi.trend": { programId: `dp-${suffix}-trend` },
+          "roi.detail": { programId: `dp-${suffix}-detail` },
+        },
+        UPDATED_AT,
+      ) as unknown as Record<string, unknown>;
+      if (edited) config.name = "My ROI dashboard";
+      await insertCopy(`native-customer-roi-v2-${suffix}`, config, {
+        org_id: "org-1",
+        visibility: "org",
+      });
+      if (edited) {
+        expect(await runBuiltinDashboardPass()).toMatchObject({ kept: 1 });
+        expect(mocks.settings.size).toBe(0);
+      }
+    }
+
+    expect(await runBuiltinDashboardPass()).toMatchObject({ hidden: 1 });
+    expect(
+      (await row("native-customer-roi-v2-0000000001")).hidden_at,
+    ).toBeNull();
+    const builtin = await loadBuiltinDashboard("builtin-customer-roi-v2", {
+      email: "bob@example.test",
+      orgId: "org-1",
+    });
+    expect(JSON.stringify(builtin?.config)).toContain("dp-0000000002-trend");
+    expect(JSON.stringify(builtin?.config)).not.toContain("dp-0000000001");
+  });
+
+  it("does not adopt bindings when the copy changes before the hide", async () => {
+    const id = "native-customer-roi-v2-0123456789";
+    const config = compileNativeV2Dashboard(
+      getNativeV2DashboardManifest("customer-roi-v2"),
+      {
+        "roi.kpi": { programId: "dp-roi-kpi" },
+        "roi.trend": { programId: "dp-roi-trend" },
+        "roi.detail": { programId: "dp-roi-detail" },
+      },
+      UPDATED_AT,
+    ) as unknown as Record<string, unknown>;
+    await insertCopy(id, config, { org_id: "org-1", visibility: "org" });
+    const db = mocks.getDb();
+    const transaction = db.transaction.bind(db);
+    vi.spyOn(db, "transaction").mockImplementationOnce(
+      async (callback: any) => {
+        await client.query(
+          `UPDATE dashboards SET title = 'Edited during pass', updated_at = $1 WHERE id = $2`,
+          ["2026-09-02T00:00:00.000Z", id],
+        );
+        return transaction(callback);
+      },
+    );
+
+    expect(await runBuiltinDashboardPass()).toMatchObject({
+      checked: 0,
+      hidden: 0,
+      kept: 0,
+      skippedConcurrent: 1,
+      byBuiltin: {},
+    });
+
+    expect((await row(id)).hidden_at).toBeNull();
+    expect(mocks.settings.size).toBe(0);
+    expect(
+      await loadBuiltinDashboard("builtin-customer-roi-v2", {
+        email: "bob@example.test",
+        orgId: "org-1",
+      }),
+    ).toBeNull();
+    expect(
+      (await client.query(`SELECT * FROM analytics_builtin_dashboard_checks`))
+        .rows,
+    ).toEqual([]);
+    expect(await runBuiltinDashboardPass()).toMatchObject({
+      kept: 1,
+      hidden: 0,
+    });
+  });
+
+  it.each([
+    ["dashboard_views", "saved_views"],
+    ["dashboard_revisions", "revisions"],
+    ["dashboard_report_subscriptions", "report_subscriptions"],
+  ])(
+    "keeps a copy when %s is added after the reference scan",
+    async (table, reason) => {
+      const id = "native-customer-roi-v2-0123456789";
+      const config = compileNativeV2Dashboard(
+        getNativeV2DashboardManifest("customer-roi-v2"),
+        {
+          "roi.kpi": { programId: "dp-roi-kpi" },
+          "roi.trend": { programId: "dp-roi-trend" },
+          "roi.detail": { programId: "dp-roi-detail" },
+        },
+        UPDATED_AT,
+      ) as unknown as Record<string, unknown>;
+      await insertCopy(id, config, { org_id: "org-1", visibility: "org" });
+      const db = mocks.getDb();
+      const transaction = db.transaction.bind(db);
+      vi.spyOn(db, "transaction").mockImplementationOnce(
+        async (callback: any) => {
+          await client.query(
+            `INSERT INTO ${table} VALUES ('concurrent-reference', $1)`,
+            [id],
+          );
+          return transaction(callback);
+        },
+      );
+
+      expect(await runBuiltinDashboardPass()).toMatchObject({
+        checked: 1,
+        hidden: 0,
+        kept: 1,
+        skippedConcurrent: 0,
+        keptByReason: { [reason]: 1 },
+        byBuiltin: { "builtin-customer-roi-v2": { hidden: 0, kept: 1 } },
+      });
+      expect(await row(id)).toMatchObject({
+        hidden_at: null,
+        updated_at: UPDATED_AT,
+      });
+      expect(mocks.settings.size).toBe(0);
+      expect(
+        (
+          await client.query(
+            `SELECT outcome, reasons FROM analytics_builtin_dashboard_checks`,
+          )
+        ).rows,
+      ).toEqual([{ outcome: "kept", reasons: JSON.stringify([reason]) }]);
+    },
+  );
+
+  it.each(SEED_BUILTIN_DASHBOARD_IDS)(
+    "keeps the hidden %s seed discoverable in its org's built-in list",
+    async (id) => {
+      const shipped = buildBuiltinDashboard(id)!;
+      await insertCopy(id, shipped.config, {
+        org_id: "org-1",
+        visibility: "org",
+      });
+
+      expect(await runBuiltinDashboardPass()).toMatchObject({ hidden: 1 });
+      const dashboards = await listBuiltinDashboards({
+        email: "bob@example.test",
+        orgId: "org-1",
+      });
+      expect(dashboards.find((dashboard) => dashboard.id === id)).toEqual(
+        shipped,
+      );
+      expect(
+        (
+          await listBuiltinDashboards({
+            email: "bob@example.test",
+            orgId: "org-2",
+          })
+        ).map((dashboard) => dashboard.id),
+      ).not.toContain(id);
+    },
+  );
 });

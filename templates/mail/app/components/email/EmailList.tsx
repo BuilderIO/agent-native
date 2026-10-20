@@ -105,6 +105,7 @@ import {
   useSendScheduledJobNow,
 } from "@/hooks/use-scheduled-jobs";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
+import { mailThreadHref } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
@@ -218,7 +219,7 @@ interface EmailListProps {
   ) => void;
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
-  onNavigateThread?: (threadId: string) => void;
+  onNavigateThread?: (threadId: string, accountEmail?: string) => void;
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
   jevAvailabilityLoading?: boolean;
@@ -553,9 +554,6 @@ export function EmailList({
     showPrioritySort && view === "inbox" && !searchQuery && !labelParam
       ? sortMode
       : "newest";
-  const routeSearchSuffix = searchParams.toString()
-    ? `?${searchParams.toString()}`
-    : "";
   const [aiFilterDialog, setAiFilterDialog] = useState<{
     action: "filter" | "keep";
     targets: AiFilterTarget[];
@@ -1232,8 +1230,15 @@ export function EmailList({
     void ensureThread(targetThreadId, thread.latestMessage.accountEmail).catch(
       () => {},
     );
-    onNavigateThread?.(targetThreadId);
-    void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+    onNavigateThread?.(targetThreadId, thread.latestMessage.accountEmail);
+    void navigate(
+      mailThreadHref(
+        view,
+        targetThreadId,
+        searchParams,
+        thread.latestMessage.accountEmail,
+      ),
+    );
     if (thread.hasUnread) {
       setTimeout(
         () =>
@@ -1249,7 +1254,7 @@ export function EmailList({
     view,
     navigate,
     markThreadRead,
-    routeSearchSuffix,
+    searchParams,
     queryClient,
     setSelectedIds,
   ]);
@@ -1995,8 +2000,10 @@ export function EmailList({
         return;
       }
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      onNavigateThread?.(targetThreadId);
-      void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+      onNavigateThread?.(targetThreadId, email.accountEmail);
+      void navigate(
+        mailThreadHref(view, targetThreadId, searchParams, email.accountEmail),
+      );
       if (thread.hasUnread) {
         setTimeout(
           () =>
@@ -2015,7 +2022,7 @@ export function EmailList({
       onNavigateThread,
       navigate,
       view,
-      routeSearchSuffix,
+      searchParams,
       markThreadRead,
     ],
   );
