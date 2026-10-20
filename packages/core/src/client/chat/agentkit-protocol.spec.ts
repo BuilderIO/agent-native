@@ -4091,22 +4091,42 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("reuses a replayed runtime run ID for the same thread and turn", async () => {
+  it("drains a replayed runtime run ID stream for the same thread and turn", async () => {
     let startCount = 0;
     const discardedStreamClosed = vi.fn(async () => ({
       done: true as const,
       value: undefined,
     }));
+    const discardedStreamRead = Promise.withResolvers<void>();
+    const discardedStreamDrained = Promise.withResolvers<void>();
+    let releaseDiscardedStream!: () => void;
+    const discardedStreamGate = new Promise<void>((resolve) => {
+      releaseDiscardedStream = resolve;
+    });
     const discardedTurnClosed = vi.fn();
     const discardedTurnCancelled = vi.fn(async () => ({
       status: "cancelled" as const,
     }));
     const discardedEvents: AsyncIterable<AgentChatRuntimeEvent> = {
-      [Symbol.asyncIterator]: () => ({
-        next: () =>
-          new Promise<IteratorResult<AgentChatRuntimeEvent>>(() => {}),
-        return: discardedStreamClosed,
-      }),
+      [Symbol.asyncIterator]: () => {
+        let yieldedReplayEvent = false;
+        return {
+          next: async () => {
+            if (!yieldedReplayEvent) {
+              yieldedReplayEvent = true;
+              return {
+                done: false,
+                value: { type: "done", reason: "complete" },
+              };
+            }
+            discardedStreamRead.resolve();
+            await discardedStreamGate;
+            discardedStreamDrained.resolve();
+            return { done: true, value: undefined };
+          },
+          return: discardedStreamClosed,
+        };
+      },
     };
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };
@@ -4148,9 +4168,12 @@ describe("createAgentKitProtocolAdapter", () => {
 
     expect(replay.runId).toBe(first.runId);
     expect(startTurn).toHaveBeenCalledTimes(2);
-    expect(discardedStreamClosed).toHaveBeenCalledOnce();
-    expect(discardedTurnClosed).toHaveBeenCalledOnce();
+    await discardedStreamRead.promise;
+    expect(discardedStreamClosed).not.toHaveBeenCalled();
+    expect(discardedTurnClosed).not.toHaveBeenCalled();
     expect(discardedTurnCancelled).not.toHaveBeenCalled();
+    releaseDiscardedStream();
+    await discardedStreamDrained.promise;
     await transport.dispose();
   });
 
