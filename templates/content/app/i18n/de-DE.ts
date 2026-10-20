@@ -1037,6 +1037,10 @@ const comments = {
   accepted: "Angenommen",
   rejected: "Abgelehnt",
   noFilteredComments: "Keine passenden Kommentare.",
+  tabFilter: "Tab",
+  allTabs: "Alle Tabs",
+  fieldRemoved: "{{name}} (entfernt)",
+  pageBody: "Seiteninhalt",
 };
 
 const reviewDiscussions = {
@@ -1460,6 +1464,8 @@ const overrides = {
     addBlockField: "Feld hinzufügen",
     blockFieldChanged: "Seit Ihrem letzten Aufruf geändert",
     blockFieldTabs: "Felder",
+    blockFieldOpenComments_one: "{{count}} offener Kommentar",
+    blockFieldOpenComments_other: "{{count}} offene Kommentare",
     blockFieldMenu: "Optionen für {{name}}",
     blockFieldMenuScope: "Gilt für jede Zeile dieser Sammlung",
     blockFieldName: "Feldname",
