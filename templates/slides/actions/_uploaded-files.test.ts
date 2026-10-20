@@ -157,6 +157,25 @@ describe("readUserUploadedFile", () => {
     });
   });
 
+  it("does not count an image file as a generic document candidate", async () => {
+    const ref = await mint("brief.docx", Buffer.from("PK-docx"));
+
+    await expect(
+      inOrg("org-one", () =>
+        readUserUploadedFile("the attached document", {
+          attachments: [
+            { type: "file", name: "brief.docx", slidesUploadPath: ref },
+            {
+              type: "file",
+              name: "logo.png",
+              url: "https://cdn.example.com/logo.png",
+            },
+          ],
+        }),
+      ),
+    ).resolves.toMatchObject({ filename: "brief.docx" });
+  });
+
   it("does not substitute a sole upload for a specific unmatched filename", async () => {
     const ref = await mint("brief.docx", Buffer.from("PK-docx"));
 
@@ -167,6 +186,58 @@ describe("readUserUploadedFile", () => {
             { type: "file", name: "brief.docx", slidesUploadPath: ref },
           ],
         }),
+      ),
+    ).rejects.toMatchObject({
+      details: { attachmentStatus: "malformed", reason: "unrecognized_scheme" },
+    });
+  });
+
+  it("resolves a format-specific reference only to the matching file type", async () => {
+    const pdfRef = await mint("brief.pdf", Buffer.from("%PDF"));
+    const docxRef = await mint("notes.docx", Buffer.from("PK-docx"));
+
+    await expect(
+      inOrg("org-one", () =>
+        readUserUploadedFile("the attached PDF", {
+          attachments: [
+            { type: "file", name: "notes.docx", slidesUploadPath: docxRef },
+            { type: "file", name: "brief.pdf", slidesUploadPath: pdfRef },
+          ],
+        }),
+      ),
+    ).resolves.toMatchObject({ filename: "brief.pdf" });
+  });
+
+  it("does not resolve a format-specific reference to another file type", async () => {
+    const ref = await mint("brief.docx", Buffer.from("PK-docx"));
+
+    await expect(
+      inOrg("org-one", () =>
+        readUserUploadedFile("PPTX", {
+          attachments: [
+            { type: "file", name: "brief.docx", slidesUploadPath: ref },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      details: { attachmentStatus: "malformed", reason: "unrecognized_scheme" },
+    });
+  });
+
+  it("limits a generic document reference to the import format", async () => {
+    const ref = await mint("brief.pdf", Buffer.from("%PDF"));
+
+    await expect(
+      inOrg("org-one", () =>
+        readUserUploadedFile(
+          "the attached document",
+          {
+            attachments: [
+              { type: "file", name: "brief.pdf", slidesUploadPath: ref },
+            ],
+          },
+          { expectedExtensions: [".docx"] },
+        ),
       ),
     ).rejects.toMatchObject({
       details: { attachmentStatus: "malformed", reason: "unrecognized_scheme" },

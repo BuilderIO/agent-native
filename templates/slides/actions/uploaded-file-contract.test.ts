@@ -227,7 +227,7 @@ describe("one reader for every Slides action that accepts a file", () => {
     ]);
     for (const file of readers) {
       const source = readFileSync(path.join(actionsDir, file), "utf8");
-      expect(source).toMatch(/readUserUploadedFile\(filePath, ctx\)/);
+      expect(source).toMatch(/readUserUploadedFile\(filePath, ctx(?:,|\))/);
     }
   });
 

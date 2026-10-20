@@ -16,9 +16,41 @@ import {
 import { resolveUploadedReference } from "../server/lib/uploaded-reference-storage.js";
 
 const GENERIC_DOCUMENT_REFERENCE =
-  /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?(?:word document|word doc|document|docx|pdf|pptx|powerpoint presentation|presentation)(?: file)?$/i;
+  /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?document(?: file)?$/i;
 const GENERIC_ATTACHMENT_REFERENCE =
   /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?(?:file|attachment)$/i;
+const FORMAT_DOCUMENT_REFERENCES = [
+  {
+    extension: ".docx",
+    pattern:
+      /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?(?:word document|word doc|docx)(?: file)?$/i,
+  },
+  {
+    extension: ".pdf",
+    pattern:
+      /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?pdf(?: document| file)?$/i,
+  },
+  {
+    extension: ".pptx",
+    pattern:
+      /^(?:(?:the|this|that|a|an) )?(?:(?:current|attached|uploaded) )?(?:pptx|presentation|powerpoint presentation)(?: file)?$/i,
+  },
+] as const;
+const IMAGE_ATTACHMENT_EXTENSION = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i;
+
+function isDocumentAttachment(
+  attachment: NonNullable<ActionRunContext["attachments"]>[number],
+): boolean {
+  const contentType = (attachment as { contentType?: unknown }).contentType;
+  return (
+    (attachment.type === "file" || attachment.type === "document") &&
+    !(
+      typeof contentType === "string" &&
+      contentType.toLowerCase().startsWith("image/")
+    ) &&
+    !IMAGE_ATTACHMENT_EXTENSION.test(attachment.name)
+  );
+}
 
 /**
  * Resolve a name or URL through the current turn's stamped upload. If the model
@@ -28,6 +60,7 @@ const GENERIC_ATTACHMENT_REFERENCE =
 function stampedReference(
   filePath: string,
   attachments: ActionRunContext["attachments"],
+  expectedExtensions?: readonly string[],
 ): string | null {
   const wanted = filePath.trim();
   const candidates = attachments ?? [];
@@ -49,21 +82,37 @@ function stampedReference(
   }
   if (/[/\\:]/.test(wanted)) return null;
 
-  const genericDocument = GENERIC_DOCUMENT_REFERENCE.test(
-    wanted.replace(/\s+/g, " "),
+  const normalizedWanted = wanted.replace(/\s+/g, " ");
+  const formatReference = FORMAT_DOCUMENT_REFERENCES.find(({ pattern }) =>
+    pattern.test(normalizedWanted),
   );
-  const genericAttachment = GENERIC_ATTACHMENT_REFERENCE.test(
-    wanted.replace(/\s+/g, " "),
-  );
-  if (!genericDocument && !genericAttachment) return null;
+  if (
+    formatReference &&
+    expectedExtensions &&
+    !expectedExtensions.includes(formatReference.extension)
+  ) {
+    return null;
+  }
+  const genericDocument = GENERIC_DOCUMENT_REFERENCE.test(normalizedWanted);
+  const genericAttachment = GENERIC_ATTACHMENT_REFERENCE.test(normalizedWanted);
+  if (!genericDocument && !genericAttachment && !formatReference) return null;
 
-  const eligible = genericDocument
-    ? candidates.filter(
-        (attachment) =>
-          attachment.type === "file" || attachment.type === "document",
-      )
-    : candidates;
+  const eligible = genericAttachment
+    ? candidates
+    : candidates.filter(isDocumentAttachment).filter((attachment) => {
+        const extension = path.extname(attachment.name).toLowerCase();
+        return (
+          (!formatReference || extension === formatReference.extension) &&
+          (!expectedExtensions || expectedExtensions.includes(extension))
+        );
+      });
   if (eligible.length !== 1) return null;
+  if (
+    expectedExtensions &&
+    !expectedExtensions.includes(path.extname(eligible[0]!.name).toLowerCase())
+  ) {
+    return null;
+  }
 
   const stamped = (eligible[0] as { slidesUploadPath?: unknown })
     .slidesUploadPath;
@@ -79,13 +128,18 @@ function stampedReference(
 export async function readUserUploadedFile(
   filePath: string,
   ctx?: Pick<ActionRunContext, "attachments">,
+  options?: { expectedExtensions?: readonly string[] },
 ): Promise<{ data: Buffer; filename: string }> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
 
   const reference = isAttachmentRef(filePath)
     ? filePath
-    : (stampedReference(filePath, ctx?.attachments) ?? filePath);
+    : (stampedReference(
+        filePath,
+        ctx?.attachments,
+        options?.expectedExtensions,
+      ) ?? filePath);
   if (isAttachmentRef(reference)) {
     const { data, filename } = unwrapAttachment(
       await resolveUploadedReference(reference, email),

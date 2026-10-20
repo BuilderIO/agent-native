@@ -366,7 +366,7 @@ export async function prepareSlidesChatAttachments(args: {
           fileList,
           "",
           "File handling rules:",
-          "- Pass `filePath` exactly as listed above, or use the attachment's exact file name. If its name is unclear, use a generic reference such as `the attached document` only when exactly one document is attached. Do not substitute a specific unmatched filename. Never shorten, edit, or re-type a path.",
+          "- Pass `filePath` exactly as listed above, or use the attachment's exact file name. If its name is unclear, use a generic reference such as `the attached document` only when exactly one compatible document is attached. Do not substitute a specific unmatched filename. Never shorten, edit, or re-type a path.",
           '- Attachments are reference context by default. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call `view-screen` when the deckId is not already known, then call `import-file` with `{ filePath: "<path>", format: "pdf" or "pptx", deckId: "<deckId>", importIntoDeck: true }`. Verify the result reports `imported: true` and a positive `slideCount`; do not use extraction-only mode or recreate the imported pages with `add-slide`.',
           "- An attachment alone never imports. Use `import-pptx` with `deckId` only for an explicit whole-deck replacement because it replaces all slides.",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
