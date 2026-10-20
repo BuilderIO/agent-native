@@ -9,7 +9,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { GITHUB_SOURCE_TYPE } from "../shared/github-source.js";
 import { readGitHubSourceState } from "./_github-source-metadata.js";
-import { syncGitHubSource, type GitHubSyncResult } from "./_github-source.js";
+import {
+  syncGitHubSource,
+  waitForGitHubSync,
+  type GitHubSyncResult,
+} from "./_github-source.js";
 
 /**
  * A link checked longer ago than this checks GitHub before it's read. A sync
@@ -93,11 +97,19 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
   if (!link || checkedWithin(link.lastRefreshedAt, GITHUB_SOURCE_STALE_MS)) {
     return false;
   }
+  const until = Date.now() + READ_SYNC_BUDGET_MS;
   try {
     const result = await syncGitHubSource({
       sourceId: link.sourceId,
       budgetMs: READ_SYNC_BUDGET_MS,
     });
+    if (result.state === "busy") {
+      // Another read or the background sync is checking GitHub. Wait for it
+      // in this read's time, then read again: it may have changed rows even
+      // if it hasn't finished.
+      await waitForGitHubSync(link.sourceId, until);
+      return true;
+    }
     announceSync(link, linkedBy(link), result);
     return githubSyncChangedRows(result);
   } catch (error) {
@@ -132,7 +144,7 @@ export async function refreshGitHubSourceBeforeRead(databaseId: string) {
 
 /**
  * The same check for a read of one page that follows a GitHub file. True when
- * the sync changed rows, so the caller reads the page again.
+ * a sync changed or may have changed rows, so the caller reads the page again.
  */
 export async function refreshGitHubPageBeforeRead(documentId: string) {
   const [link] = await getDb()

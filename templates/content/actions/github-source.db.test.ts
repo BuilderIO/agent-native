@@ -1308,6 +1308,30 @@ describe("GitHub folder freshness", () => {
     expect(await faqContent()).not.toContain("forum");
   });
 
+  it("waits for a sync already running before it answers a stale read", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    const reading = new Promise<void>((started) => {
+      github.state.duringBlobRead = async () => {
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      };
+    });
+    const id = await sourceId(database.id);
+    const background = as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 20_000 }),
+    );
+    await reading;
+
+    const page = await as(() => getDocument.run({ id: faq.documentId }));
+    expect(page.content).toContain("Answers moved to the forum.");
+    await expect(background).resolves.toMatchObject({ state: "synced" });
+  });
+
   it("syncs every stale link in the background as the person who linked it", async () => {
     const stale = await linkBaseFolder();
     const recent = await linkBaseFolder();
