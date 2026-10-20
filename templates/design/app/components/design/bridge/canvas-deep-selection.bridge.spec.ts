@@ -47,6 +47,13 @@ const NESTED_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const NESTED_OVERLAPPING_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="underlay" style="position:absolute;left:40px;top:40px;width:320px;height:260px;background:#111827"></div>
+  <div data-agent-native-node-id="container" style="position:absolute;left:40px;top:40px;width:320px;height:260px;background:#1f2937">
+    <div data-agent-native-node-id="kid" style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#3b82f6"></div>
+  </div>
+</body></html>`;
+
 const DRILLED_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
   <div data-agent-native-node-id="outer" data-an-primitive="frame" style="position:absolute;left:40px;top:40px;width:320px;height:260px;background:#111827">
     <div data-agent-native-node-id="middle" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:280px;height:220px;background:#1f2937">
@@ -201,6 +208,59 @@ describe("canvas deep selection modifiers", () => {
       );
 
       for (const expected of ["leaf", "inner", "middle", "outer"]) {
+        const elementSelectCount = await messageCount(page, "element-select");
+        await page.keyboard.down("Meta");
+        await page.mouse.click(130, 120);
+        await page.keyboard.up("Meta");
+        await waitForMessageAfter(page, "element-select", elementSelectCount);
+        expect(await lastSelectedSourceId(page)).toBe(expected);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("modifier-clicks past a nested child and selected container to an overlapping layer beneath", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(NESTED_OVERLAPPING_SELECTION_FIXTURE);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.source === window)
+            (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+      await page.addStyleTag({
+        content:
+          "body{position:relative;z-index:2147483647;width:100vw;height:100vh}",
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "agent-native:editor-chrome-ready",
+        ),
+      );
+
+      await page.evaluate(() => {
+        const selector = '[data-agent-native-node-id="container"]';
+        window.postMessage(
+          { type: "select-element", selector, selectorCandidates: [selector] },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "element-select" &&
+            !Array.isArray(message.payload) &&
+            message.payload?.sourceId === "container",
+        ),
+      );
+
+      for (const expected of ["kid", "container", "underlay"]) {
         const elementSelectCount = await messageCount(page, "element-select");
         await page.keyboard.down("Meta");
         await page.mouse.click(130, 120);

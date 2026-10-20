@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resolveTarExecutable } from "./tar-command.js";
+
 export type BaselineSlot = "baseline" | "pending";
 
 export interface BaselineStore {
@@ -104,7 +106,7 @@ export function writeBaseline(
   if (!store.gitDir) {
     const file = baselineTarballPath(store, slot);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    execFileSync("tar", ["-czf", file, "-C", sourceDir, "."], {
+    execFileSync(resolveTarExecutable(), ["-czf", file, "-C", sourceDir, "."], {
       stdio: "pipe",
     });
     return { kind: "tarball", location: file, configuredRefspecs: [] };
@@ -207,7 +209,9 @@ export function materializeBaseline(
         fs.rmSync(out, { recursive: true, force: true });
         return null;
       }
-      execFileSync("tar", ["-xzf", file, "-C", out], { stdio: "pipe" });
+      execFileSync(resolveTarExecutable(), ["-xzf", file, "-C", out], {
+        stdio: "pipe",
+      });
       return out;
     }
 
@@ -229,7 +233,7 @@ export function materializeBaseline(
     git(store, args);
     const strip = store.prefix ? store.prefix.split("/").length : 0;
     execFileSync(
-      "tar",
+      resolveTarExecutable(),
       [
         "-xf",
         tarPath,

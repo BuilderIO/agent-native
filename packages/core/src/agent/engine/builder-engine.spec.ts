@@ -224,6 +224,43 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).toContain("z-ai-glm-5-3-flash");
   });
 
+  it("does not send the gateway request when the dispatch guard denies it", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchSpy);
+    const beforeModelDispatch = vi.fn(async <T>(_dispatch: () => T) => ({
+      started: false as const,
+    }));
+    const onModelDispatchStarted = vi.fn();
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        beforeModelDispatch,
+        onModelDispatchStarted,
+      }),
+    );
+
+    expect(beforeModelDispatch).toHaveBeenCalledOnce();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(onModelDispatchStarted).not.toHaveBeenCalled();
+  });
+
+  it("propagates dispatch-gate errors instead of classifying them as gateway transport failures", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchSpy);
+    const dispatchError = new Error("database connection terminated");
+    const beforeModelDispatch = async <T>(_dispatch: () => T) => {
+      throw dispatchError;
+    };
+
+    await expect(
+      collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, beforeModelDispatch }),
+      ),
+    ).rejects.toBe(dispatchError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("preserves optional action schemas in GPT gateway requests", async () => {
     const inputSchema = {
       type: "object",
@@ -1744,6 +1781,43 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("builder_gateway_network_error");
     expect(stop?.error).toContain("Builder gateway network error");
     expect(stop?.error).toContain("socket hang up");
+  });
+
+  it("observes a gateway rejection while the dispatch guard is still pending", async () => {
+    let releaseGuard!: () => void;
+    const beforeModelDispatch = async <T>(dispatch: () => T) => {
+      const value = dispatch();
+      await new Promise<void>((resolve) => {
+        releaseGuard = resolve;
+      });
+      return { started: true as const, value };
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("socket hang up")),
+    );
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const eventsPromise = collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, beforeModelDispatch }),
+      );
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandledRejections).toEqual([]);
+
+      releaseGuard();
+      const events = await eventsPromise;
+      const stop = events.find((event) => event.type === "stop");
+      expect(stop?.errorCode).toBe("builder_gateway_network_error");
+      expect(stop?.error).toContain("socket hang up");
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
   });
 
   it("tags Anthropic bare Connection error. stop events as gateway network errors", async () => {

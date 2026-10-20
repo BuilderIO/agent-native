@@ -407,6 +407,7 @@ test.describe("auto layout", () => {
       "align-items": "flex-start",
       gap: "10px",
     });
+    await expect(app.node("abs-intro")).toHaveCSS("align-items", "flex-start");
     expect(childrenOf(after, "abs-intro")).toStrictEqual([
       "abs-title",
       "abs-sub",

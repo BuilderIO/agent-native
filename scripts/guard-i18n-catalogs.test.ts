@@ -89,6 +89,42 @@ const content = <div>Visible text</div>, status: Ready;
       ["templates/design/example.tsx|Visible text"],
     );
   });
+
+  it("skips nested TypeScript type arguments while reporting matching UI text", () => {
+    const cases = [
+      {
+        file: "templates/design/nested-types.ts",
+        source: `
+const tokens = new Map<NativePresentationLease<Context>, LeaseState<Context>>();
+const result = task.then<PromiseSettledResult<void>, PromiseSettledResult<void>>(
+  onFulfilled,
+  onRejected,
+);
+`,
+      },
+      {
+        file: "templates/design/nested-types.tsx",
+        source: `
+type Slots = Map<NativePresentationLease<Context>, LeaseState<Context>>;
+const result = task.then<PromiseSettledResult<void>, PromiseSettledResult<void>>();
+const message = <span>, LeaseState</span>;
+const toast = <Button aria-label=", PromiseSettledResult" />;
+toast.error(", LeaseState");
+`,
+      },
+    ];
+
+    assert.deepEqual(
+      cases.flatMap(({ file, source }) =>
+        checkRawVisibleLiteralFile(file, source).map(({ id }) => id),
+      ),
+      [
+        "templates/design/nested-types.tsx|, LeaseState",
+        "templates/design/nested-types.tsx|, PromiseSettledResult",
+        "templates/design/nested-types.tsx|, LeaseState",
+      ],
+    );
+  });
 });
 
 describe("catalog development markers", () => {

@@ -58,7 +58,6 @@ async function expectHeaderThenSections(page: Page): Promise<void> {
     .toBe(true);
 }
 
-// oracle: none — structural: the tab row is gone and the sections run in the ticket's order.
 test("opens on the element header, then the sections in order, with no tab row", async ({
   page,
 }) => {
@@ -69,7 +68,6 @@ test("opens on the element header, then the sections in order, with no tab row",
 });
 
 for (const tab of ["comments", "tweaks", "code"]) {
-  // oracle: none — a URL that asks for a removed tab lands on the one inspector.
   test(`ignores ?inspector=${tab} and stays on the design inspector`, async ({
     page,
   }) => {
@@ -85,7 +83,6 @@ for (const tab of ["comments", "tweaks", "code"]) {
   });
 }
 
-// oracle: none — the inspector belongs to Design; Interact has none.
 test("hides the inspector in Interact and brings it back in Design", async ({
   page,
 }) => {
@@ -101,7 +98,6 @@ test("hides the inspector in Interact and brings it back in Design", async ({
   await expect(inspector(page)).toBeVisible();
 });
 
-// oracle: none — structural: header and section headers share one grid box.
 test("puts the header and every section header on one shared grid box", async ({
   page,
 }) => {

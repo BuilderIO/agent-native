@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { enterInteract } from "./interact-helpers";
 
-// oracle: none — the frame's rect before and after each gesture is the assertion.
 test("the wheel, a pinch, a middle or Space drag and the zoom keys leave the Interact frame where it is", async ({
   page,
 }) => {
@@ -70,7 +69,6 @@ test("the wheel, a pinch, a middle or Space drag and the zoom keys leave the Int
 
 const ZOOM = "[data-design-top-bar] [data-design-interact-zoom]";
 
-// oracle: none — the preview's rendered width at each zoom is the assertion.
 test("the zoom control scales the preview, keeps its choice across devices and resets on exit", async ({
   page,
 }) => {

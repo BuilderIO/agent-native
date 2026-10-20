@@ -325,9 +325,19 @@ function ConnectedRow({
       }
       description={
         server.status.state === "connected"
-          ? `${scope} · ${t("mcpIntegrations.toolsAvailable", {
-              count: server.status.toolCount,
-            })}`
+          ? [
+              scope,
+              t("mcpIntegrations.toolsAvailable", {
+                count: server.status.toolCount,
+              }),
+              ...(server.status.error
+                ? [
+                    t("mcpIntegrations.connectionErrorReason", {
+                      reason: server.status.error,
+                    }),
+                  ]
+                : []),
+            ].join(" · ")
           : server.status.state === "error"
             ? t("mcpIntegrations.connectionErrorReason", {
                 reason: server.status.error,
@@ -450,6 +460,10 @@ function IntegrationDetail({
 
   const connect = async () => {
     if (unavailable || signIn === "token") return;
+    if (integration.id === "hubspot") {
+      setSetupOpen(true);
+      return;
+    }
     // No preset URL (Sigma's is per account): the connect dialog asks for it.
     if (!integration.url.trim()) {
       setSetupOpen(true);

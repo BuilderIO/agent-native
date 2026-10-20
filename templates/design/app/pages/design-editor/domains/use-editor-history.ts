@@ -20,7 +20,10 @@ import {
 import { type StyleChangeMeta } from "@/components/design/EditPanel";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type { ElementInfo } from "@/components/design/types";
-import { rememberBuilderHostOrigin } from "@/lib/builder-host-origin";
+import {
+  type DesignHostMessage,
+  getDesignHostChannel,
+} from "@/host/design-host-channel";
 import { type ClipboardContentLineage } from "@/lib/clipboard-content-lineage";
 import { shellContextChanged, type ShellDesignInput } from "@/lib/shell-design";
 import {
@@ -713,33 +716,14 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   }, [activeBreakpointWidthState, invalidateRenderedElementInfo]);
   useEffect(() => {
     if (!builderHostProtocolActive) return;
-    window.parent.postMessage({ type: "agentNative.appReady" }, "*");
+    const channel = getDesignHostChannel();
+    channel.send({ type: "agentNative.appReady" });
 
-    function handleDesignHostMessage(event: MessageEvent) {
-      if (event.source !== window.parent) return;
-      const origin = event.origin ?? "";
-      try {
-        const hostname = new URL(origin).hostname.toLowerCase();
-        const trusted =
-          hostname === "builder.io" ||
-          hostname.endsWith(".builder.io") ||
-          hostname === "builder.my" ||
-          hostname.endsWith(".builder.my") ||
-          hostname === "localhost" ||
-          hostname === "127.0.0.1";
-        if (!trusted) return;
-      } catch {
-        return;
-      }
-
-      const data = event.data;
-      if (!data || typeof data.type !== "string") return;
-
+    function handleDesignHostMessage(data: DesignHostMessage) {
       if (data.type === "design:init") {
         if (!parentOriginRef.current) {
-          parentOriginRef.current = origin;
+          parentOriginRef.current = channel.hostOrigin;
         }
-        rememberBuilderHostOrigin(origin);
         const { previewUrl, routes, context } = data.data ?? {};
         if (typeof previewUrl === "string" && isBuilderPreviewUrl(previewUrl)) {
           setBuilderPreviewUrl(previewUrl);
@@ -817,8 +801,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       }
     }
 
-    window.addEventListener("message", handleDesignHostMessage);
-    return () => window.removeEventListener("message", handleDesignHostMessage);
+    return channel.subscribe(handleDesignHostMessage);
   }, [builderHostProtocolActive]);
 
   const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);

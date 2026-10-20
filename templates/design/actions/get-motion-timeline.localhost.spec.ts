@@ -350,6 +350,38 @@ describe("get-motion-timeline localhost React source", () => {
     });
   });
 
+  it("returns an unsupported capability for passive reads with external stylesheets and keeps explicit reads strict", async () => {
+    const htmlPath = "pages/home.html";
+    const html = `<!doctype html><html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"></head><body><main><h1 data-agent-native-node-id="hero">Hello</h1></main></body></html>`;
+    const htmlHash = sourceHash(html);
+    mocks.setDesignSourceFile(htmlPath);
+    mocks.readLocal.mockResolvedValue({ content: html, versionHash: htmlHash });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "screen-1",
+      passiveRead: true,
+      targetNodeIds: ["hero"],
+    });
+
+    expect(result).toMatchObject({
+      count: 0,
+      timelines: [],
+      sourceReadCapability: {
+        status: "unsupported",
+        sourceRef: "screen-1",
+        errorCode: "motion_html_source_unresolved_stylesheet",
+        reason: "Resolve external stylesheets before editing or adding Motion.",
+      },
+    });
+    await expect(
+      action.run({ designId: "design-1", sourceRef: "screen-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_html_source_unresolved_stylesheet",
+      statusCode: 422,
+    });
+  });
+
   it("recovers Motion source and write capability from the linked HTML route", async () => {
     const htmlPath = "pages/home.html";
     const html = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><h1 data-agent-native-node-id="hero">Hello</h1></main></body></html>`;

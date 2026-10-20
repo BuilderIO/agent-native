@@ -209,6 +209,65 @@ async function withBridgedPage(
 
 describe("replace-document-content morphs instead of rebuilding the body", () => {
   it(
+    "preserves host bridge scripts when replacing the raw document",
+    { timeout: 30_000 },
+    async () => {
+      const bridgeMarkers = [
+        "data-agent-native-editor-chrome-bridge",
+        "data-agent-native-hit-test-bridge",
+        "data-agent-native-preview-theme-bridge",
+      ];
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await page.evaluate((markers) => {
+          markers.forEach((marker) => {
+            const script = document.createElement(
+              "script",
+            ) as HTMLScriptElement & {
+              __documentMorphIdentity?: string;
+            };
+            script.setAttribute(marker, "");
+            script.__documentMorphIdentity = marker;
+            document.body.appendChild(script);
+          });
+        }, bridgeMarkers);
+
+        await replaceDocument(page, documentHtml(BASE_BODY));
+
+        expect(
+          await page.evaluate(
+            (markers) =>
+              markers.map((marker) => {
+                const script = document.querySelector<HTMLScriptElement>(
+                  `script[${marker}]`,
+                ) as
+                  | (HTMLScriptElement & {
+                      __documentMorphIdentity?: string;
+                    })
+                  | null;
+                return {
+                  marker,
+                  sameNode: script?.__documentMorphIdentity === marker,
+                  inEditorChromeHost: Boolean(
+                    script?.parentElement?.hasAttribute(
+                      "data-agent-native-editor-chrome-host",
+                    ),
+                  ),
+                };
+              }),
+            bridgeMarkers,
+          ),
+        ).toEqual(
+          bridgeMarkers.map((marker) => ({
+            marker,
+            sameNode: true,
+            inEditorChromeHost: true,
+          })),
+        );
+      });
+    },
+  );
+
+  it(
     "leaves a style attribute alone when its source did not change",
     { timeout: 30_000 },
     async () => {

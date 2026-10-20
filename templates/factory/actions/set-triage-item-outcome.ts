@@ -22,6 +22,11 @@ const OUTCOME_SUMMARY = {
 } as const;
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Manually resolve a Factory inbox item or send it back to automation for re-review. This is independent of the automation pipeline: 'resolved' is a filterable terminal status no automation scan ever selects, and 'reopen' sets the item back to the status the next scheduled automation run scans for (received for Slack/Sentry, pr_observed for GitHub) and clears the metadata flag (a claimed Slack reaction, or a parked GitHub babysit state) that would otherwise keep it out of that scan.",
   schema: z.object({

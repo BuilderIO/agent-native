@@ -166,7 +166,7 @@ export function toolCallHasPendingApproval(part: {
   );
 }
 
-export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 5 * 60_000;
+export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 30_000;
 
 export function ToolActivityPresentation({
   toolName,

@@ -64,7 +64,6 @@ async function computedFromSaved(
   );
 }
 
-// oracle: none — app fill-layer behavior with no native Figma counterpart; only how the added row is located changed.
 test("Add fill puts a #123456 Solid layer on top, keeps the gradient layers' size, repeat and position aligned, and saves it", async ({
   app,
 }) => {

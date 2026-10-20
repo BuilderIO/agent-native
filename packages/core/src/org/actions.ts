@@ -24,5 +24,5 @@ export async function requireOrgMember(ctx?: ActionRunContext, admin = false) {
       errorCode: "forbidden",
       statusCode: 403,
     });
-  return { email, orgId };
+  return { email, orgId, role: String(role) };
 }

@@ -9,6 +9,11 @@ import {
 } from "../server/lib/key-dates-store.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     'Add a key date to a set, or edit one by id; an edit keeps what it omits. Name the set with setId, or with setName, which finds the set or creates it. A date draws as a marker on every time chart of every dashboard that shows its set. Give time and timeZone when the moment matters, for example a launch at "00:01" "America/Los_Angeles"; dates on the same day share one marker. Pass dashboardId for the dashboard on screen: then `dashboard` in the result says whether it shows the set, with a `hint` when no chart can draw the date.',
   schema: z.object({

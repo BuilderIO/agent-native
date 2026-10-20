@@ -673,6 +673,14 @@ const messages = {
     errorOutOfOrder: "السطر {{line}}: هذا الوقت أسبق من الوقت الذي قبله.",
     errorPastEnd: "السطر {{line}}: هذا الوقت بعد نهاية الفيديو.",
   },
+  transcriptHistory: {
+    title: "النصوص السابقة",
+    automatic: "تلقائي",
+    restore: "استعادة",
+    restored: "تمت استعادة النص",
+    restoreFailed: "تعذّرت استعادة النص",
+    undo: "تراجع",
+  },
   thumbnailPicker: {
     failedCapture: "فشل في التقاط الإطار",
     failedGif: "فشل في إنشاء GIF — حاول نطاقًا أقصر",
@@ -1379,6 +1387,14 @@ const messages = {
     playClip: "تشغيل المقطع",
     unsupportedFormat:
       "لا يمكن لهذا المتصفح تشغيل هذا الفيديو. جرّب فتح الرابط في Chrome أو Edge أو Firefox.",
+    youtubeLoading: "جارٍ تحميل مشغّل YouTube",
+    youtubeUnavailable: "فيديو YouTube هذا خاص أو تمت إزالته.",
+    youtubeEmbedBlocked: "لا يسمح مالك هذا الفيديو بتشغيله خارج YouTube.",
+    youtubeInvalid: "لا يشير رابط YouTube هذا إلى فيديو قابل للتشغيل.",
+    youtubePlaybackFailed: "تعذّر على YouTube تشغيل هذا الفيديو هنا.",
+    youtubeApiUnavailable:
+      "لم يتم تحميل مشغّل YouTube. تحقّق من اتصالك أو من مانع المحتوى، ثم أعد التحميل.",
+    watchOnYouTube: "المشاهدة على YouTube",
   },
   searchBar: {
     placeholder: "البحث في التسجيلات…",
@@ -1800,7 +1816,7 @@ const messages = {
     unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
     takeScreenshot: "التقاط لقطة شاشة",
-    importLoom: "Import Loom (مترجم)",
+    importLoom: "استيراد فيديو",
     importing: "Importing... (مترجم)",
     import: "Import (مترجم)",
     recordNew: "تسجيل جديد",
@@ -1948,6 +1964,8 @@ const messages = {
       "Storage needed to finish Loom import (مترجم)",
     loomImported: "Loom imported (مترجم)",
     couldNotImportLoom: "تعذّر استيراد مقطع Loom هذا.",
+    youtubeImported: "تمت إضافة فيديو YouTube",
+    couldNotImportVideo: "تعذّر استيراد هذا الفيديو.",
     recordingReadyToUpload: "Recording is ready to upload (مترجم)",
     recordingSaved: "Recording saved (مترجم)",
     linkCopied: "تم نسخ الرابط",
@@ -2047,12 +2065,12 @@ const messages = {
       "لا يزال هذا التسجيل قيد المعالجة، لذا احتفظ Clips بنسختك هنا. انتظر اكتمالها أو ارفعه مرة أخرى.",
   },
   importRoute: {
-    pageTitle: "استيراد Loom — Clips",
-    title: "استيراد Loom",
+    pageTitle: "استيراد فيديو — Clips",
+    title: "استيراد فيديو",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "استيراد",
     helperText:
-      "يعمل بشكل رائع مع Loom. يمكنك أيضًا لصق رابط لأي تسجيل شاشة أو ملف فيديو آخر.",
+      "يعمل بشكل رائع مع Loom وYouTube. يمكنك أيضًا لصق رابط لأي تسجيل شاشة أو ملف فيديو آخر.",
     stageFetching: "جارٍ سحب الفيديو…",
     stageUploading: "جارٍ رفع اللقطات الأصلية…",
     stageTranscript: "جعل الكلام والعناصر المرئية على الشاشة قابلة لفهم الوكيل…",

@@ -59,7 +59,6 @@ async function openThreadsPanel(page: Page): Promise<void> {
   await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
 }
 
-// oracle: none — verifies the comment flow, not measured Figma behavior.
 test("the Pin comment tool opens the Threads panel", async ({ app }) => {
   const page = app.page;
   await app.open(await app.seed(COMMENT_SCREEN));
@@ -72,7 +71,6 @@ test("the Pin comment tool opens the Threads panel", async ({ app }) => {
   await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
 });
 
-// oracle: none — verifies the comment flow, not measured Figma behavior.
 test("comments toolbar opens an anchored composer", async ({ app }) => {
   const page = app.page;
   const id = await app.seed(COMMENT_SCREEN);

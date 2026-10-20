@@ -665,7 +665,7 @@ describe("AgentKitClient", () => {
   });
 
   it.each(["accepted", "rejected"])(
-    "acknowledges the recoverable local message before a %s startRun settles",
+    "acknowledges the local message before a %s startRun response",
     async (outcome) => {
       const started = Promise.withResolvers<{ runId: string }>();
       const startRun = vi.fn<AgentTransport["startRun"]>(() => started.promise);
@@ -709,6 +709,7 @@ describe("AgentKitClient", () => {
         "messages",
         "metadata",
         "options",
+        "submissionPayload",
         "threadId",
       ]);
       expect(request.options).toEqual(options);
@@ -719,11 +720,12 @@ describe("AgentKitClient", () => {
       if (outcome === "accepted") started.resolve({ runId: "run-1" });
       else started.reject(failure);
       const result = await submission;
-      expect(onLocalSubmit).toHaveBeenCalledOnce();
       if (outcome === "accepted") {
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
         expect(result).toMatchObject({ value: { runId: "run-1" } });
         if ("value" in result) await result.value.completed;
       } else {
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
         expect(result).toEqual({ error: failure });
         expect(client.getThread("thread-1").messages).toEqual([
           expect.objectContaining({
@@ -1011,7 +1013,7 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual([
       expect.objectContaining({ text: "Next" }),
     ]);
-    expect(onLocalSubmit).not.toHaveBeenCalled();
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     const setupRequired = Object.assign(new Error("Connect AI first."), {
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
     });
@@ -3065,31 +3067,41 @@ describe("AgentKitClient", () => {
     },
   );
 
-  it("marks the local message failed if its acknowledgement callback throws", async () => {
-    const startRun = vi.fn<AgentTransport["startRun"]>();
+  it("reports a local acknowledgement error without failing an accepted run", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-1",
+    }));
+    const onError = vi.fn();
     const client = new AgentKitClient({
-      transport: { ...createTransport([]), startRun },
+      transport: {
+        ...createTransport([protocolEvent(1, { type: "run.completed" })]),
+        startRun,
+      },
+      onError,
     });
     const failure = new Error("Local acknowledgement failed");
-    await expect(
-      client.sendMessage({
-        threadId: "thread-1",
-        text: "Keep this message",
-        onLocalSubmit: () => {
-          throw failure;
-        },
-      }),
-    ).rejects.toBe(failure);
-    expect(startRun).not.toHaveBeenCalled();
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Keep this message",
+      onLocalSubmit: () => {
+        throw failure;
+      },
+    });
+    expect(handle.runId).toBe("run-1");
+    expect(startRun).toHaveBeenCalledOnce();
     expect(client.getThread("thread-1").messages).toEqual([
       expect.objectContaining({
-        status: "error",
+        status: "complete",
         parts: [{ type: "text", text: "Keep this message" }],
       }),
     ]);
-    expect(client.getSnapshot().error).toMatchObject({
-      code: "run_start_failed",
-    });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "local_submit_ack_failed",
+        message: failure.message,
+      }),
+    );
+    await handle.completed;
     await client.shutdown();
   });
 
@@ -3110,9 +3122,7 @@ describe("AgentKitClient", () => {
         createdAt: "2026-09-29T00:00:00.000Z",
       };
       const onLocalSubmit = vi.fn(() => {
-        expect(client.getThread("thread-1").queuedMessages).toEqual([
-          expect.objectContaining({ text: message.text }),
-        ]);
+        expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       });
       const submission = client
         .queueMessage({
@@ -7385,14 +7395,18 @@ describe("AgentKitClient", () => {
       metadata: { contextItems: [{ key: "selection", text: "full context" }] },
       options,
     };
-    const startRun = vi.fn(async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
       throw Object.assign(new Error("Run already in progress"), {
         code: "run_slot_busy",
         retryable: true,
         activeRunId: "run-active",
       });
     });
-    const queueMessage = vi.fn(async () => ({ message: queued }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id }) => ({
+        message: { ...queued, id: id ?? queued.id },
+      }),
+    );
     const removeQueuedMessage = vi.fn(async () => undefined);
     const cancelRun = vi.fn(async () => undefined);
     const onLocalSubmit = vi.fn();
@@ -7430,16 +7444,30 @@ describe("AgentKitClient", () => {
       metadata: queued.metadata,
       options,
     });
+    const directMessage = startRun.mock.calls[0]?.[0].messages.at(-1);
+    const queuedMessageId = queueMessage.mock.calls[0]?.[0].id;
+    expect(directMessage?.id).toBeTruthy();
+    expect(queuedMessageId).toBe(directMessage?.id);
+    expect(queueMessage.mock.calls[0]?.[0].submissionPayload).toEqual(
+      startRun.mock.calls[0]?.[0].submissionPayload,
+    );
+    expect(startRun.mock.calls[0]?.[0].submissionPayload).toMatchObject({
+      threadId: "thread-1",
+      id: directMessage?.id,
+      text: queued.text,
+      metadata: queued.metadata,
+      options,
+    });
     expect(onLocalSubmit).toHaveBeenCalledOnce();
     expect(client.getThread("thread-1")).toMatchObject({
       activeRunIds: ["run-active"],
-      queuedMessages: [queued],
+      queuedMessages: [{ ...queued, id: queuedMessageId }],
       messages: [],
     });
 
     await handle.cancel();
     expect(removeQueuedMessage).toHaveBeenCalledWith(
-      { threadId: "thread-1", messageId: queued.id },
+      { threadId: "thread-1", messageId: queuedMessageId },
       expect.anything(),
     );
     expect(cancelRun).not.toHaveBeenCalled();
@@ -7521,8 +7549,79 @@ describe("AgentKitClient", () => {
         referenceUrl: originalImageUrl,
       },
     ]);
+    expect(queuedRequest?.submissionPayload).toMatchObject({
+      threadId: "thread-1",
+      text: "Use this reference image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      ],
+    });
     expect(JSON.stringify(queuedRequest)).not.toContain("data:image/");
     await client.shutdown();
+  });
+
+  it("fingerprints attachment submissions without Web Crypto", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text, attachments }) => ({
+        message: {
+          id: id ?? "queued-attachment-no-subtle",
+          threadId,
+          text,
+          createdAt: "2026-10-19T00:00:00.000Z",
+          attachments,
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true },
+        queueMessage,
+      },
+    });
+    const cryptoWithoutSubtle = new Proxy(globalThis.crypto, {
+      get(target, property) {
+        if (property === "subtle") return undefined;
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    vi.stubGlobal("crypto", cryptoWithoutSubtle);
+    try {
+      await client.queueMessage({
+        threadId: "thread-1",
+        text: "Summarize this file",
+        attachments: [
+          {
+            type: "file",
+            name: "notes.txt",
+            mediaType: "text/plain",
+            url: "https://storage.example.test/notes.txt",
+          },
+        ],
+      });
+
+      expect(queueMessage.mock.calls[0]?.[0].submissionPayload).toMatchObject({
+        attachments: [
+          {
+            fingerprint:
+              "419ac18a5ea3f22931081d756439137b705c6565a8d787b372467fa1622e3a33",
+          },
+        ],
+      });
+    } finally {
+      try {
+        await client.shutdown();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
   });
 
   it("keeps a queued send parked through a stale snapshot while append is pending", async () => {
@@ -7577,6 +7676,7 @@ describe("AgentKitClient", () => {
 
     append.resolve({ message: parked! });
     await expect(submission).resolves.toEqual(parked);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
     await client.shutdown();
   });
@@ -7624,6 +7724,41 @@ describe("AgentKitClient", () => {
     await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
     persistence.resolve({ message: optimistic! });
     await expect(submission).resolves.toEqual(optimistic);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("restores the optimistic queue after an acknowledged write fails", async () => {
+    const write = Promise.withResolvers<{ message: AgentQueuedMessage }>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      () => write.promise,
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+      },
+    });
+    const onLocalSubmit = vi.fn();
+    const reservation = client.reserveQueuedMessage(
+      { threadId: "thread-1", text: "Queue this follow-up" },
+      onLocalSubmit,
+    );
+    const submission = client.queueMessage({
+      threadId: "thread-1",
+      text: reservation.text,
+      queuedMessageReservationId: reservation.id,
+      queuedWhileRunActive: true,
+    });
+
+    expect(client.getThread("thread-1").queuedMessages).toHaveLength(1);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
+
+    write.reject(new Error("queue write failed"));
+    await expect(submission).rejects.toThrow("queue write failed");
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     await client.shutdown();
   });
 
@@ -7777,7 +7912,7 @@ describe("AgentKitClient", () => {
     );
 
     expect(client.getThread("thread-1").queuedMessages).toEqual([reservation]);
-    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(acknowledged).not.toHaveBeenCalled();
 
     const submission = client.queueMessage({
       threadId: "thread-1",
@@ -7809,6 +7944,7 @@ describe("AgentKitClient", () => {
     persistence.resolve({ message: accepted });
     await expect(submission).resolves.toEqual(accepted);
     expect(client.getThread("thread-1").queuedMessages).toEqual([accepted]);
+    expect(acknowledged).toHaveBeenCalledOnce();
     await client.shutdown();
   });
 
@@ -8009,6 +8145,389 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("reconnects to a submitted run instead of retrying a busy send", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-duplicate",
+          threadId,
+          text,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        },
+      }),
+    );
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      throw Object.assign(new Error("Queued message was already submitted"), {
+        code: "queued_message_already_submitted",
+        status: 409,
+        submittedRunId: "run-submitted",
+      });
+    });
+    const subscribedRunIds: string[] = [];
+    const onLocalSubmit = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          resumableRuns: true,
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        startRun,
+        queueMessage,
+        async *subscribeToRun({ threadId, runId }) {
+          subscribedRunIds.push(runId);
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+      },
+    });
+
+    try {
+      const handle = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Already accepted",
+        metadata: {
+          custom: {
+            [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+              Date.now() + 60_000,
+          },
+        },
+        onLocalSubmit,
+      });
+      await handle.completed;
+
+      expect(handle.runId).toBe("run-submitted");
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(subscribedRunIds).toEqual(["run-submitted"]);
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      expect(client.getThread("thread-1").messages).toMatchObject([
+        {
+          role: "user",
+          status: "complete",
+          parts: [{ text: "Already accepted" }],
+        },
+      ]);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
+  it("reconnects when a queue append returns a submitted-run busy receipt", async () => {
+    const finishRun = Promise.withResolvers<void>();
+    const subscriptionStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async () => {
+        throw Object.assign(new Error("Queued message was already submitted"), {
+          code: "queued_message_already_submitted",
+          status: 409,
+          submittedRunId: "run-submitted",
+        });
+      },
+    );
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      throw new AgentKitRunSlotBusyError("run-active");
+    });
+    const subscribedRunIds: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        startRun,
+        queueMessage,
+        async *subscribeToRun({ threadId, runId }) {
+          subscribedRunIds.push(runId);
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          subscriptionStarted.resolve();
+          await finishRun.promise;
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+      },
+    });
+
+    try {
+      const handle = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Already accepted from the queue",
+      });
+      await subscriptionStarted.promise;
+
+      expect(handle.runId).toBe("run-submitted");
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(subscribedRunIds).toEqual(["run-submitted"]);
+      expect(client.getThread("thread-1")).toMatchObject({
+        activeRunIds: ["run-submitted"],
+        messages: [
+          expect.objectContaining({
+            role: "user",
+            status: "complete",
+            parts: [{ type: "text", text: "Already accepted from the queue" }],
+          }),
+        ],
+        queuedMessages: [],
+      });
+
+      finishRun.resolve();
+      await handle.completed;
+    } finally {
+      finishRun.resolve();
+      await client.shutdown();
+    }
+  });
+
+  it("tracks a submitted run returned directly by queueMessage", async () => {
+    const finishRun = Promise.withResolvers<void>();
+    const subscriptionStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, id, text }) => ({
+        message: {
+          id: id ?? "queued-submitted",
+          threadId,
+          text,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        },
+        alreadySubmitted: true,
+        submittedRunId: "run-submitted",
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          subscriptionStarted.resolve();
+          await finishRun.promise;
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+      },
+    });
+
+    try {
+      const submitted = await client.queueMessage({
+        threadId: "thread-1",
+        text: "Already promoted",
+      });
+      await subscriptionStarted.promise;
+
+      expect(submitted).toMatchObject({
+        alreadySubmitted: true,
+        submittedRunId: "run-submitted",
+      });
+      expect(client.getThread("thread-1")).toMatchObject({
+        activeRunIds: ["run-submitted"],
+        messages: [
+          expect.objectContaining({
+            role: "user",
+            status: "complete",
+            parts: [{ type: "text", text: "Already promoted" }],
+          }),
+        ],
+        queuedMessages: [],
+      });
+
+      finishRun.resolve();
+    } finally {
+      finishRun.resolve();
+      await client.shutdown();
+    }
+  });
+
+  it("returns a submitted-run receipt from a direct queue append conflict", async () => {
+    const finishRun = Promise.withResolvers<void>();
+    const subscriptionStarted = Promise.withResolvers<void>();
+    let submittedMessageId: string | undefined;
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id }) => {
+        submittedMessageId = id;
+        throw Object.assign(new Error("Queued message was already submitted"), {
+          code: "queued_message_already_submitted",
+          status: 409,
+          submittedRunId: "run-submitted",
+        });
+      },
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          subscriptionStarted.resolve();
+          await finishRun.promise;
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+      },
+    });
+
+    try {
+      const submitted = await client.queueMessage({
+        threadId: "thread-1",
+        text: "Already accepted directly",
+      });
+      await subscriptionStarted.promise;
+
+      expect(submitted).toMatchObject({
+        id: submittedMessageId,
+        alreadySubmitted: true,
+        submittedRunId: "run-submitted",
+      });
+      expect(client.getThread("thread-1")).toMatchObject({
+        activeRunIds: ["run-submitted"],
+        messages: [
+          expect.objectContaining({
+            role: "user",
+            status: "complete",
+            parts: [{ type: "text", text: "Already accepted directly" }],
+          }),
+        ],
+        queuedMessages: [],
+      });
+
+      finishRun.resolve();
+    } finally {
+      finishRun.resolve();
+      await client.shutdown();
+    }
+  });
+
+  it("returns the submitted run when queue append is already consumed", async () => {
+    const finishActiveRun = Promise.withResolvers<void>();
+    const activeRunStarted = Promise.withResolvers<void>();
+    const finishSubmittedRun = Promise.withResolvers<void>();
+    const submittedRunStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, id, text }) => ({
+        message: {
+          id: id ?? "queued-submitted",
+          threadId,
+          text,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        },
+        alreadySubmitted: true,
+        submittedRunId: "run-submitted",
+      }),
+    );
+    const cancelRun = vi.fn(async () => undefined);
+    const subscribedRunIds: string[] = [];
+    let nextMessageId = 0;
+    const client = new AgentKitClient({
+      createId: () => `queued-message-${++nextMessageId}`,
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          return { runId: "run-active" };
+        },
+        queueMessage,
+        async *subscribeToRun({ threadId, runId }) {
+          subscribedRunIds.push(runId);
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          if (runId === "run-active") {
+            activeRunStarted.resolve();
+            await finishActiveRun.promise;
+          } else {
+            submittedRunStarted.resolve();
+            await finishSubmittedRun.promise;
+          }
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+        cancelRun,
+      },
+    });
+
+    try {
+      const activeHandle = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Current turn",
+      });
+      await activeRunStarted.promise;
+      const submittedHandle = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Follow-up already promoted",
+      });
+      await submittedRunStarted.promise;
+      const submittedMessageId = queueMessage.mock.calls[0]?.[0].id;
+
+      expect(submittedHandle.runId).toBe("run-submitted");
+      expect(submittedMessageId).toBeTruthy();
+      expect(client.getThread("thread-1")).toMatchObject({
+        activeRunIds: ["run-active", "run-submitted"],
+        messages: [
+          expect.objectContaining({
+            parts: [{ type: "text", text: "Current turn" }],
+          }),
+          expect.objectContaining({
+            id: submittedMessageId,
+            parts: [{ type: "text", text: "Follow-up already promoted" }],
+          }),
+        ],
+        queuedMessages: [],
+      });
+
+      await submittedHandle.cancel();
+      expect(cancelRun).toHaveBeenCalledWith(
+        { threadId: "thread-1", runId: "run-submitted" },
+        expect.anything(),
+      );
+      expect(subscribedRunIds).toEqual(["run-active", "run-submitted"]);
+      finishSubmittedRun.resolve();
+      finishActiveRun.resolve();
+      await Promise.all([
+        activeHandle.completed.catch(() => undefined),
+        submittedHandle.completed.catch(() => undefined),
+      ]);
+    } finally {
+      finishSubmittedRun.resolve();
+      finishActiveRun.resolve();
+      await client.shutdown();
+    }
+  });
+
   it("does not synthesize active-run state when persisting a conflicted send fails", async () => {
     const client = new AgentKitClient({
       transport: {
@@ -8044,20 +8563,22 @@ describe("AgentKitClient", () => {
     };
     const cancelRun = vi.fn(async () => undefined);
     const steerQueuedMessage = vi.fn(async () => ({ runId: "run-steered" }));
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      throw Object.assign(new Error("Run already in progress"), {
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+    });
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id }) => ({ message: { ...queued, id: id ?? queued.id } }),
+    );
     const client = new AgentKitClient({
       transport: {
         ...createTransport([]),
         capabilities: { messageQueue: true },
-        async startRun() {
-          throw Object.assign(new Error("Run already in progress"), {
-            code: "run_slot_busy",
-            retryable: true,
-            activeRunId: "run-active",
-          });
-        },
-        async queueMessage() {
-          return { message: queued };
-        },
+        startRun,
+        queueMessage,
         async *subscribeToRun({ signal }) {
           yield protocolEvent(1, { type: "run.started" });
           await new Promise<void>((resolve) =>
@@ -8069,24 +8590,30 @@ describe("AgentKitClient", () => {
       },
     });
 
+    const onLocalSubmit = vi.fn();
     const handle = await client.sendMessage({
       threadId: "thread-1",
       text: queued.text,
       interruptActiveRun: true,
+      onLocalSubmit,
     });
 
+    const directMessage = startRun.mock.calls[0]?.[0].messages.at(-1);
+    const queuedMessageId = queueMessage.mock.calls[0]?.[0].id;
+    expect(queuedMessageId).toBe(directMessage?.id);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     expect(handle.runId).toBe("run-steered");
     expect(cancelRun).not.toHaveBeenCalled();
     expect(steerQueuedMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "thread-1",
-        messageId: queued.id,
+        messageId: queuedMessageId,
         interruptActiveRun: true,
       }),
       expect.anything(),
     );
     expect(client.getThread("thread-1")).toMatchObject({
-      messages: [expect.objectContaining({ id: queued.id })],
+      messages: [expect.objectContaining({ id: queuedMessageId })],
       queuedMessages: [],
     });
 
@@ -10033,6 +10560,86 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("reconnects to a submitted queued run instead of retrying promotion", async () => {
+    const threadId = "thread-1";
+    const queued = {
+      id: "queued-1",
+      threadId,
+      text: "Already accepted elsewhere",
+      createdAt: "2026-09-30T00:00:00.000Z",
+    };
+    const submittedMessage = {
+      id: "server-user-run-submitted",
+      threadId,
+      role: "user" as const,
+      createdAt: queued.createdAt,
+      status: "complete" as const,
+      parts: [{ type: "text" as const, text: queued.text }],
+      metadata: {
+        custom: {
+          agentNativeQueuedMessageId: queued.id,
+          submittedRunId: "run-submitted",
+        },
+      },
+    };
+    const steerQueuedMessage = vi.fn(async () => {
+      throw Object.assign(new Error("Queued message was already submitted"), {
+        code: "queued_message_already_submitted",
+        status: 409,
+        submittedRunId: "run-submitted",
+      });
+    });
+    const subscribedRunIds: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        steerQueuedMessage,
+        async getThreadSnapshot() {
+          return {
+            id: threadId,
+            createdAt: queued.createdAt,
+            updatedAt: queued.createdAt,
+            messages: [submittedMessage],
+            queuedMessages: [],
+          };
+        },
+        async *subscribeToRun({ threadId: subscribedThreadId, runId }) {
+          subscribedRunIds.push(runId);
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId: subscribedThreadId,
+            runId,
+          };
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId: subscribedThreadId,
+            runId,
+          };
+        },
+        async cancelRun() {},
+      },
+    });
+
+    try {
+      await client.queueMessage({ threadId, text: queued.text });
+      const handle = await client.steerQueuedMessage(threadId, queued.id);
+      await handle?.completed;
+
+      expect(handle?.runId).toBe("run-submitted");
+      expect(steerQueuedMessage).toHaveBeenCalledOnce();
+      expect(subscribedRunIds).toEqual(["run-submitted"]);
+      expect(client.getThread(threadId).queuedMessages).toEqual([]);
+      expect(client.getThread(threadId).messages).toMatchObject([
+        { id: submittedMessage.id, role: "user" },
+      ]);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("reconciles a queue item removed in another tab without adding history", async () => {
     const client = new AgentKitClient({
       transport: {
@@ -10436,7 +11043,7 @@ describe("AgentKitClient", () => {
     { scenario: "at the runtime handoff", expireAtHandoff: true },
     { scenario: "in the server persistence request", expireAtHandoff: false },
   ])(
-    "removes an expired optimistic prompt and restores suggestions when it expires $scenario",
+    "keeps an expired prompt recoverable and restores suggestions when it expires $scenario",
     async ({ expireAtHandoff }) => {
       const suggestion = {
         id: "suggestion-1",
@@ -10455,6 +11062,7 @@ describe("AgentKitClient", () => {
         }
         return { runId: "run-1" };
       });
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
       const client = new AgentKitClient({
         transport: {
           ...createTransport([]),
@@ -10482,11 +11090,17 @@ describe("AgentKitClient", () => {
             };
           },
         },
+        createId(prefix) {
+          if (expireAtHandoff && prefix === "message") {
+            now.mockReturnValue(1_001);
+          }
+          return `${prefix}-test`;
+        },
       });
-      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
 
       try {
         await client.loadThread("thread-1");
+        const onLocalSubmit = vi.fn();
         await expect(
           client.sendMessage({
             threadId: "thread-1",
@@ -10496,16 +11110,23 @@ describe("AgentKitClient", () => {
                 [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 1_001,
               },
             },
-            onLocalSubmit() {
-              expect(client.getThread("thread-1").messages).toHaveLength(1);
-              expect(client.getThread("thread-1").suggestions).toEqual([]);
-              if (expireAtHandoff) now.mockReturnValue(1_001);
-            },
+            onLocalSubmit,
           }),
         ).rejects.toMatchObject({ code: "submission_expired" });
 
         expect(startRun).toHaveBeenCalledTimes(expireAtHandoff ? 0 : 1);
-        expect(client.getThread("thread-1").messages).toEqual([]);
+        if (expireAtHandoff) {
+          expect(onLocalSubmit).not.toHaveBeenCalled();
+          expect(client.getThread("thread-1").messages).toEqual([]);
+        } else {
+          expect(onLocalSubmit).toHaveBeenCalledOnce();
+          expect(client.getThread("thread-1").messages).toEqual([
+            expect.objectContaining({
+              status: "error",
+              parts: [{ type: "text", text: "Retry the prompt" }],
+            }),
+          ]);
+        }
         expect(client.getThread("thread-1").suggestions).toEqual([suggestion]);
         expect(
           client.getThread("thread-1").suggestionsPendingTurn,
@@ -10518,12 +11139,12 @@ describe("AgentKitClient", () => {
           threadId: "thread-1",
           text: "Fresh prompt",
         });
-        expect(startRun.mock.calls.at(-1)?.[0].messages).toEqual([
+        expect(startRun.mock.calls.at(-1)?.[0].messages).toContainEqual(
           expect.objectContaining({
             role: "user",
             parts: [{ type: "text", text: "Fresh prompt" }],
           }),
-        ]);
+        );
         await nextRun.completed;
       } finally {
         now.mockRestore();

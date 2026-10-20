@@ -29,6 +29,7 @@ import type {
   ContentDatabaseNavigationSort,
   ContentDatabasePersonalViewOverrides,
 } from "../shared/api.js";
+import { contentDatabaseFilterOperatorNeedsValue } from "../shared/database-query.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
@@ -114,9 +115,8 @@ function selectedFilterValues(value: string) {
 
 function activeNavigationFilter(filter: ContentDatabaseFilter) {
   return (
-    ["is_empty", "is_not_empty", "is_checked", "is_unchecked"].includes(
-      filter.operator,
-    ) || selectedFilterValues(filter.value).length > 0
+    !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
+    selectedFilterValues(filter.value).length > 0
   );
 }
 

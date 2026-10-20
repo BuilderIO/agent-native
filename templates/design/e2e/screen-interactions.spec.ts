@@ -270,14 +270,18 @@ test("Cmd+R renames a Screen selected on canvas or in Layers without renaming th
     .first();
   await screenTitle.hover();
   const titleBounds = await screenTitle.boundingBox();
-  const interactBounds = await page
-    .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
-    .locator("[data-frame-full-view]")
+  const screenShell = page.locator(
+    `[data-screen-shell][data-frame-id="${fileId}"]`,
+  );
+  const screenCardBounds = await screenShell
+    .locator("[data-screen-card]")
     .boundingBox();
   expect(titleBounds).not.toBeNull();
-  expect(interactBounds).not.toBeNull();
+  expect(screenCardBounds).not.toBeNull();
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveCount(0);
+  expect(titleBounds!.x).toBeGreaterThanOrEqual(screenCardBounds!.x - 1);
   expect(titleBounds!.x + titleBounds!.width).toBeLessThanOrEqual(
-    interactBounds!.x,
+    screenCardBounds!.x + screenCardBounds!.width + 1,
   );
   await screenTitle.click();
   const rename = page.getByRole("textbox", {

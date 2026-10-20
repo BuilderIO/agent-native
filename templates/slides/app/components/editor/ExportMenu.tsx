@@ -10,6 +10,7 @@ import {
   IconCopy,
   IconShare2,
   IconBrandGoogle,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
@@ -196,6 +197,7 @@ function ExportActionItems({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  downloadLabels = false,
 }: {
   hasSlides: boolean;
   googleSlidesAvailable: boolean;
@@ -203,6 +205,7 @@ function ExportActionItems({
   onExportPdf: () => void;
   onExportPptx: () => void;
   onExportGoogleSlides?: () => void;
+  downloadLabels?: boolean;
 }) {
   const t = useT();
   return (
@@ -221,7 +224,11 @@ function ExportActionItems({
         className="cursor-pointer"
       >
         <IconFileTypePdf className="size-4" />
-        {t("editorExport.exportPdf")}
+        {t(
+          downloadLabels
+            ? "editorExport.downloadPdf"
+            : "editorExport.exportPdf",
+        )}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={onExportPptx}
@@ -229,7 +236,11 @@ function ExportActionItems({
         className="cursor-pointer"
       >
         <IconDownload className="size-4" />
-        {t("editorExport.exportPptx")}
+        {t(
+          downloadLabels
+            ? "editorExport.downloadPptx"
+            : "editorExport.exportPptx",
+        )}
       </DropdownMenuItem>
       {onExportGoogleSlides && (
         <DropdownMenuItem
@@ -286,6 +297,58 @@ export function ExportSubmenu({
         />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
+  );
+}
+
+/**
+ * Top-bar Export button. Like `ExportSubmenu`, it drives the separately
+ * mounted headless `ExportMenu` through its handle.
+ */
+export function ExportDropdown({
+  exportMenuRef,
+  hasSlides,
+  showGoogleSlides,
+}: {
+  exportMenuRef: { current: ExportMenuHandle | null };
+  hasSlides: boolean;
+  showGoogleSlides: boolean;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const googleSlidesExport = useGoogleSlidesExportAvailability(
+    hasSlides && open,
+  );
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={!hasSlides}
+          // Below sm the logo menu's File > Export carries it.
+          className="flex-shrink-0 max-sm:hidden"
+        >
+          {t("editorToolbar.export")}
+          <IconChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <ExportActionItems
+          hasSlides={hasSlides}
+          googleSlidesAvailable={googleSlidesExport.available}
+          downloadLabels
+          onExportHtml={() => void exportMenuRef.current?.exportHtml()}
+          onExportPdf={() => void exportMenuRef.current?.exportPdf()}
+          onExportPptx={() => void exportMenuRef.current?.exportPptx()}
+          onExportGoogleSlides={
+            showGoogleSlides
+              ? () => void exportMenuRef.current?.exportGoogleSlides()
+              : undefined
+          }
+        />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

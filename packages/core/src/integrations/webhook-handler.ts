@@ -1120,6 +1120,7 @@ async function processIncomingMessage(
   const runOptions: StartRunOptions = {
     useHostedSoftTimeoutDefault: true,
     backgroundFunction: isInBackgroundFunctionRuntime(),
+    executionLease: true,
     ...(campaign
       ? {
           turnId: campaign.row.turnId,

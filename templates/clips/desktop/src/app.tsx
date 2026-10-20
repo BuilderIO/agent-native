@@ -122,6 +122,7 @@ import {
   connectBuilderForVoiceCleanup,
   isBuilderProvisioningAvailable,
 } from "./lib/builder-connection";
+import { useCameraCutoutPreference } from "./lib/camera-cutout-preference";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -164,8 +165,7 @@ import {
   loadRecordFirstFiles,
   RecordFirstFileMissingError,
   recordFirstFilesKey,
-  recordFirstFilesToQueue,
-  recordFirstMediaFlags,
+  shouldPollVideoStorageStatus,
   stagedIdAfterFailure,
   transferRecordFirstFiles,
   type RecordFirstFile,
@@ -208,11 +208,13 @@ import {
   ScreenRecordingPermissionError,
 } from "./lib/recording-preflight";
 import {
+  mapRecordFirstFilesForRecovery,
   reconcileRecordingRecovery,
   recordingRecoveryKey,
   shouldShowRecordingRecoveryBanner,
   type PendingDesktopUpload,
   type PendingNativeUpload,
+  type RecordFirstFileUploadError,
   type RecoverySnapshot,
 } from "./lib/recording-recovery";
 import {
@@ -1390,7 +1392,7 @@ export function App({
   }, [videoStorageIdentity, serverUrl, signedInAs]);
 
   const refreshVideoStorageStatus = useCallback(async () => {
-    if (authStatus !== "authed" || localRecordingMode !== "off") {
+    if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
       setVideoStorageStatus("configured");
       return true;
@@ -1409,13 +1411,7 @@ export function App({
     hostedClipLimitMsRef.current = maxClipDurationMs;
     setVideoStorageStatus(probe);
     return probe === "configured";
-  }, [
-    authStatus,
-    localRecordingMode,
-    serverUrl,
-    signedInAs,
-    videoStorageIdentity,
-  ]);
+  }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
 
   useEffect(() => {
     void refreshVideoStorageStatus();
@@ -1423,14 +1419,9 @@ export function App({
 
   useEffect(() => {
     if (
-      authStatus !== "authed" ||
-      localRecordingMode !== "off" ||
-      (videoStorageStatus !== "missing" &&
-        videoStorageStatus !== "checking" &&
-        videoStorageStatus !== "unavailable")
-    ) {
+      !shouldPollVideoStorageStatus(authStatus === "authed", videoStorageStatus)
+    )
       return;
-    }
 
     let inFlight = false;
     const tick = () => {
@@ -1449,12 +1440,7 @@ export function App({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [
-    authStatus,
-    localRecordingMode,
-    refreshVideoStorageStatus,
-    videoStorageStatus,
-  ]);
+  }, [authStatus, refreshVideoStorageStatus, videoStorageStatus]);
 
   // Mirrors the web recorder: a hosted take stops itself at the clip cap
   // instead of failing the upload past the server's size limit. The cap the
@@ -3200,9 +3186,6 @@ export function App({
   const recorderStopListenerPromiseRef = useRef<Promise<() => void> | null>(
     null,
   );
-  const recordedWithoutStorageRef = useRef(false);
-  // The record-first list a capture belongs to, fixed when capture starts.
-  const recordFirstKeyAtStartRef = useRef<string | null>(null);
   const finishRecordingStopRef = useRef<
     (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
   >(async () => {});
@@ -3596,7 +3579,7 @@ export function App({
   >([]);
   const [recordFirstError, setRecordFirstError] = useState<string | null>(null);
   const [recordFirstFileErrors, setRecordFirstFileErrors] = useState<
-    Record<string, { message: string; missing: boolean }>
+    Record<string, RecordFirstFileUploadError>
   >({});
   const [recordFirstUploading, setRecordFirstUploading] = useState(false);
   useEffect(() => {
@@ -3634,17 +3617,6 @@ export function App({
       return next;
     },
     [recordFirstKey, unclaimedRecordFirstKey],
-  );
-  const rememberRecordFirstFile = useCallback(
-    (file: RecordFirstFile, key: string) => {
-      // `key` is the account signed in when capture started, never whoever
-      // is signed in at Stop, so a switch mid-recording cannot reassign it.
-      changeQueuedFiles(key, (files) => [
-        ...files.filter((f) => f.path !== file.path),
-        file,
-      ]);
-    },
-    [changeQueuedFiles],
   );
   const forgetRecordFirstFile = useCallback(
     (path: string) => {
@@ -3827,24 +3799,6 @@ export function App({
           folderPath: stopResult.localFolder,
           files: stopResult.localFiles ?? [],
         });
-        const queueKey = recordFirstKeyAtStartRef.current;
-        if (recordedWithoutStorageRef.current && queueKey) {
-          for (const file of recordFirstFilesToQueue(
-            stopResult.localFiles ?? [],
-          )) {
-            rememberRecordFirstFile(
-              {
-                ...file,
-                ...recordFirstMediaFlags(file.role, {
-                  hasAudio: micOn || systemAudioOn,
-                  hasCamera: mode !== "screen",
-                }),
-                savedAt: new Date().toISOString(),
-              },
-              queueKey,
-            );
-          }
-        }
         emit("clips:native-upload-finished", {
           recordingId: stopResult.recordingId,
           ok: true,
@@ -3866,7 +3820,7 @@ export function App({
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           },
-          localRecordingMode !== "off" || recordedWithoutStorageRef.current,
+          localRecordingMode !== "off",
         );
         emit("clips:native-upload-finished", {
           recordingId: stoppingRecordingId ?? undefined,
@@ -4241,19 +4195,7 @@ export function App({
       bubbleStreamRef.current = null;
       setBubbleSessionEpoch((epoch) => epoch + 1);
     }
-    // Recording never waits on storage: until storage reads as connected the
-    // clip is written to Movies/Clips as it records, then uploads once
-    // storage connects.
-    const recordingLocalMode = effectiveLocalRecordingMode(
-      localRecordingMode,
-      videoStorageStatus,
-    );
-    const recordLocallyUntilStorage = recordingLocalMode !== localRecordingMode;
-    recordedWithoutStorageRef.current = recordLocallyUntilStorage;
-    recordFirstKeyAtStartRef.current = recordFirstFilesKey(
-      originForServer(serverUrl),
-      signedInAs,
-    );
+    const recordingLocalMode = effectiveLocalRecordingMode(localRecordingMode);
     setRecError(null);
     setLocalRecordingNotice(null);
     setShareLinkNotice(null);
@@ -4263,6 +4205,7 @@ export function App({
       mode,
       source,
       localRecordingMode,
+      videoStorageStatus,
       cameraOn,
       micOn,
     });
@@ -4874,8 +4817,16 @@ export function App({
         ? "Start recording"
         : "Start local recording";
 
+  const localRecoveryFiles = mapRecordFirstFilesForRecovery(
+    [...recordFirstFiles, ...unclaimedRecordFirstFiles],
+    recordFirstFileErrors,
+  );
   const recoveryProps: RecordingRecoveryProps = {
     uploads: pendingUploads,
+    localFiles: localRecoveryFiles,
+    localFilesError: recordFirstError,
+    localFilesUploading: recordFirstUploading,
+    localFilesStorageStatus: videoStorageStatus,
     lookupErrors: recoverySnapshot.errors,
     actionErrors: recoveryActionErrors,
     refreshing: recoveryRefreshing,
@@ -4896,6 +4847,11 @@ export function App({
     onRetry: retryPendingUpload,
     onCancelRetry: cancelPendingUploadRetry,
     onOpenFolder: openPendingUploadFolder,
+    onRetryLocalFiles: () =>
+      void uploadRecordFirstFilesRef.current({ includeUnclaimed: true }),
+    onRefreshStorage: () => void refreshVideoStorageStatus(),
+    onConnectLocalStorage: () => openVideoStorageSetup(serverUrl),
+    onForgetLocalFile: forgetRecordFirstFile,
     onReviewFiles: (key) => {
       void invoke("native_fullscreen_open_drafts_folder").catch((error) => {
         setRecoveryActionErrors((errors) => ({
@@ -4920,7 +4876,9 @@ export function App({
         delete next[key];
         return next;
       });
-      void openExternal(`${targetServerUrl}/record`).catch((error) => {
+      void openExternal(
+        `${targetServerUrl.replace(/\/+$/, "")}/record?connectStorage=1`,
+      ).catch((error) => {
         setRecoveryActionErrors((errors) => ({
           ...errors,
           [key]: error instanceof Error ? error.message : String(error),
@@ -4931,6 +4889,7 @@ export function App({
   const pendingUploadBanner = shouldShowRecordingRecoveryBanner(
     popoverView,
     authStatus === "authed",
+    localRecoveryFiles.length > 0 || !!recordFirstError,
   ) ? (
     <RecordingRecovery
       {...recoveryProps}
@@ -5491,31 +5450,6 @@ export function App({
           </button>
         ) : null}
 
-        {recordFirstFiles.length + unclaimedRecordFirstFiles.length > 0 ||
-        recordFirstError ? (
-          <RecordFirstUploadsBanner
-            count={recordFirstFiles.length + unclaimedRecordFirstFiles.length}
-            storageStatus={videoStorageStatus}
-            signedIn={!!signedInAs}
-            uploading={recordFirstUploading}
-            error={recordFirstError}
-            failedFiles={[
-              ...recordFirstFiles,
-              ...unclaimedRecordFirstFiles,
-            ].flatMap((file) =>
-              recordFirstFileErrors[file.path]
-                ? [{ file, ...recordFirstFileErrors[file.path]! }]
-                : [],
-            )}
-            onUpload={() =>
-              void uploadRecordFirstFilesRef.current({
-                includeUnclaimed: true,
-              })
-            }
-            onCheckStorage={() => void refreshVideoStorageStatus()}
-            onForget={forgetRecordFirstFile}
-          />
-        ) : null}
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -5717,96 +5651,6 @@ function UpdateRestartBanner({ message }: { message: string }) {
 
 const RECORD_FIRST_LIST_UNREADABLE =
   "Clips couldn't read its list of recordings waiting to upload. They are still in Movies/Clips.";
-
-function RecordFirstUploadsBanner({
-  count,
-  storageStatus,
-  signedIn,
-  uploading,
-  error,
-  failedFiles,
-  onUpload,
-  onCheckStorage,
-  onForget,
-}: {
-  count: number;
-  storageStatus: VideoStorageStatus;
-  signedIn: boolean;
-  uploading: boolean;
-  error: string | null;
-  failedFiles: Array<{
-    file: RecordFirstFile;
-    message: string;
-    missing: boolean;
-  }>;
-  onUpload: () => void;
-  onCheckStorage: () => void;
-  onForget: (path: string) => void;
-}) {
-  const recordings = count === 1 ? "1 recording" : `${count} recordings`;
-  const storageCopy =
-    storageStatus === "configured"
-      ? "Saved in Movies/Clips. Upload them to get share links."
-      : storageStatus === "missing"
-        ? "Saved in Movies/Clips. Connect storage and they upload."
-        : storageStatus === "unavailable"
-          ? "Storage authorization could not be checked. Retry to check again; recordings remain in Movies/Clips."
-          : "Checking whether storage can upload clips.";
-  const checkingStorage =
-    storageStatus === "checking" || storageStatus === "unavailable";
-  return (
-    <>
-      <div className="storage-flow-banner" role="status">
-        <div className="storage-flow-icon" aria-hidden>
-          <IconUpload size={17} stroke={1.8} />
-        </div>
-        <div className="storage-flow-copy">
-          <div className="storage-flow-title">
-            {uploading
-              ? `Uploading ${recordings}…`
-              : `${recordings} saved on this Mac, not uploaded`}
-          </div>
-          <div className="storage-flow-sub">
-            {error ? <div>{error}</div> : null}
-            <div>{storageCopy}</div>
-          </div>
-        </div>
-        {count > 0 ? (
-          <button
-            type="button"
-            className="storage-flow-connect"
-            disabled={uploading || !signedIn}
-            title={signedIn ? undefined : "Sign in to upload"}
-            onClick={checkingStorage ? onCheckStorage : onUpload}
-          >
-            <IconUpload size={14} stroke={2} />
-            {storageStatus === "configured"
-              ? "Upload now"
-              : storageStatus === "missing"
-                ? "Connect"
-                : storageStatus === "unavailable"
-                  ? "Retry"
-                  : "Check storage"}
-          </button>
-        ) : null}
-      </div>
-      {failedFiles.map(({ file, message, missing }) => (
-        <div key={file.path} className="error-banner" role="alert">
-          {file.fileName}: {message}
-          {missing ? (
-            <button
-              type="button"
-              className="storage-flow-connect"
-              onClick={() => onForget(file.path)}
-            >
-              Remove from list
-            </button>
-          ) : null}
-        </div>
-      ))}
-    </>
-  );
-}
 
 function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
   return (
@@ -7011,6 +6855,7 @@ function Setup({
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
+  const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
@@ -8172,6 +8017,17 @@ function Setup({
                 onCheckedChange={setVoiceCleanupEnabled}
                 disabled={captureControlsLocked}
                 label="Voice cleanup"
+              />
+            }
+          />
+          <SettingsRow
+            label="Remove background"
+            description="Shows only you in the camera bubble"
+            control={
+              <SettingsSwitch
+                checked={cameraCutout}
+                onCheckedChange={setCameraCutout}
+                label="Remove background"
               />
             }
           />

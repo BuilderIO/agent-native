@@ -145,7 +145,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toMatchObject({
           supported: false,
           localLoopback: false,
-          supportReason: "requires_local_loopback",
+          supportReason: "scope_unresolved",
           accounts: [],
         });
         expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
@@ -156,6 +156,31 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).rejects.toThrow("available only from a local app");
       },
     );
+  });
+
+  it("requires personal scope for a verified local request with an org", async () => {
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: true,
+        isDirectLoopbackRequest: true,
+        requestOrigin: "http://127.0.0.1:1455",
+        orgId: "org-1",
+        orgScope: "personal",
+      },
+      async () => {
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          supportReason: "requires_personal_scope",
+          accounts: [],
+        });
+      },
+    );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
+    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(mocks.getUserSetting).not.toHaveBeenCalled();
   });
 
   it("does not expose saved accounts to a forwarded loopback request", async () => {
