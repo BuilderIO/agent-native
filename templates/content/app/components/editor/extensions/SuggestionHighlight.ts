@@ -312,17 +312,11 @@ function lineWidget(
   active: boolean,
   className: string,
   label: string,
-  source: string,
-  line: SourceSpan,
+  text: string,
+  nodes: SuggestionPresentationNode[],
   inList: boolean,
 ) {
   return () => {
-    const text = source.slice(line.from, line.to);
-    const nodes = suggestionTextPresentationForSource(text, {
-      source,
-      from: line.from,
-      to: line.to,
-    });
     const list = LIST_LINE.exec(text);
     const heading = /^\t*(#{1,6}) /.exec(text);
     const quote = /^\t*> /.test(text);
@@ -336,7 +330,7 @@ function lineWidget(
       block.append(document.createTextNode(/x/i.test(list[1]) ? "☑ " : "☐ "));
     // The element shows the line's structure, so its marker isn't repeated;
     // an empty paragraph keeps its pilcrow so the line can be seen.
-    for (const node of nodes ?? [])
+    for (const node of nodes)
       if (node.type !== "block" || node.value === "¶")
         appendPresentationNode(block, node, true);
     let content: HTMLElement = block;
@@ -371,26 +365,18 @@ function lineDecorations(
   const label = deleted
     ? "Inspect suggested deletion"
     : "Inspect suggested insertion";
-  const placed = lines.lines.map((line) => ({
-    line,
-    boundary: lineBoundary(
-      doc,
-      spec.from,
-      lines.side,
-      LIST_LINE.test(lines.source.slice(line.from, line.to)),
-    ),
-  }));
-  if (placed.some(({ line, boundary }) => !boundary)) return null;
-  for (const { line } of placed) {
+  const placed = lines.lines.map((line) => {
     const text = lines.source.slice(line.from, line.to);
-    if (
-      !suggestionTextPresentationForSource(text, {
+    return {
+      line,
+      boundary: lineBoundary(doc, spec.from, lines.side, LIST_LINE.test(text)),
+      nodes: suggestionTextPresentationForSource(text, {
         source: lines.source,
         ...line,
-      })
-    )
-      return null;
-  }
+      }),
+    };
+  });
+  if (placed.some(({ boundary, nodes }) => !boundary || !nodes)) return null;
   const decorations: Decoration[] = [];
   const inline = (span: SourceSpan | null, part: "head" | "tail") => {
     if (!span) return;
@@ -419,7 +405,7 @@ function lineDecorations(
     );
   };
   inline(lines.head, "head");
-  placed.forEach(({ line, boundary }, index) => {
+  placed.forEach(({ line, boundary, nodes }, index) => {
     decorations.push(
       Decoration.widget(
         boundary!.position,
@@ -428,8 +414,8 @@ function lineDecorations(
           active,
           className,
           label,
-          lines.source,
-          line,
+          lines.source.slice(line.from, line.to),
+          nodes!,
           boundary!.inList,
         ),
         {

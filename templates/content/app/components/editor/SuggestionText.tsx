@@ -54,12 +54,19 @@ export function SuggestionText({
     );
   }
   // A new paragraph's own line break would open or close the card with an
-  // empty line; the lines between stay.
+  // empty line, so a break at either edge shows as its marker instead; the
+  // breaks between lines stay.
   let start = 0;
   let end = presented.length;
   while (start < end && presented[start]!.type === "lineBreak") start += 1;
   while (end > start && presented[end - 1]!.type === "lineBreak") end -= 1;
-  const nodes = presented.slice(start, end);
+  const marker = (count: number): SuggestionPresentationNode[] =>
+    count ? [{ type: "text", value: "↵".repeat(count) }] : [];
+  const nodes = [
+    ...marker(start),
+    ...presented.slice(start, end),
+    ...marker(presented.length - end),
+  ];
   return (
     <span className="whitespace-pre-wrap break-words">
       {nodes.map((node, index) => renderNode(node, String(index)))}

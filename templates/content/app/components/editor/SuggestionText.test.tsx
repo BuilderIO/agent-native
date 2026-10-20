@@ -41,20 +41,32 @@ it("renders an exact fragment using its enclosing source marks", () => {
   ).toContain("<strong>Upper</strong><br/><strong>Lower</strong>");
 });
 
-it("shows a new paragraph's lines without opening or closing on a break", () => {
+it("breaks a new paragraph's lines and marks the breaks at its edges", () => {
   const source = "Alpha one. More.\nAlpha two.\nBravo.";
   const from = "Alpha one.".length;
   const to = source.indexOf("\nBravo") + 1;
-  const html = renderToStaticMarkup(
-    <SuggestionText
-      content={source.slice(from, to)}
-      context={{ source, from, to }}
-    />,
+  expect(
+    renderToStaticMarkup(
+      <SuggestionText
+        content={source.slice(from, to)}
+        context={{ source, from, to }}
+      />,
+    ),
+  ).toBe(
+    '<span class="whitespace-pre-wrap break-words"> More.<br/>Alpha two.↵</span>',
   );
-  expect(html).toBe(
-    '<span class="whitespace-pre-wrap break-words"> More.<br/>Alpha two.</span>',
-  );
-  expect(html).not.toContain("↵");
+  // A paragraph added on its own still says it starts a new line.
+  const added = "Alpha.\nNew.\nBravo.";
+  const addedFrom = "Alpha.".length;
+  const addedTo = addedFrom + "\nNew.".length;
+  expect(
+    renderToStaticMarkup(
+      <SuggestionText
+        content={added.slice(addedFrom, addedTo)}
+        context={{ source: added, from: addedFrom, to: addedTo }}
+      />,
+    ),
+  ).toBe('<span class="whitespace-pre-wrap break-words">↵New.</span>');
 });
 
 it("shows structure-only changes instead of an unavailable preview", () => {
