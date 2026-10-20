@@ -430,6 +430,7 @@ const messages = {
       tryDifferentKeywords: "Try different keywords",
       nothingHere: "Nothing here yet",
       loadingMore: "Loading more...",
+      openAllMailForOlder: "Open All Mail for older messages",
     },
     toasts: {
       noEmailSelected: "No email selected.",
@@ -460,6 +461,8 @@ const messages = {
       failedToSendEmail: "Failed to send email",
       messageSent: "Message sent.",
       failedToSaveDraft: "Failed to save draft.",
+      failedToRefreshInbox:
+        "Couldn't refresh your inbox. Try again in a moment.",
       failedToDeleteDraft: "Failed to delete draft.",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",
