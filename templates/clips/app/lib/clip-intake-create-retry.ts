@@ -1,6 +1,13 @@
 const RETRYABLE_INTAKE_CREATE_STATUSES = new Set([
   408, 409, 425, 429, 500, 502, 503, 504,
 ]);
+const PERMANENT_INTAKE_CREATE_ERROR_CODES = new Set([
+  "intake_context_unavailable",
+  "intake_unavailable",
+  "recording_owner_mismatch",
+  "storage_setup_required",
+  "streaming_upload_unavailable",
+]);
 
 export const INTAKE_CREATE_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
 
@@ -24,7 +31,7 @@ export async function shouldRetryIntakeCreateResponse(
   if (
     !body ||
     body?.details?.retryable === false ||
-    body?.errorCode === "streaming_upload_unavailable"
+    PERMANENT_INTAKE_CREATE_ERROR_CODES.has(body.errorCode ?? "")
   ) {
     return false;
   }
