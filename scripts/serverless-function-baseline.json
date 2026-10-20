@@ -13,6 +13,8 @@
     "analytics-bigquery-backfill-cron": 1049,
     "analytics-rollup-backfill-background": 32912507,
     "analytics-rollup-backfill-cron": 1044,
+    "content-metrics-collection-background": 32912514,
+    "content-metrics-cron": 1566,
     "dashboard-report-cron": 1065,
     "dashboard-report-sweep-background": 32913330,
     "server": 53110373,
