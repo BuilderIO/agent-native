@@ -207,7 +207,7 @@ test("starts Slides 2 fast tests in two fresh Vitest processes", () => {
     splitLargePackages(
       [{ name: "slides-2", files: 455, shardable: true }],
       8,
-      0,
+      5_000,
     ),
     [
       { name: "slides-2", files: 228, shard: "1/2" },
