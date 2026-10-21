@@ -26,11 +26,9 @@ let ensureContentSpacesAction: typeof import("./ensure-content-spaces.js").defau
 let createContentSpaceAction: typeof import("./create-content-space.js").default;
 let deleteContentSpaceAction: typeof import("./delete-content-space.js").default;
 let createDocumentAction: typeof import("./create-document.js").default;
-let listDocumentsAction: typeof import("./list-documents.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
-let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
 let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
@@ -67,13 +65,10 @@ beforeAll(async () => {
   deleteContentSpaceAction = (await import("./delete-content-space.js"))
     .default;
   createDocumentAction = (await import("./create-document.js")).default;
-  listDocumentsAction = (await import("./list-documents.js")).default;
   getDocumentAction = (await import("./get-document.js")).default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
   updateDocumentAction = (await import("./update-document.js")).default;
-  setDocumentPropertyAction = (await import("./set-document-property.js"))
-    .default;
   deleteContentDatabaseAction = (await import("./delete-content-database.js"))
     .default;
   deleteDocumentAction = (await import("./delete-document.js")).default;

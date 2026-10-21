@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 
-import { getDbExec } from "@agent-native/core/db";
 import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
