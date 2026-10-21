@@ -212,13 +212,16 @@ const CONTENT_CONVERGENCE_CORE_FILES = new Set([
   "packages/core/src/mcp/index.ts",
   "packages/core/src/server/collab-plugin.ts",
   "packages/core/src/server/core-routes-plugin.ts",
+  "packages/core/src/server/auth.ts",
   "packages/core/src/server/embed-route.ts",
+  "packages/core/src/server/embed-session.ts",
   "packages/core/src/server/http-route.ts",
   "packages/core/src/server/index.ts",
   "packages/core/src/server/poll-events.ts",
   "packages/core/src/server/poll.ts",
   "packages/core/src/server/request-context.ts",
   "packages/core/src/sharing/access.ts",
+  "packages/core/src/sharing/index.ts",
   "packages/core/src/shared/embed-auth.ts",
 ]);
 
