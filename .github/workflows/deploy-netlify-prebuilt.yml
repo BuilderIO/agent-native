@@ -808,8 +808,8 @@ jobs:
                         < "$database_response_file"
                     )"
                   else
-                    database_lookup_error="$(cat "$database_error_file" "$database_response_file")"
-                    if [[ "$database_lookup_error" != *404* && "$database_lookup_error" != *"Not Found"* ]]; then
+                    if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$' \
+                      "$database_error_file" "$database_response_file"; then
                       echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID."
                       exit 1
                     fi
@@ -1206,8 +1206,8 @@ jobs:
                 < "$migration_response_file"
             )"
           else
-            migration_lookup_error="$(cat "$migration_error_file" "$migration_response_file")"
-            if [[ "$migration_lookup_error" != *404* && "$migration_lookup_error" != *"Not Found"* ]]; then
+            if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$' \
+              "$migration_error_file" "$migration_response_file"; then
               echo "::error::Netlify could not resolve the production database for $NETLIFY_SITE_ID."
               exit 1
             fi

@@ -30,6 +30,21 @@ import { resolveNetlifyBuildEnvironment } from "./netlify-prebuilt-build.ts";
 
 type Workflow = Record<string, unknown>;
 
+const NETLIFY_NOT_FOUND_ERROR_PATTERN =
+  "^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$";
+
+const isNetlifyNotFoundError = (message: string): boolean => {
+  try {
+    execFileSync("grep", ["-Eq", NETLIFY_NOT_FOUND_ERROR_PATTERN], {
+      input: message,
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const readWorkflow = (path: string): Workflow =>
   parse(readFileSync(path, "utf8")) as Workflow;
 
@@ -2158,7 +2173,7 @@ describe("production Netlify site concurrency guard", () => {
     const environmentLookup = build.indexOf("netlify api getEnvVars");
     const databaseLookup = build.indexOf("if netlify api getSiteDatabase");
     const notFoundCheck = build.indexOf(
-      'if [[ "$database_lookup_error" != *404*',
+      "if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found",
     );
     const fallbackLookup = build.indexOf(
       "BUILD_CONTEXT=production node --experimental-strip-types scripts/netlify-migration-url.ts",
@@ -2168,8 +2183,29 @@ describe("production Netlify site concurrency guard", () => {
     assert.ok(databaseLookup < notFoundCheck && notFoundCheck < fallbackLookup);
     assert.match(build, /scope.*builds/);
     assert.match(build, /::add-mask::\$build_database_url/);
-    assert.match(build, /database_lookup_error.*Not Found/);
     assert.match(build, /database_response_file.*database_error_file/);
+    assert.ok(build.includes(`grep -Eq '${NETLIFY_NOT_FOUND_ERROR_PATTERN}'`));
+    assert.match(build, /database_error_file/);
+    assert.match(build, /database_response_file/);
+    assert.match(build, /JSONHTTPError: Not Found/);
+    assert.equal(
+      isNetlifyNotFoundError("  ›   JSONHTTPError: Not Found\n"),
+      true,
+    );
+    assert.equal(
+      isNetlifyNotFoundError("› JSONHTTPError: Unauthorized (HTTP 401)\n"),
+      false,
+    );
+    assert.equal(
+      isNetlifyNotFoundError("› JSONHTTPError: Forbidden (HTTP 403)\n"),
+      false,
+    );
+    assert.equal(
+      isNetlifyNotFoundError(
+        "› JSONHTTPError: Internal Server Error\nNot Found\n",
+      ),
+      false,
+    );
   });
 
   it("keeps Analytics migrations on its app-scoped database URL", () => {
@@ -2379,7 +2415,12 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /getSiteDatabase/);
     assert.match(migration, /getEnvVars/);
     assert.match(migration, /scope.*builds/);
-    assert.match(migration, /migration_lookup_error.*Not Found/);
+    assert.ok(
+      migration.includes(`grep -Eq '${NETLIFY_NOT_FOUND_ERROR_PATTERN}'`),
+    );
+    assert.match(migration, /migration_error_file/);
+    assert.match(migration, /migration_response_file/);
+    assert.match(migration, /JSONHTTPError: Not Found/);
     assert.match(migration, /::add-mask::\$migration_database_url/);
     assert.match(migration, /role.*netlifydb_owner/);
     assert.match(migration, /netlify-migration-url\.ts/);
