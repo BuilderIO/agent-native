@@ -8,7 +8,6 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import {
-  holdLiveSaveFromReplayCounts,
   recordCanvasOutcome,
   runDetachedCanvasOperation,
   type CanvasOperationHandle,
@@ -708,7 +707,6 @@ export function runSaveFileContent(
           : "failed";
     }
   };
-  const releaseLiveSave = holdLiveSaveFromReplayCounts(queuedOutboxEntry?.key);
   const previous = fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
   const current = previous
     .catch(() => {})
@@ -722,7 +720,6 @@ export function runSaveFileContent(
   const chain = current.then(() => {});
   fileSaveChainsRef.current[pending.id] = chain;
   void current.finally(() => {
-    releaseLiveSave();
     if (fileSaveChainsRef.current[pending.id] === chain) {
       delete fileSaveChainsRef.current[pending.id];
     }

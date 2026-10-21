@@ -476,47 +476,24 @@ export function clearCanvasOutcomeDesign(): void {
   flushCanvasOutcomeCounts();
 }
 
-type ReplayedEntry = { actionName?: string; key: string };
-
-// Outbox keys of saves queued or in flight. A drain does not wait for them and
-// can replay the same entry, which the live save already counts.
-const liveSaveKeys = new Map<string, number>();
-
-/** Marks a save's outbox entry as live until the returned function runs. */
-export function holdLiveSaveFromReplayCounts(
-  outboxKey: string | undefined,
-): () => void {
-  if (!outboxKey) return () => {};
-  liveSaveKeys.set(outboxKey, (liveSaveKeys.get(outboxKey) ?? 0) + 1);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const open = (liveSaveKeys.get(outboxKey) ?? 1) - 1;
-    if (open > 0) liveSaveKeys.set(outboxKey, open);
-    else liveSaveKeys.delete(outboxKey);
-  };
-}
-
 /**
  * Counts the file saves one outbox drain finished. The outbox also replays
  * frame geometry and tweaks, which are not canvas saves. Entries that failed
  * stay queued and return on the next drain, which runs on every return to the
- * tab, so counting them would repeat one edit.
+ * tab, so counting them would repeat one edit. These are replay requests,
+ * not edits: a drain does not wait for a live save of the same entry, so an
+ * edit can be sent by both and count under both `save` and `save_replay`.
  */
 export function recordSaveReplayOutcomes(
   result: {
-    saved: ReadonlyArray<ReplayedEntry>;
-    rebased: ReadonlyArray<{ entry: ReplayedEntry; error: unknown }>;
-    dropped: ReadonlyArray<{ entry: ReplayedEntry }>;
+    saved: ReadonlyArray<{ actionName?: string }>;
+    rebased: ReadonlyArray<{ entry: { actionName?: string }; error: unknown }>;
+    dropped: ReadonlyArray<{ entry: { actionName?: string } }>;
   },
   designId: string | undefined,
 ): void {
-  const fileSaves = (entries: ReadonlyArray<ReplayedEntry>) =>
-    entries.filter(
-      (entry) =>
-        entry.actionName === "update-file" && !liveSaveKeys.has(entry.key),
-    ).length;
+  const fileSaves = (entries: ReadonlyArray<{ actionName?: string }>) =>
+    entries.filter((entry) => entry.actionName === "update-file").length;
   const replays = [
     ["succeeded", "none", fileSaves(result.saved)],
     [
@@ -548,7 +525,6 @@ export function __resetCanvasOutcomeTrackingForTests(): void {
   pendingCounts.clear();
   failuresSentThisPage.clear();
   activeOperation = null;
-  liveSaveKeys.clear();
   windowStartedAt = null;
   currentDesignId = undefined;
   viewerSignedIn = undefined;
