@@ -44,4 +44,19 @@ describe("Design template presets", () => {
       );
     }
   });
+  it("leads with the four app-screen starters the home library shows first", () => {
+    expect(
+      DESIGN_TEMPLATE_PRESETS.slice(0, 4).map((preset) => preset.id),
+    ).toEqual([
+      "preset-analytics-dashboard",
+      "preset-messaging-app",
+      "preset-project-tasks",
+      "preset-design-studio",
+    ]);
+    for (const preset of DESIGN_TEMPLATE_PRESETS.slice(0, 4)) {
+      expect([preset.width, preset.height]).toEqual([1440, 900]);
+      expect(preset.description).not.toMatch(/\n/);
+      expect(preset.description.length).toBeLessThanOrEqual(60);
+    }
+  });
 });

@@ -238,6 +238,25 @@ export default {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Recolher barra lateral",
   },
+  gettingStarted: {
+    title: "Primeiros passos",
+    progress: "{{completeCount}} de {{totalCount}} concluídos",
+    moreOptions: "Mais opções",
+    hide: "Ocultar lista",
+    collapse: "Recolher",
+    expand: "Expandir",
+    completed: "Concluído",
+    loadError: "Não foi possível carregar sua lista",
+    retry: "Tentar novamente",
+    steps: {
+      createDesign: "Crie seu primeiro design",
+      addBrand: "Adicione sua marca",
+      useRealData: "Use seus dados reais",
+      shareFeedback: "Compartilhe para receber feedback",
+      inviteTeammate: "Convide um colega",
+      saveTemplate: "Salve um design como modelo",
+    },
+  },
   settings: {
     agentTitle: "Gerenciar agente",
     agentDescription:
