@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.51
 
 ### Patch Changes
@@ -655,16 +661,6 @@
 ### Minor Changes
 
 - a485fbe: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
-
-  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
-
-  Includes bounded image-region cropping for durable localized creative-context fallbacks.
-
-## 0.3.0
-
-### Minor Changes
-
-- 9f2f7a7: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
 
   Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
 

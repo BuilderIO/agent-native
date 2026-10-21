@@ -1,3 +1,9 @@
+## 0.13.3
+
+### Patch Changes
+
+- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
+
 ## 0.13.2
 
 ### Patch Changes
