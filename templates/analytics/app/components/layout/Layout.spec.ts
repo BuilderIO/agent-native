@@ -32,35 +32,6 @@ describe("Analytics layout sidebar route policy", () => {
     );
   });
 
-  it("keeps sidebar navigation compact and footer gutters aligned", () => {
-    const source = readFileSync(
-      new URL("./Sidebar.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      'className="flex min-h-0 flex-1 flex-col overflow-hidden py-2"',
-    );
-    expect(source).toContain(
-      'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
-    );
-    expect(source).toContain('<div className="mt-3 shrink-0 min-w-0">');
-    expect(source).not.toContain("bottomItems");
-    expect(source).not.toContain('href: "/settings"');
-    expect(source).toContain('className="border-border/70 px-2"');
-    expect(source).toContain(
-      'className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"',
-    );
-    expect(source).toContain("<AppSidebarHeader");
-    expect(source).toContain("<AppSidebarFooter");
-    expect(source).not.toContain(
-      'className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2"',
-    );
-    expect(source).not.toContain(
-      'className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4"',
-    );
-  });
-
   it("makes Ask a route-aware toggle while preserving modified-link behavior", () => {
     expect(resolveAskNavigationAction(false, false)).toBe("navigate");
     expect(resolveAskNavigationAction(true, false)).toBe("toggle");

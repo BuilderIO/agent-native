@@ -235,6 +235,8 @@ export function buildAuthenticatedAgentA2ASkills(
   });
 }
 
+export { addAgentProfileExamples } from "../../a2a/app-profile.js";
+
 export function resolveArtifactBaseUrl(event: any): string | undefined {
   const fromEnv =
     getAppConfig().app.url ?? process.env.URL ?? process.env.DEPLOY_URL;

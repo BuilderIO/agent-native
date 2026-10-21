@@ -254,6 +254,10 @@ describe("zoomed native preview geometry", () => {
     });
     expect(planned).toEqual({
       scale: 4,
+      scaleX: 4,
+      scaleY: 2,
+      maxViewportWidth: 226,
+      maxViewportHeight: 351,
       viewport: { x: 850, y: 800, width: 225, height: 242 },
     });
     expect(

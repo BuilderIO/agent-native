@@ -64,8 +64,10 @@ registerShareableResource({
 Render the standard controls where users decide access:
 
 ```tsx
-import { ShareButton } from "@agent-native/toolkit/app/sharing";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import {
+  ShareButton,
+  VisibilityBadge,
+} from "@agent-native/toolkit/app/sharing";
 
 <VisibilityBadge visibility={dashboard.visibility} />;
 <ShareButton resourceType="dashboard" resourceId={dashboard.id} />;
@@ -93,17 +95,38 @@ or mutations; core and app wrappers inject data and callbacks.
   />
 </WireframeBlock>
 
-The most common low-level import is:
-
-```tsx
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
-```
-
-`<ShareButton>` and `<ShareDialog>` are Toolkit UI exported from
-`@agent-native/toolkit/app/sharing`. They use Core client hooks and the shared
-sharing actions. When building custom sharing UI, import
-`useShareButtonController` and `useShareDialogController` from
+`<ShareButton>`, `<ShareDialog>`, and `<VisibilityBadge>` are exported from
+`@agent-native/toolkit/app/sharing`. They use Core client hooks, the shared
+sharing actions, and the app's localized text. When building custom sharing UI,
+import `useShareButtonController` and `useShareDialogController` from
 `@agent-native/core/client/sharing`.
+
+The presentational pieces in `@agent-native/toolkit/sharing` take their text
+from the app. `VisibilityBadge` there accepts a `labels` object with `private`,
+`org`, and `public` text. Any label you leave out falls back to the legacy
+English default ("Private", "Org", "Public"), so existing callers keep their
+text. `OwnershipFilter` requires labels for `all`, `mine`, and `shared`. The
+`@agent-native/toolkit/app/sharing` versions always fill those labels from the
+app's localized text, so use them unless you supply the copy yourself.
+
+Moving a resource from Private to Organization in `<ShareButton>` or
+`<ShareDialog>` opens a confirmation first. Nothing is saved until the user
+confirms, and Cancel or Escape keeps the current access. The confirmation is UI
+intent only. The share actions and their policy checks are unchanged for the
+agent. For chat threads, both components refresh mounted chat lists after they
+save.
+
+Custom surfaces get the same confirmation through
+`useShareButtonController().visibilityTransition` (`request`, `confirm`,
+`cancel`) and render it with `ShareVisibilityConfirmDialog`. `request` returns a
+promise that resolves once the change is saved. A direct change rejects with
+the save's error. A held change whose confirmation fails keeps the error and
+the retry in the dialog and its promise stays pending until a retry succeeds,
+or rejects with `ShareVisibilityNotSavedError` when it is cancelled or
+invalidated, so a held change is never reported as saved. The
+older `handleVisibilityChange` is a deprecated alias for `request` and never
+skips the confirmation. Requests from a closed surface are ignored, and a
+pending change is dropped when the resource changes.
 
 ### Toolkit vs Core {#toolkit-vs-core}
 
@@ -112,6 +135,69 @@ data and callbacks are injected. Core sharing code owns SQL, permissions,
 request context, org membership lookups, share tables, resource registration,
 access filters, visibility changes, invites, roles, and the private access
 tokens that back agent-readable public surfaces.
+
+## Shared chat history {#shared-chat-history}
+
+`@agent-native/toolkit/chat-history` renders the chat sidebar. Core supplies the
+rows and Toolkit renders them, so an app can show My chats and Shared with you
+as separate sections. See [Sharing & Privacy](/docs/sharing#shared-chats) for
+the `ownership` filter and the `ownerEmail` and `accessBasis` fields.
+
+`<ChatHistoryRail>` accepts `sections` as well as a flat `items` list. Each
+section previews five rows and has its own **Show all** and **Show less**
+control, loading, error, and empty states, and optional load-more:
+
+```tsx
+import { ChatHistoryRail } from "@agent-native/toolkit/chat-history";
+import { useChatThreadList } from "@agent-native/core/client";
+
+const mine = useChatThreadList({ ownership: "mine" });
+const shared = useChatThreadList({ ownership: "shared" });
+
+<ChatHistoryRail
+  onNewChat={startChat}
+  railLabels={{
+    newChat: t("newChat"),
+    showMore: t("showMore"),
+    showLess: t("showLess"),
+    sections: {
+      showAll: t("showAll"),
+      showLess: t("showLess"),
+      loadMore: t("loadMore"),
+      loadingMore: t("loadingMore"),
+      retry: t("retry"),
+    },
+  }}
+  sections={[
+    { id: "mine", label: t("myChats"), items: toItems(mine.threads) },
+    {
+      id: "shared",
+      label: t("sharedWithYou"),
+      items: toItems(shared.threads),
+      hasMore: shared.hasMore,
+      loadingMore: shared.loadingMore,
+      onLoadMore: shared.loadMore,
+      loading: shared.loading,
+      error: shared.error ? t("loadFailed") : undefined,
+      onRetry: shared.refresh,
+    },
+  ]}
+/>;
+```
+
+With `sections`, `railLabels.sections` is required and has no defaults. Pass
+`showAll`, `showLess`, `loadMore`, `loadingMore`, and `retry` as translated text,
+and override them per section with `section.labels` when needed.
+
+Show all reveals the rows already loaded. When the server has more, a disclosed
+section also offers Load more. A failed load shows above the rows that already
+loaded, so it never reads as an empty section.
+
+Rows can show who owns a chat and why the viewer can see it. Set `ownerLabel`,
+`accessLabel`, and `accessBasis` on a `ChatHistoryItem`. The app passes
+translated text, because the Toolkit list ships none. Shared rows should show a
+direct grant over organization access when both apply, which is how Core
+reports `accessBasis`.
 
 ## What's next
 

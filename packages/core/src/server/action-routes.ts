@@ -203,6 +203,7 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
     owner: claims.email,
     orgId,
     anonymous: false,
+    identityAssurance: claims.identityAssurance,
     delegationJti: claims.jti,
     delegationIssuer: claims.issuer,
   } as ActionRouteResolvedCaller;
@@ -365,6 +366,7 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
    * context.
    */
   orgId?: string | null;
+  identityAssurance?: "user" | "org-member";
   delegationJti?: string;
   delegationIssuer?: string;
 };
@@ -665,12 +667,25 @@ async function denyWithoutWorkspaceAppAccess(
           ? await storedActiveOrgId(resolvedCaller.owner)
           : undefined))
     : await resolveAgentRunOrgId({ event, ownerContext, resolveOrgId });
-  const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
-    path: `/_agent-native/actions/${name}`,
-    method: getMethod(event),
-    email: ownerContext.owner,
-    orgId: workspaceOrgId,
-  });
+  const checkWorkspaceAccess = () =>
+    checkWorkspaceAppAccessForRequest({
+      path: `/_agent-native/actions/${name}`,
+      method: getMethod(event),
+      email: ownerContext.owner,
+      orgId: workspaceOrgId,
+    });
+  const workspaceAppAccess =
+    resolvedCaller?.identityAssurance === "org-member"
+      ? await runWithRequestContext(
+          {
+            userEmail: ownerContext.owner,
+            ...(workspaceOrgId ? { orgId: workspaceOrgId } : {}),
+            a2aIdentityAssurance: "org-member",
+            requestOrigin: getForwardedRequestOrigin(event),
+          },
+          checkWorkspaceAccess,
+        )
+      : await checkWorkspaceAccess();
   if (isWorkspaceAppAccessUnavailable(workspaceAppAccess)) {
     return {
       status: 503,
@@ -1249,6 +1264,9 @@ function mountActionRoutesInternal(
               userEmail?.trim().toLowerCase() &&
             verifiedServiceIdentity.orgId === orgId
               ? { verifiedServiceIdentity }
+              : {}),
+            ...(resolvedCaller?.identityAssurance
+              ? { a2aIdentityAssurance: resolvedCaller.identityAssurance }
               : {}),
             ...(identityAuthenticatedAtMs !== undefined
               ? { identityAuthenticatedAtMs }

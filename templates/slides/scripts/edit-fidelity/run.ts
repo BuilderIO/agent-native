@@ -2748,8 +2748,10 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       );
     }
 
-    await page.getByRole("button", { name: "Speaker Notes" }).click();
-    const notes = page.getByPlaceholder("Add speaker notes...");
+    await page
+      .getByRole("button", { name: "Speaker notes", exact: true })
+      .click();
+    const notes = page.getByRole("textbox", { name: "Speaker notes" });
     const expectedNotes = await exerciseControl(notes, "speaker notes", true);
     let notesSlide: { notes?: string } | undefined;
     const notesSaved = await waitFor(
@@ -6214,7 +6216,7 @@ async function runAuthoringFuzzQa(
       };
       const isExpectedCleanupNavigationError = (
         target: Page,
-        message: string,
+        message: string | Error,
         recoveryPageErrorAt = Date.now(),
       ) => {
         return (
@@ -6277,9 +6279,7 @@ async function runAuthoringFuzzQa(
         };
         const onPageError = (error: Error) => {
           const pageErrorAt = Date.now();
-          if (
-            isPotentialCleanupRecoveryPageBrowserSessionError(error.message)
-          ) {
+          if (isPotentialCleanupRecoveryPageBrowserSessionError(error)) {
             const pendingPageError = { at: pageErrorAt };
             pendingRecoveryPageErrors.add(pendingPageError);
             let inspection: Promise<void>;
@@ -6288,11 +6288,7 @@ async function runAuthoringFuzzQa(
             )
               .then(() => {
                 if (
-                  !isExpectedCleanupNavigationError(
-                    target,
-                    error.message,
-                    pageErrorAt,
-                  )
+                  !isExpectedCleanupNavigationError(target, error, pageErrorAt)
                 ) {
                   cleanupErrors.push(
                     redactBrowserSessionSensitiveText(
@@ -6309,9 +6305,7 @@ async function runAuthoringFuzzQa(
             pendingCleanupErrorInspections.add(inspection);
             return;
           }
-          if (
-            isExpectedCleanupNavigationError(target, error.message, pageErrorAt)
-          ) {
+          if (isExpectedCleanupNavigationError(target, error, pageErrorAt)) {
             return;
           }
           cleanupErrors.push(

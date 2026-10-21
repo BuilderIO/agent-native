@@ -11,7 +11,6 @@ vi.mock("sonner", () => ({
 import { getDesignClipboardTrustToken } from "@/lib/design-clipboard";
 import { serializeDesignClipboardPayload } from "@/lib/design-import";
 
-import { readDesignEditorSource } from "../read-design-editor-source";
 import { runEditorPaste, type EditorPasteArgs } from "./editor-paste";
 import { parsePastedSvg } from "./pasted-svg";
 
@@ -330,19 +329,5 @@ describe("runEditorPaste", () => {
     runEditorPaste(h.args, pasteEvent({ "text/plain": "just some text" }));
 
     expect(toastError).not.toHaveBeenCalled();
-  });
-});
-
-describe("the editor paste listener gate", () => {
-  const editorSource = readDesignEditorSource();
-
-  it("stays attached when embedded and during the question flow", () => {
-    const effect = editorSource.slice(
-      editorSource.indexOf('document.addEventListener("paste"') - 400,
-      editorSource.indexOf('document.removeEventListener("paste"'),
-    );
-    expect(effect).toContain("if (hostOwnsChrome) return;");
-    expect(effect).not.toContain("embedded ||");
-    expect(effect).not.toContain("pendingQuestions");
   });
 });

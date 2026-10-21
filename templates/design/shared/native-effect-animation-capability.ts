@@ -310,6 +310,9 @@ const STATIC_BUILTIN_VERSIONS = new Set([
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
+  "an-native-folded-mesh@1",
+  "an-native-folded-mesh@2",
+  "an-native-folded-mesh@3",
   "an-native-liquid-metal@1",
   "an-native-liquid-metal@2",
   "an-native-liquid-metal@3",

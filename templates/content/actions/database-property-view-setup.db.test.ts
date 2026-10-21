@@ -392,4 +392,356 @@ describe("ordinary property and table-view setup", () => {
       expect.objectContaining({ key: "name", operator: "does_not_equal" }),
     ]);
   });
+
+  it("sets a list view's row layout from a preset and slot patches", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "List rows",
+        idempotencyKey: "list-rows-database",
+      }),
+    );
+    const target = {
+      spaceId,
+      databaseId: created.database.id,
+      databaseDocumentId: created.database.documentId,
+    };
+    const revisions = async () => {
+      const fresh = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      if (
+        !("mutationContract" in fresh) ||
+        !fresh.mutationContract ||
+        !("configurationRevision" in fresh)
+      ) {
+        throw new Error("Expected setup revisions");
+      }
+      return {
+        expectedSchemaRevision: fresh.mutationContract.schemaRevision,
+        expectedConfigurationRevision: fresh.configurationRevision,
+      };
+    };
+    const propertyIds: Record<string, string> = {};
+    for (const [name, type] of [
+      ["Done", "checkbox"],
+      ["Pitch", "text"],
+      ["Due", "date"],
+    ] as const) {
+      const { expectedSchemaRevision } = await revisions();
+      const result = await asOwner(() =>
+        configureProperty.run({
+          operation: "create",
+          target,
+          expectedSchemaRevision,
+          idempotencyKey: `create-${name}`,
+          definition: { name, type },
+        }),
+      );
+      propertyIds[name] = result.value.id;
+    }
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "ideas",
+          views: [
+            {
+              id: "ideas",
+              name: "Ideas",
+              type: "list",
+              propertyOrderIds: [
+                propertyIds.Due,
+                propertyIds.Pitch,
+                propertyIds.Done,
+              ],
+            },
+            { id: "default", name: "Table", type: "table" },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, created.database.id));
+    const update = async (
+      idempotencyKey: string,
+      viewId: string,
+      patch: Record<string, unknown>,
+    ) =>
+      asOwner(async () =>
+        updateView.run({
+          operation: "update",
+          target,
+          ...(await revisions()),
+          idempotencyKey,
+          viewId,
+          patch,
+        } as never),
+      );
+
+    // A view with no saved layout starts from its default rows, in the
+    // view's property order.
+    const started = await update("start-from-defaults", "ideas", {
+      itemLayout: { titleWeight: "bold" },
+    });
+    expect(started.value.itemLayout).toEqual({
+      leading: { kind: "page_icon", propertyId: null },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: [],
+      trailing: [propertyIds.Due, propertyIds.Pitch, propertyIds.Done],
+    });
+
+    const checklist = await update("checklist", "ideas", {
+      itemLayoutPreset: "checklist",
+    });
+    expect(checklist.value.itemLayout).toEqual({
+      leading: { kind: "checkbox", propertyId: propertyIds.Done },
+      titleWeight: "bold",
+      line2: { propertyId: propertyIds.Pitch, lines: 2 },
+      line3: [],
+      trailing: [],
+    });
+
+    const tweaked = await update("tweak", "ideas", {
+      itemLayout: { titleWeight: "regular", trailing: [propertyIds.Due] },
+    });
+    expect(tweaked.value.itemLayout).toEqual({
+      leading: { kind: "checkbox", propertyId: propertyIds.Done },
+      titleWeight: "regular",
+      line2: { propertyId: propertyIds.Pitch, lines: 2 },
+      line3: [],
+      trailing: [propertyIds.Due],
+    });
+    const listed = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id }),
+    );
+    expect(
+      listed.database.viewConfig.views.find((view) => view.id === "ideas")
+        ?.itemLayout,
+    ).toEqual(tweaked.value.itemLayout);
+
+    await expect(
+      update("date-line2", "ideas", {
+        itemLayout: { line2: { propertyId: propertyIds.Due } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    await expect(
+      update("list-wrap", "ideas", { wrapCells: true }),
+    ).rejects.toMatchObject({ errorCode: "UNSUPPORTED_SCHEMA_CHANGE" });
+    await expect(
+      update("table-layout", "default", { itemLayoutPreset: "digest" }),
+    ).rejects.toMatchObject({ errorCode: "UNSUPPORTED_SCHEMA_CHANGE" });
+
+    type SavedView = Record<string, unknown> & { id: string };
+    const saved = async () => {
+      const read = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      const viewConfig = read.database.viewConfig;
+      return {
+        viewConfig,
+        layout: viewConfig.views.find((view) => view.id === "ideas")
+          ?.itemLayout,
+      };
+    };
+    const changeIdeas = async (change: (view: SavedView) => SavedView) => {
+      const { viewConfig } = await saved();
+      return {
+        ...viewConfig,
+        views: viewConfig.views.map((view) =>
+          view.id === "ideas" ? change(view as SavedView) : view,
+        ),
+      };
+    };
+    const replace = async (
+      idempotencyKey: string,
+      change: (view: SavedView) => SavedView,
+    ) => {
+      const viewConfig = await changeIdeas(change);
+      return asOwner(async () =>
+        updateView.run({
+          operation: "replace",
+          target,
+          ...(await revisions()),
+          idempotencyKey,
+          viewConfig,
+        } as never),
+      );
+    };
+    const legacySave = async (change: (view: SavedView) => SavedView) => {
+      const viewConfig = await changeIdeas(change);
+      return asOwner(() =>
+        updateView.run({
+          databaseId: created.database.id,
+          viewConfig,
+        } as never),
+      );
+    };
+    const withoutLayout = ({ itemLayout: _layout, ...view }: SavedView) =>
+      view as SavedView;
+
+    // Saves from clients that don't know about layouts keep the saved one.
+    await replace("replace-without-layout", (view) => ({
+      ...withoutLayout(view),
+      name: "Ideas list",
+    }));
+    expect((await saved()).layout).toEqual(tweaked.value.itemLayout);
+    await legacySave(withoutLayout);
+    expect((await saved()).layout).toEqual(tweaked.value.itemLayout);
+
+    // Picking Default sends an explicit null, which clears the layout.
+    await legacySave((view) => ({ ...view, itemLayout: null }));
+    expect((await saved()).layout).toBeNull();
+
+    await update("checklist-again", "ideas", { itemLayoutPreset: "checklist" });
+    const reset = await update("reset", "ideas", { itemLayout: null });
+    expect(reset.value).toHaveProperty("itemLayout", null);
+
+    await update("checklist-third", "ideas", { itemLayoutPreset: "checklist" });
+    expect((await saved()).layout).toEqual(checklist.value.itemLayout);
+    await replace("replace-default", (view) => ({ ...view, itemLayout: null }));
+    expect((await saved()).layout).toBeNull();
+
+    // A full save can't add a reference the rows can't show. It's dropped
+    // instead of failing the save.
+    const withWrongTypes = (view: SavedView) => ({
+      ...view,
+      itemLayout: {
+        leading: { kind: "checkbox", propertyId: propertyIds.Pitch },
+        titleWeight: "bold",
+        line2: { propertyId: propertyIds.Done, lines: 1 },
+        line3: [propertyIds.Done],
+        trailing: [propertyIds.Due],
+      },
+    });
+    const showable = {
+      leading: { kind: "page_icon", propertyId: null },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: [propertyIds.Done],
+      trailing: [propertyIds.Due],
+    };
+    await replace("replace-wrong-types", withWrongTypes);
+    expect((await saved()).layout).toEqual(showable);
+    await legacySave(withWrongTypes);
+    expect((await saved()).layout).toEqual(showable);
+
+    // A deleted property in a saved slot doesn't block unrelated edits.
+    await update("due-at-end", "ideas", {
+      itemLayoutPreset: "checklist",
+      itemLayout: { trailing: [propertyIds.Due] },
+    });
+    await getDb()
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, propertyIds.Due));
+    const afterDelete = await update("after-delete", "ideas", {
+      itemLayout: { titleWeight: "regular" },
+    });
+    expect(afterDelete.value.itemLayout).toMatchObject({
+      titleWeight: "regular",
+      trailing: [],
+    });
+
+    // Always-hidden properties can't be put in a slot. A slot saved before
+    // the property was hidden keeps it for when it's shown again, through
+    // full saves and unrelated agent edits; references to properties that no
+    // longer exist are dropped.
+    await update("pitch-on-line3", "ideas", {
+      itemLayout: { line3: [propertyIds.Pitch] },
+    });
+    await asOwner(async () =>
+      configureProperty.run({
+        operation: "update",
+        target,
+        expectedSchemaRevision: (await revisions()).expectedSchemaRevision,
+        idempotencyKey: "hide-pitch",
+        propertyId: propertyIds.Pitch,
+        patch: { visibility: "always_hide" },
+      }),
+    );
+    await expect(
+      update("hidden-line2", "ideas", {
+        itemLayout: { line2: { propertyId: propertyIds.Pitch } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    const withStaleSlots = (view: SavedView) => ({
+      ...view,
+      itemLayout: {
+        ...checklist.value.itemLayout,
+        line3: [propertyIds.Pitch, "deleted-property"],
+      },
+    });
+    const kept = {
+      ...checklist.value.itemLayout,
+      line3: [propertyIds.Pitch],
+    };
+    await legacySave(withStaleSlots);
+    expect((await saved()).layout).toEqual(kept);
+    await replace("replace-stale", withStaleSlots);
+    expect((await saved()).layout).toEqual(kept);
+    const whileHidden = await update("weight-while-hidden", "ideas", {
+      itemLayout: { titleWeight: "medium" },
+    });
+    expect(whileHidden.value.itemLayout).toEqual({
+      ...kept,
+      titleWeight: "medium",
+    });
+
+    // The same goes for a property hidden in this view only.
+    await legacySave((view) => ({
+      ...view,
+      hiddenPropertyIds: [propertyIds.Done],
+    }));
+    await expect(
+      update("view-hidden-leading", "ideas", {
+        itemLayout: {
+          leading: { kind: "checkbox", propertyId: propertyIds.Done },
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    const whileViewHidden = await update("weight-while-view-hidden", "ideas", {
+      itemLayout: { titleWeight: "bold" },
+    });
+    expect(whileViewHidden.value.itemLayout).toEqual({
+      ...kept,
+      titleWeight: "bold",
+    });
+
+    // With two checkboxes, presets and a Start kind without a field pick
+    // the first in the view's order, as the UI does, not the first made.
+    const { expectedSchemaRevision } = await revisions();
+    const shipped = await asOwner(() =>
+      configureProperty.run({
+        operation: "create",
+        target,
+        expectedSchemaRevision,
+        idempotencyKey: "create-Shipped",
+        definition: { name: "Shipped", type: "checkbox" },
+      }),
+    );
+    await legacySave((view) => ({
+      ...view,
+      hiddenPropertyIds: [],
+      propertyOrderIds: [
+        shipped.value.id,
+        propertyIds.Due,
+        propertyIds.Pitch,
+        propertyIds.Done,
+      ],
+    }));
+    const checkboxKind = await update("checkbox-kind-in-order", "ideas", {
+      itemLayout: { leading: { kind: "checkbox" } },
+    });
+    expect(checkboxKind.value.itemLayout?.leading).toEqual({
+      kind: "checkbox",
+      propertyId: shipped.value.id,
+    });
+    await update("reset-before-order", "ideas", { itemLayout: null });
+    const checklistInOrder = await update("checklist-in-order", "ideas", {
+      itemLayoutPreset: "checklist",
+    });
+    expect(checklistInOrder.value.itemLayout?.leading).toEqual({
+      kind: "checkbox",
+      propertyId: shipped.value.id,
+    });
+  });
 });

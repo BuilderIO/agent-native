@@ -1820,6 +1820,47 @@ describe("query-dbt-semantic-metric", () => {
     ).toContain("query AnalyticsMetricResult");
   });
 
+  it("keeps polling a COMPILED metric query until dbt reports it successful", async () => {
+    const rows = [{ active_workspaces: 42 }];
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(metricMetadataResult())
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({ data: { query: { status: "COMPILED" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: rows }),
+            },
+          },
+        }),
+      );
+
+    const result = await runAction({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: "success",
+      queryId: "fake_query_1",
+      rows,
+      rowCount: 1,
+    });
+    expect(action.outputSchema.parse(result)).toEqual(result);
+    expect(
+      mocks.executeProviderApiRequest.mock.calls.filter(([request]) =>
+        request.body.query.includes("query AnalyticsMetricResult"),
+      ),
+    ).toHaveLength(2);
+  });
+
   it.each([
     [
       "invalid JSON result",

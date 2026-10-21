@@ -278,12 +278,14 @@ export async function renderNativeWorkerFill(
     presentationExtent: NativeEffectExtentPlan,
     fillOnTop = false,
   ): Promise<GPUTexture> => {
-    if (
-      children.width !== presentationExtent.width ||
-      children.height !== presentationExtent.height ||
-      fill.width !== target.width ||
-      fill.height !== target.height
-    )
+    requireSize(
+      children,
+      presentationExtent.width,
+      presentationExtent.height,
+      transparent,
+      "fill-presentation-size-mismatch",
+    );
+    if (fill.width !== target.width || fill.height !== target.height)
       failure("fill-presentation-size-mismatch");
     return draw(
       key,
@@ -446,6 +448,14 @@ export async function renderNativeWorkerFill(
     failure(
       "fill-child-staging-unavailable",
       "Nested native Fill children require a staging transaction.",
+    );
+  if (nestedBackdrop && expanded && !outer.length)
+    base = await compositePresentation(
+      "expanded-base",
+      transparent,
+      fillPhase,
+      presentationExtent,
+      true,
     );
   const stagedNativeTextures = stageFillBackdrops
     ? await stageFillBackdrops(children, base, presentationExtent)

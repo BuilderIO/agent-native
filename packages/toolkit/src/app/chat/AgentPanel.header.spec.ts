@@ -31,6 +31,8 @@ import {
   shouldHandleAgentSidebarToggle,
   shouldHandleAgentPanelChatShortcut,
   shouldShowAgentPanelFullViewAction,
+  resolveAgentPanelPageHeaderActions,
+  resolveAgentPanelPageToolbarSlot,
   shouldShowAgentPanelPageHeader,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
@@ -350,22 +352,60 @@ describe("AgentPanel header tab visibility", () => {
     expect(shouldDefaultAgentChatSurfacePageHeader(undefined)).toBe(false);
   });
 
-  it("exposes page header composition without moving it into app chrome", () => {
-    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8");
+  it("keeps share and host toolbar actions when the title menu is hidden", async () => {
+    expect(
+      resolveAgentPanelPageHeaderActions({
+        showPageTitleMenu: false,
+        canShareActiveTab: true,
+      }),
+    ).toEqual({ showPageTitleMenu: false, showShareAction: true });
 
-    expect(source).toContain('data-agent-page-chat-header=""');
-    expect(source).toContain("pageHeaderLeadingSlot");
-    expect(source).toContain("pageToolbarSlot");
-    expect(source).toContain("activeTab?.label");
-    expect(source).toContain('data-agent-page-title-menu=""');
-    expect(source).toContain("<IconShare3 size={15}");
-    expect(source.indexOf("<IconShare3 size={15}")).toBeLessThan(
-      source.indexOf(
-        "{pageToolbarSlot}",
-        source.indexOf("triggerContent={<IconShare3"),
-      ),
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const toggleHistory = vi.fn();
+    const clearActiveTab = vi.fn();
+    const toolbar = resolveAgentPanelPageToolbarSlot(
+      (actions) =>
+        React.createElement(
+          "div",
+          null,
+          React.createElement(
+            "button",
+            { onClick: actions.toggleHistory },
+            actions.showHistory ? "Hide chats" : "All chats",
+          ),
+          actions.activeTabMessageCount > 0
+            ? React.createElement(
+                "button",
+                { onClick: actions.clearActiveTab },
+                "Clear chat",
+              )
+            : null,
+        ),
+      {
+        activeTabMessageCount: 2,
+        clearActiveTab,
+        showHistory: false,
+        toggleHistory,
+      },
     );
-    expect(source).toContain("border-b border-border/70");
+
+    try {
+      await act(async () => root.render(toolbar));
+      const buttons = container.querySelectorAll("button");
+      expect([...buttons].map((button) => button.textContent)).toEqual([
+        "All chats",
+        "Clear chat",
+      ]);
+      await act(async () => buttons[0]?.click());
+      await act(async () => buttons[1]?.click());
+      expect(toggleHistory).toHaveBeenCalledOnce();
+      expect(clearActiveTab).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 
   it("normalizes legacy and unknown modes back to chat", () => {
@@ -1192,6 +1232,24 @@ describe("AgentChatSurface chrome defaults", () => {
 
     expect(surface.props.showHeader).toBe(true);
     expect(surface.props.showTabBar).toBe(true);
+  });
+
+  it("allows a page host to hide only the title menu", () => {
+    const surface = AgentChatSurface({
+      mode: "page",
+      showPageTitleMenu: false,
+    });
+    const panel = surface.props.children[1];
+    const headerActions = resolveAgentPanelPageHeaderActions({
+      showPageTitleMenu: false,
+      canShareActiveTab: true,
+    });
+
+    expect(panel.props.showPageTitleMenu).toBe(false);
+    expect(headerActions).toEqual({
+      showPageTitleMenu: false,
+      showShareAction: true,
+    });
   });
 });
 

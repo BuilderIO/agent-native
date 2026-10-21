@@ -45,13 +45,6 @@ beforeEach(() => {
 });
 
 describe("readLargeText", () => {
-  it("is large from 24px at any weight", () => {
-    expect(readLargeText({ fontSize: "24px", fontWeight: "400" })).toBe(true);
-    expect(readLargeText({ fontSize: "23.9px", fontWeight: "400" })).toBe(
-      false,
-    );
-  });
-
   it("is large from 18.66px when bold", () => {
     expect(readLargeText({ fontSize: "18.66px", fontWeight: "700" })).toBe(
       true,

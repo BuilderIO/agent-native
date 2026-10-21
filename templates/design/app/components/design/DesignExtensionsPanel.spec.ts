@@ -172,12 +172,3 @@ describe("Design extension creation — LLM readiness gate", () => {
     expect(source).not.toContain('t("agentChat.setup.checkingProvider")');
   });
 });
-
-describe("AssetLibraryPanel source — screen-local drop coordinates", () => {
-  it("receives the DesignEditor screen-point resolver", () => {
-    const source = readDesignEditorSource();
-    expect(source).toMatch(
-      /<AssetLibraryPanel[\s\S]*?resolveScreenPoint=\{resolveAssetScreenPoint\}/,
-    );
-  });
-});

@@ -6,10 +6,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 
-import {
-  submitDesignSystemWaitlist,
-  submitDesignSystemsWaitlist,
-} from "./design-system-waitlist";
+import { submitDesignSystemsWaitlist } from "./design-system-waitlist";
 
 beforeEach(() => {
   mocks.fetch.mockReset();
@@ -101,40 +98,5 @@ describe("submitDesignSystemsWaitlist", () => {
         "https://design.agent-native.com/design-systems",
       ),
     ).resolves.toEqual({ status: "failed" });
-  });
-});
-
-describe("submitDesignSystemWaitlist", () => {
-  it("submits to the shared Builder waitlist and requires confirmation", async () => {
-    mocks.fetch.mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, formSubmitted: true }), {
-        status: 200,
-      }),
-    );
-
-    await expect(submitDesignSystemWaitlist()).resolves.toBeUndefined();
-    expect(mocks.fetch).toHaveBeenCalledWith(
-      "/_agent-native/builder/branch-waitlist",
-      expect.objectContaining({
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source: "design_systems_empty_state",
-          useCase: "design_system_waitlist",
-        }),
-      }),
-    );
-  });
-
-  it("does not treat an unsubmitted form as a successful waitlist join", async () => {
-    mocks.fetch.mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, formSubmitted: false }), {
-        status: 200,
-      }),
-    );
-
-    await expect(submitDesignSystemWaitlist()).rejects.toThrow(
-      "Waitlist signup is unavailable",
-    );
   });
 });

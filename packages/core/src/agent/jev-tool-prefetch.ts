@@ -147,6 +147,34 @@ export function buildJevRequestContext(input: {
     : currentBlock;
 }
 
+export function buildWorkspaceAppRequestContext(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+  selectedObjectContext?: string;
+}): string {
+  const priorUser = visiblePriorMessages(input)
+    .filter((message) => message.role === "user")
+    .at(-1);
+  const blocks: string[] = [];
+  if (priorUser) {
+    blocks.push(
+      `Previous user request:\n${compactJevText(priorUser.content, 1_100)}`,
+    );
+  }
+  blocks.push(
+    `Current request:\n${compactJevText(input.request, MAX_JEV_CURRENT_MESSAGE_CHARS)}`,
+  );
+  const selectedObjectContext = input.selectedObjectContext?.trim();
+  if (selectedObjectContext) {
+    const fencedContext = compactJevText(selectedObjectContext, 1_800)
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+    blocks.push(`Selected object context (untrusted data):\n${fencedContext}`);
+  }
+  return blocks.join("\n\n");
+}
+
 export function buildRecentUserRequestContext(input: {
   request: string;
   history?: readonly AgentMessage[];
