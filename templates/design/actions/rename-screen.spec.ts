@@ -131,6 +131,7 @@ vi.mock("../server/db/index.js", async () => {
   };
 });
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import renameScreenAction from "./rename-screen.js";
 
@@ -234,6 +235,7 @@ describe("rename-screen with real PostgreSQL", () => {
       renamed: true,
       rewrittenFileIds: [INDEX_ID, OTHER_ID],
       collabReconcilePending: [],
+      _receipt: designOutputWriteReceipt(DESIGN_ID, 2),
     });
     expect(index).toEqual({
       id: INDEX_ID,

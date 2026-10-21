@@ -203,6 +203,176 @@ describe("mountA2A auth", () => {
     expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
   });
 
+  it("keeps scoped profiles off anonymous cards and resolves them for verified users", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    const resolveAuthenticatedProfile = vi.fn(async () => ({
+      description: "Private workspace app description",
+      whenToUse: ["List records from my workspace"],
+    }));
+    const resolvePublicProfile = vi.fn(async () => ({
+      description: "Public workspace app description",
+      whenToUse: ["List records from the public workspace"],
+    }));
+    const handler = await mountedAgentCardHandler({
+      ...config,
+      description: "Package app description",
+      skills: [
+        {
+          id: "list-records",
+          name: "List records",
+          description: "List records in the current app.",
+          readOnly: false,
+        },
+      ],
+      authenticatedSkills: [
+        {
+          id: "list-records",
+          name: "List records",
+          description: "List records in the current app.",
+          readOnly: false,
+        },
+      ],
+      resolvePublicProfile,
+      resolveAuthenticatedProfile,
+    });
+
+    const anonymousCard = await handler({
+      method: "GET",
+      headers: { host: "agent.example", "x-forwarded-proto": "https" },
+      path: "/",
+      context: {},
+    });
+    expect(anonymousCard.description).toBe("Public workspace app description");
+    expect(anonymousCard.skills[0]?.examples).toEqual([
+      "List records from the public workspace",
+    ]);
+    expect(resolvePublicProfile).toHaveBeenCalledOnce();
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "cache-control",
+      "private, no-store",
+    );
+    expect(resolveAuthenticatedProfile).not.toHaveBeenCalled();
+
+    const token = await new jose.SignJWT({ sub: "alice@example.test" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    setResponseHeaderMock.mockClear();
+    const authenticatedCard = await handler({
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${token}`,
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+      },
+      path: "/",
+      context: {},
+    });
+
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "cache-control",
+      "private, no-store",
+    );
+    expect(resolveAuthenticatedProfile).toHaveBeenCalledWith({
+      userEmail: "alice@example.test",
+    });
+    expect(resolvePublicProfile).toHaveBeenCalledOnce();
+    expect(authenticatedCard.description).toBe(
+      "Private workspace app description",
+    );
+    expect(authenticatedCard.skills[0]?.examples).toEqual([
+      "List records from my workspace",
+    ]);
+  });
+
+  it("returns the base card when public or authenticated profile lookups fail", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const profileWarning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    const resolvePublicProfile = vi.fn(async () => {
+      throw new Error("public profile unavailable");
+    });
+    const resolveAuthenticatedProfile = vi.fn(async () => {
+      throw new Error("authenticated profile unavailable");
+    });
+    const handler = await mountedAgentCardHandler({
+      ...config,
+      description: "Package app description",
+      skills: [
+        {
+          id: "list-records",
+          name: "List records",
+          description: "List records in the current app.",
+          readOnly: false,
+        },
+      ],
+      resolvePublicProfile,
+      resolveAuthenticatedProfile,
+    });
+
+    const anonymousCard = await handler({
+      method: "GET",
+      headers: { host: "agent.example", "x-forwarded-proto": "https" },
+      context: {},
+    });
+    expect(anonymousCard.description).toBe("Package app description");
+
+    const token = await new jose.SignJWT({ sub: "alice@example.test" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const authenticatedCard = await handler({
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${token}`,
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+      },
+      context: {},
+    });
+    expect(authenticatedCard.description).toBe("Package app description");
+    expect(resolveAuthenticatedProfile).toHaveBeenCalledWith({
+      userEmail: "alice@example.test",
+    });
+    expect(resolvePublicProfile).toHaveBeenCalledTimes(2);
+    expect(profileWarning).toHaveBeenCalled();
+    profileWarning.mockRestore();
+  });
+
+  it("replaces and clears derived profile examples while keeping manifest examples", async () => {
+    const { addAgentProfileExamples } = await import("./app-profile.js");
+    const manifestSkills = [
+      {
+        id: "list-records",
+        name: "List records",
+        description: "List records in the current app.",
+        examples: ["Manifest example"],
+      },
+    ];
+    const first = addAgentProfileExamples(manifestSkills, {
+      whenToUse: ["List records in my workspace"],
+    });
+    expect(first[0]?.examples).toEqual([
+      "Manifest example",
+      "List records in my workspace",
+    ]);
+    const replaced = addAgentProfileExamples(first, {
+      whenToUse: ["List records from my workspace"],
+    });
+    expect(replaced[0]?.examples).toEqual([
+      "Manifest example",
+      "List records from my workspace",
+    ]);
+    const cleared = addAgentProfileExamples(replaced, null);
+    expect(cleared[0]?.examples).toEqual(["Manifest example"]);
+  });
+
   it("preserves retryable principal-policy failures from async task processing", async () => {
     process.env.NODE_ENV = "test";
     delete process.env.A2A_SECRET;
@@ -1282,6 +1452,52 @@ describe("verifyA2AToken (exported)", () => {
     const result = await verifyA2AToken(token);
 
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("requires the route-specific audience when a scoped route opts in", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    const { verifyA2AToken } = await import("./server.js");
+    const event = {
+      headers: { host: "dispatch.example.test", "x-forwarded-proto": "https" },
+    };
+    const options = {
+      routePrefix: "/_agent-native/org/apps",
+      requireAudience: true,
+    };
+
+    await expect(
+      verifyA2AToken(
+        await signToken("shared-global-secret", { sub: "alice@builder.io" }),
+        event,
+        options,
+      ),
+    ).resolves.toEqual({ email: null, orgDomain: null });
+    await expect(
+      verifyA2AToken(
+        await signToken("shared-global-secret", {
+          sub: "alice@builder.io",
+          aud: "https://other.example.test/_agent-native/org/apps",
+        }),
+        event,
+        options,
+      ),
+    ).resolves.toEqual({ email: null, orgDomain: null });
+    await expect(
+      verifyA2AToken(
+        await signToken("shared-global-secret", {
+          sub: "alice@builder.io",
+          aud: "https://dispatch.example.test/_agent-native/org/apps",
+        }),
+        event,
+        options,
+      ),
+    ).resolves.toEqual({ email: "alice@builder.io", orgDomain: null });
   });
 
   it("rejects MCP connect and MCP OAuth tokens signed with the same secret", async () => {

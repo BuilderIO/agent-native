@@ -755,6 +755,20 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "history.mine": "My chats",
+  "history.sharedWithYou": "Shared with you",
+  "history.showAll": "Show all",
+  "history.showLess": "Show less",
+  "history.loadMore": "Load more",
+  "history.loadingMore": "Loading...",
+  "history.retry": "Retry",
+  "history.loadFailed": "Couldn't load chats",
+  "history.loadMoreFailed": "Couldn't load more chats",
+  "history.emptyMine": "No chats yet",
+  "history.emptyShared": "No chats have been shared with you",
+  "history.ownedBy": "Owner: {{name}}",
+  "history.accessDirect": "Shared with you",
+  "history.accessOrganization": "Shared with your organization",
   "integrations.availableSection": "Available integrations",
   "integrations.connectedSection": "Connected",
   "integrations.goToApiKeys": "Go to API keys",
@@ -1439,6 +1453,17 @@ const messages = {
   "share.viewer": "Viewer",
   "share.viewerDescription": "Can view",
   "share.userGroup": "User group",
+  "share.ownedByAnyone": "Owned by anyone",
+  "share.ownedByMe": "Owned by me",
+  "share.sharedWithMe": "Shared with me",
+  "share.confirmOrganizationTitle": "Share with your organization?",
+  "share.confirmOrganizationTitleNamed": "Share with {{organization}}?",
+  "share.confirmOrganizationDescription":
+    "Everyone in your organization, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+  "share.confirmOrganizationDescriptionNamed":
+    "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+  "share.confirmOrganizationAction": "Share with organization",
+  "share.confirmOrganizationSharing": "Sharing...",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
@@ -1986,9 +2011,9 @@ const messages = {
   "settingsOrg.moreInformation": "More information",
   "settingsOrg.general.workspaceUrl": "Workspace URL",
   "settingsOrg.general.workspaceUrlDescription":
-    "Send members to this workspace from another deployment.",
+    "Connect this organization's app directory across deployments.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Members who land on another deployment go to this workspace instead of an empty app.",
+    "Other deployments use this URL to discover workspace apps. It does not automatically redirect members.",
   "settingsOrg.general.editWorkspaceUrl": "Edit workspace URL",
   "settingsOrg.general.removeWorkspaceUrl": "Remove workspace URL",
   "settingsOrg.general.setWorkspaceUrl": "Set URL",
@@ -3182,6 +3207,17 @@ const messages = {
   "reportProblem.notAttached": "The report was not attached.",
   "reportProblem.agentMessage":
     "Something went wrong in the app. Use the attached problem report to explain what happened.",
+  "unsupportedDevice.title": "Open this on a larger screen",
+  "unsupportedDevice.titleDeck": "Open this deck on a larger screen",
+  "unsupportedDevice.titleDesign": "Open this design on a larger screen",
+  "unsupportedDevice.body":
+    "{{app}} works on iPad, tablets, and desktops. Send yourself the link to pick it up there.",
+  "unsupportedDevice.email": "Email me the link",
+  "unsupportedDevice.share": "Share link",
+  "unsupportedDevice.copy": "Copy link",
+  "unsupportedDevice.copyFailed": "Couldn't copy the link",
+  "unsupportedDevice.copied": "Link copied",
+  "unsupportedDevice.emailSubject": "Open {{app}} on your computer",
 } as const;
 
 export default messages;

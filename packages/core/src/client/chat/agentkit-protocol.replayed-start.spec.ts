@@ -16,14 +16,31 @@ async function* neverEnds(): AsyncGenerator<never> {
   await new Promise<void>(() => {});
 }
 
-async function* replayedEvents(
+function replayedEvents(
   onDrained: () => void,
-): AsyncGenerator<{ type: string }> {
-  try {
-    yield { type: "message.delta" };
-  } finally {
-    onDrained();
-  }
+): AsyncIterable<{ type: string }> {
+  return {
+    [Symbol.asyncIterator]() {
+      let yielded = false;
+      return {
+        async next() {
+          if (yielded) {
+            onDrained();
+            return { done: true as const, value: undefined };
+          }
+          yielded = true;
+          return {
+            done: false as const,
+            value: { type: "message.delta" },
+          };
+        },
+        async return() {
+          onDrained();
+          return { done: true as const, value: undefined };
+        },
+      };
+    },
+  };
 }
 
 function runtimeWith(startTurn: () => Promise<unknown>): AgentChatRuntime {
@@ -45,6 +62,11 @@ function runtimeWith(startTurn: () => Promise<unknown>): AgentChatRuntime {
 describe("createAgentKitProtocolAdapter replayed start", () => {
   it("attaches to the live run when a start returns its runtime run id", async () => {
     let replayDrained = false;
+    const queuePromotion = {
+      messageId: "queued-message",
+      claimId: "claim-1",
+      turnId: "turn-queued-message",
+    };
     const startTurn = vi
       .fn()
       .mockResolvedValueOnce({
@@ -67,10 +89,12 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
       const first = await transport.startRun({
         threadId: "thread-1",
         messages: [userMessage("Publish this")],
+        queuePromotion,
       });
       const replay = await transport.startRun({
         threadId: "thread-1",
         messages: [userMessage("Publish this")],
+        queuePromotion,
       });
 
       expect(startTurn).toHaveBeenCalledTimes(2);
@@ -83,6 +107,11 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
 
   it("rejects a replayed start that resolves after the adapter began disposing", async () => {
     const replayed = Promise.withResolvers<unknown>();
+    const queuePromotion = {
+      messageId: "queued-message",
+      claimId: "claim-1",
+      turnId: "turn-queued-message",
+    };
     const startTurn = vi
       .fn()
       .mockResolvedValueOnce({
@@ -97,10 +126,12 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
     await transport.startRun({
       threadId: "thread-1",
       messages: [userMessage("Publish this")],
+      queuePromotion,
     });
     const replay = transport.startRun({
       threadId: "thread-1",
       messages: [userMessage("Publish this")],
+      queuePromotion,
     });
     await vi.waitFor(() => expect(startTurn).toHaveBeenCalledTimes(2));
 
@@ -117,7 +148,7 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
   });
 
   it("does not attach a continuation to a live run; its duplicate id still fails", async () => {
-    let continuedDrained = false;
+    let continuedClosed = false;
     const startTurn = vi.fn().mockResolvedValueOnce({
       id: "turn-1",
       runId: "core-run-1",
@@ -129,7 +160,7 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
       runId: "core-run-1",
       sessionId: "thread-1",
       events: replayedEvents(() => {
-        continuedDrained = true;
+        continuedClosed = true;
       }),
     });
     const runtime = {
@@ -164,9 +195,9 @@ describe("createAgentKitProtocolAdapter replayed start", () => {
         transport.continueRun!({ threadId: "thread-1", runId: "core-run-1" }),
       ).rejects.toThrow("Duplicate AgentKit run id: core-run-1");
       expect(continueTurn).toHaveBeenCalledTimes(1);
-      // A drain would start in a microtask; give it a turn of the event loop.
+      // Rejected continuations close their stream without consuming it.
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(continuedDrained).toBe(false);
+      expect(continuedClosed).toBe(true);
     } finally {
       await transport.dispose();
     }

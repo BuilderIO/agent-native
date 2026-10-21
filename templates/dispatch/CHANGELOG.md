@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-21
+
+### Fixed
+
+- Workspace apps load reliably with organization sign-in, and failures identify the request and status
+
 ## 2026-10-19
 
 ### Changed

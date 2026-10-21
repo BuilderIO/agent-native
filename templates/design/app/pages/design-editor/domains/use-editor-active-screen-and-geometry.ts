@@ -55,6 +55,7 @@ import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
   readPendingGeneration,
+  snapshotGenerationOutputBaseline,
 } from "@/lib/pending-generation";
 import { externalPreviewUrlForContent } from "@/pages/design-editor/preview-html";
 
@@ -341,6 +342,7 @@ export function useEditorActiveScreenAndGeometry({
     setGenerationIssue,
     setRetryablePrompt,
     generationOutputReadyRef,
+    generationOutputBaselineRef,
     clearGenerationCompleteTimer,
     staleToastShownRef,
     generationModelRef,
@@ -349,6 +351,7 @@ export function useEditorActiveScreenAndGeometry({
     resetAgentGenerating,
     trackAgentGeneration,
     design,
+    designDataReady,
     overviewDataReady,
     activeBreakpointStateVersion,
     designAccessRole,
@@ -1205,10 +1208,15 @@ export function useEditorActiveScreenAndGeometry({
     [id, migrateMutation, updateDesignMutation, queryClient],
   );
 
-  generationOutputReadyRef.current = hasPendingGenerationOutput(
-    readPendingGeneration(id, { allowUntimestamped: true }),
-    files,
-  );
+  generationOutputReadyRef.current = designDataReady
+    ? hasPendingGenerationOutput(
+        readPendingGeneration(id, { allowUntimestamped: true }),
+        files,
+      )
+    : null;
+  generationOutputBaselineRef.current = designDataReady
+    ? snapshotGenerationOutputBaseline(files)
+    : undefined;
 
   useEffect(() => {
     if (!id) return;
@@ -1224,46 +1232,43 @@ export function useEditorActiveScreenAndGeometry({
     staleToastShownRef.current = false;
   }, [clearGenerationCompleteTimer, files, id, resetAgentGenerating]);
 
-  useEffect(
-    () =>
-      runResumePendingGeneration({
-        agentSubmit,
-        clearGenerationCompleteTimer,
-        creativeContextEnabled,
-        creativeContextLabLoading: creativeContextLab.isLoading,
-        creativeContextLabError: creativeContextLab.isError
-          ? t("designEditor.generationStoppedRetry")
-          : null,
-        design,
-        files,
-        generationModelRef,
-        imageAttachmentUnavailableMessage: t(
-          "promptDialog.imageAttachmentUnavailable",
-        ),
-        invalidCanvasDimensionsMessage: t(
-          "designEditor.invalidCanvasDimensions",
-        ),
-        id,
-        markGenerationStale,
-        setGenerationChatTabId,
-        setGenerationIssue,
-        setHasPendingGeneration,
-        trackAgentGeneration,
-      }),
-    [
-      id,
-      design,
-      files.length,
-      creativeContextEnabled,
-      creativeContextLab.isLoading,
-      creativeContextLab.isError,
+  useEffect(() => {
+    if (!designDataReady) return;
+    return runResumePendingGeneration({
       agentSubmit,
-      markGenerationStale,
-      trackAgentGeneration,
       clearGenerationCompleteTimer,
-      t,
-    ],
-  );
+      creativeContextEnabled,
+      creativeContextLabLoading: creativeContextLab.isLoading,
+      creativeContextLabError: creativeContextLab.isError
+        ? t("designEditor.generationStoppedRetry")
+        : null,
+      design,
+      files,
+      generationModelRef,
+      imageAttachmentUnavailableMessage: t(
+        "promptDialog.imageAttachmentUnavailable",
+      ),
+      invalidCanvasDimensionsMessage: t("designEditor.invalidCanvasDimensions"),
+      id,
+      markGenerationStale,
+      setGenerationChatTabId,
+      setGenerationIssue,
+      setHasPendingGeneration,
+    });
+  }, [
+    designDataReady,
+    id,
+    design,
+    files.length,
+    creativeContextEnabled,
+    creativeContextLab.isLoading,
+    creativeContextLab.isError,
+    agentSubmit,
+    markGenerationStale,
+    trackAgentGeneration,
+    clearGenerationCompleteTimer,
+    t,
+  ]);
 
   useEffect(() => {
     const handlePageHide = () => {

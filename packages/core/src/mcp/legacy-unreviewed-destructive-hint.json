@@ -37,7 +37,6 @@
     "delete-workspace-resource",
     "deny-vault-request",
     "ensure-dream-job",
-    "extension-data-get",
     "extension-data-set",
     "global-hide-extension",
     "global-unhide-extension",
@@ -322,7 +321,10 @@
     "update-settings",
     "view-screen"
   ],
-  "chat": ["navigate", "provider-api-request"],
+  "chat": [
+    "navigate",
+    "provider-api-request"
+  ],
   "clips": [
     "accept-invite",
     "add-comment",
@@ -648,14 +650,10 @@
     "view-screen"
   ],
   "factory": [
-    "add-factory-comment",
-    "babysit-factory-pull-request",
     "create-factory",
     "create-factory-automation",
     "delete-factory",
     "delete-factory-automation-version",
-    "dispatch-factory-item",
-    "evaluate-triage-item",
     "govern-factory-pull-request",
     "navigate",
     "poll-github-sources",
@@ -664,11 +662,8 @@
     "provider-api-request",
     "record-triage-feedback",
     "restore-factory-automation-version",
-    "restore-factory-graph-version",
     "save-factory-automation",
-    "save-factory-graph",
-    "save-triage-config",
-    "save-triage-rule"
+    "save-triage-config"
   ],
   "forms": [
     "create-form",
@@ -789,7 +784,6 @@
     "update-slides-notification-prefs",
     "view-screen"
   ],
-  "slides-2": [],
   "tasks": [
     "apply-task-route",
     "bulk-delete-inbox-items",
@@ -812,5 +806,6 @@
     "update-task",
     "update-visible-task-fields",
     "view-screen-helpers"
-  ]
+  ],
+  "slides-2": []
 }

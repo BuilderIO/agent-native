@@ -1555,6 +1555,23 @@ async function dispatchAgentic(
     );
     return true;
   }
+  // Only schedule and manual ticks reach a runner; an event would hand its
+  // placeholder body to the agent loop as a prompt.
+  if (latestTrigger.meta.runner) {
+    await recordTriggerExecutionOutcome(
+      latest,
+      { lastCheck: now.toISOString() },
+      {
+        failure: {
+          code: CONFIG_INVALID_ERROR_CODE,
+          message: `Job runner "${latestTrigger.meta.runner}" runs on a schedule or manually, not from events or webhooks.`,
+          precondition: true,
+        },
+        pauseImmediately: true,
+      },
+    );
+    return true;
+  }
   if (isBackgroundAutomationRunActive(latestTrigger.meta)) return false;
   const runningMeta: TriggerFrontmatter = {
     ...latestTrigger.meta,

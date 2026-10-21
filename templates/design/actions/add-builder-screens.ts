@@ -12,6 +12,7 @@ import {
   upsertFusionScreens,
 } from "../server/lib/fusion-screens.js";
 import { readFusionApp } from "../shared/full-app.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 export default defineAction({
   mcpAnnotations: {
@@ -78,6 +79,7 @@ export default defineAction({
     });
 
     return {
+      _receipt: designOutputWriteReceipt(designId, screens.length),
       screens: screens.map((screen) => ({
         fileId: screen.fileId,
         path: screen.path,

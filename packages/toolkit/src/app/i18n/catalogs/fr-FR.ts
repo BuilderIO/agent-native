@@ -464,6 +464,20 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Recherche...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Hier",
+  "history.mine": "Mes chats",
+  "history.sharedWithYou": "Partagés avec vous",
+  "history.showAll": "Tout afficher",
+  "history.showLess": "Afficher moins",
+  "history.loadMore": "Afficher plus",
+  "history.loadingMore": "Chargement...",
+  "history.retry": "Réessayer",
+  "history.loadFailed": "Impossible de charger les chats",
+  "history.loadMoreFailed": "Impossible de charger d'autres chats",
+  "history.emptyMine": "Aucun chat pour le moment",
+  "history.emptyShared": "Aucun chat n'a été partagé avec vous",
+  "history.ownedBy": "Propriétaire : {{name}}",
+  "history.accessDirect": "Partagés avec vous",
+  "history.accessOrganization": "Partagé avec votre organisation",
   "integrations.availableSection": "Intégrations disponibles",
   "integrations.connectedSection": "Connecté",
   "integrations.goToApiKeys": "Aller aux clés API",
@@ -1624,6 +1638,17 @@ const messages: ToolkitAgentChatTranslation = {
   "share.viewer": "Lecteur",
   "share.viewerDescription": "Peut consulter",
   "share.userGroup": "Groupe d’utilisateurs",
+  "share.ownedByAnyone": "À tout le monde",
+  "share.ownedByMe": "À moi",
+  "share.sharedWithMe": "Partagés avec moi",
+  "share.confirmOrganizationTitle": "Partager avec votre organisation ?",
+  "share.confirmOrganizationTitleNamed": "Partager avec {{organization}} ?",
+  "share.confirmOrganizationDescription":
+    "Toutes les personnes de votre organisation, y compris les nouveaux membres, pourront l'ouvrir et voir tout son contenu, y compris les messages, les fichiers et les autres éléments. Vous pourrez modifier ce réglage plus tard.",
+  "share.confirmOrganizationDescriptionNamed":
+    "Toutes les personnes de {{organization}}, y compris les nouveaux membres, pourront l'ouvrir et voir tout son contenu, y compris les messages, les fichiers et les autres éléments. Vous pourrez modifier ce réglage plus tard.",
+  "share.confirmOrganizationAction": "Partager avec l'organisation",
+  "share.confirmOrganizationSharing": "Partage en cours...",
   "settings.emailTitle": "Adresse e-mail",
   "settings.emailChange": "Changer d’adresse e-mail",
   "settings.emailChanging": "Envoi...",
@@ -2124,9 +2149,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.moreInformation": "Plus d’informations",
   "settingsOrg.general.workspaceUrl": "URL de l’espace de travail",
   "settingsOrg.general.workspaceUrlDescription":
-    "Redirigez les membres vers cet espace de travail depuis un autre déploiement.",
+    "Connectez le répertoire d’applications de cette organisation entre les déploiements.",
   "settingsOrg.general.workspaceUrlHelp":
-    "Les membres qui arrivent sur un autre déploiement sont redirigés vers cet espace de travail au lieu d’une application vide.",
+    "Les autres déploiements utilisent cette URL pour découvrir les applications de l’espace de travail. Elle ne redirige pas automatiquement les membres.",
   "settingsOrg.general.editWorkspaceUrl":
     "Modifier l’URL de l’espace de travail",
   "settingsOrg.general.removeWorkspaceUrl":
@@ -3390,6 +3415,18 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "Le rapport n'a pas été joint.",
   "reportProblem.agentMessage":
     "Un problème est survenu dans l'app. Utilisez le rapport de problème joint pour expliquer ce qui s'est passé.",
+  "unsupportedDevice.title": "À ouvrir sur un écran plus grand",
+  "unsupportedDevice.titleDeck":
+    "Ouvrez cette présentation sur un écran plus grand",
+  "unsupportedDevice.titleDesign": "Ouvrez ce design sur un écran plus grand",
+  "unsupportedDevice.body":
+    "{{app}} fonctionne sur iPad, tablette et ordinateur. Envoyez-vous le lien pour reprendre là-bas.",
+  "unsupportedDevice.email": "M'envoyer le lien par e-mail",
+  "unsupportedDevice.share": "Partager le lien",
+  "unsupportedDevice.copy": "Copier le lien",
+  "unsupportedDevice.copyFailed": "Impossible de copier le lien",
+  "unsupportedDevice.copied": "Lien copié",
+  "unsupportedDevice.emailSubject": "Ouvrir {{app}} sur votre ordinateur",
 };
 
 export default messages;

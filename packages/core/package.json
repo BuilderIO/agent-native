@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.211.0",
+  "version": "0.212.1",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -129,6 +129,10 @@
     "./action": {
       "types": "./dist/action.d.ts",
       "default": "./dist/action.js"
+    },
+    "./action-receipt": {
+      "types": "./dist/action-receipt.d.ts",
+      "default": "./dist/action-receipt.js"
     },
     "./action-ui": {
       "types": "./dist/action-ui.d.ts",
@@ -278,6 +282,14 @@
     "./localization/actions/set-localization-preference": "./dist/localization/actions/set-localization-preference.js",
     "./credentials": "./dist/credentials/index.js",
     "./event-bus": "./dist/event-bus/index.js",
+    "./jobs/actions/list-recurring-jobs": "./dist/jobs/actions/list-recurring-jobs.js",
+    "./jobs/actions/manage-recurring-job": "./dist/jobs/actions/manage-recurring-job.js",
+    "./jobs/actions/run-automation-now": "./dist/jobs/actions/run-automation-now.js",
+    "./jobs/actions/list-automation-runs": "./dist/jobs/actions/list-automation-runs.js",
+    "./triggers/actions/list-automations": "./dist/triggers/actions/list-automations.js",
+    "./triggers/actions/list-automation-events": "./dist/triggers/actions/list-automation-events.js",
+    "./triggers/actions/manage-automation": "./dist/triggers/actions/manage-automation.js",
+    "./triggers/actions/search-automation-accounts": "./dist/triggers/actions/search-automation-accounts.js",
     "./fetch-tool": "./dist/extensions/fetch-tool.js",
     "./extensions/url-safety": "./dist/extensions/url-safety.js",
     "./tools/url-safety": "./dist/extensions/url-safety.js",
@@ -403,6 +415,8 @@
     },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
+    "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
+    "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
     "./a2a": "./dist/a2a/index.js",
     "./mcp": "./dist/mcp/index.js",
     "./mcp/fetch": "./dist/mcp/fetch-handler.js",
@@ -469,6 +483,7 @@
     "./workspace-connections": "./dist/workspace-connections/index.js",
     "./notifications": "./dist/notifications/index.js",
     "./jobs": "./dist/jobs/index.js",
+    "./jobs/cron": "./dist/jobs/cron.js",
     "./jobs/frontmatter": "./dist/jobs/frontmatter.js",
     "./client/notifications": "./dist/client/notifications/index.js",
     "./progress": "./dist/progress/index.js",
@@ -554,6 +569,7 @@
     "./client/sharing/useResourceAccessGate": "./dist/client/sharing/useResourceAccessGate.js",
     "./client/sharing/useShareButtonController": "./dist/client/sharing/useShareButtonController.js",
     "./client/sharing/useShareDialogController": "./dist/client/sharing/useShareDialogController.js",
+    "./client/sharing/useShareVisibilityTransition": "./dist/client/sharing/useShareVisibilityTransition.js",
     "./client/sign-in-return": "./dist/client/sign-in-return.js",
     "./client/sign-out": "./dist/client/sign-out.js",
     "./client/tool-display": "./dist/client/tool-display.js",

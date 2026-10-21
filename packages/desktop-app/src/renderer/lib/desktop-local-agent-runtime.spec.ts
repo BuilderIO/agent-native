@@ -227,6 +227,26 @@ describe("Desktop local AgentKit runtime lifecycle", () => {
     expect(api.unsubscribe).toHaveBeenCalledOnce();
   });
 
+  it("clears a discarded event stream without stopping terminal cleanup", async () => {
+    const api = createDesktopAgentApi();
+    const session = await createDesktopLocalAgentRuntime("codex").createSession(
+      { id: "thread-discarded-stream" },
+    );
+    const turn = await session.startTurn({ prompt: "Inspect this workspace." });
+
+    api.emit([assistantDeltaEvent()]);
+    await turn.closeEvents?.();
+
+    await expect(readEvents(turn)).resolves.toEqual([]);
+    expect(api.controlRun).not.toHaveBeenCalled();
+    expect(api.unsubscribe).not.toHaveBeenCalled();
+
+    api.emit([completedEvent()]);
+
+    expect(api.controlRun).not.toHaveBeenCalled();
+    expect(api.unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it("closes the local event stream during disposal even if IPC stop fails", async () => {
     const api = createDesktopAgentApi(false);
     const session = await createDesktopLocalAgentRuntime("codex").createSession(

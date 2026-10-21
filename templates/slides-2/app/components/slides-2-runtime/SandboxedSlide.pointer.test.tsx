@@ -2,8 +2,12 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const { translate } = vi.hoisted(() => ({
+  translate: (key: string) => key,
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => translate,
 }));
 
 import type { SlideRenderArtifact } from "./protocol";
