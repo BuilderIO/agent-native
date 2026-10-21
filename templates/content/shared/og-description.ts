@@ -7,8 +7,10 @@ function stripFrontmatter(markdown: string): string {
 }
 
 function stripFencedCode(markdown: string): string {
+  // A closing fence is at least as long as the opening one and has nothing
+  // after it, so a line like ```js inside the block doesn't close it.
   return markdown.replace(
-    /(?:^|\n) {0,3}(```|~~~)[\s\S]*?(?:\n {0,3}\1[ \t]*|$)/g,
+    /(?:^|\n) {0,3}((`|~)\2{2,})[\s\S]*?(?:\n {0,3}\1\2*[ \t]*(?=\n|$)|$)/g,
     "\n",
   );
 }
@@ -43,11 +45,19 @@ function isHeadingBlock(block: string): boolean {
   if (/^#{1,6}\s+\S/.test(trimmed)) return true;
   if (/^<h[1-6]\b/i.test(trimmed)) return true;
 
+  // Lines of paragraph text underlined with `=` or `-`. Under a list, quote
+  // or table, a `---` is a divider instead.
   const lines = trimmed.split("\n");
   return (
-    lines.length === 2 &&
-    lines[0].trim().length > 0 &&
-    /^\s*(=+|-+)\s*$/.test(lines[1])
+    lines.length >= 2 &&
+    /^\s*(=+|-+)\s*$/.test(lines[lines.length - 1]) &&
+    lines
+      .slice(0, -1)
+      .every(
+        (line) =>
+          line.trim().length > 0 &&
+          !/^\s{0,3}(?:(?:[-+*]|\d+[.)])(?:\s|$)|>|\|)/.test(line),
+      )
   );
 }
 
@@ -56,29 +66,33 @@ function isDividerBlock(block: string): boolean {
 }
 
 export function stripMarkdownForPreview(markdown: string): string {
-  return decodeCommonEntities(markdown)
-    .replace(/<[^>\n]+\/>/g, " ")
-    .replace(/<\/?[^>\n]+>/g, " ")
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\s+#+\s*$/gm, "")
-    .replace(/^\s{0,3}>\s?/gm, "")
-    .replace(/^\s*[-+*]\s+\[[ xX]\]\s+/gm, "")
-    .replace(/^\s*[-+*]\s+/gm, "")
-    .replace(/^\s*\d+[.)]\s+/gm, "")
-    .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gm, " ")
-    .replace(/\|/g, " ")
-    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
-    .replace(/__([^_\n]+)__/g, "$1")
-    .replace(/\*([^*\n]+)\*/g, "$1")
-    .replace(/_([^_\n]+)_/g, "$1")
-    .replace(/~~([^~\n]+)~~/g, "$1")
-    .replace(/\\([\\`*_[\]{}()#+\-.!|>])/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    decodeCommonEntities(markdown)
+      .replace(/<[^>\n]+\/>/g, " ")
+      .replace(/<\/?[^>\n]+>/g, " ")
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/\s+#+\s*$/gm, "")
+      .replace(/^\s{0,3}>\s?/gm, "")
+      .replace(/^\s*[-+*]\s+\[[ xX]\]\s+/gm, "")
+      .replace(/^\s*[-+*]\s+/gm, "")
+      .replace(/^\s*\d+[.)]\s+/gm, "")
+      .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gm, " ")
+      // Heading underlines and dividers that share a block with text.
+      .replace(/^[ \t]{0,3}(?:=+|-+)[ \t]*$/gm, " ")
+      .replace(/\|/g, " ")
+      .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+      .replace(/__([^_\n]+)__/g, "$1")
+      .replace(/\*([^*\n]+)\*/g, "$1")
+      .replace(/_([^_\n]+)_/g, "$1")
+      .replace(/~~([^~\n]+)~~/g, "$1")
+      .replace(/\\([\\`*_[\]{}()#+\-.!|>])/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /** Ends text with "...", shortening it at a word so the whole fits. */

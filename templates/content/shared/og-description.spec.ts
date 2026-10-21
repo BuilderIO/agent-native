@@ -134,6 +134,19 @@ const flag = true;
         content: "What we ship.\n***\nWhat could slip.\n_ _ _\nWhat we cut.",
       }),
     ).toBe("What we ship. What could slip. What we cut.");
+    // An underlined heading can run over several lines of text.
+    expect(
+      buildDocumentExcerpt({
+        content: "Plan for the\nautumn launch\n---\nWhat we ship.",
+      }),
+    ).toBe("What we ship.");
+    // Under a list, `---` is a divider, so the list stays.
+    expect(
+      buildDocumentExcerpt({
+        content: "- Write the notes\n---\nWhat we ship.",
+      }),
+    ).toBe("Write the notes What we ship.");
+    expect(buildDocumentExcerpt({ content: "Agenda\n======" })).toBe("Agenda");
   });
 
   it("leaves out code fences indented up to three spaces", () => {
@@ -145,6 +158,15 @@ const flag = true;
         content: "  ~~~\n  const hidden = 1;\n  ~~~\n\nThe real text.",
       }),
     ).toBe("The real text.");
+    // Only a bare fence at least as long as the opening one closes a block.
+    for (const block of [
+      "```md\n```js\nconst hidden = 1;\n```",
+      "````\n```\nconst hidden = 1;\n```\n````",
+    ]) {
+      expect(
+        buildDocumentExcerpt({ content: `Intro.\n\n${block}\n\nAfter.` }),
+      ).toBe("Intro. After.");
+    }
   });
 
   it("skips a first paragraph that repeats a title in any script", () => {
