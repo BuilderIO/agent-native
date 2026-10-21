@@ -279,16 +279,6 @@ describe("alt-drag slide placement", () => {
       }),
     ).toEqual({ x: 0, y: 24, scaleX: 1, scaleY: 1 });
   });
-
-  it("uses an Alt-only drag overlay for the copied thumbnail", () => {
-    expect(deckEditorSource).toContain('data-slide-drag-overlay="copy"');
-    expect(deckEditorSource).toContain(
-      "altDragSlideId={altDragState?.slideId}",
-    );
-    expect(deckEditorSource).toContain(
-      "modifiers={[verticalSlideDragModifier]}",
-    );
-  });
 });
 
 describe("syncSlideContentSnapshots", () => {

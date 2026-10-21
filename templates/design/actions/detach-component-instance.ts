@@ -36,6 +36,7 @@ import {
   COMPONENT_SOURCE_NODE_ID_ATTR,
   isComponentInstanceForInstanceActions,
 } from "../shared/component-model.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
@@ -299,6 +300,7 @@ export default defineAction({
         nodeId,
         componentName,
         detached: false,
+        _receipt: designOutputWriteReceipt(designId, 0),
         fileId: file.id,
         filename: file.filename,
         note: "No component annotation attributes found on this node's open tag.",
@@ -333,6 +335,7 @@ export default defineAction({
       filename: file.filename,
       updatedAt,
       content: patchedContent,
+      _receipt: designOutputWriteReceipt(designId, 1),
       note: `Detached from component "${componentName}". This node is now a plain element.`,
     };
   },

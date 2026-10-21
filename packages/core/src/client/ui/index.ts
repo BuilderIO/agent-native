@@ -26,3 +26,14 @@ export {
   useAppearanceSync,
   type AppearancePresetId,
 } from "../appearance.js";
+export {
+  applyThemeFamily,
+  readStoredThemeFamily,
+  THEME_FAMILY_CHANGE_EVENT,
+  useThemeFamily,
+  type StoredThemeFamily,
+  type ThemeFamily,
+  type ThemeFamilyApplyResult,
+  type ThemeFamilyHook,
+  type ThemeFamilyStorageStatus,
+} from "../theme-family.js";

@@ -129,6 +129,22 @@ describe("identity registry against the migrated framework schema", () => {
               ('m-leaver-2', 'org-2', 'leaver@example.test', 'member', ?)`,
       args: [now, now, now],
     });
+    await db.execute({
+      sql: `INSERT INTO automation_sharing_overlays
+              (resource_id, visibility, organization_id, created_at, updated_at)
+            VALUES ('org-one', 'private', 'org-1', ?, ?),
+                   ('org-two', 'private', 'org-2', ?, ?),
+                   ('personal', 'private', NULL, ?, ?)`,
+      args: [now, now, now, now, now, now],
+    });
+    await db.execute({
+      sql: `INSERT INTO automation_sharing_grants
+              (resource_id, user_email, role, created_at, updated_at)
+            VALUES ('org-one', 'leaver@example.test', 'view', ?, ?),
+                   ('org-two', 'leaver@example.test', 'view', ?, ?),
+                   ('personal', 'leaver@example.test', 'view', ?, ?)`,
+      args: [now, now, now, now, now, now],
+    });
     await db.execute(`
       INSERT INTO app_spaces VALUES ('space-1', 'org-1'), ('space-2', 'org-2');
     `);
@@ -216,6 +232,11 @@ describe("identity registry against the migrated framework schema", () => {
     ]);
     expect(
       await rows(
+        `SELECT resource_id FROM automation_sharing_grants ORDER BY resource_id`,
+      ),
+    ).toEqual([{ resource_id: "org-two" }, { resource_id: "personal" }]);
+    expect(
+      await rows(
         `SELECT org_id FROM org_members WHERE email = 'leaver@example.test'`,
       ),
     ).toEqual([{ org_id: "org-2" }]);
@@ -231,6 +252,9 @@ describe("identity registry against the migrated framework schema", () => {
     expect(accountWide.revokedSessions).toBe(1);
     expect(await rows(`SELECT id FROM app_note_shares`)).toEqual([]);
     expect(await rows(`SELECT id FROM app_space_members`)).toEqual([]);
+    expect(
+      await rows(`SELECT resource_id FROM automation_sharing_grants`),
+    ).toEqual([]);
   });
 
   // Apps that don't mount workspace connections or app roles (Clips) never

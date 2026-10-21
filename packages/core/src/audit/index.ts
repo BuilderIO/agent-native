@@ -4,6 +4,7 @@ export type {
   AuditApproval,
   AuditCallMeta,
   AuditEvent,
+  AuditIdentityAssurance,
   AuditQueryFilters,
   AuditStatus,
   AuditTarget,

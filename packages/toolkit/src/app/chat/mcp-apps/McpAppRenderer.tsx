@@ -36,6 +36,7 @@ import {
   SESSION_REPLAY_BLOCK_PROPS,
   SESSION_REPLAY_MASK_PROPS,
 } from "../session-replay-privacy.js";
+import { resolveMcpAppTheme } from "./mcp-app-theme.js";
 
 type CallToolResult = Parameters<
   InstanceType<typeof AppBridge>["sendToolResult"]
@@ -810,11 +811,15 @@ function buildHostContext(app: AgentMcpAppPayload, maxHeight: number) {
       : null;
   const cssVar = (name: string) => root?.getPropertyValue(name).trim() || "";
   const theme =
-    typeof document !== "undefined" &&
-    (document.documentElement.classList.contains("dark") ||
-      window.matchMedia?.("(prefers-color-scheme: dark)").matches)
-      ? "dark"
-      : "light";
+    typeof document === "undefined"
+      ? "light"
+      : resolveMcpAppTheme(
+          document.documentElement,
+          () =>
+            typeof window !== "undefined" &&
+            (window.matchMedia?.("(prefers-color-scheme: dark)").matches ??
+              false),
+        );
   return {
     toolInfo: app.tool
       ? {

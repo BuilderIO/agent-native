@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { ContentDatabaseResponse, DocumentProperty } from "../shared/api";
+import type {
+  ContentDatabaseItemLayout,
+  ContentDatabaseResponse,
+  DocumentProperty,
+} from "../shared/api";
 import {
   buildSelectionScreenSection,
   databaseCurrentViewSnapshot,
@@ -585,6 +589,54 @@ describe("view-screen current database view", () => {
       selectedItemCount: 0,
       selectedItems: [],
     });
+  });
+
+  it("reports the list layout on screen, including unsaved changes and resets", () => {
+    const saved: ContentDatabaseItemLayout = {
+      leading: { kind: "checkbox", propertyId: null },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 2 },
+      line3: [],
+      trailing: ["owner"],
+    };
+    const base = databaseResponse();
+    const response: ContentDatabaseResponse = {
+      ...base,
+      database: {
+        ...base.database,
+        viewConfig: {
+          ...base.database.viewConfig,
+          activeViewId: "list",
+          views: [
+            {
+              ...base.database.viewConfig.views[0],
+              id: "list",
+              name: "List",
+              type: "list",
+              itemLayout: saved,
+            },
+          ],
+        },
+      },
+    };
+    const nav = { databaseViewId: "list", databaseViewType: "list" };
+    const unsaved = { ...saved, titleWeight: "regular" as const };
+
+    expect(databaseCurrentViewSnapshot(nav, response).itemLayout).toEqual(
+      saved,
+    );
+    expect(
+      databaseCurrentViewSnapshot(
+        { ...nav, databaseItemLayout: unsaved },
+        response,
+      ).itemLayout,
+    ).toEqual(unsaved);
+    expect(
+      databaseCurrentViewSnapshot(
+        { ...nav, databaseItemLayout: null },
+        response,
+      ).itemLayout,
+    ).toBeNull();
   });
 
   it("preserves explicit navigation unfreeze and resolves effective column wrapping", () => {

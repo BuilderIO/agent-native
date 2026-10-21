@@ -2170,7 +2170,9 @@ async function main(argv: string[]): Promise<number> {
       );
     }
     console.error(
-      `Nothing to render: no example has a recording and an offset (see "skipped" in ${manifestPath}). Re-run get-onboarding-journey with a window that has replays.`,
+      skipped.some((example) => example.reason === "replay_unknown")
+        ? `Nothing to render: replay lookup was skipped for some examples because the journey read was truncated (see "skipped" in ${manifestPath}). Re-run get-onboarding-journey with a narrower window or a larger event budget.`
+        : `Nothing to render: no example has a recording and an offset (see "skipped" in ${manifestPath}). Re-run get-onboarding-journey with a window that has replays.`,
     );
     return 1;
   }

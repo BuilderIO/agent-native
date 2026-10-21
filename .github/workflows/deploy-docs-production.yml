@@ -1,4 +1,6 @@
 name: Deploy Agent-Native docs site from GitHub
+run-name: >-
+  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -33,6 +35,11 @@ on:
         required: true
         type: boolean
         default: true
+      coordinator_run_id:
+        description: Release coordinator ID used to reconcile a transient dispatch failure
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -318,6 +325,7 @@ jobs:
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
+      queue: max
     outputs:
       cutover_acquired: ${{ steps.pause.outputs.cutover_acquired }}
       has_git_connected_build: ${{ steps.pause.outputs.has_git_connected_build }}
@@ -533,6 +541,7 @@ jobs:
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:

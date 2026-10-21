@@ -1,0 +1,233 @@
+{
+  "hubspot.newLeads": {
+    "hotLead": {
+      "ok": true,
+      "cursor": "1001",
+      "items": [
+        {
+          "id": "lead-hot",
+          "externalId": "lead-hot",
+          "kind": "lead",
+          "provider": "hubspot",
+          "title": "pat@prospect.example.test",
+          "occurredAt": "2026-10-19T11:40:00.000Z",
+          "extras": {
+            "ownerId": "owner-1",
+            "company": "Prospect Co"
+          }
+        }
+      ]
+    },
+    "threeLeads": {
+      "ok": true,
+      "cursor": "1003",
+      "items": [
+        {
+          "id": "lead-hot",
+          "externalId": "lead-hot",
+          "kind": "lead",
+          "provider": "hubspot",
+          "title": "pat@prospect.example.test",
+          "occurredAt": "2026-10-19T11:40:00.000Z",
+          "extras": {
+            "ownerId": "owner-1",
+            "company": "Prospect Co"
+          }
+        },
+        {
+          "id": "lead-warm",
+          "externalId": "lead-warm",
+          "kind": "lead",
+          "provider": "hubspot",
+          "title": "sam@smallshop.example.test",
+          "occurredAt": "2026-10-19T11:40:00.000Z",
+          "extras": {
+            "ownerId": "owner-1",
+            "company": "Small Shop"
+          }
+        },
+        {
+          "id": "lead-cold",
+          "externalId": "lead-cold",
+          "kind": "lead",
+          "provider": "hubspot",
+          "title": "kim@student.example.test",
+          "occurredAt": "2026-10-19T11:40:00.000Z",
+          "extras": {
+            "ownerId": "owner-1",
+            "company": "Student Project"
+          }
+        }
+      ]
+    },
+    "none": {
+      "ok": true,
+      "items": []
+    },
+    "hotLeadOnce": {
+      "match": [
+        {
+          "when": {
+            "since": "1001"
+          },
+          "answer": {
+            "ok": true,
+            "items": []
+          }
+        },
+        {
+          "answer": {
+            "ok": true,
+            "cursor": "1001",
+            "items": [
+              {
+                "id": "lead-hot",
+                "externalId": "lead-hot",
+                "kind": "lead",
+                "provider": "hubspot",
+                "title": "pat@prospect.example.test",
+                "occurredAt": "2026-10-19T11:40:00.000Z",
+                "extras": {
+                  "ownerId": "owner-1",
+                  "company": "Prospect Co"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "hubspot.companyActivity": {
+    "profile": {
+      "ok": true,
+      "output": {
+        "id": "{fields.leadId}",
+        "properties": {
+          "company": "Prospect Co",
+          "jobtitle": "VP of Engineering",
+          "numemployees": "400",
+          "industry": "Software",
+          "hs_analytics_num_page_views": "27",
+          "recent_conversion_event_name": "Requested a demo"
+        }
+      }
+    }
+  },
+  "hubspot.ownerById": {
+    "owner": {
+      "ok": true,
+      "output": {
+        "id": "owner-1",
+        "email": "owner@example.test",
+        "firstName": "Riley"
+      }
+    }
+  },
+  "slack.findUserByEmail": {
+    "found": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "user": {
+          "id": "U0OWNER"
+        }
+      }
+    },
+    "lookupFails": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "Slack could not look the person up",
+      "retryable": false,
+      "sideEffect": "none"
+    },
+    "lookupDown": {
+      "ok": false,
+      "code": "provider_error",
+      "message": "Slack is unavailable",
+      "retryable": true,
+      "sideEffect": "none"
+    }
+  },
+  "hubspot.createTask": {
+    "created": {
+      "ok": true,
+      "output": {
+        "id": "task-{n}"
+      },
+      "externalRef": "task-{n}"
+    }
+  },
+  "hubspot.addToList": {
+    "added": {
+      "ok": true,
+      "output": {
+        "recordsIdsAdded": ["{fields.leadId}"]
+      },
+      "externalRef": "{fields.leadId}"
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "match": [
+        {
+          "when": {
+            "to": "U0OWNER"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "D0OWNER",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/D0OWNER/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/D0OWNER/p176000100000000{n}"
+          }
+        },
+        {
+          "when": {
+            "to": "manager@example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "D0MANAGER",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/D0MANAGER/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/D0MANAGER/p176000100000000{n}"
+          }
+        },
+        {
+          "when": {
+            "to": "C0SALES"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "C0SALES",
+              "ts": "1760001000.00000{n}",
+              "permalink": "https://slack.example.test/archives/C0SALES/p176000100000000{n}"
+            },
+            "externalRef": "1760001000.00000{n}",
+            "url": "https://slack.example.test/archives/C0SALES/p176000100000000{n}"
+          }
+        }
+      ]
+    }
+  },
+  "email.send": {
+    "sent": {
+      "ok": true,
+      "output": {
+        "messageRef": "msg-{n}"
+      },
+      "externalRef": "msg-{n}"
+    }
+  }
+}

@@ -15,6 +15,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   MotionHtmlSourceError,
   removeUnversionedManagedMotionStyle,
@@ -360,6 +361,7 @@ export default defineAction({
         deleted: true,
         htmlPatched: false,
         sourcePatched: sourceChanged,
+        _receipt: designOutputWriteReceipt(designId, sourceChanged ? 1 : 0),
         bytesBefore: live.content.length,
         bytesAfter: cleanedSource.length,
         bytesDelta: cleanedSource.length - live.content.length,
@@ -507,6 +509,7 @@ export default defineAction({
       fileId: file.id,
       deleted: true,
       htmlPatched: htmlChanged,
+      _receipt: designOutputWriteReceipt(designId, htmlChanged ? 1 : 0),
       bytesBefore,
       bytesAfter,
       bytesDelta: bytesAfter - bytesBefore,

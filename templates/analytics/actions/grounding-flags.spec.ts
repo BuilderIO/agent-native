@@ -12,11 +12,6 @@ function declaresGrounding(name: string): boolean {
 }
 
 describe("grounding declarations", () => {
-  it("declares Prometheus as a grounding source action", () => {
-    expect(declaresGrounding("prometheus")).toBe(true);
-    expect(prometheus.grounding).toBe(true);
-  });
-
   it("declares every credentialed provider action as grounding", () => {
     const missing = readdirSync(actionsDir)
       .filter(

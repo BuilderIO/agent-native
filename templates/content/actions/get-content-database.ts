@@ -15,6 +15,7 @@ import {
   getContentDatabaseResponse,
   resolveContentDatabaseRead,
 } from "./_database-utils.js";
+import { refreshGitHubSourceBeforeRead } from "./_github-source-freshness.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 
 const getContentDatabaseSchema = z.object({
@@ -71,11 +72,17 @@ export default defineAction({
     { databaseId, documentId, limit, offset, tableQuery, contentSpaceId },
     context,
   ): Promise<ContentDatabaseResponse | ContentDatabaseUnavailableResponse> => {
-    const resolved = await resolveContentDatabaseRead({
+    let resolved = await resolveContentDatabaseRead({
       databaseId,
       documentId,
     });
     if (!resolved.available) return resolved;
+    if (await refreshGitHubSourceBeforeRead(resolved.database.id)) {
+      resolved = await resolveContentDatabaseRead({
+        databaseId: resolved.database.id,
+      });
+      if (!resolved.available) return resolved;
+    }
 
     let filesMembershipDatabaseId: string | undefined;
     let sidebarOrder: ContentSidebarViewOrder | undefined;

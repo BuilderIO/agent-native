@@ -7,6 +7,12 @@ const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), {
+      actionContractError: true,
+      ...options,
+    });
+  },
 }));
 
 vi.mock("@agent-native/core/triggers", () => ({
@@ -62,6 +68,32 @@ describe("run-factory-automation", () => {
         appId: "factory",
       }),
     );
+  });
+
+  it("will not run a workflow's job outside run-factory-workflow", async () => {
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factories/demo-factory/workflow-digest-1a2b3c4d",
+      body: "Placeholder.",
+      resource: {
+        id: "resource-wf",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/demo-factory/workflow-digest-1a2b3c4d.md",
+        content: "---\nenabled: false\nrunner: workflow\n---\nPlaceholder.\n",
+      },
+      meta: { enabled: false, runner: "workflow" },
+    });
+
+    const { default: action } = await import("./run-factory-automation.js");
+    await expect(
+      action.run(
+        { factoryId: "demo-factory", automationId: "resource-wf" },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "use_run_factory_workflow",
+      statusCode: 409,
+    });
+    expect(queueAutomationRunNowMock).not.toHaveBeenCalled();
   });
 
   it("rejects an id that is not in the factory folder", async () => {
