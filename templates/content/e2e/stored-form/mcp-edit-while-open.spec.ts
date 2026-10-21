@@ -195,6 +195,7 @@ test.describe(
         const id = await createPage(page, "SF-02 no tab", EDITOR_BODY);
         await enterGateArm(page, id);
         const seed = await tabs.open("seed", id);
+        await liveCopyContaining(page, id, PAGE_PARAGRAPHS);
         await tabs.quiet();
         await seed.close();
         const before = await liveCopyContaining(page, id, PAGE_PARAGRAPHS);
