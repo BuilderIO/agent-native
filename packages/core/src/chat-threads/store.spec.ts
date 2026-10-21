@@ -309,6 +309,24 @@ describe("chat thread store", () => {
         });
         return { rows: [], rowsAffected: 1 };
       }
+      if (
+        /UPDATE agent_chat_submission_inbox\s+SET state = 'removed'/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[1] &&
+            candidate.message_id === args[2] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          state: "removed",
+          retry_after: null,
+          interrupt_run_id: null,
+          updated_at: args[0],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
       if (/UPDATE agent_chat_submission_inbox SET state = \?/i.test(sql)) {
         const submission = submissionRows.find(
           (candidate) =>
@@ -3495,6 +3513,60 @@ describe("chat thread store", () => {
     });
     expect(released?.released).toBe(true);
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
+  });
+
+  it("keeps a queued receipt when cancellation races an active promotion claim", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-cancel-during-promotion",
+      threadId: "thread-1",
+      text: "Cancel while promotion is claimed",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: message.id,
+      claimId: "active-promoter",
+    });
+
+    const blockedCancel = await mutateThreadQueuedMessages("thread-1", {
+      type: "cancel",
+      messageId: message.id,
+    });
+
+    expect(blockedCancel?.promotionBusy).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      expect.objectContaining({
+        id: message.id,
+        promotionClaim: {
+          id: "active-promoter",
+          expiresAt: expect.any(Number),
+        },
+      }),
+    ]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", message.id),
+    ).toMatchObject({ state: "queued" });
+
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: message.id,
+      claimId: "active-promoter",
+    });
+    const cancelled = await mutateThreadQueuedMessages("thread-1", {
+      type: "cancel",
+      messageId: message.id,
+    });
+
+    expect(cancelled?.promotionBusy).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", message.id),
+    ).toMatchObject({ state: "removed" });
   });
 
   it("renews only a live interruption claim before its recorded run aborts", async () => {

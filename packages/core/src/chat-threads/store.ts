@@ -2813,6 +2813,17 @@ export async function mutateThreadQueuedMessages(
               break;
             }
             case "cancel": {
+              const message = current.find(
+                (candidate) => candidate.id === mutation.messageId,
+              );
+              if (
+                message?.promotionClaim &&
+                message.promotionClaim.expiresAt > Date.now() &&
+                !queuedSubmissionExpired(message, Date.now())
+              ) {
+                response = { promotionBusy: true };
+                break;
+              }
               queuedMessages = current.filter(
                 (candidate) => candidate.id !== mutation.messageId,
               );
@@ -3141,7 +3152,7 @@ export async function mutateThreadQueuedMessages(
               args: [Date.now(), threadId, mutation.messageId, mutation.runId],
             });
             result.receiptUpdated = updated.rowsAffected === 1;
-          } else if (mutation.type === "cancel") {
+          } else if (mutation.type === "cancel" && !result.promotionBusy) {
             const receipt = await readQueuedSubmissionReceipt(
               tx,
               threadId,
