@@ -12,7 +12,8 @@
   {
     "id": "brain",
     "siteId": "b8530db5-528c-41c7-9de9-68036fe8635a",
-    "host": "beta.brain.agent-native.com"
+    "host": "beta.brain.agent-native.com",
+    "migrationSiteId": "af978d13-aa58-44f3-9b5c-f12568467079"
   },
   {
     "id": "calendar",
@@ -47,7 +48,8 @@
   {
     "id": "factory",
     "siteId": "abc64ffe-e85f-4a88-802b-5c388c5a79b9",
-    "host": "beta.factory.agent-native.com"
+    "host": "beta.factory.agent-native.com",
+    "migrationSiteId": "6bffaa23-ad14-480c-8954-99f53ecabf05"
   },
   {
     "id": "forms",

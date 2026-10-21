@@ -57,6 +57,21 @@ test("maps the beta chat site to the chat template and beta ref", () => {
   assert.equal(target.migrationSiteId, target.siteId);
 });
 
+test("migrates beta factory and brain through their production sites", () => {
+  const production = JSON.parse(
+    readFileSync(
+      new URL("./netlify-production-sites.json", import.meta.url),
+      "utf8",
+    ),
+  ) as Record<string, { siteId: string }>;
+
+  for (const app of ["factory", "brain"]) {
+    const target = resolveNetlifyPrebuiltTarget("beta", app);
+    assert.equal(target.migrationSiteId, production[app].siteId);
+    assert.notEqual(target.migrationSiteId, target.siteId);
+  }
+});
+
 test("maps the production chat alias to the starter site", () => {
   const target = resolveNetlifyPrebuiltTarget("production", "chat");
 
