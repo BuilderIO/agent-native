@@ -3091,6 +3091,7 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<AgentRunSnapshot | null | undefined> {
     const status = value.status;
     if (typeof value.active !== "boolean") return undefined;
+    if (status === "unknown") return undefined;
     // An idle thread has no run; a run that just finished keeps its id and
     // status for replay even though it is no longer `active`.
     if (value.active === false && (status === "idle" || !value.runId)) {
@@ -3144,7 +3145,16 @@ export function createAgentNativeAgentKitTransport(
             : "The server reported that this run failed.",
         ...(terminalReason ? { metadata: { terminalReason } } : {}),
       };
-    } else if (status === "cancelled" || status === "aborted") {
+    } else if (status === "aborted") {
+      runStatus = runLifecycleStatus("aborted", terminalReason ?? null, null);
+      error = runLifecycleError(
+        runStatus,
+        "aborted",
+        null,
+        terminalReason ?? null,
+        null,
+      );
+    } else if (status === "cancelled") {
       runStatus = "cancelled";
     } else if (status === "truncated") {
       runStatus = "failed";

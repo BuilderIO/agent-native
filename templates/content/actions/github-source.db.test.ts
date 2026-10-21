@@ -36,6 +36,12 @@ const github = vi.hoisted(() => {
     noStorage: false,
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
+    /** Blob reads after this many wait until the sync's time runs out. */
+    hangAfterBlobReads: null as number | null,
+    /** Reads of these files' contents wait until the sync's time runs out. */
+    slowContents: new Set<string>(),
+    /** Branch reads wait until the sync's time runs out. */
+    hangHead: false,
   };
   let commitCount = 0;
   return {
@@ -50,6 +56,9 @@ const github = vi.hoisted(() => {
       state.uploads = 0;
       state.noStorage = false;
       state.duringBlobRead = null;
+      state.hangAfterBlobReads = null;
+      state.slowContents.clear();
+      state.hangHead = false;
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -67,7 +76,18 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     await importOriginal<
       typeof import("../server/lib/github-source-client.js")
     >();
-  const { GitHubSourceError } = original;
+  const { GitHubSourceDeadlineError, GitHubSourceError } = original;
+  // A request GitHub never answers, until the sync's deadline ends it.
+  const hang = (signal?: AbortSignal) =>
+    new Promise<never>((_, reject) => {
+      if (!signal) {
+        reject(new Error("A request GitHub never answers had no deadline."));
+        return;
+      }
+      const stop = () => reject(new GitHubSourceDeadlineError());
+      if (signal.aborted) stop();
+      else signal.addEventListener("abort", stop, { once: true });
+    });
   const findBlob = (sha: string) => {
     for (const files of github.state.commits.values()) {
       for (const content of files.values()) {
@@ -80,10 +100,11 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     ...original,
     readGitHubDefaultBranch: async () => "main",
     readGitHubBranchHead: async (
-      target: { branch: string },
+      target: { branch: string; signal?: AbortSignal },
       etag?: string | null,
     ) => {
       if (github.state.failure) throw github.state.failure;
+      if (github.state.hangHead) await hang(target.signal);
       if (target.branch !== "main") {
         throw new GitHubSourceError("branch_not_found", "No such branch.");
       }
@@ -111,12 +132,19 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       }
       return entries;
     },
-    readGitHubBlob: async (target: { sha: string }) => {
+    readGitHubBlob: async (target: { sha: string; signal?: AbortSignal }) => {
       github.state.blobReads += 1;
+      const hangAfter = github.state.hangAfterBlobReads;
+      if (hangAfter !== null && github.state.blobReads > hangAfter) {
+        await hang(target.signal);
+      }
       const during = github.state.duringBlobRead;
       github.state.duringBlobRead = null;
       await during?.();
       const content = findBlob(target.sha);
+      if (content !== null && github.state.slowContents.has(content)) {
+        await hang(target.signal);
+      }
       if (content === null)
         throw new GitHubSourceError("unavailable", "No blob.");
       // A stand-in for a file whose bytes aren't UTF-8.
@@ -172,6 +200,15 @@ vi.mock("@agent-native/core/file-upload", () => ({
   },
 }));
 
+// The change events background syncs and stale reads send to open pages.
+const changes = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  recordChange: (event: Record<string, unknown>) => {
+    changes.push(event);
+  },
+}));
+
 // guard:allow-unscoped — isolated test database for the GitHub folder source.
 const path = join(
   tmpdir(),
@@ -186,6 +223,7 @@ let createDatabase: typeof import("./create-content-database.js").default;
 let linkFolder: typeof import("./link-github-folder.js").default;
 let syncFolder: typeof import("./sync-github-folder.js").default;
 let getSource: typeof import("./get-content-database-source.js").default;
+let refreshSource: typeof import("./refresh-content-database-source.js").default;
 let editDocument: typeof import("./edit-document.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let duplicateItem: typeof import("./duplicate-database-item.js").default;
@@ -203,6 +241,8 @@ let restoreVersion: typeof import("./restore-document-version.js").default;
 let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocumentBody;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
+let getDocument: typeof import("./get-document.js").default;
+let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -218,6 +258,8 @@ beforeAll(async () => {
   linkFolder = (await import("./link-github-folder.js")).default;
   syncFolder = (await import("./sync-github-folder.js")).default;
   getSource = (await import("./get-content-database-source.js")).default;
+  refreshSource = (await import("./refresh-content-database-source.js"))
+    .default;
   editDocument = (await import("./edit-document.js")).default;
   updateDocument = (await import("./update-document.js")).default;
   duplicateItem = (await import("./duplicate-database-item.js")).default;
@@ -237,6 +279,8 @@ beforeAll(async () => {
   restoreVersion = (await import("./restore-document-version.js")).default;
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
+  getDocument = (await import("./get-document.js")).default;
+  ({ runGitHubSourceSweep } = await import("./_github-source-freshness.js"));
   await as(() =>
     import("./_content-spaces.js").then((m) =>
       m.provisionContentSpaces(getDb(), owner),
@@ -254,6 +298,7 @@ afterAll(() => {
 
 beforeEach(() => {
   github.reset();
+  changes.length = 0;
 });
 
 let collectionCount = 0;
@@ -1454,5 +1499,480 @@ describe("GitHub folder source", () => {
         ),
       );
     expect(source).toBeUndefined();
+  });
+});
+
+/** Makes a link look last checked `ms` ago. */
+async function checkedAgo(databaseId: string, ms: number) {
+  await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ lastRefreshedAt: new Date(Date.now() - ms).toISOString() })
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+}
+
+/** Sets when a run last moved the link's push along. */
+async function pushMovedAgo(databaseId: string, ms: number) {
+  const [source] = await getDb()
+    .select({
+      id: schema.contentDatabaseSources.id,
+      metadataJson: schema.contentDatabaseSources.metadataJson,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  const metadata = JSON.parse(source!.metadataJson!);
+  metadata.github.checkedAt = new Date(Date.now() - ms).toISOString();
+  await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify(metadata) })
+    .where(eq(schema.contentDatabaseSources.id, source!.id));
+}
+
+const EDITED_FAQ = "# Frequently asked\n\nAnswers moved to the forum.\n";
+
+describe("GitHub folder freshness", () => {
+  it("checks GitHub before a read once a link is a minute stale", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+
+    // Checked moments ago: the read returns what Content has.
+    const fresh = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(JSON.stringify(fresh)).not.toContain("forum");
+    expect(changes).toHaveLength(0);
+
+    await checkedAgo(database.id, 2 * 60_000);
+    const stale = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(
+      (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content,
+    ).toContain("Answers moved to the forum.");
+    expect(stale).not.toMatchObject({ available: false });
+    expect(changes).toEqual([
+      expect.objectContaining({
+        source: "action",
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ]);
+  });
+
+  it("brings a stale GitHub page up to date when an agent reads it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    const page = await as(() => getDocument.run({ id: faq.documentId }));
+    expect(page.content).toContain("Answers moved to the forum.");
+  });
+
+  it("answers a read from what Content has when GitHub fails", async () => {
+    const { database } = await linkBaseFolder();
+    await checkedAgo(database.id, 2 * 60_000);
+    github.state.failure = new Error("socket hang up");
+    const read = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(read).not.toMatchObject({ available: false });
+    expect(await liveRows(database.id)).toHaveLength(3);
+  });
+
+  it("ends a GitHub read at the time budget, and leaves the rest of the push to the background sync", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    const id = await sourceId(database.id);
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+
+    const started = Date.now();
+    const partial = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(partial).toMatchObject({
+      state: "partial",
+      updated: 1,
+      remaining: 2,
+      problem: null,
+    });
+
+    // The background sync carries the push on, so a read right after
+    // returns what's in without asking GitHub.
+    github.state.hangAfterBlobReads = null;
+    github.state.blobReads = 0;
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(github.state.blobReads).toBe(0);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+    expect(await titles()).toEqual(["One, edited", "Two", "Three"]);
+
+    // Partway isn't a finished check, so the background sync finishes it.
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(await titles()).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("doesn't make a read wait on a sync that's carrying a push on", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    const id = await sourceId(database.id);
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 1_500 }));
+    github.state.hangAfterBlobReads = null;
+    await pushMovedAgo(database.id, 3 * 60_000);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+
+    // Another sync is carrying the push on: the read doesn't wait for it.
+    const reading = new Promise<void>((started) => {
+      github.state.duringBlobRead = async () => {
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+      };
+    });
+    const background = as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 20_000 }),
+    );
+    await reading;
+    const started = Date.now();
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(Date.now() - started).toBeLessThan(1_500);
+    await background;
+    expect(await titles()).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("takes a file the time ran out on after the rest, so it can't hold back the files after it", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    const id = await sourceId(database.id);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+    // GitHub doesn't answer in time for the folder's first file.
+    github.state.slowContents.add("# One, edited\n");
+
+    const first = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(first).toMatchObject({ updated: 0, remaining: 3 });
+    const second = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(second).toMatchObject({ updated: 2, remaining: 1 });
+    expect(await titles()).toEqual(["One", "Two, edited", "Three, edited"]);
+
+    github.state.slowContents.clear();
+    const third = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 20_000 }),
+    );
+    expect(third).toMatchObject({ updated: 1, remaining: 0 });
+    expect(await titles()).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("takes turns between files the time keeps running out on", async () => {
+    github.commit({ "docs/1.md": "# One\n", "docs/2.md": "# Two\n" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+    });
+    const id = await sourceId(database.id);
+    const titles = async () =>
+      (await liveRows(database.id)).map((row) => row.title);
+    const sync = () =>
+      as(() => syncGitHubSource({ sourceId: id, budgetMs: 1_500 }));
+    // GitHub doesn't answer in time for either file, so each run is cut
+    // short on one of them.
+    github.state.slowContents.add("# One, edited\n");
+    github.state.slowContents.add("# Two, edited\n");
+    await sync();
+    await sync();
+
+    // The second file answers again, but the first still doesn't. The run
+    // that's cut short on the first sends it to the back, so the next run
+    // gets to the second.
+    github.state.slowContents.delete("# Two, edited\n");
+    expect(await sync()).toMatchObject({ updated: 0, remaining: 2 });
+    expect(await sync()).toMatchObject({ updated: 1, remaining: 1 });
+    expect(await titles()).toEqual(["One", "Two, edited"]);
+
+    github.state.slowContents.clear();
+    expect(await sync()).toMatchObject({ updated: 1, remaining: 0 });
+    expect(await titles()).toEqual(["One, edited", "Two, edited"]);
+  });
+
+  it("lets a read carry on a push no run has moved for two minutes", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    const id = await sourceId(database.id);
+    github.state.hangAfterBlobReads = 1;
+    github.state.blobReads = 0;
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 1_500 }));
+    github.state.hangAfterBlobReads = null;
+
+    await pushMovedAgo(database.id, 3 * 60_000);
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("answers a read when GitHub is too slow, then waits its turn without a problem", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    github.state.hangHead = true;
+    const faqContent = async () =>
+      (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content;
+
+    const started = Date.now();
+    const read = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(read).not.toMatchObject({ available: false });
+    expect(await faqContent()).not.toContain("forum");
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source).toMatchObject({
+      syncState: "linked",
+      freshness: "stale",
+      lastError: null,
+    });
+    expect(status.source?.metadata.github).toMatchObject({ problem: null });
+
+    // Counted as a check: the next read doesn't wait on GitHub again.
+    github.state.hangHead = false;
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(await faqContent()).not.toContain("forum");
+
+    // The next check that gets through brings the rows up to date.
+    await checkedAgo(database.id, 2 * 60_000);
+    const caughtUp = await as(() => getSource.run({ databaseId: database.id }));
+    expect(caughtUp.source?.freshness).toBe("fresh");
+    expect(await faqContent()).toContain("forum");
+  });
+
+  it("waits for a sync already running before it answers a stale read", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    const reading = new Promise<void>((started) => {
+      github.state.duringBlobRead = async () => {
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      };
+    });
+    const id = await sourceId(database.id);
+    const background = as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 20_000 }),
+    );
+    await reading;
+
+    const page = await as(() => getDocument.run({ id: faq.documentId }));
+    expect(page.content).toContain("Answers moved to the forum.");
+    await expect(background).resolves.toMatchObject({ state: "synced" });
+  });
+
+  it("syncs every stale link in the background as the person who linked it", async () => {
+    const stale = await linkBaseFolder();
+    const recent = await linkBaseFolder();
+    const trashed = await linkBaseFolder();
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, trashed.database.documentId));
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(stale.database.id, 2 * 60_000);
+    await checkedAgo(trashed.database.id, 2 * 60_000);
+
+    // No request context: the sweep supplies the linker's.
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+
+    const faqOf = async (databaseId: string) =>
+      (await liveRows(databaseId)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content;
+    expect(await faqOf(stale.database.id)).toContain("forum");
+    expect(await faqOf(recent.database.id)).not.toContain("forum");
+    expect(await faqOf(trashed.database.id)).not.toContain("forum");
+    expect(changes).toEqual([
+      expect.objectContaining({
+        source: "action",
+        key: "sync-github-folder",
+        owner,
+        resourceType: "document",
+        resourceId: stale.database.documentId,
+      }),
+    ]);
+
+    // A sweep right after finds nothing due and sends nothing.
+    changes.length = 0;
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(changes).toHaveLength(0);
+  });
+
+  it("keeps sweeping after one link fails", async () => {
+    const first = await linkBaseFolder();
+    const second = await linkBaseFolder();
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson: "not json" })
+      .where(eq(schema.contentDatabaseSources.databaseId, first.database.id));
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(first.database.id, 2 * 60_000);
+    await checkedAgo(second.database.id, 2 * 60_000);
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(
+      (await liveRows(second.database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content,
+    ).toContain("forum");
+  });
+
+  it("stops a background sync when the server stops, keeping its progress", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+    // The server starts shutting down while the first file is read.
+    const stopping = new AbortController();
+    github.state.duringBlobRead = async () => stopping.abort();
+
+    const started = Date.now();
+    await runGitHubSourceSweep({
+      deadlineAt: Date.now() + 60_000,
+      signal: stopping.signal,
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
+      "Two",
+      "Three",
+    ]);
+    const [link] = await getDb()
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    expect(JSON.parse(link!.metadataJson).github).toMatchObject({
+      claim: null,
+      progress: { done: 1, total: 3 },
+    });
+  });
+
+  it("tells every reader of the collection when a sync changes rows", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, synced),
+    ).toEqual({
+      resourceType: "document",
+      resourceId: database.documentId,
+    });
+    const again = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
+  });
+
+  it("tells every reader when a refresh changes rows, and no one when it doesn't", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    const refresh = () =>
+      as(() => refreshSource.run({ databaseId: database.id }));
+    const refreshed = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, refreshed),
+    ).toEqual({
+      resourceType: "document",
+      resourceId: database.documentId,
+    });
+    const again = await refresh();
+    expect(
+      refreshSource.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
   });
 });
