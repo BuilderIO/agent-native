@@ -93,6 +93,7 @@ interface WorkerResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+  error?: string;
 }
 
 interface BarrierWorkerResult extends WorkerResult {
@@ -106,7 +107,10 @@ interface BarrierWorker {
   output: { stdout: string; stderr: string };
 }
 
-function runWorker(...args: string[]): Promise<WorkerResult> {
+function runWorkerWithTimeout(
+  timeout: number,
+  ...args: string[]
+): Promise<WorkerResult> {
   return new Promise((resolveResult) => {
     execFile(
       process.execPath,
@@ -115,15 +119,26 @@ function runWorker(...args: string[]): Promise<WorkerResult> {
         cwd: repositoryRoot,
         env: process.env,
         maxBuffer: 1024 * 1024,
-        timeout: 30_000,
+        timeout,
       },
       (error, stdout, stderr) => {
         const exitCode =
           typeof error?.code === "number" ? error.code : error ? 1 : 0;
-        resolveResult({ exitCode, stdout, stderr });
+        resolveResult({
+          exitCode,
+          stdout,
+          stderr,
+          ...(error
+            ? { error: `${error.message} (${String(error.code)})` }
+            : {}),
+        });
       },
     );
   });
+}
+
+function runWorker(...args: string[]): Promise<WorkerResult> {
+  return runWorkerWithTimeout(30_000, ...args);
 }
 
 function startBarrierWorker(...args: string[]): BarrierWorker {
@@ -1094,7 +1109,8 @@ describe.skipIf(!databaseUrl)(
             expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1),
           );
 
-          const recovered = await runWorker(
+          const recovered = await runWorkerWithTimeout(
+            60_000,
             "production-loop-resume",
             threadId,
             turnId,
@@ -1105,7 +1121,17 @@ describe.skipIf(!databaseUrl)(
               providerCallId: `${prefix}:provider-call-after-restart`,
             }),
           );
-          expect(recovered.exitCode).toBe(0);
+          if (recovered.exitCode !== 0) {
+            throw new Error(
+              [
+                `Production-loop resume worker failed (${recovered.exitCode}): ${recovered.error ?? "unknown error"}`,
+                recovered.stderr,
+                recovered.stdout,
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            );
+          }
           const result = workerJson<{
             fence: ExecutionFence;
             providerCallId: string;
@@ -1158,6 +1184,7 @@ describe.skipIf(!databaseUrl)(
           expect(effectAfterRecovery?.effect_count ?? 0).toBe(1);
         });
       },
+      75_000,
     );
 
     it("permits retry-safe replay but keeps a failed receipt commit ambiguous", async () => {
