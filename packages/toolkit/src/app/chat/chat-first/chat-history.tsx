@@ -45,7 +45,12 @@ function SectionedChatHistory({
   return (
     <ChatHistoryRail
       {...props}
-      labels={{ copyLink: t("agentChat.history.copyLink"), ...labels }}
+      labels={{
+        copyLink: t("agentChat.history.copyLink"),
+        onlyYou: t("agentChat.history.onlyYou"),
+        hide: t("agentChat.history.hide"),
+        ...labels,
+      }}
       railLabels={{
         newChat: t("agentChat.tabs.newChat"),
         showMore: t("agentChat.history.showAll"),
