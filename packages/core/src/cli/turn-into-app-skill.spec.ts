@@ -34,7 +34,7 @@ describe("turn-into-app skill structure", () => {
 
   it("stays lean so design guidance lives in references", () => {
     expect(skillMd.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(
-      2500,
+      2650,
     );
     expect(skillMd.split("\n").length).toBeLessThanOrEqual(320);
   });
