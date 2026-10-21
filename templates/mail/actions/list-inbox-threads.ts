@@ -8,7 +8,7 @@ import { z } from "zod";
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
 import { readGmailCooldown } from "../server/lib/gmail-quota.js";
 import { hasGmailScope } from "../server/lib/gmail-scope.js";
-import { pushWatchState } from "../server/lib/inbox-push-watch.js";
+import { statusFromRow } from "../server/lib/inbox-status.js";
 import {
   aiImportantLabelIds,
   inboxRowToItem,
@@ -97,6 +97,9 @@ type InboxResultWindow = {
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
   backfillIncomplete: boolean;
+  // The sync stopped at the cap while Gmail has more: the visible pool is a
+  // lower bound even when nothing is syncing.
+  syncCapped?: boolean;
   cachedInboxTotal?: CachedTabCount;
 };
 
@@ -106,7 +109,8 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
   const seen = window.offset + window.pageItems.length;
   const olderRows = window.activePoolLength > seen;
   const reachedCap =
-    olderRows && window.offset + window.limit >= INBOX_MAX_PAGE_OFFSET;
+    (olderRows && window.offset + window.limit >= INBOX_MAX_PAGE_OFFSET) ||
+    (Boolean(window.syncCapped) && !olderRows);
   const resultTabs: InboxTab[] = window.tabs.map((tab) => {
     const count = window.counts.get(tab.id) ?? { total: 0, unread: 0 };
     const cachedCount =
@@ -156,6 +160,7 @@ function buildWindowedResult(
     syncing: boolean;
     accounts: InboxSyncAccountStatus[];
     backfillIncomplete: boolean;
+    syncCapped?: boolean;
     cachedInboxTotal?: CachedTabCount;
     rowToItem: (row: InboxThreadRow) => InboxThreadItem;
   },
@@ -186,6 +191,7 @@ function buildWindowedResult(
     syncing: input.syncing,
     accounts: input.accounts,
     backfillIncomplete: input.backfillIncomplete,
+    syncCapped: input.syncCapped,
     cachedInboxTotal: input.cachedInboxTotal,
   });
 }
@@ -201,6 +207,7 @@ function paginateIntoResult(
   accounts: InboxSyncAccountStatus[],
   backfillIncomplete = false,
   cachedInboxTotal?: CachedTabCount,
+  syncCapped = false,
 ): ListInboxThreadsResult {
   const tabs = resolveInboxTabs(config, labelNameById);
   const byTab = partitionInboxItems(items, tabs);
@@ -240,6 +247,7 @@ function paginateIntoResult(
     syncing,
     accounts,
     backfillIncomplete,
+    syncCapped,
     cachedInboxTotal,
   });
 }
@@ -417,32 +425,37 @@ export default defineAction({
           ownerEmail,
           accountEmail,
         );
-        const state =
-          row?.status === "needs_reauth" || row?.status === "error"
-            ? row.status
-            : row?.historyId == null ||
-                row?.status === "syncing" ||
-                row?.historyPending
-              ? "initial"
-              : "ready";
+        const base: InboxSyncAccountStatus = row
+          ? statusFromRow(row)
+          : {
+              accountEmail,
+              state: "initial",
+              lastSyncedAt: null,
+              pushWatch: "fallback",
+            };
         return {
+          ...base,
           accountEmail,
-          state,
-          lastSyncedAt: row?.lastSyncedAt ?? null,
-          pushWatch: row ? pushWatchState(row, Date.now()) : "fallback",
           ...(row?.lastError ? { error: row.lastError } : {}),
-          ...(row?.fullSyncPageToken || row?.fullSyncPhase === "reconcile"
-            ? { backfillPending: true }
-            : {}),
           ...(pushGeneration > (row?.lastPushGeneration ?? 0)
             ? { pushPending: true }
             : {}),
         } satisfies InboxSyncAccountStatus & { pushPending?: boolean };
       }),
     );
-    const backfillIncomplete = statuses.some(
-      (status) => status.state === "initial" || status.backfillPending,
-    );
+    // A capped account holds only the newest slice of Gmail's inbox, so its
+    // totals are lower bounds even when nothing is syncing.
+    const syncCapped = statuses.some((status) => status.reachedCap);
+    // Failing ids (due or waiting out a backoff) and unreadable stored state
+    // mean some threads may be stale or missing, so the list is not complete.
+    const backfillIncomplete =
+      syncCapped ||
+      statuses.some(
+        (status) =>
+          status.state === "initial" ||
+          status.backfillPending ||
+          status.degraded,
+      );
     const cachedAllInboxCount = cachedInboxCount(
       syncAccounts,
       connectedAccounts,
@@ -466,6 +479,7 @@ export default defineAction({
             syncing,
             accounts: statuses,
             backfillIncomplete,
+            syncCapped,
             cachedInboxTotal: cachedAllInboxCount,
             rowToItem,
           })
@@ -479,6 +493,7 @@ export default defineAction({
             statuses,
             backfillIncomplete,
             cachedAllInboxCount,
+            syncCapped,
           );
     return {
       ...result,

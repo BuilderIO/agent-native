@@ -226,6 +226,56 @@ describe("ShareDialog primitive normalization", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the Enter that picks Organization from pressing Cancel on the confirmation", async () => {
+    await renderDialog();
+    const trigger = document.querySelector<HTMLButtonElement>(
+      '[aria-label="share.generalAccess"]',
+    )!;
+    trigger.focus();
+    act(() => {
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const organization = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent === "share.organization")!;
+    organization.focus();
+
+    const down = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      organization.dispatchEvent(down);
+    });
+    // The browser's keypress goes to whatever holds focus by then, and its
+    // default action presses a focused button unless it was prevented.
+    const target = document.activeElement ?? document.body;
+    if (!down.defaultPrevented) {
+      const keypress = new KeyboardEvent("keypress", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        target.dispatchEvent(keypress);
+      });
+      if (!keypress.defaultPrevented && target instanceof HTMLButtonElement) {
+        act(() => target.click());
+      }
+    }
+
+    const confirmation = document.querySelector('[role="alertdialog"]');
+    expect(confirmation).not.toBeNull();
+    expect(document.activeElement?.textContent).toBe("agentChat.common.cancel");
+  });
+
   it("closes when the overlay is pressed", async () => {
     const onClose = await renderDialog();
     const overlay = document.querySelector<HTMLElement>(

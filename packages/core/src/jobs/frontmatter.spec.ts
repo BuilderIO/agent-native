@@ -251,6 +251,36 @@ Legacy webhook.`).meta.webhookToken,
     ).toBe(meta.webhookToken);
   });
 
+  it("round-trips a canonical manual automation without automatic trigger fields", () => {
+    const content = buildJobResourceContent(
+      {
+        schedule: "",
+        enabled: true,
+        triggerType: "manual",
+        mode: "agentic",
+        createdBy: "alice@example.com",
+        runAs: "creator",
+      },
+      "Run only when requested.",
+    );
+
+    expect(content).toContain("triggerType: manual");
+    expect(content).not.toMatch(/^(event|condition|nextRun):/m);
+    expect(parseJobResource(content)).toMatchObject({
+      meta: {
+        schedule: "",
+        enabled: true,
+        triggerType: "manual",
+      },
+      body: "Run only when requested.",
+      classification: {
+        kind: "automation",
+        hasExplicitTriggerType: true,
+        triggerType: "manual",
+      },
+    });
+  });
+
   it("distinguishes legacy jobs from explicit scheduled automations", () => {
     const legacy = `---
 schedule: "0 9 * * *"

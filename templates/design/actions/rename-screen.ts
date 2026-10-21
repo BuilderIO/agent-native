@@ -14,6 +14,7 @@ import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { isProbablyHtmlDocumentContent } from "../shared/html-content.js";
 import {
   renameFilenamePreservingExtension,
@@ -404,7 +405,11 @@ export default defineAction({
         }),
     );
 
-    return { ...result, collabReconcilePending };
+    return {
+      ...result,
+      collabReconcilePending,
+      _receipt: designOutputWriteReceipt(result.designId, result.files.length),
+    };
   },
   changeResource: (_p, result) =>
     designChangeResource(result?.designId, result),

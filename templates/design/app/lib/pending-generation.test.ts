@@ -10,6 +10,9 @@ import {
   isPendingGenerationStale,
   PENDING_GENERATION_STALE_MS,
   readPendingGeneration,
+  resolvePendingGenerationOutputBaseline,
+  resolvePreviousRunBaseline,
+  snapshotGenerationOutputBaseline,
   shouldSkipPendingGenerationResume,
   writePendingGeneration,
 } from "./pending-generation";
@@ -101,6 +104,112 @@ describe("pending generation freshness", () => {
   });
 });
 
+describe("continuation run baseline", () => {
+  it("keeps a fresh verified idle baseline ahead of stale stored run ids", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: null, verified: true },
+        {
+          currentRunId: "stale-current-run",
+          previousRunId: "old-run",
+          previousRunBaselineVerified: true,
+        },
+      ),
+    ).toEqual({ runId: null, verified: true });
+  });
+
+  it("preserves the known current run and turn when refreshing fails", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: null, verified: false },
+        {
+          currentRunId: "stale-current-run",
+          currentTurnId: "known-current-turn",
+          previousRunId: "old-run",
+          previousRunBaselineVerified: true,
+        },
+      ),
+    ).toEqual({
+      runId: "stale-current-run",
+      verified: true,
+      turnId: "known-current-turn",
+    });
+  });
+
+  it("falls back to the known previous run when no current run is stored", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: null, verified: false },
+        {
+          previousRunId: "known-previous-run",
+          previousRunBaselineVerified: false,
+        },
+      ),
+    ).toEqual({ runId: "known-previous-run", verified: true });
+  });
+
+  it("keeps a known turn when the verified baseline identifies the same run", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: "current-run", verified: true },
+        {
+          currentRunId: "current-run",
+          currentTurnId: "current-turn",
+        },
+      ),
+    ).toEqual({
+      runId: "current-run",
+      verified: true,
+      turnId: "current-turn",
+    });
+  });
+
+  it("does not attach a stored turn to a different verified run", () => {
+    expect(
+      resolvePreviousRunBaseline(
+        { runId: "new-run", verified: true, turnId: "new-turn" },
+        {
+          currentRunId: "old-run",
+          currentTurnId: "old-turn",
+        },
+      ),
+    ).toEqual({ runId: "new-run", verified: true, turnId: "new-turn" });
+  });
+
+  it("keeps the resolved continuation turn in session storage", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+
+    const baseline = resolvePreviousRunBaseline(
+      { runId: null, verified: false },
+      {
+        currentRunId: "current-run",
+        currentTurnId: "current-turn",
+      },
+    );
+    writePendingGeneration("design-1", {
+      runTabId: "thread-1",
+      previousRunId: baseline.runId ?? undefined,
+      previousRunBaselineVerified: baseline.verified,
+      currentTurnId: baseline.turnId,
+    });
+
+    expect(
+      readPendingGeneration("design-1", { allowUntimestamped: true }),
+    ).toMatchObject({
+      previousRunId: "current-run",
+      previousRunBaselineVerified: true,
+      currentTurnId: "current-turn",
+    });
+  });
+});
+
 describe("template refinement output", () => {
   const copied = {
     id: "file-1",
@@ -123,7 +232,7 @@ describe("template refinement output", () => {
     ).toBe(false);
   });
 
-  it("recognizes changed or newly created files as refinement output", () => {
+  it("does not attribute changed or newly created files to a refinement run", () => {
     const pending = {
       templateId: "template-1",
       templateBaselineFiles: [
@@ -135,16 +244,16 @@ describe("template refinement output", () => {
       hasPendingGenerationOutput(pending, [
         { ...copied, content: "<main>Refined template</main>" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasPendingGenerationOutput(pending, [
         copied,
         { ...copied, id: "file-2" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("uses file revisions to recover older pending template runs", () => {
+  it("does not infer output from file revisions without a persisted baseline", () => {
     expect(
       hasPendingGenerationOutput({ templateId: "template-1" }, [copied]),
     ).toBe(false);
@@ -152,10 +261,10 @@ describe("template refinement output", () => {
       hasPendingGenerationOutput({ templateId: "template-1" }, [
         { ...copied, updatedAt: "2026-07-10T12:01:00.000Z" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("treats a changed tracked support file as completed template refinement", () => {
+  it("does not infer template completion from changed support files", () => {
     const stylesheet = {
       id: "file-css",
       filename: "styles.css",
@@ -183,13 +292,13 @@ describe("template refinement output", () => {
         copied,
         { ...stylesheet, content: "body { margin: 16px }" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasPendingGenerationOutput({ templateId: "template-1" }, [
         copied,
         { ...stylesheet, updatedAt: "2026-07-10T12:01:00.000Z" },
       ]),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -209,7 +318,7 @@ describe("board file is not generation output", () => {
     ).toBe(false);
   });
 
-  it("still recognizes a real screen alongside the board file", () => {
+  it("does not infer run output from a real screen alongside the board file", () => {
     const screen = {
       id: "file-1",
       filename: "index.html",
@@ -218,8 +327,14 @@ describe("board file is not generation output", () => {
       updatedAt: "2026-07-10T12:01:00.000Z",
     };
     expect(
-      hasPendingGenerationOutput({ prompt: "login screen" }, [board, screen]),
-    ).toBe(true);
+      hasPendingGenerationOutput(
+        {
+          prompt: "login screen",
+          outputBaselineFiles: snapshotGenerationOutputBaseline([board]),
+        },
+        [board, screen],
+      ),
+    ).toBe(false);
   });
 
   it("does not treat CSS/JSX/asset support files as a generated screen", () => {
@@ -264,5 +379,107 @@ describe("board file is not generation output", () => {
         },
       ]),
     ).toBe(false);
+  });
+});
+
+describe("generation output baseline", () => {
+  const existing = {
+    id: "file-1",
+    filename: "index.html",
+    content: "<main>Existing design</main>",
+    createdAt: "2026-07-10T12:00:00.000Z",
+    updatedAt: "2026-07-10T12:00:00.000Z",
+  };
+
+  it("keeps the persisted output baseline when continuing a question flow", () => {
+    const persisted = [{ id: "persisted-file", contentHash: "3:persisted" }];
+    const live = [{ id: "live-file", contentHash: "3:live" }];
+
+    expect(resolvePendingGenerationOutputBaseline(persisted, live)).toBe(
+      persisted,
+    );
+    expect(resolvePendingGenerationOutputBaseline(undefined, live)).toBe(live);
+    expect(resolvePendingGenerationOutputBaseline(undefined, undefined)).toBe(
+      undefined,
+    );
+  });
+
+  it("does not treat existing HTML as output from a new prompt", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      outputBaselineFiles: snapshotGenerationOutputBaseline([existing]),
+    };
+
+    expect(hasPendingGenerationOutput(pending, [existing])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(pending, [existing])).toBe(false);
+  });
+
+  it("keeps legacy HTML from suppressing a stale generation retry", () => {
+    const stalePending = {
+      prompt: "Add a settings page",
+      createdAt: Date.now() - PENDING_GENERATION_STALE_MS - 1,
+    };
+
+    expect(hasPendingGenerationOutput(stalePending, [existing])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(stalePending, [existing])).toBe(
+      false,
+    );
+  });
+
+  it("avoids resuming a fresh legacy generation over existing HTML", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      createdAt: Date.now(),
+    };
+
+    expect(hasPendingGenerationOutput(pending, [existing])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(pending, [existing])).toBe(true);
+  });
+
+  it("does not trust existing template output when a legacy baseline is absent", () => {
+    expect(
+      hasPendingGenerationOutput(
+        {
+          templateId: "template-1",
+          createdAt: Date.now() - PENDING_GENERATION_STALE_MS - 1,
+        },
+        [existing],
+      ),
+    ).toBe(false);
+  });
+
+  it("does not infer run output from changed or newly created HTML", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      outputBaselineFiles: snapshotGenerationOutputBaseline([existing]),
+    };
+
+    expect(
+      hasPendingGenerationOutput(pending, [
+        { ...existing, content: "<main>Updated settings page</main>" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasPendingGenerationOutput(pending, [
+        existing,
+        { ...existing, id: "file-2", filename: "settings.html" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("keeps retryable state after an unrelated HTML edit", () => {
+    const pending = {
+      prompt: "Add a settings page",
+      outputBaselineFiles: snapshotGenerationOutputBaseline([existing]),
+    };
+    const manuallyEdited = {
+      ...existing,
+      content: "<main>Manually adjusted design</main>",
+    };
+
+    expect(hasPendingGenerationOutput(pending, [manuallyEdited])).toBe(false);
+    expect(shouldSkipPendingGenerationResume(pending, [manuallyEdited])).toBe(
+      false,
+    );
   });
 });

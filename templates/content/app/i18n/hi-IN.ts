@@ -419,8 +419,8 @@ const editor = {
   noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
   registryBlockLoadError: "{{type}} ब्लॉक लोड नहीं किया जा सका: {{message}}",
   registryBlockUnreadable: "सहेजा गया ब्लॉक स्रोत पढ़ा नहीं जा सकता।",
-  blocksFieldRevisionConflict:
-    "यह ब्लॉक फ़ील्ड कहीं और बदल गया है। आपका संपादन सहेजा नहीं गया; अब नवीनतम संस्करण दिखाया जा रहा है।",
+  blocksFieldEditMovedToEnd:
+    "यह ब्लॉक फ़ील्ड कहीं और भी बदला गया है। आपने उसी जगह जो टेक्स्ट लिखा था, उसे फ़ील्ड के अंत में ले जाया गया है।",
   reconcileConflict: "यह पेज कहीं और बदल गया है। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
   reconcileFailed:
     "नवीनतम बदलावों को जोड़ा नहीं जा सका। आपके संपादन अभी तक सहेजे नहीं गए हैं।",
@@ -994,6 +994,10 @@ const comments = {
   accepted: "स्वीकृत",
   rejected: "अस्वीकृत",
   noFilteredComments: "कोई मेल खाती टिप्पणी नहीं।",
+  tabFilter: "टैब",
+  allTabs: "सभी टैब",
+  fieldRemoved: "{{name}} (हटाया गया)",
+  pageBody: "पेज का मुख्य भाग",
 };
 
 const reviewDiscussions = {
@@ -1395,6 +1399,8 @@ const overrides = {
     addBlockField: "फ़ील्ड जोड़ें",
     blockFieldChanged: "पिछली बार देखने के बाद से बदला गया",
     blockFieldTabs: "फ़ील्ड",
+    blockFieldOpenComments_one: "{{count}} खुली टिप्पणी",
+    blockFieldOpenComments_other: "{{count}} खुली टिप्पणियाँ",
     blockFieldMenu: "{{name}} के विकल्प",
     blockFieldMenuScope: "इस संग्रह की हर पंक्ति में साझा",
     blockFieldName: "फ़ील्ड का नाम",

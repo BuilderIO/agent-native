@@ -14,10 +14,23 @@ export class GitHubSourceError extends Error {
   }
 }
 
+/**
+ * A request the caller's time budget cut short. Nothing is wrong with the
+ * link, so a sync stops where it is instead of recording a problem.
+ */
+export class GitHubSourceDeadlineError extends Error {
+  constructor() {
+    super("GitHub didn't answer before the sync's time ran out.");
+    this.name = "GitHubSourceDeadlineError";
+  }
+}
+
 export interface GitHubRepositoryTarget {
   owner: string;
   repo: string;
   connectionId?: string | null;
+  /** Ends the request when the caller's time budget runs out. */
+  signal?: AbortSignal;
 }
 
 export interface GitHubTreeEntry {
@@ -80,21 +93,117 @@ function header(response: ProviderResponse, name: string): string | null {
   return null;
 }
 
+/**
+ * Settles as the request does, or fails once the caller's time runs out. It
+ * listens to the request either way, so one it stops waiting for can't fail
+ * unheard.
+ */
+function untilDeadline<T>(
+  request: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new GitHubSourceDeadlineError());
+    request
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", stop));
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+  });
+}
+
+/** How long the provider client gives a request before it ends it itself. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * The reasons this client ends a request with when a caller's time runs out.
+ * The provider client ends a request at its own timeout with a plain abort,
+ * so a read can tell a caller's deadline, its own or another's on a request
+ * they shared, apart from GitHub not answering.
+ */
+const callerDeadlines = new WeakSet<object>();
+
+/**
+ * A signal for the provider client that ends when the caller's does, with a
+ * reason marked as a caller's deadline. `release` stops listening.
+ */
+function deadlineSignal(signal: AbortSignal) {
+  const controller = new AbortController();
+  const end = () => {
+    const reason = new DOMException("The caller's time ran out.", "AbortError");
+    callerDeadlines.add(reason);
+    controller.abort(reason);
+  };
+  if (signal.aborted) end();
+  else signal.addEventListener("abort", end, { once: true });
+  return {
+    signal: controller.signal,
+    release: () => signal.removeEventListener("abort", end),
+  };
+}
+
+/** How the provider client reports a request that a signal ended. */
+function endedBySignal(error: unknown): boolean {
+  const cause =
+    error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    (cause as { name?: unknown }).name === "AbortError"
+  );
+}
+
+/** Whether a caller's deadline ended the request, not the client's timeout. */
+function endedByCallerDeadline(error: unknown): boolean {
+  const cause =
+    error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return !!cause && typeof cause === "object" && callerDeadlines.has(cause);
+}
+
 async function githubGet(
   target: GitHubRepositoryTarget,
   path: string,
   options: { etag?: string | null; maxBytes?: number } = {},
 ): Promise<ProviderResponse> {
-  const result = asRecord(
-    await executeGitHubSourceRequest({
+  // The provider client can hold a request past this signal: it waits its
+  // turn under GitHub's rate limits, and identical reads in flight share one
+  // request, which the first caller's signal ends. So this read stops waiting
+  // at its own deadline, and while it has time left, or has no deadline, asks
+  // once more when another caller's deadline ended it, as on a link
+  // preview's read shared with a sync. If that ends too, GitHub didn't
+  // answer in time, the same as at its own deadline, rather than something
+  // wrong with the link. A request the client ended at its own timeout isn't
+  // sent again.
+  const send = () => {
+    const ending = target.signal ? deadlineSignal(target.signal) : null;
+    const request = executeGitHubSourceRequest({
       provider: "github",
       method: "GET",
       path,
       headers: options.etag ? { "If-None-Match": options.etag } : undefined,
       connectionId: target.connectionId ?? undefined,
       maxBytes: options.maxBytes,
-    }),
-  );
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      signal: ending?.signal,
+    });
+    if (ending) request.then(ending.release, ending.release);
+    return target.signal ? untilDeadline(request, target.signal) : request;
+  };
+  let raw: unknown;
+  try {
+    raw = await send().catch((error: unknown) => {
+      if (!target.signal?.aborted && endedByCallerDeadline(error)) {
+        return send();
+      }
+      throw error;
+    });
+  } catch (error) {
+    if (target.signal && (target.signal.aborted || endedBySignal(error))) {
+      throw new GitHubSourceDeadlineError();
+    }
+    throw error;
+  }
+  const result = asRecord(raw);
   const response = asRecord(result.response) as unknown as ProviderResponse;
   if (typeof response.status !== "number") {
     throw new GitHubSourceError("unavailable", "GitHub returned no response.");

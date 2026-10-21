@@ -442,8 +442,8 @@ const editor = {
     "Der Block {{type}} konnte nicht geladen werden: {{message}}",
   registryBlockUnreadable:
     "Die gespeicherte Blockquelle kann nicht gelesen werden.",
-  blocksFieldRevisionConflict:
-    "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
+  blocksFieldEditMovedToEnd:
+    "Dieses Blocks-Feld wurde auch an anderer Stelle geändert. Text, den du an derselben Stelle getippt hast, steht jetzt am Ende des Felds.",
   reconcileConflict:
     "Diese Seite wurde an anderer Stelle geändert. Deine Änderungen sind noch nicht gespeichert.",
   reconcileFailed:
@@ -1037,6 +1037,10 @@ const comments = {
   accepted: "Angenommen",
   rejected: "Abgelehnt",
   noFilteredComments: "Keine passenden Kommentare.",
+  tabFilter: "Tab",
+  allTabs: "Alle Tabs",
+  fieldRemoved: "{{name}} (entfernt)",
+  pageBody: "Seiteninhalt",
 };
 
 const reviewDiscussions = {
@@ -1460,6 +1464,8 @@ const overrides = {
     addBlockField: "Feld hinzufügen",
     blockFieldChanged: "Seit Ihrem letzten Aufruf geändert",
     blockFieldTabs: "Felder",
+    blockFieldOpenComments_one: "{{count}} offener Kommentar",
+    blockFieldOpenComments_other: "{{count}} offene Kommentare",
     blockFieldMenu: "Optionen für {{name}}",
     blockFieldMenuScope: "Gilt für jede Zeile dieser Sammlung",
     blockFieldName: "Feldname",
