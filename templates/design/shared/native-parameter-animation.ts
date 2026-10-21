@@ -63,6 +63,7 @@ export function nativeParameterCanAnimate(
     property.type === "position" ||
     property.type === "color-array" ||
     property.type === "color-ramp" ||
+    property.type === "record-array" ||
     property.type === "paint"
   )
     return false;

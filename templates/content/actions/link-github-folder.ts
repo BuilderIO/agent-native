@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import type { GitHubLinkBlockedReason } from "../shared/github-source.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
@@ -18,6 +19,8 @@ import {
   previewGitHubFolder,
   resolveGitHubFolder,
   syncGitHubSource,
+  unexpectedSyncFailure,
+  type GitHubSyncResult,
 } from "./_github-source.js";
 import { serializeDatabase } from "./_property-utils.js";
 
@@ -62,15 +65,10 @@ const linkGitHubFolderSchema = z
     "Provide exactly one databaseId or documentId",
   );
 
-type LinkBlocked =
-  | "collection-has-rows"
-  | "already-linked"
-  | "system-collection";
-
 async function linkBlockedReason(
   database: { id: string; systemRole: string | null },
   db: ReturnType<typeof getDb> = getDb(),
-): Promise<LinkBlocked | null> {
+): Promise<GitHubLinkBlockedReason | null> {
   if (database.systemRole) return "system-collection";
   const [source] = await db
     .select({ id: schema.contentDatabaseSources.id })
@@ -95,14 +93,14 @@ async function linkBlockedReason(
   return row ? "collection-has-rows" : null;
 }
 
-const BLOCKED_MESSAGES: Record<LinkBlocked, string> = {
+const BLOCKED_MESSAGES: Record<GitHubLinkBlockedReason, string> = {
   "collection-has-rows":
     "This collection already has rows. Link a GitHub folder from a new, empty collection.",
   "already-linked": "This collection is already linked to a source.",
   "system-collection": "This collection can't be linked to a GitHub folder.",
 };
 
-function blockedError(blocked: LinkBlocked) {
+function blockedError(blocked: GitHubLinkBlockedReason) {
   return new ActionContractError(BLOCKED_MESSAGES[blocked], {
     errorCode:
       blocked === "collection-has-rows"
@@ -112,6 +110,96 @@ function blockedError(blocked: LinkBlocked) {
           : "COLLECTION_NOT_LINKABLE",
     statusCode: 409,
   });
+}
+
+/**
+ * Links a collection to a folder already read and previewed, then brings in
+ * the first files. The link is saved before the sync, so a sync that fails is
+ * reported on the link rather than thrown.
+ */
+export async function linkPreviewedGitHubFolder({
+  database,
+  resolved,
+  preview,
+  connectionId,
+  userEmail,
+}: {
+  database: Parameters<typeof createGitHubSourceLink>[0]["database"];
+  resolved: Awaited<ReturnType<typeof resolveGitHubFolder>>;
+  preview: Awaited<ReturnType<typeof previewGitHubFolder>>;
+  connectionId: string | null;
+  userEmail: string;
+}) {
+  const sourceId = await createGitHubSourceLink({
+    database,
+    resolved,
+    preview,
+    connectionId,
+    userEmail,
+    // Reading GitHub takes seconds, so someone may have added a row since
+    // the check above; this runs again under the collection's lock.
+    assertLinkable: async (tx) => {
+      const blockedNow = await linkBlockedReason(database, tx);
+      if (blockedNow) throw blockedError(blockedNow);
+    },
+  });
+  return bringInGitHubLink({ database, preview, sourceId });
+}
+
+/**
+ * Brings in a saved link's first files, or the rest of them on a retry, and
+ * says how far it got.
+ */
+export async function bringInGitHubLink({
+  database,
+  preview,
+  sourceId,
+}: {
+  database: Parameters<typeof createGitHubSourceLink>[0]["database"];
+  preview: Awaited<ReturnType<typeof previewGitHubFolder>>;
+  sourceId: string;
+}) {
+  // The link is saved by now, so anything that fails from here is reported
+  // on it rather than thrown, which would leave the caller thinking it failed.
+  // A contract error is the exception: the link or its collection went away
+  // during the sync, so there's nothing left to report on.
+  let sync: GitHubSyncResult;
+  try {
+    sync = await syncGitHubSource({
+      sourceId,
+      budgetMs: FIRST_SYNC_BUDGET_MS,
+    });
+  } catch (error) {
+    if (error instanceof ActionContractError) throw error;
+    console.warn(
+      "[github-source] first sync failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    sync = unexpectedSyncFailure(new Date().toISOString());
+  }
+  await writeAppState("refresh-signal", { ts: Date.now() }).catch(
+    (error: unknown) => {
+      // The change event below still reaches open pages.
+      console.warn(
+        "[github-source] refresh signal failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    },
+  );
+  // coercion-ok: the status line reads the link on its own; this is a courtesy copy.
+  const source = await getContentDatabaseSourceSnapshot(database).catch(
+    () => null,
+  );
+  return {
+    sync,
+    source,
+    summary:
+      sync.state === "partial"
+        ? `Linked ${preview.label}. ${sync.created} of ${preview.markdownFiles} rows are in; the rest follow within about a minute.`
+        : sync.state === "error"
+          ? `Linked ${preview.label}, but the first sync failed: ${sync.problem?.message ?? "GitHub sync failed."}`
+          : `Linked ${preview.label}: ${sync.created} rows from commit ${sync.commitSha?.slice(0, 7) ?? "unknown"}.${sync.problem ? ` ${sync.problem.message}` : ""}`,
+  };
 }
 
 export default defineAction({
@@ -163,44 +251,24 @@ export default defineAction({
         preview,
         canLink: blocked === null,
         blocked: blocked ? BLOCKED_MESSAGES[blocked] : null,
+        blockedReason: blocked,
         summary: blocked
           ? BLOCKED_MESSAGES[blocked]
           : `${githubPreviewSummary(preview)} Run again without dryRun to link it.`,
       };
     }
 
-    const sourceId = await createGitHubSourceLink({
-      database,
-      resolved,
-      preview,
-      connectionId,
-      userEmail,
-      // Reading GitHub takes seconds, so someone may have added a row since
-      // the check above; this runs again under the collection's lock.
-      assertLinkable: async (tx) => {
-        const blockedNow = await linkBlockedReason(database, tx);
-        if (blockedNow) throw blockedError(blockedNow);
-      },
-    });
-    const sync = await syncGitHubSource({
-      sourceId,
-      budgetMs: FIRST_SYNC_BUDGET_MS,
-      throwConnectionErrors: true,
-    });
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    const source = await getContentDatabaseSourceSnapshot(database);
     return {
       dryRun: false,
       database: serializeDatabase(database),
       preview,
-      sync,
-      source,
-      summary:
-        sync.state === "partial"
-          ? `Linked ${preview.label}. ${sync.created} of ${preview.markdownFiles} rows are in; sync again to load the rest.`
-          : sync.state === "error"
-            ? `Linked ${preview.label}, but the first sync failed: ${sync.problem?.message ?? "GitHub sync failed."}`
-            : `Linked ${preview.label}: ${sync.created} rows from commit ${sync.commitSha?.slice(0, 7) ?? "unknown"}.${sync.problem ? ` ${sync.problem.message}` : ""}`,
+      ...(await linkPreviewedGitHubFolder({
+        database,
+        resolved,
+        preview,
+        connectionId,
+        userEmail,
+      })),
     };
   },
   // Everyone reading the collection gets its new rows, not just the caller.

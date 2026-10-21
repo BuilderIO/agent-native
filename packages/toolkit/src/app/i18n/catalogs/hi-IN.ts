@@ -1491,6 +1491,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "काम किया",
   "tool.workedFor": "{{duration}} तक काम किया",
   "widget.chart": "चार्ट",
+  "widget.chartActions": "चार्ट कार्रवाइयाँ",
+  "widget.dataSources": "डेटा स्रोत",
+  "widget.tableActions": "टेबल कार्रवाइयाँ",
   "widget.dataChart": "डेटा चार्ट",
   "widget.dataInsights": "डेटा इनसाइट्स",
   "widget.dataTable": "डेटा तालिका",
@@ -2063,6 +2066,12 @@ const messages: ToolkitAgentChatTranslation = {
     "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
   "settingsShell.account.languageAndRegion": "भाषा और क्षेत्र",
   "settingsShell.account.languageDescription": "आपके सभी डिवाइस पर लागू होता है।",
+  "settingsShell.account.appearance": "रूप-रंग",
+  "settingsShell.account.themeFamily": "थीम शैली",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "ऐप के मूल रंग",
+  "settingsShell.account.themeFamilySaveError":
+    "थीम शैली अपडेट नहीं की जा सकी। फिर कोशिश करें।",
   "settingsShell.account.manage": "प्रबंधित करें",
   "settingsShell.account.name": "नाम",
   "settingsShell.account.nameDescription":

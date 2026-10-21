@@ -282,17 +282,17 @@ function renderDataWidget(context: ToolRendererContext) {
   if (widget === DATA_TABLE_WIDGET && result.table) {
     return (
       <Suspense fallback={<BuiltinToolRendererSkeleton />}>
-        <LazyDataTableWidget
-          table={result.table}
-          action={result.display?.primaryAction}
-        />
+        <LazyDataTableWidget table={result.table} display={result.display} />
       </Suspense>
     );
   }
   if (widget === DATA_CHART_WIDGET && result.chartSeries) {
     return (
       <Suspense fallback={<BuiltinToolRendererSkeleton />}>
-        <LazyDataChartWidget chart={result.chartSeries} />
+        <LazyDataChartWidget
+          chart={result.chartSeries}
+          display={result.display}
+        />
       </Suspense>
     );
   }

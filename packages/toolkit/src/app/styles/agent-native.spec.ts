@@ -3,6 +3,24 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent-native shell surface tokens", () => {
+  it("uses the selected theme class for dark utilities and chat markdown", () => {
+    const toolkitCss = readFileSync(
+      new URL("./agent-native.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+    const conversationCss = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(toolkitCss).toContain(
+      "@custom-variant dark (&:where(.dark, .dark *));",
+    );
+    expect(conversationCss).not.toContain("prefers-color-scheme: dark");
+    expect(conversationCss).toContain(".dark .agent-conversation-shiki pre");
+    expect(conversationCss).toContain(".dark .agent-markdown-shiki pre");
+  });
+
   it("keeps the composer surface opaque while preserving its muted blend", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
