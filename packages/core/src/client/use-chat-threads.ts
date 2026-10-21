@@ -13,6 +13,17 @@ export interface ChatThreadScope {
   contextVersion?: string;
 }
 
+/** Which of the caller's lists a thread belongs to; `mine` is ownership alone. */
+export type ChatThreadOwnership = "all" | "mine" | "shared";
+
+/**
+ * Why the caller can see a thread. A direct per-user grant outranks
+ * organization access when both apply.
+ */
+export type ChatThreadAccessBasis = "owner" | "direct" | "organization";
+
+export type ChatThreadVisibility = "private" | "org" | "public";
+
 export interface ChatThreadSummary {
   id: string;
   title: string;
@@ -24,6 +35,14 @@ export interface ChatThreadSummary {
   source?: ChatThreadSource | null;
   pinnedAt?: number | null;
   archivedAt?: number | null;
+  /**
+   * Server-supplied on listed threads. Absent on optimistic local drafts,
+   * which the caller owns by definition.
+   */
+  ownerEmail?: string;
+  accessBasis?: ChatThreadAccessBasis;
+  visibility?: ChatThreadVisibility;
+  orgId?: string | null;
 }
 
 export interface ChatThreadSource {
@@ -79,11 +98,15 @@ export interface UseChatThreadsOptions {
   routeThreadId?: string | null;
   includeExternal?: boolean;
   isolateHistoryByScope?: boolean;
+  /** Narrows the history list and search. Defaults to `all`. */
+  ownership?: ChatThreadOwnership;
 }
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
-const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
+export const CHAT_THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
 const THREADS_PAGE_SIZE = 50;
+/** The server caps one page here; larger requests are silently shortened. */
+export const CHAT_THREADS_MAX_PAGE_SIZE = 200;
 const CLIENT_DRAFT_THREAD_PREFIX = "agent-chat-client-draft-thread:";
 const MAX_THREAD_SAVE_RETRIES = 3;
 const MAX_THREAD_CONFIRMATION_RETRIES = 2;
@@ -133,24 +156,184 @@ function isUnconfirmedClientDraftThread(
   return newlyCreated.has(id) || hasClientDraftThreadMarker(id);
 }
 
+/** The thread list endpoint answered with a failure status or a malformed body. */
+export class ChatThreadListError extends Error {
+  readonly status: number | null;
+
+  constructor(message: string, status: number | null = null) {
+    super(message);
+    this.name = "ChatThreadListError";
+    this.status = status;
+  }
+}
+
+export interface ChatThreadListPageRequest {
+  apiUrl?: string;
+  /** Non-negative safe integer. Undefined uses the server default. */
+  offset?: number;
+  /** Positive safe integer. Undefined uses the server default. The server caps pages at 200 rows. */
+  limit?: number;
+  /** Switches the endpoint to search; ownership still narrows before paging. */
+  query?: string;
+  ownership?: ChatThreadOwnership;
+  includeExternal?: boolean;
+  scope?: ChatThreadScope | null;
+}
+
+/** A listed thread as the server returns it: ownership metadata always present. */
+export type ChatThreadListRow = ChatThreadSummary & {
+  ownerEmail: string;
+  accessBasis: ChatThreadAccessBasis;
+  visibility: ChatThreadVisibility;
+};
+
+export interface ChatThreadListPage {
+  threads: ChatThreadListRow[];
+  /** `undefined` when the server did not report it. */
+  hasMore: boolean | undefined;
+}
+
+const CHAT_THREAD_ACCESS_BASES: readonly string[] = [
+  "owner",
+  "direct",
+  "organization",
+];
+const CHAT_THREAD_VISIBILITIES: readonly string[] = [
+  "private",
+  "org",
+  "public",
+];
+
+function parseChatThreadListRow(
+  row: unknown,
+  ownership: ChatThreadOwnership | undefined,
+): ChatThreadListRow {
+  const candidate = row as Partial<ChatThreadListRow> | null;
+  if (
+    !candidate ||
+    typeof candidate !== "object" ||
+    typeof candidate.id !== "string" ||
+    typeof candidate.ownerEmail !== "string" ||
+    !candidate.ownerEmail ||
+    !CHAT_THREAD_ACCESS_BASES.includes(candidate.accessBasis as string) ||
+    !CHAT_THREAD_VISIBILITIES.includes(candidate.visibility as string)
+  ) {
+    throw new ChatThreadListError(
+      "Chat history response included a thread without ownership metadata.",
+    );
+  }
+  // A row on the wrong side of the filter means the server and client
+  // disagree about what the list is; showing it would label someone else's
+  // chat as the caller's own, or the reverse.
+  const owned = candidate.accessBasis === "owner";
+  if ((ownership === "mine" && !owned) || (ownership === "shared" && owned)) {
+    throw new ChatThreadListError(
+      `Chat history response included a thread outside the ${ownership} list.`,
+    );
+  }
+  return candidate as ChatThreadListRow;
+}
+
+async function requestChatThreadListPage(
+  request: ChatThreadListPageRequest,
+): Promise<{ threads: unknown[]; hasMore: boolean | undefined }> {
+  // Zero offsets keep their canonical URL omission, but invalid arguments
+  // must fail before serialization can turn them into a default page.
+  for (const [parameter, minimum] of [
+    ["limit", 1],
+    ["offset", 0],
+  ] as const) {
+    const value = request[parameter];
+    if (value === undefined) continue;
+    if (!Number.isSafeInteger(value) || value < minimum) {
+      throw new TypeError(
+        `Chat history ${parameter} must be a safe integer of at least ${minimum}.`,
+      );
+    }
+  }
+  const apiUrl = request.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const params = new URLSearchParams();
+  const query = request.query?.trim();
+  if (query) params.set("q", query);
+  if (request.limit) params.set("limit", String(request.limit));
+  if (request.offset && request.offset > 0) {
+    params.set("offset", String(request.offset));
+  }
+  if (request.ownership && request.ownership !== "all") {
+    params.set("ownership", request.ownership);
+  }
+  if (request.includeExternal) params.set("includeExternal", "1");
+  appendChatThreadScopeParams(params, request.scope);
+  const search = params.toString();
+  const res = await fetch(`${apiUrl}/threads${search ? `?${search}` : ""}`);
+  if (!res.ok) {
+    throw new ChatThreadListError(
+      `Could not load chat history (HTTP ${res.status}).`,
+      res.status,
+    );
+  }
+  const data = (await res.json()) as {
+    threads?: unknown;
+    hasMore?: unknown;
+  } | null;
+  if (!data || !Array.isArray(data.threads)) {
+    throw new ChatThreadListError(
+      "Chat history response did not include a thread list.",
+      res.status,
+    );
+  }
+  return {
+    threads: data.threads,
+    hasMore: typeof data.hasMore === "boolean" ? data.hasMore : undefined,
+  };
+}
+
+/**
+ * One page of the thread list or search, for the ownership-aware lists. Throws
+ * `ChatThreadListError` for a non-2xx response, a body that is not a thread
+ * list, or a row missing `ownerEmail` / `accessBasis` / `visibility` or sitting
+ * on the wrong side of `ownership`, so callers cannot mistake a failed page
+ * for an empty one. Invalid explicit pagination arguments reject with
+ * `TypeError` before a request is sent.
+ *
+ * The server caps each page at 200 rows. Advance offsets by the actual number
+ * of returned rows and use `hasMore`, rather than the requested limit.
+ */
+export async function fetchChatThreadListPage(
+  request: ChatThreadListPageRequest = {},
+): Promise<ChatThreadListPage> {
+  const page = await requestChatThreadListPage(request);
+  return {
+    threads: page.threads.map((row) =>
+      parseChatThreadListRow(row, request.ownership),
+    ),
+    hasMore: page.hasMore,
+  };
+}
+
 async function fetchThreadListPage(
   apiUrl: string,
   offset: number,
   includeExternal: boolean,
   scope?: ChatThreadScope | null,
+  ownership?: ChatThreadOwnership,
 ): Promise<ChatThreadSummary[] | undefined> {
-  const params = new URLSearchParams();
-  if (offset > 0) params.set("offset", String(offset));
-  if (includeExternal) params.set("includeExternal", "1");
-  appendChatThreadScopeParams(params, scope);
-  const query = params.toString();
-  return fetch(`${apiUrl}/threads${query ? `?${query}` : ""}`).then(
-    async (res) => {
-      if (!res.ok) return undefined;
-      const data = await res.json();
-      return (data.threads ?? []) as ChatThreadSummary[];
-    },
-  );
+  // The lifecycle list keeps optimistic local drafts beside server rows, so it
+  // tolerates summaries without ownership metadata; the ownership-aware lists
+  // go through `fetchChatThreadListPage`, which requires it.
+  try {
+    const page = await requestChatThreadListPage({
+      apiUrl,
+      offset,
+      includeExternal,
+      scope,
+      ownership,
+    });
+    return page.threads as ChatThreadSummary[];
+  } catch (error) {
+    if (error instanceof ChatThreadListError) return undefined;
+    throw error;
+  }
 }
 
 async function fetchThreadById(
@@ -253,9 +436,14 @@ function withChatThreadScope(
   return `${url}${url.includes("?") ? "&" : "?"}${query}`;
 }
 
-function emitThreadsUpdated() {
+/**
+ * Tell every mounted chat history list the thread set or its sharing changed,
+ * so they refetch. Anything that mutates a thread outside `useChatThreads`
+ * (a share grant, a visibility change) must call this.
+ */
+export function notifyChatThreadsUpdated(): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
+  window.dispatchEvent(new CustomEvent(CHAT_THREADS_UPDATED_EVENT));
 }
 
 function sortThreadSummaries(
@@ -370,6 +558,7 @@ export function useChatThreads(
   const autoCreate = options?.autoCreate !== false;
   const restoreActiveThread = options?.restoreActiveThread !== false;
   const includeExternal = options?.includeExternal === true;
+  const ownership = options?.ownership;
   const isolateHistoryByScope = options?.isolateHistoryByScope === true;
   const browserTabId =
     options?.browserTabId ??
@@ -901,6 +1090,7 @@ export function useChatThreads(
           offset,
           includeExternal,
           historyScope,
+          ownership,
         );
         if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!loaded) {
@@ -1146,6 +1336,7 @@ export function useChatThreads(
       historyScopeKey,
       includeExternal,
       isolateHistory,
+      ownership,
       routeControlsActiveThread,
       routeThreadId,
       completeInitialThreadRestore,
@@ -1432,7 +1623,7 @@ export function useChatThreads(
             prev.map((t) => (t.id === threadId ? { ...t, scope: null } : t)),
           );
         }
-        emitThreadsUpdated();
+        notifyChatThreadsUpdated();
       } catch {
         await fetchThreads().catch(() => {});
       }
@@ -1494,7 +1685,7 @@ export function useChatThreads(
         if (pendingPinnedAtRef.current.get(threadId) === pinnedAt) {
           pendingPinnedAtRef.current.delete(threadId);
         }
-        emitThreadsUpdated();
+        notifyChatThreadsUpdated();
         return true;
       } catch {
         rollback();
@@ -1561,7 +1752,7 @@ export function useChatThreads(
         if (threadId === activeThreadIdRef.current) {
           setActiveThreadId(null);
         }
-        emitThreadsUpdated();
+        notifyChatThreadsUpdated();
         return true;
       } catch {
         rollback();
@@ -1616,7 +1807,7 @@ export function useChatThreads(
           await fetchThreads();
           return false;
         }
-        emitThreadsUpdated();
+        notifyChatThreadsUpdated();
         return true;
       } catch {
         rollback();
@@ -1746,7 +1937,7 @@ export function useChatThreads(
             method: "DELETE",
           },
         );
-        emitThreadsUpdated();
+        notifyChatThreadsUpdated();
       } catch {}
       clearUserRenamedThread(id);
       optimisticThreadScopesRef.current.delete(id);
@@ -1862,7 +2053,7 @@ export function useChatThreads(
         if (data.threadData !== "") {
           confirmThreadSnapshotPersisted(id);
         }
-        emitThreadsUpdated();
+        notifyChatThreadsUpdated();
         setThreads((prev) => {
           const exists = prev.some((t) => t.id === id);
           if (exists) {
@@ -2063,7 +2254,7 @@ export function useChatThreads(
           },
           ...prev,
         ]);
-        emitThreadsUpdated();
+        notifyChatThreadsUpdated();
         return t.id;
       } catch (err) {
         console.error(`[chat] fork threw for ${sourceId}:`, err);
@@ -2078,6 +2269,9 @@ export function useChatThreads(
       try {
         const params = new URLSearchParams({ q: query });
         if (includeExternal) params.set("includeExternal", "1");
+        if (ownership && ownership !== "all") {
+          params.set("ownership", ownership);
+        }
         appendChatThreadScopeParams(params, historyScope);
         const res = await fetch(`${apiUrl}/threads?${params.toString()}`);
         if (!res.ok) return [];
@@ -2095,7 +2289,7 @@ export function useChatThreads(
         return [];
       }
     },
-    [apiUrl, historyScope, includeExternal, isolateHistory],
+    [apiUrl, historyScope, includeExternal, isolateHistory, ownership],
   );
 
   const getThreadShareState = useCallback(

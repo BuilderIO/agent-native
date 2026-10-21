@@ -35,7 +35,22 @@ export interface QuestionFlowGenerationBrief {
 interface UseQuestionFlowOptions {
   enabled?: boolean;
   continuationTabId?: string | null;
-  onContinue?: (tabId: string) => void;
+  onContinue?: (
+    tabId: string,
+    previousRunBaseline?: {
+      runId: string | null;
+      verified: boolean;
+      turnId?: string;
+    } | null,
+  ) => void;
+  getPreviousRunBaseline?: (tabId: string | null | undefined) =>
+    | { runId: string | null; verified: boolean; turnId?: string }
+    | null
+    | Promise<{
+        runId: string | null;
+        verified: boolean;
+        turnId?: string;
+      } | null>;
   getModelSelection?: () => QuestionFlowModelSelection | null | undefined;
   getGenerationBrief?: () => QuestionFlowGenerationBrief | null | undefined;
 }
@@ -109,6 +124,7 @@ export function useQuestionFlow(
     enabled = true,
     continuationTabId,
     onContinue,
+    getPreviousRunBaseline,
     getModelSelection,
     getGenerationBrief,
   }: UseQuestionFlowOptions = {},
@@ -155,11 +171,14 @@ export function useQuestionFlow(
         flow.clear();
         return;
       }
+      const previousRunBaselinePromise =
+        getPreviousRunBaseline?.(continuationTabId) ?? null;
       flow.clear();
       const designSystemContext =
         brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
           ? await loadDesignSystemGenerationContext(brief.designSystemId)
           : "";
+      const previousRunBaseline = await previousRunBaselinePromise;
       const briefContext = buildGenerationBriefContext(
         brief,
         designSystemContext,
@@ -182,11 +201,12 @@ export function useQuestionFlow(
         ...(engine ? { engine } : {}),
         ...(effort ? { effort } : {}),
       });
-      onContinue?.(tabId);
+      onContinue?.(tabId, previousRunBaseline);
     },
     [
       continuationTabId,
       flow,
+      getPreviousRunBaseline,
       getGenerationBrief,
       getModelSelection,
       onContinue,

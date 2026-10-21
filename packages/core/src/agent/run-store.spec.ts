@@ -40,7 +40,12 @@ let runListRows: Array<Record<string, unknown>> = [];
 let refreshedRunListRows: Array<Record<string, unknown>> | null = null;
 let runListSelectCount = 0;
 let turnInitiatorRows: Array<Record<string, unknown>> = [];
-let priorTurnRunRows: Array<{ id: string }> = [];
+let priorTurnRunRows: Array<{
+  id: string;
+  status?: string;
+  terminal_reason?: string | null;
+  dispatch_mode?: string | null;
+}> = [];
 let turnInitiatorByRunRows: Array<Record<string, unknown>> = [];
 let insertEventBehavior: () => void = () => {};
 let abortRowsAffected = 1;
@@ -155,7 +160,17 @@ const mockDb: any = {
         rawSql,
       )
     ) {
-      return { rows: priorTurnRunRows, rowsAffected: 0 };
+      const rows = priorTurnRunRows.filter(
+        (row) =>
+          (!rawSql.includes("dispatch_mode IS DISTINCT FROM 'turn-abort'") ||
+            row.dispatch_mode !== "turn-abort") &&
+          (!rawSql.includes(
+            "terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission'",
+          ) ||
+            row.status !== "aborted" ||
+            row.terminal_reason !== "aborted:duplicate_submission"),
+      );
+      return { rows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_turn_initiators/i.test(rawSql)) {
       if (turnInitiatorRows.length === 0) {
@@ -345,6 +360,7 @@ const {
   getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
+  getCurrentTurnRunIdsForThread,
   __resetNoRunningRunsProbeForTests,
   describeStaleReap,
   staleWindowMsForRow,
@@ -730,6 +746,49 @@ describe("run store", () => {
     expect(execCalls.at(-1)?.sql).toContain(
       "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
     );
+  });
+
+  it("excludes duplicate-submission and turn-abort rows from current-turn run IDs", async () => {
+    priorTurnRunRows = [
+      {
+        id: "run-current-turn",
+        status: "completed",
+        terminal_reason: "done",
+        dispatch_mode: "foreground",
+      },
+      {
+        id: "run-duplicate-marker",
+        status: "aborted",
+        terminal_reason: "aborted:duplicate_submission",
+      },
+      {
+        id: "run-turn-abort-marker",
+        status: "aborted",
+        terminal_reason: "aborted:user",
+        dispatch_mode: "turn-abort",
+      },
+      {
+        id: "run-legacy-abort",
+        status: "aborted",
+        terminal_reason: null,
+        dispatch_mode: "foreground",
+      },
+    ];
+
+    await expect(
+      getCurrentTurnRunIdsForThread("thread-current-turn", "turn-current"),
+    ).resolves.toEqual(["run-current-turn", "run-legacy-abort"]);
+
+    expect(execCalls.at(-1)?.sql).toContain(
+      "dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+    expect(execCalls.at(-1)?.sql).toContain(
+      "status IS DISTINCT FROM 'aborted' OR terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission'",
+    );
+    expect(execCalls.at(-1)?.args).toEqual([
+      "thread-current-turn",
+      "turn-current",
+    ]);
   });
 
   it("reports no pending connection request when the run has no request event", async () => {
@@ -1119,6 +1178,7 @@ describe("run store", () => {
         dispatch_mode: "background-processing",
         terminal_reason: "run_timeout",
         diag_stage: null,
+        in_flight_since: "2700",
       },
     ];
 
@@ -1131,7 +1191,9 @@ describe("run store", () => {
       status: "errored",
       errorCode: "run_timeout",
       completedAt: 2600,
+      inFlightSince: 2700,
     });
+    expect(execCalls.at(-1)?.sql).toContain("in_flight_since");
     expect(execCalls.at(-1)?.sql).toContain("AND id IN (?, ?)");
     expect(execCalls.at(-1)?.args).toEqual([
       "thread-lifecycle",

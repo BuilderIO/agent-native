@@ -1418,6 +1418,10 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
 
   return [
     ...standaloneChatEntries,
+    ...(hasCoreDep("cron-parser", cwd) ? ["@agent-native/core/jobs/cron"] : []),
+    ...(hasCoreDep("ajv", cwd)
+      ? ["@agent-native/core > ajv", "@agent-native/core > ajv/dist/2020.js"]
+      : []),
     ...(hasDep("react", cwd) ? ["react"] : []),
     ...(hasDep("react-dom", cwd)
       ? ["react-dom", "react-dom/client", "react-dom/server"]

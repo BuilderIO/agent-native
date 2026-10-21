@@ -206,6 +206,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { readMotionHtmlSource } from "../shared/motion-html-source.js";
 import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
 import action from "./remove-motion-timeline.js";
@@ -259,6 +260,7 @@ describe("remove-motion-timeline", () => {
 
     expect(result.deleted).toBe(true);
     expect(result.htmlPatched).toBe(true);
+    expect(result._receipt).toEqual(designOutputWriteReceipt("design-1", 1));
     const content = lastSavedContent();
     expect(content).not.toContain("data-agent-native-motion");
     expect(content).toBe("<html><body>\n<main></main></body></html>");

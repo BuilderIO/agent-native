@@ -39,6 +39,7 @@ import {
   linkedComponentRootForNode,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   planLocalJsxVisualEdit,
   type LocalJsxSourceAnchor,
@@ -439,6 +440,7 @@ export default defineAction({
         },
         content: planned.content,
         result: planned.result,
+        _receipt: designOutputWriteReceipt(designId, write?.written ? 1 : 0),
       };
     }
 
@@ -608,6 +610,7 @@ export default defineAction({
         value: stamp.value,
       })),
       persisted: contentChanged,
+      _receipt: designOutputWriteReceipt(designId, contentChanged ? 1 : 0),
       ctaRequired: false,
       fileId: file.id,
       filename: file.filename,
