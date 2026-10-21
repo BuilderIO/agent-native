@@ -1522,6 +1522,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.worked": "عمل",
   "tool.workedFor": "عمل لمدة {{duration}}",
   "widget.chart": "مخطط",
+  "widget.chartActions": "إجراءات المخطط",
+  "widget.dataSources": "مصادر البيانات",
+  "widget.tableActions": "إجراءات الجدول",
   "widget.dataChart": "مخطط بيانات",
   "widget.dataInsights": "رؤى البيانات",
   "widget.dataTable": "جدول بيانات",
@@ -2246,6 +2249,12 @@ const messages: ToolkitAgentChatTranslation = {
     "تحقق من بريدك الإلكتروني للاطلاع على تعليمات تأكيد هذا التغيير.",
   "settingsShell.account.languageAndRegion": "اللغة والمنطقة",
   "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
+  "settingsShell.account.appearance": "المظهر",
+  "settingsShell.account.themeFamily": "نمط السمة",
+  "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
+  "settingsShell.account.themeFamilyOriginal": "الألوان الأصلية للتطبيق",
+  "settingsShell.account.themeFamilySaveError":
+    "تعذّر تحديث نمط السمة. حاول مرة أخرى.",
   "settingsShell.account.manage": "إدارة",
   "settingsShell.account.name": "الاسم",
   "settingsShell.account.nameDescription":

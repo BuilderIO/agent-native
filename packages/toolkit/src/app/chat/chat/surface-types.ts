@@ -26,6 +26,8 @@ import type {
 import type { ExportedMessageRepository } from "@assistant-ui/react";
 import type * as React from "react";
 
+import type { AgentKitWorkedForSummaryRenderProps } from "../../agentkit/react/context.js";
+import type { AgentMessageContentOrderResolver } from "../../agentkit/react/message-content-order.js";
 import type { AssistantChatHistoryConfig } from "./history-types.js";
 import type { BuilderSetupCardLayout } from "./run-recovery.js";
 
@@ -267,6 +269,12 @@ export interface AssistantChatProps {
   ) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** Optional shared context banner rendered above the composer input. */
+  composerContextBannerSlot?: React.ReactNode;
+  /** Optional renderer for the shared work-summary disclosure row. */
+  workedForSummarySlot?: React.ComponentType<AgentKitWorkedForSummaryRenderProps>;
+  /** Optional ordering policy for assistant message text and attached widgets. */
+  resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   /** App-owned context controller, mounted separately for each chat thread. */
   composerContextProvider?: React.ComponentType<AssistantChatComposerContextProviderProps>;
   /** Optional home content rendered above the composer on an empty chat. */

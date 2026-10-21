@@ -95,6 +95,125 @@ describe("native shader inspection display metadata and compatible versions", ()
         },
       },
     });
+    const folded = result.definitions.find(
+      ({ id }) => id === "an-native-folded-mesh",
+    )!;
+    expect(folded.version).toBe(3);
+    expect(folded.properties.fill).toMatchObject({
+      type: "paint",
+      maxCount: 8,
+      default: { kind: "linear" },
+    });
+    expect(folded.properties.fill).not.toHaveProperty("group");
+    expect(folded.properties.timeOffset.group).toBe("Motion");
+    expect(folded.properties.positionX.group).toBe("Transform");
+    expect(folded.properties.displacementAmount.group).toBe("Shape");
+    expect(folded.properties.glowAmount.group).toBe("Surface");
+    expect(folded.properties.hueShift.group).toBe("Color");
+    expect(folded.properties.lights).toMatchObject({
+      type: "record-array",
+      itemLabel: "Light",
+      minCount: 0,
+      maxCount: 4,
+      fields: {
+        positionX: { unit: "%", displayScale: 100 },
+        directionX: { unit: "%", displayScale: 100 },
+      },
+    });
+    expect(folded.properties.lights.fields.exponent).toMatchObject({
+      label: "Focus",
+      unit: "%",
+      displayScale: 100 / 32,
+    });
+    expect(folded.properties.noiseBands).toMatchObject({
+      type: "record-array",
+      itemLabel: "Noise band",
+      minCount: 0,
+      maxCount: 4,
+      parameterConstraints: [
+        {
+          kind: "ordered-floats",
+          lesser: "startX",
+          greater: "endX",
+          minGap: 0.001,
+        },
+        {
+          kind: "ordered-floats",
+          lesser: "startY",
+          greater: "endY",
+          minGap: 0.001,
+        },
+      ],
+    });
+    expect(folded.properties.noiseBands.fields.parabolaPower).toMatchObject({
+      unit: "%",
+      displayScale: 100 / 8,
+    });
+    expect(Object.keys(folded.properties).sort()).toEqual(
+      [
+        "fill",
+        "timeOffset",
+        "contrast",
+        "saturation",
+        "hueShift",
+        "displacementAmount",
+        "displacementFrequencyX",
+        "displacementFrequencyY",
+        "positionX",
+        "positionY",
+        "positionZ",
+        "rotationX",
+        "rotationY",
+        "rotationZ",
+        "scaleX",
+        "scaleY",
+        "scaleZ",
+        "twistX",
+        "twistY",
+        "twistZ",
+        "foldConcentrationX",
+        "foldConcentrationY",
+        "foldConcentrationZ",
+        "glowAmount",
+        "glowSpread",
+        "glowFocus",
+        "lineDensity",
+        "lineThickness",
+        "compressionResponse",
+        "lights",
+        "noiseBands",
+      ].sort(),
+    );
+    expect(folded.propertyPresentation).toMatchObject({
+      timeOffset: { unit: "s", default: 0 },
+      contrast: { unit: "%", default: 100, min: 0, max: 200 },
+      saturation: { unit: "%", default: 100 },
+      hueShift: { unit: "°", default: 0 },
+      displacementAmount: { unit: "%", default: 62 },
+      displacementFrequencyX: { unit: "×", default: 12.7 },
+      displacementFrequencyY: { unit: "×", default: 1.1 },
+      positionX: { unit: "%", default: 0 },
+      positionY: { unit: "%", default: 0 },
+      positionZ: { unit: "%", default: 0 },
+      rotationX: { unit: "°", default: 0 },
+      rotationY: { unit: "°", default: 0 },
+      rotationZ: { unit: "°", default: 0 },
+      scaleX: { unit: "%", default: 100 },
+      scaleY: { unit: "%", default: 100 },
+      scaleZ: { unit: "%", default: 100 },
+      twistX: { unit: "°" },
+      twistY: { unit: "°" },
+      twistZ: { unit: "°", default: 0 },
+      foldConcentrationX: { unit: "%", default: 50 },
+      foldConcentrationY: { unit: "%", default: 12 },
+      foldConcentrationZ: { unit: "%", default: 50 },
+      glowAmount: { unit: "%", default: 45 },
+      glowSpread: { unit: "%", default: 45 },
+      glowFocus: { unit: "%", default: 50 },
+      lineDensity: { unit: "", default: 300 },
+      lineThickness: { unit: "%", default: 50 },
+      compressionResponse: { unit: "%", default: 100 },
+    });
     expect(metal.properties).not.toHaveProperty("palette");
     expect(metal.properties.softness!.default).toBe(0.05);
     expect(metal.propertyPresentation.softness).toEqual({
