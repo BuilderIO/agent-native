@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   startTranscriptionEngine: vi.fn(),
   stopTranscriptionEngine: vi.fn(),
   restartTranscriptionEngine: vi.fn(),
+  getMeeting: vi.fn(),
   actions: [] as Array<{ name: string; body: Record<string, unknown> }>,
 }));
 
@@ -70,7 +71,7 @@ function Harness() {
         } as T;
       }
       if (name === "get-meeting") {
-        return { meeting: {}, transcript: null } as T;
+        return (await mocks.getMeeting()) as T;
       }
       if (name === "stop-meeting-recording") {
         return { actualEnd: "2026-10-17T03:00:00.000Z" } as T;
@@ -134,6 +135,9 @@ describe("meeting transcription pause and resume", () => {
     mocks.startTranscriptionEngine.mockReset().mockResolvedValue("whisper");
     mocks.stopTranscriptionEngine.mockReset().mockResolvedValue(undefined);
     mocks.restartTranscriptionEngine.mockReset().mockResolvedValue(undefined);
+    mocks.getMeeting
+      .mockReset()
+      .mockResolvedValue({ meeting: {}, transcript: null });
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -145,6 +149,98 @@ describe("meeting transcription pause and resume", () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("releases the native engine within five seconds of a persisted web end", async () => {
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    const runId = mocks.startTranscriptionEngine.mock.calls[0][0]
+      .runId as number;
+    mocks.getMeeting.mockResolvedValue({
+      meeting: { actualEnd: "2026-10-21T16:00:00.000Z" },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_999);
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
+      "whisper",
+      runId,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+      await settle();
+    });
+    expect(mocks.emit).toHaveBeenCalledWith("meetings:transcription-stopped", {
+      meetingId: "meeting-1",
+      reason: "server-ended",
+    });
+  });
+
+  it("checks again when the desktop regains focus", async () => {
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    mocks.getMeeting.mockResolvedValue({
+      meeting: { actualEnd: "2026-10-21T16:00:00Z" },
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledWith(
+      "whisper",
+      mocks.startTranscriptionEngine.mock.calls[0][0].runId,
+    );
+  });
+
+  it("does not overlap slow checks and retries after a timeout", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const slowRead = deferred<unknown>();
+    await act(async () => {
+      root.render(createElement(Harness));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+    const before = mocks.getMeeting.mock.calls.length;
+    mocks.getMeeting.mockReturnValueOnce(slowRead.promise);
+    mocks.getMeeting.mockResolvedValue({
+      meeting: { actualEnd: "2026-10-21T16:00:00Z" },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await settle();
+    });
+    expect(mocks.getMeeting).toHaveBeenCalledTimes(before + 1);
+    expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+      await settle();
+    });
+    expect(warning).toHaveBeenCalledWith(
+      "[clips-popover] meeting end check failed:",
+      expect.objectContaining({
+        message: "Checking whether the meeting ended timed out.",
+      }),
+    );
+    expect(mocks.getMeeting).toHaveBeenCalledTimes(before + 2);
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+    slowRead.resolve({ meeting: { actualEnd: "2026-10-21T16:00:00Z" } });
+    await act(async () => {
+      await settle();
+    });
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+    warning.mockRestore();
   });
 
   it("accepts paused-run finals through the settle window after resume", async () => {

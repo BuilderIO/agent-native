@@ -106,7 +106,8 @@ interface Props {
 }
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
-const MEETING_ENDED_POLL_MS = 30_000;
+const MEETING_ENDED_POLL_MS = 5_000;
+const MEETING_RECOVERY_POLL_MS = 30_000;
 const TRANSCRIPTION_STOP_SETTLE_MS = 1_500;
 const MEETING_ACTION_TIMEOUT_MS = 10_000;
 const RECOVERY_RETRY_INITIAL_MS = 3_000;
@@ -1590,24 +1591,76 @@ export function useMeetingTranscription({
         );
         return;
       }
-      if (!enabled || session.stopping) return;
-      callClipsAction<{ meeting?: { actualEnd?: string | null } }>(
-        "get-meeting",
-        { id: session.meetingId },
-        { method: "GET" },
-      )
-        .then((data) => {
-          if (sessionRef.current !== session || session.stopping) return;
-          if (!data?.meeting?.actualEnd) return;
-          stopTranscription("server-ended").catch(() => {});
-        })
-        .catch(() => {
-          // Best-effort — a failed poll just waits for the next tick or the
-          // native detector.
-        });
-    }, MEETING_ENDED_POLL_MS);
+    }, MEETING_RECOVERY_POLL_MS);
     return () => window.clearInterval(timer);
   }, [acknowledgeQuitTeardown, callClipsAction, enabled, stopTranscription]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let disposed = false;
+    let inFlight = false;
+    let unlistenStart: (() => void) | undefined;
+    const checkEnded = async () => {
+      const session = sessionRef.current;
+      if (
+        disposed ||
+        inFlight ||
+        !session ||
+        session.stopping ||
+        session.stopPending
+      )
+        return;
+      inFlight = true;
+      try {
+        const data = await withMeetingActionTimeout(
+          (signal) =>
+            callClipsAction<{ meeting?: { actualEnd?: string | null } }>(
+              "get-meeting",
+              { id: session.meetingId },
+              { method: "GET", signal },
+            ),
+          MEETING_ACTION_TIMEOUT_MS,
+          "Checking whether the meeting ended timed out.",
+        );
+        if (
+          disposed ||
+          sessionRef.current !== session ||
+          session.stopping ||
+          session.stopPending
+        )
+          return;
+        if (data?.meeting?.actualEnd) await stopTranscription("server-ended");
+      } catch (error) {
+        if (!disposed)
+          console.warn("[clips-popover] meeting end check failed:", error);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const check = () => void checkEnded();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    const timer = window.setInterval(check, MEETING_ENDED_POLL_MS);
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    listen("meetings:transcription-started", check)
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else unlistenStart = unlisten;
+      })
+      .catch((error) => {
+        console.warn("[clips-popover] meeting end listener failed:", error);
+      });
+    check();
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      unlistenStart?.();
+    };
+  }, [callClipsAction, enabled, stopTranscription]);
 
   useEffect(() => {
     if (!enabled) return;
