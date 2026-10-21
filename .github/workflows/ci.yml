@@ -297,7 +297,11 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            if [[ "$name" == "slides-2" ]]; then
+              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            else
+              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            fi
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -423,7 +427,11 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            if [[ "$name" == "slides-2" ]]; then
+              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            else
+              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            fi
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'

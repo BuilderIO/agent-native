@@ -17,7 +17,7 @@ import {
 } from "../server/request-context.js";
 import { resolveWorkspaceConnectionForApp } from "../workspace-connections/index.js";
 
-export type AgentKitCapabilityAppId = "design" | "slides";
+export type AgentKitCapabilityAppId = "design" | "slides" | "slides-2";
 
 export interface AgentKitIntegrationCapability {
   id: string;
