@@ -33,6 +33,7 @@ import {
   writeSourceFederation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { assertNotGitHubSource } from "./_document-source.js";
 import { readLocalTableEntries } from "./_local-table-source.js";
 
 const normalizationFormulaSchema = z
@@ -353,6 +354,7 @@ export default defineAction({
       .orderBy(asc(schema.contentDatabaseSources.createdAt));
     const source = sources.find((item) => item.id === args.sourceId) ?? null;
     if (!source) throw new Error("Source not found.");
+    assertNotGitHubSource(source);
 
     const normalizedType = sourceType(source.sourceType);
 

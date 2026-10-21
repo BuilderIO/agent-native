@@ -250,6 +250,8 @@ Comments are Notion/Google-Docs-style **inline comments**. Selecting text and co
 
 Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members and agents. Keep the readable `@Name` in `content` and pass `mentions` in text order: `{"kind":"person","email","name"}` or `{"kind":"agent","model","name"}`. One entry covers every `@Name` of one person; when two people share a name, the k-th `@Name` is the k-th entry with that name. `add-comment` and `update-comment` reject a malformed list, or an entry no `@Name` in `content` reaches, with a 400. The app draws each matched name as a pill when it stands alone, followed by a space or punctuation (`@Sam,` matches, `@Samantha` does not); an `@Name` in inline code, a Markdown link, or a URL is not a mention. A name with no entry stays plain text. An AI comment records its model, thinking effort, and agent conversation automatically.
 
+On a collection page, each Blocks field tab has its own comments. Pass `fieldId` to `add-comment` to start a thread in a field's tab; `quotedText` and the anchor fields then come from that field's text. Field IDs are the Blocks-type properties `get-document` returns, and `navigation.fieldId` names the tab the person has open (none means the first tab). Omitting `fieldId`, or passing the primary field's ID, means the page body. Replies stay in their thread's tab, so leave `fieldId` off a reply. `fieldId` and `propertyId` can't be combined. `list-comments` and `list-content-database-comments` return `field_id` and `field_name` (the field's name when the thread started) on each comment; a null `field_id` is the page body. When a field is deleted, its threads stay listed under the saved name and can still be resolved, but have no highlight. Ask AI on a comment thread works only in the page body.
+
 ```bash
 # List threads (returns anchor fields + parsed mentions)
 pnpm action list-comments --documentId abc123
@@ -262,8 +264,11 @@ pnpm action add-comment --documentId abc123 --content "@Sam check this" \
   --quotedText "the second paragraph" --anchorPrefix "above " --anchorSuffix " here" \
   --anchorStartOffset 120 --mentions '[{"kind":"person","email":"sam@x.com","name":"Sam"}]'
 
-# Reply to a thread
-pnpm action add-comment --documentId abc123 --threadId t123 --content "Agreed"
+# Comment on text in another Blocks field's tab
+pnpm action add-comment --documentId abc123 --fieldId prop456 --content "Tighten this" --quotedText "the opening line"
+
+# Reply to a thread (threadId is the thread's root comment ID)
+pnpm action add-comment --documentId abc123 --threadId t123 --parentId c123 --content "Agreed"
 
 # Resolve / reopen the whole thread
 pnpm action update-comment --id c123 --resolved true

@@ -387,6 +387,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "仅查看。此页面跟随 GitHub 中的文件，每次推送后都会更新。",
+  githubSourceOpenFile: "在 GitHub 中打开",
   textColor: "文本颜色",
   backgroundColor: "背景颜色",
   defaultColor: "默认",
@@ -406,8 +409,8 @@ const editor = {
   noDocumentSelected: "未选择文档",
   registryBlockLoadError: "无法加载 {{type}} 块：{{message}}",
   registryBlockUnreadable: "无法读取已保存的块源内容。",
-  blocksFieldRevisionConflict:
-    "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
+  blocksFieldEditMovedToEnd:
+    "此 Blocks 字段也在其他位置被更改。你在同一位置输入的文字已移到字段末尾。",
   reconcileConflict: "此页面已在其他地方更改。你的编辑尚未保存。",
   reconcileFailed: "无法合并最新更改。你的编辑尚未保存。",
   reconcileSaveFailed: "无法保存你的编辑。请检查后重试。",
@@ -489,6 +492,7 @@ const editor = {
     imageDownloadStarted: "图像下载开始。",
     imageLinkHint: "适用于网络上的任何图像",
     imagePreview: "图片预览",
+    imageUnavailable: "图片不可用",
     imageView: "图片查看",
     link: "链接",
     loadingAssetsPicker: "加载资产选择器",
@@ -1065,6 +1069,7 @@ const comments = {
   commentOnProperty: "评论{{name}}",
   openPropertyComments_other: "{{name}} 上有 {{count}} 条未解决的评论",
   openRowComments_other: "{{title}} 上有 {{count}} 条未解决的评论",
+  openRow: "打开行",
   suggestions: "建议",
   suggestionAdd: "添加",
   suggestionDelete: "删除",
@@ -1085,6 +1090,10 @@ const comments = {
   accepted: "已接受",
   rejected: "已拒绝",
   noFilteredComments: "没有匹配的评论。",
+  tabFilter: "标签页",
+  allTabs: "所有标签页",
+  fieldRemoved: "{{name}}（已删除）",
+  pageBody: "页面正文",
 };
 
 const reviewDiscussions = {
@@ -1265,6 +1274,7 @@ const history = {
   historyGroupAgent: "代理运行",
   historyGroupHuman: "编辑会话",
   historyGroupLegacy: "较早的编辑",
+  historyGroupGitHub: "从 GitHub 同步",
   historyGroupOperation: "操作",
   historyGroupRestore: "恢复",
   historyLoadError: "无法加载版本历史。",
@@ -1476,6 +1486,7 @@ const overrides = {
     addBlockField: "添加字段",
     blockFieldChanged: "自你上次查看后已更改",
     blockFieldTabs: "字段",
+    blockFieldOpenComments_other: "{{count}} 条未解决的评论",
     blockFieldMenu: "{{name}} 选项",
     blockFieldMenuScope: "此集合中的每一行共用",
     blockFieldName: "字段名称",

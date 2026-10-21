@@ -21,6 +21,16 @@ describe("document collaboration host policy", () => {
     ).toBe(false);
   });
 
+  it("shows a GitHub-synced page from its saved body", () => {
+    expect(
+      shouldUseLiveDocumentCollaboration({
+        isLocalFileDocument: false,
+        isGitHubSourceDocument: true,
+        mcpDirectoryWidgetReadOnly: false,
+      }),
+    ).toBe(false);
+  });
+
   it("leaves local-file documents outside collaboration", () => {
     expect(
       shouldUseLiveDocumentCollaboration({

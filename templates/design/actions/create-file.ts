@@ -21,6 +21,7 @@ import {
   parseCanvasFrameGeometryById,
 } from "../shared/canvas-frames.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
@@ -530,6 +531,7 @@ export default defineAction({
       fileType: resolvedFileType,
       createdAt: createdFile.createdAt,
       renderable,
+      _receipt: designOutputWriteReceipt(designId, createdFile.created ? 1 : 0),
       urlPath: renderable
         ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(id)}`
         : null,

@@ -10,6 +10,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
+
 const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
@@ -199,6 +201,7 @@ describe("insert-figma-library-asset", () => {
 
     expect(result.inserted).toBe(true);
     expect(result.source).toBe("figma");
+    expect(result._receipt).toEqual(designOutputWriteReceipt("design-1", 1));
     const content = lastSavedContent();
     expect(content).toContain("data-agent-native-figma-asset");
     expect(content).toContain('data-figma-file-key="abc123"');

@@ -184,6 +184,9 @@ beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_BASE_URL;
+  delete process.env.ANTHROPIC_BASE_URL;
+  delete process.env.NETLIFY_AI_GATEWAY_KEY;
+  delete process.env.NETLIFY_AI_GATEWAY_URL;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.GROQ_API_KEY;
   delete process.env.EMAIL_AGENT_ADDRESS;
@@ -931,6 +934,52 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
       true,
+    );
+  });
+
+  it("ignores provider keys and endpoints that Netlify AI Gateway injected", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_AI_GATEWAY_KEY = "gateway-token";
+    process.env.NETLIFY_AI_GATEWAY_URL = "https://gw.example.test/ai";
+    process.env.ANTHROPIC_API_KEY = "gateway-token";
+    process.env.OPENAI_API_KEY = "gateway-token";
+    process.env.ANTHROPIC_BASE_URL = "https://app.netlify.app/.netlify/ai";
+    process.env.OPENAI_BASE_URL = "https://gw.example.test/ai/openai/v1";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    for (const key of [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "ANTHROPIC_BASE_URL",
+      "OPENAI_BASE_URL",
+    ]) {
+      expect(canUseDeployCredentialFallbackForRequest(key)).toBe(false);
+      expect(readDeployCredentialEnv(key)).toBeUndefined();
+      expect(await resolveSecret(key)).toBeNull();
+    }
+  });
+
+  it("keeps a deployer's own provider key on Netlify when the gateway is also present", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_AI_GATEWAY_KEY = "gateway-token";
+    process.env.NETLIFY_AI_GATEWAY_URL = "https://gw.example.test/ai";
+    process.env.ANTHROPIC_API_KEY = "owner-anthropic-key";
+    process.env.OPENAI_BASE_URL = "https://llm.internal.example.test/v1";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "owner-anthropic-key",
+    );
+    expect(await resolveSecret("OPENAI_BASE_URL")).toBe(
+      "https://llm.internal.example.test/v1",
     );
   });
 

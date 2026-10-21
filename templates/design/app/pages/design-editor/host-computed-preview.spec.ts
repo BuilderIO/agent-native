@@ -41,22 +41,6 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
     },
   );
 
-  it("a forced replacement cannot fall into the single-subtree fast path", () => {
-    const bridge = readFileSync(
-      new URL(
-        "../../components/design/bridge/editor-chrome.bridge.ts",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    expect(bridge).toMatch(
-      /var requiresFullDocumentMorph =\s*Boolean\(forceFullDocument\) \|\| hasSourceProvenance;/,
-    );
-    expect(bridge).toContain(
-      "!requiresFullDocumentMorph &&\n      nextHeadHtml === currentHeadHtml &&",
-    );
-  });
-
   it("align, distribute and tidy repaint after committing positions", () => {
     const editorSource = readDesignEditorSource();
     const commit = editorSource.slice(

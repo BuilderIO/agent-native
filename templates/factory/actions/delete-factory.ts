@@ -10,6 +10,14 @@ import {
   factoryDefinitions,
   factoryGraphVersions,
   factoryPollCursors,
+  factoryTripwires,
+  factoryWorkflowItemEvents,
+  factoryWorkflowItemState,
+  factoryWorkflowReceipts,
+  factoryWorkflowRuns,
+  factoryWorkflowSteps,
+  factoryWorkflowVersions,
+  factoryWorkflows,
   triageConfig,
   triageDecisions,
   triageFeedback,
@@ -17,10 +25,8 @@ import {
   triageRules,
   triageRuns,
 } from "../server/db/schema.js";
-import {
-  DEFAULT_FACTORY_ID,
-  readFactoryDefinition,
-} from "../server/factory-graph/store.js";
+import { readFactoryDefinition } from "../server/lib/factory-definitions.js";
+import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
 import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
@@ -36,7 +42,7 @@ import {
 
 export default defineAction({
   description:
-    "Permanently delete a user-created Factory and all Factory-owned graph versions, comments, observations, rules, decisions, runs, feedback, audit events, settings, poll cursors, scheduled automations, and those automations' run history. The default product-feedback Factory cannot be deleted. Requires the Factory's exact current name as confirmation; provider work already in progress is not cancelled. When the delete commits but the follow-up read cannot confirm the Factory or its jobs are gone, the action returns ok with verified:false instead of reporting a failed deletion.",
+    "Permanently delete a user-created Factory and all Factory-owned graph versions, comments, observations, rules, decisions, runs, feedback, audit events, settings, poll cursors, workflows with their versions, runs, steps, parked items, item events and receipts, scheduled automations, and those automations' run history. The default product-feedback Factory cannot be deleted. Requires the Factory's exact current name as confirmation; provider work already in progress is not cancelled. When the delete commits but the follow-up read cannot confirm the Factory or its jobs are gone, the action returns ok with verified:false instead of reporting a failed deletion.",
   schema: z.object({
     factoryId: factoryIdSchema,
     confirmName: z.string().trim().min(1).max(120),
@@ -108,6 +114,14 @@ export default defineAction({
           factoryAutomationVersions,
           factoryAuditEvents,
           factoryPollCursors,
+          factoryTripwires,
+          factoryWorkflowItemEvents,
+          factoryWorkflowItemState,
+          factoryWorkflowReceipts,
+          factoryWorkflowSteps,
+          factoryWorkflowRuns,
+          factoryWorkflowVersions,
+          factoryWorkflows,
           triageFeedback,
           triageDecisions,
           triageRuns,

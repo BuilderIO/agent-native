@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.40.29
+
+### Patch Changes
+
+- f60152f: Require approval for `needsApproval` actions on every surface. HTTP action routes and generated Workers entries now run an approval-gated call only for the signed-in app UI (or its MCP directory widget); a bearer token, MCP OAuth token, org service token, A2A peer, or other HTTP caller gets `409 approval_required`, and an unproven browser call gets `403 ui_capability_required`. The app's client now presents its UI capability with every write from a signed-in session, so the 403 and one retry are only the fallback for an expired or rejected capability. `revoke-org-service-token` and the credential, membership, and app-access actions in core, Dispatch, and Scheduling now ask for approval on every call, with "always allow" off.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [4fdf78c]
+- Updated dependencies [ab1a9e8]
+- Updated dependencies [67514ae]
+- Updated dependencies [b451cb2]
+- Updated dependencies
+  - @agent-native/toolkit@0.211.0
+
 ## 0.40.28
 
 ### Patch Changes
@@ -1282,18 +1295,5 @@
 ### Patch Changes
 
 - 2107a36: Retry cross-app embed session authentication with the shared A2A secret when a workspace target rejects an unsynchronized organization secret.
-
-## 0.28.0
-
-### Minor Changes
-
-- d3702a5: Point the chat beside an open workspace app at that app's own agent. Dispatch now proxies `/_agent-native/workspace-app-chat/<appId>/**` to the app's `/_agent-native/agent-chat`, authenticated with the app's own embed session, so the rail has the app's tools, AGENTS.md, skills, app-scoped resources, and dev-mode surface instead of Dispatch's. When the proxy cannot be established the rail shows a retryable error rather than silently answering from Dispatch's agent, and workspace-level chat with no app open is unchanged.
-
-### Patch Changes
-
-- d3702a5: Allow workspace members to update mounted app names and descriptions from Dispatch.
-- d3702a5: Report the embedded workspace app to the Dispatch agent as structured context. `/apps/<id>` now resolves to a `workspace-app` navigation view that keeps the app id and in-app path instead of collapsing to the apps list, and `view-screen` emits an `embeddedApp` block for both that route and chat-first mode, where the route stays on `/chat` and the open app is named only by `chat-first-pane` state. An app that is open but cannot be identified reports `status: "unknown"` rather than a default or an omitted field.
-- d3702a5: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -11,6 +11,13 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
+const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../automations/access.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../automations/access.js")>();
+  return { ...actual, resolveAutomationAccess: resolveAutomationAccessMock };
+});
 
 vi.mock("../resources/store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../resources/store.js")>();
@@ -55,6 +62,7 @@ describe("automations route helpers", () => {
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     getOrgContextMock.mockResolvedValue({ orgId: "org-1" });
     dbExecuteMock.mockResolvedValue({ rows: [] });
+    resolveAutomationAccessMock.mockResolvedValue(null);
   });
 
   it("lists personal and shared jobs with run status fields", async () => {
@@ -263,6 +271,99 @@ Organization body.`,
       "jobs/organization.md",
     );
     expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("lists manual automations without automatic trigger fields", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "manual",
+        owner,
+        path: "jobs/on-demand.md",
+        content: `---
+schedule: "0 9 * * *"
+timezone: UTC
+enabled: true
+triggerType: manual
+event: stale.event
+condition: stale condition
+nextRun: 2030-01-01T09:00:00.000Z
+mode: agentic
+createdBy: ${owner}
+---
+
+Run on demand.`,
+      },
+    ]);
+
+    const [automation] = await listAutomationsForOwner(event, owner);
+
+    expect(automation).toMatchObject({
+      triggerType: "manual",
+      enabled: true,
+    });
+    expect(automation).not.toHaveProperty("event");
+    expect(automation).not.toHaveProperty("schedule");
+    expect(automation).not.toHaveProperty("timezone");
+    expect(automation).not.toHaveProperty("scheduleDescription");
+    expect(automation).not.toHaveProperty("condition");
+    expect(automation).not.toHaveProperty("nextRun");
+  });
+
+  it("lists and updates automations for the active organization only", async () => {
+    const organizationOwner = "__organization__:org-1";
+    const organizationResource = {
+      id: "organization",
+      owner: organizationOwner,
+      path: "jobs/organization.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: bob@example.com
+orgId: "org-1"
+appId: mail
+runAs: creator
+---
+
+Organization body.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValue([
+      organizationResource,
+      {
+        id: "other-organization",
+        owner: "__organization__:org-2",
+        path: "jobs/other.md",
+        content: "hidden",
+      },
+    ]);
+    dbExecuteMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+
+    const result = await listAutomationsForOwner(event, owner);
+
+    expect(result.map((item) => item.name)).toEqual(["organization"]);
+    expect(result[0]).toMatchObject({
+      owner: organizationOwner,
+      canUpdate: true,
+      triggerType: "event",
+    });
+
+    resourceGetByPathMock.mockResolvedValue(organizationResource);
+    await setAutomationEnabledForOwner(event, owner, {
+      owner: organizationOwner,
+      path: "jobs/organization.md",
+      enabled: false,
+    });
+    expect(resourceGetByPathMock).toHaveBeenCalledWith(
+      organizationOwner,
+      "jobs/organization.md",
+    );
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      organizationOwner,
+      "jobs/organization.md",
+      expect.stringContaining("enabled: false"),
+    );
   });
 
   it("toggles a personal automation and refreshes event subscriptions", async () => {

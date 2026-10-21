@@ -762,6 +762,8 @@ export interface AgentChatRuntimeTurn<
   readonly runId?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
   readonly events: AsyncIterable<TEvent>;
+  /** Close the local event stream without cancelling the underlying run. */
+  closeEvents?(): Promise<void> | void;
   cancel?(
     input?: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -1535,14 +1537,19 @@ export function createHttpAgentChatRuntime<
           cleanup();
         }
       })();
+      const closeEvents = () => {
+        controller.abort();
+        cleanup();
+      };
 
       return {
         id: turnId,
         sessionId,
         runId,
         events,
+        closeEvents,
         cancel: async (cancelInput) => {
-          controller.abort();
+          closeEvents();
           if (!options.cancelEndpoint) return { status: "cancelled" };
           const endpoint =
             typeof options.cancelEndpoint === "function"
@@ -5279,12 +5286,22 @@ export function createAgentNativeChatRuntime(
       );
     }
     const pendingConnectionRequestId = value?.pendingConnectionRequestId;
+    const startMessageId = value?.startMessageId;
     if (
       input.includePendingConnectionRequest &&
       (!value || !Object.hasOwn(value, "pendingConnectionRequestId"))
     ) {
       throw unreadable(
         "Agent chat run state is unreadable (pending connection request was not returned).",
+        response.status,
+      );
+    }
+    if (
+      startMessageId !== undefined &&
+      (typeof startMessageId !== "string" || !startMessageId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (start message ID is invalid).",
         response.status,
       );
     }
@@ -5305,6 +5322,7 @@ export function createAgentNativeChatRuntime(
       ...(typeof value?.turnId === "string" && value.turnId
         ? { turnId: value.turnId }
         : {}),
+      ...(typeof startMessageId === "string" ? { startMessageId } : {}),
       ...(typeof value?.startedAt === "number" &&
       Number.isFinite(value.startedAt)
         ? { startedAt: value.startedAt }

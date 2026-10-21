@@ -71,6 +71,7 @@ export function renderPromptPopovers({
     clearGenerationCompleteTimer,
     generationModelRef,
     setHasPendingGeneration,
+    generationOutputBaselineRef,
     agentSubmit,
     setGenerationChatTabId,
     generating,
@@ -134,6 +135,10 @@ export function renderPromptPopovers({
             return;
           }
           if (!canEditDesign) return;
+          const outputBaselineFiles = generationOutputBaselineRef.current;
+          if (outputBaselineFiles === undefined) {
+            throw new Error(t("promptDialog.failedToSubmitPrompt"));
+          }
           if (!creativeContextLab.isSuccess) {
             const issue = t("designEditor.generationStoppedRetry");
             setGenerationIssue(issue);
@@ -230,6 +235,7 @@ export function renderPromptPopovers({
             ...options,
             attempt: 1,
             startedAt,
+            outputBaselineFiles,
           });
           setHasPendingGeneration(true);
           const runTabId = agentSubmit(prompt, context, {
@@ -247,6 +253,7 @@ export function renderPromptPopovers({
             runTabId,
             attempt: 1,
             startedAt,
+            outputBaselineFiles,
           });
           handlePromptOpenChange(false);
         }}
@@ -254,6 +261,7 @@ export function renderPromptPopovers({
           generating ||
           (designSystemsLoading && promptDesignSystemId === undefined)
         }
+        submissionDisabled={generationOutputBaselineRef.current === undefined}
         anchorRef={promptAnchorRef}
         designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}

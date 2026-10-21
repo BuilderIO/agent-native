@@ -196,6 +196,7 @@ test("native style states persist with the Motion inspector and timeline", async
   expect(appliedResponse.ok(), await appliedResponse.text()).toBe(true);
   expect(await appliedResponse.json()).toMatchObject({ persisted: true });
 
+  await page.getByRole("tab", { name: "List", exact: true }).click();
   const nativeStyleInspector = page.locator(
     '[data-design-inspector-section][aria-label="Animations"]',
   );
@@ -387,6 +388,7 @@ test("native style states persist with the Motion inspector and timeline", async
       }),
     ]),
   );
+  await page.getByRole("tab", { name: "List", exact: true }).click();
   const textStyleDetails = page.locator(
     '[aria-label="Animations"] li > button[aria-pressed="true"]',
   );
@@ -398,25 +400,24 @@ test("native style states persist with the Motion inspector and timeline", async
   await expect(
     page.getByRole("combobox", { name: "Each", exact: true }),
   ).toHaveText("Character");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Order" })).toHaveText(
     "Left to right",
   );
-  await expect(page.getByRole("spinbutton", { name: "Overlap" })).toHaveValue(
-    "50",
-  );
-  const overlap = page.getByRole("spinbutton", { name: "Overlap" });
-  const decimalOverlapSave = page.waitForResponse(
+  const overlap = page.getByRole("slider", { name: "Overlap" });
+  await expect(overlap).toHaveAttribute("aria-valuenow", "50");
+  const steppedOverlapSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
       response.request().method() === "POST",
     { timeout: 20_000 },
   );
-  await overlap.fill("50.5");
-  const decimalOverlapResponse = await decimalOverlapSave;
-  expect(decimalOverlapResponse.ok(), await decimalOverlapResponse.text()).toBe(
+  await overlap.press("ArrowUp");
+  const steppedOverlapResponse = await steppedOverlapSave;
+  expect(steppedOverlapResponse.ok(), await steppedOverlapResponse.text()).toBe(
     true,
   );
-  await expect(overlap).toHaveValue("50.5");
+  await expect(overlap).toHaveAttribute("aria-valuenow", "51");
   await expect
     .poll(() =>
       getAction(request, "get-motion-timeline", {
@@ -430,26 +431,12 @@ test("native style states persist with the Motion inspector and timeline", async
           nativeStyles: expect.arrayContaining([
             expect.objectContaining({
               styleKey: "TextStagger",
-              props: expect.objectContaining({ presetStaggerOverlap: 50.5 }),
+              props: expect.objectContaining({ presetStaggerOverlap: 51 }),
             }),
           ]),
         },
       ],
     });
-  await captureMotionState(page, "motion-text-stagger-overlap-decimal");
-
-  const steppedOverlapSave = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  await overlap.press("ArrowUp");
-  const steppedOverlapResponse = await steppedOverlapSave;
-  expect(steppedOverlapResponse.ok(), await steppedOverlapResponse.text()).toBe(
-    true,
-  );
-  await expect(overlap).toHaveValue("51.5");
   await captureMotionState(page, "motion-text-stagger-overlap-keyboard-step");
 
   const restoredOverlapSave = page.waitForResponse(
@@ -458,13 +445,13 @@ test("native style states persist with the Motion inspector and timeline", async
       response.request().method() === "POST",
     { timeout: 20_000 },
   );
-  await overlap.fill("50");
+  await overlap.press("ArrowDown");
   const restoredOverlapResponse = await restoredOverlapSave;
   expect(
     restoredOverlapResponse.ok(),
     await restoredOverlapResponse.text(),
   ).toBe(true);
-  await expect(overlap).toHaveValue("50");
+  await expect(overlap).toHaveAttribute("aria-valuenow", "50");
   await expect(
     page.getByRole("checkbox", { name: "Ignore spaces" }),
   ).not.toBeChecked();
@@ -772,7 +759,9 @@ test("native style states persist with the Motion inspector and timeline", async
     clearPreviousSelection: true,
   });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+  await page.getByRole("tab", { name: "List", exact: true }).click();
   await page.locator('[aria-label="Animations"] li > button').first().click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   const legacyIgnoreSpaces = page.getByRole("checkbox", {
     name: "Ignore spaces",
   });
