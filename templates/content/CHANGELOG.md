@@ -30,6 +30,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Connected AI assistants can make a collection from a GitHub folder, or link an empty one: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
+- Make a collection from a GitHub folder in the sidebar's New menu, or fill an empty one from its Sources settings, which say up front when GitHub can't link and what to do instead. A short preview comes before linking, the collection shows where its pages come from and when they last updated, and unlinking asks first
 - Connected AI assistants can link a new collection to a GitHub folder: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
 
 ### Improved

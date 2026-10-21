@@ -5667,8 +5667,8 @@ importers:
   templates/community/qr:
     dependencies:
       '@agent-native/core':
-        specifier: ^0.212.0
-        version: 0.212.0(425ad63e441766c7cc702a9e78bce500)
+        specifier: ^0.213.1
+        version: link:../../../packages/core
       postgres:
         specifier: ^3.4.9
         version: 3.4.9

@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.40.33
+
+### Patch Changes
+
+- e9efe95: Keep the curated QR catalog pinned to the current template files.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.213.1
+
 ## 0.40.32
 
 ### Patch Changes
@@ -1300,11 +1309,5 @@
 ### Patch Changes
 
 - 8cab236: Speed up workspace app opens in Dispatch by reusing the app catalog cache and deferring granted-app discovery until needed.
-
-## 0.29.2
-
-### Patch Changes
-
-- 66b2a1c: Navigate workspace apps in the top window when Dispatch runs in Builder or an iframe.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
