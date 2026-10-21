@@ -1624,18 +1624,20 @@ function publicActionSummaryMatchesAction(
     .filter(
       (word) => !["this", "that", "it", "something", "anything"].includes(word),
     );
+  const meaningfulSummaryWords = summaryWords.filter(
+    (word) => !publicActionSummaryFillerWords.has(word),
+  );
   const ownerWords = new Set(
     normalizeReplyPhrase(owner ?? "")
       .split(" ")
       .filter(Boolean),
   );
-  const hasActionWord = summaryWords.some(
-    (word) =>
-      !ownerWords.has(word) && !publicActionSummaryFillerWords.has(word),
+  const hasActionWord = meaningfulSummaryWords.some(
+    (word) => !ownerWords.has(word),
   );
   return (
     (!isPublicSummary || summaryWordCount <= 12) &&
-    (!isPublicSummary || summaryWords.length >= 2) &&
+    (!isPublicSummary || meaningfulSummaryWords.length >= 2) &&
     hasActionWord &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
@@ -2515,7 +2517,7 @@ function validateStatusReactionLanguage(
       .split(" ")
       .filter(Boolean).length;
     const openStateSummary = summary.replace(
-      /\b(?:no longer|not|no|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b(?:\s*(?:,|and|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b)*/gi,
+      /\b(?:no longer|not|no|never|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b(?:\s*(?:,|and|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b)*/gi,
       " ",
     );
     if (
@@ -8965,6 +8967,13 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test accepted a one-word public action summary.",
     );
   }
+  if (
+    publicActionSummaryMatchesAction("the route to production", "the route")
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test accepted filler words toward the public action summary minimum.",
+    );
+  }
   const assignedPrHandoff: Handoff = {
     scope: "Interact scrolling",
     owner: "Enzo",
@@ -11453,6 +11462,31 @@ if (args[0] === "--self-test" && args.length === 1) {
       }),
     },
     {
+      name: "never needs wording is rejected as unfinished work",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "CSV export",
+            evidence: "CSV export needs review",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; CSV export needs review",
+          unfinishedScopeSummary: "CSV export never needs review",
+          text: "Partially fixed: The start screen works now. CSV export never needs review. :white_check_mark: covers the initial route screen. Open scope: CSV export — CSV export needs review. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
       name: "unfinished scope summary cannot say work remains fixed",
       inventory: withSweepOwnedParent({
         disposition: "Partially fixed",
@@ -13478,6 +13512,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "negated open-state wording is rejected":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "coordinated negated open-state wording is rejected":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "never needs wording is rejected as unfinished work":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "unfinished scope summary cannot say work remains fixed":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
