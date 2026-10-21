@@ -6,7 +6,7 @@ import {
 import { readOrgMemberRole } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { parseAgentEndpointUrl } from "../lib/agent-endpoint-url.js";
+import { normalizeConnectUrl } from "../lib/connect-apps.js";
 import {
   currentOrgId,
   currentOwnerEmail,
@@ -24,11 +24,15 @@ function slugify(value: string): string {
 
 async function assertCanManageSharedAgent() {
   const orgId = currentOrgId();
-  if (!orgId) return;
+  if (!orgId) {
+    fail("An active organization is required to connect an agent.", {
+      statusCode: 403,
+    });
+  }
   const actor = currentOwnerEmail().trim().toLowerCase();
   const role = await readOrgMemberRole(orgId, actor);
   if (role !== "owner" && role !== "admin") {
-    fail("Only organization owners and admins can connect shared agents.", {
+    fail("Only organization owners and admins can connect agents.", {
       statusCode: 403,
     });
   }
@@ -36,9 +40,9 @@ async function assertCanManageSharedAgent() {
 
 export default defineAction({
   description:
-    "Connect an existing HTTP/A2A agent to Dispatch. This stores only its public endpoint and metadata; authentication remains in the normal A2A/MCP connection flow.",
+    "Connect an existing HTTPS/A2A agent to Dispatch. This stores only its public endpoint and metadata; authentication remains in the normal A2A/MCP connection flow.",
   schema: z.object({
-    url: z.string().min(1).describe("HTTP or HTTPS agent endpoint"),
+    url: z.string().min(1).describe("HTTPS agent endpoint"),
     name: z.string().max(160).optional().describe("Agent name"),
     description: z.string().max(500).optional().describe("Short description"),
     scope: z
@@ -47,12 +51,9 @@ export default defineAction({
       .describe("Share with the workspace or keep the connection personal"),
   }),
   run: async ({ url, name, description, scope }) => {
-    let parsed: URL;
-    try {
-      parsed = parseAgentEndpointUrl(url);
-    } catch (err) {
-      fail(err instanceof Error ? err.message : "Enter a valid URL.");
-    }
+    const parsed = normalizeConnectUrl(url);
+    if (!parsed)
+      fail("Use an HTTPS URL without credentials or private addresses.");
 
     if (scope === "shared") await assertCanManageSharedAgent();
     const agentName = name?.trim() || parsed.hostname.replace(/^www\./, "");

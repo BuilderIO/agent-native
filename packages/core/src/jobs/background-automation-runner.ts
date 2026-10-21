@@ -174,6 +174,13 @@ export interface BackgroundAutomationDeps {
     automation?: BackgroundAutomationContext,
   ) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  getWorkspaceAppContext?: (input: {
+    request: string;
+    ownerEmail: string;
+    orgId?: string;
+    appId?: string;
+    workspaceAppsEnabled: boolean;
+  }) => Promise<string>;
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
@@ -1439,7 +1446,19 @@ async function executeBackgroundAutomation(
         deps,
       );
       assertHardDeadline(options.hardDeadlineAt);
-      const systemPrompt = `${await deps.getSystemPrompt(ownerEmail)}\n\n${messages.noOpInstruction}`;
+      const [baseSystemPrompt, workspaceAppContext] = await Promise.all([
+        deps.getSystemPrompt(ownerEmail),
+        baseActions["call-agent"] && deps.getWorkspaceAppContext
+          ? deps.getWorkspaceAppContext({
+              request: prompt,
+              ownerEmail,
+              orgId,
+              appId: deps.appId,
+              workspaceAppsEnabled: true,
+            })
+          : Promise.resolve(""),
+      ]);
+      const systemPrompt = `${baseSystemPrompt}${workspaceAppContext ? `\n\n${workspaceAppContext}` : ""}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
       const resume = options.resume;
       const thread = resume

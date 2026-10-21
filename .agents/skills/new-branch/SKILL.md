@@ -35,8 +35,10 @@ moving a branch used by another worktree or platform, or destructive branch
 operations.
 
 When the user explicitly authorizes a branch, worktree, or sync operation for
-the active task, follow the persistent-authorization rule in `AGENTS.md`. Ask
-only if the next operation is materially broader than what the user authorized.
+the active task, that authorization persists through resumed turns,
+heartbeats, and context compaction until its scope is complete or revoked.
+Follow `AGENTS.md` and do not ask again for a covered operation. Ask only if
+the next operation is materially broader than what the user authorized.
 
 If the current branch is already suitable, keep using it. When a detached
 task-owned worktree needs a branch to ship, create one without pausing for

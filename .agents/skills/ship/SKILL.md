@@ -25,9 +25,11 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
 - A ship request authorizes publishing a new PR. Pushing to someone else's PR
   needs explicit authorization for that exact PR within the active task; a
-  linked PR or general ship request alone does not count. It permits a normal
-  fast-forward push, not a merge. Merge with separate authorization for that
-  exact PR; otherwise use
+  linked PR or general ship request alone does not count. That authorization
+  persists across turns, heartbeats, and context compaction until the named
+  scope is complete or revoked; do not ask again for an authorized step. It
+  permits a normal fast-forward push. Merge that PR only if the user also
+  authorized the exact merge; otherwise use
   `ship_mode=ready-only` and leave the PR open. Before every push, resolve the
   active GitHub login with `gh api user --jq .login`, include `author` in the
   live PR query, and compare `author.login` with that login. Verify the head
@@ -255,9 +257,15 @@ else
 fi
 ```
 
-The behind count is information, not a reason to update the branch. Merge
-freshly fetched `origin/main` only when GitHub reports the PR `CONFLICTING`.
-Pending checks, a behind count, or a timer never justify a main update.
+The behind count alone is information, not a reason to update the branch.
+During an explicitly user-authorized `/ship` for this same PR, merging freshly
+fetched `origin/main` is in scope without another approval when GitHub reports
+`CONFLICTING` or a failing required check is traced to a fix already on
+`origin/main`. Before syncing, verify the live PR target and head, confirm the
+local HEAD exactly matches that head, and require a clean task-owned worktree.
+Use a normal merge, never a rebase; resolve and verify the fix, push normally,
+and restart the soak. A behind count, pending check, or timer alone never
+justifies a main update.
 
 If `git branch --show-current` is empty, inspect `git worktree list
 --porcelain` and existing `changes-*` refs. In a dedicated task-owned worktree,
@@ -349,15 +357,17 @@ scan, the worktree is clean, and no commits are unpushed. Then leave the PR
 open and return to the parent `/ship` goal without merging or rotating. This is
 the no-merge endpoint, not the standalone 30-minute quiet stop.
 
-If a live PR is CONFLICTING, let babysit-pr recover it only after:
+If a live PR is `CONFLICTING`, or an authorized ship needs a confirmed fix
+already on `origin/main`, let babysit-pr recover it only after:
 
 - the local tree and publishable-path unpublished-commit check are clean;
 - the local HEAD exactly matches the live PR headRefOid;
 - origin/main was freshly fetched.
 
-Merge freshly fetched `origin/main` only to resolve the confirmed conflict.
-Resolve and test it, push, and restart the soak. Never update from main merely
-because the PR is behind, checks are pending, or mergeability is UNKNOWN.
+Merge freshly fetched `origin/main` to resolve the confirmed conflict or bring
+in the confirmed required-check fix. Resolve and test it, push, and restart the
+soak. Never update from main merely because the PR is behind, checks are
+pending, or mergeability is UNKNOWN.
 
 ### Feedback handoff
 

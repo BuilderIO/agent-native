@@ -174,6 +174,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
           },
         ],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] });
 
     await expect(
@@ -182,6 +183,35 @@ describe("isWorkspaceAppAccessAllowed", () => {
         orgId: "org-1",
       }),
     ).resolves.toBe(true);
+  });
+
+  it("fails closed when an organization member role cannot be read", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "owner@example.com",
+            org_id: "org-1",
+            visibility: "org",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
+      .mockRejectedValueOnce(new Error("org member role query unavailable"));
+
+    try {
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", {
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      ).resolves.toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("allows a non-owner member to access a migrated ownerless legacy app", async () => {
@@ -195,6 +225,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
           },
         ],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] });
 
     await expect(
@@ -210,6 +241,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       .mockResolvedValueOnce({
         rows: [{ owner_email: "", org_id: null, visibility: "org" }],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
       .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
       .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
 
@@ -230,6 +262,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       .mockResolvedValueOnce({
         rows: [{ owner_email: "", org_id: null, visibility: "org" }],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] });
 
     await expect(
@@ -245,6 +278,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       .mockResolvedValueOnce({
         rows: [{ owner_email: "", org_id: null, visibility: "org" }],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
       .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
@@ -262,6 +296,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       .mockResolvedValueOnce({
         rows: [{ owner_email: "", org_id: null, visibility: "org" }],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
       .mockResolvedValueOnce({ rows: [{ role: "admin" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
@@ -285,6 +320,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
           },
         ],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -315,6 +351,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
           },
         ],
       })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ 1: 1 }] });
@@ -363,6 +400,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
         ],
       })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
@@ -377,7 +415,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
   });
 
   it("denies access when the local ACL record is missing", async () => {
-    mocks.execute.mockResolvedValueOnce({ rows: [] });
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
     await expect(
       isWorkspaceAppAccessAllowed("unregistered", {
@@ -403,6 +443,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     mocks.execute
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
 
@@ -413,7 +454,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(true);
     expect(mocks.execute).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.objectContaining({
         sql: expect.stringContaining("INSERT INTO workspace_apps"),
         args: [
@@ -442,6 +483,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     resetAppConfigForTests();
     mocks.execute
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] });
 
     await expect(
@@ -450,7 +492,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
         orgId: "org-1",
       }),
     ).resolves.toBe(false);
-    expect(mocks.execute).toHaveBeenCalledTimes(2);
+    expect(mocks.execute).toHaveBeenCalledTimes(3);
   });
 
   it("does not register an app missing from the workspace manifest", async () => {
@@ -467,6 +509,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     resetAppConfigForTests();
     mocks.execute
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
       .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });

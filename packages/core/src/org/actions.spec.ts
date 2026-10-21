@@ -62,8 +62,13 @@ describe("requireOrgMember", () => {
     execute.mockResolvedValue({ rows: [{ role: "owner" }] });
 
     await expect(
-      runWithRequestContext({ a2aIdentityAssurance: "org-member" }, () =>
-        requireOrgMember(member),
+      runWithRequestContext(
+        {
+          userEmail: member.userEmail,
+          orgId: member.orgId,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => requireOrgMember(member),
       ),
     ).resolves.toEqual({
       email: member.userEmail,
@@ -76,8 +81,13 @@ describe("requireOrgMember", () => {
     execute.mockResolvedValue({ rows: [{ role: "owner" }] });
 
     await expect(
-      runWithRequestContext({ a2aIdentityAssurance: "org-member" }, () =>
-        requireOrgMember(member, true),
+      runWithRequestContext(
+        {
+          userEmail: member.userEmail,
+          orgId: member.orgId,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => requireOrgMember(member, true),
       ),
     ).rejects.toMatchObject({
       statusCode: 403,

@@ -61,7 +61,8 @@ Use `/sidecar <task>` for read-only investigations.
 - When shipping from a worktree, commit, push, and open or update the PR there;
   leave the shared checkout untouched.
 - Never push to another's PR without exact-PR authorization; merge authorization
-  is separate. See `ship`/`babysit-pr` for author/head checks.
+  is separate unless the user explicitly authorized that exact merge. See
+  `ship`/`babysit-pr` for author/head checks.
 - On your own PRs, replies to every review thread you fix or disposition are
   always authorized and expected; add a concise top-level recap for review-body-only
   feedback. On others' PRs, comment only with explicit authorization for that
@@ -77,6 +78,14 @@ Use `/sidecar <task>` for read-only investigations.
   decision only the user can make, or a destructive action. `reporting-progress`
   is the authority on what to post while long work runs and on the one legal
   shape of a mid-task stop.
+- Explicit authorization is task-scoped, not turn-scoped. A user's approval for
+  a specific PR, branch, or operation remains valid across resumed turns,
+  heartbeats, and context compaction until that scope is completed, canceled, or
+  revoked. Record the target and authorized steps in the active goal or task
+  transcript; verify live ownership, repository, ref, and head before writing,
+  then continue without asking for the same approval again. Ask only when the
+  next action materially exceeds that recorded scope or a user-reserved boundary
+  applies, such as production promotion.
 - Use sub-agents liberally for complex independent work when Agent Teams are
   available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current

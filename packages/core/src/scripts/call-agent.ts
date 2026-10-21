@@ -287,12 +287,13 @@ class A2AInvocationError extends Error {
  */
 function unresolvableAgentTargetError(
   requestedAgent: string,
-  available: Array<{ id: string; name: string }>,
+  available: Array<{ id: string; name: string; aliases?: string[] }>,
   callerApp: string | undefined,
   correlation: A2ACorrelationMetadata,
   mode: A2AInvocationMode,
 ): A2AInvocationError {
   const connected = available.map((a) => a.id).join(", ");
+  const suggestions = suggestAgentTargets(requestedAgent, available);
   console.error(
     `[call-agent] Unresolvable delegation target "${requestedAgent}" from ${
       callerApp || "unknown"
@@ -311,10 +312,72 @@ function unresolvableAgentTargetError(
   return new A2AInvocationError(
     `No connected agent matches "${requestedAgent}". This is a target-resolution failure, ` +
       "not an outage: do not describe the app as unavailable, down, or temporarily broken. " +
-      `Connected agents: ${connected || "(none)"}. ` +
-      `Retry with one of those exact ids, or tell the user that "${requestedAgent}" is not connected to this workspace.`,
+      (suggestions.length > 0
+        ? `Possible matches: ${suggestions.join(", ")}. Retry with one of those exact ids, or tell the user that "${requestedAgent}" is not connected to this workspace.`
+        : `No close matches were found. Tell the user that "${requestedAgent}" is not connected to this workspace.`),
     { errorCode: "agent_not_found" },
   );
+}
+
+function normalizeAgentSuggestion(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function agentNameDistance(left: string, right: string): number {
+  const previous = Array.from(
+    { length: right.length + 1 },
+    (_, index) => index,
+  );
+  for (let i = 1; i <= left.length; i++) {
+    let diagonal = previous[0]!;
+    previous[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const above = previous[j]!;
+      previous[j] = Math.min(
+        previous[j]! + 1,
+        previous[j - 1]! + 1,
+        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length]!;
+}
+
+function suggestAgentTargets(
+  requestedAgent: string,
+  available: Array<{ id: string; name: string; aliases?: string[] }>,
+): string[] {
+  const requested = normalizeAgentSuggestion(requestedAgent);
+  if (!requested) return [];
+  return available
+    .map((agent) => {
+      const labels = [agent.id, agent.name, ...(agent.aliases ?? [])]
+        .map(normalizeAgentSuggestion)
+        .filter(Boolean);
+      const distance = Math.min(
+        ...labels.map((label) =>
+          label.includes(requested) || requested.includes(label)
+            ? 0
+            : agentNameDistance(requested, label),
+        ),
+      );
+      return { id: agent.id, distance };
+    })
+    .filter(
+      ({ distance }) =>
+        distance <= Math.max(2, Math.floor(requested.length / 3)),
+    )
+    .sort(
+      (left, right) =>
+        left.distance - right.distance || left.id.localeCompare(right.id),
+    )
+    .slice(0, 3)
+    .map(({ id }) => id);
 }
 
 function buildMessageIdempotencyKey(
@@ -718,7 +781,7 @@ export const tool: ActionTool = {
       agent: {
         type: "string",
         description:
-          "Name or URL of a DIFFERENT deployed agent app (e.g. 'mail', 'calendar', 'analytics'). Must not be the current app's own name.",
+          "Exact id or name of a DIFFERENT connected agent app (e.g. 'mail', 'calendar', 'analytics'); URLs are not supported. Must not be the current app's own name.",
       },
       message: {
         type: "string",
