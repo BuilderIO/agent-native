@@ -90,7 +90,7 @@ import {
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
-import { trashDocumentSubtree } from "./delete-document.js";
+import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
 
 type Db = ReturnType<typeof getDb>;
 type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
@@ -1542,23 +1542,33 @@ async function recordStillLinked(tx: Db, row: SourceRow) {
  */
 async function trashRow(run: SyncRun, row: SourceRow): Promise<boolean> {
   return run.db.transaction(async (tx: Db) => {
+    const [owner] = await tx
+      .select({ ownerEmail: schema.documents.ownerEmail })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, row.documentId));
+    // The page's other collections may sort before this one, so the whole
+    // group is locked in order before the link check takes this collection.
+    const locks = owner
+      ? await lockLifecycleGroup(tx, {
+          operation: "trash",
+          roots: [{ id: row.documentId, ownerEmail: owner.ownerEmail }],
+          alsoLockDatabaseIds: [run.database.id],
+        })
+      : undefined;
     await lockLinkedCollection(tx, run);
     if (!(await recordStillLinked(tx, row))) return false;
     const [document] = await tx
-      .select({
-        ownerEmail: schema.documents.ownerEmail,
-        trashedAt: schema.documents.trashedAt,
-      })
+      .select({ trashedAt: schema.documents.trashedAt })
       .from(schema.documents)
       .where(eq(schema.documents.id, row.documentId));
     let moved = false;
-    if (document && !document.trashedAt) {
+    if (owner && locks && document && !document.trashedAt) {
       await trashDocumentSubtree(
         tx,
         row.documentId,
-        document.ownerEmail,
+        owner.ownerEmail,
         run.now,
-        undefined,
+        locks,
         "github",
       );
       moved = true;
