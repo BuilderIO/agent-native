@@ -6,7 +6,7 @@ import {
   listFileUploadProviders,
   registerFileUploadProvider,
 } from "./registry.js";
-import { rfc3986, signS3Request } from "./s3-client.js";
+import { cancelS3ResponseBody, rfc3986, signedS3Request } from "./s3-client.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -125,6 +125,9 @@ async function readRequestConfig(): Promise<S3Config | null> {
   return scopedConfig ?? readEnvConfig();
 }
 
+const PUT_TIMEOUT_MS = 120_000;
+const DELETE_TIMEOUT_MS = 30_000;
+
 function encodeKey(key: string): string {
   return key.split("/").map(rfc3986).join("/");
 }
@@ -135,18 +138,11 @@ async function putObject(
   data: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const { url, headers } = await signS3Request(config, key, {
+  const response = await signedS3Request(config, key, {
     method: "PUT",
     body: data,
     contentType,
-  });
-  const response = await fetch(url, {
-    method: "PUT",
-    headers: { ...headers, "Content-Length": String(data.byteLength) },
-    body: data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    ) as BodyInit,
+    timeoutMs: PUT_TIMEOUT_MS,
   });
   if (!response.ok) {
     const detail = await response.text();
@@ -154,16 +150,19 @@ async function putObject(
       `S3 PutObject failed (${response.status}): ${detail || response.statusText}`,
     );
   }
+  await cancelS3ResponseBody(response);
   return `${config.publicBaseUrl}/${encodeKey(key)}`;
 }
 
 async function deleteObject(config: S3Config, key: string): Promise<boolean> {
-  const { url, headers } = await signS3Request(config, key, {
+  const response = await signedS3Request(config, key, {
     method: "DELETE",
+    timeoutMs: DELETE_TIMEOUT_MS,
   });
-  const response = await fetch(url, { method: "DELETE", headers });
-  if (response.ok) return true;
-  if (response.status === 404) return true;
+  if (response.ok || response.status === 404) {
+    await cancelS3ResponseBody(response);
+    return true;
+  }
   const detail = await response.text();
   throw new Error(
     `S3 DeleteObject failed (${response.status}): ${detail || response.statusText}`,

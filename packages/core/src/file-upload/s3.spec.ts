@@ -2,10 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const prefetchSecretsMock = vi.hoisted(() => vi.fn());
+const isBlockedUrlMock = vi.hoisted(() => vi.fn());
+const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
   prefetchSecrets: (...args: unknown[]) => prefetchSecretsMock(...args),
+  readDeployCredentialEnv: (key: string) => process.env[key] || undefined,
   resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
+}));
+
+vi.mock("../extensions/url-safety.js", () => ({
+  isBlockedExtensionUrlWithDns: isBlockedUrlMock,
+  ssrfSafeFetch: ssrfSafeFetchMock,
 }));
 
 import {
@@ -41,10 +49,17 @@ describe("s3FileUploadProvider", () => {
     resolveSecretMock.mockResolvedValue(null);
     prefetchSecretsMock.mockReset();
     prefetchSecretsMock.mockResolvedValue(undefined);
+    isBlockedUrlMock.mockReset();
+    isBlockedUrlMock.mockResolvedValue(false);
+    ssrfSafeFetchMock.mockReset();
+    ssrfSafeFetchMock.mockImplementation((url: string, init: RequestInit) =>
+      fetch(url, init),
+    );
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    vi.unstubAllGlobals();
   });
 
   it("batches every storage key into one prefetch before resolving them", async () => {
@@ -193,6 +208,94 @@ describe("s3FileUploadProvider", () => {
       }),
     ).resolves.toMatchObject({ provider: "s3" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("s3FileUploadProvider endpoint safety", () => {
+  const originalEnv = { ...process.env };
+  const bucket = {
+    S3_BUCKET: "uploads-example",
+    S3_ACCESS_KEY_ID: "access-example",
+    S3_SECRET_ACCESS_KEY: "secret-example",
+    S3_REGION: "us-east-1",
+    S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+  };
+  const upload = () =>
+    s3FileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "a.png",
+      mimeType: "image/png",
+    });
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    for (const prefix of ["S3", "R2"]) {
+      for (const field of [
+        "ENDPOINT",
+        "BUCKET",
+        "ACCESS_KEY_ID",
+        "SECRET_ACCESS_KEY",
+        "REGION",
+        "PUBLIC_BASE_URL",
+      ]) {
+        delete process.env[`${prefix}_${field}`];
+      }
+    }
+    resolveSecretMock.mockReset();
+    resolveSecretMock.mockResolvedValue(null);
+    prefetchSecretsMock.mockReset();
+    prefetchSecretsMock.mockResolvedValue(undefined);
+    isBlockedUrlMock.mockReset();
+    isBlockedUrlMock.mockResolvedValue(true);
+    ssrfSafeFetchMock.mockReset();
+    ssrfSafeFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => "",
+    });
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("refuses a private-network endpoint saved in workspace settings", async () => {
+    const secrets: Record<string, string> = {
+      ...bucket,
+      S3_ENDPOINT: "http://10.0.0.5:9000",
+    };
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secrets[key] ?? null,
+    );
+
+    await expect(upload()).rejects.toThrow(/SSRF blocked/);
+    await expect(
+      s3FileUploadProvider.delete!({
+        url: "https://cdn.example.com/assets/uploads/a.png",
+        id: "uploads/a.png",
+      }),
+    ).rejects.toThrow(/SSRF blocked/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows the deployment's own private-network endpoint", async () => {
+    Object.assign(process.env, {
+      ...bucket,
+      S3_ENDPOINT: "http://minio.internal:9000",
+    });
+
+    await expect(upload()).resolves.toMatchObject({ provider: "s3" });
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^http:\/\/minio\.internal:9000\/uploads-example\//,
+      ),
+      expect.objectContaining({ method: "PUT" }),
+      expect.objectContaining({
+        followRedirects: false,
+        allowedPrivateOrigins: ["http://minio.internal:9000"],
+      }),
+    );
   });
 });
 
