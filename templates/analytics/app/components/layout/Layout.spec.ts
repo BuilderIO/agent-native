@@ -64,9 +64,11 @@ vi.mock("@agent-native/toolkit/app/chat/ownership-history", () => ({
           {
             id: "shared",
             title: "Shared chat",
-            ownerLabel: "Owned by owner@example.test",
+            ownerAvatar: "O",
+            ownerLabel: "owner@example.test",
             accessLabel: "Shared directly",
-            hideActions: true,
+            accessBasis: "direct",
+            readOnly: true,
           },
         ],
         previewCount: 5,
@@ -177,7 +179,9 @@ describe("Analytics layout sidebar route policy", () => {
     expect(askSection).toContain("My chats");
     expect(askSection).toContain("Owner chat");
     expect(askSection).toContain("Shared with you");
-    expect(askSection).toContain("Owned by owner@example.test");
+    expect(askSection).toMatch(
+      /class="an-chat-history-row__owner-mark" data-access-basis="direct"[^>]*>O</,
+    );
     expect(askSection).not.toContain('aria-label="sidebar.sectionSettings"');
     expect(markup).toContain('aria-label="sidebar.sectionSettings"');
     queryClient.clear();
