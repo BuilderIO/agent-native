@@ -6214,7 +6214,7 @@ async function runAuthoringFuzzQa(
       };
       const isExpectedCleanupNavigationError = (
         target: Page,
-        message: string,
+        message: string | Error,
         recoveryPageErrorAt = Date.now(),
       ) => {
         return (
@@ -6277,9 +6277,7 @@ async function runAuthoringFuzzQa(
         };
         const onPageError = (error: Error) => {
           const pageErrorAt = Date.now();
-          if (
-            isPotentialCleanupRecoveryPageBrowserSessionError(error.message)
-          ) {
+          if (isPotentialCleanupRecoveryPageBrowserSessionError(error)) {
             const pendingPageError = { at: pageErrorAt };
             pendingRecoveryPageErrors.add(pendingPageError);
             let inspection: Promise<void>;
@@ -6288,11 +6286,7 @@ async function runAuthoringFuzzQa(
             )
               .then(() => {
                 if (
-                  !isExpectedCleanupNavigationError(
-                    target,
-                    error.message,
-                    pageErrorAt,
-                  )
+                  !isExpectedCleanupNavigationError(target, error, pageErrorAt)
                 ) {
                   cleanupErrors.push(
                     redactBrowserSessionSensitiveText(
@@ -6309,9 +6303,7 @@ async function runAuthoringFuzzQa(
             pendingCleanupErrorInspections.add(inspection);
             return;
           }
-          if (
-            isExpectedCleanupNavigationError(target, error.message, pageErrorAt)
-          ) {
+          if (isExpectedCleanupNavigationError(target, error, pageErrorAt)) {
             return;
           }
           cleanupErrors.push(
