@@ -1747,7 +1747,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       isLocalWorkspaceGateway(baseUrl) && !orgSecret && !globalSecret;
     if (!orgSecret && !globalSecret && !allowLocalUnauthenticatedRequest) {
       throw new WorkspaceAppsGatewayAuthorizationError(
-        401,
+        503,
         "workspace_gateway_a2a_secret_missing",
         "Workspace apps gateway cannot authenticate because no A2A secret is configured.",
       );
@@ -1770,7 +1770,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         authHeaders.Authorization = `Bearer ${token}`;
       } catch {
         throw new WorkspaceAppsGatewayAuthorizationError(
-          401,
+          503,
           "workspace_gateway_token_signing_failed",
           "Workspace apps gateway could not sign the authenticated request.",
         );

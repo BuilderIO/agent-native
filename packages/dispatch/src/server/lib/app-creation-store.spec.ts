@@ -64,6 +64,7 @@ const mocks = vi.hoisted(() => {
       orgId ? "example.test" : null,
     ),
     getOrgA2ASecret: vi.fn(async () => null as string | null),
+    signA2AToken: vi.fn(),
     isWorkspaceAppAccessAllowed: vi.fn(
       async (): Promise<boolean | "unavailable"> => true,
     ),
@@ -107,6 +108,18 @@ const mocks = vi.hoisted(() => {
     readConfiguredWorkspaceAppHomePath: vi.fn(async () => undefined),
     writeAppSecret: vi.fn(async () => "secret-id"),
     deleteAppSecret: vi.fn(async () => true),
+  };
+});
+
+vi.mock("@agent-native/core/a2a", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/a2a")>();
+  mocks.signA2AToken.mockImplementation((...args: any[]) =>
+    actual.signA2AToken(...args),
+  );
+  return {
+    ...actual,
+    signA2AToken: (...args: any[]) => mocks.signA2AToken(...args),
   };
 });
 
@@ -528,6 +541,10 @@ describe("listWorkspaceApps", () => {
     vi.stubEnv("A2A_SECRET", "");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
     mocks.getOrgA2ASecret.mockResolvedValueOnce(null);
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
 
     await expect(
       runWithRequestContext(
@@ -535,8 +552,56 @@ describe("listWorkspaceApps", () => {
         () => listWorkspaceApps({ includeAgentCards: false }),
       ),
     ).rejects.toMatchObject({
-      statusCode: 401,
+      statusCode: 503,
       errorCode: "workspace_gateway_a2a_secret_missing",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports organization A2A secret lookup failures before using manifest apps", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "dispatch-deployment-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+    mocks.getOrgA2ASecret.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_org_a2a_secret_unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports token signing failures before using manifest apps", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "dispatch-deployment-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+    mocks.signA2AToken.mockRejectedValueOnce(new Error("signing unavailable"));
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_token_signing_failed",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

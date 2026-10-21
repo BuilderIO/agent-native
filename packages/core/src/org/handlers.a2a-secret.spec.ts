@@ -15,6 +15,7 @@ const mockVerifyA2AToken = vi.fn();
 const mockCanonicalA2AAudience = vi.fn((url: string) =>
   url.replace(/\/+$/, ""),
 );
+const mockInvalidateMemberOrgCaches = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockFetch = vi.fn();
 
@@ -69,6 +70,16 @@ vi.mock("./context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
   createOrganization: vi.fn(),
 }));
+
+vi.mock("./request-org-cache.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./request-org-cache.js")>();
+  return {
+    ...actual,
+    invalidateMemberOrgCaches: (...args: any[]) =>
+      mockInvalidateMemberOrgCaches(...args),
+  };
+});
 
 vi.mock("./free-email-providers.js", () => ({
   isFreeEmailProvider: () => false,
@@ -284,6 +295,7 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
           args: ["distinct-org-secret", "org_1"],
         }),
       );
+      expect(mockInvalidateMemberOrgCaches).toHaveBeenCalledTimes(1);
     });
 
     it("saves any secret when no deployment secret is configured", async () => {
@@ -311,6 +323,7 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
           args: ["distinct-org-secret", "org_1"],
         }),
       );
+      expect(mockInvalidateMemberOrgCaches).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -379,6 +392,7 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
           args: ["distinct-org-secret", "org_1"],
         }),
       );
+      expect(mockInvalidateMemberOrgCaches).toHaveBeenCalledTimes(1);
     });
 
     it("rotates away from a stored secret equal to the deployment secret", async () => {
