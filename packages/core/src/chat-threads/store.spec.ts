@@ -4,6 +4,7 @@ import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
 
 const executeMock = vi.hoisted(() => vi.fn());
 const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
+const lockThreadRunSlotMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({
@@ -18,6 +19,10 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../agent/run-slot-lock.js", () => ({
+  lockThreadRunSlot: lockThreadRunSlotMock,
 }));
 
 // The store's widen-bigint migration reads the catalog; a recorded migration
@@ -143,6 +148,8 @@ describe("chat thread store", () => {
     submissionUpdateRaceOnce = null;
     shareRows = [];
     executeMock.mockReset();
+    lockThreadRunSlotMock.mockReset();
+    lockThreadRunSlotMock.mockResolvedValue(undefined);
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -187,7 +194,9 @@ describe("chat thread store", () => {
       }
       if (/FROM agent_chat_submission_inbox/i.test(sql)) {
         const interruptPoll = /interrupt_active_run = TRUE/i.test(sql);
-        const threadIdIndex = interruptPoll ? 0 : 1;
+        const threadIdIndex = 1;
+        const retryFilter =
+          /\(retry_after IS NULL OR retry_after <= \?\)/i.test(sql);
         const threadId = /thread_id = \?/i.test(sql)
           ? args[threadIdIndex]
           : undefined;
@@ -196,7 +205,7 @@ describe("chat thread store", () => {
             candidate.state === "queued" &&
             (threadId === undefined || candidate.thread_id === threadId) &&
             (!interruptPoll || candidate.interrupt_active_run === true) &&
-            (interruptPoll ||
+            (!retryFilter ||
               candidate.retry_after == null ||
               Number(candidate.retry_after) <= Number(args[0])),
         );
@@ -221,7 +230,7 @@ describe("chat thread store", () => {
           return Number(left.queue_order) - Number(right.queue_order);
         });
         return {
-          rows: pending,
+          rows: pending.slice(0, Number(args.at(-1))),
           rowsAffected: 0,
         };
       }
@@ -2770,6 +2779,29 @@ describe("chat thread store", () => {
     };
 
     await append("queued-first");
+    expect(lockThreadRunSlotMock).toHaveBeenCalledOnce();
+    expect(lockThreadRunSlotMock.mock.calls[0]?.[0]).toMatchObject({
+      execute: executeMock,
+    });
+    expect(lockThreadRunSlotMock.mock.calls[0]?.[1]).toBe("thread-1");
+    const slotLockOrder = lockThreadRunSlotMock.mock.invocationCallOrder[0]!;
+    const calls = executeMock.mock.calls;
+    const callOrder = executeMock.mock.invocationCallOrder;
+    const sqlCalls = calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    const threadDataWriteIndex = sqlCalls.findIndex((sql) =>
+      /UPDATE chat_threads SET thread_data/i.test(sql),
+    );
+    const receiptWriteIndex = sqlCalls.findIndex((sql) =>
+      /INSERT INTO agent_chat_submission_inbox/i.test(sql),
+    );
+    expect(threadDataWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(receiptWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(slotLockOrder).toBeLessThan(callOrder[threadDataWriteIndex]!);
+    expect(callOrder[threadDataWriteIndex]).toBeLessThan(
+      callOrder[receiptWriteIndex]!,
+    );
     await append("queued-steered");
     await append("queued-interrupt", true);
     await mutateThreadQueuedMessages("thread-1", {
@@ -2805,7 +2837,7 @@ describe("chat thread store", () => {
     ]);
   });
 
-  it("keeps interrupt receipts visible during the ordinary drain retry delay", async () => {
+  it("honors the retry delay for interrupt receipts", async () => {
     const actor = { email: "user@example.com", anonymous: false };
     const interrupt = {
       id: "queued-interrupt-retry",
@@ -2832,11 +2864,40 @@ describe("chat thread store", () => {
         interruptActiveRun: true,
         now: Date.now(),
       }),
+    ).resolves.toEqual([]);
+    await expect(
+      listQueuedSubmissionReceipts({
+        threadId: "thread-1",
+        interruptActiveRun: true,
+        now: retryAfter,
+      }),
     ).resolves.toMatchObject([
       {
         messageId: interrupt.id,
         message: { interruptActiveRun: true },
       },
+    ]);
+  });
+
+  it("returns a bounded batch of queued receipts for one thread", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    for (const id of ["queued-one", "queued-two", "queued-three"]) {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: { id, threadId: "thread-1", text: `Prompt ${id}` },
+        },
+        { actor },
+      );
+    }
+
+    await expect(
+      listQueuedSubmissionReceipts({ threadId: "thread-1", limit: 25 }),
+    ).resolves.toMatchObject([
+      { messageId: "queued-one" },
+      { messageId: "queued-two" },
+      { messageId: "queued-three" },
     ]);
   });
 

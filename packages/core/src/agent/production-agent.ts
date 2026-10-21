@@ -1170,6 +1170,40 @@ function queuedSubmissionResponse(
   };
 }
 
+const QUEUED_REASONING_EFFORTS = new Set<
+  NonNullable<AgentRunOptions["reasoningEffort"]>
+>(["none", "minimal", "low", "medium", "high", "xhigh"]);
+
+function effectiveQueuedRunOptions(
+  options: AgentRunOptions | undefined,
+  model: unknown,
+  effort: unknown,
+  mode: AgentExecutionMode | undefined,
+): AgentRunOptions | undefined {
+  const effective = options ? { ...options } : undefined;
+  let result = effective;
+  if (typeof model === "string" && model.trim()) {
+    result ??= {};
+    result.model = model;
+  }
+  if (
+    typeof effort === "string" &&
+    QUEUED_REASONING_EFFORTS.has(
+      effort as NonNullable<AgentRunOptions["reasoningEffort"]>,
+    )
+  ) {
+    result ??= {};
+    result.reasoningEffort = effort as NonNullable<
+      AgentRunOptions["reasoningEffort"]
+    >;
+  }
+  if (mode !== undefined) {
+    result ??= {};
+    result.mode = mode;
+  }
+  return result;
+}
+
 /**
  * The error a chat turn answers with when no model credential is usable. A
  * member whose org restricts personal API keys can't fix that by adding a key,
@@ -6916,6 +6950,15 @@ export function createRunSafeBoundaryGuards(input: {
   };
 }
 
+export async function confirmQueuedRunInterrupt(input: {
+  abort: () => Promise<boolean>;
+  defer: () => Promise<unknown>;
+}): Promise<boolean> {
+  if (await input.abort()) return true;
+  await input.defer();
+  return false;
+}
+
 export async function runAgentLoop(opts: {
   engine: AgentEngine;
   model: string;
@@ -12646,6 +12689,33 @@ export function createProductionAgentHandler(
         return { error: "submissionPayload does not match this message" };
       }
     }
+    let requestMode: AgentExecutionMode =
+      body.mode === "plan" || requestOptions?.mode === "plan" ? "plan" : "act";
+    requestOptions = effectiveQueuedRunOptions(
+      requestOptions,
+      requestModel,
+      requestEffort,
+      body.mode !== undefined || requestOptions?.mode !== undefined
+        ? requestMode
+        : undefined,
+    );
+    if (submissionPayload) {
+      const metadata =
+        submissionPayload.metadata === undefined && requestEngine === undefined
+          ? undefined
+          : {
+              ...submissionPayload.metadata,
+              ...(requestEngine === undefined ? {} : { engine: requestEngine }),
+            };
+      submissionPayload = {
+        ...submissionPayload,
+        ...(requestOptions === undefined ? {} : { options: requestOptions }),
+        ...(metadata === undefined ? {} : { metadata }),
+      };
+      requestMetadata = normalizeSubmissionDeadlineMetadata(
+        submissionPayload.metadata,
+      );
+    }
 
     const backgroundRunMarker =
       preInjectedBody &&
@@ -12767,8 +12837,6 @@ export function createProductionAgentHandler(
       requestRunCtx.chatScope = requestChatScope;
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
-    let requestMode: AgentExecutionMode =
-      body.mode === "plan" || requestOptions?.mode === "plan" ? "plan" : "act";
     const hasMessageText =
       typeof message === "string" && message.trim().length > 0;
     let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -12811,11 +12879,8 @@ export function createProductionAgentHandler(
           anonymous: runRequestContext?.agentRunAnonymous === true,
         }
       : undefined;
-    const tryAdmitBusySubmission = async (
-      activeRunId: string | null,
-    ): Promise<unknown | null> => {
+    const tryAdmitBusySubmission = async (): Promise<unknown | null> => {
       if (
-        !activeRunId ||
         !submissionPayload ||
         !agentKitMessageId ||
         !threadId ||
@@ -13709,7 +13774,7 @@ export function createProductionAgentHandler(
       if (threadId && !isBackgroundWorker) {
         const activeRunId = await getSlotHoldingRunId(threadId);
         if (activeRunId) {
-          const queued = await tryAdmitBusySubmission(activeRunId);
+          const queued = await tryAdmitBusySubmission();
           if (queued !== null) return queued;
           return runSlotBusy(event, activeRunId);
         }
@@ -14655,6 +14720,17 @@ export function createProductionAgentHandler(
       }
       let slot;
       try {
+        const runThreadId = threadId;
+        const shouldPreserveQueuedOrder = Boolean(
+          submissionPayload &&
+          agentKitMessageId &&
+          ownerEmail &&
+          !queuedMessageId &&
+          !queuedMessageClaimId &&
+          !internalContinuation &&
+          !continueOf &&
+          !isBackgroundWorker,
+        );
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
           ...(turnInitiator ? { turnInitiator } : {}),
@@ -14671,6 +14747,15 @@ export function createProductionAgentHandler(
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
+          ...(shouldPreserveQueuedOrder
+            ? {
+                hasPendingQueuedSubmission: async (tx) => {
+                  const { hasPendingQueuedSubmissionReceipt } =
+                    await import("../chat-threads/store.js");
+                  return hasPendingQueuedSubmissionReceipt(tx, runThreadId!);
+                },
+              }
+            : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -14707,7 +14792,12 @@ export function createProductionAgentHandler(
       }
       if (!slot.claimed) {
         await setupResumeClaim?.release();
-        const queued = await tryAdmitBusySubmission(slot.activeRunId);
+        if (slot.queuedSubmissionPending) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return queued;
+          return runSlotBusy(event, null);
+        }
+        const queued = await tryAdmitBusySubmission();
         if (queued !== null) return queued;
         return runSlotBusy(event, slot.activeRunId);
       }
@@ -15436,6 +15526,7 @@ export function createProductionAgentHandler(
             listQueuedSubmissionReceipts,
             mutateThreadQueuedMessages,
             recordQueuedSubmissionInterruptRun,
+            retryQueuedSubmissionReceipt,
           } = await import("../chat-threads/store.js");
           const pending = await listQueuedSubmissionReceipts({
             limit: 25,
@@ -15476,7 +15567,17 @@ export function createProductionAgentHandler(
               ) {
                 continue;
               }
-              await abortRunAtSafeBoundaryDurably(runId, "user");
+              const aborted = await confirmQueuedRunInterrupt({
+                abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
+                defer: () =>
+                  retryQueuedSubmissionReceipt(
+                    threadId,
+                    receipt.messageId,
+                    Date.now() + 10_000,
+                    { claimId },
+                  ),
+              });
+              if (!aborted) return false;
             } finally {
               if (claimed) {
                 await mutateThreadQueuedMessages(threadId, {

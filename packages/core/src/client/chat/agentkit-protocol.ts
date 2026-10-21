@@ -308,9 +308,13 @@ function runtimeRequestAttachments(args: {
       part.type === "file" ? [runtimeAttachmentFromFilePart(part)] : [],
     ) ?? [];
   for (const requestAttachment of args.requestAttachments ?? []) {
-    const originalUrl = requestAttachment.referenceUrl;
-    const originalIndex = originalUrl
-      ? attachments.findIndex((attachment) => attachment.url === originalUrl)
+    const referenceUrl = requestAttachment.referenceUrl;
+    const originalUrl = referenceUrl;
+    const originalLookupUrl = originalUrl ?? requestAttachment.url;
+    const originalIndex = originalLookupUrl
+      ? attachments.findIndex(
+          (attachment) => attachment.url === originalLookupUrl,
+        )
       : -1;
     const addReferenceOnly = (replaceOriginal: boolean) => {
       const original = originalIndex >= 0 ? attachments[originalIndex] : null;
@@ -344,9 +348,13 @@ function runtimeRequestAttachments(args: {
         contentType: requestAttachment.contentType,
         data: requestAttachment.data,
         ...(imageUrl ? { url: imageUrl } : {}),
-        ...(originalUrl ? { referenceUrl: originalUrl } : {}),
+        ...(referenceUrl ? { referenceUrl } : {}),
       };
-      attachments.push(image);
+      if (!keepsOriginalReference && originalIndex >= 0) {
+        attachments.splice(originalIndex, 1, image);
+      } else {
+        attachments.push(image);
+      }
       continue;
     }
 
@@ -362,7 +370,7 @@ function runtimeRequestAttachments(args: {
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         url: requestAttachment.url,
-        ...(originalUrl ? { referenceUrl: originalUrl } : {}),
+        ...(referenceUrl ? { referenceUrl } : {}),
       });
     }
   }
@@ -465,6 +473,20 @@ function mergeProtocolMetadata(
     merged[AGENT_NATIVE_PROTOCOL_METADATA_KEY] = native;
   }
   return merged;
+}
+
+function withQueuedMessageIdMetadata(
+  metadata: Record<string, unknown> | undefined,
+  messageId: string | undefined,
+): Record<string, unknown> | undefined {
+  if (messageId === undefined) return metadata;
+  return {
+    ...metadata,
+    custom: {
+      ...asRecord(metadata?.custom),
+      agentNativeQueuedMessageId: messageId,
+    },
+  };
 }
 
 const PROTECTED_PROTOCOL_METADATA_KEYS = [
@@ -2139,26 +2161,30 @@ export function createAgentKitProtocolAdapter(
     start: {
       attachReplayedRun?: boolean;
       messageId?: string;
+      queuedMessageId?: string;
     } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
-    const runMetadata = mergeTrustedProtocolMetadata(
-      options.metadata,
-      turnMetadata,
-      turn.metadata,
-      {
-        [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
-          observability: {
-            protocolRunId: runId,
-            ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
-            runtimeId: runtime.id,
-            sessionId: session.id,
-            ...(turn.id === undefined ? {} : { turnId: turn.id }),
-            threadId,
-            ...observability,
-          },
-        } satisfies AgentNativeProtocolMetadata,
-      },
+    const runMetadata = withQueuedMessageIdMetadata(
+      mergeTrustedProtocolMetadata(
+        options.metadata,
+        turnMetadata,
+        turn.metadata,
+        {
+          [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+            observability: {
+              protocolRunId: runId,
+              ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
+              runtimeId: runtime.id,
+              sessionId: session.id,
+              ...(turn.id === undefined ? {} : { turnId: turn.id }),
+              threadId,
+              ...observability,
+            },
+          } satisfies AgentNativeProtocolMetadata,
+        },
+      ),
+      start.queuedMessageId,
     );
     setRuntimeRunIdMetadata(runMetadata, turn.runId);
     setRuntimeTurnIdMetadata(runMetadata, turn.id);
@@ -3932,14 +3958,21 @@ export function createAgentKitProtocolAdapter(
       const recoveryMetadata = asRecord(latestUserMetadata?.custom);
       const isRecoveryRetry =
         recoveryMetadata?.agentNativeRecoveryAction === "retry";
-      const turnMetadata = mergeTrustedProtocolMetadata(
-        options.metadata,
-        input.metadata,
-        input.options?.metadata,
-        input.options?.agentId ? { agentId: input.options.agentId } : undefined,
-        input.options?.locale ? { locale: input.options.locale } : undefined,
-        input.options?.mode ? { mode: input.options.mode } : undefined,
-        isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
+      const turnMetadata = withQueuedMessageIdMetadata(
+        mergeTrustedProtocolMetadata(
+          options.metadata,
+          input.metadata,
+          input.options?.metadata,
+          input.options?.agentId
+            ? { agentId: input.options.agentId }
+            : undefined,
+          input.options?.locale ? { locale: input.options.locale } : undefined,
+          input.options?.mode ? { mode: input.options.mode } : undefined,
+          isRecoveryRetry
+            ? { agentNativeInternalContinuation: true }
+            : undefined,
+        ),
+        input.queuePromotion?.messageId,
       );
       const queuePromotionKey = input.queuePromotion
         ? JSON.stringify([input.threadId, input.queuePromotion.turnId])
@@ -4004,6 +4037,9 @@ export function createAgentKitProtocolAdapter(
           {
             attachReplayedRun: true,
             messageId: latestUserMessage?.id,
+            ...(input.queuePromotion
+              ? { queuedMessageId: input.queuePromotion.messageId }
+              : {}),
           },
         );
       };

@@ -66,6 +66,8 @@ function submissionAttachmentIdentity(
     name,
     ...(mediaType ? { mediaType } : {}),
     ...(fileId ? { fileId } : {}),
+    ...(typeof record.data === "string" ? { data: record.data } : {}),
+    ...(typeof record.text === "string" ? { text: record.text } : {}),
     ...(url ? { url } : {}),
     ...(record.omitted === "inline-bytes" || record.omitted === "unsafe-url"
       ? { omitted: record.omitted }

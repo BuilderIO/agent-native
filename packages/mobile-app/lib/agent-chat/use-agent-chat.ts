@@ -140,11 +140,26 @@ interface ActiveTurnBuffer {
   generation: number;
   assistantId: string;
   runId: string | null;
+  queuedMessageId?: string;
+  queuedRunCompleted?: () => void;
+  awaitingQueuedHandle?: boolean;
+  earlyQueuedEvents?: Map<string, AgentEvent[]>;
+  earlyQueuedRunIds?: Map<string, string>;
+  earlyRunEvents?: Map<string, AgentEvent[]>;
   state: ChatTurnState;
   dirty: boolean;
   sawTerminal: boolean;
   sawApproval: boolean;
   acceptEvents: boolean;
+}
+
+function queuedMessageIdFromEvent(event: AgentEvent): string | null {
+  const custom = event.metadata?.custom;
+  if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
+    return null;
+  }
+  const id = (custom as Record<string, unknown>).agentNativeQueuedMessageId;
+  return typeof id === "string" ? id : null;
 }
 
 interface PendingApproval {
@@ -357,6 +372,139 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     setState(nextState);
   }, []);
 
+  const processSessionEvent = useCallback(
+    (
+      session: MobileAgentKitSession,
+      event: AgentEvent,
+      targetBaseUrl: string,
+      targetThreadId: string,
+    ) => {
+      if (baseUrlRef.current !== targetBaseUrl) return;
+      const active = activeTurnBufferRef.current;
+      if (
+        !active ||
+        !active.acceptEvents ||
+        active.generation !== activeGenerationRef.current
+      ) {
+        return;
+      }
+      if (active.awaitingQueuedHandle) {
+        const eventQueuedMessageId = queuedMessageIdFromEvent(event);
+        const queuedMessageId =
+          eventQueuedMessageId ?? active.earlyQueuedRunIds?.get(event.runId);
+        if (eventQueuedMessageId) {
+          active.earlyQueuedRunIds ??= new Map();
+          active.earlyQueuedRunIds.set(event.runId, eventQueuedMessageId);
+        }
+        if (queuedMessageId) {
+          active.earlyQueuedEvents ??= new Map();
+          const events =
+            active.earlyQueuedEvents.get(queuedMessageId) ??
+            active.earlyRunEvents?.get(event.runId) ??
+            [];
+          events.push(event);
+          active.earlyQueuedEvents.set(queuedMessageId, events);
+          active.earlyRunEvents?.delete(event.runId);
+          return;
+        }
+        active.earlyRunEvents ??= new Map();
+        const events = active.earlyRunEvents.get(event.runId) ?? [];
+        events.push(event);
+        active.earlyRunEvents.set(event.runId, events);
+        return;
+      }
+      if (active.queuedMessageId) {
+        if (!active.runId) {
+          if (queuedMessageIdFromEvent(event) !== active.queuedMessageId) {
+            return;
+          }
+          active.runId = event.runId;
+          void trackMobileEvent(
+            "agent_chat_run_started",
+            {
+              chat_surface: "mobile",
+              thread_id: targetThreadId,
+              run_id: event.runId,
+            },
+            baseUrlRef.current,
+          );
+        } else if (active.runId !== event.runId) {
+          return;
+        }
+      }
+      const pendingApproval = pendingApprovalRef.current;
+      if (active.runId && active.runId !== event.runId) {
+        const resumedApproval =
+          event.type === "approval.resolved" &&
+          pendingApproval?.resolving &&
+          pendingApproval.runId === active.runId &&
+          pendingApproval.approvalId === event.approvalId;
+        if (!resumedApproval) return;
+        pendingApprovalRef.current = null;
+      } else if (
+        event.type === "approval.resolved" &&
+        pendingApproval?.resolving &&
+        pendingApproval.runId === event.runId &&
+        pendingApproval.approvalId === event.approvalId
+      ) {
+        pendingApprovalRef.current = null;
+      }
+      active.runId = event.runId;
+      if (event.type === "connection.requested") {
+        connectionSessionByRequestRef.current.set(event.request.id, {
+          session,
+          runId: event.runId,
+        });
+      } else if (
+        event.type === "connection.updated" &&
+        event.request.status !== "connecting"
+      ) {
+        connectionSessionByRequestRef.current.delete(event.request.id);
+      }
+      assistantIdsByRunRef.current.set(event.runId, active.assistantId);
+      runIdsRef.current.set(active.assistantId, event.runId);
+      if (liveTurnRef.current) liveTurnRef.current.runId = event.runId;
+      const wireEvent = mobileAgentKitEventToWireEvent(event);
+      if (!wireEvent) return;
+      const scopeValue = mobileChatScope(event.metadata);
+      const wire = scopeValue ? { ...wireEvent, scope: scopeValue } : wireEvent;
+      if (event.type === "approval.requested") {
+        pendingApprovalRef.current = {
+          approvalId: event.request.id,
+          runId: event.runId,
+          assistantId: active.assistantId,
+          threadId: event.threadId,
+          session,
+          resolving: false,
+        };
+        active.sawApproval = true;
+      }
+      if (
+        wire.type === "missing_api_key" ||
+        wire.errorCode === "missing_api_key"
+      ) {
+        invalidateAgentEngineReadiness(readinessSource);
+        void checkChatEligibility(true);
+      }
+      if (isTerminalWireEvent(wire)) active.sawTerminal = true;
+      active.state = annotateAssistantMessage(
+        applyWireEvent(active.state, wire, active.assistantId),
+        active.assistantId,
+        event,
+      );
+      active.dirty = true;
+      if (wire.type !== "connection_required" && isTerminalWireEvent(wire)) {
+        if (!active.awaitingQueuedHandle) {
+          activeTurnBufferRef.current = null;
+          liveTurnRef.current = null;
+        }
+        active.queuedRunCompleted?.();
+        active.queuedRunCompleted = undefined;
+      }
+    },
+    [checkChatEligibility, readinessSource],
+  );
+
   useEffect(() => {
     void checkChatEligibility(true);
   }, [baseUrl, checkChatEligibility]);
@@ -421,90 +569,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         for (const event of thread.events) {
           if (processed.has(event.id)) continue;
           processed.add(event.id);
-          const active = activeTurnBufferRef.current;
-          if (
-            !active ||
-            !active.acceptEvents ||
-            active.generation !== activeGenerationRef.current
-          ) {
-            continue;
-          }
-          const pendingApproval = pendingApprovalRef.current;
-          if (active.runId && active.runId !== event.runId) {
-            const resumedApproval =
-              event.type === "approval.resolved" &&
-              pendingApproval?.resolving &&
-              pendingApproval.runId === active.runId &&
-              pendingApproval.approvalId === event.approvalId;
-            if (!resumedApproval) continue;
-            pendingApprovalRef.current = null;
-          } else if (
-            event.type === "approval.resolved" &&
-            pendingApproval?.resolving &&
-            pendingApproval.runId === event.runId &&
-            pendingApproval.approvalId === event.approvalId
-          ) {
-            pendingApprovalRef.current = null;
-          }
-          active.runId = event.runId;
-          if (event.type === "connection.requested") {
-            connectionSessionByRequestRef.current.set(event.request.id, {
-              session,
-              runId: event.runId,
-            });
-          } else if (
-            event.type === "connection.updated" &&
-            event.request.status !== "connecting"
-          ) {
-            connectionSessionByRequestRef.current.delete(event.request.id);
-          }
-          assistantIdsByRunRef.current.set(event.runId, active.assistantId);
-          runIdsRef.current.set(active.assistantId, event.runId);
-          if (liveTurnRef.current) liveTurnRef.current.runId = event.runId;
-          const wireEvent = mobileAgentKitEventToWireEvent(event);
-          if (!wireEvent) continue;
-          const scopeValue = mobileChatScope(event.metadata);
-          const wire = scopeValue
-            ? { ...wireEvent, scope: scopeValue }
-            : wireEvent;
-          if (event.type === "approval.requested") {
-            pendingApprovalRef.current = {
-              approvalId: event.request.id,
-              runId: event.runId,
-              assistantId: active.assistantId,
-              threadId: event.threadId,
-              session,
-              resolving: false,
-            };
-            active.sawApproval = true;
-          }
-          if (
-            wire.type === "missing_api_key" ||
-            wire.errorCode === "missing_api_key"
-          ) {
-            invalidateAgentEngineReadiness(readinessSource);
-            void checkChatEligibility(true);
-          }
-          if (isTerminalWireEvent(wire)) active.sawTerminal = true;
-          active.state = annotateAssistantMessage(
-            applyWireEvent(active.state, wire, active.assistantId),
-            active.assistantId,
-            event,
-          );
-          active.dirty = true;
-          if (
-            wire.type !== "connection_required" &&
-            isTerminalWireEvent(wire)
-          ) {
-            activeTurnBufferRef.current = null;
-            liveTurnRef.current = null;
-          }
+          processSessionEvent(session, event, targetBaseUrl, targetThreadId);
         }
       });
       sessionsRef.current.set(sessionKey, session);
       return session;
     },
-    [checkChatEligibility, readinessSource],
+    [processSessionEvent],
   );
   getSession(baseUrl);
 
@@ -696,6 +767,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         }
         markThreadEventsSeen(activeThreadId, loaded.events);
         turnBuffer.acceptEvents = true;
+        turnBuffer.awaitingQueuedHandle = true;
+        turnBuffer.earlyQueuedEvents = new Map();
+        turnBuffer.earlyQueuedRunIds = new Map();
+        turnBuffer.earlyRunEvents = new Map();
         const durableAttachments = await uploadMobileChatAttachments(
           currentAgentKit,
           activeThreadId,
@@ -756,26 +831,107 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           return;
         }
 
+        const runId = "runId" in runHandle ? runHandle.runId : null;
         liveTurnRef.current = {
           abort: () => {
             controller.abort();
-            void currentAgentKit.cancelRun(activeThreadId, runHandle.runId);
+            void runHandle.cancel();
           },
-          runId: runHandle.runId,
+          runId,
         };
-        turnBuffer.runId = runHandle.runId;
-        assistantIdsByRunRef.current.set(runHandle.runId, assistantId);
-        runIdsRef.current.set(assistantId, runHandle.runId);
-        void trackMobileEvent(
-          "agent_chat_run_started",
-          {
-            chat_surface: "mobile",
-            thread_id: activeThreadId,
-            run_id: runHandle.runId,
-          },
-          baseUrlRef.current,
-        );
-        await runHandle.completed;
+        if ("queuedMessageId" in runHandle) {
+          turnBuffer.awaitingQueuedHandle = false;
+          turnBuffer.queuedMessageId = runHandle.queuedMessageId;
+          turnBuffer.runId =
+            [...(turnBuffer.earlyQueuedRunIds ?? [])].find(
+              ([, queuedMessageId]) =>
+                queuedMessageId === runHandle.queuedMessageId,
+            )?.[0] ?? null;
+          turnBuffer.sawTerminal = false;
+          turnBuffer.acceptEvents = true;
+          turnBuffer.earlyRunEvents = undefined;
+          turnBuffer.earlyQueuedRunIds = undefined;
+          const queuedEvents =
+            turnBuffer.earlyQueuedEvents?.get(runHandle.queuedMessageId) ?? [];
+          turnBuffer.earlyQueuedEvents = undefined;
+          if (
+            activeTurnBufferRef.current === null ||
+            activeTurnBufferRef.current === turnBuffer
+          ) {
+            activeTurnBufferRef.current = turnBuffer;
+          }
+          if (turnBuffer.runId) {
+            void trackMobileEvent(
+              "agent_chat_run_started",
+              {
+                chat_surface: "mobile",
+                thread_id: activeThreadId,
+                run_id: turnBuffer.runId,
+              },
+              baseUrlRef.current,
+            );
+          }
+          void runHandle.completed.catch(() => {});
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              controller.signal.removeEventListener("abort", finish);
+              if (turnBuffer.queuedRunCompleted === finish) {
+                turnBuffer.queuedRunCompleted = undefined;
+              }
+              resolve();
+            };
+            turnBuffer.queuedRunCompleted = finish;
+            if (controller.signal.aborted) {
+              finish();
+            } else {
+              controller.signal.addEventListener("abort", finish, {
+                once: true,
+              });
+            }
+            for (const event of queuedEvents) {
+              processSessionEvent(
+                session,
+                event,
+                targetBaseUrl,
+                activeThreadId,
+              );
+            }
+          });
+        } else if (runId) {
+          turnBuffer.awaitingQueuedHandle = false;
+          turnBuffer.runId = runId;
+          assistantIdsByRunRef.current.set(runId, assistantId);
+          runIdsRef.current.set(assistantId, runId);
+          void trackMobileEvent(
+            "agent_chat_run_started",
+            {
+              chat_surface: "mobile",
+              thread_id: activeThreadId,
+              run_id: runId,
+            },
+            baseUrlRef.current,
+          );
+          const runEvents = turnBuffer.earlyRunEvents?.get(runId) ?? [];
+          turnBuffer.earlyQueuedEvents = undefined;
+          turnBuffer.earlyQueuedRunIds = undefined;
+          turnBuffer.earlyRunEvents = undefined;
+          for (const event of runEvents) {
+            processSessionEvent(session, event, targetBaseUrl, activeThreadId);
+          }
+        } else {
+          turnBuffer.awaitingQueuedHandle = false;
+          turnBuffer.earlyQueuedEvents = undefined;
+          turnBuffer.earlyQueuedRunIds = undefined;
+          turnBuffer.earlyRunEvents = undefined;
+          turnBuffer.acceptEvents = false;
+          turnBuffer.sawTerminal = true;
+        }
+        if (!("queuedMessageId" in runHandle)) {
+          await runHandle.completed;
+        }
         if (activeGenerationRef.current === currentGeneration) {
           buffered = turnBuffer.state;
           if (
@@ -848,6 +1004,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     [
       getSession,
       markThreadEventsSeen,
+      processSessionEvent,
       checkChatEligibility,
       readinessSource,
       requireChatEligibility,

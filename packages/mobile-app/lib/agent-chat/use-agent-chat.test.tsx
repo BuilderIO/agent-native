@@ -580,6 +580,202 @@ describe("useAgentChat readiness gate", () => {
     });
   });
 
+  it("cancels a queued handle without cancelling its active run", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const client = createSendClient();
+    const completed = deferred<void>();
+    const cancelQueued = vi.fn(async () => {});
+    client.sendMessage.mockResolvedValueOnce({
+      queuedMessageId: "queued-mobile-1",
+      activeRunId: "run-active-1",
+      completed: completed.promise,
+      cancel: cancelQueued,
+    } as never);
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    let dispatchPromise: Promise<boolean> | undefined;
+    await act(async () => {
+      dispatchPromise = mounted?.chat?.send("Queue this prompt");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+    await expect(dispatchPromise!).resolves.toBe(true);
+
+    act(() => mounted?.chat?.stop());
+    expect(cancelQueued).toHaveBeenCalledOnce();
+    expect(client.cancelRun).not.toHaveBeenCalled();
+
+    await act(async () => completed.resolve());
+    await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
+    expect(mounted?.chat?.errorCode).toBeNull();
+  });
+
+  it("buffers queued events until a handle arrives after active completion", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const threads = new Map<
+      string,
+      ReturnType<typeof createAgentThreadState>
+    >();
+    const listeners = new Set<() => void>();
+    const queuedHandle = deferred<{
+      queuedMessageId: string;
+      activeRunId: string;
+      completed: Promise<void>;
+      cancel: () => Promise<void>;
+    }>();
+    let sequence = 0;
+    const getThread = (threadId: string) => {
+      let thread = threads.get(threadId);
+      if (!thread) {
+        thread = createAgentThreadState(threadId);
+        threads.set(threadId, thread);
+      }
+      return thread;
+    };
+    const appendEvent = (event: AgentEvent) => {
+      const current = getThread(event.threadId);
+      threads.set(event.threadId, {
+        ...current,
+        events: [...current.events, event],
+      });
+      listeners.forEach((listener) => listener());
+    };
+    const client = {
+      subscribe: vi.fn((listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }),
+      getThread: vi.fn(getThread),
+      loadThread: vi.fn(async (threadId: string) => getThread(threadId)),
+      sendMessage: vi.fn(
+        (_input: { threadId: string }) => queuedHandle.promise,
+      ),
+      cancelRun: vi.fn(async () => {}),
+    };
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    let dispatchPromise: Promise<boolean> | undefined;
+    await act(async () => {
+      dispatchPromise = mounted?.chat?.send("Queue this prompt");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+
+    const threadId = client.sendMessage.mock.calls[0]![0].threadId;
+    await act(async () => {
+      appendEvent({
+        ...eventBase(
+          "run.completed",
+          "event-active-run-complete",
+          threadId,
+          "run-active-mobile",
+          ++sequence,
+        ),
+        type: "run.completed",
+      } as AgentEvent);
+      await Promise.resolve();
+    });
+    expect(mounted?.chat?.isStreaming).toBe(true);
+    expect(
+      mounted?.chat?.messages.some((message) =>
+        message.parts.some(
+          (part) => part.type === "text" && part.text.includes("Queued reply"),
+        ),
+      ),
+    ).toBe(false);
+
+    await act(async () => {
+      appendEvent({
+        ...eventBase(
+          "run.started",
+          "event-queued-run-started",
+          threadId,
+          "run-queued-mobile",
+          ++sequence,
+        ),
+        type: "run.started",
+        metadata: {
+          custom: { agentNativeQueuedMessageId: "queued-mobile-reply" },
+        },
+      } as AgentEvent);
+      appendEvent({
+        ...eventBase(
+          "message.created",
+          "event-queued-user-message",
+          threadId,
+          "run-queued-mobile",
+          ++sequence,
+        ),
+        type: "message.created",
+        message: {
+          id: "queued-mobile-reply",
+          role: "user",
+          parts: [{ type: "text", text: "Queue this prompt" }],
+          metadata: {
+            custom: { agentNativeQueuedMessageId: "queued-mobile-reply" },
+          },
+        },
+      } as AgentEvent);
+      appendEvent({
+        ...eventBase(
+          "message.delta",
+          "event-queued-answer",
+          threadId,
+          "run-queued-mobile",
+          ++sequence,
+        ),
+        type: "message.delta",
+        messageId: "assistant-queued-mobile",
+        text: "Queued reply",
+      } as AgentEvent);
+      appendEvent({
+        ...eventBase(
+          "run.completed",
+          "event-queued-run-complete",
+          threadId,
+          "run-queued-mobile",
+          ++sequence,
+        ),
+        type: "run.completed",
+      } as AgentEvent);
+      expect(
+        mounted?.chat?.messages.some((message) =>
+          message.parts.some(
+            (part) =>
+              part.type === "text" && part.text.includes("Queued reply"),
+          ),
+        ),
+      ).toBe(false);
+      queuedHandle.resolve({
+        queuedMessageId: "queued-mobile-reply",
+        activeRunId: "run-active-mobile",
+        completed: Promise.resolve(),
+        cancel: vi.fn(async () => {}),
+      });
+      await dispatchPromise;
+    });
+
+    await expect(dispatchPromise!).resolves.toBe(true);
+    expect(mounted?.chat?.isStreaming).toBe(false);
+    expect(
+      mounted?.chat?.messages.some((message) =>
+        message.parts.some(
+          (part) => part.type === "text" && part.text.includes("Queued reply"),
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("waits for a fresh readiness check after an unavailable boot result", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchEligibilityMock.mockRejectedValueOnce(new Error("status unavailable"));

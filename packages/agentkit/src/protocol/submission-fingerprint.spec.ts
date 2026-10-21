@@ -6,6 +6,33 @@ import {
 } from "./submission-fingerprint.js";
 
 describe("submission attachment fingerprints", () => {
+  it.each([
+    ["inline data", { data: "first body" }, { data: "changed body" }],
+    ["inline text", { text: "first body" }, { text: "changed body" }],
+  ])("binds reused file IDs to %s", (_label, original, changed) => {
+    const source = {
+      type: "file",
+      name: "notes.txt",
+      mediaType: "text/plain",
+      fileId: "file-notes",
+      ...original,
+    };
+    const submission = {
+      attachments: [
+        {
+          type: "file" as const,
+          name: source.name,
+          mediaType: source.mediaType,
+          fingerprint: fingerprintAgentSubmissionAttachment(source, "file"),
+        },
+      ],
+    };
+
+    expect(
+      submissionAttachmentsMatch(submission, [{ ...source, ...changed }]),
+    ).toBe(false);
+  });
+
   it("matches file references after the runtime mapper renames identity fields", () => {
     const source = {
       type: "file",

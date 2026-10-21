@@ -94,6 +94,7 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   createRunSafeBoundaryGuards,
+  confirmQueuedRunInterrupt,
   appendRequestAttachmentContextToResumedHistory,
   endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
@@ -3882,25 +3883,62 @@ describe("createProductionAgentHandler", () => {
         source: "upload",
       },
     ];
-    const options = {
-      model: "test-model",
-      mode: "plan",
-      reasoningEffort: "high" as const,
+    const attachment = {
+      type: "file" as const,
+      name: "report.pdf",
+      mediaType: "application/pdf",
+      contentType: "application/pdf",
+      url: "https://files.example.test/report.pdf",
     };
+    const queuedAttachment = {
+      type: "file" as const,
+      name: attachment.name,
+      mediaType: attachment.mediaType,
+      url: attachment.url,
+    };
+    const options = {
+      model: "options-model",
+      mode: "act",
+      reasoningEffort: "low" as const,
+    };
+    const metadata = { boundMarker: "payload" };
     const submissionPayload = {
       threadId,
       id: messageId,
       text: "Summarize the report",
+      attachments: [
+        {
+          type: "file" as const,
+          name: attachment.name,
+          mediaType: attachment.mediaType,
+          fingerprint: fingerprintAgentSubmissionAttachment(attachment, "file"),
+        },
+      ],
       references,
+      metadata,
       options,
+    };
+    const effectiveOptions = {
+      ...options,
+      model: "request-model",
+      mode: "plan",
+      reasoningEffort: "medium" as const,
+    };
+    const effectiveMetadata = { ...metadata, engine: "request-engine" };
+    const acceptedPayload = {
+      ...submissionPayload,
+      metadata: effectiveMetadata,
+      options: effectiveOptions,
     };
     const persistedMessage = {
       id: messageId,
       threadId,
       text: submissionPayload.text,
       createdAt: "2026-10-21T00:00:00.000Z",
+      attachments: [queuedAttachment],
       references,
-      options,
+      metadata: effectiveMetadata,
+      options: effectiveOptions,
     };
     const receipt = {
       threadId,
@@ -3915,7 +3953,7 @@ describe("createProductionAgentHandler", () => {
       message: persistedMessage,
       payloadHash: chatThreadStore.hashQueuedSubmissionPayload(
         threadId,
-        submissionPayload,
+        acceptedPayload,
       ),
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -3933,21 +3971,35 @@ describe("createProductionAgentHandler", () => {
     const resolveThreadAccess = vi
       .spyOn(chatThreadStore, "resolveThreadAccess")
       .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
     mockTryClaimRunSlot.mockReset();
     mockTryClaimRunSlot.mockResolvedValueOnce({
       claimed: false,
       activeRunId: "run-active",
     });
     mockGetSlotHoldingRunId.mockReset();
-    mockGetSlotHoldingRunId
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValue("run-active");
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine: engineWithUncalledStream(),
       actions: {},
     });
-    const makeEvent = () =>
+    const makeEvent = (
+      model = effectiveOptions.model,
+      effort = "medium",
+      engine = "request-engine",
+    ) =>
       mockEvent(
         new Request("http://app.example.com/_agent-native/agent-chat", {
           method: "POST",
@@ -3959,7 +4011,13 @@ describe("createProductionAgentHandler", () => {
             agentKitMessageId: messageId,
             submissionPayload,
             references,
+            attachments: [attachment],
+            metadata: { boundMarker: "unbound-body-value" },
             options,
+            model,
+            engine,
+            effort,
+            mode: "plan",
           }),
         }),
       );
@@ -3980,13 +4038,15 @@ describe("createProductionAgentHandler", () => {
       expect(responseSettled).toBe(false);
       expect(append.mock.calls[0]?.[1]).toMatchObject({
         type: "append",
-        hashInput: submissionPayload,
+        hashInput: acceptedPayload,
         message: {
           id: messageId,
           threadId,
           text: submissionPayload.text,
+          attachments: [queuedAttachment],
           references,
-          options,
+          metadata: effectiveMetadata,
+          options: effectiveOptions,
         },
       });
 
@@ -3997,6 +4057,7 @@ describe("createProductionAgentHandler", () => {
       await expect(responsePromise).resolves.toEqual({
         state: "queued",
         message: persistedMessage,
+        activeRunId: "run-active",
       });
       expect(event.res.status).toBe(202);
 
@@ -4014,10 +4075,124 @@ describe("createProductionAgentHandler", () => {
       });
       expect(retryEvent.res.status).toBe(202);
       expect(append).toHaveBeenCalledOnce();
+
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      const changedSelectorEvent = makeEvent(
+        "changed-model",
+        "high",
+        "changed-engine",
+      );
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(changedSelectorEvent),
+        ),
+      ).resolves.toEqual({
+        error: "This message ID was already used for a different submission",
+        code: "queued_message_id_conflict",
+        retryable: false,
+      });
+      expect(changedSelectorEvent.res.status).toBe(409);
     } finally {
       append.mockRestore();
       readReceipt.mockRestore();
       resolveThreadAccess.mockRestore();
+      preUpload.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("queues a direct start behind an already accepted inbox submission", async () => {
+    const threadId = "thread-queued-order-barrier";
+    const messageId = "message-after-queued-order-barrier";
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Follow the accepted prompt",
+    };
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementation(
+        async (_id, mutation) =>
+          ({
+            queuedMessages:
+              mutation.type === "append" ? [mutation.message] : [],
+            message: mutation.type === "append" ? mutation.message : undefined,
+          }) as never,
+      );
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      queuedSubmissionPending: true,
+    } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-after-queued-order-barrier",
+          agentKitMessageId: messageId,
+          submissionPayload,
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(202);
+      expect(result).toMatchObject({
+        state: "queued",
+        message: {
+          id: messageId,
+          threadId,
+          text: submissionPayload.text,
+        },
+      });
+      expect(append).toHaveBeenCalledOnce();
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(
+        (mockTryClaimRunSlot.mock.calls[0] as unknown as unknown[])[3],
+      ).toEqual(
+        expect.objectContaining({
+          hasPendingQueuedSubmission: expect.any(Function),
+        }),
+      );
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      isTurnAborted.mockRestore();
       mockTryClaimRunSlot.mockReset();
       mockTryClaimRunSlot.mockResolvedValue({
         claimed: true,
@@ -4137,11 +4312,11 @@ describe("createProductionAgentHandler", () => {
         type: "append",
         hashInput: submissionPayload,
         message: {
-          attachments: [
+          requestAttachments: [
             {
-              type: "file",
+              type: "image",
               name: "chart.png",
-              mediaType: "image/png",
+              contentType: "image/png",
               url: "https://files.example.test/chart-2.png",
             },
           ],
@@ -4557,10 +4732,16 @@ describe("createProductionAgentHandler", () => {
         const saved = append.mock.calls[0]?.[1];
         expect(saved?.type).toBe("append");
         if (saved?.type === "append") {
-          expect(saved.message.attachments?.[0]).toMatchObject(
-            attachment.type === "image"
-              ? { type: "file", name: attachment.name, url: expect.any(String) }
-              : attachment.fileId
+          if (attachment.type === "image") {
+            expect(saved.message.requestAttachments?.[0]).toMatchObject({
+              type: "image",
+              name: attachment.name,
+              contentType: "image/png",
+              url: expect.any(String),
+            });
+          } else {
+            expect(saved.message.attachments?.[0]).toMatchObject(
+              attachment.fileId
                 ? {
                     type: "file",
                     name: attachment.name,
@@ -4571,9 +4752,11 @@ describe("createProductionAgentHandler", () => {
                     name: attachment.name,
                     url: expect.any(String),
                   },
-          );
+            );
+          }
           expect(JSON.stringify(saved.message)).not.toContain("data:");
-          expect(saved.message.attachments?.[0]).not.toHaveProperty("text");
+          expect(saved.message.attachments?.[0]?.text).toBeUndefined();
+          expect(saved.message.requestAttachments?.[0]?.data).toBeUndefined();
         }
       } finally {
         preUpload.mockRestore();
@@ -4742,7 +4925,11 @@ describe("createProductionAgentHandler", () => {
       const resolveApproval = vi
         .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
         .mockResolvedValue("turn-inline-approval");
-      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
       mockTryClaimRunSlot.mockResolvedValueOnce({
         claimed: false,
         activeRunId: "run-existing",
@@ -8682,6 +8869,17 @@ describe("filterActionsByAllowedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("defers a queued interrupt when the durable abort declines", async () => {
+    const abort = vi.fn(async () => false);
+    const defer = vi.fn(async () => true);
+
+    await expect(confirmQueuedRunInterrupt({ abort, defer })).resolves.toBe(
+      false,
+    );
+    expect(abort).toHaveBeenCalledOnce();
+    expect(defer).toHaveBeenCalledOnce();
+  });
+
   it("blocks model and write dispatch while an interrupt waits for a safe boundary", async () => {
     const order: string[] = [];
     const guards = createRunSafeBoundaryGuards({

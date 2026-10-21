@@ -6638,6 +6638,154 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
   });
 
+  it("preserves SDK model and reasoning selectors through queue promotion", async () => {
+    const apiUrl = "/_agent-native/agent-chat";
+    const threadId = "thread-queued-selectors";
+    const options = {
+      model: "test-model-non-default",
+      reasoningEffort: "medium" as const,
+    };
+    let queuedMessages: Array<Record<string, unknown>> = [];
+    let threadData = JSON.stringify({ messages: [], queuedMessages });
+    const startRunBodies: Array<Record<string, unknown>> = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.includes("/_agent-native/agent-engine/status")) {
+          return json({ configured: true, chatEligible: true });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false, status: "complete" });
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          if (mutation.type === "claim") {
+            queuedMessages = queuedMessages.map((queued) =>
+              queued.id === mutation.messageId
+                ? {
+                    ...queued,
+                    promotionClaim: {
+                      id: mutation.claimId,
+                      expiresAt: Date.now() + 10_000,
+                    },
+                  }
+                : queued,
+            );
+            const claimedMessage = queuedMessages.find(
+              (queued) => queued.id === mutation.messageId,
+            );
+            threadData = JSON.stringify({ messages: [], queuedMessages });
+            return json({ queuedMessages, claimedMessage });
+          }
+          if (mutation.type === "release") {
+            queuedMessages = queuedMessages.map((queued) => {
+              if (queued.id !== mutation.messageId) return queued;
+              const { promotionClaim: _claim, ...released } = queued;
+              return released;
+            });
+          }
+          threadData = JSON.stringify({ messages: [], queuedMessages });
+          return json({ queuedMessages });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          threadData = JSON.parse(String(init?.body)).threadData;
+          return json({ ok: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            title: "Selector preservation",
+            createdAt: "2026-10-21T00:00:00.000Z",
+            updatedAt: "2026-10-21T00:00:00.000Z",
+            threadData,
+          });
+        }
+        if (url.endsWith(apiUrl) && method === "POST") {
+          const body = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          startRunBodies.push(body);
+          if (
+            typeof body.queuedMessageId === "string" &&
+            typeof body.queuedMessageClaimId === "string"
+          ) {
+            return new Response(
+              `data: ${JSON.stringify({ type: "text", text: "Promoted." })}\n\ndata: ${JSON.stringify({ type: "done" })}\n\n`,
+              {
+                headers: {
+                  "content-type": "text/event-stream",
+                  "x-run-id": "run-promoted-selectors",
+                },
+              },
+            );
+          }
+          const submission = body.submissionPayload as {
+            id: string;
+            text: string;
+          };
+          const queued = {
+            id: submission.id,
+            threadId,
+            text: submission.text,
+            createdAt: "2026-10-21T00:00:01.000Z",
+            options: body.options,
+          };
+          queuedMessages = [queued];
+          threadData = JSON.stringify({ messages: [], queuedMessages });
+          return json(
+            { state: "queued", message: queued, activeRunId: "run-current" },
+            202,
+          );
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      }),
+      adapter: { now: () => "2026-10-21T00:00:00.000Z" },
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      const handle = await client.sendMessage({
+        threadId,
+        text: "Use the selected model and effort",
+        options,
+      });
+      expect("queuedMessageId" in handle).toBe(true);
+      expect(startRunBodies[0]).toMatchObject({
+        options,
+        model: options.model,
+        effort: options.reasoningEffort,
+        submissionPayload: { options },
+      });
+      expect(queuedMessages[0]).toMatchObject({ options });
+
+      const promoted = await transport.steerQueuedMessage?.({
+        threadId,
+        messageId: (handle as { queuedMessageId: string }).queuedMessageId,
+      });
+
+      expect(promoted).toMatchObject({ runId: "run-promoted-selectors" });
+      expect(startRunBodies[1]).toMatchObject({
+        options,
+        model: options.model,
+        effort: options.reasoningEffort,
+        queuedMessageId: queuedMessages[0]?.id,
+        queuedMessageClaimId: expect.any(String),
+      });
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("persists a queue reorder as an atomic message mutation", async () => {
     const queueWrites: unknown[] = [];
     let queuedMessages = [

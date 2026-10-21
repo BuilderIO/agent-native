@@ -8595,7 +8595,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           failed: 0,
         };
         const pending = await listQueuedSubmissionReceipts({
-          limit: drainOptions.threadId ? 1 : 25,
+          limit: 25,
           ...(drainOptions.threadId ? { threadId: drainOptions.threadId } : {}),
         });
         result.scanned = pending.length;

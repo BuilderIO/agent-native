@@ -13,6 +13,7 @@ import {
   currentExecutionFence,
   withFencedExecutionWrite,
 } from "../agent/execution-fence.js";
+import { lockThreadRunSlot } from "../agent/run-slot-lock.js";
 import { normalizeSubmissionDeadlineMetadata } from "../agent/submission-deadline.js";
 import {
   extractThreadMeta,
@@ -2154,6 +2155,21 @@ export async function getQueuedSubmissionReceipt(
   return readQueuedSubmissionReceipt(getDbExec(), threadId, messageId);
 }
 
+/** Checks the inbox inside a caller's transaction before a fresh run claims its slot. */
+export async function hasPendingQueuedSubmissionReceipt(
+  tx: DbExec,
+  threadId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await tx.execute({
+    sql: `SELECT 1 FROM agent_chat_submission_inbox
+          WHERE thread_id = ? AND state = 'queued'
+          LIMIT 1`,
+    args: [threadId],
+  });
+  return rows.length > 0;
+}
+
 /** Finds accepted queue rows in priority order for the signed server sweep. */
 export async function listQueuedSubmissionReceipts(
   options: {
@@ -2167,11 +2183,8 @@ export async function listQueuedSubmissionReceipts(
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 25)));
   const now = options.now ?? Date.now();
   const where = ["state = 'queued'"];
-  const args: (number | string)[] = [];
-  if (options.interruptActiveRun !== true) {
-    where.push("(retry_after IS NULL OR retry_after <= ?)");
-    args.push(now);
-  }
+  const args: (number | string)[] = [now];
+  where.push("(retry_after IS NULL OR retry_after <= ?)");
   if (options.threadId) {
     where.push("thread_id = ?");
     args.push(options.threadId);
@@ -2906,79 +2919,84 @@ export async function mutateThreadQueuedMessages(
           return JSON.stringify({ ...repository, queuedMessages });
         },
         beforeUpdate:
-          mutation.type === "claimFromInbox"
+          mutation.type === "append" && options.actor
             ? async (tx) => {
-                const currentReceipt = await readQueuedSubmissionReceipt(
-                  tx,
-                  threadId,
-                  mutation.receipt.messageId,
-                );
-                if (
-                  !queuedSubmissionReceiptSnapshotMatches(
-                    currentReceipt,
-                    mutation.receipt,
-                  )
-                ) {
-                  receiptUnavailable = true;
-                  return false;
-                }
+                await lockThreadRunSlot(tx, threadId);
                 return true;
               }
-            : mutation.type === "renewClaim"
+            : mutation.type === "claimFromInbox"
               ? async (tx) => {
-                  const receipt = await readQueuedSubmissionReceipt(
+                  const currentReceipt = await readQueuedSubmissionReceipt(
                     tx,
                     threadId,
-                    mutation.messageId,
+                    mutation.receipt.messageId,
                   );
                   if (
-                    result?.claimLost === true ||
-                    receipt?.state !== "queued" ||
-                    receipt.interruptRunId !== mutation.runId
+                    !queuedSubmissionReceiptSnapshotMatches(
+                      currentReceipt,
+                      mutation.receipt,
+                    )
                   ) {
-                    if (result) {
-                      result.claimLost = true;
-                      result.claimedMessage = undefined;
-                    }
+                    receiptUnavailable = true;
                     return false;
                   }
                   return true;
                 }
-              : mutation.type === "recordInterruptRun" ||
-                  mutation.type === "clearInterruptRun"
+              : mutation.type === "renewClaim"
                 ? async (tx) => {
-                    const ownsClaim = receiptMutationOwnsPromotionClaim(
-                      receiptClaimMessage,
-                      mutation.claimId,
-                      Date.now(),
-                    );
-                    if (!ownsClaim) {
-                      if (result) result.claimBusy = true;
-                      return false;
-                    }
                     const receipt = await readQueuedSubmissionReceipt(
                       tx,
                       threadId,
                       mutation.messageId,
                     );
-                    return (
-                      receipt?.state === "queued" &&
-                      (!receipt.interruptRunId ||
-                        receipt.interruptRunId === mutation.runId)
-                    );
+                    if (
+                      result?.claimLost === true ||
+                      receipt?.state !== "queued" ||
+                      receipt.interruptRunId !== mutation.runId
+                    ) {
+                      if (result) {
+                        result.claimLost = true;
+                        result.claimedMessage = undefined;
+                      }
+                      return false;
+                    }
+                    return true;
                   }
-                : mutation.type === "retryReceipt" ||
-                    mutation.type === "blockReceipt"
-                  ? async () => {
+                : mutation.type === "recordInterruptRun" ||
+                    mutation.type === "clearInterruptRun"
+                  ? async (tx) => {
                       const ownsClaim = receiptMutationOwnsPromotionClaim(
                         receiptClaimMessage,
                         mutation.claimId,
                         Date.now(),
                       );
-                      if (!ownsClaim && result) result.claimBusy = true;
-                      return ownsClaim;
+                      if (!ownsClaim) {
+                        if (result) result.claimBusy = true;
+                        return false;
+                      }
+                      const receipt = await readQueuedSubmissionReceipt(
+                        tx,
+                        threadId,
+                        mutation.messageId,
+                      );
+                      return (
+                        receipt?.state === "queued" &&
+                        (!receipt.interruptRunId ||
+                          receipt.interruptRunId === mutation.runId)
+                      );
                     }
-                  : undefined,
+                  : mutation.type === "retryReceipt" ||
+                      mutation.type === "blockReceipt"
+                    ? async () => {
+                        const ownsClaim = receiptMutationOwnsPromotionClaim(
+                          receiptClaimMessage,
+                          mutation.claimId,
+                          Date.now(),
+                        );
+                        if (!ownsClaim && result) result.claimBusy = true;
+                        return ownsClaim;
+                      }
+                    : undefined,
         afterUpdate: async (tx) => {
           if (!result) return;
           if (

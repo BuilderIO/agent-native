@@ -51,6 +51,7 @@ import {
   AGENT_RUN_MIGRATIONS,
   AGENT_RUN_MIGRATIONS_TABLE,
 } from "./run-migrations.js";
+import { lockThreadRunSlot } from "./run-slot-lock.js";
 import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
@@ -1792,11 +1793,14 @@ export async function tryClaimRunSlot(
     turnInitiator?: AgentTurnInitiator;
     /** The stopped run this run continues in the same turn, and who asked. */
     continueOf?: { runId: string; trigger: ContinueTrigger };
+    /** Defer a fresh turn while an earlier accepted inbox submission is queued. */
+    hasPendingQueuedSubmission?: (tx: DbExec) => Promise<boolean>;
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
+  queuedSubmissionPending?: boolean;
   completedRunId?: string;
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
@@ -1829,10 +1833,7 @@ export async function tryClaimRunSlot(
       });
       if (denied) return { refused: denied } as const;
     }
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${threadId}`],
-    });
+    await lockThreadRunSlot(tx, threadId);
     await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
@@ -1861,7 +1862,6 @@ export async function tryClaimRunSlot(
     if (activeRunId) {
       return { result: { claimed: false, activeRunId } } as const;
     }
-
     if (replayCompletedTurn) {
       const latest = await tx.execute({
         sql: `SELECT id,
@@ -1899,6 +1899,15 @@ export async function tryClaimRunSlot(
           },
         } as const;
       }
+    }
+    if (await options?.hasPendingQueuedSubmission?.(tx)) {
+      return {
+        result: {
+          claimed: false,
+          activeRunId: null,
+          queuedSubmissionPending: true,
+        },
+      } as const;
     }
 
     // Admitted under the thread's slot lock, so two tabs continuing the same
@@ -2772,10 +2781,7 @@ async function reapSingleStaleRun(
     return { reaped: false, projectionFailed: false };
   }
   const reapResult = await client.transaction(async (tx) => {
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${runScope.thread_id}`],
-    });
+    await lockThreadRunSlot(tx, runScope.thread_id as string);
     const lease = await lockTurnExecutionLease(
       tx,
       runScope.thread_id as string,
@@ -3137,10 +3143,7 @@ export async function finalizeClaimedBackgroundRunFailure(
     scope.worker_generation == null ? null : String(scope.worker_generation);
 
   return client.transaction(async (tx) => {
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${scope.thread_id}`],
-    });
+    await lockThreadRunSlot(tx, scope.thread_id as string);
     const lease = await lockTurnExecutionLease(
       tx,
       scope.thread_id as string,
@@ -3563,10 +3566,7 @@ export async function markTurnAborted(
   }
   const runIds: string[] = [];
   const outcome = await client.transaction(async (tx) => {
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${threadId}`],
-    });
+    await lockThreadRunSlot(tx, threadId);
     await lockAndAssertCurrentExecutionFences(tx);
     const lease = await lockTurnExecutionLease(tx, threadId, turnId);
     if (
