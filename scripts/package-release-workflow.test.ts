@@ -464,6 +464,17 @@ importers:
     );
   });
 
+  it("keeps the committed community QR importer synced with its manifest", () => {
+    const templatePackage = JSON.parse(
+      readFileSync("templates/community/qr/package.json", "utf8"),
+    ) as { dependencies?: Record<string, unknown> };
+    const coreSpecifier = templatePackage.dependencies?.["@agent-native/core"];
+    assert(typeof coreSpecifier === "string");
+
+    const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
+    assert.equal(syncCommunityQrCoreLock(lockfile, coreSpecifier), lockfile);
+  });
+
   describe("dev snapshot publishing", () => {
     const devSnapshot = jobs["publish-dev-snapshot"] as Workflow;
 
