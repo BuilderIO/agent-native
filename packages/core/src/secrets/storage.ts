@@ -351,10 +351,31 @@ function invalidateRequestSecret(ref: SecretRef): void {
 }
 
 const _warnedUndecryptableSecrets = new Set<string>();
+const _requestUndecryptableSecretKeys = new WeakMap<object, Set<string>>();
+
+/**
+ * Keys whose stored rows this request couldn't decrypt. Reads treat those rows
+ * as missing; callers that must not fall back to other settings check here.
+ */
+export function undecryptableSecretKeysForRequest(): ReadonlySet<string> {
+  const ctx = getRequestContext();
+  if (!ctx || typeof ctx !== "object") return new Set();
+  return _requestUndecryptableSecretKeys.get(ctx) ?? new Set();
+}
 
 // Reads still report an undecryptable row as missing so credential resolution
-// can fall through to other scopes; the warning keeps the cause visible.
+// can fall through to other scopes; the warning keeps the cause visible, and
+// the request remembers the key for callers that must not fall through.
 function warnUndecryptableSecret(ref: SecretRef): void {
+  const ctx = getRequestContext();
+  if (ctx && typeof ctx === "object") {
+    let keys = _requestUndecryptableSecretKeys.get(ctx);
+    if (!keys) {
+      keys = new Set();
+      _requestUndecryptableSecretKeys.set(ctx, keys);
+    }
+    keys.add(ref.key);
+  }
   const id = secretCacheKey(ref);
   if (_warnedUndecryptableSecrets.has(id)) return;
   _warnedUndecryptableSecrets.add(id);

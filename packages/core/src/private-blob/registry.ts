@@ -451,9 +451,10 @@ function assertValidRange(range: PrivateBlobByteRange): void {
 }
 
 /**
- * Reads part of a blob. Providers that can't read a range natively (and the
- * encrypted public-upload fallback) read the whole blob and slice it. Throws
- * `PrivateBlobRangeError` when the range is malformed or starts past the end.
+ * Reads part of a blob. Providers that can't read a range natively, encrypted
+ * blobs, and the encrypted public-upload fallback load the whole blob and
+ * slice it. Throws `PrivateBlobRangeError` when the range is malformed or
+ * starts past the end.
  */
 export async function readPrivateBlobRange(
   handle: PrivateBlobHandle,

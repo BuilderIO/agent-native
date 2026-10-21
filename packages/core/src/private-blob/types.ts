@@ -78,7 +78,11 @@ export interface PrivateBlobProvider {
   handles?: (request: PrivateBlobPutRequest) => boolean;
   put: (input: PrivateBlobPutInput) => Promise<PrivateBlobHandle>;
   read: (handle: PrivateBlobHandle) => Promise<PrivateBlobReadResult>;
-  /** Reads part of a blob without loading the rest, for media seeking. */
+  /**
+   * Reads part of a blob for media seeking, without loading the rest when
+   * storage allows. Encrypted blobs decrypt only whole, so a range read loads
+   * and decrypts the whole blob, then returns the slice.
+   */
   readRange?: (
     handle: PrivateBlobHandle,
     range: PrivateBlobByteRange,

@@ -8,6 +8,7 @@ import type { PrivateBlobHandle } from "./types.js";
 
 const resolveSecretDetailedMock = vi.hoisted(() => vi.fn());
 const readAppSecretsMock = vi.hoisted(() => vi.fn());
+const undecryptableKeysMock = vi.hoisted(() => vi.fn());
 const s3FetchMock = vi.hoisted(() => vi.fn());
 const isBlockedUrlMock = vi.hoisted(() => vi.fn());
 
@@ -18,6 +19,7 @@ vi.mock("../server/credential-provider.js", () => ({
 }));
 vi.mock("../secrets/storage.js", () => ({
   readAppSecrets: readAppSecretsMock,
+  undecryptableSecretKeysForRequest: undecryptableKeysMock,
 }));
 vi.mock("../extensions/url-safety.js", () => ({
   isBlockedExtensionUrlWithDns: isBlockedUrlMock,
@@ -110,6 +112,8 @@ describe("S3 private blob providers", () => {
     });
     readAppSecretsMock.mockReset();
     readAppSecretsMock.mockResolvedValue(new Map());
+    undecryptableKeysMock.mockReset();
+    undecryptableKeysMock.mockReturnValue(new Set());
     s3FetchMock.mockReset();
     isBlockedUrlMock.mockReset();
     isBlockedUrlMock.mockResolvedValue(false);
@@ -205,6 +209,78 @@ describe("S3 private blob providers", () => {
     );
     expect(url.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
     expect(Date.parse(link!.expiresAt) - Date.now()).toBeGreaterThan(290_000);
+  });
+
+  it("only lets read links open images, video and audio in the browser", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    fakeBucket();
+    useEnvBucket();
+    const linkFor = async (mimeType: string, contentDisposition?: string) => {
+      const handle = await s3PrivateBlobProvider.put({
+        data: new Uint8Array([1]),
+        mimeType,
+      });
+      const link = await s3PrivateBlobProvider.getReadUrl!(handle, {
+        expiresInSeconds: 60,
+        contentDisposition,
+      });
+      return new URL(link!.url).searchParams;
+    };
+
+    expect(
+      (await linkFor("image/png", "inline")).get(
+        "response-content-disposition",
+      ),
+    ).toBe("inline");
+    expect(
+      (await linkFor("video/mp4")).get("response-content-disposition"),
+    ).toBeNull();
+    const html = await linkFor("text/html");
+    expect(html.get("response-content-disposition")).toBe("attachment");
+    expect(html.get("response-content-type")).toBe("text/html");
+    expect(
+      (await linkFor("image/svg+xml", 'inline; filename="logo.svg"')).get(
+        "response-content-disposition",
+      ),
+    ).toBe('attachment; filename="logo.svg"');
+  });
+
+  it("fails instead of using other storage when saved settings can't be decrypted", async () => {
+    const { ensureS3PrivateBlobProviders } = await import("./s3-private.js");
+    const registry = await import("./registry.js");
+    const { requests } = fakeBucket();
+    ensureS3PrivateBlobProviders();
+    defineAppConfig({
+      hostedStorage: {
+        enabled: true,
+        endpoint: "https://hosted.example.test",
+        bucket: "hosted-private",
+        accessKeyId: "hosted-access",
+        secretAccessKey: "hosted-secret",
+        region: "auto",
+      },
+    });
+    // The workspace's saved bucket reads as missing.
+    undecryptableKeysMock.mockReturnValue(new Set(["S3_BUCKET"]));
+
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({
+      kind: "not_configured",
+      message: "Saved storage settings can't be decrypted: S3_BUCKET",
+    });
+    await expect(
+      registry.getPrivateBlobStorageReadinessForRequest(),
+    ).resolves.toEqual({ configured: false, providerId: null });
+
+    // A public URL that can't be decrypted must not store plain bytes in the
+    // deployment's bucket either.
+    useEnvBucket();
+    undecryptableKeysMock.mockReturnValue(new Set(["S3_PUBLIC_BASE_URL"]));
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({ kind: "not_configured" });
+    expect(requests).toHaveLength(0);
   });
 
   it("encrypts blobs and withholds read links when the bucket has a public URL", async () => {

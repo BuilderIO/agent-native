@@ -26,7 +26,10 @@ import {
 } from "../file-upload/s3-client.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import type { SecretScope } from "../secrets/register.js";
-import { readAppSecrets } from "../secrets/storage.js";
+import {
+  readAppSecrets,
+  undecryptableSecretKeysForRequest,
+} from "../secrets/storage.js";
 import {
   prefetchSecrets,
   readDeployCredentialEnv,
@@ -271,12 +274,40 @@ async function resolveBucketScope(): Promise<ResolvedBucket | null> {
 }
 
 /**
+ * A saved storage setting this process can't decrypt (its encryption key
+ * changed, for example) reads as missing. That could send blobs to other
+ * storage, or store them unencrypted in a bucket with a public URL, so the
+ * put fails instead.
+ */
+function assertStorageSettingsDecrypt(): void {
+  const undecryptable = undecryptableSecretKeysForRequest();
+  const key = Object.values(STORAGE_KEYS)
+    .flat()
+    .find((name) => undecryptable.has(name));
+  if (key) {
+    throw new PrivateBlobError(
+      `Saved storage settings can't be decrypted: ${key}`,
+      "not_configured",
+    );
+  }
+}
+
+/**
  * The bucket this request stores new blobs in: the scope that holds its
  * bucket setting (user, org or workspace), else the deployment's env vars
  * when this request may use them.
  */
 async function resolveRequestBucket(): Promise<ResolvedBucket | null> {
   await prefetchSecrets(Object.values(STORAGE_KEYS).flat());
+  const resolved = await resolveSavedOrEnvBucket().catch((error: unknown) => {
+    assertStorageSettingsDecrypt();
+    throw error;
+  });
+  assertStorageSettingsDecrypt();
+  return resolved;
+}
+
+async function resolveSavedOrEnvBucket(): Promise<ResolvedBucket | null> {
   const resolved = await resolveBucketScope();
   if (!resolved || resolved.config.publicBaseUrl) return resolved;
   const publicBaseUrl =
@@ -627,6 +658,39 @@ async function deleteBlob(providerId: string, handle: PrivateBlobHandle) {
   return { deleted: true, provider: providerId };
 }
 
+/** Types a browser can show from the storage origin without running code. */
+const INLINE_IMAGE_TYPES = new Set([
+  "image/avif",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function opensInline(contentType: string | undefined): boolean {
+  const type = contentType?.split(";")[0]?.trim().toLowerCase();
+  if (!type) return false;
+  return (
+    INLINE_IMAGE_TYPES.has(type) ||
+    type.startsWith("video/") ||
+    type.startsWith("audio/")
+  );
+}
+
+/**
+ * The uploader chose the blob's type, so a link for anything a browser could
+ * run (HTML or SVG, for example) downloads instead of opening on the storage
+ * origin. A requested filename is kept.
+ */
+function linkDisposition(
+  contentType: string | undefined,
+  requested: string | undefined,
+): string | undefined {
+  if (opensInline(contentType)) return requested;
+  const params = requested?.match(/;.*$/s)?.[0] ?? "";
+  return `attachment${params}`;
+}
+
 async function readUrlFor(
   handle: PrivateBlobHandle,
   options: Parameters<NonNullable<PrivateBlobProvider["getReadUrl"]>>[1],
@@ -637,13 +701,17 @@ async function readUrlFor(
   // so the app serves those blobs itself.
   if (new URL(descriptor.endpoint).protocol !== "https:") return null;
   const now = new Date();
+  const contentType = options.contentType ?? handle.mimeType;
   const url = await presignS3GetUrl(
     await clientConfigFor(descriptor),
     descriptor.key,
     {
       expiresInSeconds: options.expiresInSeconds,
-      responseContentType: options.contentType ?? handle.mimeType,
-      responseContentDisposition: options.contentDisposition,
+      responseContentType: contentType,
+      responseContentDisposition: linkDisposition(
+        contentType,
+        options.contentDisposition,
+      ),
       responseCacheControl: `private, max-age=${Math.floor(options.expiresInSeconds)}`,
       now,
     },
