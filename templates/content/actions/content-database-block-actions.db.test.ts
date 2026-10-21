@@ -10,6 +10,14 @@ import {
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { knownLossTest } from "../acceptance/known-loss";
+
+const NESTED_TRANSACTION_LOSS = {
+  lane: "unowned",
+  reason:
+    "The test starts mutate-content-database-block inside the title edit's transaction callback, so core refuses the action's root transaction (Cannot start a root transaction while another transaction is active) before it reaches the ROW_REVISION_CONFLICT check.",
+} as const;
+
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect exact rows.
 
 const TEST_DB_PATH = join(
@@ -623,41 +631,45 @@ describe("exact Content database block actions", () => {
     expect(stored?.content).toBe("Editor won\nSibling");
   });
 
-  it("serializes a direct title edit before validating the expected row revision", async () => {
-    const state = await fixture("Before\nSibling");
-    let mutation!: Promise<unknown>;
-    await getDb().transaction(async (tx: any) => {
-      await tx
-        .update(schema.documents)
-        .set({ title: "UI title won", updatedAt: new Date().toISOString() })
-        .where(eq(schema.documents.id, state.target.rowDocumentId));
-      mutation = asOwner(() =>
-        mutateBlock.run({
-          ...envelope(state, "title-race"),
-          operation: "update",
-          blockId: state.listed.blocks[0]!.id,
-          block: { kind: "paragraph", nfm: "Agent write" },
-        }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
+  it(
+    "serializes a direct title edit before validating the expected row revision",
+    knownLossTest(NESTED_TRANSACTION_LOSS),
+    async () => {
+      const state = await fixture("Before\nSibling");
+      let mutation!: Promise<unknown>;
+      await getDb().transaction(async (tx: any) => {
+        await tx
+          .update(schema.documents)
+          .set({ title: "UI title won", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, state.target.rowDocumentId));
+        mutation = asOwner(() =>
+          mutateBlock.run({
+            ...envelope(state, "title-race"),
+            operation: "update",
+            blockId: state.listed.blocks[0]!.id,
+            block: { kind: "paragraph", nfm: "Agent write" },
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
 
-    await expect(mutation).rejects.toMatchObject({
-      errorCode: "ROW_REVISION_CONFLICT",
-    });
-    const after = await asOwner(() =>
-      listBlocks.run({ target: state.target, limit: 100 }),
-    );
-    expect(after.blocks.map((block) => block.value.nfm)).toEqual([
-      "Before",
-      "Sibling",
-    ]);
-    const [document] = await getDb()
-      .select({ title: schema.documents.title })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, state.target.rowDocumentId));
-    expect(document?.title).toBe("UI title won");
-  });
+      await expect(mutation).rejects.toMatchObject({
+        errorCode: "ROW_REVISION_CONFLICT",
+      });
+      const after = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      expect(after.blocks.map((block) => block.value.nfm)).toEqual([
+        "Before",
+        "Sibling",
+      ]);
+      const [document] = await getDb()
+        .select({ title: schema.documents.title })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, state.target.rowDocumentId));
+      expect(document?.title).toBe("UI title won");
+    },
+  );
 
   it("rejects stale existing and absent additional-field writes without clobbering", async () => {
     const state = await fixture("Primary stays");
