@@ -2516,14 +2516,18 @@ function validateStatusReactionLanguage(
     const summaryWordCount = normalizeReplyPhrase(summary)
       .split(" ")
       .filter(Boolean).length;
+    const unfinishedStateTerm = String.raw`(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|require(?:d|s)?|awaiting|waiting)`;
     const openStateSummary = summary.replace(
-      /\b(?:no longer|not|no|never|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b(?:\s*(?:,|and|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|needs?|requires?|awaiting|waiting)\b)*/gi,
+      new RegExp(
+        String.raw`\b(?:no longer|not|no|never|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|does not|do not|did not|can't|cannot|won't|wouldn't|shouldn't|will not|would not|should not|without)\s+(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b(?:\s*(?:,|or)\s*(?:(?:not|never)\s+)?(?:currently\s+|still\s+|yet\s+)?(?:remain(?:s|ing)?\s+)?${unfinishedStateTerm}\b)*`,
+        "gi",
+      ),
       " ",
     );
     if (
       summaryWordCount < 3 ||
       summaryWordCount > 12 ||
-      !/\b(?:open|pending|ongoing|unresolved|broken|unverified|unfinished|incomplete|remaining|not yet|needs?|requires?|awaiting|waiting)\b/i.test(
+      !new RegExp(String.raw`\b(?:not yet|${unfinishedStateTerm})\b`, "i").test(
         openStateSummary,
       ) ||
       !replyContainsPhrase(text, summary) ||
@@ -13863,6 +13867,74 @@ if (args[0] === "--self-test" && args.length === 1) {
         );
       }
     };
+    const unfinishedSummaryDiagnostic =
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence";
+    validateStatusReactionLanguage(
+      "self-test mixed-polarity unfinished scope",
+      "Partially fixed: CSV export is not broken and still needs verification. this was sent from a bot.",
+      [],
+      [],
+      undefined,
+      [
+        {
+          scope: "CSV export",
+          evidence: "CSV export is not broken and still needs verification",
+        },
+      ],
+      "CSV export is not broken and still needs verification",
+    );
+    validateStatusReactionLanguage(
+      "self-test required verification",
+      "In progress: CSV export verification is required. this was sent from a bot.",
+      [],
+      [],
+      undefined,
+      [
+        {
+          scope: "CSV export",
+          evidence: "CSV export verification is required",
+        },
+      ],
+      "CSV export verification is required",
+    );
+    expectStatusLanguageFailure(
+      "negated remain-open wording cannot describe unfinished work",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test negated remain-open scope",
+          "Partially fixed: CSV export does not remain open or pending. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export",
+              evidence: "CSV export review remains pending",
+            },
+          ],
+          "CSV export does not remain open or pending",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
+    expectStatusLanguageFailure(
+      "negated required wording cannot describe unfinished verification",
+      () =>
+        validateStatusReactionLanguage(
+          "self-test negated required scope",
+          "Partially fixed: CSV export verification is not required. this was sent from a bot.",
+          [],
+          [],
+          undefined,
+          [
+            {
+              scope: "CSV export",
+              evidence: "CSV export verification is required",
+            },
+          ],
+          "CSV export verification is not required",
+        ),
+      unfinishedSummaryDiagnostic,
+    );
     expectStatusLanguageFailure(
       "reporter public summary cannot misrepresent its action",
       () =>
