@@ -51,6 +51,8 @@ const READ_METRIC_QUERY = `query AnalyticsMetricResult($environmentId: BigInt!, 
 
 const MAX_POLL_ATTEMPTS = 8;
 const POLL_INTERVAL_MS = 400;
+// dbt reports COMPILED while MetricFlow is still preparing the query.
+const IN_PROGRESS_QUERY_STATUSES = new Set(["COMPILED", "PENDING", "RUNNING"]);
 const MAX_METADATA_PAGES = 10;
 const MAX_METRIC_QUERY_ROWS = 1_000;
 const MAX_METRIC_QUERY_DAYS = 366;
@@ -1648,7 +1650,7 @@ export default defineAction({
             source: "dbt-semantic-layer",
           };
         }
-        if (status !== "PENDING" && status !== "RUNNING") {
+        if (!IN_PROGRESS_QUERY_STATUSES.has(status)) {
           throw new DbtSemanticLayerError(
             "provider_error",
             status
