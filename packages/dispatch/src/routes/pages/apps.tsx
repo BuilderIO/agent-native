@@ -16,6 +16,7 @@ import {
   APP_LIST_GRID_ROW_CLASS,
   AppList,
 } from "../../components/app-list-row";
+import { CommunityAppsSection } from "../../components/community-apps-section";
 import { ConnectedAppCard } from "../../components/connected-app-card";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -346,6 +347,8 @@ function AppsRoute() {
             </section>
           </Collapsible>
         ) : null}
+
+        <CommunityAppsSection />
       </div>
     </DispatchShell>
   );

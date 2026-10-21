@@ -468,8 +468,10 @@ or issue comments.
 
 Use this worktree's branch. Batch fixes with one
 `corepack pnpm ship:push -m "<specific fix>"`; each head reruns CI. Sync
-`origin/main` only for GitHub conflicts; prefer normal merges on shared
-branches. Behind/pending never justify syncing.
+`origin/main` only for GitHub conflicts during review-only work. If the same
+task is already running an explicitly authorized `/ship`, follow that skill's
+safe-sync rule for a confirmed required-check fix on `origin/main`; do not ask
+for another approval. Behind/pending alone never justify syncing.
 
 Use `/ship` for PR ownership, push, and merge checks. Never push to another
 person's PR without explicit authorization for that exact PR in this request.
