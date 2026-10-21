@@ -7,7 +7,10 @@ function stripFrontmatter(markdown: string): string {
 }
 
 function stripFencedCode(markdown: string): string {
-  return markdown.replace(/(?:^|\n)(```|~~~)[\s\S]*?(?:\n\1[ \t]*|$)/g, "\n");
+  return markdown.replace(
+    /(?:^|\n) {0,3}(```|~~~)[\s\S]*?(?:\n {0,3}\1[ \t]*|$)/g,
+    "\n",
+  );
 }
 
 function decodeCommonEntities(text: string): string {
@@ -184,8 +187,11 @@ export function buildDocumentExcerpt({
   }
   const blocks = stripFencedCode(markdown)
     // Headings and dividers stand alone even without blank lines around them.
-    // A `---` right under a line of text underlines a heading, so it stays.
+    // A line of `=` or `-` right under a line of text underlines it as a
+    // heading, so it stays with that line.
     .replace(/^ {0,3}#{1,6}[ \t].*$/gm, "\n$&\n")
+    .replace(/(?<=\S[^\n]*\n) {0,3}(?:=+|-+)[ \t]*$/gm, "$&\n")
+    .replace(/^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/gm, "\n")
     .replace(/(^|\n\n)[ \t]{0,3}(?:[-*_][ \t]*){3,}(?=\n|$)/g, "$1\n")
     .split(/\n{2,}/);
   const paragraphs: string[] = [];

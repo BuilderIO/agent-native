@@ -124,6 +124,27 @@ const flag = true;
     expect(
       buildDocumentExcerpt({ content: "Plan\n---\n\nWhat we ship." }),
     ).toBe("What we ship.");
+    expect(
+      buildDocumentExcerpt({
+        content: "Plan\n---\nWhat we ship.\n\nGoals\n===\nWhat we want.",
+      }),
+    ).toBe("What we ship. What we want.");
+    expect(
+      buildDocumentExcerpt({
+        content: "What we ship.\n***\nWhat could slip.\n_ _ _\nWhat we cut.",
+      }),
+    ).toBe("What we ship. What could slip. What we cut.");
+  });
+
+  it("leaves out code fences indented up to three spaces", () => {
+    const content =
+      "Intro.\n\n   ```ts\n   const hidden = 1;\n   ```\n\nAfter.";
+    expect(buildDocumentExcerpt({ content })).toBe("Intro. After.");
+    expect(
+      buildPublicDocumentDescription({
+        content: "  ~~~\n  const hidden = 1;\n  ~~~\n\nThe real text.",
+      }),
+    ).toBe("The real text.");
   });
 
   it("skips a first paragraph that repeats a title in any script", () => {
