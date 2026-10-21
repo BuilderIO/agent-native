@@ -1504,14 +1504,36 @@ function unfinishedScopeSummaryMatchesRecordedWork(
   const summaryWords = normalizeReplyPhrase(summary)
     .split(" ")
     .filter((word) => !genericWords.has(word));
+  const summaryWordSet = new Set(summaryWords);
   const recordedWords = new Set(
     unfinishedScopes.flatMap(({ scope, evidence }) =>
       normalizeReplyPhrase(`${scope} ${evidence}`).split(" "),
     ),
   );
+  const scopeWords = unfinishedScopes.map(({ scope, evidence }) =>
+    normalizeReplyPhrase(`${scope} ${evidence}`)
+      .split(" ")
+      .filter((word) => !genericWords.has(word)),
+  );
+  const identifiesEveryScope = scopeWords.every((words, index) => {
+    const wordsInOtherScopes = new Set(
+      scopeWords.flatMap((otherWords, otherIndex) =>
+        otherIndex === index ? [] : otherWords,
+      ),
+    );
+    const identifyingWords = words.filter(
+      (word) => !wordsInOtherScopes.has(word),
+    );
+    const requiredWords = identifyingWords.length ? identifyingWords : words;
+    return (
+      requiredWords.length > 0 &&
+      requiredWords.some((word) => summaryWordSet.has(word))
+    );
+  });
   return (
     summaryWords.length > 0 &&
-    summaryWords.every((word) => recordedWords.has(word))
+    summaryWords.every((word) => recordedWords.has(word)) &&
+    identifiesEveryScope
   );
 }
 
@@ -2490,9 +2512,14 @@ function validateStatusReactionLanguage(
     const summaryWordCount = normalizeReplyPhrase(summary)
       .split(" ")
       .filter(Boolean).length;
+    const contradictsOpenState =
+      /\b(?:not|no longer|isn't|aren't|wasn't|weren't)\s+(?:currently\s+|still\s+)?(?:open|pending|ongoing|unresolved|broken|unverified|remaining)\b/i.test(
+        summary,
+      );
     if (
       summaryWordCount < 3 ||
       summaryWordCount > 12 ||
+      contradictsOpenState ||
       !/\b(?:still|remain(?:s|ing)?|ongoing|not yet|unresolved|open)\b/i.test(
         summary,
       ) ||
@@ -11328,15 +11355,43 @@ if (args[0] === "--self-test" && args.length === 1) {
             scope: "paragraph selection behavior",
             evidence: "paragraph selection remains broken",
           },
+          {
+            scope: "toolbar keyboard shortcuts",
+            evidence: "toolbar keyboard shortcuts remain unresolved",
+          },
+        ],
+        statusReply: {
+          ...firstPage.parents[1]!.statusReply!,
+          disposition: "Partially fixed",
+          evidence:
+            "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken; toolbar keyboard shortcuts remain unresolved",
+          unfinishedScopeSummary: "Paragraph selection remains broken",
+          text: "Partially fixed: The start screen works now. Paragraph selection remains broken. Toolbar keyboard shortcuts remain unresolved. :white_check_mark: covers the initial route screen. Open scopes: paragraph selection behavior and toolbar keyboard shortcuts. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+        },
+      }),
+    },
+    {
+      name: "negated open-state wording is rejected",
+      inventory: withSweepOwnedParent({
+        disposition: "Partially fixed",
+        reactionSummary: "eyes (1): USWEEPER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        unfinishedScopes: [
+          {
+            scope: "paragraph selection behavior",
+            evidence: "paragraph selection remains broken",
+          },
         ],
         statusReply: {
           ...firstPage.parents[1]!.statusReply!,
           disposition: "Partially fixed",
           evidence:
             "The initial route screen passed its focused test and the start screen works now; merge pending; paragraph selection remains broken",
-          unfinishedScopeSummary:
-            "Paragraph selection and launch notes remain unresolved",
-          text: "Partially fixed: The start screen works now. Paragraph selection and launch notes remain unresolved. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
+          unfinishedScopeSummary: "Paragraph selection is not open",
+          text: "Partially fixed: The start screen works now. Paragraph selection is not open. :white_check_mark: covers the initial route screen. Open scope: paragraph selection behavior — paragraph selection remains broken. No :ticket: — no named human accepted a separate action. this was sent from a bot.",
         },
       }),
     },
@@ -13283,6 +13338,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "unfinished scope status needs a public remaining-work summary":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "unfinished scope summary must match recorded work":
+      "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
+    "negated open-state wording is rejected":
       "unfinished scopes need a concise unfinishedScopeSummary in the public reply that says the named work remains open and matches recorded scope evidence",
     "reply root is missing from page rows and threadRoots":
       "threadParentTs does not resolve to an in-page root or verified threadRoots entry",
