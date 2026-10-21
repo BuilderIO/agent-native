@@ -22,6 +22,14 @@ describe("set-theme-family action", () => {
     deps.writeAppState.mockResolvedValue(undefined);
   });
 
+  it("declares the preference update as a non-destructive closed-world write", () => {
+    expect(action.mcpAnnotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+  });
+
   it("persists the app-specific user setting and syncs the open app state", async () => {
     const result = await action.run(
       { family: "original" },
