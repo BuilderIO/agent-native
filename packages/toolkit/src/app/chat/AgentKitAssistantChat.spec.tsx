@@ -3275,7 +3275,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     const transcriptLayout = {
       topInset: 5,
       messageLaneWidth: 730,
+      messageLaneOffsetInline: -33,
       messageGap: 12,
+      messageLineHeight: 20,
+      userBubbleLineHeight: 18,
       userBubbleMaxWidth: 600,
       userBubblePadding: { block: 8, inline: 13 },
     };

@@ -4810,7 +4810,10 @@ export interface AgentKitChatProps {
 type AgentKitTranscriptContentStyle = CSSProperties & {
   "--agentkit-transcript-top-inset"?: string;
   "--agentkit-transcript-lane-width"?: string;
+  "--agentkit-transcript-lane-offset-inline"?: string;
   "--agentkit-transcript-message-gap"?: string;
+  "--agentkit-transcript-message-line-height"?: string;
+  "--agentkit-user-bubble-line-height"?: string;
   "--agentkit-user-bubble-max-width"?: string;
   "--agentkit-user-bubble-padding-block"?: string;
   "--agentkit-user-bubble-padding-inline"?: string;
@@ -4822,6 +4825,14 @@ function transcriptLength(value: number | undefined, name: string) {
     throw new RangeError(
       `transcriptLayout.${name} must be a non-negative number`,
     );
+  }
+  return `${value}px`;
+}
+
+function transcriptOffset(value: number | undefined, name: string) {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`transcriptLayout.${name} must be a finite number`);
   }
   return `${value}px`;
 }
@@ -4839,9 +4850,21 @@ function transcriptContentStyle(
       layout.messageLaneWidth,
       "messageLaneWidth",
     ),
+    "--agentkit-transcript-lane-offset-inline": transcriptOffset(
+      layout.messageLaneOffsetInline,
+      "messageLaneOffsetInline",
+    ),
     "--agentkit-transcript-message-gap": transcriptLength(
       layout.messageGap,
       "messageGap",
+    ),
+    "--agentkit-transcript-message-line-height": transcriptLength(
+      layout.messageLineHeight,
+      "messageLineHeight",
+    ),
+    "--agentkit-user-bubble-line-height": transcriptLength(
+      layout.userBubbleLineHeight,
+      "userBubbleLineHeight",
     ),
     "--agentkit-user-bubble-max-width": transcriptLength(
       layout.userBubbleMaxWidth,

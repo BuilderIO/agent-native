@@ -669,10 +669,16 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 }
 
 .agentkit-transcript-content {
+  position: relative;
   box-sizing: border-box;
   inline-size: min(100%, var(--agentkit-transcript-lane-width, 47rem));
   min-inline-size: 0;
   margin-inline: auto;
+  inset-inline-start: clamp(
+    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / -2),
+    var(--agentkit-transcript-lane-offset-inline, 0px),
+    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / 2)
+  );
   padding: 1.5rem 1rem;
   padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
 }
@@ -714,11 +720,15 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);
   font-size: 0.875rem;
   font-family: var(--font-sans, inherit);
-  line-height: 1.52;
+  line-height: var(--agentkit-transcript-message-line-height, 1.52);
 }
 
 .agentkit-message[data-role="user"] {
   align-items: flex-end;
+  line-height: var(
+    --agentkit-user-bubble-line-height,
+    var(--agentkit-transcript-message-line-height, 1.52)
+  );
 }
 
 .agentkit-message-content {

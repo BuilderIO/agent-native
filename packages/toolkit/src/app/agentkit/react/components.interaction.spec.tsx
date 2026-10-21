@@ -262,7 +262,10 @@ describe("AgentKitChat interactions", () => {
               transcriptLayout={{
                 topInset: 5,
                 messageLaneWidth: 730,
+                messageLaneOffsetInline: -33,
                 messageGap: 12,
+                messageLineHeight: 20,
+                userBubbleLineHeight: 18,
                 userBubbleMaxWidth: 600,
                 userBubblePadding: { block: 8, inline: 13 },
               }}
@@ -287,8 +290,23 @@ describe("AgentKitChat interactions", () => {
         transcript!.style.getPropertyValue("--agentkit-transcript-lane-width"),
       ).toBe("730px");
       expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-transcript-lane-offset-inline",
+        ),
+      ).toBe("-33px");
+      expect(
         transcript!.style.getPropertyValue("--agentkit-transcript-message-gap"),
       ).toBe("12px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-transcript-message-line-height",
+        ),
+      ).toBe("20px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-line-height",
+        ),
+      ).toBe("18px");
       expect(
         transcript!.style.getPropertyValue("--agentkit-user-bubble-max-width"),
       ).toBe("600px");
