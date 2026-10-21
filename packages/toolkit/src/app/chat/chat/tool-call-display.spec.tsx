@@ -2807,10 +2807,21 @@ describe("WorkedForSummary", () => {
     const button = container.querySelector("button[aria-expanded]");
     expect(button?.children[0]?.tagName.toLowerCase()).toBe("svg");
     expect(button?.children[1]?.textContent).toBe("Worked for 5s");
-    expect(button?.className.split(/\s+/)).toContain("gap-1");
-    expect(button?.className).toContain("p-3");
-    expect(button?.className).toContain("text-start");
-    expect(button?.className).not.toContain("text-left");
+    const buttonClasses = button?.className.split(/\s+/) ?? [];
+    expect(buttonClasses).toContain("gap-1");
+    expect(buttonClasses).toContain("p-3");
+    expect(buttonClasses).toContain("text-start");
+    expect(buttonClasses).not.toContain("text-left");
+    const chevron = button?.children[0];
+    expect(chevron?.getAttribute("class")?.split(/\s+/)).toContain(
+      "rtl:-scale-x-100",
+    );
+
+    act(() => button?.click());
+
+    expect(chevron?.getAttribute("class")?.split(/\s+/)).toContain(
+      "rtl:-rotate-90",
+    );
   });
 
   it("applies the running shimmer while the work summary is live", () => {

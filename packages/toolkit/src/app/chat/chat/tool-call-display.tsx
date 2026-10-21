@@ -1860,8 +1860,8 @@ export function WorkedForSummary({
         <IconChevronRight
           aria-hidden="true"
           className={cn(
-            "size-4 shrink-0 transition-transform",
-            open && "rotate-90",
+            "size-4 shrink-0 transition-transform rtl:-scale-x-100",
+            open && "rotate-90 rtl:-rotate-90",
           )}
         />
         <span className={cn(isRunning && "agent-running-shimmer")}>
