@@ -45,6 +45,7 @@ import {
   useCreateGitHubCollection,
   useGitHubConnection,
   useLinkGitHubFolder,
+  useRefreshAfterGitHubFolder,
   type GitHubFolderSyncSummary,
 } from "@/hooks/use-github-folder";
 import { documentQueryFilter } from "@/lib/document-query";
@@ -470,6 +471,7 @@ export function GitHubLinkDialog({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const updateDocument = useUpdateDocument();
+  const refreshAfterGitHubFolder = useRefreshAfterGitHubFolder();
   const linkFolder = useLinkGitHubFolder();
   const createCollection = useCreateGitHubCollection();
   const connection = useGitHubConnection(open);
@@ -623,9 +625,12 @@ export function GitHubLinkDialog({
     if (title === undefined) return;
     if (title !== "" && title !== t("editor.untitledDatabase")) return;
     // The link already worked; a name that didn't save is only cosmetic.
+    // Renaming cancels reads in flight, the link's refresh among them, so the
+    // rows refresh again once it settles.
     updateDocument
       .mutateAsync({ id: documentId, title: folder })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => refreshAfterGitHubFolder("link-github-folder"));
   }
 
   function connectGitHub() {

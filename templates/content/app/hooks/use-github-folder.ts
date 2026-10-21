@@ -93,24 +93,33 @@ export interface SyncGitHubFolderResponse {
 /**
  * Linking or syncing a folder changes rows, Page lists and Trash. Other tabs
  * refresh from the action's change event, but a tab ignores its own events,
- * so this tab refreshes the same queries that event would. It does so after a
- * failure too: a link can be saved before its first sync fails.
+ * so this tab refreshes the same queries that event would.
+ */
+export function useRefreshAfterGitHubFolder() {
+  const queryClient = useQueryClient();
+  const { pathname } = useLocation();
+  return (actionName: GitHubFolderAction) => {
+    const spoiled = contentSyncInvalidatePredicate(queryClient, pathname);
+    const events = [{ source: "action", key: actionName }];
+    void queryClient.invalidateQueries({
+      predicate: (query) => spoiled(query, events),
+    });
+  };
+}
+
+/**
+ * Refreshes this tab after a folder action that changes rows, after a failure
+ * too: a link can be saved before its first sync fails.
  */
 function useGitHubFolderMutation<TData, TVariables>(
   actionName: GitHubFolderAction,
   changesRows: (variables: TVariables) => boolean,
 ) {
-  const queryClient = useQueryClient();
-  const { pathname } = useLocation();
+  const refresh = useRefreshAfterGitHubFolder();
   return useActionMutation<TData, TVariables>(actionName, {
     skipActionQueryInvalidation: true,
     onSettled: (_data, _error, variables) => {
-      if (!changesRows(variables as TVariables)) return;
-      const spoiled = contentSyncInvalidatePredicate(queryClient, pathname);
-      const events = [{ source: "action", key: actionName }];
-      void queryClient.invalidateQueries({
-        predicate: (query) => spoiled(query, events),
-      });
+      if (changesRows(variables as TVariables)) refresh(actionName);
     },
   });
 }

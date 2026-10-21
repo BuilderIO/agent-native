@@ -46,6 +46,7 @@ const toasts = vi.hoisted(() => ({
 }));
 const oauth = vi.hoisted(() => ({ start: vi.fn() }));
 const navigate = vi.hoisted(() => vi.fn());
+const refreshes = vi.hoisted(() => ({ refresh: vi.fn() }));
 const renames = vi.hoisted(() => ({
   rename: vi.fn((_args: { id: string; title: string }) => Promise.resolve({})),
 }));
@@ -79,6 +80,7 @@ vi.mock("@/hooks/use-github-folder", () => {
     useLinkGitHubFolder: () => mutation(calls.link),
     useCreateGitHubCollection: () => mutation(calls.create),
     useGitHubConnection: () => connection,
+    useRefreshAfterGitHubFolder: () => refreshes.refresh,
   };
 });
 vi.mock("sonner", () => ({ toast: toasts.toast }));
@@ -237,6 +239,7 @@ describe("GitHub link dialog", () => {
     oauth.start.mockReset();
     navigate.mockReset();
     renames.rename.mockClear();
+    refreshes.refresh.mockClear();
     toasts.toast.success.mockReset();
     toasts.toast.error.mockReset();
   });
@@ -439,6 +442,10 @@ describe("GitHub link dialog", () => {
       } satisfies LinkGitHubFolderResponse);
       expect(renames.rename.mock.calls).toEqual(
         renamed ? [[{ id: "doc-1", title: "docs" }]] : [],
+      );
+      // A rename cancels the link's refresh, so the rows refresh after it.
+      expect(refreshes.refresh.mock.calls).toEqual(
+        renamed ? [["link-github-folder"]] : [],
       );
     },
   );
