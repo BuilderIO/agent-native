@@ -1,4 +1,7 @@
-import type { ZoomSnapshotRead } from "./_runtime-budget-zoom-snapshot";
+import type {
+  ZoomFailureCause,
+  ZoomSnapshotRead,
+} from "./_runtime-budget-zoom-snapshot";
 import {
   measureRuntimeZoom,
   readZoomUntilAvailable,
@@ -6,11 +9,24 @@ import {
 
 type Phase = "baseline" | "apply" | "settle";
 type SnapshotError = Extract<ZoomSnapshotRead, { status: "error" }>;
+type CleanupOutcome =
+  | { status: "not-requested" | "pending" | "completed" }
+  | { status: "failed"; cause: ZoomFailureCause };
 
 type AttemptError =
   | { phase: Phase; reason: "snapshot-error"; snapshotError: SnapshotError }
-  | { phase: Phase; reason: "deadline-exceeded" }
-  | { phase: Phase; reason: "attempt-failed"; message: string };
+  | {
+      phase: Phase;
+      reason: "deadline-exceeded" | "operation-timeout";
+      cause?: ZoomFailureCause;
+      snapshotError?: SnapshotError;
+    }
+  | {
+      phase: Phase;
+      reason: "attempt-failed";
+      message: string;
+      cause: ZoomFailureCause;
+    };
 
 export type RuntimeZoomAttempt = {
   target: number;
@@ -21,6 +37,8 @@ export type RuntimeZoomAttempt = {
   elapsedMs: number;
   arrived: boolean;
   error: AttemptError | null;
+  cleanup: CleanupOutcome;
+  readCleanup: CleanupOutcome[];
 };
 
 class SnapshotReadError extends Error {
@@ -36,11 +54,15 @@ function availableSnapshot(read: ZoomSnapshotRead | null) {
 export async function runRuntimeZoomAttempt(
   target: number,
   io: {
-    read: (deadline: number) => Promise<ZoomSnapshotRead>;
+    read: (
+      deadline: number,
+      trackCleanup: (run: () => Promise<unknown>) => void,
+    ) => Promise<ZoomSnapshotRead>;
     apply: (deadline: number) => Promise<void>;
     wait: (milliseconds: number) => Promise<unknown>;
     cleanup: () => Promise<unknown>;
     now?: () => number;
+    isTimeout?: (cause: unknown) => boolean;
   },
 ): Promise<RuntimeZoomAttempt> {
   const now = io.now ?? Date.now;
@@ -51,6 +73,13 @@ export async function runRuntimeZoomAttempt(
   let final: ZoomSnapshotRead | null = null;
   let arrived = false;
   let error: AttemptError | null = null;
+  let cleanupOutcome: CleanupOutcome = { status: "not-requested" };
+  const readCleanup: CleanupOutcome[] = [];
+  const describeCause = (cause: unknown): ZoomFailureCause => ({
+    type: io.isTimeout?.(cause) ? "timeout" : "error",
+    name: cause instanceof Error ? cause.name : typeof cause,
+    message: String(cause),
+  });
   const observation: {
     pending: "baseline" | "settle" | null;
     closed: boolean;
@@ -58,16 +87,52 @@ export async function runRuntimeZoomAttempt(
     pending: null,
     closed: false,
   };
+  const trackCleanup = (
+    run: () => Promise<unknown>,
+    update: (outcome: CleanupOutcome) => void,
+  ) => {
+    const publish = (outcome: CleanupOutcome) => {
+      if (!observation.closed) update(outcome);
+    };
+    publish({ status: "pending" });
+    // Failed operations must remain observable even if resource cleanup stalls.
+    try {
+      void run().then(
+        () => {
+          publish({ status: "completed" });
+        },
+        (cause) => {
+          publish({ status: "failed", cause: describeCause(cause) });
+        },
+      );
+    } catch (cause) {
+      publish({ status: "failed", cause: describeCause(cause) });
+    }
+  };
+  const cleanup = async () =>
+    trackCleanup(io.cleanup, (outcome) => {
+      cleanupOutcome = outcome;
+    });
   const read = async (stage: "baseline" | "settle") => {
     observation.pending = stage;
     let result: ZoomSnapshotRead;
     try {
-      result = await io.read(deadline);
+      result = await io.read(deadline, (run) => {
+        const index = readCleanup.length;
+        trackCleanup(run, (outcome) => {
+          readCleanup[index] = outcome;
+        });
+      });
     } catch (cause) {
+      const detail = describeCause(cause);
       result = {
         status: "error",
-        reason: "snapshot-read-failed",
-        message: String(cause),
+        reason:
+          detail.type === "timeout"
+            ? "snapshot-read-timed-out"
+            : "snapshot-read-failed",
+        message: detail.message,
+        cause: detail,
       };
     }
     if (observation.closed) return null;
@@ -85,7 +150,7 @@ export async function runRuntimeZoomAttempt(
       },
       io.wait,
       deadline,
-      io.cleanup,
+      cleanup,
       now,
     );
     if (baseline === null) error = { phase, reason: "deadline-exceeded" };
@@ -105,7 +170,7 @@ export async function runRuntimeZoomAttempt(
           },
           io.wait,
           deadline,
-          io.cleanup,
+          cleanup,
           now,
         );
         arrived = actual !== null;
@@ -113,10 +178,26 @@ export async function runRuntimeZoomAttempt(
       }
     }
   } catch (cause) {
-    error =
-      cause instanceof SnapshotReadError
-        ? { phase, reason: "snapshot-error", snapshotError: cause.failure }
-        : { phase, reason: "attempt-failed", message: String(cause) };
+    const snapshotError =
+      cause instanceof SnapshotReadError ? cause.failure : undefined;
+    const detail = snapshotError?.cause ?? describeCause(cause);
+    if (detail.type === "timeout") {
+      error = {
+        phase,
+        reason: now() >= deadline ? "deadline-exceeded" : "operation-timeout",
+        cause: detail,
+        ...(snapshotError ? { snapshotError } : {}),
+      };
+    } else if (snapshotError) {
+      error = { phase, reason: "snapshot-error", snapshotError };
+    } else {
+      error = {
+        phase,
+        reason: "attempt-failed",
+        message: detail.message,
+        cause: detail,
+      };
+    }
   }
   // Cleanup need not settle the browser promise; its eventual outcome is unknown.
   if (observation.pending !== null) {
@@ -137,5 +218,7 @@ export async function runRuntimeZoomAttempt(
     elapsedMs: now() - startedAt,
     arrived,
     error,
+    cleanup: cleanupOutcome,
+    readCleanup,
   };
 }

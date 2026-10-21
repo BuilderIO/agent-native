@@ -1,3 +1,4 @@
+import { errors } from "@playwright/test";
 import { describe, expect, it, vi } from "vitest";
 
 import { runRuntimeZoomAttempt } from "./_runtime-budget-zoom-attempt";
@@ -49,6 +50,7 @@ describe("runtime zoom attempt diagnostics", () => {
       }),
       cleanup: vi.fn(async () => {}),
       now: () => clock,
+      isTimeout: (cause: unknown) => cause instanceof errors.TimeoutError,
       advance: (ms: number) => {
         clock += ms;
       },
@@ -88,6 +90,11 @@ describe("runtime zoom attempt diagnostics", () => {
       status: "error",
       reason: "snapshot-read-failed",
       message: "Error: CDP read rejected",
+      cause: {
+        type: "error",
+        name: "Error",
+        message: "Error: CDP read rejected",
+      },
     };
     expect(result.arrived).toBe(false);
     expect(artifact.zoomMeasurements[0].before.status).toBe("available");
@@ -204,7 +211,90 @@ describe("runtime zoom attempt diagnostics", () => {
       phase: "apply",
       reason: "attempt-failed",
       message: "Error: zoom input detached",
+      cause: {
+        type: "error",
+        name: "Error",
+        message: "Error: zoom input detached",
+      },
     });
+  });
+
+  it.each([9_999, 10_000, 10_001])(
+    "classifies a real apply TimeoutError at %i ms with its cause",
+    async (elapsed) => {
+      const ports = io(async () => ({
+        status: "available",
+        snapshot: snapshot(),
+      }));
+      ports.apply.mockImplementationOnce(async () => {
+        ports.advance(elapsed);
+        throw new errors.TimeoutError("zoom input timed out");
+      });
+      const result = await runRuntimeZoomAttempt(60, ports);
+      expect(result.error).toEqual({
+        phase: "apply",
+        reason: elapsed >= 10_000 ? "deadline-exceeded" : "operation-timeout",
+        cause: {
+          type: "timeout",
+          name: "TimeoutError",
+          message: "TimeoutError: zoom input timed out",
+        },
+      });
+      expect(result.final).toBeNull();
+      expect(result.arrived).toBe(false);
+      expect(ports.read).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([0, 10_000, 10_001])(
+    "keeps an unrelated apply rejection at %i ms distinct from a timeout",
+    async (elapsed) => {
+      const ports = io(async () => ({
+        status: "available",
+        snapshot: snapshot(),
+      }));
+      ports.apply.mockImplementationOnce(async () => {
+        ports.advance(elapsed);
+        throw new Error("target closed");
+      });
+      const result = await runRuntimeZoomAttempt(60, ports);
+      expect(result.error).toEqual({
+        phase: "apply",
+        reason: "attempt-failed",
+        message: "Error: target closed",
+        cause: {
+          type: "error",
+          name: "Error",
+          message: "Error: target closed",
+        },
+      });
+      expect(result.final).toBeNull();
+      expect(result.arrived).toBe(false);
+      expect(ports.read).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("preserves a known read timeout at the deadline as a typed baseline deadline with its cause", async () => {
+    const ports = io(async () => {
+      ports.advance(10_000);
+      throw new errors.TimeoutError("toolbar lookup timed out");
+    });
+    const result = await runRuntimeZoomAttempt(60, ports);
+    expect(result.error).toMatchObject({
+      phase: "baseline",
+      reason: "deadline-exceeded",
+      cause: {
+        type: "timeout",
+        name: "TimeoutError",
+        message: "TimeoutError: toolbar lookup timed out",
+      },
+    });
+    expect(result.before).toMatchObject({
+      status: "error",
+      reason: "snapshot-read-timed-out",
+    });
+    expect(ports.apply).not.toHaveBeenCalled();
+    expect(result.arrived).toBe(false);
   });
 
   it.each([10_000, 10_001])(
@@ -280,6 +370,11 @@ describe("runtime zoom attempt diagnostics", () => {
       phase: "apply",
       reason: "attempt-failed",
       message: "Error: late apply rejection",
+      cause: {
+        type: "error",
+        name: "Error",
+        message: "Error: late apply rejection",
+      },
     });
     expect(result.final).toBeNull();
     expect(result.elapsedMs).toBe(10_001);
@@ -323,6 +418,11 @@ describe("runtime zoom attempt diagnostics", () => {
         status: "error",
         reason: "snapshot-read-failed",
         message: "Error: read terminated at deadline",
+        cause: {
+          type: "error",
+          name: "Error",
+          message: "Error: read terminated at deadline",
+        },
       });
       expect(cleanup).toHaveBeenCalledOnce();
     } finally {

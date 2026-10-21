@@ -11,8 +11,7 @@ import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
 import { OVERVIEW_FRAME_WIDTH } from "../app/components/design/multi-screen/overview-layout.ts";
 import { DEVICE_FRAME_VIEWPORTS } from "../app/components/design/types.ts";
-import { runRuntimeZoomAttempt } from "./_runtime-budget-zoom-attempt.ts";
-import { readRuntimeZoomSnapshot } from "./_runtime-budget-zoom-snapshot.ts";
+import { runRuntimeZoomBrowserAttempt } from "./_runtime-budget-zoom-browser.ts";
 
 type BudgetFile = {
   copies: number;
@@ -371,42 +370,21 @@ function worstFrameSince(since: number) {
   );
 }
 
-const zoomMeasurements: Awaited<ReturnType<typeof runRuntimeZoomAttempt>>[] =
-  [];
+const zoomMeasurements: Awaited<
+  ReturnType<typeof runRuntimeZoomBrowserAttempt>
+>[] = [];
 async function zoomTo(target: number): Promise<boolean> {
   // This benchmark measures camera-driven rendering and preview churn; wheel
   // forwarding is covered by interaction-pan-zoom-mouse.spec.ts.
-  const readout = page.getByRole("button", { name: /^\d+%$/ }).first();
-  const measurement = await runRuntimeZoomAttempt(target, {
-    read: async (deadline) => {
-      const handle = await readout.elementHandle({
-        timeout: Math.max(1, deadline - Date.now()),
-      });
-      try {
-        return await page.evaluate(readRuntimeZoomSnapshot, {
-          readout: handle,
-          defaultFrameWidth: OVERVIEW_FRAME_WIDTH,
-          defaultSourceWidth: 1280,
-          deviceWidths: Object.fromEntries(
-            Object.entries(DEVICE_FRAME_VIEWPORTS).map(([name, size]) => [
-              name,
-              size.width,
-            ]),
-          ),
-        });
-      } finally {
-        await handle?.dispose();
-      }
-    },
-    apply: async (deadline) => {
-      const remainingTimeout = () => Math.max(1, deadline - Date.now());
-      await readout.click({ timeout: remainingTimeout() });
-      const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
-      await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
-      await zoomInput.press("Enter", { timeout: remainingTimeout() });
-    },
-    wait: (ms) => page.waitForTimeout(ms),
-    cleanup: () => cdp.send("Runtime.terminateExecution"),
+  const measurement = await runRuntimeZoomBrowserAttempt(target, page, cdp, {
+    defaultFrameWidth: OVERVIEW_FRAME_WIDTH,
+    defaultSourceWidth: 1280,
+    deviceWidths: Object.fromEntries(
+      Object.entries(DEVICE_FRAME_VIEWPORTS).map(([name, size]) => [
+        name,
+        size.width,
+      ]),
+    ),
   });
   zoomMeasurements.push(measurement);
   if (!measurement.arrived)

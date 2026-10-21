@@ -26,12 +26,20 @@ export type FiberPathFailure = {
     | "canvas-props-missing";
 };
 
+export type ZoomFailureCause = {
+  type: "timeout" | "error";
+  name: string;
+  message: string;
+};
+
 export type ZoomSnapshotRead =
   | { status: "available"; snapshot: ZoomSnapshot }
   | {
       status: "unavailable";
       reason:
         | "world-absent"
+        | "toolbar-absent"
+        | "attempt-deadline-exceeded"
         | "active-screen-unresolved"
         | "camera-transform-absent";
       activeId?: string | null;
@@ -47,6 +55,7 @@ export type ZoomSnapshotRead =
         | "snapshot-read-timed-out"
         | "snapshot-read-failed";
       message?: string;
+      cause?: ZoomFailureCause;
       paths?: FiberPathFailure[];
       candidateCount?: number;
       transform?: string;
@@ -62,7 +71,7 @@ type Fiber = {
 };
 
 export type ZoomSnapshotConfig = {
-  readout: Element | null;
+  readout: Node | null;
   defaultFrameWidth: number;
   defaultSourceWidth: number;
   deviceWidths: Record<string, number>;
