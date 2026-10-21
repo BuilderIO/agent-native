@@ -1,6 +1,7 @@
 import { writeSync } from "node:fs";
 
 import postgres from "postgres";
+import { z } from "zod";
 
 import {
   ensureChatThreadTables,
@@ -12,7 +13,9 @@ import {
 } from "../chat-threads/store.js";
 import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
+import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import type { ActionEntry } from "./production-agent.js";
 import { abortRunAtSafeBoundaryDurably } from "./run-manager.js";
 import {
   beginAgentExecutionStep,
@@ -187,6 +190,178 @@ async function main(): Promise<void> {
             aborted,
             processId: process.pid,
             databaseBackendPid,
+          }),
+        );
+        return;
+      }
+
+      if (
+        mode === "production-loop-crash" ||
+        mode === "production-loop-resume"
+      ) {
+        const { runAgentLoop } = await import("./production-agent.js");
+        const input = JSON.parse(extra ?? "null") as {
+          replayPolicy: "never" | "retry-safe";
+          providerCallId: string;
+          phase?: "before-effect" | "after-effect" | "after-receipt";
+        };
+        if (
+          !input ||
+          !["never", "retry-safe"].includes(input.replayPolicy) ||
+          !input.providerCallId
+        ) {
+          throw new Error("Production loop worker options are invalid");
+        }
+        if (mode === "production-loop-crash") {
+          await insertRun(runId, threadId, turnId, {
+            dispatchMode: "background",
+            dispatchPayload: JSON.stringify({
+              threadId,
+              turnId,
+              prompt: `Apply effect ${stepId}`,
+            }),
+          });
+        }
+        const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+        const events: unknown[] = [];
+        let seq = 0;
+        let modelCall = 0;
+        const actionName = "test-external-effect";
+        const effectAction: ActionEntry = {
+          tool: {
+            description: "Record a test effect.",
+            parameters: {
+              type: "object",
+              properties: { effectId: { type: "string" } },
+              required: ["effectId"],
+            },
+          },
+          schema: z.object({ effectId: z.string() }),
+          retrySafe: input.replayPolicy === "retry-safe",
+          run: async ({ effectId }: { effectId: string }) => {
+            if (
+              mode === "production-loop-crash" &&
+              input.phase === "before-effect"
+            ) {
+              writeSync(
+                1,
+                `${JSON.stringify({ ready: true, stage: "before-effect", fence })}\n`,
+              );
+              await waitForContinue();
+            }
+            await sql`
+              INSERT INTO agent_harness_test_effects (effect_id, effect_count)
+              VALUES (${effectId}, 1)
+              ON CONFLICT (effect_id) DO UPDATE SET
+                effect_count = agent_harness_test_effects.effect_count + 1
+            `;
+            if (
+              mode === "production-loop-crash" &&
+              input.phase === "after-effect"
+            ) {
+              writeSync(
+                1,
+                `${JSON.stringify({ ready: true, stage: "after-effect", fence })}\n`,
+              );
+              await waitForContinue();
+            }
+            return `Recorded effect ${effectId}`;
+          },
+        };
+        const engine: AgentEngine = {
+          name: "fencing-test",
+          label: "Fencing test",
+          defaultModel: "fencing-test-model",
+          supportedModels: ["fencing-test-model"],
+          capabilities: {
+            thinking: false,
+            promptCaching: false,
+            vision: false,
+            computerUse: false,
+            parallelToolCalls: false,
+          },
+          async *stream(): AsyncIterable<EngineEvent> {
+            if (modelCall++ === 0) {
+              yield {
+                type: "assistant-content",
+                parts: [
+                  {
+                    type: "tool-call",
+                    id: input.providerCallId,
+                    name: actionName,
+                    input: { effectId: stepId },
+                  },
+                ],
+              };
+              yield { type: "stop", reason: "tool_use" };
+              return;
+            }
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Effect handling finished." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          },
+        };
+        await withExecutionFence(fence, () =>
+          runAgentLoop({
+            engine,
+            model: engine.defaultModel,
+            systemPrompt: "system",
+            tools: [
+              {
+                name: actionName,
+                description: effectAction.tool.description,
+                inputSchema: {
+                  type: "object",
+                  properties: { effectId: { type: "string" } },
+                  required: ["effectId"],
+                },
+              },
+            ],
+            messages: [
+              {
+                role: "user",
+                content: [{ type: "text", text: `Apply effect ${stepId}` }],
+              },
+            ],
+            actions: { [actionName]: effectAction },
+            threadId,
+            turnId,
+            runId,
+            recoverCompletedExecutionSteps: true,
+            send: async (event) => {
+              if (
+                mode === "production-loop-crash" &&
+                input.phase === "after-receipt" &&
+                event.type === "tool_done"
+              ) {
+                writeSync(
+                  1,
+                  `${JSON.stringify({ ready: true, stage: "after-receipt", fence })}\n`,
+                );
+                await waitForContinue();
+              }
+              events.push(event);
+              await insertRunEvent(runId, seq++, JSON.stringify(event), {
+                requireInserted: true,
+              });
+            },
+            signal: new AbortController().signal,
+          }),
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            status: "completed",
+            fence,
+            providerCallId: input.providerCallId,
+            toolDone: events.find(
+              (event) =>
+                event &&
+                typeof event === "object" &&
+                (event as { type?: unknown }).type === "tool_done",
+            ),
           }),
         );
         return;
