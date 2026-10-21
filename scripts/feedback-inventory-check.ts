@@ -1442,7 +1442,7 @@ function hasPublicEvidenceSummary(
   return (
     summaryWordCount >= 2 &&
     summaryWordCount <= 12 &&
-    scopedProofs.some(({ scope, verification }) =>
+    scopedProofs.every(({ scope, verification }) =>
       verification
         .split(/[.;!?\n]+/)
         .some(
@@ -13186,6 +13186,20 @@ if (args[0] === "--self-test" && args.length === 1) {
     }
     return inventory;
   };
+  const withTwoFixedScopeStatusUpdates = (
+    updates: Partial<StatusReply>,
+    verifications: [string, string],
+  ): Inventory => {
+    const inventory = withFixedScopeStatusUpdates(updates, verifications[0]);
+    const parent = inventory.channels[0]!.pages[0]!.parents.find(
+      (candidate) => candidate.ts === "10.000000",
+    )!;
+    parent.fixedScopes = [
+      { scope: "initial route screen", verification: verifications[0] },
+      { scope: "account creation", verification: verifications[1] },
+    ];
+    return inventory;
+  };
   try {
     const validNarrowScopeSummary = validateTestInventory(valid);
     if (
@@ -17084,6 +17098,42 @@ if (args[0] === "--self-test" && args.length === 1) {
         ),
       fixedScopeSummaryDiagnostic,
     );
+    const twoScopeSummary = "Both flows work now";
+    const twoScopeStatusText = `Fixed: ${twoScopeSummary}. :white_check_mark: covers the initial route screen and account creation. No :ticket: — no separate human-owned action remains. this was sent from a bot.`;
+    const twoScopeVerifications = [
+      `The initial route screen passed its focused test and ${twoScopeSummary}`,
+      "Account creation passed its focused test",
+    ] as const;
+    const twoScopeEvidence = twoScopeVerifications.join("; ");
+    expectFocusedFailure(
+      "two fixed scopes when the public summary proves only one",
+      () =>
+        validateTestInventory(
+          withTwoFixedScopeStatusUpdates(
+            {
+              evidence: twoScopeEvidence,
+              publicEvidenceSummary: twoScopeSummary,
+              text: twoScopeStatusText,
+            },
+            [...twoScopeVerifications],
+          ),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    const twoScopeVerificationsWithSummary = [
+      twoScopeVerifications[0],
+      `Account creation passed its focused test and ${twoScopeSummary}`,
+    ] as const;
+    validateTestInventory(
+      withTwoFixedScopeStatusUpdates(
+        {
+          evidence: twoScopeVerificationsWithSummary.join("; "),
+          publicEvidenceSummary: twoScopeSummary,
+          text: twoScopeStatusText,
+        },
+        [...twoScopeVerificationsWithSummary],
+      ),
+    );
     const verboseFixedScopeSummary =
       "The initial route screen now works across every tab after the focused end to end browser verification finished successfully";
     const verboseFixedScopeVerification = `The initial route screen passed a focused test and ${verboseFixedScopeSummary}`;
@@ -18483,7 +18533,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 29} negative cases; 36 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 30} negative cases; 37 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

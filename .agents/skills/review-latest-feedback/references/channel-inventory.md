@@ -375,9 +375,9 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   reconciling it.
   Record each verified `fixedScopes` entry with its proof. For a status with
   fixed scopes, also set `statusReply.publicEvidenceSummary` to a brief,
-  plain-language phrase (2–12 words) that can appear in the public reply. Put
-  the exact scope and summary together in one sentence of that scope's
-  `verification`, and include the summary in both `statusReply.evidence` and
+  plain-language phrase (2–12 words) that can appear in the public reply. For
+  every fixed scope, put that scope and the summary together in one sentence of
+  its `verification`. Include the summary in both `statusReply.evidence` and
   the captured `statusReply.text`; keep detailed proof in the ledger. The
   summary may paraphrase the internal scope. Record each
   unfinished team/engineering action in `handoffs[]` and each outstanding

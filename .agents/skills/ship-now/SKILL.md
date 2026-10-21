@@ -39,6 +39,12 @@ after the fast merge; it does not imply that other production sites were
 promoted. If a critical fix needs another production site, explicitly run the
 manual promotion and monitor that result separately.
 
+When `/ship-now` completes a beta-eligible app PR linked to an owned feedback
+thread, it owns the same one-time Slack update as `/ship`. Follow the [bounded
+beta update procedure](../review-latest-feedback/references/slack-reaction-replies.md#one-time-beta-update-after-merge).
+This exception authorizes only that update. It does not add Slack replies or
+reactions to other fast-path steps.
+
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
 `promote-netlify-deploy.yml` workflow to promote a critical fix and let it
 manage Netlify lock transitions. Do not manually remove or clear a Netlify lock

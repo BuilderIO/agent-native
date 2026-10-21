@@ -394,20 +394,10 @@ action closes. Never imply that an external ticket was created or assigned.
 
 ### After a PR merges
 
-For an owned feedback thread linked to a merged app PR, treat the PR as
-beta-eligible when its changed paths map to a site selected by the matching
-main beta run. The `/ship` task that merges a linked, beta-eligible PR owns the
-one-time update in that thread: after confirming the merge in `origin/main`,
-check the matching run's site selection and post as soon as it selects the
-affected site. Include the PR link and say it is expected on beta within 24
-hours, then add the bot disclosure. Do not wait for deployment to finish or
-claim the site is live. This is an expectation, not a guarantee. A normal
-feedback sweep does not wait for publication, verify the beta site, or keep
-checking it. If a later in-scope beta check finds a publish failure or a site
-that is still not current after 24 hours, the person running that check owns
-the correction in the same thread. Do not assign a future check to the sweep
-after it ends. Use `🎫` only when another person or team must act. Keep
-publisher details in the internal recap.
+For a beta-eligible app PR linked to an owned feedback thread, only the task
+that completes the merge may send the one-time update. `/ship` and `/ship-now`
+have this narrow authorization. Follow the [bounded beta update procedure](references/slack-reaction-replies.md#one-time-beta-update-after-merge);
+normal feedback sweeps do not wait for or monitor publication.
 
 For a fixed behavior with a Slack `🎫` handoff, state the done behavior and
 remaining action/owner separately; don't imply the fixed scope is open. The

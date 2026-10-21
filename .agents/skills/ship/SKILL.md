@@ -382,19 +382,11 @@ language, followed by the exact bot disclosure `this was sent from a bot.` Say
 what changed. If `🎫` is used, briefly name what still needs investigation or
 action and its owner when known. Do not explain absent reactions or include
 implementation, CI, or publisher details. For a beta-eligible app PR linked to
-an owned feedback thread, the `/ship` task that merges it owns the one-time
-post-merge update: after confirming the merge in `origin/main`, check the
-matching main beta run's site selection and post in the same thread as soon as
-it selects the affected site. Include the PR link and say it is expected on
-beta within 24 hours, followed by the bot disclosure. This is an expectation,
-not a guarantee. Do not wait for deployment to finish or say the site is live.
-Normal `/ship` does not verify the beta site or check it again later. If a
-later in-scope beta check finds a publish failure or the site is still not
-current after 24 hours, the task running that check owns the correction in the
-same thread. Use `🎫` only when another person or team must act. Keep publisher
-details in the ship ledger. Send Slack replies or reactions only when
-`review-latest-feedback` was requested or already owns the action. This does
-not widen existing write authorization.
+an owned feedback thread, the `/ship` task that completes the merge may send
+the one-time update described in the [shared beta procedure](../review-latest-feedback/references/slack-reaction-replies.md#one-time-beta-update-after-merge).
+This is a narrow authorization for that update only; other Slack replies and
+reactions require `review-latest-feedback` to own the action or be requested.
+Keep publisher details in the ship ledger.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship
