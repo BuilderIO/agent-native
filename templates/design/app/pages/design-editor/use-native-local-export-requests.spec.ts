@@ -64,7 +64,7 @@ describe("native local export foreground handoff", () => {
       result: {
         status: "failed",
         code: "client-unavailable",
-          message: "Claim transport failed.",
+        message: "Claim transport failed.",
       },
     });
   });
