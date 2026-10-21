@@ -475,7 +475,8 @@ export function ranCallEmitsChange(
  */
 const TRANSACTION_CONFLICT_SQLSTATES = new Set(["40P01", "40001"]);
 
-function transactionConflictError(error: unknown): ActionContractError | null {
+/** What a run that threw `error` throws: a transaction conflict as typed. */
+function typedTransactionConflict(error: unknown): unknown {
   let sqlState: string | null;
   try {
     sqlState = transactionConflictSqlState(error);
@@ -483,9 +484,9 @@ function transactionConflictError(error: unknown): ActionContractError | null {
     // Any read of a thrown value may throw. That value goes on as thrown,
     // so readableFailure reports it as unreadable instead of the read's own
     // error replacing it.
-    return null;
+    return error;
   }
-  if (!sqlState) return null;
+  if (!sqlState) return error;
   return new ActionContractError(
     "The database rolled back this action's transaction because it conflicted with another transaction running at the same time. Anything the action saved outside that transaction stays saved, so read the current state and redo only what is missing.",
     {
@@ -1137,7 +1138,7 @@ export function defineAction(options: any) {
     try {
       return await accessCheckedRun(args, ctx, gateArgs);
     } catch (error) {
-      throw transactionConflictError(error) ?? error;
+      throw typedTransactionConflict(error);
     }
   };
   const uiOnlyGuardedRun =
