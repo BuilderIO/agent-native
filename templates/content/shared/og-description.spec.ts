@@ -220,6 +220,33 @@ const flag = true;
     }
   });
 
+  it("keeps cut-off text in scripts written without spaces", () => {
+    expect(
+      buildDocumentExcerpt({
+        content: `# Agenda\n\n${"正文".repeat(495)}`,
+        truncated: true,
+      }),
+    ).toBe(`${"正文".repeat(148)}正...`);
+    expect(
+      buildDocumentExcerpt({ content: "First.\n\n正文正文", truncated: true }),
+    ).toBe("First. 正文正文...");
+  });
+
+  it("drops a tag the cut leaves open but keeps a less-than sign in prose", () => {
+    expect(
+      buildDocumentExcerpt({
+        content: "One two three <span cla",
+        truncated: true,
+      }),
+    ).toBe("One two three...");
+    expect(
+      buildDocumentExcerpt({
+        content: "Cost < budget. We can ship ",
+        truncated: true,
+      }),
+    ).toBe("Cost < budget. We can ship...");
+  });
+
   it("falls back to headings when a cut-off body has no other text", () => {
     expect(
       buildDocumentExcerpt({

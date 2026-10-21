@@ -135,6 +135,9 @@ export function buildPublicDocumentDescription({
 }
 
 const DEFAULT_EXCERPT_LENGTH = 300;
+/** Scripts written without spaces between words. */
+const SPACELESS_SCRIPT =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 
 /**
  * Plain text from the start of a page body, for a list row. Images, code,
@@ -164,11 +167,15 @@ export function buildDocumentExcerpt({
   }
   if (truncated) {
     // Drop a link, image or tag the cut leaves open, and a word it splits. A
-    // cut right after punctuation or closing markup ends a whole word.
+    // cut right after punctuation or closing markup ends a whole word, and
+    // text in a script written without spaces has no word to finish.
     markdown = markdown
       .replace(/!?\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")
-      .replace(/<[^>\n]*$/, "")
-      .replace(/(\s)[\p{L}\p{M}\p{N}]+$/u, "$1");
+      .replace(/<[A-Za-z/!][^>\n]*$/, "");
+    const lastWord = /\s([\p{L}\p{M}\p{N}]+)$/u.exec(markdown)?.[1];
+    if (lastWord && !SPACELESS_SCRIPT.test(lastWord)) {
+      markdown = markdown.slice(0, -lastWord.length);
+    }
   }
   const blocks = stripFencedCode(markdown)
     // Headings and dividers stand alone even without blank lines around them.

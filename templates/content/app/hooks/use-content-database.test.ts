@@ -1147,6 +1147,62 @@ describe("readCachedContentDatabaseResponse", () => {
     ).toBe(exact);
   });
 
+  it("skips a cached read without page text for a List that shows it", () => {
+    const showingPageText = (
+      excerpt: string | undefined,
+    ): ContentDatabaseResponse => {
+      const base = databaseResponse();
+      return {
+        ...base,
+        database: {
+          ...base.database,
+          viewConfig: {
+            ...base.database.viewConfig,
+            views: [
+              {
+                id: "notes",
+                name: "Notes",
+                type: "list",
+                sorts: [],
+                filters: [],
+                columnWidths: {},
+                itemLayout: {
+                  leading: { kind: "page_icon", propertyId: null },
+                  titleWeight: "bold",
+                  line2: { source: "page", propertyId: null, lines: 2 },
+                  line3: [],
+                  trailing: [],
+                },
+              },
+            ],
+          },
+        },
+        items: base.items.map((item) => ({ ...item, excerpt })),
+      };
+    };
+    const unpaged = showingPageText(undefined);
+    const paged = showingPageText("We ship.");
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(contentDatabaseQueryKey("database-page"), unpaged);
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBeUndefined();
+
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      paged,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(paged);
+  });
+
   it("never seeds an unavailable (deleted database) payload", () => {
     const unavailable = {
       available: false,
