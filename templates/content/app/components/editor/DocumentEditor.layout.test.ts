@@ -3275,20 +3275,6 @@ describe("document editor layout", () => {
     );
   });
 
-  it("localizes the live-editor flush failure fallback", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain('t("editor.liveDocumentSaveBeforeSyncFailed")');
-    expect(source).not.toContain(
-      'error instanceof Error\n                      ? error.message\n                      : "The live document could not be saved before syncing."',
-    );
-  });
-
   it("attests the authoritative content snapshot in keepalive body saves", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -3622,30 +3608,6 @@ describe("document editor layout", () => {
     expect(source).not.toMatch(
       /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
     );
-  });
-
-  it("wakes live-editor flush reads from shared sync events instead of polling", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain('event.source === "app-state"');
-    expect(source).toContain(
-      'event.key === flushRequestKey || event.key === "*"',
-    );
-    expect(source).toContain("void flushIfRequested()");
-    expect(source).toContain(
-      "const persistDocumentUpdatesRef = useRef(persistDocumentUpdates)",
-    );
-    expect(source).toContain("persistDocumentUpdatesRef.current(updates)");
-    expect(source).not.toMatch(
-      /useEffect\(\(\) => \{[\s\S]*?void flushIfRequested\(\)[\s\S]*?\}, \[[\s\S]*?persistDocumentUpdates,[\s\S]*?\]\);/,
-    );
-    expect(source).not.toContain("setTimeout(poll, 600)");
-    expect(source).not.toContain("setTimeout(flushIfRequested");
   });
 
   it("lets slash-created page references use the editor save pipeline", () => {

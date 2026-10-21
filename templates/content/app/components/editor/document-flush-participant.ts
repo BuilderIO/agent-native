@@ -179,14 +179,15 @@ export function createDocumentFlushParticipant(input: {
         const before = input.snapshot(request.propertyId);
         preparingSnapshot = before;
         await bounded(input.drain(request.propertyId));
-        const after = input.snapshot(request.propertyId);
+        let after = input.snapshot(request.propertyId);
+        // A drained editor can still be waiting for peer/save convergence.
+        while (!after.clean && unchanged(before, after)) {
+          await bounded(
+            new Promise<void>((resolve) => setTimeout(resolve, 25)),
+          );
+          after = input.snapshot(request.propertyId);
+        }
         if (!unchanged(before, after)) ack = { ...envelope, status: "changed" };
-        else if (!after.clean)
-          ack = {
-            ...envelope,
-            status: "error",
-            errorCode: "editor_save_unsettled",
-          };
         else {
           let claim = after.claim;
           if (request.propertyId) {

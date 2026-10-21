@@ -1,11 +1,18 @@
 // @vitest-environment happy-dom
 
 import { createHash } from "node:crypto";
+import { performance as realPerformance } from "node:perf_hooks";
+import { setTimeout as realDelay } from "node:timers/promises";
 
 import type { Document, DocumentPropertiesResponse } from "@shared/api";
 import { legacyBlocksFieldIdentity } from "@shared/blocks-field-identity";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Editor } from "@tiptap/core";
+import { docToNfm, nfmToDoc } from "@shared/nfm";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+} from "@tanstack/react-query";
+import { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -24,6 +31,10 @@ const fixture = vi.hoisted(() => ({
   page: null as Document | null,
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
+  realPrimaryEditor: false,
+  realPrimaryCollab: false,
+  cachedDocument: false,
+  realDocumentMutation: false,
   lockAdditionalForSuggestions: false,
   session: null as PageEditorSession | null,
   fieldEditor: null as Editor | null,
@@ -49,6 +60,38 @@ const fixture = vi.hoisted(() => ({
   onSyncEvent: null as
     | ((event: { source: string; key: string }) => void)
     | null,
+}));
+
+const barrierStore = vi.hoisted(() => ({
+  get: vi.fn(),
+  many: vi.fn(),
+  compare: vi.fn(),
+  awareness: vi.fn(),
+  hasCollab: vi.fn(),
+  capture: vi.fn(),
+}));
+vi.mock("@agent-native/core", () => import("@agent-native/core/action"));
+vi.mock("../../../server/db/index.js", () => ({
+  getDb: () => {
+    throw new Error("The mounted barrier uses its canonical storage fixture.");
+  },
+  schema: {},
+}));
+vi.mock("@agent-native/core/application-state", () => ({
+  appStateGet: barrierStore.get,
+  appStateGetManyEntries: barrierStore.many,
+  appStateCompareAndSet: barrierStore.compare,
+}));
+vi.mock("@agent-native/core/collab", () => ({
+  AGENT_CLIENT_ID: 0xffffffff,
+  hasCollabState: barrierStore.hasCollab,
+  loadAwarenessRowsStrict: barrierStore.awareness,
+}));
+vi.mock("../../../actions/_document-save-row.js", async (original) => ({
+  ...(await original<
+    typeof import("../../../actions/_document-save-row.js")
+  >()),
+  createDocumentFlushCapture: () => barrierStore.capture,
 }));
 
 vi.mock("./DocumentBlockFields", async (importOriginal) => {
@@ -80,7 +123,13 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
     if (options.onEvent) fixture.onSyncEvent = options.onEvent;
   },
   useAvatarUrl: () => undefined,
+  useActionMutation: (name: string, options: any) => {
+    if (!fixture.realDocumentMutation || name !== "update-document")
+      return fixture.mutation;
+    return useMutation({ ...options, mutationFn: fixture.save });
+  },
   callAction: vi.fn(async () => null),
+  tryCallActionKeepalive: () => ({ accepted: false }),
   setClientAppState: vi.fn(async () => {}),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => fixture.t }));
@@ -117,20 +166,38 @@ vi.mock("@agent-native/core/client/agent-chat", async (original) => ({
   ...(await original<typeof import("@agent-native/core/client/agent-chat")>()),
   generateTabId: () => "recovery-tab",
 }));
-vi.mock("@/hooks/use-documents", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
-  usePageOpenDocument: () => ({
-    query: { data: fixture.page, dataUpdatedAt: 1 },
-    fetchedForThisOpen: true,
-    readsStartedEarly: true,
-  }),
-  useUpdateDocument: () => ({ mutateAsync: fixture.save }),
-  useDeleteDocument: () => fixture.mutation,
-  useResolvePreviewDocumentDraft: () => fixture.mutation,
-  useUpdatePreviewDocumentDraft: () => fixture.mutation,
-  useDocuments: () => fixture.emptyQuery,
-  useContentNavigationContext: () => fixture.emptyQuery,
-}));
+vi.mock("@/hooks/use-documents", async (importOriginal) => {
+  const actualDocuments =
+    await importOriginal<typeof import("@/hooks/use-documents")>();
+  return {
+    ...actualDocuments,
+    usePageOpenDocument: () => ({
+      query: {
+        data: fixture.cachedDocument
+          ? (queryClient.getQueryData([
+              "action",
+              "get-document",
+              { id: fixture.page!.id },
+            ]) ?? fixture.page)
+          : fixture.page,
+        dataUpdatedAt: 1,
+      },
+      fetchedForThisOpen: true,
+      readsStartedEarly: true,
+    }),
+    useUpdateDocument: (
+      ...args: Parameters<typeof actualDocuments.useUpdateDocument>
+    ) =>
+      fixture.realDocumentMutation
+        ? actualDocuments.useUpdateDocument(...args)
+        : { mutateAsync: fixture.save },
+    useDeleteDocument: () => fixture.mutation,
+    useResolvePreviewDocumentDraft: () => fixture.mutation,
+    useUpdatePreviewDocumentDraft: () => fixture.mutation,
+    useDocuments: () => fixture.emptyQuery,
+    useContentNavigationContext: () => fixture.emptyQuery,
+  };
+});
 vi.mock("@/hooks/use-content-spaces", () => ({
   useContentSpaces: () => fixture.emptyQuery,
 }));
@@ -218,12 +285,19 @@ vi.mock("./VisualEditor", async (original) => {
     );
     return React.createElement(actual.VisualEditor, {
       ...props,
+      ...(fixture.realPrimaryEditor && !fixture.realPrimaryCollab
+        ? { ydoc: null, awareness: null }
+        : {}),
       onPersistenceControllerChange: publish,
     });
   }
   return {
+    ...actual,
     VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
-      if (fixture.realAdditionalEditors && props.localFileMode)
+      if (
+        (fixture.realAdditionalEditors && props.localFileMode) ||
+        (fixture.realPrimaryEditor && !props.localFileMode)
+      )
         return React.createElement(RealAdditionalEditor, props);
       const primary = !props.localFileMode;
       const current = React.useRef(props);
@@ -282,13 +356,23 @@ vi.mock("./useDocumentReconcileRecovery", async (importOriginal) => {
 });
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  documentUpdateSuccessPatch,
+  patchDocumentCaches,
+} from "@/hooks/use-documents";
 
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "../../../server/lib/document-revision";
 import {
   __resetBlockFieldSaveRegistry,
   flushAllBlockFieldSaveControllersForDocument,
   peekBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import { PageEditorSurface } from "./DocumentEditor";
+import { listPageDraftJournal } from "./page-draft-journal";
+import { createVisualEditorExtensions } from "./VisualEditor";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -343,6 +427,10 @@ beforeEach(() => {
   fixture.editor = null;
   fixture.fields = null;
   fixture.realAdditionalEditors = false;
+  fixture.realPrimaryEditor = false;
+  fixture.realPrimaryCollab = false;
+  fixture.cachedDocument = false;
+  fixture.realDocumentMutation = false;
   fixture.lockAdditionalForSuggestions = false;
   fixture.session = null;
   fixture.fieldEditor = null;
@@ -457,6 +545,469 @@ function acknowledgeCurrentSaves() {
   });
 }
 
+function connectBarrierStore(propertyId?: string) {
+  const values = new Map<string, any>();
+  const requests: any[] = [];
+  const captures: any[] = [];
+  barrierStore.hasCollab.mockResolvedValue(false);
+  barrierStore.awareness.mockImplementation(async () => [
+    {
+      clientId: fixture.awareness!.clientID,
+      state: JSON.stringify(fixture.awareness!.getLocalState()),
+      lastSeen: Date.now(),
+    },
+  ]);
+  barrierStore.get.mockImplementation(
+    async (_email, key) => values.get(key) ?? null,
+  );
+  barrierStore.many.mockImplementation(async (_email, keys: string[]) =>
+    keys.map((key) => ({ key, value: values.get(key) ?? null })),
+  );
+  const compare = async (key: string, expected: unknown, next: unknown) => {
+    if (JSON.stringify(values.get(key) ?? null) !== JSON.stringify(expected))
+      return false;
+    if (next === null) values.delete(key);
+    else values.set(key, next);
+    return true;
+  };
+  fixture.readAppState.mockImplementation(
+    async (key) => values.get(key) ?? null,
+  );
+  fixture.compareAppState.mockImplementation(compare);
+  barrierStore.compare.mockImplementation(
+    async (_email, key, expected, next) => {
+      const changed = await compare(key, expected, next);
+      if (changed && next && key.startsWith("flush-request-")) {
+        requests.push(next);
+        fixture.onSyncEvent!({ source: "app-state", key });
+      }
+      return changed;
+    },
+  );
+  barrierStore.capture.mockImplementation(async () => {
+    const content = propertyId
+      ? (fixture.fields!.properties.find(
+          (field) => field.definition.id === propertyId,
+        )!.value as string)
+      : fixture.page!.content;
+    const snapshot = propertyId
+      ? {
+          kind: "property",
+          propertyId,
+          content,
+          contentHash: documentContentHash(content),
+        }
+      : {
+          kind: "document",
+          bodyRevision: fixture.page!.bodyRevision ?? 1,
+          content,
+          contentHash: documentContentHash(content),
+          title: fixture.page!.title,
+          updatedAt: fixture.page!.updatedAt,
+        };
+    captures.push(snapshot);
+    return snapshot;
+  });
+  return { values, requests, captures };
+}
+
+async function runConnectedBarrier(propertyId?: string) {
+  const { flushOpenDocumentEditorToSql } =
+    await import("../../../actions/_document-flush");
+  let result: { value?: unknown; error?: unknown } | null = null;
+  void flushOpenDocumentEditorToSql({
+    documentId: fixture.page!.id,
+    propertyId,
+  }).then(
+    (value) => {
+      result = { value };
+    },
+    (error) => {
+      result = { error };
+    },
+  );
+  for (let elapsed = 0; result === null && elapsed < 20_200; elapsed += 200) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+  }
+  expect(result).not.toBeNull();
+  return result;
+}
+
+it("confirms an actually edited settled VisualEditor through the server barrier without reauthoring its applied save", async () => {
+  fixture.realPrimaryEditor = true;
+  fixture.page!.revision = documentRevisionToken(0, fixture.page!.content);
+  acknowledgeCurrentSaves();
+  const acknowledge = fixture.save.getMockImplementation()!;
+  fixture.save.mockImplementation(async (input) => {
+    const saved = await acknowledge(input);
+    fixture.page = {
+      ...saved,
+      revision: documentRevisionToken(1, saved.content),
+    };
+    return fixture.page;
+  });
+  await act(async () => renderEditor());
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  act(() => {
+    const editor = fixture.fieldEditor!;
+    editor.view.dom.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        inputType: "insertText",
+        data: " settled",
+      }),
+    );
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    editor.view.dispatch(editor.state.tr.insertText(" settled"));
+  });
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  await act(async () => renderEditor());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(fixture.page!.content).toBe("Saved body settled");
+  expect(fixture.awareness!.getLocalState()?.savedRevision).toBe(
+    fixture.page!.revision,
+  );
+  expect(fixture.save).toHaveBeenCalledTimes(1);
+  const applied = structuredClone(fixture.save.mock.calls[0][0]);
+  const store = connectBarrierStore();
+  barrierStore.hasCollab.mockResolvedValue(true);
+  const result = await runConnectedBarrier();
+  expect(result).toMatchObject({
+    value: {
+      status: "flushed",
+      snapshot: { content: "Saved body settled" },
+      editors: [
+        {
+          flush: "answered",
+          prepareToken: expect.any(String),
+          verifyToken: expect.any(String),
+        },
+      ],
+    },
+  });
+  expect(store.requests.map((request) => request.phase)).toEqual([
+    "prepare",
+    "verify",
+  ]);
+  expect(store.captures).toHaveLength(1);
+  expect(fixture.save).toHaveBeenCalledTimes(1);
+  expect(fixture.save.mock.calls[0][0]).toEqual(applied);
+  expect(publishedAcks().map((ack) => ack.status)).toEqual([
+    "prepared",
+    "verified",
+  ]);
+  expect(store.values.size).toBe(0);
+});
+
+it.each([false, true])(
+  "keeps the original fresh barrier during actual early-delivered typing (continuous: %s)",
+  async (continuous) => {
+    fixture.realPrimaryEditor = true;
+    fixture.page!.revision = documentRevisionToken(0, fixture.page!.content);
+    let bodyRevision = 0;
+    fixture.save.mockImplementation(async (input) => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 120));
+      fixture.page = {
+        ...fixture.page!,
+        title: input.title ?? fixture.page!.title,
+        content: input.content ?? fixture.page!.content,
+        bodyRevision: ++bodyRevision,
+        revision: documentRevisionToken(
+          bodyRevision,
+          input.content ?? fixture.page!.content,
+        ),
+        updatedAt: new Date(
+          Date.parse("2026-10-19T12:00:00.000Z") + bodyRevision,
+        ).toISOString(),
+      };
+      return fixture.page;
+    });
+    await act(async () => renderEditor());
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const type = () => {
+      const editor = fixture.fieldEditor!;
+      editor.view.dom.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          inputType: "insertText",
+          data: "x",
+        }),
+      );
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      editor.view.dispatch(editor.state.tr.insertText("x"));
+    };
+    const duration = continuous ? 24_000 : 1_600;
+    for (let elapsed = 0; elapsed < duration; elapsed += 40)
+      setTimeout(type, elapsed);
+    await act(async () => vi.advanceTimersByTimeAsync(continuous ? 500 : 400));
+    const store = connectBarrierStore();
+    const started = Date.now();
+    const result = await runConnectedBarrier();
+    const prepares = store.requests.filter(
+      (request) => request.phase === "prepare",
+    );
+    expect(
+      prepares.every((request) => request.expiresAt === started + 20_000),
+    ).toBe(true);
+    expect(
+      new Set(store.requests.map((request) => request.phaseToken)).size,
+    ).toBe(store.requests.length);
+    expect(prepares.length).toBeGreaterThan(3);
+    if (continuous) {
+      expect(result).toMatchObject({
+        error: { errorCode: "open_editor_flush_timeout" },
+      });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(20_000);
+      expect(Date.now() - started).toBeLessThanOrEqual(20_200);
+      expect(store.captures).toHaveLength(0);
+      expect(publishedAcks().some((ack) => ack.status === "verified")).toBe(
+        false,
+      );
+    } else {
+      const latest = "Saved body" + "x".repeat(duration / 40);
+      expect(fixture.fieldEditor!.getText()).toBe(latest);
+      expect(fixture.page!.content).toBe(latest);
+      expect(result).toMatchObject({
+        value: { status: "flushed", snapshot: { content: latest } },
+      });
+      expect(Date.now() - started).toBeLessThan(20_000);
+      expect(store.captures).toHaveLength(1);
+      const final = publishedAcks().slice(-2);
+      expect(final.map((ack) => ack.status)).toEqual(["prepared", "verified"]);
+      expect(final[1].stabilityToken).toBe(final[0].stabilityToken);
+      expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+    }
+  },
+);
+
+it.each([false, true])(
+  "settles a real peer update before preparing a never-typed sibling (peer ACK held: %s)",
+  async (heldPeer) => {
+    fixture.realPrimaryEditor = true;
+    fixture.realPrimaryCollab = true;
+    fixture.page!.revision = documentRevisionToken(0, fixture.page!.content);
+    const peerDoc = new Y.Doc();
+    const peerMount = document.createElement("div");
+    document.body.append(peerMount);
+    const peer = new Editor({
+      element: peerMount,
+      extensions: createVisualEditorExtensions({ ydoc: peerDoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    peer.commands.setContent(nfmToDoc(fixture.page!.content));
+    Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(peerDoc), "peer");
+    peerDoc.on("update", (update) => Y.applyUpdate(ydoc, update, "peer"));
+    try {
+      await act(async () => renderEditor());
+      expect(fixture.fieldEditor!.getText()).toBe("Saved body");
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      act(() => peer.view.dispatch(peer.state.tr.insertText("Peer ", 1)));
+      expect(fixture.fieldEditor!.getText()).toBe("Peer Saved body");
+      fixture.page = {
+        ...fixture.page!,
+        content: docToNfm(fixture.fieldEditor!.getJSON()),
+        revision: documentRevisionToken(1, "Peer Saved body"),
+        updatedAt: "2026-10-19T12:00:01.000Z",
+      };
+      await act(async () => renderEditor());
+      expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+      const store = connectBarrierStore();
+      if (heldPeer) {
+        const cleanRow = (await barrierStore.awareness())[0];
+        barrierStore.awareness.mockResolvedValue([
+          cleanRow,
+          {
+            ...cleanRow,
+            clientId: peerDoc.clientID,
+            state: JSON.stringify({
+              ...JSON.parse(cleanRow.state),
+              editorSessionId: "held-peer",
+              unsavedEdits: true,
+            }),
+          },
+        ]);
+      }
+      const started = Date.now();
+      const result = await runConnectedBarrier();
+      const prepared = publishedAcks().find((ack) => ack.status === "prepared");
+      expect(prepared).toMatchObject({
+        clientId: fixture.awareness!.clientID,
+        claim: { kind: "document", save: { revision: fixture.page!.revision } },
+      });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1_500);
+      if (heldPeer) {
+        expect(result).toMatchObject({
+          error: { errorCode: "open_editor_flush_timeout" },
+        });
+        expect(Date.now() - started).toBeGreaterThanOrEqual(20_000);
+        expect(Date.now() - started).toBeLessThanOrEqual(20_200);
+        expect(store.requests[0].targets).toHaveLength(2);
+        expect(store.captures).toHaveLength(0);
+        expect(publishedAcks().map((ack) => ack.status)).toEqual(["prepared"]);
+      } else {
+        expect(result).toMatchObject({
+          value: {
+            status: "flushed",
+            snapshot: { content: "Peer Saved body" },
+          },
+        });
+        expect(publishedAcks().map((ack) => ack.status)).toEqual([
+          "prepared",
+          "verified",
+        ]);
+        expect(publishedAcks()[1].stabilityToken).toBe(prepared.stabilityToken);
+      }
+      expect(fixture.save).not.toHaveBeenCalled();
+      expect(fixture.mutation.mutateAsync).not.toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "upsert" }),
+      );
+    } finally {
+      peer.destroy();
+      peerDoc.destroy();
+      peerMount.remove();
+    }
+  },
+);
+
+function pasteTitle(value: string) {
+  act(() => {
+    const title = container.querySelector<HTMLTextAreaElement>("textarea")!;
+    title.setSelectionRange(0, title.value.length);
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { getData: () => value },
+    });
+    title.dispatchEvent(paste);
+  });
+}
+
+it("confirms a title-only save and adopts a newer peer rename once clean", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  fixture.cachedDocument = true;
+  const key = ["action", "get-document", { id: fixture.page!.id }];
+  queryClient.setQueryData(key, fixture.page);
+  let acknowledge!: (document: Document) => void;
+  fixture.save.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        acknowledge = resolve;
+      }),
+  );
+  await act(async () => renderEditor());
+  pasteTitle("My title-only rename");
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  await act(async () => renderEditor());
+  expect(fixture.save).toHaveBeenCalledOnce();
+  expect(fixture.save.mock.calls[0][0]).toMatchObject({
+    title: "My title-only rename",
+    baseTitle: "Saved title",
+  });
+  expect(fixture.save.mock.calls[0][0]).not.toHaveProperty("content");
+  await act(async () => {
+    queryClient.setQueryData(key, fixture.page);
+    renderEditor();
+  });
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+    "My title-only rename",
+  );
+  const saved = {
+    ...fixture.page!,
+    title: "My title-only rename",
+    updatedAt: "2026-10-19T12:00:01.000Z",
+  };
+  await act(async () => acknowledge(saved));
+  await act(async () => {
+    queryClient.setQueryData(key, saved);
+    renderEditor();
+  });
+  expect(fixture.awareness!.getLocalState()).toMatchObject({
+    unsavedEdits: false,
+    savedTitle: saved.title,
+  });
+  const peer = {
+    ...saved,
+    title: "Newer peer rename",
+    updatedAt: "2026-10-19T12:00:02.000Z",
+  };
+  await act(async () => {
+    queryClient.setQueryData(key, peer);
+    renderEditor();
+  });
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+    peer.title,
+  );
+  expect(fixture.awareness!.getLocalState()).toMatchObject({
+    unsavedEdits: false,
+    savedTitle: peer.title,
+  });
+  expect(fixture.save).toHaveBeenCalledOnce();
+});
+
+async function observeTitleSave(predicate: () => boolean) {
+  const deadline = realPerformance.now() + 2_000;
+  while (!predicate() && realPerformance.now() < deadline) {
+    await act(async () => {
+      await realDelay(10);
+      renderEditor();
+    });
+  }
+  expect(predicate()).toBe(true);
+}
+
+it("settles an accepted matching canonical winner into clean receipts and a fresh barrier without another write", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  fixture.cachedDocument = true;
+  const key = ["action", "get-document", { id: fixture.page!.id }];
+  queryClient.setQueryData(key, fixture.page);
+  let finish!: (value: unknown) => void;
+  fixture.save.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await act(async () => renderEditor());
+  await act(async () => {
+    pasteTitle("Matching canonical title");
+    renderEditor();
+  });
+  act(() => fixture.editor!.onChange("Matching canonical body"));
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  const winner = {
+    ...fixture.page!,
+    title: "Matching canonical title",
+    content: "Matching canonical body",
+    revision: "r2",
+    updatedAt: "2026-10-19T12:00:01.000Z",
+  };
+  await act(async () => {
+    queryClient.setQueryData(key, winner);
+    renderEditor();
+    finish({ conflict: true, document: winner });
+  });
+  await observeTitleSave(
+    () => fixture.awareness!.getLocalState()?.unsavedEdits === false,
+  );
+  expect(fixture.awareness!.getLocalState()).toMatchObject({
+    unsavedEdits: false,
+    savedTitle: winner.title,
+    savedRevision: winner.revision,
+  });
+  expect(fixture.recovery!.state).toBeNull();
+  expect(fixture.mutation.mutateAsync).not.toHaveBeenCalled();
+  await deliver(flushRequest("prepare"));
+  await observeTitleSave(() =>
+    publishedAcks().some((ack) => ack.status === "prepared"),
+  );
+  expect(publishedAcks()[publishedAcks().length - 1]).toMatchObject({
+    status: "prepared",
+  });
+  expect(fixture.save).toHaveBeenCalledOnce();
+});
+
 it("prepares and verifies a previously edited settled editor with its persistence controller registered", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   acknowledgeCurrentSaves();
@@ -539,6 +1090,99 @@ it("publishes a fresh per-client prepare and verify for an unchanged mounted edi
     phaseToken: "verify-after-capture",
   });
 });
+
+it.each([
+  ["Error", new Error("Synthetic persistence detail")],
+  ["opaque", { syntheticFailure: true }],
+])(
+  "publishes only a typed failure when the mounted controller rejects with an %s value",
+  async (_kind, failure) => {
+    await act(async () => renderEditor());
+    const flushLatest = vi.fn().mockRejectedValue(failure);
+    act(() =>
+      fixture.editor!.onPersistenceControllerChange!({
+        version: {},
+        flushLatest,
+      }),
+    );
+    const request = flushRequest("prepare", "typed-failure");
+    await deliver(request);
+    expect(publishedAcks()).toEqual([
+      {
+        protocol: request.protocol,
+        id: request.id,
+        requestId: request.requestId,
+        phase: request.phase,
+        phaseToken: request.phaseToken,
+        ...request.targets[0],
+        status: "error",
+        errorCode: "editor_flush_failed",
+      },
+    ]);
+    expect(flushLatest).toHaveBeenCalledOnce();
+    expect(fixture.save).not.toHaveBeenCalled();
+    await deliver(flushRequest("verify", "typed-failure"));
+    expect(publishedAcks().map((ack) => ack.status)).toEqual([
+      "error",
+      "changed",
+    ]);
+  },
+);
+
+it.each(["mailbox", "wildcard"] as const)(
+  "wakes the current mounted participant from a shared-sync %s event without waiting for a poll",
+  async (key) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    await act(async () => renderEditor());
+    const notify = fixture.onSyncEvent!;
+    fixture.readAppState.mockClear();
+    fixture.page = { ...fixture.page!, updatedAt: "2026-10-19T12:00:01.000Z" };
+    await act(async () => renderEditor());
+    expect(fixture.readAppState).not.toHaveBeenCalled();
+    const request = flushRequest("prepare", "shared-sync");
+    fixture.readAppState.mockResolvedValue(request);
+    await act(async () => {
+      notify({ source: "document", key: `flush-request-${fixture.page!.id}` });
+      notify({ source: "app-state", key: "flush-request-another-page" });
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(1800));
+    expect(fixture.readAppState).not.toHaveBeenCalled();
+    expect(publishedAcks()).toEqual([]);
+    const started = Date.now();
+    await act(async () =>
+      notify({
+        source: "app-state",
+        key: key === "mailbox" ? `flush-request-${fixture.page!.id}` : "*",
+      }),
+    );
+    expect(Date.now()).toBe(started);
+    expect(fixture.readAppState).toHaveBeenCalledWith(
+      `flush-request-${fixture.page!.id}`,
+    );
+    expect(fixture.visualFlush).toHaveBeenCalledOnce();
+    expect(publishedAcks()).toEqual([
+      {
+        protocol: request.protocol,
+        id: request.id,
+        requestId: request.requestId,
+        phase: request.phase,
+        phaseToken: request.phaseToken,
+        ...request.targets[0],
+        status: "prepared",
+        stabilityToken: expect.any(String),
+        claim: {
+          kind: "document",
+          save: {
+            revision: fixture.page!.revision,
+            title: fixture.page!.title,
+            titleUpdatedAt: fixture.page!.updatedAt,
+          },
+        },
+      },
+    ]);
+    expect(fixture.save).not.toHaveBeenCalled();
+  },
+);
 
 function collectionFields() {
   fixture.page!.databaseMembership = {
@@ -901,7 +1545,7 @@ it("republishes a newer acknowledged save when an obsolete retry is consumed", a
 });
 
 describe("actual additional field freshness", () => {
-  async function mountField() {
+  async function mountField(fakeDate = false) {
     fixture.realAdditionalEditors = true;
     collectionFields();
     acknowledgeCurrentSaves();
@@ -932,7 +1576,11 @@ describe("actual additional field freshness", () => {
         .click(),
     );
     expect(fixture.fieldEditor!.getText()).toBe("Additional body");
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.useFakeTimers({
+      toFake: fakeDate
+        ? ["Date", "setTimeout", "clearTimeout"]
+        : ["setTimeout", "clearTimeout"],
+    });
   }
   function fieldInput(text: string) {
     act(() => {
@@ -948,10 +1596,12 @@ describe("actual additional field freshness", () => {
       editor.view.dispatch(editor.state.tr.insertText(text));
     });
   }
-  async function fieldAcks(count: number) {
-    for (let i = 0; i < 30 && publishedAcks().length < count; i++)
+  async function fieldAcks(count: number, timeoutMs = 2_000) {
+    const deadline = realPerformance.now() + timeoutMs;
+    // Native time lets WebCrypto finish without advancing debounce or request expiry.
+    while (publishedAcks().length < count && realPerformance.now() < deadline)
       await act(async () => {
-        await new Promise((resolve) => setImmediate(resolve));
+        await realDelay(10);
       });
     expect(publishedAcks()).toHaveLength(count);
     return publishedAcks()[count - 1];
@@ -967,6 +1617,38 @@ describe("actual additional field freshness", () => {
   function fieldState() {
     return peekBlockFieldSaveController(`${fixture.page!.id}:notes`)!;
   }
+
+  it("discovers an empty-primary page's live field editor and captures its real un-emitted input through the server barrier", async () => {
+    fixture.page!.content = "";
+    await mountField(true);
+    fieldInput(" fresh");
+    expect(fieldState().pending).toBe("Additional body");
+    const store = connectBarrierStore("notes");
+    const result = await runConnectedBarrier("notes");
+    expect(result).toMatchObject({
+      value: {
+        status: "flushed",
+        snapshot: {
+          kind: "property",
+          propertyId: "notes",
+          content: "Additional body fresh",
+        },
+        editors: [{ flush: "answered" }],
+      },
+    });
+    expect(fixture.fieldSave).toHaveBeenCalledTimes(1);
+    expect(store.requests[0].phase).toBe("prepare");
+    expect(store.requests[store.requests.length - 1].phase).toBe("verify");
+    expect(store.captures.length).toBeGreaterThan(0);
+    expect(
+      store.captures.every(
+        (snapshot) => snapshot.content === "Additional body fresh",
+      ),
+    ).toBe(true);
+    const acks = publishedAcks();
+    expect(acks[acks.length - 1]).toHaveProperty("status", "verified");
+    expect(store.values.size).toBe(0);
+  });
 
   async function saveThenLockField() {
     await mountField();
@@ -1314,6 +1996,80 @@ describe("actual additional field freshness", () => {
     });
     expect(fixture.fieldSave).not.toHaveBeenCalled();
   });
+
+  it("waits for a held native field hash and verifies its receipt without advancing editor timers", async () => {
+    await mountField(true);
+    act(() => fixture.editor!.onChange("Unrelated debounced primary edit"));
+    const frozenTime = Date.now();
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const hash = vi
+      .spyOn(crypto.subtle, "digest")
+      .mockImplementation(async (...args) => {
+        await gate;
+        return digest(...args);
+      });
+    await deliver(flushRequest("prepare", "held-hash", "notes"));
+    expect(hash).toHaveBeenCalledOnce();
+    let settled = false;
+    const waiting = fieldAcks(1).then(
+      (ack) => {
+        settled = true;
+        return { ack, error: undefined };
+      },
+      (error: unknown) => {
+        settled = true;
+        return { ack: undefined, error };
+      },
+    );
+    await realDelay(50);
+    const settledWhileHeld = settled;
+    const acksWhileHeld = publishedAcks();
+    release();
+    const answer = await waiting;
+    expect(settledWhileHeld).toBe(false);
+    expect(acksWhileHeld).toHaveLength(0);
+    expect(answer.error).toBeUndefined();
+    expect(answer.ack).toMatchObject({
+      status: "prepared",
+      claim: {
+        kind: "property",
+        propertyId: "notes",
+        contentHash:
+          "sha256:" +
+          createHash("sha256").update("Additional body").digest("hex"),
+      },
+    });
+    expect(await fieldPhase("verify", "held-hash", 2)).toMatchObject({
+      status: "verified",
+      stabilityToken: answer.ack.stabilityToken,
+    });
+    expect(publishedAcks().map((ack) => ack.status)).toEqual([
+      "prepared",
+      "verified",
+    ]);
+    expect(Date.now()).toBe(frozenTime);
+    expect(fixture.save).not.toHaveBeenCalled();
+    expect(fixture.fieldSave).not.toHaveBeenCalled();
+  });
+
+  it("bounds an absent field ACK wait in real time while the fixture clock remains frozen", async () => {
+    await mountField(true);
+    const frozenTime = Date.now();
+    await deliver({
+      ...flushRequest("prepare", "already-expired", "notes"),
+      expiresAt: frozenTime - 1,
+    });
+    const started = realPerformance.now();
+    await expect(fieldAcks(1, 50)).rejects.toThrow(/length of 1/);
+    expect(realPerformance.now() - started).toBeGreaterThanOrEqual(50);
+    expect(Date.now()).toBe(frozenTime);
+    expect(publishedAcks()).toHaveLength(0);
+    expect(fixture.fieldSave).not.toHaveBeenCalled();
+  }, 5_000);
 
   it("cannot acknowledge a field save held past the request deadline", async () => {
     await mountField();

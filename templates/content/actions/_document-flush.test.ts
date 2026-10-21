@@ -142,7 +142,7 @@ describe("flushOpenDocumentEditorToSql", () => {
     requestHook = undefined;
     legacyReplies = true;
     respond = (request, target) => ack(request, target);
-    mocks.hasCollab.mockResolvedValue(true);
+    mocks.hasCollab.mockResolvedValue(false);
     mocks.awareness.mockResolvedValue([editorRow(123)]);
     mocks.capture.mockResolvedValue(SQL_ROW);
     mocks.get.mockImplementation(
@@ -439,15 +439,173 @@ describe("flushOpenDocumentEditorToSql", () => {
     expect(mocks.capture).toHaveBeenCalledTimes(2);
   });
 
-  it("refuses continuous edits after the explicit capture attempt cap", async () => {
+  it("waits out the original deadline when every post-capture verification changes", async () => {
     respond = (request, target) =>
       request.phase === "verify"
         ? { ...ack(request, target), status: "changed" }
         : ack(request, target);
     expect(await settle()).toMatchObject({
-      error: { errorCode: "open_editor_flush_contention" },
+      error: { errorCode: "open_editor_flush_timeout" },
     });
-    expect(mocks.capture).toHaveBeenCalledTimes(3);
+    expect(mocks.capture.mock.calls.length).toBeGreaterThan(3);
+  });
+
+  it.each(["prepare", "verify"] as const)(
+    "retries transient editor error ACKs in %s until a typing burst settles inside the original deadline",
+    async (phase) => {
+      const started = Date.now();
+      mocks.awareness.mockResolvedValue([editorRow(123), editorRow(456)]);
+      respond = (request, target) =>
+        request.phase === phase &&
+        target.clientId === 123 &&
+        Date.now() < started + 1_600
+          ? {
+              ...ack(request, target),
+              status: "error",
+              errorCode: "editor_flush_failed",
+            }
+          : ack(request, target);
+      const result = flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      let settled = false;
+      void result.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(1_400);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(await result).toMatchObject({
+        value: {
+          status: "flushed",
+          snapshot: SQL_ROW,
+          editors: [
+            { clientId: 123, flush: "answered" },
+            { clientId: 456, flush: "answered" },
+          ],
+        },
+      });
+      const requests = mocks.cas.mock.calls
+        .filter(([, key, , next]) => key === "flush-request-doc-1" && next)
+        .map((call) => call[3]);
+      const prepares = requests.filter(
+        (request) => request.phase === "prepare",
+      );
+      expect(prepares.length).toBeGreaterThan(3);
+      expect(new Set(requests.map((request) => request.phaseToken)).size).toBe(
+        requests.length,
+      );
+      expect(
+        requests.every(
+          (request) =>
+            request.expiresAt === started + 20_000 &&
+            request.targets.length === 2,
+        ),
+      ).toBe(true);
+      expect(prepares.length).toBeLessThanOrEqual(10);
+      const winning = requests[requests.length - 1];
+      expect(winning.phase).toBe("verify");
+      expect(winning.prepareToken).toBe(
+        prepares[prepares.length - 1].prepareToken,
+      );
+      expect(store.size).toBe(0);
+    },
+  );
+
+  it("retains an editor error diagnostic but refuses only at the original deadline during continuous typing", async () => {
+    const started = Date.now();
+    respond = (request, target) => ({
+      ...ack(request, target),
+      status: "error",
+      errorCode: "editor_save_unacknowledged",
+    });
+    let outcome: any;
+    void flushOpenDocumentEditorToSql({ documentId: "doc-1" }).then(
+      (value) => {
+        outcome = { value };
+      },
+      (error) => {
+        outcome = { error };
+      },
+    );
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(outcome).toBeUndefined();
+    expect(mocks.capture).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toMatchObject({
+      error: {
+        errorCode: "open_editor_flush_timeout",
+        details: {
+          lastEditorError: {
+            clientId: 123,
+            errorCode: "editor_save_unacknowledged",
+          },
+        },
+      },
+    });
+    expect(Date.now() - started).toBe(20_000);
+    const prepares = mocks.cas.mock.calls
+      .filter(
+        ([, key, , next]) =>
+          key === "flush-request-doc-1" && next?.phase === "prepare",
+      )
+      .map((call) => call[3]);
+    expect(prepares.length).toBeGreaterThan(3);
+    expect(prepares.length).toBeLessThanOrEqual(100);
+    expect(
+      prepares.every((request) => request.expiresAt === started + 20_000),
+    ).toBe(true);
+  });
+
+  it("does not let a previous nonce's success or a missing sibling settle a retried attempt", async () => {
+    mocks.awareness.mockResolvedValue([editorRow(123), editorRow(456)]);
+    let first: DocumentFlushRequest | undefined;
+    respond = (request, target) => {
+      first ??= request;
+      if (request.phaseToken === first.phaseToken)
+        return {
+          ...ack(request, target),
+          status: "error",
+          errorCode: "editor_flush_failed",
+        };
+      return target.clientId === 123 ? ack(first, target) : null;
+    };
+    expect(await settle()).toHaveProperty(
+      "error.errorCode",
+      "open_editor_flush_invalid_ack",
+    );
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it("requires a fresh answer from a missing same-email sibling after an editor error retry", async () => {
+    mocks.awareness.mockResolvedValue([editorRow(123), editorRow(456)]);
+    let first: string | undefined;
+    respond = (request, target) => {
+      first ??= request.phaseToken;
+      if (request.phaseToken === first)
+        return target.clientId === 123
+          ? {
+              ...ack(request, target),
+              status: "error",
+              errorCode: "editor_flush_failed",
+            }
+          : ack(request, target);
+      return target.clientId === 123 ? ack(request, target) : null;
+    };
+    expect(await settle()).toHaveProperty(
+      "error.errorCode",
+      "open_editor_flush_timeout",
+    );
+    expect(mocks.capture).not.toHaveBeenCalled();
+    const requests = mocks.cas.mock.calls
+      .filter(([, key, , next]) => key === "flush-request-doc-1" && next)
+      .map((call) => call[3]);
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.targets.length === 2)).toBe(
+      true,
+    );
+    expect(requests[1].phaseToken).not.toBe(requests[0].phaseToken);
   });
 
   it("does not load full bodies on the 200ms ticker while a peer is held", async () => {
@@ -493,9 +651,9 @@ describe("flushOpenDocumentEditorToSql", () => {
     };
     expect(await settle()).toHaveProperty(
       "error.errorCode",
-      "open_editor_flush_contention",
+      "open_editor_flush_timeout",
     );
-    expect(mocks.capture).toHaveBeenCalledTimes(3);
+    expect(mocks.capture.mock.calls.length).toBeGreaterThan(3);
   });
 
   it("preserves a successor mailbox when cleanup loses its CAS race", async () => {
@@ -699,4 +857,89 @@ describe("flushOpenDocumentEditorToSql", () => {
       },
     });
   });
+  describe.each(["prepare", "verify"] as const)(
+    "ACK batch validation during %s",
+    (phase) => {
+      it.each(["error", "changed"] as const)(
+        "validates every present sibling before retrying %s",
+        async (status) => {
+          for (const retryFirst of [true, false]) {
+            for (const invalid of [
+              "nonce",
+              "claim",
+              "value",
+              "error-code",
+            ] as const) {
+              mocks.awareness.mockResolvedValue([
+                editorRow(123),
+                editorRow(456),
+              ]);
+              let firstToken: string | undefined;
+              respond = (request, target) => {
+                if (request.phase !== phase) return ack(request, target);
+                firstToken ??= request.phaseToken;
+                if (request.phaseToken !== firstToken)
+                  return ack(request, target);
+                if (target.clientId === (retryFirst ? 123 : 456))
+                  return {
+                    ...ack(request, target),
+                    status,
+                    errorCode: "editor_flush_failed",
+                  } as DocumentFlushAck;
+                if (invalid === "value")
+                  return 42 as unknown as DocumentFlushAck;
+                if (invalid === "error-code")
+                  return {
+                    ...ack(request, target),
+                    status: "error",
+                    errorCode: undefined,
+                  } as unknown as DocumentFlushAck;
+                return invalid === "nonce"
+                  ? { ...ack(request, target), phaseToken: "unrelated-nonce" }
+                  : ({
+                      ...ack(request, target),
+                      status: "prepared",
+                      claim: {},
+                    } as DocumentFlushAck);
+              };
+              const result = await settle();
+              expect(result).toHaveProperty(
+                "error.errorCode",
+                "open_editor_flush_invalid_ack",
+              );
+            }
+          }
+        },
+      );
+
+      it.each(["error", "changed"] as const)(
+        "retries a valid %s without waiting for a missing sibling's old nonce",
+        async (status) => {
+          for (const sibling of ["missing", "valid"] as const) {
+            mocks.awareness.mockResolvedValue([editorRow(123), editorRow(456)]);
+            let firstToken: string | undefined;
+            respond = (request, target) => {
+              if (request.phase !== phase) return ack(request, target);
+              firstToken ??= request.phaseToken;
+              if (request.phaseToken !== firstToken)
+                return ack(request, target);
+              if (target.clientId === 123)
+                return {
+                  ...ack(request, target),
+                  status,
+                  errorCode: "editor_flush_failed",
+                } as DocumentFlushAck;
+              return sibling === "missing" ? null : ack(request, target);
+            };
+            const result = await settle();
+            expect(result).toHaveProperty("value.status", "flushed");
+            expect(result).toHaveProperty("value.editors", [
+              expect.objectContaining({ clientId: 123, flush: "answered" }),
+              expect.objectContaining({ clientId: 456, flush: "answered" }),
+            ]);
+          }
+        },
+      );
+    },
+  );
 });

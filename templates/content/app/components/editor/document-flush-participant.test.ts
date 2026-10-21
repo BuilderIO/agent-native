@@ -1,6 +1,14 @@
 import type { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
 import type { DocumentFlushRequest } from "@shared/document-flush-protocol";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
 import {
   createDocumentFlushParticipant,
@@ -30,6 +38,7 @@ const acks = () =>
     .map((call) => call[2]!);
 
 describe("fresh document flush participant", () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     request = {
       protocol: 2,
@@ -107,12 +116,40 @@ describe("fresh document flush participant", () => {
     await respond(request);
     expect(acks()[1].status).toBe("changed");
   });
-  it("refuses a still-pending or recovery snapshot after drain", async () => {
+  it("waits for transient convergence without draining the same snapshot again", async () => {
+    vi.useFakeTimers();
     local.clean = false;
+    const pending = participant()(request);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(acks()).toHaveLength(0);
+    expect(drain).toHaveBeenCalledOnce();
+    local.clean = true;
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+    expect(acks()).toHaveLength(1);
+    expect(acks()[0]).toHaveProperty("status", "prepared");
+    expect(drain).toHaveBeenCalledOnce();
+  });
+  it("bounds a continuously unsettled snapshot by the original request deadline without an ACK", async () => {
+    vi.useFakeTimers();
+    request.expiresAt = Date.now() + 20_000;
+    local.clean = false;
+    const pending = participant()(request);
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(acks()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(acks()).toHaveLength(0);
+    expect(drain).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("publishes a typed refusal when drain actually fails", async () => {
+    drain.mockRejectedValue(new Error("Persistence unavailable"));
     await participant()(request);
+    expect(acks()).toHaveLength(1);
     expect(acks()[0]).toMatchObject({
       status: "error",
-      errorCode: "editor_save_unsettled",
+      errorCode: "editor_flush_failed",
     });
   });
   it("only verifies the unchanged interval that spans SQL capture", async () => {

@@ -31,6 +31,34 @@ export const ACTION_HEADERS = {
 };
 
 export const EDITOR = ".content-editor.ProseMirror";
+export const ACTIVE_EDITOR = `${EDITOR}:not([hidden] *)`;
+
+export async function getActionResponse(
+  page: Page,
+  name: string,
+  params: Record<string, string>,
+) {
+  return page.request.get(`/_agent-native/actions/${name}`, {
+    params,
+    headers: ACTION_HEADERS,
+    timeout: 30_000,
+  });
+}
+
+export async function readAppState<T>(
+  page: Page,
+  key: string,
+): Promise<T | null> {
+  const response = await page.request.get(
+    `/_agent-native/application-state/${encodeURIComponent(key)}`,
+  );
+  const body = await response.text();
+  expect(
+    response.ok(),
+    `application-state (${response.status()}): ${body}`,
+  ).toBe(true);
+  return body === "" ? null : (JSON.parse(body) as T | null);
+}
 
 const SAVE_PATH = "/_agent-native/actions/update-document";
 const SESSION_PATH = "/_agent-native/auth/session";
@@ -169,7 +197,7 @@ export async function gotoEditor(
 }
 
 export async function expectEditorReady(page: Page): Promise<void> {
-  await expect(page.locator(EDITOR)).toHaveAttribute(
+  await expect(page.locator(ACTIVE_EDITOR)).toHaveAttribute(
     "contenteditable",
     "true",
     { timeout: 60_000 },
@@ -510,7 +538,9 @@ export class TabSet {
 
   /** Wait until an open tab's editor shows text another tab or agent wrote. */
   async waitForText(page: Page, text: string): Promise<void> {
-    await expect(page.locator(EDITOR)).toContainText(text, { timeout: 30_000 });
+    await expect(page.locator(ACTIVE_EDITOR)).toContainText(text, {
+      timeout: 30_000,
+    });
   }
 
   /** Wait for every classified save response the tabs have produced. */
@@ -945,7 +975,7 @@ export async function typeAtParagraphEnd(
     const snapshot = await page.evaluate(captureFixtureInput, {
       phase,
       text,
-      editor: EDITOR,
+      editor: ACTIVE_EDITOR,
     });
     if (!snapshot) return;
     await page.evaluate((detail) => {
@@ -958,7 +988,10 @@ export async function typeAtParagraphEnd(
     }, JSON.stringify(snapshot));
   };
   await capture("before-caret");
-  await page.locator(`${EDITOR} > p`, { hasText: anchor }).first().click();
+  await page
+    .locator(`${ACTIVE_EDITOR} > p`, { hasText: anchor })
+    .first()
+    .click();
   // "End" stops at a wrapped visual line; place the caret at the true end.
   await page.evaluate(
     ({ needle, editor }) => {
@@ -987,7 +1020,7 @@ export async function typeAtParagraphEnd(
       selection.removeAllRanges();
       selection.addRange(range);
     },
-    { needle: anchor, editor: EDITOR },
+    { needle: anchor, editor: ACTIVE_EDITOR },
   );
   await page.keyboard.type(text, { delay: delayMs });
   await capture("after-input");
@@ -1017,10 +1050,10 @@ export async function deleteEditorText(
       }
       throw new Error(`The editor has no text node containing ${needle}`);
     },
-    { needle: text, editor: EDITOR },
+    { needle: text, editor: ACTIVE_EDITOR },
   );
   await page.keyboard.press("Backspace");
-  await expect(page.locator(EDITOR)).not.toContainText(text);
+  await expect(page.locator(ACTIVE_EDITOR)).not.toContainText(text);
 }
 
 export function countMarkers(
@@ -1236,7 +1269,7 @@ function judge(
 }
 
 async function editorText(page: Page): Promise<string> {
-  return page.locator(EDITOR).innerText();
+  return page.locator(ACTIVE_EDITOR).innerText();
 }
 
 const CONVERGENCE_DEADLINE_MS = 45_000;

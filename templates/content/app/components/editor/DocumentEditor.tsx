@@ -294,7 +294,11 @@ import {
   savePageWithRecovery,
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
-import { trackPendingDocumentPersistence } from "./pending-document-persistence";
+import {
+  settleAcceptedDocumentPersistence,
+  trackPendingDocumentPersistence,
+  type DocumentPersistenceFailure,
+} from "./pending-document-persistence";
 import {
   bodyCommentThreads,
   openThreadsByProperty,
@@ -1975,6 +1979,7 @@ type PendingDocumentSave = {
 };
 
 type DocumentSaveOptions = {
+  persistenceSequence?: number;
   telemetryOrigin?: "recovery";
   historySessionId?: string;
   editorSessionId?: string;
@@ -3657,8 +3662,9 @@ function PageEditorSessionBody({
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
   const pendingPersistenceRef = useRef(new Set<Promise<unknown>>());
+  const persistenceSequenceRef = useRef(0);
   const persistenceErrorsRef = useRef(
-    new Map<keyof DocumentUpdates, unknown>(),
+    new Map<keyof DocumentUpdates, DocumentPersistenceFailure>(),
   );
   const persistDocumentUpdatesUntracked = useCallback(
     async (
@@ -3870,6 +3876,7 @@ function PageEditorSessionBody({
   );
   const persistDocumentUpdates = useCallback(
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
+      options.persistenceSequence = ++persistenceSequenceRef.current;
       const fields = Object.keys(updates) as (keyof DocumentUpdates)[];
       const request = persistDocumentUpdatesUntracked(updates, options);
       const tracked = trackPendingDocumentPersistence(
@@ -3886,7 +3893,13 @@ function PageEditorSessionBody({
               "The page changed before the latest edit could be saved.",
             );
             for (const field of fields) {
-              persistenceErrorsRef.current.set(field, error);
+              persistenceErrorsRef.current.set(field, {
+                error,
+                editorSessionId: options.editorSessionId,
+                editGeneration: options.editGeneration,
+                saveAttemptId: options.saveAttemptId,
+                persistenceSequence: options.persistenceSequence,
+              });
             }
           } else {
             if (
@@ -3921,15 +3934,23 @@ function PageEditorSessionBody({
                 lastSavedContentRef.current.revision = result.revision;
               }
             }
-            for (const field of fields) {
-              persistenceErrorsRef.current.delete(field);
-            }
+            settleAcceptedDocumentPersistence(
+              persistenceErrorsRef.current,
+              fields,
+              options,
+            );
           }
         },
         (error) => {
           if (!(error instanceof AbandonedPageSaveError)) {
             for (const field of fields) {
-              persistenceErrorsRef.current.set(field, error);
+              persistenceErrorsRef.current.set(field, {
+                error,
+                editorSessionId: options.editorSessionId,
+                editGeneration: options.editGeneration,
+                saveAttemptId: options.saveAttemptId,
+                persistenceSequence: options.persistenceSequence,
+              });
             }
           }
         },
@@ -4354,6 +4375,14 @@ function PageEditorSessionBody({
         }
       } else {
         saved = await persistDocumentUpdates(updates, options);
+        if (
+          isDocumentUpdateConflict(saved) &&
+          (updates.title === undefined ||
+            saved.document.title === updates.title) &&
+          (updates.content === undefined ||
+            saved.document.content === updates.content)
+        )
+          saved = saved.document;
       }
       if (
         isDocumentUpdateConflict(saved) ||
@@ -4363,6 +4392,11 @@ function PageEditorSessionBody({
         return { contentPersisted: false };
       }
       const savedAt = saved?.updatedAt ?? new Date().toISOString();
+      settleAcceptedDocumentPersistence(
+        persistenceErrorsRef.current,
+        Object.keys(updates) as (keyof DocumentUpdates)[],
+        options,
+      );
       adoptConfirmedSaveWatermarks({
         saved,
         savedAt,
@@ -5493,22 +5527,13 @@ function PageEditorSessionBody({
         clearTimeout(pending.timeout);
         saveTimeoutRef.current = null;
         pendingDocumentSaveRef.current = null;
+        await flushPendingDocumentSave(pending);
       }
-      if (remoteSaveTimerRef.current !== null) {
-        clearTimeout(remoteSaveTimerRef.current);
-        remoteSaveTimerRef.current = null;
-      }
-      const result = await queueDocumentSave(
-        localTitleRef.current,
-        localContentRef.current,
-        { allowQueuedSave: true },
-      );
-      if (!result.contentPersisted)
-        throw new Error("The live document could not be saved before syncing.");
+      await documentSaveQueueRef.current;
       while (pendingPersistenceRef.current.size > 0)
         await Promise.allSettled([...pendingPersistenceRef.current]);
       const error = persistenceErrorsRef.current.values().next().value;
-      if (error !== undefined) throw error;
+      if (error !== undefined) throw error.error;
     },
   };
   const flushParticipantRef = useRef<ReturnType<
@@ -8227,12 +8252,6 @@ function PageEditorSessionBody({
 
     const title = localTitleRef.current;
     const content = localContentRef.current;
-    if (title === lastSavedTitleRef.current.title) {
-      persistenceErrorsRef.current.delete("title");
-    }
-    if (content === lastSavedContentRef.current.content) {
-      persistenceErrorsRef.current.delete("content");
-    }
     const hasUnsavedPrimaryEdit =
       title !== lastSavedTitleRef.current.title ||
       content !== lastSavedContentRef.current.content;
@@ -8279,7 +8298,7 @@ function PageEditorSessionBody({
       await Promise.allSettled([...pendingPersistenceRef.current]);
     }
     const persistenceError = persistenceErrorsRef.current.values().next().value;
-    if (persistenceError !== undefined) throw persistenceError;
+    if (persistenceError !== undefined) throw persistenceError.error;
 
     if (
       localTitleRef.current !== lastSavedTitleRef.current.title ||

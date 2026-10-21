@@ -8,7 +8,6 @@ import {
 } from "@agent-native/core/application-state";
 import {
   AGENT_CLIENT_ID,
-  hasCollabState,
   loadAwarenessRowsStrict,
 } from "@agent-native/core/collab";
 
@@ -31,7 +30,6 @@ import {
 const FLUSH_POLL_INTERVAL_MS = 200;
 // The required-editor budget covers acquisition and both handshake phases.
 const FLUSH_TIMEOUT_MS = 20_000;
-const MAX_CAPTURE_ATTEMPTS = 3;
 
 export type OpenEditorFlushOutcome =
   | (FlushEditorIdentity & {
@@ -111,11 +109,12 @@ export async function flushOpenDocumentEditorToSql(args: {
   const deadline = Date.now() + FLUSH_TIMEOUT_MS;
   let phase = "discovery";
   let waitingEditors: FlushEditorIdentity[] = [];
+  let lastEditorError: { clientId: number; errorCode: string } | undefined;
   const timeout = () =>
     failure(
       "open_editor_flush_timeout",
       "The open document editor did not finish saving before sync timed out.",
-      { documentId: args.documentId, phase, waitingEditors },
+      { documentId: args.documentId, phase, waitingEditors, lastEditorError },
     );
   async function bounded<T>(promise: Promise<T>): Promise<T> {
     const remaining = deadline - Date.now();
@@ -142,8 +141,6 @@ export async function flushOpenDocumentEditorToSql(args: {
       ),
     );
   try {
-    if (!(await bounded(hasCollabState(args.documentId))))
-      return { status: "no_open_editor" };
     const candidates = (await bounded(loadAwarenessRowsStrict(args.documentId)))
       .map(candidate)
       .filter((value): value is Candidate => value !== null);
@@ -311,6 +308,7 @@ export async function flushOpenDocumentEditorToSql(args: {
             }),
           ),
         );
+        let retry = false;
         for (const { email, entries } of reads) {
           const request = requestsByEmail.get(email)!;
           for (const { key, value } of entries) {
@@ -318,20 +316,36 @@ export async function flushOpenDocumentEditorToSql(args: {
             const target = request.targets.find(
               (target) => flushAckKey(request, target.clientId) === key,
             );
-            if (!target || !matchingFlushAck(value, request, target))
+            if (
+              !target ||
+              !value ||
+              typeof value !== "object" ||
+              Array.isArray(value) ||
+              !matchingFlushAck(value, request, target)
+            )
               throw failure(
                 "open_editor_flush_invalid_ack",
                 "The open editor returned an unrelated save confirmation.",
                 { key },
               );
-            if (value.status === "error")
-              throw failure(
-                "open_editor_flush_failed",
-                "The live document could not be saved before syncing.",
-                { clientId: target.clientId, editorErrorCode: value.errorCode },
-              );
+            if (value.status === "error") {
+              if (typeof value.errorCode !== "string")
+                throw failure(
+                  "open_editor_flush_invalid_ack",
+                  "The open editor returned an unreadable save confirmation.",
+                  { clientId: target.clientId },
+                );
+              lastEditorError = {
+                clientId: target.clientId,
+                errorCode: value.errorCode,
+              };
+              answers.set(target.clientId, value as DocumentFlushAck);
+              retry = true;
+              continue;
+            }
             if (value.status === "changed") {
               answers.set(target.clientId, value as DocumentFlushAck);
+              retry = true;
               continue;
             }
             const valid =
@@ -352,18 +366,26 @@ export async function flushOpenDocumentEditorToSql(args: {
         waitingEditors = waitingEditors.filter(
           (editor) => !answers.has(editor.clientId),
         );
-        if (answers.size === required.length) return answers;
+        if (retry || answers.size === required.length) return answers;
         await pause();
       }
     }
     try {
-      for (let attempt = 0; attempt < MAX_CAPTURE_ATTEMPTS; attempt++) {
+      let acquire = true;
+      while (true) {
+        if (!acquire) await pause();
+        if (Date.now() >= deadline) throw timeout();
         phase = "prepare";
         const prepareToken = randomUUID();
         const prepare = requests("prepare", prepareToken, prepareToken);
-        await publish(prepare, attempt === 0);
+        await publish(prepare, acquire);
+        acquire = false;
         const prepared = await acknowledgments(prepare);
-        if ([...prepared.values()].some((ack) => ack.status === "changed"))
+        if (
+          [...prepared.values()].some(
+            (ack) => ack.status === "changed" || ack.status === "error",
+          )
+        )
           continue;
         phase = "capture";
         const snapshot = await bounded(
@@ -433,11 +455,6 @@ export async function flushOpenDocumentEditorToSql(args: {
           ),
         };
       }
-      throw failure(
-        "open_editor_flush_contention",
-        "The document kept changing during save confirmation.",
-        { documentId: args.documentId, attempts: MAX_CAPTURE_ATTEMPTS },
-      );
     } finally {
       const cleanup = Promise.all(
         sessions.map(async (email) => {

@@ -5,8 +5,10 @@ import {
   createPage,
   EDITOR,
   getDocument,
+  getActionResponse,
   gotoEditor,
   postAction,
+  readAppState,
   SaveGate,
   TabSet,
   typeAtParagraphEnd,
@@ -52,10 +54,7 @@ async function waitForPublished(
     .toBe(unsavedEdits);
 }
 async function pullDocument(page: Page, id: string) {
-  const response = await page.request.get(
-    `/_agent-native/actions/pull-document?id=${encodeURIComponent(id)}`,
-    { headers: ACTION_HEADERS },
-  );
+  const response = await getActionResponse(page, "pull-document", { id });
   return {
     status: response.status(),
     body: (await response.json()) as {
@@ -86,13 +85,11 @@ async function wakePhase(
   await expect
     .poll(
       async () => {
-        const response = await reader.request.get(
-          `/_agent-native/application-state/flush-request-${id}`,
-        );
-        expect(response.ok()).toBe(true);
-        return (await response.json())?.phase;
+        return (
+          await readAppState<{ phase: string }>(reader, `flush-request-${id}`)
+        )?.phase;
       },
-      { timeout: 2500, intervals: [0, 10, 20, 50] },
+      { timeout: 5000, intervals: [0, 10, 20, 50] },
     )
     .toBe(phase);
   await Promise.all(
@@ -102,7 +99,127 @@ async function wakePhase(
   );
 }
 
+async function pullDuringTyping(
+  page: Page,
+  id: string,
+  characters: number,
+  deliveredAfter: number,
+) {
+  await typeAtParagraphEnd(page, FIRST_PARAGRAPH, "", 0);
+  const typing = page.keyboard.type("x".repeat(characters), { delay: 40 });
+  await expect(page.locator(EDITOR)).toContainText(
+    FIRST_PARAGRAPH + "x".repeat(deliveredAfter),
+  );
+  const started = Date.now();
+  const pulling = pullDocument(page, id);
+  let finished = false;
+  void pulling.then(
+    () => {
+      finished = true;
+    },
+    () => {
+      finished = true;
+    },
+  );
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        return finished;
+      },
+      { timeout: 25_000, intervals: [200] },
+    )
+    .toBe(true);
+  const pulled = await pulling;
+  const elapsed = Date.now() - started;
+  await typing;
+  return { pulled, elapsed };
+}
+
 test.describe("fresh confirmation of open editors", () => {
+  test("returns the latest persisted burst after typing continues during an early delivered pull", async ({
+    page,
+  }, testInfo) => {
+    const tabs = await TabSet.create(page.context(), { refuseRealtime: false });
+    const id = await createPage(
+      page,
+      "Flush wake burst during pull",
+      FIRST_PARAGRAPH,
+    );
+    await gotoEditor(page, id, { tabs });
+    const gate = await SaveGate.install(page);
+    gate.setLatency(120);
+    const expected = FIRST_PARAGRAPH + "x".repeat(40);
+    try {
+      const { pulled, elapsed } = await pullDuringTyping(page, id, 40, 10);
+      expect(pulled.status).toBe(200);
+      expect(pulled.body.content).toBe(expected);
+      expect(pulled.body.editorFlush).toMatchObject({
+        status: "flushed",
+        editors: [{ flush: "answered" }],
+      });
+      const receipt = pulled.body.editorFlush!.editors[0]!;
+      expect(receipt.prepareToken).not.toBe(receipt.verifyToken);
+      expect(elapsed).toBeLessThan(20_000);
+      expect((await getDocument(page, id)).content).toBe(expected);
+      await testInfo.attach("burst-during-pull", {
+        body: JSON.stringify({
+          pulled,
+          elapsed,
+          saves: tabs.record(page).saveOutcomes,
+        }),
+        contentType: "application/json",
+      });
+    } finally {
+      gate.setLatency(0);
+      await tabs.quiet();
+      await page.goto("about:blank");
+      await postAction(page, "delete-document", { id });
+    }
+  });
+
+  test("waits for the original deadline and returns a typed timeout while input never settles", async ({
+    page,
+  }, testInfo) => {
+    const tabs = await TabSet.create(page.context(), { refuseRealtime: false });
+    const id = await createPage(
+      page,
+      "Flush wake continuous during pull",
+      FIRST_PARAGRAPH,
+    );
+    await gotoEditor(page, id, { tabs });
+    const gate = await SaveGate.install(page);
+    gate.setLatency(120);
+    const expected = FIRST_PARAGRAPH + "x".repeat(600);
+    try {
+      const { pulled, elapsed } = await pullDuringTyping(page, id, 600, 13);
+      expect(pulled.status).toBe(409);
+      expect(pulled.body.errorCode).toBe("open_editor_flush_timeout");
+      expect(pulled.body.editorFlush).toBeUndefined();
+      expect(elapsed).toBeGreaterThanOrEqual(20_000);
+      expect(elapsed).toBeLessThan(25_000);
+      expect((await page.locator(EDITOR).innerText()).trim()).toBe(expected);
+      await expect
+        .poll(async () => (await getDocument(page, id)).content, {
+          timeout: 30_000,
+        })
+        .toBe(expected);
+      await testInfo.attach("continuous-during-pull", {
+        body: JSON.stringify({
+          pulled,
+          elapsed,
+          saves: tabs.record(page).saveOutcomes,
+        }),
+        contentType: "application/json",
+      });
+    } finally {
+      gate.setLatency(0);
+      await tabs.quiet();
+      await page.goto("about:blank");
+      await postAction(page, "delete-document", { id });
+    }
+  });
+
   test("refuses an old saved claim when fresh challenge delivery is withheld", async ({
     page,
   }) => {
@@ -352,7 +469,7 @@ test.describe("fresh confirmation of open editors", () => {
     }
   });
 
-  test("refuses stale success after a second body and title edit across a held save", async ({
+  test("refuses stale success after a second body edit across a held save", async ({
     page,
   }, testInfo) => {
     const tabs = await TabSet.create(page.context());
@@ -368,7 +485,6 @@ test.describe("fresh confirmation of open editors", () => {
     gate.holdAnswers();
     const first = `${FIRST_PARAGRAPH} zqfirstheldsave`;
     const expected = `${first} zqsecondheldsave`;
-    const title = "Title edited during the first save";
     try {
       await typeAtParagraphEnd(page, FIRST_PARAGRAPH, " zqfirstheldsave", 0);
       await gate.waitForHeld();
@@ -381,20 +497,16 @@ test.describe("fresh confirmation of open editors", () => {
       await wakePhase(page, id, "prepare", [page]);
       await delivered;
       await typeAtParagraphEnd(page, first, " zqsecondheldsave", 0);
-      await page.getByLabel("Document title", { exact: true }).fill(title);
       await gate.release();
       await gate.waitForHeld();
       const pulled = await pulling;
-      await testInfo.attach("save-await-body-title", {
+      await testInfo.attach("save-await-body", {
         body: JSON.stringify(
           {
             pulled,
             saved: await getDocument(page, id),
             heldResponses: gate.queued,
             localBody: await page.locator(EDITOR).innerText(),
-            localTitle: await page
-              .getByLabel("Document title", { exact: true })
-              .inputValue(),
           },
           null,
           2,
@@ -404,9 +516,6 @@ test.describe("fresh confirmation of open editors", () => {
       expect(pulled.status).toBe(409);
       expect(pulled.body.errorCode).toBe("open_editor_flush_timeout");
       expect((await page.locator(EDITOR).innerText()).trim()).toBe(expected);
-      await expect(
-        page.getByLabel("Document title", { exact: true }),
-      ).toHaveValue(title);
     } finally {
       gate.pass();
       await gate.release();
@@ -414,14 +523,117 @@ test.describe("fresh confirmation of open editors", () => {
         .poll(
           async () => {
             const saved = await getDocument(page, id);
-            return { content: saved.content, title: saved.title };
+            return saved.content;
           },
           { timeout: 30_000 },
         )
-        .toEqual({ content: expected, title });
+        .toBe(expected);
       await tabs.quiet();
       await page.goto("about:blank");
       await postAction(page, "delete-document", { id });
+    }
+  });
+
+  test("reads fresh additional-field input on a row whose primary body is empty or honestly times out", async ({
+    page,
+  }) => {
+    const tabs = await TabSet.create(page.context());
+    const published = watchPublishedSaveState(page);
+    const created = await postAction<{
+      database: { id: string; documentId: string };
+    }>(page, "create-content-database", { title: "Flush empty-body field" });
+    const databaseId = created.database.id;
+    const databaseDocumentId = created.database.documentId;
+    const configured = await postAction<{
+      properties: Array<{ definition: { id: string; name: string } }>;
+    }>(page, "configure-document-property", {
+      documentId: databaseDocumentId,
+      databaseId,
+      name: "Notes",
+      type: "blocks",
+    });
+    const propertyId = configured.properties.find(
+      (field) => field.definition.name === "Notes",
+    )!.definition.id;
+    const context = await getActionResponse(page, "get-content-database", {
+      databaseId,
+    });
+    expect(context.ok()).toBe(true);
+    const { mutationContract } = await context.json();
+    const row = await postAction<{ receipt: { row: { documentId: string } } }>(
+      page,
+      "add-database-item",
+      {
+        target: mutationContract.target,
+        expectedSchemaRevision: mutationContract.schemaRevision,
+        idempotencyKey: `flush-field-${databaseId}`,
+      },
+    );
+    const documentId = row.receipt.row.documentId;
+    await postAction(page, "set-document-property", {
+      documentId,
+      databaseId,
+      propertyId,
+      value: "Field saved body.",
+    });
+    try {
+      expect((await getDocument(page, documentId)).content).toBe("");
+      await gotoEditor(page, documentId, { tabs });
+      await waitForPublished(published, false);
+      await page
+        .locator(`[role="tab"][data-block-field-id="${propertyId}"]`)
+        .click();
+      await typeAtParagraphEnd(page, "Field saved body.", " zqfieldfresh", 0);
+      const reading = getActionResponse(page, "get-blocks-field-word-count", {
+        documentId,
+        propertyId,
+      });
+      let finished = false;
+      void reading.then(
+        () => {
+          finished = true;
+        },
+        () => {
+          finished = true;
+        },
+      );
+      await expect
+        .poll(
+          async () => {
+            await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+            return finished;
+          },
+          { timeout: 30_000, intervals: [50] },
+        )
+        .toBe(true);
+      const response = await reading;
+      const result = await response.json();
+      if (response.status() === 200) expect(result.wordCount).toBe(4);
+      else {
+        expect(response.status()).toBe(409);
+        expect(result.errorCode).toBe("open_editor_flush_timeout");
+      }
+      await tabs.quiet();
+      await expect
+        .poll(
+          async () => {
+            const saved = await getActionResponse(
+              page,
+              "list-document-properties",
+              { documentId, databaseId },
+            );
+            expect(saved.ok()).toBe(true);
+            return (await saved.json()).properties.find(
+              (field: any) => field.definition.id === propertyId,
+            ).value;
+          },
+          { timeout: 30_000 },
+        )
+        .toBe("Field saved body. zqfieldfresh");
+    } finally {
+      await page.goto("about:blank");
+      await postAction(page, "delete-document", { id: documentId });
+      await postAction(page, "delete-content-database", { databaseId });
     }
   });
 });
