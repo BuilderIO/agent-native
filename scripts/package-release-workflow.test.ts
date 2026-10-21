@@ -10,6 +10,7 @@ import { parse } from "yaml";
 import {
   DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
   NPM_PUBLISH_PACKAGE_NAMES,
+  ensureLocalRuntimeDependenciesAvailable,
   isAlreadyStaged,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
@@ -239,7 +240,7 @@ describe("npm package release workflow", () => {
     assert.equal(DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS, 30 * 60_000);
     assert.match(
       publisherSource,
-      /packagesNeedingTags\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
+      /packagesNeedingTags\s*\.filter\(\(pkg\) => !fetchablePackageNames\.has\(pkg\.name\)\)\s*\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
     );
   });
 
@@ -473,6 +474,115 @@ importers:
 
     const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
     assert.equal(syncCommunityQrCoreLock(lockfile, coreSpecifier), lockfile);
+  });
+
+  it("waits until local runtime packages are fetchable before publishing dependents", async () => {
+    const core = {
+      dir: "packages/core",
+      name: "@agent-native/core",
+      version: "0.213.0",
+      packageJson: { name: "@agent-native/core", version: "0.213.0" },
+    };
+    const dispatchPackage = {
+      dir: "packages/dispatch",
+      name: "@agent-native/dispatch",
+      version: "0.40.32",
+      packageJson: {
+        name: "@agent-native/dispatch",
+        version: "0.40.32",
+        dependencies: { "@agent-native/core": "^0.213.0" },
+        devDependencies: { "@agent-native/toolkit": "^0.0.0" },
+        peerDependencies: { "@agent-native/pinpoint": "^0.0.0" },
+      },
+    };
+    const fetchable = new Set<string>();
+    const failed = new Set<string>();
+    const checks: string[] = [];
+
+    await ensureLocalRuntimeDependenciesAvailable(
+      dispatchPackage,
+      [core, dispatchPackage],
+      async (dependency) => {
+        checks.push(dependency.name);
+      },
+      fetchable,
+      failed,
+    );
+
+    assert.deepEqual(checks, ["@agent-native/core"]);
+    assert.deepEqual([...fetchable], ["@agent-native/core"]);
+
+    await ensureLocalRuntimeDependenciesAvailable(
+      dispatchPackage,
+      [core, dispatchPackage],
+      async (dependency) => {
+        checks.push(dependency.name);
+      },
+      fetchable,
+      failed,
+    );
+    assert.deepEqual(checks, ["@agent-native/core"]);
+  });
+
+  it("marks an unavailable dependency failed and skips later dependents", async () => {
+    const core = {
+      dir: "packages/core",
+      name: "@agent-native/core",
+      version: "0.213.0",
+      packageJson: { name: "@agent-native/core", version: "0.213.0" },
+    };
+    const dispatchPackage = {
+      dir: "packages/dispatch",
+      name: "@agent-native/dispatch",
+      version: "0.40.32",
+      packageJson: {
+        name: "@agent-native/dispatch",
+        version: "0.40.32",
+        dependencies: { "@agent-native/core": "^0.213.0" },
+      },
+    };
+    const toolkitPackage = {
+      dir: "packages/toolkit",
+      name: "@agent-native/toolkit",
+      version: "0.14.0",
+      packageJson: {
+        name: "@agent-native/toolkit",
+        version: "0.14.0",
+        dependencies: { "@agent-native/core": "^0.213.0" },
+      },
+    };
+    const fetchable = new Set<string>();
+    const failed = new Set<string>();
+    const checks: string[] = [];
+
+    await assert.rejects(
+      ensureLocalRuntimeDependenciesAvailable(
+        dispatchPackage,
+        [core, dispatchPackage, toolkitPackage],
+        async (dependency) => {
+          checks.push(dependency.name);
+          throw new Error(`${dependency.name} is not fetchable`);
+        },
+        fetchable,
+        failed,
+      ),
+      /@agent-native\/core is not fetchable/,
+    );
+    assert.deepEqual([...failed], ["@agent-native/core"]);
+
+    await assert.rejects(
+      ensureLocalRuntimeDependenciesAvailable(
+        toolkitPackage,
+        [core, dispatchPackage, toolkitPackage],
+        async (dependency) => {
+          checks.push(dependency.name);
+        },
+        fetchable,
+        failed,
+      ),
+      /@agent-native\/toolkit depends on failed local runtime package: @agent-native\/core/,
+    );
+    assert.deepEqual(checks, ["@agent-native/core"]);
   });
 
   describe("dev snapshot publishing", () => {

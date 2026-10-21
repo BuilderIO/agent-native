@@ -417,6 +417,33 @@ export function localRuntimeDependencyNames(pkg: PublishPackage): string[] {
   });
 }
 
+export async function ensureLocalRuntimeDependenciesAvailable(
+  pkg: PublishPackage,
+  packages: PublishPackage[],
+  waitForAvailability: (dependency: PublishPackage) => Promise<void>,
+  fetchablePackageNames: Set<string>,
+  failedPackageNames: Set<string>,
+): Promise<void> {
+  const dependencyNames = new Set(localRuntimeDependencyNames(pkg));
+  for (const dependency of packages) {
+    if (!dependencyNames.has(dependency.name)) continue;
+    if (failedPackageNames.has(dependency.name)) {
+      throw new Error(
+        `${pkg.name} depends on failed local runtime package: ${dependency.name}`,
+      );
+    }
+    if (fetchablePackageNames.has(dependency.name)) continue;
+
+    try {
+      await waitForAvailability(dependency);
+      fetchablePackageNames.add(dependency.name);
+    } catch (error) {
+      failedPackageNames.add(dependency.name);
+      throw error;
+    }
+  }
+}
+
 function formatError(error: unknown): string {
   if (!(error instanceof Error)) {
     return String(error);
@@ -588,6 +615,7 @@ async function main() {
   const packagesNeedingTags: PublishPackage[] = [];
   const failures: { pkg: PublishPackage; error: unknown }[] = [];
   const failedPackageNames = new Set<string>();
+  const fetchablePackageNames = new Set<string>();
 
   for (const pkg of packages) {
     if (await isPublished(pkg)) {
@@ -625,6 +653,13 @@ async function main() {
       `${pkg.name} is being published because local version ${pkg.version} has not been published on npm`,
     );
     try {
+      await ensureLocalRuntimeDependenciesAvailable(
+        pkg,
+        packages,
+        waitForPackageAvailability,
+        fetchablePackageNames,
+        failedPackageNames,
+      );
       if (await publishPackage(pkg)) {
         packagesNeedingTags.push(pkg);
       }
@@ -650,7 +685,9 @@ async function main() {
   }
 
   await Promise.all(
-    packagesNeedingTags.map((pkg) => waitForPackageAvailability(pkg)),
+    packagesNeedingTags
+      .filter((pkg) => !fetchablePackageNames.has(pkg.name))
+      .map((pkg) => waitForPackageAvailability(pkg)),
   );
 
   if (packagesNeedingTags.length === 0) {
