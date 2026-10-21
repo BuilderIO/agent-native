@@ -1738,8 +1738,9 @@ export async function getOnboardingJourney(
     if (list) list.push(recording);
     else bySession.set(recording.sessionId, [recording]);
   }
+  const recordingsBySession = recordings === null ? null : bySession;
 
-  const built = buildJourneyTree(sessions, bySession, {
+  const built = buildJourneyTree(sessions, recordingsBySession, {
     maxDepth: args.maxDepth,
     minNodeSessions: args.minNodeSessions,
     examplesPerNode: args.format === "tree" ? args.examplesPerNode : 0,
@@ -1752,7 +1753,7 @@ export async function getOnboardingJourney(
   const hasStandaloneResult =
     standalone.sessions.length > 0 || read.standaloneSetupTruncated;
   const standaloneBuilt = hasStandaloneResult
-    ? buildJourneyTree(standalone.sessions, bySession, {
+    ? buildJourneyTree(standalone.sessions, recordingsBySession, {
         maxDepth: args.maxDepth,
         minNodeSessions: args.minNodeSessions,
         examplesPerNode: args.format === "tree" ? args.examplesPerNode : 0,

@@ -54,7 +54,7 @@ To include the bounded cross-session estimate from the repository root, run:
 `pnpm --filter analytics action get-onboarding-journey --dateFrom=2026-08-01 --dateTo=2026-08-31 --app=all --emailFilter=exclude_builder --followUpMode=person --format=summary`.
 
 ```ts
-type JourneyExample = { sessionId: string; recordingId: string | null; ts: string; offsetMs: number | null; viewport: { width: number; height: number } | null; viewportReason?: string; replayUrl?: string };
+type JourneyExample = { sessionId: string; recordingId?: string | null; ts: string; offsetMs: number | null; viewport: { width: number; height: number } | null; viewportReason?: string; replayUrl?: string };
 type JourneyNode = { key: string; keyTruncated?: boolean; label: string; labelTruncated?: boolean; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[]; otherBranchCount?: number; otherBranchSummariesPartial?: true; otherBranches?: { path: string[]; pathTruncated?: boolean; key: string; keyTruncated?: boolean; sourceStepKey?: string; sourceStepKeyTruncated?: boolean; n: number; pctOfParent: number }[] };
 type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "followup_aggregate_cost_limited" | "followup_aggregate_query_timeout" | "followup_aggregate_query_failed" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean; status?: "incomplete"; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
 type JourneyPersonFollowupCounts = { canonicalPeople: number; laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number; laterActivityInBothSelectedAndOutside: number; laterActivityObservedAnywhere: number; noActivityObservedWithinHorizon: number; rightCensoredHorizon: number; fullyObservedCanonicalPeople: number; noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: number | null; identityUnavailableSessions: number; identityUnavailableSessionEvidence: { laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number } };
@@ -211,9 +211,10 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
 - The event row cap is shared by onboarding and standalone setup. If it is hit,
   `standaloneSetup` may be an empty, truncated tree because standalone events
   were beyond the read boundary; do not interpret that as zero standalone use.
-- An example with `recordingId: null` has no replay the caller can open, and
+- An example with `recordingId: null` has no replay the caller can open; an
+  omitted `recordingId` means replay availability was not checked. Its
   `viewportReason` says why the viewport is unknown (`no_recording`,
-  `not_captured` for recordings before viewport capture, `unreadable`).
+  `recording_unknown`, `not_captured`, `unreadable`).
 - `offsetMs` is milliseconds from the recording's `startedAt`, not the first
   rrweb event.
 - `replayUrl` uses that same offset in `atMs`; the session page converts it to

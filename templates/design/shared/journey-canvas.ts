@@ -147,7 +147,7 @@ export const journeyExampleSchema = z.object({
     .describe(
       "SHA-256 hash used only to compare anonymous identity when available.",
     ),
-  recordingId: z.string().max(256).nullable(),
+  recordingId: z.string().max(256).nullable().optional(),
   ts: isoTimestamp,
   offsetMs: z.number().min(0).nullable(),
   viewport: z.object({ width: pixels, height: pixels }).nullable(),
@@ -1406,7 +1406,7 @@ export interface PlannedScreen {
   provenance?: {
     eventAt: string;
     dateLabel: string;
-    recordingId: string | null;
+    recordingId?: string | null;
     recordingStartedAt?: string;
     offsetMs: number | null;
     offsetIsObserved: boolean;
@@ -2315,7 +2315,9 @@ export function planJourneyCanvas(
                 candidate.caption.evidenceAt !== undefined,
               messages,
             ),
-            recordingId: candidateExample.recordingId,
+            ...(candidateExample.recordingId !== undefined
+              ? { recordingId: candidateExample.recordingId }
+              : {}),
             ...(candidate.recordingStartedAt
               ? {
                   recordingStartedAt: utcTimestamp(

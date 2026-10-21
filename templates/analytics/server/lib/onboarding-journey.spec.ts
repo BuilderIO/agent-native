@@ -1604,6 +1604,10 @@ describe("getOnboardingJourney", () => {
       /aggregate maxTotalBytesBilled=50000000000 bytes budget/,
     );
     expect(tree.notes?.join(" ")).toMatch(/replay reads were skipped/);
+    const examples = tree.nodes.flatMap((node) => node.examples);
+    expect(examples.length).toBeGreaterThan(0);
+    expect(examples[0]).not.toHaveProperty("recordingId");
+    expect(examples[0]).toMatchObject({ viewportReason: "recording_unknown" });
     expect(tree.followUp).toMatchObject({
       status: "incomplete",
       incompleteReason: "journey_event_read_truncated",

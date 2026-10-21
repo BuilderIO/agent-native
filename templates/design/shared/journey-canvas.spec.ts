@@ -2565,7 +2565,18 @@ describe("planJourneyCanvas", () => {
     const truncated = rawInput();
     truncated.tree.coverage.truncated = true;
     truncated.tree.coverage.sessionsWithReplay = null;
-    expect(parse(truncated).tree.coverage.sessionsWithReplay).toBeNull();
+    const unknownExample = truncated.tree.nodes[0]!.examples[0]!;
+    delete unknownExample.recordingId;
+    unknownExample.offsetMs = null;
+    unknownExample.viewport = null;
+    unknownExample.viewportReason = "recording_unknown";
+    const parsed = parse(truncated);
+    expect(parsed.tree.coverage.sessionsWithReplay).toBeNull();
+    expect(parsed.tree.nodes[0]!.examples[0]).not.toHaveProperty("recordingId");
+    const planned = plan(truncated).screens.find(
+      (screen) => screen.nodeKey === "signup" && screen.exampleIndex === 0,
+    )!;
+    expect(planned.provenance).not.toHaveProperty("recordingId");
     expect(plan(truncated).boardFragments({ x: 0, y: 0 }).join("\n")).toContain(
       "partial sample",
     );
