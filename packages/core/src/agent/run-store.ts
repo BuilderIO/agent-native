@@ -5239,7 +5239,7 @@ async function retryAbortTerminalEventTransaction<T>(
             : String(firstError.cause ?? firstError),
       },
     });
-    throw new AgentRunEventNotPersistedError(error.runId, null, false, error);
+    throw new AgentRunEventNotPersistedError(error.runId, null, false, cause);
   }
 }
 

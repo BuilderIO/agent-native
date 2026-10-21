@@ -453,7 +453,7 @@ describe.skipIf(!databaseUrl)(
       });
     }, 45_000);
 
-    it("does not acknowledge a durable abort before terminal persistence across worker retries", async () => {
+    it("rolls back a failed abort and retries terminal persistence across workers", async () => {
       await withTestDatabase(async (sql, prefix) => {
         const threadId = `${prefix}:abort-thread`;
         const turnId = `${prefix}:abort-turn`;
@@ -502,8 +502,8 @@ describe.skipIf(!databaseUrl)(
             SELECT status, terminal_reason FROM agent_runs WHERE id = ${runId}
           `;
           expect(afterFailure).toMatchObject({
-            status: "aborted",
-            terminal_reason: "aborted:user",
+            status: "running",
+            terminal_reason: null,
           });
           const missingTerminal = await sql`
             SELECT seq FROM agent_run_events

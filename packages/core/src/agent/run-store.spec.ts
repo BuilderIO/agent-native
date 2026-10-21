@@ -917,7 +917,7 @@ describe("run store", () => {
     );
 
     expect(error).toBeInstanceOf(AgentRunEventNotPersistedError);
-    expect(error).toMatchObject({ terminalRun: true });
+    expect(error).toMatchObject({ terminalRun: false });
     expect((error as Error & { cause?: unknown }).cause).toMatchObject({
       message: "DB unavailable",
     });
