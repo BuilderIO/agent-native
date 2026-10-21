@@ -74,23 +74,6 @@ export function assertSourceAllowsPageEdit(
   );
 }
 
-export function assertSourceAllowsPageUpdate(
-  document: DocumentSourceColumns & {
-    title?: unknown;
-    content?: unknown;
-    description?: unknown;
-  },
-  update: { title?: string; content?: string; description?: string },
-) {
-  if (
-    (update.title !== undefined && update.title !== document.title) ||
-    (update.content !== undefined && update.content !== document.content) ||
-    (update.description !== undefined &&
-      update.description.trim() !== document.description)
-  )
-    assertSourceAllowsPageEdit(document);
-}
-
 /**
  * A GitHub folder decides its collection's rows and columns, so the general
  * source settings (another source, roles, column bindings) don't apply.

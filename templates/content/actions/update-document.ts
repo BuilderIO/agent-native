@@ -109,7 +109,7 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import {
-  assertSourceAllowsPageUpdate,
+  assertSourceAllowsPageEdit,
   serializeDocumentSource,
 } from "./_document-source.js";
 import {
@@ -1085,11 +1085,9 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
-      assertSourceAllowsPageUpdate(existing, {
-        title: args.title,
-        content,
-        description: args.description,
-      });
+      if (titleChanged || contentChanged || descriptionChanged) {
+        assertSourceAllowsPageEdit(existing);
+      }
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1234,19 +1232,11 @@ const updateDocumentAction = defineAction({
               description: schema.documents.description,
               icon: schema.documents.icon,
               updatedAt: schema.documents.updatedAt,
-              sourceMode: schema.documents.sourceMode,
-              sourceRootPath: schema.documents.sourceRootPath,
-              sourcePath: schema.documents.sourcePath,
             })
             .from(schema.documents)
             .where(eq(schema.documents.id, id))
             .limit(1);
           const bodyBaseStale = observeSaveBase(historyBefore);
-          assertSourceAllowsPageUpdate(historyBefore, {
-            title: args.title,
-            content,
-            description: args.description,
-          });
           if (
             isScopedWidgetDocumentWriter(ctx, id) &&
             args.content !== undefined &&
@@ -1540,11 +1530,6 @@ const updateDocumentAction = defineAction({
           const lockedDescriptionChanged =
             args.description !== undefined &&
             args.description.trim() !== historyBefore.description;
-          assertSourceAllowsPageUpdate(historyBefore, {
-            title: lockedTitleChanged ? args.title : undefined,
-            content,
-            description: args.description,
-          });
           const lockedIconChanged =
             args.icon !== undefined && args.icon !== historyBefore.icon;
           const lockedDocumentFieldsChanged =
