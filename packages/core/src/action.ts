@@ -1115,9 +1115,13 @@ export function defineAction(options: any) {
       ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
       : handlerRun;
   // Access checks query the database too, so they convert the same way.
-  const guardedRun = async (args: any, ctx?: ActionRunContext) => {
+  const guardedRun = async (
+    args: any,
+    ctx?: ActionRunContext,
+    gateArgs?: () => unknown,
+  ) => {
     try {
-      return await accessCheckedRun(args, ctx);
+      return await accessCheckedRun(args, ctx, gateArgs);
     } catch (error) {
       throw transactionConflictError(error) ?? error;
     }
