@@ -30,7 +30,9 @@ const dbState = vi.hoisted(() => ({
 const updateSet = vi.hoisted(() => vi.fn());
 const updateWhere = vi.hoisted(() => vi.fn());
 const updateReturning = vi.hoisted(() => vi.fn());
-const readOrgMemberRole = vi.hoisted(() => vi.fn(async () => "owner"));
+const readOrgMemberRole = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | null> => "owner"),
+);
 const requestIdentity = vi.hoisted(() => ({
   orgId: "org_1",
   userEmail: "owner@example.com",

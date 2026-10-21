@@ -1,4 +1,5 @@
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -28,6 +29,8 @@ export async function resolveA2ACallerAuth(options?: {
   userIdentityOnly?: boolean;
 }): Promise<A2ACallerAuth> {
   const userEmail = getRequestUserEmail();
+  const isOrgMemberDelegation =
+    getRequestContext()?.a2aIdentityAssurance === "org-member";
   const globalSecret = getGlobalA2ASecret();
   const metadata: Record<string, unknown> = {};
   if (userEmail) metadata.userEmail = userEmail;
@@ -49,6 +52,7 @@ export async function resolveA2ACallerAuth(options?: {
   };
   if (
     userEmail &&
+    !isOrgMemberDelegation &&
     options?.audience &&
     globalSecret &&
     (options?.userIdentityOnly || !orgId || orgDomain?.trim())

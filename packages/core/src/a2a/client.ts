@@ -2169,8 +2169,11 @@ async function buildA2AApiKeyAttempts(
   };
 
   const globalSecret = getGlobalA2ASecret();
+  const isOrgMemberDelegation =
+    getRequestContext()?.a2aIdentityAssurance === "org-member";
   if (
     opts?.userEmail &&
+    !isOrgMemberDelegation &&
     globalSecret &&
     (!opts.orgId || opts.orgDomain?.trim())
   ) {

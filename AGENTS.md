@@ -36,12 +36,13 @@ Use `/sidecar <task>` for read-only investigations.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
-- Carry explicit task approval across turns and heartbeats; ask only for broader
-  scope. In task worktrees,
-  create safe needed branches without asking. For `/ship`
-  from an unsafe shared checkout, use a managed worktree without asking:
-  fresh `origin/main` for new PRs, the live PR head and its head repository
-  for updates. Carry only task changes; preserve the checkout. See `new-branch`.
+- A user's task-scoped authorization persists across replies, heartbeats, and
+  compaction until complete or revoked. An affirmative answer resolves the
+  pending action; do not ask again. Revalidate live ownership and state before
+  writing; verification is not renewed approval. Ask only for scope beyond the
+  authorization, a user-reserved boundary such as production promotion or
+  contacting another person, a missing credential, a user-only decision, or a
+  destructive data change. See `ship` and `new-branch` for covered git/PR work.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Use the current suitable branch. PRs are ready for review unless drafts are
   requested.
@@ -71,21 +72,7 @@ Use `/sidecar <task>` for read-only investigations.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - Keep the chat title accurate.
-- Do the work instead of asking whether to do it. If a step is inside the task
-  you were given and is not destructive, irreversible, or a spend/send/publish
-  action, run it and report the result — deploys, database reads and writes,
-  scripts, and browser checks included. Ask only for a missing credential, a
-  decision only the user can make, or a destructive action. `reporting-progress`
-  is the authority on what to post while long work runs and on the one legal
-  shape of a mid-task stop.
-- Explicit authorization is task-scoped, not turn-scoped. A user's approval for
-  a specific PR, branch, or operation remains valid across resumed turns,
-  heartbeats, and context compaction until that scope is completed, canceled, or
-  revoked. Record the target and authorized steps in the active goal or task
-  transcript; verify live ownership, repository, ref, and head before writing,
-  then continue without asking for the same approval again. Ask only when the
-  next action materially exceeds that recorded scope or a user-reserved boundary
-  applies, such as production promotion.
+- Follow `reporting-progress` for updates and mid-task stops.
 - Use sub-agents liberally for complex independent work when Agent Teams are
   available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current

@@ -45,6 +45,21 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   recap, unless the current request explicitly authorizes commenting on that
   exact PR. Review, monitor, fix, push, or merge authorization alone does not
   authorize comments.
+- Before asking for any approval during a resumed shipment, inspect the
+  current task transcript for the user's authorization. Record its exact PR,
+  repository, branch, and allowed endpoint there once; reuse it across replies,
+  heartbeats, and context compaction. An affirmative answer to an approval
+  request completes that request. For an explicit end-to-end or merge-authorized
+  ship, the covered steps include safe task-owned worktree/branch setup, fetching
+  fresh `origin/main`, merging it only to resolve a conflict or confirmed
+  main-side fix, committing, pushing, updating the named PR, replying to review
+  feedback on the user's PR, and the guarded merge/branch disposition. A request
+  to open or update a PR without merge authorization ends at the ready-PR gate.
+  Revalidate the live owner, repository, ref, and head before writing; these
+  checks verify the target and are not a reason to ask for the same approval.
+  Keep separately reserved boundaries, including production promotion and
+  contacting other people, outside the ledger unless the user explicitly
+  authorizes them.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored

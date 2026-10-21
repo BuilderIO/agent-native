@@ -147,6 +147,51 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
+  it("does not upgrade an org-member delegation to a deployment-signed user assertion", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-qa",
+        a2aIdentityAssurance: "org-member",
+      },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        await expect(
+          jose.jwtVerify(
+            auth.apiKey!,
+            new TextEncoder().encode("org-a2a-secret"),
+          ),
+        ).resolves.toMatchObject({
+          payload: {
+            typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+            sub: "alice+qa@agent-native.test",
+            org_domain: "builder.io",
+            aud: "https://peer.example.test",
+          },
+        });
+        await expect(
+          jose.jwtVerify(
+            auth.apiKey!,
+            new TextEncoder().encode("global-a2a-secret"),
+          ),
+        ).rejects.toThrow();
+
+        expect(auth.apiKeyFallbacks).toHaveLength(1);
+        const { payload } = await jose.jwtVerify(
+          auth.apiKeyFallbacks![0],
+          new TextEncoder().encode("org-a2a-secret"),
+        );
+        expect(payload).not.toHaveProperty("sub");
+      },
+    );
+  });
+
   it("only signs a user identity when requested", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
 

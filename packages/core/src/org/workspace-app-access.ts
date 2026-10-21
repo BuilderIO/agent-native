@@ -2,7 +2,10 @@ import { createHmac, randomUUID } from "node:crypto";
 
 import { canonicalA2AAudience } from "../a2a/audience.js";
 import { isLoopbackAddress } from "../a2a/auth-policy.js";
-import { signA2AToken } from "../a2a/client.js";
+import {
+  signA2AOrgMemberDelegationToken,
+  signA2AToken,
+} from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -10,7 +13,8 @@ import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/deployment-protection.js";
-import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
+import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
+import { getRequestContext } from "../server/request-context.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 import {
@@ -363,14 +367,50 @@ async function resolveHostedWorkspaceAppAuth(
       return workspaceAppAccessUnavailable("a2a-secret-missing", { audience });
     }
     stage = "token-signing-failed";
-    const token = await signA2AToken(email, normalizedOrgDomain, undefined, {
-      expiresIn: "1m",
-      preferGlobalSecret: true,
-      audience,
-      extraClaims: {
-        jti: randomUUID(),
-      },
-    });
+    const requestContext = getRequestContext();
+    let token: string;
+    if (requestContext?.a2aIdentityAssurance === "org-member") {
+      if (
+        !orgId ||
+        !normalizedOrgDomain ||
+        requestContext.orgId?.trim() !== orgId ||
+        requestContext.userEmail?.trim().toLowerCase() !== email
+      ) {
+        return workspaceAppAccessUnavailable("token-signing-failed", {
+          audience,
+          detail: "Delegated member identity is missing or out of scope.",
+        });
+      }
+      const { getOrgA2ASecret } = await import("./context.js");
+      const orgSecret = (await getOrgA2ASecret(orgId))?.trim();
+      if (!orgSecret) {
+        return workspaceAppAccessUnavailable("a2a-secret-missing", {
+          audience,
+        });
+      }
+      if (orgSecret === signingSecret) {
+        return workspaceAppAccessUnavailable("token-signing-failed", {
+          audience,
+          detail:
+            "Organization and deployment A2A secrets must differ for delegated identity.",
+        });
+      }
+      token = await signA2AOrgMemberDelegationToken(
+        email,
+        normalizedOrgDomain,
+        orgSecret,
+        audience,
+      );
+    } else {
+      token = await signA2AToken(email, normalizedOrgDomain, undefined, {
+        expiresIn: "1m",
+        preferGlobalSecret: true,
+        audience,
+        extraClaims: {
+          jti: randomUUID(),
+        },
+      });
+    }
 
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
       url.toString(),
@@ -381,6 +421,7 @@ async function resolveHostedWorkspaceAppAuth(
           configuredDirectory,
           email,
           orgId,
+          requestContext?.a2aIdentityAssurance ?? "user",
           normalizedOrgDomain ?? null,
           getAppConfig().app.url ?? "http://localhost:3000",
           protectionHeaders,
@@ -791,7 +832,7 @@ export async function claimWorkspaceAppForOrganization(
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
-    const role = await readOrgMemberRole(orgId, email);
+    const role = effectiveOrgMemberRole(member.role, orgId, email);
     return role
       ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
           ...member,
@@ -884,7 +925,7 @@ export async function checkWorkspaceAppAccess(
       ) {
         return false;
       }
-      const role = await readOrgMemberRole(orgId, email);
+      const role = effectiveOrgMemberRole(member.role, orgId, email);
       return role
         ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
             ...member,
@@ -916,7 +957,7 @@ export async function checkWorkspaceAppAccess(
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
-    const memberRole = await readOrgMemberRole(orgId, email);
+    const memberRole = effectiveOrgMemberRole(member.role, orgId, email);
     if (!memberRole) return false;
     if (canClaimCallerOrg) {
       if (

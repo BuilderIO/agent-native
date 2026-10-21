@@ -242,16 +242,24 @@ export async function listContentOrganizationMemberships(
       identityAuthority: row.identityAuthority ?? row.identity_authority,
       identityId: row.identityId ?? row.identity_id,
     }))
+    .map((row: ContentOrganizationMembership & { orgId?: string }) => ({
+      ...row,
+      role:
+        row.role === "owner" || row.role === "admin" || row.role === "member"
+          ? delegated
+            ? "member"
+            : row.role
+          : null,
+    }))
     .filter(
       (row): row is ContentOrganizationMembership & { orgId: string } =>
         typeof row.orgId === "string" &&
         typeof row.name === "string" &&
-        typeof row.createdBy === "string",
+        typeof row.createdBy === "string" &&
+        row.role !== null,
     );
   return Promise.all(
     memberships.map(async ({ orgId, ...membership }) => {
-      const verifiedRole = await readOrgMemberRole(orgId, normalizedEmail);
-      if (!verifiedRole) return null;
       const validated = await revalidateFederatedMembership(
         orgId,
         userEmail,
@@ -265,7 +273,7 @@ export async function listContentOrganizationMemberships(
               orgId,
               normalizedEmail,
               validated.role,
-              verifiedRole,
+              membership.role,
             ),
           }
         : null;

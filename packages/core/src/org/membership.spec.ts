@@ -99,6 +99,35 @@ describe("isOrgMember", () => {
     );
   });
 
+  it("passes the current request to federated membership validation", async () => {
+    const requestEvent = { context: { requestId: "dispatch-action" } } as any;
+    executeMock.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("FROM organizations")
+        ? {
+            rows: [
+              {
+                identity_authority: "https://dispatch.example.test",
+                identity_id: "dispatch-org-1",
+              },
+            ],
+          }
+        : { rows: [{ role: "member" }] },
+    );
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+    validateFederatedMembershipMock.mockResolvedValue({
+      active: true,
+      role: "member",
+    });
+
+    await expect(
+      isOrgMember("org-1", "member@example.com", { requestEvent }),
+    ).resolves.toBe(true);
+    expect(validateFederatedMembershipMock).toHaveBeenCalledWith(
+      { orgId: "org-1", email: "member@example.com" },
+      requestEvent,
+    );
+  });
+
   it("does not turn an authority check failure into membership", async () => {
     executeMock.mockResolvedValue({
       rows: [

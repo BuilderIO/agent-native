@@ -1772,6 +1772,58 @@ describe("A2AClient", () => {
     ).rejects.toThrow();
   });
 
+  it("does not upgrade an inbound org-member delegation on outbound A2A calls", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    let bearerToken = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerToken = String(
+          new Headers(init.headers).get("authorization") ?? "",
+        ).replace(/^Bearer\s+/i, "");
+        const body = JSON.parse(String(init.body));
+        return completedResponse(body, "signed with org-member delegation");
+      }),
+    );
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-1",
+        a2aIdentityAssurance: "org-member",
+      },
+      async () => {
+        await expect(
+          callAgent("https://agent.test", "hello", {
+            async: false,
+            userEmail: "alice+qa@agent-native.test",
+            orgId: "org-1",
+            orgDomain: "builder.io",
+            orgSecret: "org-a2a-secret",
+          }),
+        ).resolves.toBe("signed with org-member delegation");
+      },
+    );
+
+    await expect(
+      jose.jwtVerify(bearerToken, new TextEncoder().encode("org-a2a-secret")),
+    ).resolves.toMatchObject({
+      payload: {
+        typ: A2A_ORG_MEMBER_DELEGATION_TYPE,
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
+    await expect(
+      jose.jwtVerify(
+        bearerToken,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("retries delegated calls with the org secret if the shared token is rejected", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
     const bearerTokens: string[] = [];

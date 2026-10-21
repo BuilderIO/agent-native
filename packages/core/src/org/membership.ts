@@ -109,6 +109,7 @@ export function isOrgMember(
   return isOrgMemberWithPolicy(orgId, email, {
     allowMissingOrganizationTable: !options.requireOrganizationMetadata,
     requireOrganizationRecord: !!options.requireOrganizationMetadata,
+    requestEvent: options.requestEvent,
   });
 }
 

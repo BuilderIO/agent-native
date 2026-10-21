@@ -12,7 +12,6 @@ import {
 import {
   DomainSettingsSection,
   A2ASecretSection,
-  A2AMemberDelegationSection,
 } from "./AuthenticationSection.js";
 import { useWorkspaceGroupEditor, GroupsSection } from "./GroupsSection.js";
 import { MembersSection } from "./MembersSection.js";
@@ -72,14 +71,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               org={org}
               requiredAuthProvider={org.requiredAuthProvider}
             />
-            {isOwner && (
-              <>
-                <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />
-                <A2AMemberDelegationSection
-                  enabled={Boolean(org.a2aMemberDelegationEnabled)}
-                />
-              </>
-            )}
+            {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
           </>
         )}
       </OrgProfileGroup>

@@ -641,10 +641,14 @@ async function verifyA2ATokenInternal(
   }
   if (!organization) return { payload: { email: null, orgDomain: null } };
 
+  const orgVerifyOptions =
+    unverifiedPayload?.typ === A2A_ORG_MEMBER_DELEGATION_TYPE
+      ? { ...verifyOptions, algorithms: ["HS256"] }
+      : verifyOptions;
   const payload = await verifyJwtWithSecret(
     token,
     organization.secret,
-    verifyOptions,
+    orgVerifyOptions,
   );
   if (!payload) return { payload: { email: null, orgDomain: null } };
 

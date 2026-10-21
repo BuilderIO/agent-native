@@ -1585,9 +1585,10 @@ describe("verifyA2AToken (exported)", () => {
     secret: string,
     claims: Record<string, unknown>,
     exp: string | number = "15m",
+    alg: "HS256" | "HS512" = "HS256",
   ): Promise<string> {
     return new jose.SignJWT(claims)
-      .setProtectedHeader({ alg: "HS256" })
+      .setProtectedHeader({ alg })
       .setIssuedAt()
       .setExpirationTime(exp)
       .sign(new TextEncoder().encode(secret));
@@ -1733,6 +1734,36 @@ describe("verifyA2AToken (exported)", () => {
       "owner@builder.io",
       undefined,
     );
+  });
+
+  it("rejects HS512-signed org-member delegation assertions", async () => {
+    delete process.env.A2A_SECRET;
+    process.env.APP_URL = "https://receiver.example";
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+      a2aMemberDelegationEnabled: true,
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken(
+      "org-a2a-secret",
+      {
+        typ: "agent-native-org-member-delegation",
+        sub: "owner@builder.io",
+        org_domain: "builder.io",
+        aud: "https://receiver.example",
+        jti: "delegation-jti",
+      },
+      "15m",
+      "HS512",
+    );
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
   it("rejects an org-member token for a different audience before membership lookup", async () => {
