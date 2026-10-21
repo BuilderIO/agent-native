@@ -76,7 +76,7 @@ function Harness() {
           actualEnd: mocks.initialActualEnd,
         } as T;
       }
-      if (name === "get-meeting") {
+      if (name === "get-meeting-capture-state") {
         return (await mocks.getMeeting()) as T;
       }
       if (name === "stop-meeting-recording") {

@@ -1632,7 +1632,7 @@ export function useMeetingTranscription({
                 captureStopRevision?: number;
               };
             }>(
-              "get-meeting",
+              "get-meeting-capture-state",
               { id: session.meetingId },
               { method: "GET", signal },
             ),
