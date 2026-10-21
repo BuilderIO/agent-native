@@ -21,10 +21,6 @@ import {
   setThreadSourceIfMissing,
   updateThreadData,
 } from "../chat-threads/store.js";
-import {
-  startIntervalJob,
-  type IntervalJobHandle,
-} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   getServiceAccountAccessToken,
@@ -46,6 +42,7 @@ import {
   type GoogleDocsPushHeaders,
   verifyGoogleDocsChannel,
 } from "./google-docs-webhook.js";
+import { startIntervalJob, type IntervalJobHandle } from "./interval-job.js";
 import {
   integrationRequestContext,
   resolveIntegrationRequestScope,
@@ -75,6 +72,26 @@ let pollerJob: IntervalJobHandle | null = null;
 let pollerStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
 let pollerGeneration = 0;
+let closing = false;
+let shutdownGeneration = 0;
+let shutdownPromise: Promise<void> | undefined;
+const activeCallbacks = new Set<Promise<void>>();
+
+function trackPending(pending: Promise<void>): Promise<void> {
+  activeCallbacks.add(pending);
+  void pending.then(
+    () => activeCallbacks.delete(pending),
+    () => activeCallbacks.delete(pending),
+  );
+  return pending;
+}
+
+function trackCallback(callback: () => Promise<void>): () => Promise<void> {
+  return async () => {
+    if (closing) return;
+    await trackPending(callback());
+  };
+}
 
 const WATCH_CHANNEL_TTL_MS = 23 * 60 * 60 * 1000;
 const WATCH_RETRY_MS = 5 * 60 * 1000;
@@ -130,32 +147,36 @@ function scheduleOrphanedWatchCleanup(
   channel: WatchChannel,
   delayMs = WATCH_RETRY_MS,
 ): void {
+  if (closing) return;
   const existingTimer = watchCleanupTimers.get(channel.id);
   if (existingTimer) clearTimeout(existingTimer);
 
-  const timer = setTimeout(async () => {
-    watchCleanupTimers.delete(channel.id);
-    try {
-      const accessToken = await getServiceAccountAccessToken();
-      if (
-        accessToken &&
-        (await stopGoogleDocsWatchChannel(
-          accessToken,
-          channel.id,
-          channel.resourceId,
-        ))
-      ) {
-        return;
+  const timer = setTimeout(
+    trackCallback(async () => {
+      watchCleanupTimers.delete(channel.id);
+      try {
+        const accessToken = await getServiceAccountAccessToken();
+        if (
+          accessToken &&
+          (await stopGoogleDocsWatchChannel(
+            accessToken,
+            channel.id,
+            channel.resourceId,
+          ))
+        ) {
+          return;
+        }
+      } catch (err) {
+        console.warn(
+          `[google-docs] Orphaned watch cleanup failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+          err,
+        );
       }
-    } catch (err) {
-      console.warn(
-        `[google-docs] Orphaned watch cleanup failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
-        err,
-      );
-    }
 
-    scheduleOrphanedWatchCleanup(channel);
-  }, delayMs);
+      scheduleOrphanedWatchCleanup(channel);
+    }),
+    delayMs,
+  );
   unrefTimer(timer);
   watchCleanupTimers.set(channel.id, timer);
 }
@@ -479,60 +500,63 @@ function scheduleWatchRenewal(
   expectedChannelId?: string,
   expectedPollerGeneration?: number,
 ): void {
-  if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
+  if (closing || !isCurrentPollerGeneration(expectedPollerGeneration)) return;
   if (watchRenewalTimer) clearTimeout(watchRenewalTimer);
 
-  watchRenewalTimer = setTimeout(async () => {
-    watchRenewalTimer = null;
-    if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
-    try {
-      console.log("[google-docs] Renewing watch channel...");
-      if (
-        await registerWatch(
-          webhookUrl,
-          expectedChannelId,
-          expectedPollerGeneration,
-        )
-      ) {
-        return;
-      }
-
-      if (!(await shouldRetryWatchRenewal(expectedChannelId))) return;
-
-      if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
-
-      console.warn(
-        `[google-docs] Could not register the replacement watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
-      );
-      scheduleWatchRenewal(
-        webhookUrl,
-        WATCH_RETRY_MS,
-        expectedChannelId,
-        expectedPollerGeneration,
-      );
-    } catch (err) {
-      console.warn(
-        `[google-docs] Watch renewal failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
-        err,
-      );
+  watchRenewalTimer = setTimeout(
+    trackCallback(async () => {
+      watchRenewalTimer = null;
       if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
       try {
+        console.log("[google-docs] Renewing watch channel...");
+        if (
+          await registerWatch(
+            webhookUrl,
+            expectedChannelId,
+            expectedPollerGeneration,
+          )
+        ) {
+          return;
+        }
+
         if (!(await shouldRetryWatchRenewal(expectedChannelId))) return;
-      } catch (configErr) {
+
+        if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
+
         console.warn(
-          "[google-docs] Could not verify the current watch before retrying",
-          configErr,
+          `[google-docs] Could not register the replacement watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
         );
-        return;
+        scheduleWatchRenewal(
+          webhookUrl,
+          WATCH_RETRY_MS,
+          expectedChannelId,
+          expectedPollerGeneration,
+        );
+      } catch (err) {
+        console.warn(
+          `[google-docs] Watch renewal failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+          err,
+        );
+        if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
+        try {
+          if (!(await shouldRetryWatchRenewal(expectedChannelId))) return;
+        } catch (configErr) {
+          console.warn(
+            "[google-docs] Could not verify the current watch before retrying",
+            configErr,
+          );
+          return;
+        }
+        scheduleWatchRenewal(
+          webhookUrl,
+          WATCH_RETRY_MS,
+          expectedChannelId,
+          expectedPollerGeneration,
+        );
       }
-      scheduleWatchRenewal(
-        webhookUrl,
-        WATCH_RETRY_MS,
-        expectedChannelId,
-        expectedPollerGeneration,
-      );
-    }
-  }, delayMs);
+    }),
+    delayMs,
+  );
   unrefTimer(watchRenewalTimer);
 }
 
@@ -551,33 +575,37 @@ function scheduleWatchCleanupRetry(
   expectedClaimId: string | undefined,
   delayMs = WATCH_RETRY_MS,
 ): void {
+  if (closing) return;
   if (watchRenewalTimer) clearTimeout(watchRenewalTimer);
 
-  watchRenewalTimer = setTimeout(async () => {
-    watchRenewalTimer = null;
-    try {
-      const stopResult = await stopWatch(expectedClaimId);
-      if (stopResult.status === "stopped") return;
+  watchRenewalTimer = setTimeout(
+    trackCallback(async () => {
+      watchRenewalTimer = null;
+      try {
+        const stopResult = await stopWatch(expectedClaimId);
+        if (stopResult.status === "stopped") return;
 
-      if (stopResult.status === "not-owned") {
-        if (stopResult.claimId && stopResult.retryAt) {
-          scheduleWatchCleanupRetry(
-            stopResult.claimId,
-            retryDelay(stopResult.retryAt),
-          );
+        if (stopResult.status === "not-owned") {
+          if (stopResult.claimId && stopResult.retryAt) {
+            scheduleWatchCleanupRetry(
+              stopResult.claimId,
+              retryDelay(stopResult.retryAt),
+            );
+          }
+          return;
         }
-        return;
-      }
 
-      scheduleWatchCleanupRetry(stopResult.claimId);
-    } catch (err) {
-      console.warn(
-        `[google-docs] Watch cleanup failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
-        err,
-      );
-      scheduleWatchCleanupRetry(expectedClaimId);
-    }
-  }, delayMs);
+        scheduleWatchCleanupRetry(stopResult.claimId);
+      } catch (err) {
+        console.warn(
+          `[google-docs] Watch cleanup failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+          err,
+        );
+        scheduleWatchCleanupRetry(expectedClaimId);
+      }
+    }),
+    delayMs,
+  );
   unrefTimer(watchRenewalTimer);
 }
 
@@ -855,7 +883,7 @@ async function processComment(
   const runId = `gdocs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const capturedThreadId = threadId;
 
-  startRun(
+  const run = startRun(
     runId,
     capturedThreadId,
     async (send, signal) => {
@@ -905,6 +933,9 @@ async function processComment(
     },
     { model: options.model, engineName: engine.name, executionLease: true },
   );
+  void trackPending(run.finalized).catch((error: unknown) => {
+    console.error("[google-docs] Run finalization failed:", error);
+  });
 }
 
 async function persistThreadData(
@@ -951,6 +982,11 @@ async function persistThreadData(
 export async function startGoogleDocsPoller(
   options: GoogleDocsPollerOptions,
 ): Promise<void> {
+  const startupGeneration = shutdownGeneration;
+  if (shutdownPromise) await shutdownPromise;
+  if (startupGeneration !== shutdownGeneration) return;
+  shutdownPromise = undefined;
+  closing = false;
   if (pollerJob || pollerStartTimer) {
     console.warn("[google-docs] Already running");
     return;
@@ -960,7 +996,7 @@ export async function startGoogleDocsPoller(
   activeOptions = options;
 
   const config = await getIntegrationConfig(PLATFORM);
-  if (!isCurrentPollerGeneration(generation)) return;
+  if (closing || !isCurrentPollerGeneration(generation)) return;
   if (!config?.configData?.enabled) {
     startPollLoop(options, options.intervalMs ?? 30_000);
     return;
@@ -992,6 +1028,7 @@ function startPollLoop(
   options: GoogleDocsPollerOptions,
   intervalMs: number,
 ): void {
+  if (closing) return;
   let disabledUntil = 0;
   let disabledAtConfigWriteEpoch = -1;
 
@@ -1040,7 +1077,7 @@ export async function stopGoogleDocsPoller(): Promise<void> {
     pollerStartTimer = null;
   }
   if (pollerJob) {
-    pollerJob.stop();
+    await pollerJob.stop();
     pollerJob = null;
   }
   if (watchRenewalTimer) {
@@ -1066,4 +1103,36 @@ export async function stopGoogleDocsPoller(): Promise<void> {
     );
     scheduleWatchCleanupRetry(undefined);
   }
+}
+
+// Service shutdown releases local work. Disabling the integration separately
+// owns provider-side watch revocation; persisted watch state survives restart.
+export function shutdownGoogleDocsPoller(): Promise<void> {
+  closing = true;
+  shutdownGeneration += 1;
+  if (shutdownPromise) return shutdownPromise;
+  activeOptions = null;
+  if (pollerStartTimer) clearTimeout(pollerStartTimer);
+  pollerStartTimer = null;
+  if (watchRenewalTimer) clearTimeout(watchRenewalTimer);
+  watchRenewalTimer = null;
+  for (const timer of watchCleanupTimers.values()) clearTimeout(timer);
+  watchCleanupTimers.clear();
+  const draining = pollerJob?.stop();
+  shutdownPromise = (async () => {
+    const results = await Promise.allSettled([...activeCallbacks, draining]);
+    // An admitted poll may start a run while its own callback is draining.
+    while (activeCallbacks.size) {
+      results.push(...(await Promise.allSettled([...activeCallbacks])));
+    }
+    pollerJob = null;
+    const errors = results.filter((result) => result.status === "rejected");
+    if (errors.length) {
+      throw new AggregateError(
+        errors.map((result) => result.reason),
+        "Google Docs shutdown failed",
+      );
+    }
+  })();
+  return shutdownPromise;
 }

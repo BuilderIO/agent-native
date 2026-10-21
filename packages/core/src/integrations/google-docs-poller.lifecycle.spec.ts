@@ -1,0 +1,207 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  config: vi.fn<(...args: any[]) => Promise<any>>(),
+  save: vi.fn(),
+  promote: vi.fn(),
+  changes: vi.fn(),
+  comments: vi.fn(),
+  startRun: vi.fn(),
+}));
+vi.mock("./config-store.js", () => ({
+  getIntegrationConfig: mocks.config,
+  saveIntegrationConfig: mocks.save,
+  saveIntegrationConfigIfUnchanged: mocks.promote,
+  integrationConfigWriteEpoch: () => 0,
+}));
+vi.mock("./adapters/google-docs.js", () => ({
+  getServiceAccountEmail: () => null,
+  getServiceAccountAccessToken: async () => "test-token",
+  listChanges: mocks.changes,
+  listDocComments: mocks.comments,
+  googleDocsAdapter: () => ({}),
+}));
+vi.mock("./thread-mapping-store.js", () => ({
+  getThreadMapping: async () => null,
+  saveThreadMapping: async () => {},
+}));
+vi.mock("./request-scope.js", () => ({
+  resolveIntegrationRequestScope: async () => ({}),
+  integrationRequestContext: () => ({}),
+}));
+vi.mock("../server/request-context.js", () => ({
+  runWithRequestContext: (_context: unknown, callback: () => unknown) =>
+    callback(),
+}));
+vi.mock("../chat-threads/store.js", () => ({
+  createThread: async () => ({ id: "test-thread" }),
+  getThread: async () => null,
+  setThreadSourceIfMissing: async () => {},
+}));
+vi.mock("../agent/engine/index.js", () => ({
+  createAnthropicEngine: () => ({ name: "test-engine" }),
+  registerBuiltinEngines: () => {},
+}));
+vi.mock("../agent/run-manager.js", () => ({ startRun: mocks.startRun }));
+
+import {
+  startGoogleDocsPoller,
+  shutdownGoogleDocsPoller,
+} from "./google-docs-poller.js";
+
+const options = {
+  systemPrompt: "test",
+  actions: {},
+  model: "test",
+  apiKey: "",
+  ownerEmail: "owner@example.test",
+};
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.resetAllMocks();
+  mocks.config.mockImplementation(async (_platform, id) => ({
+    configData:
+      id === "page-token" ? { pageToken: "cursor" } : { enabled: false },
+  }));
+  mocks.changes.mockResolvedValue({ changes: [], nextPageToken: "next" });
+});
+afterEach(async () => {
+  await shutdownGoogleDocsPoller();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe("Google Docs service lifecycle", () => {
+  it("cancels the pending first poll without reading configuration again", async () => {
+    await startGoogleDocsPoller(options);
+    await shutdownGoogleDocsPoller();
+    mocks.config.mockClear();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(mocks.config).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a repeated shutdown supersedes a restart waiting for the previous poll to drain", async () => {
+    await startGoogleDocsPoller(options);
+    const gate = deferred<any>();
+    mocks.config.mockReturnValueOnce(gate.promise);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const closing = shutdownGoogleDocsPoller();
+    const restarting = startGoogleDocsPoller(options);
+    const closingAgain = shutdownGoogleDocsPoller();
+    gate.resolve({ configData: { enabled: false } });
+    await Promise.all([closing, restarting, closingAgain]);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(mocks.config).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+    await startGoogleDocsPoller(options);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.config).toHaveBeenCalledTimes(4);
+  });
+
+  it("drains finalization of a child run launched by an already-admitted poll", async () => {
+    await startGoogleDocsPoller(options);
+    const poll = deferred<any>();
+    const finalized = deferred();
+    mocks.config.mockReturnValueOnce(poll.promise);
+    mocks.changes.mockResolvedValue({
+      changes: [{ fileId: "test-document" }],
+      nextPageToken: "next",
+    });
+    mocks.comments.mockResolvedValue([
+      {
+        id: "test-comment",
+        content: "@agent hello",
+        author: { displayName: "Test" },
+      },
+    ]);
+    mocks.startRun.mockReturnValue({ finalized: finalized.promise });
+    await vi.advanceTimersByTimeAsync(5_000);
+    let closed = false;
+    const closing = shutdownGoogleDocsPoller().then(() => {
+      closed = true;
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(closed).toBe(false);
+      poll.resolve({ configData: { enabled: true } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.startRun).toHaveBeenCalledOnce();
+      expect(closed).toBe(false);
+      finalized.resolve();
+      await closing;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      poll.resolve({ configData: { enabled: false } });
+      finalized.resolve();
+      await closing;
+    }
+  });
+
+  it("preserves a promoted watch when shutdown races renewal, including after a duplicate start", async () => {
+    let watch: any = null;
+    mocks.config.mockImplementation(async (_platform, id) =>
+      id === "watch-channel"
+        ? watch
+        : {
+            configData:
+              id === "page-token" ? { pageToken: "cursor" } : { enabled: true },
+          },
+    );
+    const promotion = deferred();
+    let promotions = 0;
+    mocks.promote.mockImplementation(async (_platform, data) => {
+      watch = { configData: data };
+      if (++promotions === 2) await promotion.promise;
+      return true;
+    });
+    const registered: string[] = [];
+    const revoked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string);
+        if (url.endsWith("/channels/stop")) {
+          revoked.push(body.id);
+          return { ok: true, status: 204 };
+        }
+        registered.push(body.id);
+        return {
+          ok: true,
+          json: async () => ({
+            id: body.id,
+            resourceId: "resource",
+            expiration: String(Date.now() + 24 * 60 * 60 * 1000),
+          }),
+        };
+      }),
+    );
+    const pushOptions = {
+      ...options,
+      webhookUrl: "https://example.test/webhook",
+    };
+    await startGoogleDocsPoller(pushOptions);
+    await startGoogleDocsPoller(pushOptions);
+    await vi.advanceTimersByTimeAsync(22 * 60 * 60 * 1000);
+    const closing = shutdownGoogleDocsPoller();
+    try {
+      expect(promotions).toBe(2);
+      promotion.resolve();
+      await closing;
+      expect(watch.configData.channelId).toBe(registered[1]);
+      expect(revoked).toEqual([registered[0]]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      promotion.resolve();
+      await closing;
+    }
+  });
+});

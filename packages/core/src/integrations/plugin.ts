@@ -36,10 +36,6 @@ import {
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
-import {
-  startIntervalJob,
-  type IntervalJobHandle,
-} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
@@ -74,6 +70,7 @@ import { claimIntegrationControl } from "./controls-store.js";
 import {
   startGoogleDocsPoller,
   stopGoogleDocsPoller,
+  shutdownGoogleDocsPoller,
   handlePushNotification,
   verifyGoogleDocsPushNotification,
 } from "./google-docs-poller.js";
@@ -118,6 +115,7 @@ import {
   rememberForIntegrationScope,
 } from "./integration-memory.js";
 import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
+import { startIntervalJob, type IntervalJobHandle } from "./interval-job.js";
 import {
   setMountedChannels,
   type MountedChannels,
@@ -125,6 +123,7 @@ import {
 import {
   retryStuckPendingTasks,
   startPendingTasksRetryJob,
+  stopPendingTasksRetryJob,
 } from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
@@ -162,7 +161,10 @@ import {
   unregisterRemoteDevice,
   updateRemoteDeviceDetails,
 } from "./remote-devices-store.js";
-import { startRemotePushDeliveryJob } from "./remote-push-delivery-job.js";
+import {
+  startRemotePushDeliveryJob,
+  stopRemotePushDeliveryJob,
+} from "./remote-push-delivery-job.js";
 import {
   listRemotePushNotificationsForOwner,
   listRemotePushRegistrationsForOwner,
@@ -171,7 +173,10 @@ import {
   unregisterRemotePushRegistrationForOwner,
   upsertRemotePushRegistration,
 } from "./remote-push-store.js";
-import { startRemoteCommandsRetryJob } from "./remote-retry-job.js";
+import {
+  startRemoteCommandsRetryJob,
+  stopRemoteCommandsRetryJob,
+} from "./remote-retry-job.js";
 import {
   insertRemoteRunEvents,
   listRemoteRunEvents,
@@ -375,6 +380,13 @@ function startA2AContinuationRetryJob(
     );
   }, 10_000);
   a2aContinuationStartupTimer.unref?.();
+}
+
+async function stopA2AContinuationRetryJob(): Promise<void> {
+  if (a2aContinuationStartupTimer) clearTimeout(a2aContinuationStartupTimer);
+  a2aContinuationStartupTimer = null;
+  await a2aContinuationJob?.stop();
+  a2aContinuationJob = null;
 }
 
 export const BUILT_IN_INTEGRATION_ADAPTER_FACTORIES = Object.freeze([
@@ -822,6 +834,39 @@ export function createIntegrationsPlugin(
     );
   }
   return async (nitroApp: any) => {
+    let closed = false;
+    let backgroundJobsStarted = false;
+    let googleDocsStartupTimer: ReturnType<typeof setTimeout> | undefined;
+    let googleDocsPollerTransition: Promise<void> = Promise.resolve();
+    let closePromise: Promise<void> | undefined;
+    nitroApp.hooks?.hook?.("close", () => {
+      if (closePromise) return closePromise;
+      closed = true;
+      clearTimeout(googleDocsStartupTimer);
+      const drains = backgroundJobsStarted
+        ? [
+            stopPendingTasksRetryJob(),
+            stopA2AContinuationRetryJob(),
+            stopRemoteCommandsRetryJob(),
+            stopRemotePushDeliveryJob(),
+          ]
+        : [];
+      closePromise = (async () => {
+        const results = await Promise.allSettled([
+          ...drains,
+          googleDocsPollerTransition,
+          shutdownGoogleDocsPoller(),
+        ]);
+        const errors = results.filter((result) => result.status === "rejected");
+        if (errors.length) {
+          throw new AggregateError(
+            errors.map((result) => result.reason),
+            "Integration shutdown failed",
+          );
+        }
+      })();
+      return closePromise;
+    });
     markDefaultPluginProvided(nitroApp, "integrations");
     const adapters = applyConfiguredPlatformAllowList(
       options?.adapters ??
@@ -856,6 +901,7 @@ export function createIntegrationsPlugin(
     } catch {
       // call-agent script not available — skip
     }
+    if (closed) return;
     const actions = {
       ...integrationMemoryActions(),
       ...localActions,
@@ -867,7 +913,7 @@ export function createIntegrationsPlugin(
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
-    let googleDocsPollerTransition: Promise<void> = Promise.resolve();
+
     const runGoogleDocsPollerTransition = (
       operation: () => Promise<void>,
     ): Promise<void> => {
@@ -878,7 +924,9 @@ export function createIntegrationsPlugin(
       });
       return previous
         .catch(() => undefined)
-        .then(operation)
+        .then(() => {
+          if (!closed) return operation();
+        })
         .finally(release);
     };
     const createGoogleDocsPollerOptions = (
@@ -3607,10 +3655,12 @@ export function createIntegrationsPlugin(
     );
 
     if (
+      !closed &&
       !isInBackgroundFunctionRuntime() &&
       !isInIntegrationRecoveryRuntime() &&
       !isServerlessRuntime()
     ) {
+      backgroundJobsStarted = true;
       startPendingTasksRetryJob({
         webhookBaseUrl: getAppConfig().integrations.webhookBaseUrl,
       });
@@ -3619,9 +3669,11 @@ export function createIntegrationsPlugin(
       startRemotePushDeliveryJob();
 
       if (adapterMap.has("google-docs")) {
-        setTimeout(() => {
+        googleDocsStartupTimer = setTimeout(() => {
+          googleDocsStartupTimer = undefined;
           void runGoogleDocsPollerTransition(async () => {
             const config = await getIntegrationConfig("google-docs");
+            if (closed) return;
             const ownerEmail = config?.owner?.trim();
             if (!config?.configData?.enabled) return;
             if (!ownerEmail) {
@@ -3633,6 +3685,8 @@ export function createIntegrationsPlugin(
             await startGoogleDocsPoller(
               createGoogleDocsPollerOptions(ownerEmail),
             );
+          }).catch((error: unknown) => {
+            console.error("[google-docs] Poller startup failed:", error);
           });
         }, 2000);
       }
