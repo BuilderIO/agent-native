@@ -40,7 +40,7 @@ import {
   IconPlayerPlay,
   IconTrash,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import { AgentAskPopover } from "../chat/index.js";
 import { automationCreationContext } from "../settings/AutomationsSection.js";
@@ -50,7 +50,6 @@ import {
   AutomationDetailsDialog,
   type AutomationDetailsField,
 } from "./AutomationDetailsDialog.js";
-import { AutomationEditorDialog } from "./AutomationEditorDialog.js";
 import { AutomationScheduleDialog } from "./AutomationScheduleDialog.js";
 import {
   scheduleFiringFor,
@@ -69,6 +68,14 @@ import {
   type ManageAutomationInput,
   type RecurringJob,
 } from "./use-jobs.js";
+
+const loadAutomationEditor = () => import("./AutomationEditorDialog.js");
+
+const AutomationEditorDialog = lazy(() =>
+  loadAutomationEditor().then((module) => ({
+    default: module.AutomationEditorDialog,
+  })),
+);
 
 type ListedAutomation =
   | {
@@ -328,6 +335,7 @@ export function AgentJobsTab({
     automation: Automation | null,
     scope: Automation["scope"] = automation?.scope ?? "personal",
   ) => {
+    void loadAutomationEditor();
     setEditorTarget(automation);
     setEditorScope(scope);
     setEditorOpen(true);
@@ -997,21 +1005,70 @@ export function AgentJobsTab({
         />
       ) : null}
 
-      <AutomationEditorDialog
-        open={editorOpen}
-        scope={editorScope}
-        automation={editorTarget}
-        saving={mutationPending}
-        error={mutationError?.message ?? null}
-        onCancel={() => setEditorOpen(false)}
-        onSave={(input: ManageAutomationInput) => {
-          const mutation =
-            editorScope === "organization"
-              ? organizationAutomationsMutation
-              : personalAutomationsMutation;
-          mutation.mutate(input, { onSuccess: () => setEditorOpen(false) });
-        }}
-      />
+      {editorOpen ? (
+        <Suspense
+          fallback={
+            <Dialog
+              open
+              onOpenChange={(open) => {
+                if (!open) setEditorOpen(false);
+              }}
+            >
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editorTarget
+                      ? t("jobs.editorEditTitle", {
+                          defaultValue: "Edit automation",
+                        })
+                      : t("jobs.editorCreateTitle", {
+                          defaultValue: "Create an automation",
+                        })}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {t("jobs.editorScopeDescription", {
+                      defaultValue:
+                        "This automation is fixed to the {{scope}} scope.",
+                      scope:
+                        editorScope === "organization"
+                          ? t("jobs.editorScopeOrganization", {
+                              defaultValue: "organization",
+                            })
+                          : t("jobs.editorScopePersonal", {
+                              defaultValue: "personal",
+                            }),
+                    })}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-9 w-full" />
+                  <Skeleton className="h-20 w-full" />
+                </div>
+                <DialogFooter>
+                  <Skeleton className="h-9 w-24" />
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          }
+        >
+          <AutomationEditorDialog
+            open={editorOpen}
+            scope={editorScope}
+            automation={editorTarget}
+            saving={mutationPending}
+            error={mutationError?.message ?? null}
+            onCancel={() => setEditorOpen(false)}
+            onSave={(input: ManageAutomationInput) => {
+              const mutation =
+                editorScope === "organization"
+                  ? organizationAutomationsMutation
+                  : personalAutomationsMutation;
+              mutation.mutate(input, { onSuccess: () => setEditorOpen(false) });
+            }}
+          />
+        </Suspense>
+      ) : null}
     </AgentTabFrame>
   );
 }

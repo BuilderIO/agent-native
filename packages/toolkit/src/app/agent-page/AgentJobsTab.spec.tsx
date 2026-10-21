@@ -203,7 +203,7 @@ describe("AgentJobsTab organization automations", () => {
     expect(container.textContent).not.toContain("personal today");
   });
 
-  it("opens the organization editor with its scope fixed", () => {
+  it("opens the organization editor with its scope fixed", async () => {
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);
     });
@@ -214,7 +214,10 @@ describe("AgentJobsTab organization automations", () => {
     ].find((button) => button.textContent?.trim() === "New automation");
     if (!createButton) throw new Error("No organization create button");
 
-    act(() => createButton.click());
+    await act(async () => {
+      createButton.click();
+      await import("./AutomationEditorDialog.js");
+    });
 
     expect(document.body.textContent).toContain(
       "This automation is fixed to the organization scope.",
