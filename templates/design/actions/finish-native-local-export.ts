@@ -57,12 +57,21 @@ export default defineAction({
         statusCode: 404,
       });
     const current = await expireNativeLocalExportState(currentRaw);
-    if (current.ownerDocumentId !== documentId)
+    const pendingClaimFailure =
+      current.status === "pending" &&
+      current.ownerDocumentId === undefined &&
+      result.status === "failed" &&
+      result.code === "client-unavailable";
+    if (!pendingClaimFailure && current.ownerDocumentId !== documentId)
       fail("This editor document no longer owns the local export.", {
         errorCode: "native_export_document_replaced",
         statusCode: 409,
       });
-    if (current.status !== "running" && current.status !== "cancel-requested")
+    if (
+      !pendingClaimFailure &&
+      current.status !== "running" &&
+      current.status !== "cancel-requested"
+    )
       fail("The local export request is not running.", {
         errorCode: "native_export_request_not_running",
         statusCode: 409,
@@ -128,6 +137,7 @@ export default defineAction({
     }
     const completed: NativeLocalExportState = {
       ...current,
+      ...(pendingClaimFailure ? { ownerDocumentId: documentId } : {}),
       status:
         result.status === "failed" && result.code === "canceled"
           ? "canceled"

@@ -658,6 +658,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "./native-group-local-backdrop-window",
     "./native-linear-golden",
     "./native-live-camera-source",
+    "./native-mesh-grid",
     "./native-mounted-benchmark",
     "./native-mounted-output-summary",
     "./native-packed-uniform-arena",

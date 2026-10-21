@@ -85,13 +85,42 @@ export async function executeNativeLocalExportRequest(args: {
     );
   if (signal.aborted)
     throw new NativeLocalExportClientError("canceled", "Export was canceled.");
-  const claimed = nativeLocalExportStateSchema.parse(
-    await invoke("claim-native-local-export", {
-      designId,
-      requestId: request.requestId,
-      documentId,
-    }),
-  );
+  let claimed: NativeLocalExportState;
+  try {
+    claimed = nativeLocalExportStateSchema.parse(
+      await invoke("claim-native-local-export", {
+        designId,
+        requestId: request.requestId,
+        documentId,
+      }),
+    );
+  } catch (claimError) {
+    const code =
+      claimError !== null &&
+      typeof claimError === "object" &&
+      "errorCode" in claimError
+        ? claimError.errorCode
+        : undefined;
+    if (code === "native_export_source_stale") throw claimError;
+    try {
+      await invoke("finish-native-local-export", {
+        designId,
+        requestId: request.requestId,
+        documentId,
+        result: {
+          status: "failed",
+          code: "client-unavailable",
+          message:
+            claimError instanceof Error && claimError.message
+              ? claimError.message.slice(0, 300)
+              : "client-unavailable",
+        },
+      });
+    } catch (reportError) {
+      throw new NativeLocalExportReportError(claimError, reportError);
+    }
+    throw claimError;
+  }
   if (
     claimed.status !== "running" ||
     claimed.designId !== designId ||
@@ -258,6 +287,7 @@ export class NativeLocalExportReportError extends Error {
 
 export function useNativeLocalExportRequests(args: {
   designId: string | undefined;
+  isSignedIn: boolean;
   enabled: boolean;
   onExport: NativeLocalExportHandler;
   onError: (error: unknown) => void;
@@ -266,7 +296,13 @@ export function useNativeLocalExportRequests(args: {
   handlers.current = { onExport: args.onExport, onError: args.onError };
   useEffect(() => {
     const designId = args.designId;
-    if (!args.enabled || !designId || agentNativeApiDisabledReason()) return;
+    if (
+      !args.enabled ||
+      !args.isSignedIn ||
+      !designId ||
+      agentNativeApiDisabledReason()
+    )
+      return;
     const tabId = getBrowserTabId();
     const documentId = nativeLocalExportDocumentId(document);
     const controller = new AbortController();
@@ -274,6 +310,7 @@ export function useNativeLocalExportRequests(args: {
     let registering = false;
     let registered = false;
     let registrationFailures = 0;
+    let attemptedRequestId: string | undefined;
     const register = async () => {
       if (registering || controller.signal.aborted) return;
       registering = true;
@@ -311,9 +348,15 @@ export function useNativeLocalExportRequests(args: {
         const raw = await readClientAppState(
           nativeLocalExportStateKey(designId, tabId),
         );
+        if (controller.signal.aborted) return;
         if (raw === null) return;
         const request = nativeLocalExportStateSchema.parse(raw);
-        if (request.status !== "pending") return;
+        if (
+          request.status !== "pending" ||
+          request.requestId === attemptedRequestId
+        )
+          return;
+        attemptedRequestId = request.requestId;
         await executeNativeLocalExportRequest({
           request,
           designId,
@@ -332,7 +375,7 @@ export function useNativeLocalExportRequests(args: {
             }),
         });
       } catch (error) {
-        handlers.current.onError(error);
+        if (!controller.signal.aborted) handlers.current.onError(error);
       } finally {
         busy = false;
       }
@@ -352,5 +395,5 @@ export function useNativeLocalExportRequests(args: {
       window.clearInterval(timer);
       window.clearInterval(registrationTimer);
     };
-  }, [args.designId, args.enabled]);
+  }, [args.designId, args.enabled, args.isSignedIn]);
 }

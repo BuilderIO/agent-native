@@ -22,7 +22,10 @@ import {
 import {
   NativeWorkerGpu,
   NativeWorkerGpuError,
+  NativeWorkerGpuFlightCapacityError,
+  nativeWorkerTextureSizeValid,
   type NativeWorkerGpuBank,
+  type NativeWorkerGpuFlightLease,
 } from "./native-worker-gpu";
 import {
   finishWgsl,
@@ -33,8 +36,10 @@ import {
 } from "./native-worker-gpu-wgsl";
 import {
   NATIVE_WORKER_PROTOCOL_VERSION,
+  nativeWorkerClockSampleValid,
   type NativeWorkerEffectTarget,
   type NativeWorkerFromGpu,
+  type NativeWorkerCamera,
   type NativeWorkerScene,
   type NativeWorkerSourceRecord,
   type NativeWorkerToGpu,
@@ -66,6 +71,11 @@ function checkedScene(scene: NativeWorkerScene, gpu: NativeWorkerGpu): void {
     scene.generation < 1 ||
     !Number.isSafeInteger(scene.sourceEpoch) ||
     !Number.isSafeInteger(scene.authoredEpoch) ||
+    typeof scene.clock.playing !== "boolean" ||
+    !nativeWorkerClockSampleValid(
+      scene.clock,
+      performance.timeOrigin + performance.now(),
+    ) ||
     ![
       scene.viewport.x,
       scene.viewport.y,
@@ -78,6 +88,7 @@ function checkedScene(scene: NativeWorkerScene, gpu: NativeWorkerGpu): void {
     scene.viewport.width <= 0 ||
     scene.viewport.height <= 0 ||
     scene.pixelRatio <= 0 ||
+    !nativeWorkerTextureSizeValid(scene.width, scene.height) ||
     scene.width !== Math.ceil(scene.viewport.width * scene.pixelRatio) ||
     scene.height !== Math.ceil(scene.viewport.height * scene.pixelRatio) ||
     (scene.colorSpace !== "srgb" && scene.colorSpace !== "display-p3") ||
@@ -148,16 +159,100 @@ function checkedScene(scene: NativeWorkerScene, gpu: NativeWorkerGpu): void {
   }
 }
 
+function compatibleCameraContent(
+  base: NativeWorkerScene,
+  candidate: NativeWorkerScene,
+): boolean {
+  return (
+    candidate.sceneId === base.sceneId &&
+    candidate.sourceEpoch === base.sourceEpoch &&
+    candidate.authoredEpoch === base.authoredEpoch &&
+    candidate.pixelRatio === base.pixelRatio &&
+    candidate.colorSpace === base.colorSpace &&
+    candidate.frameRateTarget === base.frameRateTarget &&
+    candidate.definitions === base.definitions &&
+    candidate.instances === base.instances &&
+    candidate.targets === base.targets &&
+    candidate.records === base.records &&
+    candidate.backdropRecords === base.backdropRecords &&
+    candidate.requiredAssets === base.requiredAssets
+  );
+}
+
+function checkedCamera(
+  camera: NativeWorkerCamera,
+  state: SceneState,
+): NativeWorkerScene {
+  const current = state.current;
+  const staged = state.staged;
+  if (
+    !current ||
+    !state.currentSignature ||
+    camera.baseGeneration !== current.generation ||
+    camera.sceneId !== current.sceneId ||
+    camera.sourceEpoch !== current.sourceEpoch ||
+    camera.authoredEpoch !== current.authoredEpoch ||
+    camera.pixelRatio !== current.pixelRatio ||
+    (staged !== null && !compatibleCameraContent(current, staged))
+  )
+    throw new NativeWorkerSceneError(
+      "worker-camera-base-stale",
+      "The camera update no longer matches the committed native scene.",
+    );
+  if (
+    !Number.isSafeInteger(camera.generation) ||
+    camera.generation <=
+      Math.max(current.generation, staged?.generation ?? 0) ||
+    !nativeWorkerTextureSizeValid(camera.width, camera.height) ||
+    !camera.viewport ||
+    !camera.clock ||
+    typeof camera.clock.playing !== "boolean" ||
+    !nativeWorkerClockSampleValid(
+      camera.clock,
+      performance.timeOrigin + performance.now(),
+    ) ||
+    ![
+      camera.viewport.x,
+      camera.viewport.y,
+      camera.viewport.width,
+      camera.viewport.height,
+      camera.clock.timeSeconds,
+      camera.clock.speed,
+    ].every(Number.isFinite) ||
+    camera.viewport.width <= 0 ||
+    camera.viewport.height <= 0 ||
+    camera.width !== Math.ceil(camera.viewport.width * camera.pixelRatio) ||
+    camera.height !== Math.ceil(camera.viewport.height * camera.pixelRatio)
+  )
+    throw new NativeWorkerSceneError(
+      "scene-geometry-invalid",
+      "The camera update has invalid full-resolution geometry.",
+    );
+  return {
+    ...current,
+    generation: camera.generation,
+    viewport: camera.viewport,
+    width: camera.width,
+    height: camera.height,
+    clock: camera.clock,
+  };
+}
+
 function clockTime(
   scene: NativeWorkerScene,
   anchorMs: number,
   nowMs: number,
 ): number {
+  const elapsedMs =
+    scene.clock.sampledAtEpochMs === undefined
+      ? Math.max(0, nowMs - anchorMs)
+      : Math.max(
+          0,
+          performance.timeOrigin + nowMs - scene.clock.sampledAtEpochMs,
+        );
   return (
     scene.clock.timeSeconds +
-    (scene.clock.playing
-      ? (Math.max(0, nowMs - anchorMs) * scene.clock.speed) / 1000
-      : 0)
+    (scene.clock.playing ? (elapsedMs * scene.clock.speed) / 1000 : 0)
   );
 }
 
@@ -1003,6 +1098,30 @@ type DueScene = {
   staged: boolean;
 };
 
+type FlightItem = DueScene & {
+  lease: NativeWorkerGpuFlightLease;
+  final: GPUTexture;
+  renderer: NativeWorkerRenderer;
+  timeSeconds: number;
+  stagedAtStart: NativeWorkerScene | null;
+  currentAtStart: NativeWorkerScene | null;
+  anchorAtStart: number;
+  signatureAtStart: string | null;
+};
+
+type BatchFlight = {
+  items: FlightItem[];
+  due: readonly DueScene[];
+  now: number;
+  fence: Promise<FlightFenceResult> | null;
+  presentation: Promise<void> | null;
+  presentationSubmittedAtMs: number | null;
+};
+
+type FlightFenceResult =
+  | { status: "completed" }
+  | { status: "failed"; error: unknown };
+
 export class NativeWorkerRuntime {
   private readonly scenes = new Map<string, SceneState>();
   private readonly animationCadence = new Map<
@@ -1015,6 +1134,14 @@ export class NativeWorkerRuntime {
   private device: GPUDevice | null = null;
   private creatingDevice: Promise<GPUDevice> | null = null;
   private gpuTail: Promise<void> = Promise.resolve();
+  private readonly flights: BatchFlight[] = [];
+  private readonly flightWaiters: Array<() => void> = [];
+  private recordingFlights = 0;
+  private settlingFlight = false;
+  private flightRecovery = false;
+  private pendingFlightFailure: unknown | null = null;
+  private secondFlightUnavailable = false;
+  private pendingExclusiveOperations = 0;
   private readonly pendingInit = new Set<string>();
   private readonly cancelledInit = new Set<string>();
   private static readonly MAX_SHARED_RESOURCE_BYTES = 2_147_483_648;
@@ -1033,6 +1160,261 @@ export class NativeWorkerRuntime {
       () => undefined,
     );
     return result;
+  }
+
+  private waitForFlights(): Promise<void> {
+    if (!this.flights.length && !this.flightRecovery && !this.recordingFlights)
+      return Promise.resolve();
+    return new Promise((resolve) => this.flightWaiters.push(resolve));
+  }
+
+  private async withExclusiveGpu<T>(task: () => Promise<T>): Promise<T> {
+    this.pendingExclusiveOperations++;
+    try {
+      await this.waitForFlights();
+      return await this.serializeGpu(task);
+    } finally {
+      this.pendingExclusiveOperations--;
+      this.schedule();
+    }
+  }
+
+  private finishFlightWaiters(): void {
+    if (this.flights.length || this.flightRecovery || this.recordingFlights)
+      return;
+    this.secondFlightUnavailable = false;
+    for (const resolve of this.flightWaiters.splice(0)) resolve();
+  }
+
+  private sceneHasFlight(state: SceneState): boolean {
+    return this.flights.some((flight) =>
+      flight.items.some((item) => item.state === state),
+    );
+  }
+
+  private flightItemCurrent(item: FlightItem): boolean {
+    const { state, scene } = item;
+    const compatibleNewerCamera =
+      state.staged !== null &&
+      state.currentSignature !== null &&
+      state.stagedSignature === state.currentSignature &&
+      compatibleCameraContent(scene, state.staged);
+    const predecessorAdopted =
+      item.staged &&
+      state.current === scene &&
+      state.currentSignature === item.signatureAtStart &&
+      (state.staged === null || compatibleNewerCamera);
+    const compatibleCameraArrived =
+      !item.staged && item.stagedAtStart === null && compatibleNewerCamera;
+    return (
+      !state.disposed &&
+      (predecessorAdopted ||
+        (state.current === item.currentAtStart &&
+          (state.staged === item.stagedAtStart || compatibleCameraArrived) &&
+          (item.staged ? state.staged === scene : state.current === scene)))
+    );
+  }
+
+  private async settleFlights(): Promise<void> {
+    if (this.settlingFlight) return;
+    this.settlingFlight = true;
+    try {
+      while (this.flights.length) {
+        const flight = this.flights[0]!;
+        try {
+          if (this.pendingFlightFailure !== null) {
+            const failure = this.pendingFlightFailure;
+            this.pendingFlightFailure = null;
+            await this.recoverFlights(failure);
+            return;
+          }
+          if (!flight.fence)
+            await this.serializeGpu(() => this.presentFlight(flight));
+          const pendingFence = flight.fence;
+          if (!pendingFence)
+            throw new NativeWorkerSceneError(
+              "gpu-flight-fence-missing",
+              "The shared GPU flight has no completion fence.",
+            );
+          const fence = await pendingFence;
+          if (fence.status === "failed") throw fence.error;
+          let superseded = false;
+          await this.serializeGpu(async () => {
+            superseded = flight.items.some(
+              (item) => !this.flightItemCurrent(item),
+            );
+            if (superseded) return;
+            for (const item of flight.items)
+              item.state.gpu.validatePublication(item.lease, item.final);
+            for (const item of flight.items) {
+              const { state, scene, lease } = item;
+              state.gpu.publish(lease, item.final, scene);
+              const staged = item.staged && state.staged === scene;
+              if (staged) state.anchorMs = item.anchorAtStart;
+              this.completeFrame(
+                item.sceneId,
+                state,
+                scene,
+                staged,
+                flight.now,
+                lease.bank,
+                item.renderer,
+                item.timeSeconds,
+                lease,
+                flight.presentationSubmittedAtMs,
+              );
+            }
+          });
+          if (superseded) {
+            await this.recoverFlights(null);
+            return;
+          }
+          this.flights.shift();
+          for (const item of flight.items) {
+            item.state.gpu.releaseFlight(item.lease);
+            item.state.busy = this.sceneHasFlight(item.state);
+          }
+          this.secondFlightUnavailable = false;
+          this.schedule();
+        } catch (error) {
+          try {
+            await this.recoverFlights(error);
+          } catch (recoveryError) {
+            const first = flight.items[0];
+            if (first)
+              this.error(
+                first.sceneId,
+                recoveryError,
+                undefined,
+                first.scene.generation,
+              );
+          }
+          return;
+        }
+      }
+    } finally {
+      this.settlingFlight = false;
+      this.finishFlightWaiters();
+      for (const [sceneId, state] of this.scenes)
+        if (state.disposed && !state.busy)
+          void this.serializeGpu(async () =>
+            this.disposeScene(sceneId, state),
+          ).catch((error) => this.error(sceneId, error));
+      this.schedule();
+    }
+  }
+
+  private async recoverFlights(error: unknown): Promise<void> {
+    this.flightRecovery = true;
+    const failed = this.flights.splice(0);
+    try {
+      await this.serializeGpu(async () => {
+        const device = failed[0]?.items[0]?.state.gpu.device;
+        let drainFailure: unknown = null;
+        try {
+          if (device) await device.queue.onSubmittedWorkDone();
+        } catch (failure) {
+          drainFailure = failure;
+        }
+        let releaseFailure: unknown = null;
+        for (const flight of failed)
+          for (const item of flight.items)
+            try {
+              item.state.gpu.releaseFlight(item.lease);
+            } catch (failure) {
+              releaseFailure ??= failure;
+            }
+        if (drainFailure || releaseFailure)
+          throw new NativeWorkerSceneError(
+            "gpu-flight-drain-failed",
+            `The shared GPU flight could not drain safely: ${String(drainFailure ?? releaseFailure)}`,
+          );
+        let restorationFailure: unknown = null;
+        const affected = new Map<SceneState, FlightItem>();
+        for (const flight of failed)
+          for (const item of flight.items) affected.set(item.state, item);
+        for (const item of affected.values()) {
+          const current = item.state.current;
+          if (item.state.disposed || !current) continue;
+          const front = item.state.gpu.frontTexture();
+          if (front) {
+            try {
+              const bank = item.state.gpu.spareBank(
+                current,
+                item.state.currentSignature,
+              );
+              try {
+                await this.present(item.state.gpu, bank, current, front, null);
+              } finally {
+                item.state.gpu.endLegacyFlight();
+              }
+            } catch (restoreError) {
+              restorationFailure ??= restoreError;
+            }
+          }
+        }
+        if (restorationFailure)
+          throw new NativeWorkerSceneError(
+            "presentation-restore-failed",
+            `A validated shared frame could not be restored: ${String(restorationFailure)}`,
+          );
+      });
+      if (error !== null) {
+        const dueByState = new Map<SceneState, DueScene>();
+        for (const flight of failed)
+          for (const item of flight.due) dueByState.set(item.state, item);
+        const due = [...dueByState.values()];
+        let isolated = false;
+        for (const item of due) {
+          if (
+            item.state.disposed ||
+            (item.staged
+              ? item.state.staged !== item.scene
+              : item.state.current !== item.scene)
+          )
+            continue;
+          try {
+            await this.serializeGpu(() =>
+              this.frame(
+                item.sceneId,
+                item.state,
+                item.scene,
+                performance.now(),
+              ),
+            );
+          } catch (sceneError) {
+            isolated = true;
+            if (item.staged && item.state.staged === item.scene) {
+              item.state.staged = null;
+              item.state.stagedSignature = null;
+            } else if (!item.staged)
+              item.state.failedGeneration = item.scene.generation;
+            this.error(
+              item.sceneId,
+              sceneError,
+              undefined,
+              item.scene.generation,
+            );
+          }
+        }
+        if (!isolated && due[0])
+          this.error(
+            due[0].sceneId,
+            new NativeWorkerSceneError(
+              "gpu-batch-validation",
+              `The shared GPU batch failed validation before individual scenes recovered: ${String(error)}`,
+            ),
+            undefined,
+            due[0].scene.generation,
+          );
+      }
+    } finally {
+      for (const flight of failed)
+        for (const item of flight.items) item.state.busy = false;
+      this.flightRecovery = false;
+      this.secondFlightUnavailable = false;
+      this.finishFlightWaiters();
+    }
   }
 
   private cadenceForRate(rate: 60 | 120): NativePreviewPolicyController {
@@ -1262,7 +1644,7 @@ export class NativeWorkerRuntime {
     if (message.type === "visibility") {
       state.visible = message.visible;
       if (!state.visible)
-        void this.serializeGpu(async () => {
+        void this.withExclusiveGpu(async () => {
           if (!state.disposed && !state.visible)
             state.gpu.reject(state.gpu.frontBank());
         }).catch((error) => this.error(sceneId, error));
@@ -1276,10 +1658,11 @@ export class NativeWorkerRuntime {
     if (message.type === "asset") {
       const key = NativeWorkerGpu.assetKey(message.assetId, message.revision);
       state.unclaimedAssets.set(key, message.generation);
-      const task = this.serializeGpu(async () => {
+      const task = this.withExclusiveGpu(async () => {
         state.gpu.device.pushErrorScope("validation");
         let scopeOpen = true;
         try {
+          state.gpu.retireIdleWorkForAssetUpload(message);
           state.gpu.uploadAsset(message);
           const validation = await state.gpu.device.popErrorScope();
           scopeOpen = false;
@@ -1324,7 +1707,9 @@ export class NativeWorkerRuntime {
     if (message.type === "dispose") {
       state.disposed = true;
       if (!state.busy)
-        void this.serializeGpu(async () => this.disposeScene(sceneId, state));
+        void this.withExclusiveGpu(async () =>
+          this.disposeScene(sceneId, state),
+        ).catch((error) => this.error(sceneId, error));
       if (!this.hasScheduledWork() && this.timer !== null) {
         cancelAnimationFrame(this.timer);
         this.timer = null;
@@ -1363,6 +1748,25 @@ export class NativeWorkerRuntime {
         this.schedule();
       } catch (error) {
         this.error(sceneId, error, undefined, message.scene.generation);
+      }
+      return;
+    }
+    if (message.type === "camera") {
+      try {
+        const scene = checkedCamera(message, state);
+        state.staged = scene;
+        state.stagedSignature = state.currentSignature;
+        state.stagedAnchorMs = performance.now();
+        state.failedGeneration = null;
+        this.post({
+          type: "scene-staged",
+          sceneId,
+          generation: scene.generation,
+          sourceEpoch: scene.sourceEpoch,
+        });
+        this.schedule();
+      } catch (error) {
+        this.error(sceneId, error, undefined, message.generation);
       }
       return;
     }
@@ -1410,7 +1814,8 @@ export class NativeWorkerRuntime {
         !state.disposed &&
         (state.exports.length ||
           (state.visible &&
-            (state.staged ||
+            ((state.staged &&
+              (!this.sceneHasFlight(state) || state.staged.clock.playing)) ||
               (state.current?.clock.playing &&
                 state.failedGeneration !== state.current.generation))))
       )
@@ -1419,7 +1824,17 @@ export class NativeWorkerRuntime {
   }
 
   private schedule(): void {
-    if (this.timer !== null || this.pumpBusy || !this.hasScheduledWork())
+    if (
+      this.timer !== null ||
+      this.pumpBusy ||
+      this.flightRecovery ||
+      this.pendingExclusiveOperations > 0 ||
+      this.recordingFlights > 0 ||
+      this.flightWaiters.length > 0 ||
+      this.flights.length === 2 ||
+      (this.flights.length > 0 && this.secondFlightUnavailable) ||
+      !this.hasScheduledWork()
+    )
       return;
     this.timer = requestAnimationFrame((now) => {
       this.timer = null;
@@ -1431,6 +1846,18 @@ export class NativeWorkerRuntime {
     if (this.pumpBusy) return;
     this.pumpBusy = true;
     try {
+      const needsExclusive =
+        this.pendingExclusiveOperations > 0 ||
+        [...this.scenes.values()].some(
+          (state) =>
+            !state.disposed &&
+            (state.exports.length > 0 ||
+              (state.visible &&
+                state.staged !== null &&
+                (state.current === null ||
+                  state.stagedSignature !== state.currentSignature))),
+        );
+      if (this.flights.length && needsExclusive) return;
       const due: DueScene[] = [];
       const dueRates = new Map<60 | 120, boolean>();
       for (const [sceneId, state] of this.scenes) {
@@ -1441,6 +1868,21 @@ export class NativeWorkerRuntime {
           state.stagedSignature === state.currentSignature;
         const scene = staged ? state.staged : state.current;
         if (!scene || !state.visible || state.disposed) continue;
+        if (
+          staged &&
+          this.sceneHasFlight(state) &&
+          (!scene.clock.playing ||
+            !this.flights.some((flight) =>
+              flight.items.some(
+                (item) =>
+                  item.state === state &&
+                  ((item.staged && item.scene === scene) ||
+                    (item.scene === state.current &&
+                      compatibleCameraContent(item.scene, scene))),
+              ),
+            ))
+        )
+          continue;
         if (!staged && !scene.clock.playing) continue;
         if (state.failedGeneration === scene.generation) continue;
         state.cadence.setPolicy({
@@ -1455,64 +1897,61 @@ export class NativeWorkerRuntime {
           );
         if (dueRates.get(rate)) due.push({ sceneId, state, scene, staged });
       }
-      if (due.length) {
+      if (due.length && !needsExclusive) {
         for (const item of due) item.state.busy = true;
-        const priorFrames = new Map(
-          due.map((item) => [item.state, item.state.frame]),
-        );
         try {
-          await this.serializeGpu(() => this.batchCurrent(due, now));
-        } catch (batchError) {
-          let isolated = false;
-          for (const item of due) {
-            if (
-              item.state.disposed ||
-              (item.staged
-                ? item.state.staged !== item.scene
-                : item.state.current !== item.scene)
-            )
-              continue;
-            try {
-              await this.serializeGpu(() =>
-                this.frame(item.sceneId, item.state, item.scene, now),
-              );
-            } catch (error) {
-              isolated = true;
-              if (item.staged && item.state.staged === item.scene) {
-                item.state.staged = null;
-                item.state.stagedSignature = null;
-              } else if (!item.staged)
-                item.state.failedGeneration = item.scene.generation;
-              this.error(item.sceneId, error, undefined, item.scene.generation);
+          this.recordingFlights++;
+          let flight: BatchFlight | null;
+          try {
+            flight = await this.serializeGpu(() => this.recordFlight(due, now));
+            if (flight) this.flights.push(flight);
+          } finally {
+            this.recordingFlights--;
+            this.finishFlightWaiters();
+          }
+          if (flight) {
+            await this.serializeGpu(() => this.presentFlight(flight));
+            for (const rate of new Set(
+              flight.items.map((item) => item.scene.frameRateTarget ?? 60),
+            ))
+              this.cadenceForRate(rate).commitSubmission(now, false);
+            void this.settleFlights();
+          } else if (this.flights.length) {
+            this.secondFlightUnavailable = true;
+          }
+        } catch (error) {
+          if (this.flights.length) {
+            this.pendingFlightFailure = error;
+            void this.settleFlights();
+          } else {
+            for (const item of due) {
+              if (item.state.disposed) continue;
+              try {
+                await this.serializeGpu(() =>
+                  this.frame(item.sceneId, item.state, item.scene, now),
+                );
+              } catch (sceneError) {
+                if (item.staged && item.state.staged === item.scene) {
+                  item.state.staged = null;
+                  item.state.stagedSignature = null;
+                } else if (!item.staged)
+                  item.state.failedGeneration = item.scene.generation;
+                this.error(
+                  item.sceneId,
+                  sceneError,
+                  undefined,
+                  item.scene.generation,
+                );
+              }
             }
           }
-          if (!isolated) {
-            const first = due[0];
-            if (first)
-              this.error(
-                first.sceneId,
-                new NativeWorkerSceneError(
-                  "gpu-batch-validation",
-                  `The shared GPU batch failed validation before individual scenes recovered: ${String(batchError)}`,
-                ),
-                undefined,
-                first.scene.generation,
-              );
-          }
         } finally {
-          for (const rate of new Set(
-            due
-              .filter(
-                (item) =>
-                  item.state.frame >
-                  (priorFrames.get(item.state) ?? item.state.frame),
-              )
-              .map((item) => item.scene.frameRateTarget ?? 60),
-          ))
-            this.cadenceForRate(rate).commitSubmission(now, false);
-          for (const item of due) item.state.busy = false;
+          for (const item of due)
+            if (!this.sceneHasFlight(item.state)) item.state.busy = false;
         }
       }
+
+      if (this.flights.length) return;
 
       const exports = [...this.scenes].find(
         ([, state]) => !state.disposed && state.exports.length,
@@ -1582,157 +2021,145 @@ export class NativeWorkerRuntime {
     }
   }
 
-  private async batchCurrent(
+  private async recordFlight(
     due: readonly DueScene[],
     now: number,
-  ): Promise<void> {
+  ): Promise<BatchFlight | null> {
     const device = due[0]?.state.gpu.device;
-    if (!device) return;
+    if (!device) return null;
     if (due.some((item) => item.state.gpu.device !== device))
       throw new NativeWorkerSceneError(
         "gpu-shared-device-mismatch",
         "The worker batch contains scenes from different GPU devices.",
       );
-    const rendered: Array<
-      DueScene & {
-        bank: NativeWorkerGpuBank;
-        final: GPUTexture;
-        renderer: NativeWorkerRenderer;
-        timeSeconds: number;
-        stagedAtStart: NativeWorkerScene | null;
-        currentAtStart: NativeWorkerScene | null;
-        anchorAtStart: number;
+    const acquired: Array<DueScene & { lease: NativeWorkerGpuFlightLease }> =
+      [];
+    for (const item of due) {
+      if (
+        item.state.disposed ||
+        (item.staged
+          ? item.state.staged !== item.scene
+          : item.state.current !== item.scene)
+      )
+        continue;
+      const result = item.state.gpu.tryAcquireFlight(
+        item.scene,
+        item.staged ? item.state.stagedSignature : item.state.currentSignature,
+      );
+      if (result.status === "capacity") {
+        for (const held of acquired) held.state.gpu.releaseFlight(held.lease);
+        if (this.flights.length) return null;
+        throw new NativeWorkerSceneError(
+          "gpu-flight-capacity",
+          `The first GPU flight could not acquire a candidate: ${result.reason}`,
+        );
       }
-    > = [];
-    const renderBuffers: GPUCommandBuffer[] = [];
-    device.pushErrorScope("validation");
-    let scopeOpen = true;
-    let renderSubmitted = false;
+      acquired.push({ ...item, lease: result.lease });
+    }
+    if (!acquired.length) return null;
+
+    const rendered: FlightItem[] = [];
+    const buffers: GPUCommandBuffer[] = [];
+    let scopeOpen = false;
+    let submitted = false;
+    let failed = false;
     try {
-      for (const item of due) {
-        const { state, scene } = item;
-        if (
-          state.disposed ||
-          (item.staged ? state.staged !== scene : state.current !== scene)
-        )
-          continue;
-        const gpu = state.gpu;
+      device.pushErrorScope("validation");
+      scopeOpen = true;
+      for (const item of acquired) {
+        const { state, scene, lease } = item;
         const stagedAtStart = state.staged;
         const currentAtStart = state.current;
         const anchorAtStart = item.staged
           ? state.stagedAnchorMs
           : state.anchorMs;
-        const bank = gpu.spareBank(
-          scene,
-          item.staged ? state.stagedSignature : state.currentSignature,
-        );
-        gpu.beginFrame();
+        const signatureAtStart = item.staged
+          ? state.stagedSignature
+          : state.currentSignature;
+        state.gpu.beginFrame(lease);
         const encoder = device.createCommandEncoder();
         const timeSeconds = clockTime(scene, anchorAtStart, now);
         const renderer = new NativeWorkerRenderer(
           scene,
           timeSeconds,
-          gpu,
-          bank,
+          state.gpu,
+          lease.bank,
           encoder,
         );
         const composed = await renderer.render(scene.records);
-        const final = gpu.stageFinal(scene, composed, encoder);
-        gpu.uploadFrame();
-        renderBuffers.push(encoder.finish());
+        const final = state.gpu.stageFinal(lease, scene, composed, encoder);
+        state.gpu.uploadFrame(lease);
+        buffers.push(encoder.finish());
         rendered.push({
           ...item,
-          bank,
           final,
           renderer,
           timeSeconds,
           stagedAtStart,
           currentAtStart,
           anchorAtStart,
+          signatureAtStart,
         });
       }
-      if (renderBuffers.length) {
-        device.queue.submit(renderBuffers);
-        renderSubmitted = true;
-      }
-      const validation = await device.popErrorScope();
+      device.queue.submit(buffers);
+      submitted = true;
+      for (const item of acquired)
+        item.state.gpu.markFlightSubmitted(item.lease);
+      const validationPromise = device.popErrorScope();
       scopeOpen = false;
+      const validation = await validationPromise;
       if (validation)
         throw new NativeWorkerSceneError("gpu-validation", validation.message);
+      return {
+        items: rendered,
+        due,
+        now,
+        fence: null,
+        presentation: null,
+        presentationSubmittedAtMs: null,
+      };
     } catch (error) {
-      let failure: unknown = error;
-      if (scopeOpen)
-        try {
-          await device.popErrorScope();
-        } catch (scopeError) {
-          failure = new NativeWorkerSceneError(
-            "gpu-validation",
-            `Rendering failed and its validation scope failed: ${String(error)}; ${String(scopeError)}`,
-          );
-        }
-      if (renderSubmitted)
-        try {
-          await device.queue.onSubmittedWorkDone();
-        } catch (queueError) {
-          failure = new NativeWorkerSceneError(
-            "gpu-validation",
-            `Rendering failed while draining GPU work: ${String(error)}; ${String(queueError)}`,
-          );
-        }
-      throw failure;
+      failed = true;
+      if (scopeOpen) await device.popErrorScope();
+      if (submitted) await device.queue.onSubmittedWorkDone();
+      if (
+        !submitted &&
+        this.flights.length &&
+        error instanceof NativeWorkerGpuFlightCapacityError
+      )
+        return null;
+      throw error;
     } finally {
-      for (const item of due) item.state.gpu.finishFrame();
+      for (const item of acquired) item.state.gpu.finishFrame(item.lease);
+      if (failed)
+        for (const item of acquired) item.state.gpu.releaseFlight(item.lease);
     }
-    if (!rendered.length) return;
+  }
 
-    const presentBuffers: GPUCommandBuffer[] = [];
-    const prepared: typeof rendered = [];
-    const restorePrepared = async () => {
-      let failure: unknown;
-      for (const item of prepared) {
-        if (item.state.disposed) continue;
-        const front = item.state.gpu.frontTexture();
-        if (!front || !item.currentAtStart) {
-          failure ??= new NativeWorkerSceneError(
-            "presentation-restore-failed",
-            "The shared scene has no retained validated frame.",
-          );
-          continue;
-        }
-        try {
-          await this.present(
-            item.state.gpu,
-            item.bank,
-            item.currentAtStart,
-            front,
-            null,
-          );
-        } catch (error) {
-          failure ??= error;
-        }
-      }
-      if (failure)
-        throw new NativeWorkerSceneError(
-          "presentation-restore-failed",
-          `A validated shared frame could not be restored: ${String(failure)}`,
-        );
-    };
-    device.pushErrorScope("validation");
-    scopeOpen = true;
-    let presentationSubmitted = false;
+  private presentFlight(flight: BatchFlight): Promise<void> {
+    return (flight.presentation ??= this.submitPresentation(flight));
+  }
+
+  private async submitPresentation(flight: BatchFlight): Promise<void> {
+    const device = flight.items[0]?.state.gpu.device;
+    if (!device) return;
+    if (flight.items.some((item) => !this.flightItemCurrent(item))) {
+      flight.fence = device.queue.onSubmittedWorkDone().then(
+        (): FlightFenceResult => ({ status: "completed" }),
+        (error): FlightFenceResult => ({ status: "failed", error }),
+      );
+      return;
+    }
+    const buffers: GPUCommandBuffer[] = [];
+    let scopeOpen = false;
+    let submitted = false;
     try {
-      for (const item of rendered) {
-        const { gpu } = item.state;
-        if (
-          item.state.disposed ||
-          (item.staged
-            ? item.state.staged !== item.scene
-            : item.state.current !== item.scene)
-        )
-          continue;
-        prepared.push(item);
+      device.pushErrorScope("validation");
+      scopeOpen = true;
+      for (const item of flight.items) {
+        const gpu = item.state.gpu;
         gpu.preparePresentation(item.scene);
-        gpu.beginFrame();
+        gpu.beginFrame(item.lease);
         const encoder = device.createCommandEncoder();
         const pipeline = await gpu.pipeline(
           presentWgsl(item.scene.colorSpace),
@@ -1741,7 +2168,7 @@ export class NativeWorkerRuntime {
           2,
         );
         const bind = gpu.bind(
-          item.bank,
+          item.lease.bank,
           "presentation",
           pipeline,
           item.final,
@@ -1758,122 +2185,53 @@ export class NativeWorkerRuntime {
           ]),
         );
         draw(encoder, gpu.context.getCurrentTexture(), pipeline, bind);
-        gpu.uploadFrame();
-        presentBuffers.push(encoder.finish());
+        gpu.uploadFrame(item.lease);
+        buffers.push(encoder.finish());
       }
-      if (presentBuffers.length) {
-        device.queue.submit(presentBuffers);
-        presentationSubmitted = true;
+      if (flight.items.every((item) => this.flightItemCurrent(item))) {
+        device.queue.submit(buffers);
+        submitted = true;
+        flight.presentationSubmittedAtMs = performance.now();
       }
-      const validation = await device.popErrorScope();
+      const validationPromise = device.popErrorScope();
       scopeOpen = false;
-      if (validation)
-        throw new NativeWorkerSceneError("gpu-validation", validation.message);
-      if (renderSubmitted || presentationSubmitted)
-        await device.queue.onSubmittedWorkDone();
-      renderSubmitted = false;
-      presentationSubmitted = false;
+      const completionPromise = device.queue.onSubmittedWorkDone();
+      flight.fence = Promise.allSettled([
+        validationPromise,
+        completionPromise,
+      ]).then(([validation, completion]): FlightFenceResult => {
+        const failures: unknown[] = [];
+        if (validation.status === "rejected") failures.push(validation.reason);
+        else if (validation.value)
+          failures.push(
+            new NativeWorkerSceneError(
+              "gpu-validation",
+              validation.value.message,
+            ),
+          );
+        if (completion.status === "rejected") failures.push(completion.reason);
+        return failures.length
+          ? {
+              status: "failed",
+              error:
+                failures.length === 1
+                  ? failures[0]
+                  : Object.assign(
+                      new NativeWorkerSceneError(
+                        "gpu-presentation-failed",
+                        `GPU presentation validation and completion both failed: ${failures.map(String).join("; ")}`,
+                      ),
+                      { errors: failures },
+                    ),
+            }
+          : { status: "completed" };
+      });
     } catch (error) {
-      let failure: unknown = error;
-      if (scopeOpen)
-        try {
-          await device.popErrorScope();
-        } catch (scopeError) {
-          failure = new NativeWorkerSceneError(
-            "gpu-validation",
-            `Presentation failed and its validation scope failed: ${String(error)}; ${String(scopeError)}`,
-          );
-        }
-      if (renderSubmitted || presentationSubmitted)
-        try {
-          await device.queue.onSubmittedWorkDone();
-        } catch (queueError) {
-          failure = new NativeWorkerSceneError(
-            "gpu-validation",
-            `Presentation failed while draining GPU work: ${String(error)}; ${String(queueError)}`,
-          );
-        }
-      for (const item of prepared) item.state.gpu.finishFrame();
-      await restorePrepared();
-      throw failure;
-    } finally {
-      for (const item of prepared) item.state.gpu.finishFrame();
-    }
-
-    const remainsCurrent = (item: (typeof prepared)[number]) => {
-      const { state, scene } = item;
-      const stagedUnchanged = state.staged === item.stagedAtStart;
-      const compatibleCameraArrived =
-        !item.staged &&
-        item.stagedAtStart === null &&
-        state.staged !== null &&
-        state.currentSignature !== null &&
-        state.stagedSignature === state.currentSignature &&
-        state.staged.sourceEpoch === scene.sourceEpoch &&
-        state.staged.authoredEpoch === scene.authoredEpoch;
-      return (
-        !state.disposed &&
-        state.current === item.currentAtStart &&
-        (stagedUnchanged || compatibleCameraArrived) &&
-        (item.staged ? state.staged === scene : state.current === scene)
-      );
-    };
-    const superseded = prepared.filter((item) => !remainsCurrent(item));
-    if (superseded.length) {
-      try {
-        for (const item of superseded) {
-          if (item.state.disposed) continue;
-          const front = item.state.gpu.frontTexture();
-          if (!front || !item.currentAtStart)
-            throw new NativeWorkerSceneError(
-              "presentation-restore-failed",
-              "The superseded scene has no retained validated frame.",
-            );
-          await this.present(
-            item.state.gpu,
-            item.bank,
-            item.currentAtStart,
-            front,
-            null,
-          );
-        }
-      } catch (error) {
-        await restorePrepared();
-        throw error;
-      }
-    }
-    if (
-      prepared.some(
-        (item) => !superseded.includes(item) && !remainsCurrent(item),
-      )
-    ) {
-      await restorePrepared();
-      return;
-    }
-    try {
-      for (const item of prepared)
-        if (!superseded.includes(item))
-          item.state.gpu.validatePublication(item.bank, item.final);
-    } catch (error) {
-      await restorePrepared();
+      if (scopeOpen) await device.popErrorScope();
+      if (submitted) await device.queue.onSubmittedWorkDone();
       throw error;
-    }
-    for (const item of prepared) {
-      const { state, scene, sceneId, bank, final, renderer, timeSeconds } =
-        item;
-      if (superseded.includes(item)) continue;
-      state.gpu.publish(bank, final, scene);
-      if (item.staged) state.anchorMs = item.anchorAtStart;
-      this.completeFrame(
-        sceneId,
-        state,
-        scene,
-        item.staged,
-        now,
-        bank,
-        renderer,
-        timeSeconds,
-      );
+    } finally {
+      for (const item of flight.items) item.state.gpu.finishFrame(item.lease);
     }
   }
 
@@ -1886,8 +2244,11 @@ export class NativeWorkerRuntime {
     bank: NativeWorkerGpuBank,
     renderer: NativeWorkerRenderer,
     timeSeconds: number,
+    lease?: NativeWorkerGpuFlightLease,
+    presentationSubmittedAtMs?: number | null,
   ): void {
-    state.gpu.trimWork(bank);
+    if (lease) state.gpu.trimWork(lease);
+    else state.gpu.trimWork(bank);
     if (
       staged &&
       scene.clock.playing &&
@@ -1913,6 +2274,11 @@ export class NativeWorkerRuntime {
         ...(state.current?.requiredAssets ?? []),
         ...(state.staged?.requiredAssets ?? []),
         ...state.exports.flatMap((pending) => pending.scene.requiredAssets),
+        ...this.flights.flatMap((flight) =>
+          flight.items
+            .filter((item) => item.state === state)
+            .flatMap((item) => item.scene.requiredAssets),
+        ),
       ].map((asset) => NativeWorkerGpu.assetKey(asset.assetId, asset.revision)),
     );
     for (const key of state.unclaimedAssets.keys()) held.add(key);
@@ -1925,6 +2291,10 @@ export class NativeWorkerRuntime {
       frame: state.frame,
       timeSeconds,
       presentedAtMs: performance.now(),
+      ...(presentationSubmittedAtMs !== null &&
+      presentationSubmittedAtMs !== undefined
+        ? { presentationSubmittedAtMs }
+        : {}),
       ...(staged ? { committedInstances: renderer.provenance() } : {}),
     });
   }
@@ -2015,6 +2385,7 @@ export class NativeWorkerRuntime {
       throw error;
     } finally {
       if (frameOpen) gpu.finishFrame();
+      gpu.endLegacyFlight();
     }
   }
 
@@ -2137,6 +2508,26 @@ export class NativeWorkerRuntime {
           encoder,
         );
         const composed = await renderer.renderExport();
+        gpu.uploadFrame();
+        gpu.device.queue.submit([encoder.finish()]);
+        submitted = true;
+        const compositionValidation = await gpu.device.popErrorScope();
+        scopeOpen = false;
+        if (compositionValidation)
+          throw new NativeWorkerSceneError(
+            "gpu-validation",
+            compositionValidation.message,
+          );
+        await gpu.device.queue.onSubmittedWorkDone();
+        gpu.finishFrame();
+        frameOpen = false;
+        gpu.trimWorkExcept(bank, composed);
+
+        gpu.beginFrame();
+        frameOpen = true;
+        gpu.device.pushErrorScope("validation");
+        scopeOpen = true;
+        const outputEncoder = gpu.device.createCommandEncoder();
         const output = gpu.texture(
           bank,
           "export:output",
@@ -2168,7 +2559,7 @@ export class NativeWorkerRuntime {
             0,
           ]),
         );
-        draw(encoder, output, pipeline, bind);
+        draw(outputEncoder, output, pipeline, bind);
         const bytesPerRow = Math.ceil((planned.width * 4) / 256) * 256;
         readbackBytes = bytesPerRow * planned.height;
         gpu.reserveTransient(readbackBytes, "export:readback");
@@ -2177,13 +2568,13 @@ export class NativeWorkerRuntime {
           size: readbackBytes,
           usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
-        encoder.copyTextureToBuffer(
+        outputEncoder.copyTextureToBuffer(
           { texture: output },
           { buffer: readback, bytesPerRow },
           [planned.width, planned.height],
         );
         gpu.uploadFrame();
-        gpu.device.queue.submit([encoder.finish()]);
+        gpu.device.queue.submit([outputEncoder.finish()]);
         submitted = true;
         const validation = await gpu.device.popErrorScope();
         scopeOpen = false;
@@ -2249,10 +2640,11 @@ export class NativeWorkerRuntime {
       }
       if (readbackReserved) cleanup(() => gpu.releaseTransient(readbackBytes));
       if (frameOpen) cleanup(() => gpu.finishFrame());
-      if (submitted && bank) {
+      if (bank) {
         const finishedBank = bank;
-        cleanup(() => gpu.trimWork(finishedBank));
+        cleanup(() => gpu.trimWorkExcept(finishedBank, null));
       }
+      cleanup(() => gpu.endLegacyFlight());
       state.activeExportId = null;
       cancelled = state.cancelled.delete(request.requestId) || cancelled;
       const held = new Set(

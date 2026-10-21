@@ -85,7 +85,12 @@ export type NativeWorkerScene = {
   pixelRatio: number;
   colorSpace: "srgb" | "display-p3";
   frameRateTarget?: 60 | 120;
-  clock: { playing: boolean; timeSeconds: number; speed: number };
+  clock: {
+    playing: boolean;
+    timeSeconds: number;
+    speed: number;
+    sampledAtEpochMs?: number;
+  };
   requiredAssets: readonly { assetId: string; revision: number }[];
   definitions: readonly EffectDefinition[];
   instances: readonly EffectInstance[];
@@ -93,6 +98,33 @@ export type NativeWorkerScene = {
   records: readonly NativeWorkerSourceRecord[];
   backdropRecords?: readonly NativeWorkerSourceRecord[];
 };
+
+export type NativeWorkerCamera = Pick<
+  NativeWorkerScene,
+  | "sceneId"
+  | "generation"
+  | "sourceEpoch"
+  | "authoredEpoch"
+  | "viewport"
+  | "width"
+  | "height"
+  | "pixelRatio"
+  | "clock"
+> & { baseGeneration: number };
+
+export function nativeWorkerClockSampleValid(
+  clock: NativeWorkerScene["clock"],
+  nowEpochMs: number,
+): boolean {
+  const sampledAt = clock.sampledAtEpochMs;
+  return (
+    sampledAt === undefined ||
+    (typeof sampledAt === "number" &&
+      Number.isFinite(sampledAt) &&
+      sampledAt > 0 &&
+      Math.abs(nowEpochMs - sampledAt) <= 300_000)
+  );
+}
 
 export type NativeWorkerToGpu =
   | {
@@ -102,6 +134,7 @@ export type NativeWorkerToGpu =
       canvas: OffscreenCanvas;
     }
   | { type: "scene"; scene: NativeWorkerScene }
+  | ({ type: "camera" } & NativeWorkerCamera)
   | ({ type: "asset" } & NativeWorkerAsset)
   | {
       type: "export";
@@ -151,6 +184,7 @@ export type NativeWorkerFromGpu =
       frame: number;
       timeSeconds: number;
       presentedAtMs: number;
+      presentationSubmittedAtMs?: number;
       committedInstances?: readonly {
         instanceId: string;
         definitionHash: string;

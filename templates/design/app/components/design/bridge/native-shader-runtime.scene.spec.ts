@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { CATALOG_GENERATOR_CANDIDATES } from "../../../../shared/native-effect-catalog-generators";
+import { FOLDED_MESH_EFFECT } from "../../../../shared/native-effect-folded-mesh";
 import { LIQUID_GLASS_EFFECT } from "../../../../shared/native-effect-liquid-glass-v3";
 import * as effectTrust from "../../../../shared/native-effect-trust";
 import { GLOWING_WAVES_EFFECT } from "../../../../shared/native-effect-v1-graphics";
@@ -24,6 +25,96 @@ import { nativeSvgViewportToClient } from "./native-svg-geometry";
 import { serializeNativeSvgSource } from "./native-svg-source";
 
 describe("persistent generated fill frames", () => {
+  it("draws the indexed mesh with a private depth attachment on the legacy GPU path", async () => {
+    fixture();
+    const internals = runtime as unknown as {
+      white: GPUTexture;
+      sampler: GPUSampler;
+      effectInputTextures: (...args: unknown[]) => Promise<unknown>;
+      effectPasses: (...args: unknown[]) => Promise<GPUTexture>;
+      ensureCompositionBudget: (...args: unknown[]) => void;
+      texture: (...args: unknown[]) => GPUTexture;
+      pipeline: (...args: unknown[]) => Promise<GPURenderPipeline>;
+      bind: (...args: unknown[]) => GPUBindGroup;
+      meshDepth: (...args: unknown[]) => GPUTexture;
+      meshGrid: (...args: unknown[]) => {
+        buffer: GPUBuffer;
+        indexCount: number;
+      };
+      packPointerForTime: (...args: unknown[]) => Float32Array;
+    };
+    const source = {} as GPUTexture;
+    const output = { createView: () => ({}) } as unknown as GPUTexture;
+    const depth = { createView: () => ({}) } as unknown as GPUTexture;
+    const grid = { buffer: {} as GPUBuffer, indexCount: 128 * 96 * 6 };
+    internals.white = source;
+    internals.sampler = {} as GPUSampler;
+    vi.spyOn(internals, "effectInputTextures").mockResolvedValue({
+      resources: new Map([["source", source]]),
+      inputPlan: { inputs: new Map() },
+    });
+    vi.spyOn(internals, "ensureCompositionBudget").mockImplementation(() => {});
+    vi.spyOn(internals, "texture").mockReturnValue(output);
+    const pipeline = vi
+      .spyOn(internals, "pipeline")
+      .mockResolvedValue({} as GPURenderPipeline);
+    vi.spyOn(internals, "bind").mockReturnValue({} as GPUBindGroup);
+    vi.spyOn(internals, "meshDepth").mockReturnValue(depth);
+    vi.spyOn(internals, "meshGrid").mockReturnValue(grid);
+    vi.spyOn(internals, "packPointerForTime").mockReturnValue(
+      new Float32Array(128),
+    );
+    const pass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      setIndexBuffer: vi.fn(),
+      drawIndexed: vi.fn(),
+      draw: vi.fn(),
+      end: vi.fn(),
+    };
+    const encoder = {
+      beginRenderPass: vi.fn(() => pass),
+    } as unknown as GPUCommandEncoder;
+    const instance = {
+      id: "folded",
+      nodeId: "frame",
+      placement: "fill",
+      params: {},
+      seed: 1,
+      timing: { time: 0, paused: false, speed: 1 },
+    };
+    const mount = {
+      instance,
+      definition: FOLDED_MESH_EFFECT,
+      width: 20,
+      height: 10,
+      pixelRatio: 2,
+      resourceTextures: new Map(),
+    };
+    expect(
+      await internals.effectPasses(
+        mount,
+        source,
+        0,
+        encoder,
+        FOLDED_MESH_EFFECT,
+        instance,
+      ),
+    ).toBe(output);
+    expect(pipeline.mock.calls[0]?.[6]).toBe(true);
+    expect(encoder.beginRenderPass).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depthStencilAttachment: expect.objectContaining({
+          depthClearValue: 1,
+          depthStoreOp: "discard",
+        }),
+      }),
+    );
+    expect(pass.setIndexBuffer).toHaveBeenCalledWith(grid.buffer, "uint32");
+    expect(pass.drawIndexed).toHaveBeenCalledWith(grid.indexCount);
+    expect(pass.draw).not.toHaveBeenCalled();
+  });
+
   it.each(["success", "gpu", "source-during-encode", "source-before-publish"])(
     "preserves atomic generated fill publication: %s",
     async (mode) => {
@@ -351,10 +442,13 @@ function fixture() {
     backgroundImage: "none",
     backgroundColor: "rgb(255, 255, 255)",
     transform: "none",
+    transformOrigin: "0px 0px",
     translate: "none",
     rotate: "none",
     scale: "none",
     opacity: "1",
+    borderRadius: "4px",
+    zIndex: "auto",
     getPropertyValue: () => "",
   };
   vi.spyOn(window, "getComputedStyle").mockReturnValue(
@@ -1122,9 +1216,33 @@ describe("native scene viewport composition", () => {
       isTopLayer: boolean;
       suppressed: boolean;
       outputTexture: unknown;
+      outputExtent: {
+        pixelRatio: number;
+        width: number;
+        height: number;
+        sourceWidth: number;
+        sourceHeight: number;
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        expanded: boolean;
+      };
       layerSourceOpacityDeferred: boolean;
     };
     layer.instance.placement = "layer";
+    layer.outputExtent = {
+      pixelRatio: 1,
+      width: 100,
+      height: 100,
+      sourceWidth: 100,
+      sourceHeight: 100,
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      expanded: false,
+    };
     layer.canvas.style.visibility = "hidden";
     frame.setAttribute("data-an-native-layer-suppressed", "");
 
@@ -1155,6 +1273,69 @@ describe("native scene viewport composition", () => {
       false,
     );
     expect(backdropCanvas.style.visibility).toBe("hidden");
+  });
+
+  it("reprojects last-good canvases after a camera change when preview budgeting fails", async () => {
+    const { frame } = fixture();
+    Object.defineProperties(frame, {
+      offsetLeft: { configurable: true, value: 240 },
+      offsetTop: { configurable: true, value: 140 },
+      offsetWidth: { configurable: true, value: 120 },
+      offsetHeight: { configurable: true, value: 80 },
+    });
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(240, 140, 120, 80),
+    );
+    const mount = runtime.mounts.get("fill") as Record<string, unknown>;
+    Object.assign(mount, {
+      width: 64,
+      height: 48,
+      pixelRatio: 2,
+      authoredInputs: new Map(),
+      definition: { simulation: false, feedback: false },
+      outputExtent: {
+        width: 64,
+        height: 48,
+        pixelRatio: 2,
+        left: 4,
+        top: 6,
+        right: 8,
+        bottom: 10,
+        expanded: false,
+      },
+    });
+    const canvas = mount.canvas as HTMLCanvasElement;
+    canvas.width = 64;
+    canvas.height = 48;
+    canvas.style.left = "1px";
+    canvas.style.top = "2px";
+    canvas.style.width = "30px";
+    canvas.style.height = "40px";
+    runtime.compositionPixelRatio = null;
+    runtime.compositionOutputRegion = null;
+    runtime.previewViewport = { x: 0, y: 0, width: 500, height: 400 };
+    vi.spyOn(runtime, "planPreviewTargetDensities").mockImplementation(() => {
+      throw new sourceProvider.NativeSourceError(
+        "gpu-budget-exceeded",
+        "The shared native preview working set cannot fit.",
+      );
+    });
+
+    let failure: unknown;
+    try {
+      runtime.planPreviewTargetDensities();
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: "gpu-budget-exceeded" });
+    runtime.restoreIndividualPresentationsAfterSceneFailure();
+
+    expect(canvas.style.left).toBe("238px");
+    expect(canvas.style.top).toBe("137px");
+    expect(canvas.style.width).toBe("126px");
+    expect(canvas.style.height).toBe("88px");
+    expect(canvas).toHaveProperty("width", 64);
+    expect(canvas).toHaveProperty("height", 48);
   });
 
   it("enables scene-managed presentation only after a backdrop scene commits", async () => {
