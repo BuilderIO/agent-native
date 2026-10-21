@@ -17,14 +17,14 @@ const database = {
   githubConnectPrompt:
     "Content がフォルダーを読み込めるように、GitHub アカウントを接続してください。",
   githubConnect: "GitHub を接続",
-  githubLinkFolderIn: "{{repo}} の {{folder}}",
-  githubLinkPagesOne: "1 ページ：{{titles}}。",
-  githubLinkPages: "{{count}} ページ：{{titles}}。",
-  githubLinkPagesUpTo: "最大 {{count}} ページ：{{titles}}。",
+  githubPreviewPagesOne: "1 ページ",
+  githubPreviewPages: "{{count}} ページ",
+  githubPreviewPagesUpTo: "最大 {{count}} ページ",
   githubLinkMore: "他 {{count}} 件",
   githubLinkNoFiles:
     "このフォルダーには Markdown (.md) ファイルがないため、表示するものがありません。",
-  githubLinkColumns: "列：{{columns}}。",
+  githubPreviewColumnsOne: "1 列",
+  githubPreviewColumns: "{{count}} 列",
   githubLinkNoColumns:
     "これらのファイルの先頭には詳細情報がないため、各ページにはタイトルだけが入ります。",
   githubLinkNotShownOne: "1 個のファイルはまだ表示されません。",
@@ -160,7 +160,7 @@ const database = {
   githubSyncPartialToast:
     "更新しています：これまでに {{total}} 個中 {{done}} 個のファイルが完了しました。",
   githubSyncBusy: "すでに更新を確認しています。完了すると変更が表示されます。",
-  githubEmptyHint: "または GitHub フォルダーからページを取り込む",
+  emptyCollectionSourceHint: "またはソースからページを取り込む",
   formChecked: "チェック済み",
   formChooseOption: "オプションを選択",
   formDescription:
@@ -1084,7 +1084,6 @@ const rawLiterals = {
     expandItem: "{{title}} を展開",
     database: "コレクション",
     collection: "コレクション",
-    collectionFromGitHub: "GitHub フォルダーからのコレクション",
     databasePermanentlyDeleted: "コレクションを完全に削除しました",
     databaseRestored: "コレクションを復元しました",
     deleteDatabaseNamedPermanently: "{{title}} を完全に削除",

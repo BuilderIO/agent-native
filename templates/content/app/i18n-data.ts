@@ -21,14 +21,14 @@ const databaseMessages = {
   githubConnectPrompt:
     "Connect your GitHub account so Content can read your folders.",
   githubConnect: "Connect GitHub",
-  githubLinkFolderIn: "{{folder}}, in {{repo}}",
-  githubLinkPagesOne: "1 page: {{titles}}.",
-  githubLinkPages: "{{count}} pages: {{titles}}.",
-  githubLinkPagesUpTo: "Up to {{count}} pages: {{titles}}.",
+  githubPreviewPagesOne: "1 page",
+  githubPreviewPages: "{{count}} pages",
+  githubPreviewPagesUpTo: "Up to {{count}} pages",
   githubLinkMore: "{{count}} more",
   githubLinkNoFiles:
     "This folder has no Markdown (.md) files, so there’s nothing to show.",
-  githubLinkColumns: "Columns: {{columns}}.",
+  githubPreviewColumnsOne: "1 column",
+  githubPreviewColumns: "{{count}} columns",
   githubLinkNoColumns:
     "These files have no details at the top, so each page just gets its title.",
   githubLinkNotShownOne: "1 file won’t show yet.",
@@ -158,7 +158,7 @@ const databaseMessages = {
   githubSyncPartialToast: "Updating: {{done}} of {{total}} files so far.",
   githubSyncBusy:
     "Already checking for updates. Changes show when it finishes.",
-  githubEmptyHint: "Or fill it from a GitHub folder",
+  emptyCollectionSourceHint: "Or fill it from a source",
   aField: "a field",
   addAnotherItemSourceBeforeChangingToDetails:
     "Add another item source before changing this source to details.",
@@ -1847,7 +1847,6 @@ const enUS = {
     expandItem: "Expand {{title}}",
     database: "Collection",
     collection: "Collection",
-    collectionFromGitHub: "Collection from GitHub folder",
     databasePermanentlyDeleted: "Collection permanently deleted",
     databaseRestored: "Collection restored",
     pagePermanentlyDeleted: "Page permanently deleted",

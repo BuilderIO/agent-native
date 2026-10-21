@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type { GitHubFolderPreview } from "@shared/github-source";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,7 @@ import type {
   GitHubFolderSyncSummary,
   LinkGitHubFolderResponse,
 } from "@/hooks/use-github-folder";
+import { documentQueryKey } from "@/lib/document-query";
 import {
   openGitHubLinkDialog,
   type GitHubLinkDialogRequest,
@@ -44,6 +46,9 @@ const toasts = vi.hoisted(() => ({
 }));
 const oauth = vi.hoisted(() => ({ start: vi.fn() }));
 const navigate = vi.hoisted(() => vi.fn());
+const renames = vi.hoisted(() => ({
+  rename: vi.fn((_args: { id: string; title: string }) => Promise.resolve({})),
+}));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
@@ -58,6 +63,7 @@ vi.mock("react-router", async (importOriginal) => ({
 }));
 vi.mock("@/hooks/use-documents", () => ({
   startPageOpenDocumentReads: vi.fn(),
+  useUpdateDocument: () => ({ mutateAsync: renames.rename }),
 }));
 vi.mock("@/hooks/use-github-folder", () => {
   function mutation(list: typeof calls.link) {
@@ -161,6 +167,18 @@ function summaryText() {
   );
 }
 
+/** The preview's headings, and the items listed under each, in order. */
+function summaryLists() {
+  const summary = document.querySelector("[data-github-folder-preview]");
+  return Array.from(summary?.querySelectorAll("section") ?? [], (section) => ({
+    heading: section.querySelector("h3")?.textContent ?? "",
+    items: Array.from(
+      section.querySelectorAll("li"),
+      (item) => item.textContent ?? "",
+    ),
+  }));
+}
+
 async function answer<T>(
   call: { answer: Deferred<unknown> } | undefined,
   value: T,
@@ -218,6 +236,7 @@ describe("GitHub link dialog", () => {
     onOpenChange.mockReset();
     oauth.start.mockReset();
     navigate.mockReset();
+    renames.rename.mockClear();
     toasts.toast.success.mockReset();
     toasts.toast.error.mockReset();
   });
@@ -277,14 +296,23 @@ describe("GitHub link dialog", () => {
     });
   });
 
-  it("sums the folder up in a few plain lines, with the rest behind Show details", async () => {
+  it("sums the folder up as its place, a few pages and its columns, with the rest behind Show details", async () => {
     renderDialog();
     await checkFolder();
 
+    const folder = document.querySelector<HTMLAnchorElement>(
+      "[data-github-folder-preview] a",
+    );
+    expect(folder?.getAttribute("href")).toBe(FOLDER_URL);
+    expect(folder?.textContent).toBe("docsacme/handbookmain");
+    expect(summaryLists()).toEqual([
+      {
+        heading: "4 pages",
+        items: ["FAQ", "Getting started", "Style", "1 more"],
+      },
+      { heading: "3 columns", items: ["status", "published", "featured"] },
+    ]);
     const text = summaryText();
-    expect(text).toContain("docs, in handbook");
-    expect(text).toContain("4 pages: FAQ, Getting started, Style, and 1 more.");
-    expect(text).toContain("Columns: status, published, and featured.");
     expect(text).toContain("2 files won’t show yet.");
     expect(text).toContain(
       "Pictures in these files won’t show until a workspace admin sets up file storage.",
@@ -308,12 +336,45 @@ describe("GitHub link dialog", () => {
     await checkFolder(
       dryRun({ preview: { ...preview, markdownFiles: 300, sampledFiles: 25 } }),
     );
-    expect(summaryText()).toContain("Up to 300 pages:");
+    expect(summaryLists()[0]).toEqual({
+      heading: "Up to 300 pages",
+      items: ["FAQ", "Getting started", "Style", "297 more"],
+    });
     expect(button("Link up to 300 pages").disabled).toBe(false);
     await click(button("Show details"));
     expect(summaryText()).toContain(
       "Read from the first 25 of 300 files. Others can add columns.",
     );
+  });
+
+  it("shows the first columns and counts the rest", async () => {
+    renderDialog();
+    await checkFolder(
+      dryRun({
+        preview: {
+          ...preview,
+          fields: Array.from({ length: 10 }, (_, index) => ({
+            key: `field${index + 1}`,
+            type: "text" as const,
+            examples: [],
+          })),
+        },
+      }),
+    );
+    expect(summaryLists()[1]).toEqual({
+      heading: "10 columns",
+      items: [
+        "field1",
+        "field2",
+        "field3",
+        "field4",
+        "field5",
+        "field6",
+        "field7",
+        "field8",
+        "2 more",
+      ],
+    });
   });
 
   it("links the checked folder, says so, and closes", async () => {
@@ -342,6 +403,45 @@ describe("GitHub link dialog", () => {
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it.each([
+    { title: "", renamed: true },
+    { title: "editor.untitledDatabase", renamed: true },
+    { title: "Team handbook", renamed: false },
+  ])(
+    "names an untitled collection after the folder it links ($title)",
+    async ({ title, renamed }) => {
+      const queryClient = new QueryClient();
+      queryClient.setQueryData(documentQueryKey("doc-1"), {
+        id: "doc-1",
+        title,
+      });
+      renderUi(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/page/doc-1"]}>
+            <GitHubLinkDialog
+              request={collectionRequest}
+              open
+              onOpenChange={onOpenChange}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await checkFolder();
+      await click(button("Link 4 pages"));
+      await answer(lastLink(), {
+        dryRun: false,
+        database: {} as LinkGitHubFolderResponse["database"],
+        preview,
+        source: null,
+        summary: "",
+        sync: synced,
+      } satisfies LinkGitHubFolderResponse);
+      expect(renames.rename.mock.calls).toEqual(
+        renamed ? [[{ id: "doc-1", title: "docs" }]] : [],
+      );
+    },
+  );
 
   it("says when a folder linked but its pages couldn't come in yet", async () => {
     renderDialog();

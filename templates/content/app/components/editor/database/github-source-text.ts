@@ -235,24 +235,6 @@ export function githubList(items: string[]): string {
   }).format(items);
 }
 
-/**
- * The first few names and a count of the rest: "FAQ, Guide and 3 more".
- * `total` counts names that weren't sent too.
- */
-export function githubListWithMore(
-  names: string[],
-  total: number,
-  shown = 3,
-): string {
-  const visible = names.slice(0, shown);
-  const more = total - visible.length;
-  return githubList(
-    more > 0
-      ? [...visible, dbText("githubLinkMore", { count: more })]
-      : visible,
-  );
-}
-
 const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["year", 365 * 24 * 60 * 60],
   ["month", 30 * 24 * 60 * 60],

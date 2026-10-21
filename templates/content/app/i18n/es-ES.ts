@@ -17,14 +17,14 @@ const database = {
   githubConnectPrompt:
     "Conecta tu cuenta de GitHub para que Content pueda leer tus carpetas.",
   githubConnect: "Conectar GitHub",
-  githubLinkFolderIn: "{{folder}}, en {{repo}}",
-  githubLinkPagesOne: "1 página: {{titles}}.",
-  githubLinkPages: "{{count}} páginas: {{titles}}.",
-  githubLinkPagesUpTo: "Hasta {{count}} páginas: {{titles}}.",
+  githubPreviewPagesOne: "1 página",
+  githubPreviewPages: "{{count}} páginas",
+  githubPreviewPagesUpTo: "Hasta {{count}} páginas",
   githubLinkMore: "{{count}} más",
   githubLinkNoFiles:
     "Esta carpeta no tiene archivos Markdown (.md), así que no hay nada que mostrar.",
-  githubLinkColumns: "Columnas: {{columns}}.",
+  githubPreviewColumnsOne: "1 columna",
+  githubPreviewColumns: "{{count}} columnas",
   githubLinkNoColumns:
     "Estos archivos no tienen detalles al principio, así que cada página solo tiene su título.",
   githubLinkNotShownOne: "1 archivo no se mostrará todavía.",
@@ -160,7 +160,7 @@ const database = {
     "Actualizando: {{done}} de {{total}} archivos hasta ahora.",
   githubSyncBusy:
     "Ya se están buscando actualizaciones. Los cambios aparecerán cuando termine la búsqueda.",
-  githubEmptyHint: "O llénala desde una carpeta de GitHub",
+  emptyCollectionSourceHint: "O llénala desde una fuente",
   formChecked: "Marcado",
   formChooseOption: "Elige una opción",
   formDescription:
@@ -1321,7 +1321,6 @@ const rawLiterals = {
     copy: "Copiar",
     database: "Colección",
     collection: "Colección",
-    collectionFromGitHub: "Colección desde carpeta de GitHub",
     databasePermanentlyDeleted: "Colección eliminada permanentemente",
     databaseRestored: "Colección restaurada",
     disconnectWorkspace: "Desconectar espacio",

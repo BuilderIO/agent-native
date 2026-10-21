@@ -6,7 +6,13 @@ import {
   type GitHubFolderPreview,
   type GitHubLinkBlockedReason,
 } from "@shared/github-source";
-import { IconBrandGithub, IconCheck } from "@tabler/icons-react";
+import {
+  IconBrandGithub,
+  IconExternalLink,
+  IconFileText,
+  IconFolder,
+  IconGitBranch,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
@@ -19,6 +25,7 @@ import {
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { TYPE_ICONS } from "@/components/editor/DocumentProperties";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,13 +37,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { startPageOpenDocumentReads } from "@/hooks/use-documents";
+import {
+  startPageOpenDocumentReads,
+  useUpdateDocument,
+} from "@/hooks/use-documents";
 import {
   useCreateGitHubCollection,
   useGitHubConnection,
   useLinkGitHubFolder,
   type GitHubFolderSyncSummary,
 } from "@/hooks/use-github-folder";
+import { documentQueryFilter } from "@/lib/document-query";
 import {
   GITHUB_LINK_DIALOG_OPEN_EVENT,
   githubLinkRequestFromSearch,
@@ -53,7 +64,6 @@ import {
   githubExampleText,
   githubLinkErrorText,
   githubList,
-  githubListWithMore,
   githubProblemText,
   githubSkipReasonText,
   githubUrlProblem,
@@ -63,10 +73,10 @@ import { dbText } from "./text";
 
 /** Pages, columns or files a details list shows before "and N more". */
 const DETAILS_LIST_LIMIT = 8;
-/** Page titles the summary names before "and N more". */
+/** Page titles the summary lists before "N more". */
 const SUMMARY_TITLES = 3;
-/** Column names the summary names before "and N more". */
-const SUMMARY_COLUMNS = 6;
+/** Columns the summary shows before "N more". */
+const SUMMARY_COLUMNS = 8;
 
 interface CheckedFolder {
   url: string;
@@ -89,19 +99,14 @@ function pagesAreEstimate(preview: GitHubFolderPreview): boolean {
   return preview.sampledFiles < preview.markdownFiles;
 }
 
-function pagesLine(preview: GitHubFolderPreview): string {
+function pagesHeading(preview: GitHubFolderPreview): string {
   const count = preview.markdownFiles;
-  const titles = githubListWithMore(
-    preview.sample.map((page) => page.title),
-    count,
-    SUMMARY_TITLES,
-  );
   if (pagesAreEstimate(preview)) {
-    return dbText("githubLinkPagesUpTo", { count, titles });
+    return dbText("githubPreviewPagesUpTo", { count });
   }
   return count === 1
-    ? dbText("githubLinkPagesOne", { titles })
-    : dbText("githubLinkPages", { count, titles });
+    ? dbText("githubPreviewPagesOne")
+    : dbText("githubPreviewPages", { count });
 }
 
 function linkButtonText(preview: GitHubFolderPreview): string {
@@ -112,16 +117,6 @@ function linkButtonText(preview: GitHubFolderPreview): string {
   return count === 1
     ? dbText("githubLinkSubmitOne")
     : dbText("githubLinkSubmit", { count });
-}
-
-function folderLine(preview: GitHubFolderPreview): string {
-  const { location } = preview;
-  return location.path
-    ? dbText("githubLinkFolderIn", {
-        folder: githubFolderName(location),
-        repo: location.repo,
-      })
-    : location.repo;
 }
 
 /** Says how the link went, once the dialog closes. */
@@ -269,9 +264,25 @@ function GitHubFolderDetails({ preview }: { preview: GitHubFolderPreview }) {
   );
 }
 
+/** A heading and its list in the folder preview. */
+function SummarySection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid min-w-0 gap-1.5">
+      <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 /**
- * What linking the folder would do, in four plain lines: which folder, its
- * pages, its columns, and what won't show. The rest waits behind "Show
+ * What linking the folder would do: which folder, a few of its pages, the
+ * columns they'll get, and what won't show. The rest waits behind "Show
  * details".
  */
 export function GitHubFolderSummary({
@@ -283,85 +294,160 @@ export function GitHubFolderSummary({
   blockedReason: GitHubLinkBlockedReason | null;
   onNewCollection?: () => void;
 }) {
+  const t = useT();
   const [showDetails, setShowDetails] = useState(false);
+  const { location } = preview;
   const hasPages = preview.markdownFiles > 0;
-  const columns = githubListWithMore(
-    preview.fields.map((field) => field.key),
-    preview.fields.length,
-    SUMMARY_COLUMNS,
-  );
+  const titles = preview.sample.slice(0, SUMMARY_TITLES);
+  const morePages = preview.markdownFiles - titles.length;
+  const columns = preview.fields.slice(0, SUMMARY_COLUMNS);
+  const moreColumns = preview.fields.length - columns.length;
   const skipped = preview.skipped.length;
   return (
     <div
-      className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-muted/20 p-3 text-sm"
+      className="grid min-w-0 overflow-hidden rounded-lg border border-border text-sm"
       data-github-folder-preview
     >
       <a
         href={preview.folderUrl}
         target="_blank"
         rel="noreferrer"
-        className="flex min-w-0 items-center gap-1.5 break-words font-medium underline-offset-2 hover:underline"
+        className="group flex min-w-0 items-center gap-2.5 border-b border-border bg-muted/30 px-3 py-2.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <IconCheck className="size-4 shrink-0 text-foreground" aria-hidden />
-        <span className="min-w-0 break-words">{folderLine(preview)}</span>
-      </a>
-      <p className="break-words text-muted-foreground">
-        {hasPages ? pagesLine(preview) : dbText("githubLinkNoFiles")}
-      </p>
-      {hasPages ? (
-        <p className="break-words text-muted-foreground">
-          {preview.fields.length > 0
-            ? dbText("githubLinkColumns", { columns })
-            : dbText("githubLinkNoColumns")}
-        </p>
-      ) : null}
-      {preview.images > 0 && !preview.storageReady ? (
-        <p className="break-words text-muted-foreground">
-          {dbText("githubLinkPicturesWaiting")}
-        </p>
-      ) : null}
-      <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="break-words text-muted-foreground">
-          {skipped === 0
-            ? null
-            : skipped === 1
-              ? dbText("githubLinkNotShownOne")
-              : dbText("githubLinkNotShown", { count: skipped })}
-        </span>
-        <button
-          type="button"
-          className="ms-auto rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-expanded={showDetails}
-          aria-controls="github-folder-details"
-          onClick={() => setShowDetails((open) => !open)}
-        >
-          {showDetails
-            ? dbText("githubHideDetails")
-            : dbText("githubShowDetails")}
-        </button>
-      </div>
-      {blockedReason ? (
-        <div
-          className="mt-1 grid min-w-0 gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
-          role="alert"
-        >
-          <span className="break-words">
-            {githubBlockedText(blockedReason)}
+        <IconFolder
+          className="size-5 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
+        <span className="grid min-w-0 flex-1">
+          <span className="truncate font-medium">
+            {githubFolderName(location)}
           </span>
-          {onNewCollection ? (
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              className="justify-self-start"
-              onClick={onNewCollection}
-            >
-              {dbText("githubNewCollectionInstead")}
-            </Button>
-          ) : null}
+          <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+            <span className="truncate">
+              {location.owner}/{location.repo}
+            </span>
+            <IconGitBranch className="ms-1.5 size-3 shrink-0" aria-hidden />
+            <span className="truncate">{location.branch}</span>
+          </span>
+        </span>
+        <IconExternalLink
+          className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          aria-hidden
+        />
+      </a>
+      <div className="grid min-w-0 gap-3 p-3">
+        {hasPages ? (
+          <SummarySection title={pagesHeading(preview)}>
+            <ul className="grid min-w-0 gap-1">
+              {titles.map((page) => (
+                <li key={page.path} className="flex min-w-0 items-center gap-2">
+                  <IconFileText
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <span className="min-w-0 truncate">{page.title}</span>
+                </li>
+              ))}
+              {morePages > 0 ? (
+                <li className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <span className="size-3.5 shrink-0" aria-hidden />
+                  {dbText("githubLinkMore", { count: morePages })}
+                </li>
+              ) : null}
+            </ul>
+          </SummarySection>
+        ) : (
+          <p className="break-words text-muted-foreground">
+            {dbText("githubLinkNoFiles")}
+          </p>
+        )}
+        {hasPages && preview.fields.length > 0 ? (
+          <SummarySection
+            title={
+              preview.fields.length === 1
+                ? dbText("githubPreviewColumnsOne")
+                : dbText("githubPreviewColumns", {
+                    count: preview.fields.length,
+                  })
+            }
+          >
+            <ul className="flex min-w-0 flex-wrap gap-1">
+              {columns.map((field) => {
+                const TypeIcon = TYPE_ICONS[field.type];
+                return (
+                  <li
+                    key={field.key}
+                    className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs"
+                    title={t(`editor.propertyTypes.${field.type}`)}
+                  >
+                    <TypeIcon
+                      className="size-3 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span className="min-w-0 truncate">{field.key}</span>
+                  </li>
+                );
+              })}
+              {moreColumns > 0 ? (
+                <li className="inline-flex items-center px-1 py-0.5 text-xs text-muted-foreground">
+                  {dbText("githubLinkMore", { count: moreColumns })}
+                </li>
+              ) : null}
+            </ul>
+          </SummarySection>
+        ) : hasPages ? (
+          <p className="break-words text-muted-foreground">
+            {dbText("githubLinkNoColumns")}
+          </p>
+        ) : null}
+        {preview.images > 0 && !preview.storageReady ? (
+          <p className="break-words text-xs text-muted-foreground">
+            {dbText("githubLinkPicturesWaiting")}
+          </p>
+        ) : null}
+        <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
+          <span className="break-words text-muted-foreground">
+            {skipped === 0
+              ? null
+              : skipped === 1
+                ? dbText("githubLinkNotShownOne")
+                : dbText("githubLinkNotShown", { count: skipped })}
+          </span>
+          <button
+            type="button"
+            className="ms-auto rounded-sm text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-expanded={showDetails}
+            aria-controls="github-folder-details"
+            onClick={() => setShowDetails((open) => !open)}
+          >
+            {showDetails
+              ? dbText("githubHideDetails")
+              : dbText("githubShowDetails")}
+          </button>
         </div>
-      ) : null}
-      {showDetails ? <GitHubFolderDetails preview={preview} /> : null}
+        {blockedReason ? (
+          <div
+            className="grid min-w-0 gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
+            role="alert"
+          >
+            <span className="break-words">
+              {githubBlockedText(blockedReason)}
+            </span>
+            {onNewCollection ? (
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                className="justify-self-start"
+                onClick={onNewCollection}
+              >
+                {dbText("githubNewCollectionInstead")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {showDetails ? <GitHubFolderDetails preview={preview} /> : null}
+      </div>
     </div>
   );
 }
@@ -380,8 +466,10 @@ export function GitHubLinkDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const updateDocument = useUpdateDocument();
   const linkFolder = useLinkGitHubFolder();
   const createCollection = useCreateGitHubCollection();
   const connection = useGitHubConnection(open);
@@ -497,6 +585,10 @@ export function GitHubLinkDialog({
         });
         if (response.dryRun) return;
         announceLink(preview, response.sync, response.source);
+        nameUntitledCollection(
+          target.documentId,
+          githubFolderName(preview.location),
+        );
         onOpenChange(false);
         return;
       }
@@ -516,6 +608,24 @@ export function GitHubLinkDialog({
     } finally {
       setLinking(false);
     }
+  }
+
+  /**
+   * Gives a collection still called "Untitled collection" the folder's name,
+   * like one made from the folder gets. A name someone typed stays.
+   */
+  function nameUntitledCollection(documentId: string, folder: string) {
+    const cached = queryClient
+      .getQueriesData<{ title?: string }>(documentQueryFilter(documentId))
+      .map(([, document]) => document?.title)
+      .find((title) => title !== undefined);
+    const title = cached?.trim();
+    if (title === undefined) return;
+    if (title !== "" && title !== t("editor.untitledDatabase")) return;
+    // The link already worked; a name that didn't save is only cosmetic.
+    updateDocument
+      .mutateAsync({ id: documentId, title: folder })
+      .catch(() => undefined);
   }
 
   function connectGitHub() {

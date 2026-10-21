@@ -17,14 +17,14 @@ const database = {
   githubConnectPrompt:
     "Conecte sua conta do GitHub para que o Content possa ler suas pastas.",
   githubConnect: "Conectar GitHub",
-  githubLinkFolderIn: "{{folder}}, em {{repo}}",
-  githubLinkPagesOne: "1 página: {{titles}}.",
-  githubLinkPages: "{{count}} páginas: {{titles}}.",
-  githubLinkPagesUpTo: "Até {{count}} páginas: {{titles}}.",
+  githubPreviewPagesOne: "1 página",
+  githubPreviewPages: "{{count}} páginas",
+  githubPreviewPagesUpTo: "Até {{count}} páginas",
   githubLinkMore: "mais {{count}}",
   githubLinkNoFiles:
     "Esta pasta não tem arquivos Markdown (.md), então não há nada para mostrar.",
-  githubLinkColumns: "Colunas: {{columns}}.",
+  githubPreviewColumnsOne: "1 coluna",
+  githubPreviewColumns: "{{count}} colunas",
   githubLinkNoColumns:
     "Estes arquivos não têm informações no topo, então cada página recebe só o título.",
   githubLinkNotShownOne: "1 arquivo ainda não vai aparecer.",
@@ -158,7 +158,7 @@ const database = {
     "Atualizando: {{done}} de {{total}} arquivos até agora.",
   githubSyncBusy:
     "Já há uma verificação de atualizações em andamento. As mudanças aparecem quando ela terminar.",
-  githubEmptyHint: "Ou preencha a partir de uma pasta do GitHub",
+  emptyCollectionSourceHint: "Ou preencha a partir de uma fonte",
   formChecked: "Marcado",
   formChooseOption: "Escolha uma opção",
   formDescription:
@@ -1099,7 +1099,6 @@ const rawLiterals = {
     expandItem: "Expandir {{title}}",
     database: "Coleção",
     collection: "Coleção",
-    collectionFromGitHub: "Coleção a partir de uma pasta do GitHub",
     databasePermanentlyDeleted: "Coleção excluída permanentemente",
     databaseRestored: "Coleção restaurada",
     deleteDatabaseNamedPermanently: "Excluir {{title}} permanentemente",

@@ -17,14 +17,14 @@ const database = {
   githubConnectPrompt:
     "Connectez votre compte GitHub pour que Content puisse lire vos dossiers.",
   githubConnect: "Connecter GitHub",
-  githubLinkFolderIn: "{{folder}}, dans {{repo}}",
-  githubLinkPagesOne: "1 page : {{titles}}.",
-  githubLinkPages: "{{count}} pages : {{titles}}.",
-  githubLinkPagesUpTo: "Jusqu’à {{count}} pages : {{titles}}.",
+  githubPreviewPagesOne: "1 page",
+  githubPreviewPages: "{{count}} pages",
+  githubPreviewPagesUpTo: "Jusqu’à {{count}} pages",
   githubLinkMore: "{{count}} autres",
   githubLinkNoFiles:
     "Ce dossier ne contient aucun fichier Markdown (.md), il n’y a donc rien à afficher.",
-  githubLinkColumns: "Colonnes : {{columns}}.",
+  githubPreviewColumnsOne: "1 colonne",
+  githubPreviewColumns: "{{count}} colonnes",
   githubLinkNoColumns:
     "Ces fichiers n’ont pas d’informations en haut, donc chaque page reçoit seulement son titre.",
   githubLinkNotShownOne: "1 fichier ne s’affiche pas encore.",
@@ -162,7 +162,7 @@ const database = {
     "Mise à jour : {{done}} fichiers sur {{total}} pour l’instant.",
   githubSyncBusy:
     "Une recherche de mises à jour est déjà en cours. Les modifications s’afficheront quand elle sera terminée.",
-  githubEmptyHint: "Ou remplissez-la depuis un dossier GitHub",
+  emptyCollectionSourceHint: "Ou remplissez-la depuis une source",
   formChecked: "Coché",
   formChooseOption: "Choisir une option",
   formDescription:
@@ -1108,7 +1108,6 @@ const rawLiterals = {
     expandItem: "Développer {{title}}",
     database: "Collection",
     collection: "Collection",
-    collectionFromGitHub: "Collection depuis un dossier GitHub",
     databasePermanentlyDeleted: "Collection supprimée définitivement",
     databaseRestored: "Collection restaurée",
     deleteDatabaseNamedPermanently: "Supprimer définitivement {{title}}",

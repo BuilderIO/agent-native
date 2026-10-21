@@ -16,14 +16,14 @@ const database = {
   githubConnectPrompt:
     "وصّل حسابك على GitHub حتى يتمكن Content من قراءة مجلداتك.",
   githubConnect: "توصيل GitHub",
-  githubLinkFolderIn: "{{folder}}، في {{repo}}",
-  githubLinkPagesOne: "صفحة واحدة: {{titles}}.",
-  githubLinkPages: "{{count}} صفحات: {{titles}}.",
-  githubLinkPagesUpTo: "ما يصل إلى {{count}} صفحات: {{titles}}.",
+  githubPreviewPagesOne: "صفحة واحدة",
+  githubPreviewPages: "{{count}} صفحات",
+  githubPreviewPagesUpTo: "ما يصل إلى {{count}} صفحات",
   githubLinkMore: "{{count}} أخرى",
   githubLinkNoFiles:
     "لا يحتوي هذا المجلد على ملفات Markdown (.md)، لذا لا يوجد ما يُعرض.",
-  githubLinkColumns: "الأعمدة: {{columns}}.",
+  githubPreviewColumnsOne: "عمود واحد",
+  githubPreviewColumns: "{{count}} أعمدة",
   githubLinkNoColumns:
     "لا تحتوي هذه الملفات على تفاصيل في أعلاها، لذا تحصل كل صفحة على عنوانها فقط.",
   githubLinkNotShownOne: "ملف واحد لن يظهر حاليًا.",
@@ -149,7 +149,7 @@ const database = {
   githubSyncPartialToast:
     "جارٍ التحديث: {{done}} من أصل {{total}} ملفات حتى الآن.",
   githubSyncBusy: "التحقق من التحديثات جارٍ بالفعل. تظهر التغييرات عند انتهائه.",
-  githubEmptyHint: "أو املأها من مجلد GitHub",
+  emptyCollectionSourceHint: "أو املأها من مصدر",
   formChecked: "محدد",
   formChooseOption: "اختر خيارا",
   formDescription: "أجب عن الأسئلة أدناه لإضافة صفحة إلى هذه المجموعة.",
@@ -1059,7 +1059,6 @@ const rawLiterals = {
     expandItem: "توسيع {{title}}",
     database: "المجموعة",
     collection: "مجموعة",
-    collectionFromGitHub: "مجموعة من مجلد GitHub",
     databasePermanentlyDeleted: "تم حذف المجموعة نهائيًا",
     databaseRestored: "تمت استعادة المجموعة",
     deleteDatabaseNamedPermanently: "حذف {{title}} نهائيًا",

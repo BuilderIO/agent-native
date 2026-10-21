@@ -7,10 +7,6 @@ import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SyncGitHubFolderResponse } from "@/hooks/use-github-folder";
-import {
-  GITHUB_LINK_DIALOG_OPEN_EVENT,
-  type GitHubLinkDialogRequest,
-} from "@/lib/github-link-dialog";
 import { click, renderUi } from "@/test-utils/render-ui";
 
 type MutateOptions<T> = {
@@ -43,10 +39,7 @@ vi.mock("@/hooks/use-content-database", () => ({
 }));
 vi.mock("sonner", () => ({ toast: toasts.toast }));
 
-import {
-  GitHubEmptyCollectionHint,
-  GitHubSourceStatusLine,
-} from "./GitHubSourceStatusLine";
+import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
 
 const SYNCED_SHA = "65b1d83c0ffee0000000000000000000000000000";
 const FOLDER_URL = "https://github.com/acme/handbook/tree/main/docs";
@@ -332,38 +325,5 @@ describe("GitHub source status line", () => {
       sourceType: "builder-cms",
     } as ContentDatabaseSource);
     expect(document.querySelector("[data-github-source-status]")).toBe(null);
-  });
-});
-
-describe("GitHub empty collection hint", () => {
-  it("opens the GitHub folder dialog for this collection", async () => {
-    const opened: GitHubLinkDialogRequest[] = [];
-    const listen = (event: Event) =>
-      opened.push((event as CustomEvent<GitHubLinkDialogRequest>).detail);
-    window.addEventListener(GITHUB_LINK_DIALOG_OPEN_EVENT, listen);
-    try {
-      renderUi(
-        <GitHubEmptyCollectionHint
-          databaseId="database-1"
-          documentId="doc-1"
-          spaceId="space-1"
-          parentId={null}
-        />,
-      );
-      await click(button("Or fill it from a GitHub folder"));
-      expect(opened).toHaveLength(1);
-      expect(opened[0]?.target).toEqual({
-        kind: "collection",
-        databaseId: "database-1",
-        documentId: "doc-1",
-        spaceId: "space-1",
-        parentId: null,
-      });
-      expect(opened[0]?.returnFocusTo?.textContent).toBe(
-        "Or fill it from a GitHub folder",
-      );
-    } finally {
-      window.removeEventListener(GITHUB_LINK_DIALOG_OPEN_EVENT, listen);
-    }
   });
 });

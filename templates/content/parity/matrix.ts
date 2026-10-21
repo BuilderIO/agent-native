@@ -702,7 +702,6 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/database/GitHubSourcePanel.tsx",
       "app/components/editor/database/GitHubSourceStatusLine.tsx",
       "app/components/editor/database/GitHubUnlinkDialog.tsx",
-      "app/components/sidebar/DocumentSidebar.tsx",
       "app/hooks/use-content-database.ts",
       "app/hooks/use-github-folder.ts",
     ],

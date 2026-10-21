@@ -16,14 +16,14 @@ const database = {
   githubConnectPrompt:
     "Content가 폴더를 읽을 수 있도록 GitHub 계정을 연동하세요.",
   githubConnect: "GitHub 연동",
-  githubLinkFolderIn: "{{repo}}의 {{folder}}",
-  githubLinkPagesOne: "페이지 1개: {{titles}}.",
-  githubLinkPages: "페이지 {{count}}개: {{titles}}.",
-  githubLinkPagesUpTo: "페이지 최대 {{count}}개: {{titles}}.",
+  githubPreviewPagesOne: "페이지 1개",
+  githubPreviewPages: "페이지 {{count}}개",
+  githubPreviewPagesUpTo: "페이지 최대 {{count}}개",
   githubLinkMore: "기타 {{count}}개",
   githubLinkNoFiles:
     "이 폴더에는 Markdown (.md) 파일이 없어 표시할 내용이 없습니다.",
-  githubLinkColumns: "열: {{columns}}.",
+  githubPreviewColumnsOne: "열 1개",
+  githubPreviewColumns: "열 {{count}}개",
   githubLinkNoColumns:
     "이 파일들은 맨 위에 세부 정보가 없어 각 페이지에 제목만 들어갑니다.",
   githubLinkNotShownOne: "파일 1개는 아직 표시되지 않습니다.",
@@ -156,7 +156,7 @@ const database = {
     "업데이트 중: 지금까지 파일 {{total}}개 중 {{done}}개 완료.",
   githubSyncBusy:
     "이미 업데이트를 확인하고 있습니다. 완료되면 변경 사항이 표시됩니다.",
-  githubEmptyHint: "또는 GitHub 폴더로 채우기",
+  emptyCollectionSourceHint: "또는 소스로 채우기",
   formChecked: "선택됨",
   formChooseOption: "옵션 선택",
   formDescription: "아래 질문에 답하여 이 컬렉션에 페이지를 추가하세요.",
@@ -1074,7 +1074,6 @@ const rawLiterals = {
     expandItem: "{{title}} 펼치기",
     database: "컬렉션",
     collection: "컬렉션",
-    collectionFromGitHub: "GitHub 폴더에서 가져온 컬렉션",
     databasePermanentlyDeleted: "컬렉션가 영구 삭제되었습니다",
     databaseRestored: "컬렉션가 복원되었습니다",
     deleteDatabaseNamedPermanently: "{{title}} 영구 삭제",

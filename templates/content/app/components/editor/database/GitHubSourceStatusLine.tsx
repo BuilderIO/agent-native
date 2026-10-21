@@ -36,7 +36,6 @@ import {
   useSyncGitHubFolder,
   type SyncGitHubFolderResponse,
 } from "@/hooks/use-github-folder";
-import { openGitHubLinkDialog } from "@/lib/github-link-dialog";
 
 import {
   githubProblemFromErrorCode,
@@ -557,46 +556,6 @@ function GitHubStatusLineContent({
           pageCount={pageCount}
         />
       ) : null}
-    </div>
-  );
-}
-
-/**
- * Under an empty collection's toolbar, for editors: one muted line that opens
- * the GitHub folder dialog, so the option is found where a collection starts.
- */
-export function GitHubEmptyCollectionHint({
-  databaseId,
-  documentId,
-  spaceId,
-  parentId,
-}: {
-  databaseId: string;
-  documentId: string;
-  spaceId?: string;
-  parentId?: string | null;
-}) {
-  return (
-    <div className="mb-2 text-xs" data-github-empty-hint>
-      <button
-        type="button"
-        className="inline-flex items-center gap-1.5 rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        onClick={(event) =>
-          openGitHubLinkDialog({
-            target: {
-              kind: "collection",
-              databaseId,
-              documentId,
-              spaceId,
-              parentId,
-            },
-            returnFocusTo: event.currentTarget,
-          })
-        }
-      >
-        <IconBrandGithub className="size-3.5" aria-hidden />
-        {dbText("githubEmptyHint")}
-      </button>
     </div>
   );
 }

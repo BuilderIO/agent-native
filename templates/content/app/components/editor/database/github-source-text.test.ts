@@ -5,7 +5,7 @@ import {
   githubErrorNeedsConnection,
   githubExampleText,
   githubLinkErrorText,
-  githubListWithMore,
+  githubList,
   githubProblemStopsUpdates,
   githubRelativeTime,
   githubUrlProblem,
@@ -115,11 +115,9 @@ describe("A link before it's sent", () => {
 });
 
 describe("Numbers, times and examples", () => {
-  it("lists a few names and counts the rest", () => {
-    expect(githubListWithMore(["FAQ", "Guide"], 2)).toBe("FAQ and Guide");
-    expect(githubListWithMore(["FAQ", "Guide", "Style", "Tone"], 9)).toBe(
-      "FAQ, Guide, Style, and 6 more",
-    );
+  it("lists names in the page's language", () => {
+    expect(githubList(["FAQ", "Guide"])).toBe("FAQ and Guide");
+    expect(githubList(["FAQ", "Guide", "Style"])).toBe("FAQ, Guide, and Style");
   });
 
   it.each([

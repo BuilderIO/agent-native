@@ -17,14 +17,14 @@ const database = {
   githubConnectPrompt:
     "Verbinde dein GitHub-Konto, damit Content deine Ordner lesen kann.",
   githubConnect: "GitHub verbinden",
-  githubLinkFolderIn: "{{folder}} in {{repo}}",
-  githubLinkPagesOne: "1 Seite: {{titles}}.",
-  githubLinkPages: "{{count}} Seiten: {{titles}}.",
-  githubLinkPagesUpTo: "Bis zu {{count}} Seiten: {{titles}}.",
+  githubPreviewPagesOne: "1 Seite",
+  githubPreviewPages: "{{count}} Seiten",
+  githubPreviewPagesUpTo: "Bis zu {{count}} Seiten",
   githubLinkMore: "{{count}} weitere",
   githubLinkNoFiles:
     "Dieser Ordner enthält keine Markdown-Dateien (.md), daher gibt es nichts anzuzeigen.",
-  githubLinkColumns: "Spalten: {{columns}}.",
+  githubPreviewColumnsOne: "1 Spalte",
+  githubPreviewColumns: "{{count}} Spalten",
   githubLinkNoColumns:
     "Diese Dateien haben am Anfang keine Angaben, daher bekommt jede Seite nur ihren Titel.",
   githubLinkNotShownOne: "1 Datei wird noch nicht angezeigt.",
@@ -161,7 +161,7 @@ const database = {
     "Wird aktualisiert: bisher {{done}} von {{total}} Dateien.",
   githubSyncBusy:
     "Es wird bereits nach Aktualisierungen gesucht. Änderungen erscheinen, sobald das fertig ist.",
-  githubEmptyHint: "Oder fülle sie aus einem GitHub-Ordner",
+  emptyCollectionSourceHint: "Oder fülle sie aus einer Quelle",
   formChecked: "Ausgewählt",
   formChooseOption: "Option auswählen",
   formDescription:
@@ -1111,7 +1111,6 @@ const rawLiterals = {
     expandItem: "{{title}} erweitern",
     database: "Sammlung",
     collection: "Sammlung",
-    collectionFromGitHub: "Sammlung aus GitHub-Ordner",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",
     databaseRestored: "Sammlung wiederhergestellt",
     deleteDatabaseNamedPermanently: "{{title}} endgültig löschen",

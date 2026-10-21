@@ -331,10 +331,7 @@ import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import type { GitHubCollectionPlace } from "./github-availability";
 import { GitHubSourcePanel, useGitHubSourcesRow } from "./GitHubSourcePanel";
-import {
-  GitHubEmptyCollectionHint,
-  GitHubSourceStatusLine,
-} from "./GitHubSourceStatusLine";
+import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
@@ -3519,12 +3516,20 @@ function DatabaseTable({
       !source &&
       sources.length === 0 &&
       totalItemCount === 0 ? (
-        <GitHubEmptyCollectionHint
-          databaseId={databaseId}
-          documentId={document.id}
-          spaceId={document.spaceId ?? undefined}
-          parentId={document.parentId}
-        />
+        // One line for every source, so the list of them stays in Sources.
+        <div className="mb-2 text-xs" data-empty-collection-source-hint>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={() => {
+              changeDatabaseSettingsPanel("source");
+              setSettingsOpen(true);
+            }}
+          >
+            <IconPlugConnected className="size-3.5" aria-hidden />
+            {dbText("emptyCollectionSourceHint")}
+          </button>
+        </div>
       ) : null}
 
       {database.itemsFailed ? (
