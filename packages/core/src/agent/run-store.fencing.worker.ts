@@ -101,7 +101,7 @@ async function main(): Promise<void> {
             { requireInserted: true },
           ),
         );
-        process.stdout.write(JSON.stringify({ status: "unexpected-write" }));
+        writeSync(1, JSON.stringify({ status: "unexpected-write" }));
         return;
       }
       if (mode === "queue-submit") {
@@ -185,7 +185,8 @@ async function main(): Promise<void> {
           runId,
           stepId ?? "user",
         );
-        process.stdout.write(
+        writeSync(
+          1,
           JSON.stringify({
             aborted,
             processId: process.pid,
@@ -370,7 +371,7 @@ async function main(): Promise<void> {
       await insertRun(runId, threadId, turnId);
       const fence = await claimTurnExecutionLease(threadId, turnId, runId);
       if (mode === "claim") {
-        process.stdout.write(JSON.stringify({ fence }));
+        writeSync(1, JSON.stringify({ fence }));
         return;
       }
 
@@ -438,18 +439,22 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  const code =
-    error && typeof error === "object" && "code" in error
-      ? String((error as { code?: unknown }).code)
-      : undefined;
-  process.stdout.write(
-    JSON.stringify({
-      error: String(error),
-      code,
-      processId: process.pid,
-      databaseBackendPid,
-    }),
-  );
-  process.exitCode = code === "turn_execution_lease_busy" ? 3 : 1;
-});
+void main().then(
+  () => process.exit(0),
+  (error) => {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : undefined;
+    writeSync(
+      1,
+      JSON.stringify({
+        error: String(error),
+        code,
+        processId: process.pid,
+        databaseBackendPid,
+      }),
+    );
+    process.exit(code === "turn_execution_lease_busy" ? 3 : 1);
+  },
+);

@@ -129,7 +129,14 @@ function runWorkerWithTimeout(
           stdout,
           stderr,
           ...(error
-            ? { error: `${error.message} (${String(error.code)})` }
+            ? {
+                error: [
+                  error.message,
+                  `code=${String(error.code)}`,
+                  `signal=${String(error.signal)}`,
+                  `killed=${String(error.killed)}`,
+                ].join("; "),
+              }
             : {}),
         });
       },
