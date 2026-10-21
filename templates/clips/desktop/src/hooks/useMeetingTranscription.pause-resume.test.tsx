@@ -282,6 +282,47 @@ describe("meeting transcription pause and resume", () => {
     );
   });
 
+  it("logs unavailable capture state and retries without treating it as a meeting end", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await act(async () => {
+        root.render(createElement(Harness));
+        await settle();
+      });
+      await dispatch("meetings:start-transcription", {
+        meetingId: "meeting-1",
+      });
+      mocks.getMeeting.mockResolvedValue({
+        meeting: null,
+        reason: "unavailable",
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await settle();
+      });
+      expect(warning).toHaveBeenCalledWith(
+        "[clips-popover] meeting end check failed:",
+        expect.objectContaining({
+          message: "Meeting capture state is unavailable.",
+        }),
+      );
+      expect(mocks.stopTranscriptionEngine).not.toHaveBeenCalled();
+      mocks.getMeeting.mockResolvedValue({
+        meeting: { actualEnd: "2026-10-21T17:00:00Z", captureStopRevision: 1 },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await settle();
+      });
+      expect(mocks.stopTranscriptionEngine).toHaveBeenCalledExactlyOnceWith(
+        "whisper",
+        mocks.startTranscriptionEngine.mock.calls[0][0].runId,
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it("does not overlap slow checks and retries after a timeout", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     const slowRead = deferred<unknown>();

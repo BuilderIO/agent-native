@@ -1630,7 +1630,8 @@ export function useMeetingTranscription({
               meeting?: {
                 actualEnd?: string | null;
                 captureStopRevision?: number;
-              };
+              } | null;
+              reason?: "unavailable";
             }>(
               "get-meeting-capture-state",
               { id: session.meetingId },
@@ -1646,7 +1647,10 @@ export function useMeetingTranscription({
           session.stopPending
         )
           return;
-        const revision = data?.meeting?.captureStopRevision;
+        if (!data?.meeting) {
+          throw new Error("Meeting capture state is unavailable.");
+        }
+        const revision = data.meeting.captureStopRevision;
         const initial = session.captureStopState;
         // A revision catches repeated Ends; the timestamp also catches
         // server recovery paths that close a meeting without a stop request.
@@ -1655,7 +1659,7 @@ export function useMeetingTranscription({
             revision !== undefined &&
             revision > initial.revision) ||
           Boolean(
-            data?.meeting?.actualEnd &&
+            data.meeting.actualEnd &&
             data.meeting.actualEnd !== initial.actualEnd,
           );
         if (ended) await stopTranscription("server-ended");
