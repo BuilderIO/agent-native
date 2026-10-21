@@ -207,6 +207,77 @@ describe("describe-workspace-apps", () => {
     expect(findAgent).toHaveBeenCalledWith("analytics", "coach");
   });
 
+  it("shows each action's input contract without overstating it", async () => {
+    findAgent.mockResolvedValue(agent());
+    getAgentCard.mockResolvedValue(
+      card({
+        skills: [
+          skill({ id: "no-schema" }),
+          skill({
+            id: "no-fields",
+            inputSchema: { type: "object", properties: {} },
+          }),
+          skill({
+            id: "flat",
+            inputSchema: {
+              type: "object",
+              properties: {
+                accountId: { type: "string" },
+                window: { type: "string", enum: ["7d", "30d"] },
+              },
+              required: ["accountId"],
+            },
+          }),
+          skill({
+            id: "nested",
+            inputSchema: {
+              type: "object",
+              properties: {
+                filter: {
+                  type: "object",
+                  properties: { owner: { type: "string" } },
+                },
+              },
+            },
+          }),
+          skill({
+            id: "huge",
+            inputSchema: {
+              type: "object",
+              properties: {
+                rows: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    description: "x".repeat(700),
+                  },
+                },
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const output = await run({ app: "analytics" }, undefined, "coach");
+
+    expect(output).toContain(
+      "no-schema: Run a bounded analytics query. — input schema not published (use message)",
+    );
+    expect(output).toContain(
+      "no-fields: Run a bounded analytics query. — input: {} (no fields)",
+    );
+    expect(output).toContain(
+      'input: { accountId*: string, window?: "7d" | "30d" } (* = required)',
+    );
+    expect(output).toContain(
+      'nested: Run a bounded analytics query. — input schema: {"type":"object","properties":{"filter":{"type":"object","properties":{"owner":{"type":"string"}}}}}',
+    );
+    expect(output).toContain(
+      "huge: Run a bounded analytics query. — input: { rows } (nested input not shown: use message)",
+    );
+  });
+
   it("prefers the authored manifest purpose over the generic card description", async () => {
     findAgent.mockResolvedValue(agent());
 

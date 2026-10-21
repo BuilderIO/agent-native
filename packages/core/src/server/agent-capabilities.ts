@@ -245,21 +245,37 @@ export function formatCapabilitySummary(
     "",
     lines.join("\n\n"),
     "",
-    "When a listed read-only action fits a bounded read, call it with call-agent action + input; that skips a full agent run in the target. Otherwise delegate with a natural-language message; the receiving app owns interpretation and its local tools. Use message for creates, updates, deletes, sends, saves, publishes, or any other side effect. Prefer the app that owns the data over rebuilding its capability here.",
+    "When a listed read-only action fits a bounded read and its full input is shown, call it with call-agent action + input; that skips a full agent run in the target. If the direct call fails, send a message instead of guessing. Otherwise delegate with a natural-language message; the receiving app owns interpretation and its local tools. Use message for creates, updates, deletes, sends, saves, publishes, or any other side effect. Prefer the app that owns the data over rebuilding its capability here.",
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-function formatSkillInput(skill: AgentSkill): string | undefined {
+const MAX_INPUT_SCHEMA_CHARS = 600;
+const PRIMITIVE_TYPES = new Set(["string", "number", "integer", "boolean"]);
+const NESTED_SCHEMA_KEYS = [
+  "properties",
+  "items",
+  "oneOf",
+  "anyOf",
+  "allOf",
+  "$ref",
+] as const;
+
+// Callers build a direct `input` from this line, so it must never look more
+// complete than the published schema: an unknown schema is not an empty one,
+// and nested fields either show in full or send the caller to a message.
+function formatSkillInput(skill: AgentSkill): string {
   const schema = skill.inputSchema as
     | {
-        properties?: Record<string, { type?: unknown }>;
+        properties?: Record<string, Record<string, unknown>>;
         required?: unknown;
       }
     | undefined;
   const properties = schema?.properties;
-  if (!properties || typeof properties !== "object") return undefined;
+  if (!properties || typeof properties !== "object") {
+    return " — input schema not published (use message)";
+  }
   const names = Object.keys(properties);
   if (names.length === 0) return " — input: {} (no fields)";
 
@@ -270,12 +286,33 @@ function formatSkillInput(skill: AgentSkill): string | undefined {
         )
       : [],
   );
-  const fields = names.map((name) => {
-    const type = properties[name]?.type;
-    const rendered = typeof type === "string" ? type : "any";
-    return `${name}${required.has(name) ? "*" : "?"}: ${rendered}`;
+  const flat = names.every((name) => {
+    const field = properties[name] ?? {};
+    return (
+      typeof field.type === "string" &&
+      PRIMITIVE_TYPES.has(field.type) &&
+      NESTED_SCHEMA_KEYS.every((key) => !(key in field))
+    );
   });
-  return ` — input: { ${fields.join(", ")} } (* = required)`;
+  if (flat) {
+    const fields = names.map((name) => {
+      const field = properties[name] ?? {};
+      const rendered = Array.isArray(field.enum)
+        ? field.enum.map((value) => JSON.stringify(value)).join(" | ")
+        : String(field.type);
+      return `${name}${required.has(name) ? "*" : "?"}: ${rendered}`;
+    });
+    return ` — input: { ${fields.join(", ")} } (* = required)`;
+  }
+
+  const {
+    $schema: _schema,
+    title: _title,
+    ...contract
+  } = schema as Record<string, unknown>;
+  const json = JSON.stringify(contract);
+  if (json.length <= MAX_INPUT_SCHEMA_CHARS) return ` — input schema: ${json}`;
+  return ` — input: { ${names.join(", ")} } (nested input not shown: use message)`;
 }
 
 export function formatCapabilityDetail(

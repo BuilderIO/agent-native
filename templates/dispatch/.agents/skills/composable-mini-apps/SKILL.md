@@ -43,10 +43,11 @@ The main agent should discover available siblings before assuming capability:
 - Use the built-in `describe-workspace-apps` tool for actual capability.
   It reads each peer's live `/.well-known/agent-card.json` and returns its
   purpose plus any optional stable machine contracts; pass `app: "<id>"` for
-  one peer's full description. Use it only when the requested outcome depends
-  on peer-exclusive data or capability and you cannot tell which peer owns it
-  or whether a known peer can provide it, or when the user asks which app can
-  do the job.
+  one peer's full description. Use it when the requested outcome depends on
+  peer-exclusive data or capability and either the owning peer is known (pass
+  `app` to see the read-only actions it publishes) or you cannot tell which
+  peer owns it or whether a known peer can provide it, or when the user asks
+  which app can do the job.
 - Never hand-maintain a markdown or code list of what each workspace app does.
   A stale catalog is worse than none: it reads as authoritative while pointing
   at capabilities that moved or vanished. An app's purpose belongs in its own
@@ -63,12 +64,14 @@ The main agent should discover available siblings before assuming capability:
   explicitly asks you to involve that app. A sibling's availability or ability
   to enrich the result is not enough. Never call the current app through
   `call-agent`; use local actions instead.
-- Send a natural-language objective by default so the sibling can apply its own
-  instructions, skills, schemas, data dictionary, credentials, and tools.
-  `invokeAgentAction()` or `call-agent` with `action` + `input` is only for an
-  explicit stable semantic read contract whose complete input is already known.
-  Never expose or call an implementation action as a workaround for slow or
-  failed message delegation.
+- When the job is a bounded read and the sibling publishes a read-only action
+  that fits, with its full input shown by `describe-workspace-apps`, call it
+  with `invokeAgentAction()` or `call-agent` `action` + `input`; that skips a
+  full agent run in the sibling. Otherwise send a natural-language objective so
+  the sibling can apply its own instructions, skills, schemas, data
+  dictionary, credentials, and tools. Never expose an implementation action
+  just to bypass delegation, and never switch to a guessed direct call after a
+  message or direct call fails; send the objective as a message instead.
 
 Send narrow prompts to siblings: name the exact question, relevant ids, date
 ranges, and expected output shape. Preserve returned ids and URLs verbatim.

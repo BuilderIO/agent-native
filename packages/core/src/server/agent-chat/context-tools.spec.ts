@@ -31,6 +31,15 @@ describe("peer-app delegation guidance", () => {
       "requested outcome depends on peer-exclusive data or capability",
     );
     expect(skill).toContain("whether a known peer can provide it");
+    expect(skill).toContain(
+      "with its full input shown by `describe-workspace-apps`",
+    );
+    expect(skill).toContain(
+      "never switch to a guessed direct call after a\n  message or direct call fails",
+    );
+    expect(FRAMEWORK_CONTEXT_SECTIONS["call-agent"]).toContain(
+      "never switch to a direct action to work around a slow or failed message",
+    );
     expect(skill).not.toContain(
       "before building something a sibling may already own",
     );

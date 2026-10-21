@@ -199,6 +199,12 @@ describe("call-agent action", () => {
       "Send the user's request as asked; do not expand its scope",
     );
     expect(tool.description).toContain(
+      "if a direct call fails or the full input isn't shown, send the objective as message instead",
+    );
+    expect(tool.description).toContain(
+      "never switch to a direct action to work around a slow or failed message",
+    );
+    expect(tool.description).toContain(
       "ONLY use it when the user's requested outcome depends on data or a capability only that app can provide",
     );
     expect(tool.description).toContain("availability alone is not a reason");
