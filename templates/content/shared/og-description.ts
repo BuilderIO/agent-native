@@ -22,9 +22,10 @@ function decodeCommonEntities(text: string): string {
 
 function normalizeForComparison(text: string): string {
   return stripMarkdownForPreview(text)
+    .normalize("NFC")
     .toLowerCase()
     .replace(/&/g, "and")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -134,14 +135,12 @@ export function buildPublicDocumentDescription({
 }
 
 const DEFAULT_EXCERPT_LENGTH = 300;
-/** Marks where a truncated body ends. Postgres text can't hold it. */
-const PREFIX_END = "\u0000";
 
 /**
  * Plain text from the start of a page body, for a list row. Images, code,
  * dividers and a first paragraph that repeats the title drop out, and
  * headings only count when the page has no other text. `truncated` means the
- * markdown is only the body's first part, so its last word may be cut short.
+ * markdown is only the body's first part, so it may end partway through.
  */
 export function buildDocumentExcerpt({
   content,
@@ -157,21 +156,24 @@ export function buildDocumentExcerpt({
   let markdown = content?.replace(/\r\n?/g, "\n") ?? "";
   // Frontmatter puts a `key:` line right after its opening `---`; a divider at
   // the top of a page is followed by text or a blank line.
-  if (/^---[ \t]*\n[\w"'-][^\n]*:/.test(markdown)) {
+  if (/^---[ \t]*\n[\p{L}\p{N}_"'-][^\n]*:/u.test(markdown)) {
     const body = stripFrontmatter(markdown);
     // A prefix that ends inside the frontmatter has no body text yet.
     if (body !== markdown) markdown = body;
     else if (truncated) return "";
   }
   if (truncated) {
-    // Drop a link or image the cut leaves open, and mark the end so a word is
-    // dropped only when the cut splits text the excerpt keeps.
-    markdown = `${markdown.replace(/!?\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")}${PREFIX_END}`;
+    // Drop a link, image or tag the cut leaves open, and a word it splits. A
+    // cut right after punctuation or closing markup ends a whole word.
+    markdown = markdown
+      .replace(/!?\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")
+      .replace(/<[^>\n]*$/, "")
+      .replace(/(\s)[\p{L}\p{M}\p{N}]+$/u, "$1");
   }
   const blocks = stripFencedCode(markdown)
     // Headings and dividers stand alone even without blank lines around them.
     // A `---` right under a line of text underlines a heading, so it stays.
-    .replace(/^#{1,6}[ \t].*$/gm, "\n$&\n")
+    .replace(/^ {0,3}#{1,6}[ \t].*$/gm, "\n$&\n")
     .replace(/(^|\n\n)[ \t]{0,3}(?:[-*_][ \t]*){3,}(?=\n|$)/g, "$1\n")
     .split(/\n{2,}/);
   const paragraphs: string[] = [];
@@ -191,15 +193,7 @@ export function buildDocumentExcerpt({
       length += text.length + 1;
     }
   }
-  const joined = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
-  const cutsWord =
-    joined.endsWith(PREFIX_END) && /\S/.test(joined.at(-2) ?? "");
-  const text = joined.replace(PREFIX_END, "").trimEnd();
+  const text = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
   if (text.length > maxLength) return truncateDescription(text, maxLength);
-  if (!truncated || !text) return text;
-  const wordBoundary = cutsWord ? text.lastIndexOf(" ") : -1;
-  return withEllipsis(
-    wordBoundary > 0 ? text.slice(0, wordBoundary) : text,
-    maxLength,
-  );
+  return truncated && text ? withEllipsis(text, maxLength) : text;
 }

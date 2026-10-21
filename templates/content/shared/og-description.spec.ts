@@ -132,6 +132,41 @@ const flag = true;
         content: "日本語の題名\n\n本文です。",
       }),
     ).toBe("本文です。");
+    // Vowel signs tell these Hindi words apart.
+    expect(
+      buildDocumentExcerpt({
+        title: "दिन",
+        content: "दान\n\nFollowing paragraph.",
+      }),
+    ).toBe("दान Following paragraph.");
+    expect(
+      buildPublicDocumentDescription({
+        title: "दिन",
+        content: "दान\n\nFollowing paragraph.",
+      }),
+    ).toBe("दान");
+  });
+
+  it("drops frontmatter whose keys are in any script", () => {
+    expect(
+      buildDocumentExcerpt({
+        content: "---\n作者: Alice\n状态: draft\n---\n\nBody.",
+      }),
+    ).toBe("Body.");
+    expect(
+      buildDocumentExcerpt({
+        content: "---\n作者: Alice\n状态: draft",
+        truncated: true,
+      }),
+    ).toBe("");
+  });
+
+  it("separates headings indented up to three spaces", () => {
+    expect(
+      buildDocumentExcerpt({
+        content: "   # Plan\nWhat we ship.\n\nAnother paragraph.",
+      }),
+    ).toBe("What we ship. Another paragraph.");
   });
 
   it("is empty for an empty page or a prefix cut off inside its frontmatter", () => {
@@ -173,6 +208,32 @@ const flag = true;
         truncated: true,
       }),
     ).toBe("Read the...");
+    // Closing markup ends a whole word.
+    for (const content of [
+      "One two `three`",
+      "One two **three**",
+      "One two [three](https://example.com)",
+    ]) {
+      expect(buildDocumentExcerpt({ content, truncated: true })).toBe(
+        "One two three...",
+      );
+    }
+  });
+
+  it("falls back to headings when a cut-off body has no other text", () => {
+    expect(
+      buildDocumentExcerpt({
+        content: `# Agenda\n\n${" ".repeat(990)}`,
+        truncated: true,
+      }),
+    ).toBe("Agenda...");
+    expect(
+      buildDocumentExcerpt({
+        content: `# Agenda\n\n\`\`\`js\n${"x".repeat(980)}\n\`\`\``,
+        truncated: true,
+      }),
+    ).toBe("Agenda...");
+    expect(buildDocumentExcerpt({ content: "---", truncated: true })).toBe("");
   });
 
   it("keeps the ellipsis inside the length limit", () => {

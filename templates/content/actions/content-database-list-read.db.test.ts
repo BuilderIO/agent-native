@@ -153,6 +153,17 @@ async function seedDatabase(suffix: string) {
   });
 }
 
+async function readPage(databaseId: string, limit?: number) {
+  const response = await asOwner(() =>
+    getContentDatabaseAction.run(
+      { databaseId, limit },
+      { caller: "frontend", userEmail: OWNER },
+    ),
+  );
+  if (!("items" in response)) throw new Error("Fixture read was unavailable.");
+  return response.items;
+}
+
 async function showPageTextInList(databaseId: string) {
   await getDb()
     .update(schema.contentDatabases)
@@ -310,26 +321,14 @@ describe("content database list reads", () => {
         value: "## Plan\n\n**Ship** the [list read](https://example.com).\n",
       }),
     );
-    const read = async () => {
-      const response = await asOwner(() =>
-        getContentDatabaseAction.run(
-          { databaseId: fixture.databaseId },
-          { caller: "frontend", userEmail: OWNER },
-        ),
-      );
-      if (!("items" in response)) {
-        throw new Error("Fixture read was unavailable.");
-      }
-      return response.items;
-    };
 
-    for (const item of await read()) {
+    for (const item of await readPage(fixture.databaseId, 100)) {
       expect(item).not.toHaveProperty("excerpt");
     }
 
     await showPageTextInList(fixture.databaseId);
 
-    const items = await read();
+    const items = await readPage(fixture.databaseId, 100);
     expect(
       Object.fromEntries(
         items.map((item) => [item.document.title, item.excerpt]),
@@ -341,6 +340,37 @@ describe("content database list reads", () => {
     });
     // The rest of each body still stays out of row reads.
     for (const item of items) expect(item.document.content).toBe("");
+    // Unpaged reads come from menus and pickers, which draw no rows.
+    for (const item of await readPage(fixture.databaseId)) {
+      expect(item).not.toHaveProperty("excerpt");
+    }
+  });
+
+  it("ends an excerpt with an ellipsis only when the body runs past the part read", async () => {
+    const fixture = await seedDatabase("prefix");
+    // The sprout is one character to the database but two UTF-16 units.
+    const start = "Closing words \u{1F331}\n\n![](https://example.com/";
+    const end = ".png)";
+    const bodyOfLength = (length: number) =>
+      `${start}${"a".repeat(length - Array.from(start).length - end.length)}${end}`;
+    for (const [index, length] of [1000, 1001].entries()) {
+      await getDb()
+        .update(schema.documents)
+        .set({ content: bodyOfLength(length) })
+        .where(eq(schema.documents.id, fixture.rows[index]!.documentId));
+    }
+    await showPageTextInList(fixture.databaseId);
+
+    const items = await readPage(fixture.databaseId, 100);
+    expect(
+      Object.fromEntries(
+        items.map((item) => [item.document.title, item.excerpt]),
+      ),
+    ).toEqual({
+      "Row prefix 0": "Closing words \u{1F331}",
+      "Row prefix 1": "Closing words \u{1F331}...",
+      "Row prefix 2": "",
+    });
   });
 
   it("adds excerpts to the rows a filtered, paged read returns", async () => {

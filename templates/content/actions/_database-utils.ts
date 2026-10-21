@@ -265,14 +265,20 @@ export const contentDatabaseListDocumentSelection = {
 /**
  * How much of each page body a list read takes for its excerpt: enough
  * markdown for three lines of text once links and formatting are stripped.
+ * The read takes one character more to tell a longer body from one that fits.
  */
 const EXCERPT_SOURCE_CHARS = 1000;
 
 function serializeExcerpt(bodyPrefix: string | undefined, title: string) {
+  // Count characters the way the database does, not UTF-16 units.
+  const characters = Array.from(bodyPrefix ?? "");
+  const truncated = characters.length > EXCERPT_SOURCE_CHARS;
   return buildDocumentExcerpt({
-    content: bodyPrefix,
+    content: truncated
+      ? characters.slice(0, EXCERPT_SOURCE_CHARS).join("")
+      : bodyPrefix,
     title,
-    truncated: (bodyPrefix?.length ?? 0) >= EXCERPT_SOURCE_CHARS,
+    truncated,
   });
 }
 
@@ -1023,9 +1029,13 @@ export async function getContentDatabasePageResponse(
     });
   }
 
-  const includeExcerpts = contentDatabaseViewsShowPageText(
-    parseDatabaseViewConfig(database.viewConfigJson).views,
-  );
+  // List rows draw from paged reads. Unpaged reads come from menus and pickers
+  // that never show page text, so they skip the body reads.
+  const includeExcerpts =
+    limit !== null &&
+    contentDatabaseViewsShowPageText(
+      parseDatabaseViewConfig(database.viewConfigJson).views,
+    );
   const documents =
     items.length > 0
       ? await db
@@ -1267,7 +1277,7 @@ export async function getContentDatabasePageResponse(
             id: schema.documents.id,
             bodyPrefix: sql<
               string | null
-            >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS))})`,
+            >`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS + 1))})`,
           })
           .from(schema.documents)
           .where(inArray(schema.documents.id, [...serializedDocumentIds]))
