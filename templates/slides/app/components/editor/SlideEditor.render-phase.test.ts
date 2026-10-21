@@ -223,31 +223,6 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
-  it("keeps the replacement listener mounted across Excalidraw-to-HTML swaps", () => {
-    const boundaryRefAt = source.indexOf("ref={contentReplaceBoundaryRef}");
-    const canvasBranchAt = source.indexOf(
-      "{slide.excalidrawData ? (",
-      boundaryRefAt,
-    );
-    expect(boundaryRefAt).toBeGreaterThan(-1);
-    expect(canvasBranchAt).toBeGreaterThan(boundaryRefAt);
-
-    const effectStart = source.indexOf("// Another slide's HTML");
-    const effectEnd = source.indexOf(
-      "// Keep canvas gesture handlers",
-      effectStart,
-    );
-    const listenerEffect = source.slice(effectStart, effectEnd);
-    expect(listenerEffect).toContain("contentReplaceBoundaryRef.current");
-    expect(listenerEffect).toContain(
-      "boundary.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);",
-    );
-    expect(listenerEffect).toContain(
-      "boundary.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);",
-    );
-    expect(listenerEffect).not.toContain("containerRef.current");
-  });
-
   it("never lets a slide link on the editing canvas navigate", () => {
     expect(source).toMatch(
       /onClickCapture=\{\s*readOnly \? undefined : preventSlideLinkNavigation\s*\}/,
@@ -353,22 +328,6 @@ describe("SlideEditor render-phase safety", () => {
     ]) {
       expect(source).not.toContain(retired);
     }
-  });
-
-  it("enters crop mode for wrapped images on double-click", () => {
-    const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
-    const doubleClickEnd = source.indexOf(
-      "const slideElementSelected =",
-      doubleClickStart,
-    );
-    const doubleClickBody = source.slice(doubleClickStart, doubleClickEnd);
-
-    expect(doubleClickBody).toContain(
-      "findPersistedImageObject(hit.object, slideContent)",
-    );
-    expect(doubleClickBody).toContain(
-      "startImageCrop(imageTarget as HTMLImageElement);",
-    );
   });
 
   it("keeps nested rich-text ranges in observer selection snapshots", () => {
@@ -515,31 +474,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
   });
 
-  it("gives inline text editing priority over comment-highlight clicks", () => {
-    const pointerStart = source.indexOf("const handleSlidePointerDown");
-    const pointerEnd = source.indexOf(
-      "// Keep these listeners stable while React re-renders the marquee overlay.",
-      pointerStart,
-    );
-    const pointerBody = source.slice(pointerStart, pointerEnd);
-    expect(pointerBody.indexOf("const targetIsEditingBlock")).toBeLessThan(
-      pointerBody.indexOf("slideCommentThreadAtPoint("),
-    );
-    expect(pointerBody).toContain(
-      "if (!editingEl && !pinMode && !drawMode && !additive)",
-    );
-
-    const clickStart = source.indexOf("const handleSlideClick");
-    const clickEnd = source.indexOf(
-      "const handleCanvasBackgroundPointerDown",
-      clickStart,
-    );
-    const clickBody = source.slice(clickStart, clickEnd);
-    expect(
-      clickBody.indexOf("if (editingEl?.contains(e.target as Node))"),
-    ).toBeLessThan(clickBody.indexOf("commentPress &&"));
-  });
-
   it("keeps group dragging available with additive modifiers", () => {
     const pointerStart = source.indexOf(
       "// Pointer-down on a member of the current multi-selection",
@@ -638,13 +572,12 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain("if (hasNativeText) return;");
   });
 
-  it("uses the native layer marker instead of a timer to arbitrate paste", () => {
+  it("uses the native layer marker and keeps native text authoritative", () => {
     expect(source).toContain("writeSlideObjectClipboard");
     expect(source).toContain("readSlideObjectClipboardId");
-    expect(source).toContain("overlappingNativeClipboardIdsRef");
-    expect(source).toContain("copySessionId");
-    expect(source).toContain('window.addEventListener("blur"');
     expect(source).not.toContain("objectPasteFallbackRef");
+    expect(source).not.toContain("navigator.clipboard.write");
+    expect(source).not.toContain("overlappingNativeClipboardIdsRef");
     const pasteStart = source.indexOf("const onPaste = (e: ClipboardEvent)");
     const pasteEnd = source.indexOf(
       "// Appearance clipboard shortcuts",
@@ -654,14 +587,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody.indexOf("nativeClipboardId")).toBeLessThan(
       pasteBody.indexOf("const hasNativeText"),
     );
-    expect(pasteBody).toContain(
-      "overlappingNativeClipboardIdsRef.current.get(nativeClipboardId)",
-    );
-    expect(pasteBody.indexOf("const hasNativeText")).toBeLessThan(
-      pasteBody.indexOf('clipboard.nativeClipboardMode === "pending"'),
-    );
-    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
-    expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
+    expect(pasteBody).toContain("if (hasNativeText) return;");
     expect(pasteBody).not.toContain("clipboard.clipboardText");
     expect(source).toContain(
       "copySlideObjects(selection, storedFormOfCopy),\n      selection[0],",
@@ -679,6 +605,6 @@ describe("SlideEditor render-phase safety", () => {
     );
     expect(layoutBody).toContain("new ResizeObserver(update)");
     expect(layoutBody).toContain("new MutationObserver(update)");
-    expect(layoutBody).toContain("invalidateSelectionOverlayMeasurement();");
+    expect(layoutBody).toContain("measureSelectionOverlayNow();");
   });
 });

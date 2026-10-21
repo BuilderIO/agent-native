@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { getDbExec, isConnectionError } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
@@ -357,6 +359,10 @@ export const identitySsoStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      "_identity_sso_migrations",
+      IDENTITY_SSO_MIGRATIONS,
+    ),
   ],
 });
 

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   authTest,
+  findUserByEmail,
+  getMessagePermalink,
   getUserInfo,
   postChannelMessage,
   SlackWriteError,
@@ -128,6 +130,36 @@ describe("getUserInfo cache", () => {
   });
 });
 
+describe("getUserInfo bot flag", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["a person", { id: "U1" }, false],
+    ["a bot user", { id: "U2", is_bot: true }, true],
+    ["an app user", { id: "U3", is_app_user: true }, true],
+  ])("reads %s", async (_name, user, isBot) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          ok: true,
+          user: { ...user, name: `n-${user.id}`, profile: {} },
+        }),
+      ),
+    );
+
+    const info = await getUserInfo(
+      "primary",
+      user.id,
+      async () => `xoxb-flag-${user.id}`,
+    );
+
+    expect(info.isBot).toBe(isBot);
+  });
+});
+
 describe("Slack message write delivery", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -199,5 +231,98 @@ describe("Slack message write delivery", () => {
       delivery: "unknown",
       retryAfterSeconds: null,
     } satisfies Partial<SlackWriteError>);
+  });
+});
+
+describe("findUserByEmail", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("resolves an email to a member id", async () => {
+    const fetchSpy = vi.fn(async (_url: RequestInfo | URL) =>
+      jsonResponse({
+        ok: true,
+        user: { id: "U0ADA", is_bot: false, deleted: false },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      findUserByEmail("primary", " ada@example.test ", async () => "xoxb-find"),
+    ).resolves.toEqual({ id: "U0ADA", isBot: false, deleted: false });
+    const url = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe("/api/users.lookupByEmail");
+    expect(url.searchParams.get("email")).toBe("ada@example.test");
+  });
+
+  it("answers null only when Slack looked and found no one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ ok: false, error: "users_not_found" })),
+    );
+
+    await expect(
+      findUserByEmail(
+        "primary",
+        "nobody@example.test",
+        async () => "xoxb-none",
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("throws when it could not ask, instead of answering null", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ ok: false, error: "missing_scope" })),
+    );
+
+    await expect(
+      findUserByEmail("primary", "ada@example.test", async () => "xoxb-scope"),
+    ).rejects.toThrow("missing_scope");
+  });
+
+  it("flags a deactivated member and a bot", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          ok: true,
+          user: { id: "U0OLD", is_bot: true, deleted: true },
+        }),
+      ),
+    );
+
+    await expect(
+      findUserByEmail("primary", "old@example.test", async () => "xoxb-old"),
+    ).resolves.toEqual({ id: "U0OLD", isBot: true, deleted: true });
+  });
+});
+
+describe("getMessagePermalink", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns the permalink, and fails when Slack sends none", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            ok: true,
+            permalink: "https://example.slack.com/archives/C1/p1",
+          }),
+        )
+        .mockResolvedValueOnce(jsonResponse({ ok: true })),
+    );
+
+    await expect(
+      getMessagePermalink("primary", "C1", "1.1", async () => "xoxb-link"),
+    ).resolves.toBe("https://example.slack.com/archives/C1/p1");
+    await expect(
+      getMessagePermalink("primary", "C1", "2.2", async () => "xoxb-link"),
+    ).rejects.toThrow("missing the link");
   });
 });

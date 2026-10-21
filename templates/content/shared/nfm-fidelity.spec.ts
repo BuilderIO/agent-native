@@ -239,6 +239,71 @@ describe("canonicalizeNfmWithFidelity", () => {
     ).toContain("dropped-source");
   });
 
+  it("reports invalid block colors before the literal-suffix fallback", () => {
+    for (const source of [
+      'text {color="bad"}',
+      'text {color="bad" malformed}',
+      '# Heading {toggle="true" color="bad"}',
+      'text {color="red" malformed}',
+      'text {color="red" toggle="false"}',
+    ]) {
+      expect(lossKinds(source)).toContain("dropped-attribute");
+      expect(() => requireLosslessNfm(source)).toThrow(NfmFidelityError);
+    }
+    for (const source of [
+      'text {color="red"}',
+      '# Heading {toggle="true" color="red"}',
+      '`text {color="bad"}`',
+      'text \\{color="bad"}',
+      "text {ordinary braces}",
+    ]) {
+      expect(lossKinds(source)).toEqual([]);
+      const canonical = requireLosslessNfm(source);
+      expect(requireLosslessNfm(canonical)).toBe(canonical);
+    }
+    expect(nfmToDoc('text {color="bad"}').content[0].content).toEqual([
+      { type: "text", text: 'text {color="bad"}' },
+    ]);
+  });
+
+  it("keeps compact row groups and shields group tags in code and math", () => {
+    for (const separator of ["", "\n"]) {
+      const source = `<table>\n<thead><tr><td>A</td></tr></thead>${separator}<tbody><tr><td>x</td></tr><tr><td>y</td></tr></tbody>\n</table>`;
+      const parsed = nfmToDoc(source);
+      expect(parsed.content[0].attrs?.headerRow).toBe(true);
+      expect(parsed.content[0].content).toHaveLength(3);
+      const canonical = requireLosslessNfm(source);
+      expect(requireLosslessNfm(canonical)).toBe(canonical);
+      expect(nfmToDoc(canonical)).toEqual(parsed);
+    }
+    for (const inline of [
+      "`</td></tr></thead><tbody><tr><td>`",
+      "$</td></tr></thead><tbody><tr><td>$",
+      "$`</td></tr></thead><tbody><tr><td>`$",
+    ]) {
+      const source = `<table>\n<tbody><tr><td>${inline}</td><td>C:\\</td></tr></tbody>\n</table>`;
+      const parsed = nfmToDoc(source);
+      const cells = parsed.content[0].content?.[0].content;
+      expect(cells).toHaveLength(2);
+      expect(cells?.[0].content?.[0].content).toEqual(
+        nfmToDoc(inline).content[0].content,
+      );
+      const canonical = requireLosslessNfm(source);
+      expect(requireLosslessNfm(canonical)).toBe(canonical);
+      expect(nfmToDoc(canonical)).toEqual(parsed);
+    }
+    for (const row of [
+      '<thead bad="true"><tr><th>A</th></tr></thead>',
+      "<thead><tr><th>A</td></tr></thead>",
+      "<tr><thead><td>A</td></tr>",
+      "<tfoot><tr><td>x</td></tr></tfoot>",
+    ]) {
+      expect(lossKinds(`<table>\n${row}\n</table>`)).toContain(
+        "dropped-source",
+      );
+    }
+  });
+
   it("reports an unreadable body as unparseable, not as an empty page", () => {
     const unreadable = {
       replace() {
@@ -881,6 +946,18 @@ describe("canonical form properties over editor documents", () => {
         );
     }
     expect(failures.slice(0, 5)).toEqual([]);
+  });
+
+  it("keeps the formerly lost whitespace-only editor document", () => {
+    const root = editorSchema.nodeFromJSON({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "  " }] }],
+    });
+    root.check();
+    const markdown = docToNfm(root.toJSON());
+    expect(markdown).toBe("<span>  </span>");
+    expect(requireLosslessNfm(markdown)).toBe(markdown);
+    expect(editorSchema.nodeFromJSON(nfmToDoc(markdown)).eq(root)).toBe(true);
   });
 
   for (const loss of KNOWN_EDITOR_LOSSES) {

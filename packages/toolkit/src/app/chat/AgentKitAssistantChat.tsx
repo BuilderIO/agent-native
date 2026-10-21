@@ -210,7 +210,10 @@ import { ExternalAgentNudge } from "./external-agent-host.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
-import { reconcileSettledRun } from "./reconcile-settled-run.js";
+import {
+  isWaitingOnConnectionRequest,
+  reconcileSettledRun,
+} from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
@@ -4992,7 +4995,9 @@ const AgentKitAssistantChatBody = forwardRef<
             (activity) => activity.status === "running",
           )
         }
-        isAwaitingResponse={() => isRunning}
+        isAwaitingResponse={() =>
+          isRunning && !isWaitingOnConnectionRequest(thread)
+        }
         onServerSettled={reconcileServerSettled}
         onRetry={(runId) => {
           const lastUserMessage = [...thread.messages]
@@ -5929,6 +5934,7 @@ function AgentKitComposerSurface({
     text,
     variant: "composer",
     requestedByUser: true,
+    excludedIntegrationIds: props.mcpSuggestionExcludedIntegrationIds,
   });
   const showHomeIntro =
     props.homeIntroSlot &&
@@ -6024,6 +6030,7 @@ function AgentKitComposerSurface({
           text={text}
           variant="composer"
           requestedByUser
+          excludedIntegrationIds={props.mcpSuggestionExcludedIntegrationIds}
           integrationId={integration.id}
         />
       ) : null}
@@ -6329,6 +6336,7 @@ function AgentKitUserMessage(props: AgentKitRenderProps<AgentMessage>) {
 function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const value = props.value;
   const t = useT();
+  const surface = useAgentKitSurface();
   const thread = useAgentThread(props.threadId);
   const assistantIndex = thread.messages.findIndex(
     (message) => message.id === value.id,
@@ -6362,6 +6370,8 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
           contextText,
           variant: "response",
           requestedByAgent: true,
+          excludedIntegrationIds:
+            surface.props.mcpSuggestionExcludedIntegrationIds,
         })
       : null;
   const runWarning = asRecord(asRecord(value.metadata?.custom)?.runWarning);
@@ -6398,6 +6408,9 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
           contextText={contextText}
           variant="response"
           requestedByAgent
+          excludedIntegrationIds={
+            surface.props.mcpSuggestionExcludedIntegrationIds
+          }
           integrationId={integration.id}
         />
       ) : null}
@@ -6584,6 +6597,7 @@ function AgentKitConnectionRequest({
   runId,
   threadId,
 }: AgentKitRenderProps<AgentConnectionRequest> & { runId: string }) {
+  const surface = useAgentKitSurface();
   const control = useAgentKitControl();
   return (
     <McpAgentKitConnectionRequestCard
@@ -6593,6 +6607,7 @@ function AgentKitConnectionRequest({
       status={value.status}
       appId={value.appId}
       source={value.source}
+      excludedIntegrationIds={surface.props.mcpSuggestionExcludedIntegrationIds}
       target={{ threadId, runId, requestId: value.id }}
       onConnected={() =>
         control.resolveConnectionRequest(runId, value.id, {

@@ -88,6 +88,27 @@ describe("dashboard report subscriptions", () => {
     expect(panel?.config.description).toContain("previous 365 days");
   });
 
+  it("draws a stored dashboard's key dates from its owner's organization", async () => {
+    dashboardStoreMocks.getDashboard.mockResolvedValue({
+      id: "shared",
+      kind: "sql",
+      title: "Shared",
+      config: { panels: [] },
+      ownerEmail: "owner@example.test",
+      orgId: "org-owner",
+    });
+
+    const dashboard = await getReportDashboard("shared", {
+      email: "reader@example.test",
+      orgId: "org-reader",
+    });
+
+    expect(dashboard?.annotationScope).toEqual({
+      email: "owner@example.test",
+      orgId: "org-owner",
+    });
+  });
+
   describe("normalizeDashboardReportRecipients", () => {
     it("returns no recipients for a blank list; destinations decide validity", () => {
       expect(normalizeDashboardReportRecipients([" ", ""])).toEqual([]);

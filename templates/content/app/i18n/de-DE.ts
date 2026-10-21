@@ -418,6 +418,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
+  githubSourceOpenFile: "In GitHub öffnen",
   textColor: "Textfarbe",
   backgroundColor: "Hintergrundfarbe",
   defaultColor: "Standard",
@@ -439,8 +442,8 @@ const editor = {
     "Der Block {{type}} konnte nicht geladen werden: {{message}}",
   registryBlockUnreadable:
     "Die gespeicherte Blockquelle kann nicht gelesen werden.",
-  blocksFieldRevisionConflict:
-    "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
+  blocksFieldEditMovedToEnd:
+    "Dieses Blocks-Feld wurde auch an anderer Stelle geändert. Text, den du an derselben Stelle getippt hast, steht jetzt am Ende des Felds.",
   reconcileConflict:
     "Diese Seite wurde an anderer Stelle geändert. Deine Änderungen sind noch nicht gespeichert.",
   reconcileFailed:
@@ -532,6 +535,7 @@ const editor = {
     imageDownloadStarted: "Bild-Download gestartet.",
     imageLinkHint: "Funktioniert mit jedem Bild aus dem Internet",
     imagePreview: "Bildvorschau",
+    imageUnavailable: "Bild nicht verfügbar",
     imageView: "Bildansicht",
     link: "Link [de-DE]",
     loadingAssetsPicker: "Assets-Auswahl wird geladen",
@@ -1003,6 +1007,15 @@ const comments = {
   hideIndicators: "Kommentare und Hervorhebungen ausblenden",
   showIndicators: "Kommentare und Hervorhebungen anzeigen",
   unanchored: "Hervorhebung nicht verfügbar",
+  propertyEmpty: "Leer",
+  propertyRemoved: "{{name}} (entfernt)",
+  propertyWas: "war {{value}}",
+  commentOnProperty: "{{name}} kommentieren",
+  openPropertyComments_one: "{{count}} offener Kommentar zu {{name}}",
+  openPropertyComments_other: "{{count}} offene Kommentare zu {{name}}",
+  openRowComments_one: "{{count}} offener Kommentar zu {{title}}",
+  openRowComments_other: "{{count}} offene Kommentare zu {{title}}",
+  openRow: "Zeile öffnen",
   suggestions: "Vorschläge",
   suggestionAdd: "Hinzufügen",
   suggestionDelete: "Löschen",
@@ -1024,6 +1037,10 @@ const comments = {
   accepted: "Angenommen",
   rejected: "Abgelehnt",
   noFilteredComments: "Keine passenden Kommentare.",
+  tabFilter: "Tab",
+  allTabs: "Alle Tabs",
+  fieldRemoved: "{{name}} (entfernt)",
+  pageBody: "Seiteninhalt",
 };
 
 const reviewDiscussions = {
@@ -1212,6 +1229,7 @@ const history = {
   historyGroupAgent: "Agentenlauf",
   historyGroupHuman: "Bearbeitungssitzung",
   historyGroupLegacy: "Frühere Bearbeitungen",
+  historyGroupGitHub: "Aus GitHub synchronisiert",
   historyGroupOperation: "Vorgang",
   historyGroupRestore: "Wiederherstellung",
   historyLoadError: "Versionsverlauf konnte nicht geladen werden.",
@@ -1443,8 +1461,23 @@ const overrides = {
     searchLanguages: "Sprachen suchen...",
     noBlocksFields:
       "Keine Blocks-Felder. Füge eines über das Eigenschaftenmenü hinzu.",
-    reorderField: "{{name}} neu anordnen",
-    toggleField: "{{name}} umschalten",
+    addBlockField: "Feld hinzufügen",
+    blockFieldChanged: "Seit Ihrem letzten Aufruf geändert",
+    blockFieldTabs: "Felder",
+    blockFieldOpenComments_one: "{{count}} offener Kommentar",
+    blockFieldOpenComments_other: "{{count}} offene Kommentare",
+    blockFieldMenu: "Optionen für {{name}}",
+    blockFieldMenuScope: "Gilt für jede Zeile dieser Sammlung",
+    blockFieldName: "Feldname",
+    renameBlockField: "Umbenennen",
+    renameBlockFieldFailed: "Feld konnte nicht umbenannt werden",
+    deleteBlockField: "Löschen",
+    deleteBlockFieldFailed: "Feld konnte nicht gelöscht werden",
+    deleteBlockFieldQuestion: "„{{name}}“ löschen?",
+    deleteBlockFieldDescription:
+      "Dadurch werden „{{name}}“ und sein Text aus jeder Zeile dieser Sammlung gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteBlockFieldBodyWarning:
+      "„{{name}}“ ist der Seiteninhalt, daher wird auch der Haupttext jeder Zeile gelöscht.",
   },
   comments: {
     add: "Kommentar hinzufügen...",

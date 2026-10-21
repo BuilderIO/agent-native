@@ -7,7 +7,6 @@ import {
   VaultUnavailableError,
   assertFactoryConnectorReady,
 } from "../server/connectors/credentials.js";
-import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
   FACTORY_INBOX_LIMIT_MAX,
   FACTORY_WORK_LIMIT_MAX,
@@ -15,12 +14,10 @@ import {
   clampInboxLimit,
   clampWorkLimit,
   defaultAutomationConfig,
-  QA_AGENT_NATIVE_SLACK_CHANNEL_ID,
-  QA_AGENT_NATIVE_SLACK_CHANNEL_NAME,
-  requiresSlackFindingsDestination,
   sourceForTemplate,
   type FactoryAutomationConfig,
 } from "../server/lib/factory-automation-config.js";
+import { readFactoryDefinition } from "../server/lib/factory-definitions.js";
 import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
@@ -32,18 +29,11 @@ import {
 } from "../server/plugins/factory-scheduler-job.js";
 
 const sourceSchema = z.enum(["slack", "github", "sentry"]);
-const templateSchema = z.enum([
-  "blank",
-  "slack-feedback",
-  "github-issues",
-  "pr-governance",
-  "pr-babysit",
-  "sentry-errors",
-]);
+const templateSchema = z.enum(["blank", "pr-governance"]);
 
 export default defineAction({
   description:
-    "Create one Slack, GitHub, or Sentry job on an existing Factory. Use this when the user asks to create an automation. Do not save a graph or rename the factory. Slack source jobs need a source channel; reportable GitHub and Sentry findings are grouped into one message per run in #qa-agent-native. Ask for the relevant Slack source channel, GitHub repository, or Sentry slugs if missing. Opens the Automations tab. Reply with the job name and source, not pipeline stages. Hosted jobs need workspace connections or vault tokens for every source and destination. Pass author ids (Slack U/W or GitHub numeric ids), not names. Limits are action-enforced.",
+    "Create one scheduled agent job on an existing Factory: a Slack, GitHub, or Sentry job such as PR governance. This is not how Factory automates work: a request to automate something (a digest, a routing rule, a follow-up) is a workflow, built with save-factory-workflow. Do not save a graph or rename the factory. Slack source jobs need a source channel. Ask for the relevant Slack source channel, GitHub repository, or Sentry slugs if missing. Opens the factory's Settings tab, where scheduler health shows. Reply with the job name and source, not pipeline stages. Hosted jobs need workspace connections or vault tokens for every source and destination. Pass author ids (Slack U/W or GitHub numeric ids), not names. Limits are action-enforced.",
   schema: z.object({
     factoryId: factoryIdSchema,
     displayName: z.string().trim().min(1).max(120),
@@ -81,12 +71,8 @@ export default defineAction({
     url: buildDeepLink({
       app: "factory",
       view: "factory",
-      params: {
-        factoryId: result.factoryId,
-        tab: "automations",
-        automationId: result.id,
-      },
-      to: `/factory?factoryId=${encodeURIComponent(result.factoryId)}&tab=automations&automationId=${encodeURIComponent(result.id)}`,
+      params: { factoryId: result.factoryId, tab: "settings" },
+      to: `/factory?factoryId=${encodeURIComponent(result.factoryId)}&tab=settings`,
     }),
     label: `Open ${result.displayName} in Factory`,
   }),
@@ -110,11 +96,6 @@ export default defineAction({
     } catch (error) {
       fail(error instanceof Error ? error.message : "Invalid author filter.");
     }
-    const configTemplate = input.template ?? "blank";
-    const reportsFindings = requiresSlackFindingsDestination({
-      source: input.source,
-      template: configTemplate,
-    });
     if (input.source === "slack" && !input.slackChannelId?.trim()) {
       fail("Configure a Slack channel before creating this job.");
     }
@@ -140,13 +121,6 @@ export default defineAction({
             input.slackWorkspace === "secondary" ? "secondary" : "primary",
           verb: "creating",
         });
-        if (reportsFindings) {
-          await assertFactoryConnectorReady("slack", userEmail, {
-            orgId,
-            slackWorkspace: "primary",
-            verb: "creating",
-          });
-        }
       } catch (error) {
         if (error instanceof VaultUnavailableError) fail(error.message);
         fail(
@@ -157,17 +131,10 @@ export default defineAction({
     const defaults = defaultAutomationConfig(input.source, input.template);
     const config: FactoryAutomationConfig = {
       ...defaults,
-      slackWorkspace: reportsFindings
-        ? "primary"
-        : input.slackWorkspace === "secondary"
-          ? "secondary"
-          : "primary",
-      slackChannelId: reportsFindings
-        ? QA_AGENT_NATIVE_SLACK_CHANNEL_ID
-        : input.slackChannelId?.trim() || null,
-      slackChannelName: reportsFindings
-        ? QA_AGENT_NATIVE_SLACK_CHANNEL_NAME
-        : input.slackChannelName?.trim() || null,
+      slackWorkspace:
+        input.slackWorkspace === "secondary" ? "secondary" : "primary",
+      slackChannelId: input.slackChannelId?.trim() || null,
+      slackChannelName: input.slackChannelName?.trim() || null,
       repository: input.repository?.trim() || null,
       sentryOrgSlug: input.sentryOrgSlug?.trim() || null,
       sentryProjectSlug: input.sentryProjectSlug?.trim() || null,
@@ -209,7 +176,7 @@ export default defineAction({
     ) {
       await writeAppStateForCurrentTab("navigate", {
         view: "factory",
-        path: `/factory?factoryId=${encodeURIComponent(input.factoryId)}&tab=automations&automationId=${encodeURIComponent(created.id)}`,
+        path: `/factory?factoryId=${encodeURIComponent(input.factoryId)}&tab=settings`,
         _writeId: `${Date.now()}-create-factory-automation`,
       });
     }

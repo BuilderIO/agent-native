@@ -1,5 +1,6 @@
 import type { CodeLayerNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { remapClonedNativeEffectBindings } from "@shared/native-effect-cloning";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -33,7 +34,20 @@ import {
   projectAcceptedSource,
 } from "@/pages/design-editor/commands/selection-publication";
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
-import type { GeometryHistorySelection } from "@/pages/design-editor/history";
+import {
+  captureContentUndoStackTop,
+  captureYjsUndoStackTop,
+  stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionBefore,
+  stampYjsUndoSelection,
+  stampYjsUndoSelectionAfter,
+  type ContentHistoryEntry,
+  type ContentHistorySelectionAfterMap,
+  type ContentHistoryChange,
+  type GeometryHistorySelection,
+  type YjsUndoSelectionSnapshot,
+} from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
@@ -120,6 +134,7 @@ export interface DuplicateSelectionArgs {
       recordHistory?: boolean;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      selectionBefore?: YjsUndoSelectionSnapshot;
     },
   ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
@@ -155,6 +170,9 @@ export interface DuplicateSelectionArgs {
     dx: number;
     dy: number;
   } | null>;
+  contentHistorySelectionAfterRef?: RefObject<ContentHistorySelectionAfterMap>;
+  contentUndoStackRef?: RefObject<ContentHistoryEntry[]>;
+  localContentUndoStackRef?: RefObject<ContentHistoryChange[]>;
   overviewSelectedScreenIds: string[];
   remapMotionTracksForClone: (
     nodeIdMap: Map<string, string>,
@@ -193,6 +211,9 @@ export function runDuplicateSelection({
   getSelectedLayerSnapshots,
   handleDuplicateScreen,
   lastDuplicateTransformRef,
+  contentHistorySelectionAfterRef,
+  contentUndoStackRef,
+  localContentUndoStackRef,
   overviewSelectedScreenIds,
   remapMotionTracksForClone,
   runtimeStructureInsertRevisionRef,
@@ -211,6 +232,8 @@ export function runDuplicateSelection({
   trace("structure", "duplicate-selection", {
     canEdit: canEditDesign || canEditLiveScreen,
     selectedLayers: selectedLayerIdsState.length,
+    activeFileId: activeFile?.id ?? null,
+    viewMode: viewModeRef.current,
   });
   let structureUnsupported = false;
   const onUnsupportedStructure = () => {
@@ -342,6 +365,13 @@ export function runDuplicateSelection({
     const selectedIds: string[] = [];
     const selectedScreenIds: string[] = [];
     let lastActiveNode: CodeLayerNode | null = null;
+    let activeSelectedIds: string[] = [];
+    let activeSelectionBefore: YjsUndoSelectionSnapshot | undefined;
+    let activeUndoStackTopBefore: ReturnType<typeof captureYjsUndoStackTop>;
+    let activeLocalUndoStackTopBefore: ContentHistoryChange | undefined;
+    let activeContentHistoryTopBefore: ContentHistoryEntry | undefined;
+    let activeContentAfter: string | undefined;
+    let activeYjsHistoryRecorded = false;
 
     if (!canEditDesign) return;
 
@@ -411,6 +441,7 @@ export function runDuplicateSelection({
         filename: file.filename,
       };
       const insertedRootNodeIds: string[] = [];
+      const clonedNodeIdMap = new Map<string, string>();
       for (const snapshot of group) {
         const projection = buildCodeLayerProjection(content, { source });
         const anchorNode =
@@ -444,17 +475,58 @@ export function runDuplicateSelection({
         if (structureUnsupported) return;
         if (!result) continue;
         content = result.content;
+        result.nodeIdMap.forEach((value, key) =>
+          clonedNodeIdMap.set(key, value),
+        );
         insertedRootNodeIds.unshift(...result.rootNodeIds);
         remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
+      content = remapClonedNativeEffectBindings(content, clonedNodeIdMap);
       const submittedProjection = buildCodeLayerProjection(content, { source });
+      const tracksActiveSelectionHistory = file.id === activeFile?.id;
+      if (tracksActiveSelectionHistory) {
+        activeSelectionBefore = {
+          selectedElement:
+            snapshots.length === 1 && snapshots[0]?.sourceFileId === file.id
+              ? elementInfoFromCodeLayerNode(snapshots[0].node)
+              : selectedElement,
+          selectedLayerIds:
+            selectionBefore?.selectedLayerIds ?? selectedLayerIdsState,
+          ...(selectionBefore?.sourceContentByFileId
+            ? { sourceContentByFileId: selectionBefore.sourceContentByFileId }
+            : {}),
+          ...(selectionBefore?.sourceFileIdByFileId
+            ? { sourceFileIdByFileId: selectionBefore.sourceFileIdByFileId }
+            : {}),
+        };
+        if (viewModeRef.current === "single") {
+          activeUndoStackTopBefore = captureYjsUndoStackTop(
+            undoManagerRef.current,
+          );
+          activeLocalUndoStackTopBefore =
+            localContentUndoStackRef?.current[
+              localContentUndoStackRef.current.length - 1
+            ];
+        } else if (contentUndoStackRef) {
+          activeContentHistoryTopBefore = captureContentUndoStackTop(
+            contentUndoStackRef.current,
+          );
+        }
+      }
       const publication = applyFileContentUpdate(file.id, content, {
         forcePreviewFullDocument: true,
         refreshPreview: false,
+        ...(activeSelectionBefore && tracksActiveSelectionHistory
+          ? { selectionBefore: activeSelectionBefore }
+          : {}),
       });
       if (publication.status !== "accepted") continue;
       selectedScreenIds.push(file.id);
+      if (tracksActiveSelectionHistory) {
+        activeContentAfter = publication.content;
+        activeYjsHistoryRecorded = publication.yjsHistoryRecorded === true;
+      }
       const finalProjection = projectAcceptedSource(publication, source);
       insertedRootNodeIds.forEach((rootNodeId) => {
         const submittedNode = submittedProjection.nodes.find(
@@ -469,6 +541,7 @@ export function runDuplicateSelection({
         );
         if (!insertedNode) return;
         selectedIds.push(insertedNode.id);
+        if (file.id === activeFile?.id) activeSelectedIds.push(insertedNode.id);
         nextDuplicateRootNodeIds.push(
           insertedNode.dataAttributes["data-agent-native-node-id"] ??
             insertedNode.id,
@@ -480,9 +553,56 @@ export function runDuplicateSelection({
     if (selectedIds.length > 0) {
       clearExplicitOverviewScreenSelection?.();
       setSelectedLayerIdsState(selectedIds);
-      setSelectedElement(
-        lastActiveNode ? elementInfoFromCodeLayerNode(lastActiveNode) : null,
-      );
+      const selectedElementAfter = lastActiveNode
+        ? elementInfoFromCodeLayerNode(lastActiveNode)
+        : null;
+      setSelectedElement(selectedElementAfter);
+      if (activeSelectedIds.length > 0 && activeFile && activeSelectionBefore) {
+        const selectionAfterDuplicate: YjsUndoSelectionSnapshot = {
+          selectedElement: selectedElementAfter,
+          selectedLayerIds: activeSelectedIds,
+          sourceContentByFileId: {
+            [activeFile.id]:
+              activeContentAfter ?? getScreenContent(activeFile.id),
+          },
+          sourceFileIdByFileId: { [activeFile.id]: activeFile.id },
+        };
+        if (viewModeRef.current === "single") {
+          stampYjsUndoSelection(
+            undoManagerRef.current,
+            activeUndoStackTopBefore,
+            activeSelectionBefore,
+          );
+          stampYjsUndoSelectionAfter(
+            undoManagerRef.current,
+            activeYjsHistoryRecorded,
+            selectionAfterDuplicate,
+          );
+          if (localContentUndoStackRef) {
+            stampLocalContentHistorySelectionBefore(
+              localContentUndoStackRef.current,
+              activeLocalUndoStackTopBefore,
+              activeSelectionBefore,
+            );
+            stampLocalContentHistorySelectionAfter(
+              localContentUndoStackRef.current,
+              activeLocalUndoStackTopBefore,
+              selectionAfterDuplicate,
+            );
+          }
+        } else if (contentUndoStackRef && contentHistorySelectionAfterRef) {
+          stampContentHistorySelectionAfter(
+            contentUndoStackRef.current,
+            contentHistorySelectionAfterRef.current,
+            activeContentHistoryTopBefore,
+            {
+              overviewSelectedScreenIds: selectedScreenIds,
+              selectedLayerIds: selectedIds,
+              activeFileId: activeFile.id,
+            },
+          );
+        }
+      }
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds(selectedScreenIds);
       }

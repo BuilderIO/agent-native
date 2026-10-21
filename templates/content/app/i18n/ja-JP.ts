@@ -406,6 +406,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "表示のみ。このページは GitHub のファイルに連動し、push のたびに更新されます。",
+  githubSourceOpenFile: "GitHub で開く",
   textColor: "テキストの色",
   backgroundColor: "背景色",
   defaultColor: "デフォルト",
@@ -426,8 +429,8 @@ const editor = {
   registryBlockLoadError:
     "{{type}} ブロックを読み込めませんでした: {{message}}",
   registryBlockUnreadable: "保存されたブロックソースを読み取れません。",
-  blocksFieldRevisionConflict:
-    "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
+  blocksFieldEditMovedToEnd:
+    "このブロックフィールドは別の場所でも変更されました。同じ箇所に入力したテキストはフィールドの末尾に移動しました。",
   reconcileConflict:
     "このページは別の場所で変更されました。編集内容はまだ保存されていません。",
   reconcileFailed:
@@ -515,6 +518,7 @@ const editor = {
     imageDownloadStarted: "画像のダウンロードが始まりました。",
     imageLinkHint: "ウェブ上のあらゆる画像を扱うことができます",
     imagePreview: "画像プレビュー",
+    imageUnavailable: "画像を表示できません",
     imageView: "イメージビュー",
     link: "リンク",
     loadingAssetsPicker: "アセットピッカーのロード",
@@ -974,6 +978,13 @@ const comments = {
   hideIndicators: "コメントとハイライトを非表示",
   showIndicators: "コメントとハイライトを表示",
   unanchored: "ハイライトを利用できません",
+  propertyEmpty: "空",
+  propertyRemoved: "{{name}}（削除済み）",
+  propertyWas: "以前: {{value}}",
+  commentOnProperty: "{{name}} にコメント",
+  openPropertyComments_other: "{{name}} の未解決のコメント {{count}} 件",
+  openRowComments_other: "{{title}} の未解決のコメント {{count}} 件",
+  openRow: "行を開く",
   suggestions: "提案",
   suggestionAdd: "追加",
   suggestionDelete: "削除",
@@ -994,6 +1005,10 @@ const comments = {
   accepted: "承認済み",
   rejected: "却下済み",
   noFilteredComments: "一致するコメントはありません。",
+  tabFilter: "タブ",
+  allTabs: "すべてのタブ",
+  fieldRemoved: "{{name}}（削除済み）",
+  pageBody: "ページ本文",
 };
 
 const reviewDiscussions = {
@@ -1180,6 +1195,7 @@ const history = {
   historyGroupAgent: "エージェント実行",
   historyGroupHuman: "編集セッション",
   historyGroupLegacy: "以前の編集",
+  historyGroupGitHub: "GitHub から同期",
   historyGroupOperation: "操作",
   historyGroupRestore: "復元",
   historyLoadError: "バージョン履歴を読み込めませんでした。",
@@ -1405,8 +1421,22 @@ const overrides = {
     searchLanguages: "言語を検索...",
     noBlocksFields:
       "Blocks フィールドがありません。プロパティメニューから追加してください。",
-    reorderField: "{{name}} を並べ替え",
-    toggleField: "{{name}} を切り替え",
+    addBlockField: "フィールドを追加",
+    blockFieldChanged: "前回の表示以降に変更されました",
+    blockFieldTabs: "フィールド",
+    blockFieldOpenComments_other: "未解決のコメント {{count}} 件",
+    blockFieldMenu: "{{name}} のオプション",
+    blockFieldMenuScope: "このコレクションのすべての行で共通",
+    blockFieldName: "フィールド名",
+    renameBlockField: "名前を変更",
+    renameBlockFieldFailed: "フィールドの名前を変更できませんでした",
+    deleteBlockField: "削除",
+    deleteBlockFieldFailed: "フィールドを削除できませんでした",
+    deleteBlockFieldQuestion: "「{{name}}」を削除しますか?",
+    deleteBlockFieldDescription:
+      "このコレクションのすべての行から「{{name}}」とそのテキストが削除されます。元に戻すことはできません。",
+    deleteBlockFieldBodyWarning:
+      "「{{name}}」はページ本文のため、すべての行の本文も削除されます。",
   },
   comments: {
     add: "コメントを追加...",

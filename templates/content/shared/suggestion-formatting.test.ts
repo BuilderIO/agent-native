@@ -500,6 +500,22 @@ describe("code fences stay mappable", () => {
   });
 });
 describe("text the writer spells in context stays suggestable", () => {
+  it.each([
+    "<span>\t\\_\\_literal\\_\\_</span> \\![x](y) **next**",
+    "<span>\t</span> $`x`$1 **next**",
+    "<span>  </span> **next**",
+  ])("maps protective whitespace beside contextual escapes in %j", (input) => {
+    const source = canonicalizeNfm(input);
+    expect(canonicalizeNfm(source)).toBe(source);
+    expect(nfmToDoc(source)).toEqual(nfmToDoc(input));
+    const next = source.indexOf("next");
+    const alignment = suggestionSourceAlignment(source);
+    expect(alignment?.map(next, "stored")).toBe(next);
+    expect(suggestionFormattingSourceSlice(source, next, next + 4)).toEqual([
+      { type: "text", text: "next", marks: [{ type: "bold" }] },
+    ]);
+  });
+
   it("maps HTML cell text ending in backslashes through canonical spelling", () => {
     for (const tag of ["td", "th"]) {
       for (const count of [1, 2, 3, 4]) {

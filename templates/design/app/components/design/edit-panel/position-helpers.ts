@@ -42,6 +42,21 @@ export function strokeIsVisible(
     .some((side) => side !== "" && side !== "none" && side !== "hidden");
 }
 
+/** An Inside stroke is a border, which grows a content-box layer unless it becomes border-box. */
+export function insideStrokeBoxSizing(
+  styles: Record<string, string | undefined>,
+): Record<string, string> {
+  if (styles.boxSizing !== "content-box") return {};
+  // border-box would shrink a padded layer by its padding instead.
+  const padded = [
+    styles.paddingTop,
+    styles.paddingRight,
+    styles.paddingBottom,
+    styles.paddingLeft,
+  ].some((padding) => cssLengthNumber(padding) !== 0);
+  return padded ? {} : { boxSizing: "border-box" };
+}
+
 export function strokeHiddenByColor(color: string | undefined): boolean {
   return Boolean(color) && !colorHasVisibleAlpha(color);
 }

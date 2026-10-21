@@ -147,4 +147,12 @@ describe("ORG_MIGRATIONS", () => {
       /ADD COLUMN IF NOT EXISTS icon_revision BIGINT NOT NULL DEFAULT 0/i,
     );
   });
+
+  it("adds owner-controlled A2A member delegation disabled by default", () => {
+    const migration = ORG_MIGRATIONS.find((entry) => entry.version === 1035);
+    expect(migration?.name).toBe("organization-a2a-member-delegation");
+    expect(migration?.sql).toMatch(
+      /ADD COLUMN IF NOT EXISTS a2a_member_delegation_enabled BOOLEAN NOT NULL DEFAULT FALSE/i,
+    );
+  });
 });

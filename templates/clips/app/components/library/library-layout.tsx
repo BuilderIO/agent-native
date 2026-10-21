@@ -12,7 +12,7 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/toolkit/app/shared";
-import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
+import { CLIPS_MEETINGS, CLIPS_VOICE_DICTATION } from "@shared/labs";
 import {
   IconInbox,
   IconPhoto,
@@ -195,7 +195,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const t = useT();
   const isRecordingRoute = location.pathname.startsWith("/r/");
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
-  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW);
+  const voiceDictationLabEnabled = useLab(CLIPS_VOICE_DICTATION);
   const recordingScope = useMemo(() => {
     const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
     const recordingId = match?.[1];
@@ -517,7 +517,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           },
         ]
       : []),
-    ...(wisprFlowLabEnabled
+    ...(voiceDictationLabEnabled
       ? [
           {
             to: "/dictate",

@@ -156,7 +156,12 @@ describe("workspace connection provider catalog", () => {
         (provider) => provider.id,
       ),
     ).toContain("sigma");
-    expect(getWorkspaceConnectionProvider("sigma")?.oauth).toBeUndefined();
+    expect(getWorkspaceConnectionProvider("sigma")?.oauth).toMatchObject({
+      provider: "sigma",
+      authorizationUrl: "https://aws-api.sigmacomputing.com/mcp/authorize",
+      tokenUrl: "https://aws-api.sigmacomputing.com/mcp/token",
+      scopes: ["api:access"],
+    });
   });
 
   it("registers dbt's token and non-secret Semantic Layer connection settings", () => {

@@ -41,7 +41,7 @@ export interface DownloadPdfArgs {
           cropSelection: ElementInfo | readonly ElementInfo[] | null;
         }
       >;
-  releaseScreenFromExport?: () => void;
+  releaseScreenFromExport?: (lease: symbol) => void;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
   showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -78,8 +78,11 @@ export async function runDownloadPdf(
       pageHeight = Math.max(1, selectedScreensBounds.height);
     } else {
       const target = await resolvePngCaptureTarget(scope);
-      const prepared = await prepareExportCaptureTarget(target);
+      let prepared: Awaited<
+        ReturnType<typeof prepareExportCaptureTarget>
+      > | null = null;
       try {
+        prepared = await prepareExportCaptureTarget(target);
         const crop = resolveExportCropRect(prepared.doc, target.cropSelection);
         const pageCrop =
           crop ?? resolveBoardExportCropRect(prepared.doc, prepared.iframe);
@@ -102,7 +105,10 @@ export async function runDownloadPdf(
             ),
         );
       } finally {
-        prepared.dispose();
+        prepared?.dispose();
+        if (target.screenLease) {
+          releaseScreenFromExport?.(target.screenLease);
+        }
       }
     }
     const pdfScale = Math.max(
@@ -141,7 +147,6 @@ export async function runDownloadPdf(
     });
     showRasterCaptureError(error, "pdf");
   } finally {
-    releaseScreenFromExport?.();
     pngExportingRef.current = false;
     setPngExporting(false);
   }

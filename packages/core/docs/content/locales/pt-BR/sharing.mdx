@@ -124,6 +124,8 @@ Todo recurso compartilhável recebe um botão de compartilhamento em seu cabeça
 - Uma lista de concessões atuais com seletores de funções e um controle de remoção.
 - Um botão de copiar link que respeita a visibilidade atual.
 
+Mudar um recurso de `Private` para `Organization` pede confirmação primeiro. Nada muda até que a pessoa confirme. Cancelar ou Escape mantém o acesso atual. Se o salvamento falhar, a caixa de diálogo mostra o erro e a pessoa pode tentar novamente. As demais mudanças de visibilidade são salvas imediatamente. A confirmação existe apenas na UI de compartilhamento. `set-resource-visibility` não muda, então o agente e qualquer outro chamador continuam alterando a visibilidade diretamente, e a política de compartilhamento do recurso continua decidindo o que é permitido.
+
 O botão de compartilhamento é uma importação única:
 
 ```tsx
@@ -136,6 +138,40 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
 ```
 
 Para listas, coloque um `<VisibilityBadge visibility={row.visibility} />` ao lado de cada linha para que os usuários possam ver rapidamente o que é privado e o que é compartilhado.
+
+## Chats compartilhados {#shared-chats}
+
+Os threads de chat do agente usam o mesmo modelo. Um chat novo ou bifurcado é privado para o proprietário, e compartilhar um chat segue as regras acima.
+
+Cada chat em uma lista de histórico traz dois campos para que uma linha possa dizer de quem é o chat e por que você pode vê-lo:
+
+| Campo         | Valor                                                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | O proprietário do chat.                                                                                                                |
+| `accessBasis` | `owner`, `direct` (uma concessão a você pelo nome) ou `organization`. `direct` prevalece sobre `organization` quando ambos se aplicam. |
+
+As listas de histórico e a pesquisa aceitam um filtro `ownership`:
+
+- `all` (padrão) lista todos os chats aos quais você tem acesso.
+- `mine` lista os chats que você possui, mesmo quando compartilhados com a organização.
+- `shared` lista os chats aos quais você tem acesso e que pertencem a outra pessoa.
+
+O servidor aplica `ownership` antes da paginação, então `limit`, `offset` e `hasMore` descrevem a lista filtrada. A pesquisa aceita o mesmo filtro. Um valor desconhecido é rejeitado com um 400 em vez de voltar para `all`. As regras de acesso não mudam e a listagem nunca carrega transcrições.
+
+Migração: chamadas personalizadas à lista do histórico e à pesquisa devem enviar um inteiro positivo em `limit` e um inteiro não negativo em `offset`, ou omiti-los para usar os valores padrão. Valores malformados agora retornam HTTP 400 em vez de serem convertidos automaticamente. Limites válidos acima de 200 são reduzidos para 200.
+
+No código do cliente, `useChatThreadList()` de `@agent-native/core/client` pagina uma lista por vez:
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+`refreshOnThreadUpdates` tem o valor padrão `true`. Use `false` para ignorar atualizações acionadas por `notifyChatThreadsUpdated()`. O carregamento inicial, chamadas manuais a `refresh()`, a paginação e o recarregamento ao retomar uma Activity continuam funcionando. Alterar essa opção preserva as linhas carregadas e não inicia uma requisição por si só.
+
+Uma solicitação com falha define `error` e mantém as linhas já carregadas. Ela nunca parece uma lista vazia. `<ShareButton>` e `<ShareDialog>` atualizam as listas de chat montadas depois de salvar. Se você alterar o compartilhamento de um chat de outra forma, chame `notifyChatThreadsUpdated()` para que as listas montadas sejam recarregadas.
 
 ## Mesmo modelo, agente e UI {#agent-and-ui}
 

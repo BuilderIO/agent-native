@@ -2579,13 +2579,23 @@ export async function provisionBuilderAccount(input: {
   return parseBuilderAccountProvisioningResponse(parsed);
 }
 
-function builderApiFailure(status: number, message: string): Error {
-  return status === 401
-    ? new ActionContractError(message, {
-        errorCode: "builder_not_connected",
-        statusCode: 400,
-      })
-    : new Error(message);
+/**
+ * The error for a Builder API call that answered with an error status. Every
+ * one carries that status as `builderStatus`; a 401 is also the reconnectable
+ * `ActionContractError`, whose own `statusCode` is the action's, not Builder's.
+ */
+function builderApiFailure(
+  status: number,
+  message: string,
+): Error & { builderStatus: number } {
+  const error =
+    status === 401
+      ? new ActionContractError(message, {
+          errorCode: "builder_not_connected",
+          statusCode: 400,
+        })
+      : new Error(message);
+  return Object.assign(error, { builderStatus: status });
 }
 
 function builderApiErrorMessage(

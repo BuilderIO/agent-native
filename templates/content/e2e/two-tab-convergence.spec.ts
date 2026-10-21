@@ -10,6 +10,7 @@ import { knownLossSpec } from "../acceptance/known-loss";
 import {
   AGENT_MARKDOWN_BODY,
   AgentClient,
+  BODY_SAVES,
   createPage,
   delay,
   deleteEditorText,
@@ -21,7 +22,10 @@ import {
   integrityFailures,
   Markers,
   noiseFailures,
+  NOT_DERIVED,
   observeIntegrity,
+  outboxEntries,
+  OUTBOX_PREFIX,
   postAction,
   RequestGate,
   SaveGate,
@@ -30,7 +34,7 @@ import {
   writeScenarioRecord,
   type ScenarioRecord,
 } from "./helpers";
-import { enterGateArm, GATE_ARM } from "./live-body-gate";
+import { enterGateArm, GATE_ARM, knownLossOnArm } from "./live-body-gate";
 
 // These scenarios count how often two tabs disagree. A retry would hide
 // exactly the intermittent failures they exist to count.
@@ -46,6 +50,25 @@ const DELETE_BEFORE_PEER_SAVE_LOSS = knownLossSpec({
   outcome: "SF-01",
   reason:
     "Text deleted before another tab's held save lands comes back when that save arrives.",
+});
+
+// A build with L3's switch but not L4b's outbox fails these on the gate-on
+// arm, and L4b's head passes them.
+const NO_OUTBOX_LOSS = knownLossOnArm({
+  on: {
+    lane: "L4b",
+    outcome: "SF-01",
+    reason:
+      "Until L4b a switched page keeps no outbox, so an update cut off by a refresh, refused by the server, or aborted by leaving the page is never resent, and a tab that returns mid-save asks which version to keep.",
+  },
+});
+const SLOW_UPDATE_LOSS = knownLossOnArm({
+  on: {
+    lane: "L4b",
+    outcome: "SF-01",
+    reason:
+      'Until L4b a switched page also saves through update-document, and while its collab updates take the 2 s save latency those saves fail with "Your latest page edits could not be saved". The same scenarios pass with no latency.',
+  },
 });
 
 // SESSION_RESULT_LIFETIME_MS in core's client-status-requests.ts.
@@ -64,6 +87,12 @@ interface Scenario {
   notes: Record<string, unknown>;
   /** Noise the scenario causes on purpose, from `noiseFailures`. */
   expectedNoise: string[];
+  /**
+   * Set when a separate `@known-loss` test owns this scenario's text check, so
+   * a known race can't fail the behavior this test requires. The record still
+   * counts the text.
+   */
+  textCheckedElsewhere?: boolean;
 }
 
 async function runScenario(
@@ -86,10 +115,10 @@ async function runScenario(
     notes: {},
     expectedNoise: [],
   };
-  await body(scenario);
-  const working = [...tabs.tabs.values()];
-  const integrity = await observeIntegrity(tabs, reader, id, scenario.markers);
-  const record: ScenarioRecord = {
+  const scenarioRecord = (
+    integrity: ScenarioRecord["integrity"],
+    stoppedEarly?: string,
+  ): ScenarioRecord => ({
     scenario: name,
     tags: testInfo.tags,
     notes: scenario.notes,
@@ -100,52 +129,123 @@ async function runScenario(
     markers: scenario.markers.all.length,
     durationMs: Date.now() - started,
     integrity,
+    ...(stoppedEarly === undefined ? {} : { stoppedEarly }),
     tabs: [...tabs.tabs.values(), tabs.detached],
-  };
-  writeScenarioRecord(testInfo, record);
-  await testInfo.attach("convergence", {
-    body: JSON.stringify(record, null, 2),
-    contentType: "application/json",
   });
-  // The lane fails if it did not run under the conditions it reports.
-  const latency = Number(scenario.notes.saveLatencyMs ?? 0);
-  for (const tab of working) {
-    expect(
-      tab.editorMounts,
-      `${tab.label} reported no editor mount, so its toasts and recovery UI went uncounted`,
-    ).toBeGreaterThan(0);
-    expect(
-      tab.realtimeRefusals,
-      `${tab.label} never asked for the realtime stream, so it did not run beta's poll path`,
-    ).toBeGreaterThan(0);
-    expect(
-      tab.realtimeStreams,
-      `${tab.label} opened a realtime stream the lane should have refused`,
-    ).toBe(0);
-    if (latency > 0 && tab.saveDurationsMs.length)
+  let recordWritten = false;
+  let convergenceAttached = false;
+  try {
+    await body(scenario);
+    const working = [...tabs.tabs.values()];
+    const integrity = await observeIntegrity(
+      tabs,
+      reader,
+      id,
+      scenario.markers,
+    );
+    const record = scenarioRecord(integrity);
+    writeScenarioRecord(testInfo, record);
+    recordWritten = true;
+    await testInfo.attach("convergence", {
+      body: JSON.stringify(record, null, 2),
+      contentType: "application/json",
+    });
+    convergenceAttached = true;
+    // The lane fails if it did not run under the conditions it reports.
+    const latency = Number(scenario.notes.saveLatencyMs ?? 0);
+    for (const tab of working) {
       expect(
-        Math.min(...tab.saveDurationsMs),
-        `${tab.label} answered a save faster than the ${latency} ms latency`,
-      ).toBeGreaterThanOrEqual(latency * 0.9);
-  }
-  if (latency > 0)
+        tab.editorMounts,
+        `${tab.label} reported no editor mount, so its toasts and recovery UI went uncounted`,
+      ).toBeGreaterThan(0);
+      expect(
+        tab.realtimeRefusals,
+        `${tab.label} never asked for the realtime stream, so it did not run beta's poll path`,
+      ).toBeGreaterThan(0);
+      expect(
+        tab.realtimeStreams,
+        `${tab.label} opened a realtime stream the lane should have refused`,
+      ).toBe(0);
+      if (latency > 0 && tab.saveDurationsMs.length)
+        expect(
+          Math.min(...tab.saveDurationsMs),
+          `${tab.label} answered a save faster than the ${latency} ms latency`,
+        ).toBeGreaterThanOrEqual(latency * 0.9);
+    }
+    if (latency > 0)
+      expect(
+        working.some((tab) => tab.saveDurationsMs.length),
+        "no save was timed under the latency",
+      ).toBe(true);
+    if (BODY_SAVES === "collab-update")
+      for (const tab of working)
+        expect(
+          Object.keys(tab.saveCodes).filter((code) =>
+            code.startsWith(NOT_DERIVED),
+          ),
+          `${tab.label} heard the server stopped building the body from the live copy, so it went back to update-document saves`,
+        ).toEqual([]);
+    if (!scenario.textCheckedElsewhere)
+      expect(
+        integrityFailures(record),
+        "lost, duplicated or deleted-then-back text",
+      ).toEqual([]);
+    const noise = noiseFailures(record.tabs);
+    for (const expected of scenario.expectedNoise) {
+      const at = noise.indexOf(expected);
+      if (at >= 0) noise.splice(at, 1);
+    }
     expect(
-      working.some((tab) => tab.saveDurationsMs.length),
-      "no save was timed under the latency",
-    ).toBe(true);
-  expect(
-    integrityFailures(record),
-    "lost, duplicated or deleted-then-back text",
-  ).toEqual([]);
-  const noise = noiseFailures(record.tabs);
-  for (const expected of scenario.expectedNoise) {
-    const at = noise.indexOf(expected);
-    if (at >= 0) noise.splice(at, 1);
+      noise,
+      "recovery notices, error toasts or saves sent to History",
+    ).toEqual([]);
+  } catch (error) {
+    const record = scenarioRecord(
+      null,
+      error instanceof Error ? error.message : String(error),
+    );
+    const diagnosticErrors: unknown[] = [];
+    if (!recordWritten) {
+      try {
+        writeScenarioRecord(testInfo, record);
+      } catch (reportError) {
+        diagnosticErrors.push(reportError);
+      }
+    }
+    if (!convergenceAttached) {
+      try {
+        await testInfo.attach("convergence", {
+          body: JSON.stringify(record, null, 2),
+          contentType: "application/json",
+        });
+      } catch (attachmentError) {
+        diagnosticErrors.push(attachmentError);
+      }
+    }
+    try {
+      await testInfo.attach("convergence-partial", {
+        body: JSON.stringify(
+          {
+            ...record,
+            captureState: "incomplete",
+            failureName: error instanceof Error ? error.name : typeof error,
+            diagnostics: tabs.diagnosticSnapshot(),
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+    } catch (attachmentError) {
+      diagnosticErrors.push(attachmentError);
+    }
+    if (diagnosticErrors.length)
+      throw new AggregateError(
+        [error, ...diagnosticErrors],
+        "Convergence scenario failed and diagnostics could not be fully recorded",
+      );
+    throw error;
   }
-  expect(
-    noise,
-    "recovery notices, error toasts or saves sent to History",
-  ).toEqual([]);
 }
 
 async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
@@ -161,6 +261,28 @@ async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
   return { first, second, gates };
 }
 
+async function openDuringPeerSave(s: Scenario) {
+  const { first, gates } = await openPair(s, 0);
+  await s.tabs.showOnly(first);
+  gates.first.holdArrivals();
+  await typeAtParagraphEnd(first, "Alpha paragraph", ` ${s.markers.next("A")}`);
+  await gates.first.waitForHeld();
+
+  const fresh = await s.tabs.open("C", s.id);
+  await expectEditorReady(fresh);
+  expect(
+    s.tabs.record(fresh).saveRequests,
+    "C sent A's pending edit as a save of its own",
+  ).toBe(0);
+
+  await s.tabs.showOnly(first);
+  gates.first.pass();
+  await gates.first.release();
+  await s.tabs.waitForSaveAnswers(first, 1);
+  await s.tabs.quiet();
+  expect(s.tabs.record(fresh).saveRequests).toBe(0);
+}
+
 async function alternate(s: Scenario) {
   const { first, second } = await openPair(s);
   for (let cycle = 1; cycle <= 4; cycle++) {
@@ -173,6 +295,223 @@ async function alternate(s: Scenario) {
       await tab.waitForTimeout(400);
     }
   }
+}
+
+const SWITCHED_HAS_NO_DRAFT =
+  "A switched page keeps unsent edits in its outbox, not a recovery draft journal; the outbox scenarios cover it.";
+const LEGACY_KEEPS_A_DRAFT =
+  "A legacy page keeps a body it could not save in a recovery draft; the Keep Mine and journal scenarios cover it.";
+
+/**
+ * refresh-mid-save on a switched page, which keeps no recovery draft to
+ * compare: the server applies A's update but A never hears so, and its outbox
+ * carries the update through the refresh without doubling it.
+ */
+async function refreshMidUpdate(s: Scenario) {
+  const a = await s.tabs.open("A", s.id);
+  const b = await s.tabs.open("B", s.id);
+  const aSaves = await SaveGate.install(a);
+  await s.tabs.showAll();
+  aSaves.holdAnswers();
+  const aMarker = s.markers.next("A");
+  await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+  await aSaves.waitForHeld();
+  await s.tabs.waitForText(b, aMarker);
+  const bMarker = s.markers.next("B");
+  await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
+  await s.tabs.waitForText(a, bMarker);
+  await aSaves.cutOff();
+  expect(
+    await outboxEntries(a, s.id),
+    "A's cut-off update should wait in its outbox",
+  ).not.toEqual([]);
+  await a.reload({ waitUntil: "domcontentloaded" });
+  await expectEditorReady(a);
+  aSaves.pass();
+  await aSaves.release();
+  await expect
+    .poll(() => outboxEntries(a, s.id), {
+      message: "the reopened tab's outbox should empty once its update lands",
+      timeout: 30_000,
+    })
+    .toEqual([]);
+  expect(
+    await a.getByText("Choose which version to keep").isVisible(),
+    "the reopened tab asked which of two versions to keep",
+  ).toBe(false);
+  await typeAtParagraphEnd(a, "Bravo paragraph", ` ${s.markers.next("A")}`);
+  s.notes.heldSaves = aSaves.heldCount;
+}
+
+/**
+ * The switched-page side of the Keep Mine and journal scenarios: while the
+ * server refuses A's updates, A's text waits in its outbox, B renames the
+ * page, and after a reload A's text lands under B's title with no version to
+ * choose. With `outboxWriteFailsOnce`, the first outbox write throws.
+ */
+async function peerTitleWhileUpdatesFail(
+  s: Scenario,
+  { outboxWriteFailsOnce }: { outboxWriteFailsOnce: boolean },
+) {
+  const { first: a, second: b } = await openPair(s, 0);
+  const aMarker = s.markers.next("A");
+  const peerTitle = `Peer title ${s.id.slice(0, 8)}`;
+  const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
+  const collabUpdateMatcher = (url: URL) => url.pathname === collabUpdatePath;
+  let failedCollabUpdates = 0;
+  await a.route(collabUpdateMatcher, (route) => {
+    failedCollabUpdates++;
+    return route.fulfill({
+      status: 503,
+      body: "Collaboration update refused while another tab renames the page",
+    });
+  });
+  if (outboxWriteFailsOnce)
+    await a.evaluate((prefix) => {
+      const original = Storage.prototype.setItem;
+      (window as any).__outboxOriginalSetItem = original;
+      (window as any).__outboxSetItemFailed = false;
+      Storage.prototype.setItem = function (key: string, value: string) {
+        if (!(window as any).__outboxSetItemFailed && key.startsWith(prefix)) {
+          (window as any).__outboxSetItemFailed = true;
+          throw new DOMException(
+            "Simulated one-time outbox write failure",
+            "QuotaExceededError",
+          );
+        }
+        return original.call(this, key, value);
+      };
+    }, OUTBOX_PREFIX);
+
+  await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+  await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
+  await expect
+    .poll(() => outboxEntries(a, s.id), {
+      message: "A's refused update should wait in its outbox",
+      timeout: 30_000,
+    })
+    .not.toEqual([]);
+  if (outboxWriteFailsOnce)
+    expect(
+      await a.evaluate(() => (window as any).__outboxSetItemFailed),
+      "no outbox write was attempted while A typed",
+    ).toBe(true);
+
+  const titleInput = b.getByLabel("Document title");
+  await titleInput.fill(peerTitle);
+  await titleInput.press("Tab");
+  await expect
+    .poll(async () => (await getDocument(s.reader, s.id)).title, {
+      message: "B's title should reach the canonical page",
+      timeout: 30_000,
+    })
+    .toBe(peerTitle);
+  await expect(a.getByLabel("Document title")).toHaveValue(peerTitle, {
+    timeout: 30_000,
+  });
+  const beforeReload = await getDocument(s.reader, s.id);
+  expect(beforeReload.content).not.toContain(aMarker);
+
+  if (outboxWriteFailsOnce)
+    await a.evaluate(() => {
+      Storage.prototype.setItem = (window as any).__outboxOriginalSetItem;
+    });
+  await a.unroute(collabUpdateMatcher);
+  await a.reload({ waitUntil: "domcontentloaded" });
+  await expectEditorReady(a);
+  await expect
+    .poll(async () => getDocument(s.reader, s.id), {
+      message: "A's kept update should land under B's title",
+      timeout: 30_000,
+    })
+    .toMatchObject({
+      title: peerTitle,
+      content: expect.stringContaining(aMarker),
+    });
+  await expect(
+    a.getByText("Choose which version to keep", { exact: true }),
+  ).toBeHidden();
+  await expect(a.locator(EDITOR)).toContainText(aMarker);
+  s.notes.failedCollabUpdates = failedCollabUpdates;
+  if (outboxWriteFailsOnce)
+    s.expectedNoise = [
+      'A showed "Your latest page edits could not be saved."',
+      'A toasted "Your latest page edits could not be saved. Try again before leaving this page."',
+    ];
+}
+
+/**
+ * Keep Mine on a switched page, which merges edits and so has no stale
+ * version to choose: while the server refuses A's updates, B renames the page
+ * twice and types, and once A's updates go through, the page holds both tabs'
+ * text under B's title without asking A which version to keep. The integrity
+ * checks then find both in the live copy and the stored form after a reload.
+ */
+async function peerTitlesWhileUpdatesPending(s: Scenario) {
+  const { first: a, second: b } = await openPair(s, 0);
+  const aMarker = s.markers.next("A");
+  const peerTitles = [
+    `Peer title first ${s.id.slice(0, 8)}`,
+    `Peer title final ${s.id.slice(0, 8)}`,
+  ];
+  const collabUpdatePath = `/_agent-native/collab/${s.id}/update`;
+  const collabUpdateMatcher = (url: URL) => url.pathname === collabUpdatePath;
+  let failedCollabUpdates = 0;
+  await a.route(collabUpdateMatcher, (route) => {
+    failedCollabUpdates++;
+    return route.fulfill({
+      status: 503,
+      body: "Collaboration update refused while another tab renames the page",
+    });
+  });
+
+  await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+  await expect.poll(() => failedCollabUpdates).toBeGreaterThan(0);
+  const titleInput = b.getByLabel("Document title");
+  for (const title of peerTitles) {
+    await titleInput.fill(title);
+    await titleInput.press("Tab");
+    await expect
+      .poll(async () => (await getDocument(s.reader, s.id)).title, {
+        message: "B's title should reach the canonical page",
+        timeout: 30_000,
+      })
+      .toBe(title);
+    await expect(a.getByLabel("Document title")).toHaveValue(title, {
+      timeout: 30_000,
+    });
+  }
+  const bMarker = s.markers.next("B");
+  await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
+  // Not waitForTypingSaved: the tabs share one outbox, which holds A's
+  // refused update until the server takes it.
+  await expect
+    .poll(async () => (await getDocument(s.reader, s.id)).content, {
+      message: "B's text should reach the page",
+      timeout: 30_000,
+    })
+    .toContain(bMarker);
+  await s.tabs.waitForText(a, bMarker);
+  expect(
+    (await getDocument(s.reader, s.id)).content,
+    "A's text reached the page while the server refused its updates",
+  ).not.toContain(aMarker);
+
+  await a.unroute(collabUpdateMatcher);
+  await expect
+    .poll(async () => getDocument(s.reader, s.id), {
+      message: "A's pending text should land under B's title",
+      timeout: 30_000,
+    })
+    .toMatchObject({
+      title: peerTitles[1],
+      content: expect.stringContaining(aMarker),
+    });
+  await expect(
+    a.getByText("Choose which version to keep", { exact: true }),
+  ).toBeHidden();
+  await expect(a.locator(EDITOR)).toContainText(bMarker);
+  s.notes.failedCollabUpdates = failedCollabUpdates;
 }
 
 test.describe(
@@ -277,6 +616,95 @@ test.describe(
       });
     });
 
+    test("a tab opened while another tab's save is on its way sends no save", async ({
+      context,
+    }, testInfo) => {
+      await runScenario(
+        "open-during-peer-save",
+        testInfo,
+        context,
+        async (s) => {
+          s.textCheckedElsewhere = true;
+          await openDuringPeerSave(s);
+        },
+      );
+    });
+
+    // C can apply the older stored body over the live copy as it opens, deleting
+    // A's word, and two tabs then put it back. The fix to how a tab joins a
+    // populated live copy (useCollabReconcile) drops this tag.
+    test(
+      "a tab opened while another tab's save is on its way keeps that tab's word once",
+      { tag: "@known-loss" },
+      async ({ context }, testInfo) => {
+        await runScenario(
+          "open-during-peer-save-text",
+          testInfo,
+          context,
+          openDuringPeerSave,
+        );
+      },
+    );
+
+    test("a tab opened after a save met another tab's edit sends no save", async ({
+      context,
+    }, testInfo) => {
+      await runScenario(
+        "open-after-in-flight-race",
+        testInfo,
+        context,
+        async (s) => {
+          const { first, second, gates } = await openPair(s, 0);
+          await s.tabs.showOnly(first);
+          gates.first.holdAnswers();
+          await typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          );
+          await gates.first.waitForHeld();
+
+          await s.tabs.showOnly(second);
+          const fromSecond = s.markers.next("B");
+          await typeAtParagraphEnd(
+            second,
+            "Charlie paragraph",
+            ` ${fromSecond}`,
+          );
+          await s.tabs.waitForSaveAnswers(second, 1);
+          await s.tabs.showOnly(first);
+          await s.tabs.waitForText(first, fromSecond);
+
+          // Hidden, A leaves the converged save to B, so only the answer to A's
+          // own save can settle the edit A journaled.
+          await s.tabs.showOnly(second);
+          gates.first.pass();
+          await gates.first.release();
+          await s.tabs.waitForSaveAnswers(first, 1);
+          await expect
+            .poll(
+              () =>
+                first.evaluate(() =>
+                  Object.keys(localStorage).filter((key) =>
+                    key.startsWith("content-page-draft-journal-v1:"),
+                  ),
+                ),
+              { message: "A's acknowledged edit is still journaled" },
+            )
+            .toEqual([]);
+          await first.close({ runBeforeUnload: true });
+
+          const fresh = await s.tabs.open("C", s.id);
+          await expectEditorReady(fresh);
+          await s.tabs.quiet();
+          expect(
+            s.tabs.record(fresh).saveRequests,
+            "C replayed the edit A had saved",
+          ).toBe(0);
+        },
+      );
+    });
+
     test(
       "deleting another tab's word before that tab's save lands keeps it deleted",
       DELETE_BEFORE_PEER_SAVE_LOSS,
@@ -288,9 +716,12 @@ test.describe(
           async (s) => {
             const { first, second, gates } = await openPair(s);
             // B's word reaches A only through the live copy: B's save is held, so
-            // no stored body holds the word when A deletes it.
+            // no stored body holds the word when A deletes it. On a switched page
+            // that live copy is the save, so B's tab instead never hears that the
+            // word landed, and keeps sending it.
             await s.tabs.showOnly(second);
-            gates.second.holdArrivals();
+            if (BODY_SAVES === "collab-update") gates.second.holdAnswers();
+            else gates.second.holdArrivals();
             const fromSecond = s.markers.next("B");
             await typeAtParagraphEnd(
               second,
@@ -320,189 +751,203 @@ test.describe(
       },
     );
 
-    test("leaving with a save pending and returning before the session is known keeps the text", async ({
-      context,
-    }, testInfo) => {
-      await runScenario(
-        "leave-return-session-pending",
-        testInfo,
-        context,
-        async (s) => {
-          const tab = await s.tabs.open("A", s.id);
-          const saves = await SaveGate.install(tab);
-          const session = await RequestGate.session(tab);
-          await s.tabs.showOnly(tab);
+    test(
+      "leaving with a save pending and returning before the session is known keeps the text",
+      NO_OUTBOX_LOSS,
+      async ({ context }, testInfo) => {
+        await runScenario(
+          "leave-return-session-pending",
+          testInfo,
+          context,
+          async (s) => {
+            const tab = await s.tabs.open("A", s.id);
+            const saves = await SaveGate.install(tab);
+            const session = await RequestGate.session(tab);
+            await s.tabs.showOnly(tab);
 
-          saves.holdArrivals();
+            saves.holdArrivals();
+            await typeAtParagraphEnd(
+              tab,
+              "Alpha paragraph",
+              ` ${s.markers.next("A")}`,
+            );
+            await saves.waitForHeld();
+            // In-app navigation, as clicking the sidebar does; a full load waits
+            // for the session before rendering any page. The sidebar pages its
+            // page list, so a page link may not be loaded; Trash always is.
+            const trash = tab.getByRole("link", { name: "Trash", exact: true });
+            await trash.click();
+            await expect(trash).toHaveAttribute("aria-current", "page");
+            // Outlast the browser's 30 s session answer, so returning re-reads it.
+            await delay(SESSION_LIFETIME_MS + 1_000);
+
+            saves.pass();
+            session.hold();
+            await tab.goBack();
+            await expect(tab).toHaveURL(new RegExp(`/page/${s.id}`));
+            // An editor shown before the held session read returns is where #6366
+            // lost the word, so text typed then must still be kept.
+            const shownBeforeSession = await tab
+              .locator(`${EDITOR}[contenteditable=true]`)
+              .waitFor({ timeout: 4_000 })
+              .then(
+                () => true,
+                () => false,
+              );
+            s.notes.shownBeforeSession = shownBeforeSession;
+            s.notes.heldSessionReads = session.queued;
+            expect(
+              session.queued,
+              "returning never re-read the session, so no read was held pending",
+            ).toBeGreaterThan(0);
+            await saves.release();
+            if (shownBeforeSession)
+              await typeAtParagraphEnd(
+                tab,
+                "Charlie paragraph",
+                ` ${s.markers.next("A")}`,
+              );
+            await session.release();
+            await expectEditorReady(tab);
+            if (!shownBeforeSession)
+              await typeAtParagraphEnd(
+                tab,
+                "Charlie paragraph",
+                ` ${s.markers.next("A")}`,
+              );
+            s.notes.heldSaves = saves.heldCount;
+          },
+        );
+      },
+    );
+
+    test(
+      "refreshing after a save was cut off reopens the editor without asking which version to keep",
+      NO_OUTBOX_LOSS,
+      async ({ context }, testInfo) => {
+        await runScenario("refresh-mid-save", testInfo, context, async (s) => {
+          if (BODY_SAVES === "collab-update") return refreshMidUpdate(s);
+          const a = await s.tabs.open("A", s.id);
+          const b = await s.tabs.open("B", s.id);
+          const aSaves = await SaveGate.install(a);
+          const bSaves = await SaveGate.install(b);
+          const recoveries = await RequestGate.action(
+            a,
+            "resolve-preview-document-draft",
+          );
+          await s.tabs.showAll();
+          // A's save never reaches the server. B holds A's words through
+          // collaboration and saves them with its own, so the recovery draft A
+          // keeps for its failed save matches the page B leaves.
+          aSaves.holdArrivals();
+          bSaves.holdArrivals();
+          const aMarker = s.markers.next("A");
+          await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+          await aSaves.waitForHeld();
+          await s.tabs.waitForText(b, aMarker);
+          const bMarker = s.markers.next("B");
+          await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
+          await bSaves.waitForHeld();
+          await s.tabs.waitForText(a, bMarker);
+          aSaves.pass();
+          bSaves.pass();
+          await aSaves.cutOff();
+          await expect
+            .poll(
+              async () =>
+                (await getPreviewDraft(s.reader, s.id))?.content ?? "",
+              {
+                message: "A's failed save should leave a recovery draft",
+                timeout: 30_000,
+              },
+            )
+            .toContain(bMarker);
+          await bSaves.release();
+          await s.tabs.quiet();
+          // The chooser this scenario guards against offers these two as
+          // different versions.
+          const draft = await getPreviewDraft(s.reader, s.id);
+          const page = await getDocument(s.reader, s.id);
+          expect(
+            draft && { title: draft.title, content: draft.content },
+            "A's recovery draft should hold exactly the page B saved",
+          ).toEqual({ title: page.title, content: page.content });
+          // A's save was cut off on purpose, and that failed request reports once,
+          // before the refresh. The allowance covers only those entries, so the
+          // same notice after the refresh, or anything else A shows, still fails.
+          s.expectedNoise = [
+            'A showed "Something went wrong"',
+            'A toasted "Something went wrongAction update-document failed: Failed to fetch"',
+          ];
+          await expect
+            .poll(() => noiseFailures([s.tabs.record(a)]), {
+              message:
+                "A should report its cut-off save once before the refresh",
+              timeout: 10_000,
+            })
+            .toEqual(s.expectedNoise);
+          const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
+          recoveries.hold();
+          await a.reload({ waitUntil: "domcontentloaded" });
+          let reopenedWith: "recovery" | "discarded" | null = null;
+          for (const until = Date.now() + 60_000; !reopenedWith; ) {
+            if (recoveries.queued) reopenedWith = "recovery";
+            else if (!(await getPreviewDraft(s.reader, s.id)))
+              reopenedWith = "discarded";
+            else if (Date.now() > until)
+              throw new Error("the reopened tab never settled its draft");
+            else await delay(200);
+          }
+          s.notes.reopenedWith = reopenedWith;
+          if (reopenedWith === "recovery") {
+            // The page moves on without a word changing while the reopened tab
+            // files the draft, as another tab's save of the same text does.
+            await postAction(s.reader, "update-document", {
+              id: s.id,
+              description: "Touched while the tab reopened",
+            });
+          }
+          await recoveries.release();
+          const chooser = a.getByText("Choose which version to keep");
+          await expect
+            .poll(
+              async () =>
+                (await chooser.isVisible()) ||
+                !(await getPreviewDraft(s.reader, s.id)),
+              {
+                message: "the reopened tab never settled its draft",
+                timeout: 30_000,
+              },
+            )
+            .toBe(true);
+          const afterRefresh = s.tabs
+            .record(a)
+            .recovery.slice(noticesBeforeRefresh);
+          s.notes.recoveryAfterRefresh = afterRefresh;
+          expect(
+            await chooser.isVisible(),
+            "the reopened tab asked which of two identical versions to keep",
+          ).toBe(false);
+          await expectEditorReady(a);
           await typeAtParagraphEnd(
-            tab,
-            "Alpha paragraph",
+            a,
+            "Bravo paragraph",
             ` ${s.markers.next("A")}`,
           );
-          await saves.waitForHeld();
-          // In-app navigation, as clicking the sidebar does; a full load waits
-          // for the session before rendering any page. The sidebar pages its
-          // page list, so a page link may not be loaded; Trash always is.
-          const trash = tab.getByRole("link", { name: "Trash", exact: true });
-          await trash.click();
-          await expect(trash).toHaveAttribute("aria-current", "page");
-          // Outlast the browser's 30 s session answer, so returning re-reads it.
-          await delay(SESSION_LIFETIME_MS + 1_000);
-
-          saves.pass();
-          session.hold();
-          await tab.goBack();
-          await expect(tab).toHaveURL(new RegExp(`/page/${s.id}`));
-          // An editor shown before the held session read returns is where #6366
-          // lost the word, so text typed then must still be kept.
-          const shownBeforeSession = await tab
-            .locator(`${EDITOR}[contenteditable=true]`)
-            .waitFor({ timeout: 4_000 })
-            .then(
-              () => true,
-              () => false,
-            );
-          s.notes.shownBeforeSession = shownBeforeSession;
-          s.notes.heldSessionReads = session.queued;
-          expect(
-            session.queued,
-            "returning never re-read the session, so no read was held pending",
-          ).toBeGreaterThan(0);
-          await saves.release();
-          if (shownBeforeSession)
-            await typeAtParagraphEnd(
-              tab,
-              "Charlie paragraph",
-              ` ${s.markers.next("A")}`,
-            );
-          await session.release();
-          await expectEditorReady(tab);
-          if (!shownBeforeSession)
-            await typeAtParagraphEnd(
-              tab,
-              "Charlie paragraph",
-              ` ${s.markers.next("A")}`,
-            );
-          s.notes.heldSaves = saves.heldCount;
-        },
-      );
-    });
-
-    test("refreshing after a save was cut off reopens the editor without asking which version to keep", async ({
-      context,
-    }, testInfo) => {
-      await runScenario("refresh-mid-save", testInfo, context, async (s) => {
-        const a = await s.tabs.open("A", s.id);
-        const b = await s.tabs.open("B", s.id);
-        const aSaves = await SaveGate.install(a);
-        const bSaves = await SaveGate.install(b);
-        const recoveries = await RequestGate.action(
-          a,
-          "resolve-preview-document-draft",
-        );
-        await s.tabs.showAll();
-        // A's save never reaches the server. B holds A's words through
-        // collaboration and saves them with its own, so the recovery draft A
-        // keeps for its failed save matches the page B leaves.
-        aSaves.holdArrivals();
-        bSaves.holdArrivals();
-        const aMarker = s.markers.next("A");
-        await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
-        await aSaves.waitForHeld();
-        await s.tabs.waitForText(b, aMarker);
-        const bMarker = s.markers.next("B");
-        await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
-        await bSaves.waitForHeld();
-        await s.tabs.waitForText(a, bMarker);
-        aSaves.pass();
-        bSaves.pass();
-        await aSaves.cutOff();
-        await expect
-          .poll(
-            async () => (await getPreviewDraft(s.reader, s.id))?.content ?? "",
-            {
-              message: "A's failed save should leave a recovery draft",
-              timeout: 30_000,
-            },
-          )
-          .toContain(bMarker);
-        await bSaves.release();
-        await s.tabs.quiet();
-        // The chooser this scenario guards against offers these two as
-        // different versions.
-        const draft = await getPreviewDraft(s.reader, s.id);
-        const page = await getDocument(s.reader, s.id);
-        expect(
-          draft && { title: draft.title, content: draft.content },
-          "A's recovery draft should hold exactly the page B saved",
-        ).toEqual({ title: page.title, content: page.content });
-        // A's save was cut off on purpose, and that failed request reports once,
-        // before the refresh. The allowance covers only those entries, so the
-        // same notice after the refresh, or anything else A shows, still fails.
-        s.expectedNoise = [
-          'A showed "Something went wrong"',
-          'A toasted "Something went wrongAction update-document failed: Failed to fetch"',
-        ];
-        await expect
-          .poll(() => noiseFailures([s.tabs.record(a)]), {
-            message: "A should report its cut-off save once before the refresh",
-            timeout: 10_000,
-          })
-          .toEqual(s.expectedNoise);
-        const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
-        recoveries.hold();
-        await a.reload({ waitUntil: "domcontentloaded" });
-        let reopenedWith: "recovery" | "discarded" | null = null;
-        for (const until = Date.now() + 60_000; !reopenedWith; ) {
-          if (recoveries.queued) reopenedWith = "recovery";
-          else if (!(await getPreviewDraft(s.reader, s.id)))
-            reopenedWith = "discarded";
-          else if (Date.now() > until)
-            throw new Error("the reopened tab never settled its draft");
-          else await delay(200);
-        }
-        s.notes.reopenedWith = reopenedWith;
-        if (reopenedWith === "recovery") {
-          // The page moves on without a word changing while the reopened tab
-          // files the draft, as another tab's save of the same text does.
-          await postAction(s.reader, "update-document", {
-            id: s.id,
-            description: "Touched while the tab reopened",
-          });
-        }
-        await recoveries.release();
-        const chooser = a.getByText("Choose which version to keep");
-        await expect
-          .poll(
-            async () =>
-              (await chooser.isVisible()) ||
-              !(await getPreviewDraft(s.reader, s.id)),
-            {
-              message: "the reopened tab never settled its draft",
-              timeout: 30_000,
-            },
-          )
-          .toBe(true);
-        const afterRefresh = s.tabs
-          .record(a)
-          .recovery.slice(noticesBeforeRefresh);
-        s.notes.recoveryAfterRefresh = afterRefresh;
-        expect(
-          await chooser.isVisible(),
-          "the reopened tab asked which of two identical versions to keep",
-        ).toBe(false);
-        await expectEditorReady(a);
-        await typeAtParagraphEnd(
-          a,
-          "Bravo paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-      });
-    });
+        });
+      },
+    );
 
     test("Keep Mine retains a peer title adopted while an editor recovery draft is pending", async ({
       context,
     }, testInfo) => {
+      if (BODY_SAVES === "collab-update")
+        return runScenario(
+          "peer-title-retained-recovery",
+          testInfo,
+          context,
+          peerTitlesWhileUpdatesPending,
+        );
       await runScenario(
         "peer-title-retained-recovery",
         testInfo,
@@ -724,6 +1169,7 @@ test.describe(
     test("a one-time journal write failure still reopens the retained draft", async ({
       context,
     }, testInfo) => {
+      test.skip(BODY_SAVES === "collab-update", SWITCHED_HAS_NO_DRAFT);
       await runScenario(
         "peer-title-journal-storage-recovery",
         testInfo,
@@ -874,73 +1320,103 @@ test.describe(
       );
     });
 
-    test("alternating edits in different paragraphs keep both tabs' text", async ({
-      context,
-    }, testInfo) => {
-      await runScenario("alternating", testInfo, context, alternate);
-    });
+    test(
+      "an update the server refuses lands after a reload, with the title another tab gave the page",
+      NO_OUTBOX_LOSS,
+      async ({ context }, testInfo) => {
+        test.skip(BODY_SAVES === "update-document", LEGACY_KEEPS_A_DRAFT);
+        await runScenario("peer-title-outbox", testInfo, context, (s) =>
+          peerTitleWhileUpdatesFail(s, { outboxWriteFailsOnce: false }),
+        );
+      },
+    );
 
-    test("alternating edits on a page an agent wrote keep both tabs' text", async ({
-      context,
-    }, testInfo) => {
-      await runScenario(
-        "alternating-agent-page",
-        testInfo,
-        context,
-        alternate,
-        AGENT_MARKDOWN_BODY,
-      );
-    });
+    test(
+      "a one-time outbox write failure still lands the update after a reload",
+      NO_OUTBOX_LOSS,
+      async ({ context }, testInfo) => {
+        test.skip(BODY_SAVES === "update-document", LEGACY_KEEPS_A_DRAFT);
+        await runScenario("peer-title-outbox-storage", testInfo, context, (s) =>
+          peerTitleWhileUpdatesFail(s, { outboxWriteFailsOnce: true }),
+        );
+      },
+    );
 
-    test("simultaneous edits in different paragraphs keep both tabs' text", async ({
-      context,
-    }, testInfo) => {
-      await runScenario("simultaneous", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
-        await s.tabs.showAll();
-        for (let cycle = 1; cycle <= 4; cycle++) {
-          await Promise.all([
-            typeAtParagraphEnd(
+    test(
+      "alternating edits in different paragraphs keep both tabs' text",
+      SLOW_UPDATE_LOSS,
+      async ({ context }, testInfo) => {
+        await runScenario("alternating", testInfo, context, alternate);
+      },
+    );
+
+    test(
+      "alternating edits on a page an agent wrote keep both tabs' text",
+      SLOW_UPDATE_LOSS,
+      async ({ context }, testInfo) => {
+        await runScenario(
+          "alternating-agent-page",
+          testInfo,
+          context,
+          alternate,
+          AGENT_MARKDOWN_BODY,
+        );
+      },
+    );
+
+    test(
+      "simultaneous edits in different paragraphs keep both tabs' text",
+      SLOW_UPDATE_LOSS,
+      async ({ context }, testInfo) => {
+        await runScenario("simultaneous", testInfo, context, async (s) => {
+          const { first, second } = await openPair(s);
+          await s.tabs.showAll();
+          for (let cycle = 1; cycle <= 4; cycle++) {
+            await Promise.all([
+              typeAtParagraphEnd(
+                first,
+                "Alpha paragraph",
+                ` ${s.markers.next("A")}`,
+              ),
+              typeAtParagraphEnd(
+                second,
+                "Charlie paragraph",
+                ` ${s.markers.next("B")}`,
+              ),
+            ]);
+            await first.waitForTimeout(400);
+          }
+        });
+      },
+    );
+
+    test(
+      "typing across the 500 ms autosave pause keeps every word",
+      SLOW_UPDATE_LOSS,
+      async ({ context }, testInfo) => {
+        await runScenario("autosave-boundary", testInfo, context, async (s) => {
+          const { first, second } = await openPair(s);
+          for (let cycle = 1; cycle <= 2; cycle++) {
+            await s.tabs.showOnly(first);
+            // Pauses just past the debounce send a save mid-word while the
+            // previous one is still in flight.
+            await typeAtParagraphEnd(
               first,
               "Alpha paragraph",
               ` ${s.markers.next("A")}`,
-            ),
-            typeAtParagraphEnd(
+              600,
+            );
+            await s.tabs.showOnly(second);
+            await typeAtParagraphEnd(
               second,
               "Charlie paragraph",
               ` ${s.markers.next("B")}`,
-            ),
-          ]);
-          await first.waitForTimeout(400);
-        }
-      });
-    });
-
-    test("typing across the 500 ms autosave pause keeps every word", async ({
-      context,
-    }, testInfo) => {
-      await runScenario("autosave-boundary", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
-        for (let cycle = 1; cycle <= 2; cycle++) {
-          await s.tabs.showOnly(first);
-          // Pauses just past the debounce send a save mid-word while the
-          // previous one is still in flight.
-          await typeAtParagraphEnd(
-            first,
-            "Alpha paragraph",
-            ` ${s.markers.next("A")}`,
-            600,
-          );
-          await s.tabs.showOnly(second);
-          await typeAtParagraphEnd(
-            second,
-            "Charlie paragraph",
-            ` ${s.markers.next("B")}`,
-            600,
-          );
-        }
-      });
-    });
+              600,
+            );
+          }
+        });
+      },
+    );
 
     test("a background tab returning after several revisions keeps its next edit", async ({
       context,
@@ -984,41 +1460,50 @@ test.describe(
       });
     });
 
-    test("an agent edit between two open tabs keeps every author's text", async ({
-      context,
-    }, testInfo) => {
-      await runScenario("agent-edit", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
+    test(
+      "an agent edit between two open tabs keeps every author's text",
+      knownLossOnArm({
+        on: {
+          lane: "L3",
+          outcome: "SF-01",
+          reason:
+            "After an agent's edit-document on a switched page, the server answers both tabs' collab updates not_derived (not_live_copy), so they go back to update-document saves, one of which goes to History with recovery notices; no text is lost.",
+        },
+      }),
+      async ({ context }, testInfo) => {
+        await runScenario("agent-edit", testInfo, context, async (s) => {
+          const { first, second } = await openPair(s);
 
-        await s.tabs.showOnly(first);
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-        await s.tabs.waitForSaveAnswers(first, 1);
+          await s.tabs.showOnly(first);
+          await typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          );
+          await s.tabs.waitForTypingSaved(first, s.id);
 
-        const fromAgent = s.markers.next("Agent");
-        s.notes.agentIdentity = await AgentClient.editOnce(
-          s.reader,
-          s.id,
-          "Delta paragraph stays untouched.",
-          `Delta paragraph edited by the agent ${fromAgent}.`,
-        );
-        await s.tabs.showOnly(second);
-        await typeAtParagraphEnd(
-          second,
-          "Charlie paragraph",
-          ` ${s.markers.next("B")}`,
-        );
-        await s.tabs.showOnly(first);
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-      });
-    });
+          const fromAgent = s.markers.next("Agent");
+          s.notes.agentIdentity = await AgentClient.editOnce(
+            s.reader,
+            s.id,
+            "Delta paragraph stays untouched.",
+            `Delta paragraph edited by the agent ${fromAgent}.`,
+          );
+          await s.tabs.showOnly(second);
+          await typeAtParagraphEnd(
+            second,
+            "Charlie paragraph",
+            ` ${s.markers.next("B")}`,
+          );
+          await s.tabs.showOnly(first);
+          await typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          );
+        });
+      },
+    );
 
     test("a second tab waits for the first blank-page create to finish", async ({
       context,

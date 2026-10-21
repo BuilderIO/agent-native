@@ -96,6 +96,7 @@ export function CustomizeTemplatePopover({
             <BuilderWaitlistContent
               location={location}
               template={template.slug}
+              templateName={template.name}
               source="docs_template_customize"
               useCase="docs_edit_online_waitlist"
             />

@@ -79,8 +79,12 @@ const OWNER_EMAIL = "owner@example.com";
 const EDITOR_EMAIL = "editor@example.com";
 const COMMENTER_EMAIL = "commenter@example.com";
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();
   __resetReviewableResourcesForTests();

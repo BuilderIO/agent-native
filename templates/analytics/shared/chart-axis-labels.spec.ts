@@ -6,6 +6,8 @@ import {
   isCategoryAxis,
   isDateAxis,
   planCategoryAxis,
+  spanLabelX,
+  trimToWholeWords,
   trimToWidth,
 } from "./chart-axis-labels";
 
@@ -184,5 +186,31 @@ describe("trimToWidth", () => {
     const trimmed = trimToWidth(url, 12, 120, "…");
     expect(trimmed.startsWith("https://example")).toBe(true);
     expect(estimateTextWidth(trimmed, 12)).toBeLessThanOrEqual(120);
+  });
+});
+
+describe("trimToWholeWords", () => {
+  it("keeps a title that fits and cuts a longer one only between words", () => {
+    const title = "Signups counted twice after the webhook retry";
+    expect(trimToWholeWords(title, 10, 1000)).toBe(title);
+    const cut = trimToWholeWords(title, 10, 120, "…");
+    expect(cut).toBe("Signups counted twice…");
+    expect(estimateTextWidth(cut, 10)).toBeLessThanOrEqual(120);
+    expect(trimToWholeWords("Signups, counted twice", 10, 50, "…")).toBe(
+      "Signups…",
+    );
+  });
+
+  it("leaves only the ellipsis when the first word does not fit", () => {
+    expect(trimToWholeWords("Unbelievably long", 10, 20, "…")).toBe("…");
+  });
+});
+
+describe("spanLabelX", () => {
+  it("starts inside the span, or ends at its right edge when it would run past the plot", () => {
+    expect(spanLabelX(100, 120, 80, 0, 600, 2)).toBe(102);
+    expect(spanLabelX(560, 600, 80, 0, 600, 2)).toBe(518);
+    expect(spanLabelX(0, 30, 80, 0, 600, 2)).toBe(2);
+    expect(spanLabelX(30, 50, 80, 0, 100, 2)).toBe(2);
   });
 });

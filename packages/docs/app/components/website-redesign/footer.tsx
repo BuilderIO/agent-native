@@ -4,6 +4,7 @@ import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { ARTICLES_BASE, USE_CASES_BASE } from "../../../lib/campaign-content";
 import { firstPartyAppUrl } from "../deployment-links";
 import { sitePathForLocale } from "../docs-locale";
 import { controlSurfaceClassName, ThemeIconButton } from "./ds/icon-button";
@@ -49,6 +50,7 @@ function footerColumns(
       title: t("homepage.footer.framework"),
       links: [
         { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
+        { label: t("campaign.articles"), href: localizedPath(ARTICLES_BASE) },
         {
           label: t("nav.whatIsAgentNative"),
           href: localizedPath("/docs/what-is-agent-native"),
@@ -65,10 +67,13 @@ function footerColumns(
     },
     {
       title: t("homepage.footer.apps"),
-      links: FOOTER_APPS.map((app) => ({
-        label: app.name,
-        href: localizedPath(`/apps/${app.slug}`),
-      })),
+      links: [
+        { label: t("campaign.useCases"), href: localizedPath(USE_CASES_BASE) },
+        ...FOOTER_APPS.map((app) => ({
+          label: app.name,
+          href: localizedPath(`/apps/${app.slug}`),
+        })),
+      ],
     },
     {
       title: t("homepage.footer.ecosystem"),

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   getSlideCanvasTraversalElements,
@@ -12,6 +12,7 @@ import {
   initialSlideVideoGeometry,
   insertPendingSlideVideoPlaceholder,
   insertDroppedVideoIntoSlideHtml,
+  isInteractiveKeyboardEvent,
   isMediaKeyboardEvent,
   stripPendingSlideVideoPlaceholders,
   videoFileLooksLikeVideo,
@@ -214,5 +215,198 @@ describe("slide video helpers", () => {
       isMediaKeyboardEvent(new KeyboardEvent("keydown", { key: "ArrowRight" })),
     ).toBe(false);
     video.remove();
+  });
+
+  it("preserves keyboard behavior for focused interactive elements", () => {
+    const button = document.createElement("button");
+    document.body.append(button);
+    button.focus();
+    const nativeMatches = button.matches.bind(button);
+    const focusVisible = vi
+      .spyOn(button, "matches")
+      .mockImplementation((selector) =>
+        selector === ":focus-visible" ? true : nativeMatches(selector),
+      );
+
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true }),
+      ),
+    ).toBe(true);
+    focusVisible.mockImplementation((selector) =>
+      selector === ":focus-visible" ? false : nativeMatches(selector),
+    );
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true }),
+      ),
+    ).toBe(false);
+    focusVisible.mockRestore();
+
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    ).toBe(false);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    ).toBe(false);
+
+    const input = document.createElement("input");
+    document.body.append(input);
+    input.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    ).toBe(true);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+      ),
+    ).toBe(true);
+
+    button.blur();
+    input.remove();
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    document.body.append(fileInput);
+    fileInput.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+      ),
+    ).toBe(false);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    ).toBe(false);
+    fileInput.remove();
+
+    const numberInput = document.createElement("input");
+    numberInput.type = "number";
+    document.body.append(numberInput);
+    numberInput.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      ),
+    ).toBe(true);
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "f", bubbles: true }),
+      ),
+    ).toBe(false);
+    numberInput.remove();
+
+    const listbox = document.createElement("div");
+    listbox.setAttribute("role", "listbox");
+    listbox.tabIndex = 0;
+    document.body.append(listbox);
+    listbox.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true }),
+      ),
+    ).toBe(true);
+    listbox.remove();
+
+    const radioForm = document.createElement("form");
+    const firstRadio = document.createElement("input");
+    firstRadio.type = "radio";
+    firstRadio.name = "slide-choice";
+    const secondRadio = document.createElement("input");
+    secondRadio.type = "radio";
+    secondRadio.name = "slide-choice";
+    radioForm.append(firstRadio, secondRadio);
+    document.body.append(radioForm);
+    firstRadio.focus();
+    const radioArrow = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+    });
+    firstRadio.dispatchEvent(radioArrow);
+    expect(isInteractiveKeyboardEvent(radioArrow)).toBe(true);
+    radioForm.remove();
+
+    const ariaRadioGroup = document.createElement("div");
+    ariaRadioGroup.setAttribute("role", "radiogroup");
+    const ariaRadio = document.createElement("div");
+    ariaRadio.setAttribute("role", "radio");
+    ariaRadio.tabIndex = 0;
+    ariaRadioGroup.append(ariaRadio);
+    document.body.append(ariaRadioGroup);
+    ariaRadio.focus();
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+      ),
+    ).toBe(true);
+    ariaRadioGroup.remove();
+
+    expect(
+      isInteractiveKeyboardEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight" }),
+      ),
+    ).toBe(false);
+    button.remove();
+  });
+
+  it("preserves printable typeahead keys on focused selects and comboboxes", () => {
+    const select = document.createElement("select");
+    document.body.append(select);
+    select.focus();
+    for (const key of ["f", "F", "s", "S"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      select.dispatchEvent(event);
+      expect(isInteractiveKeyboardEvent(event)).toBe(true);
+    }
+    const modifiedShortcut = new KeyboardEvent("keydown", {
+      key: "f",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    select.dispatchEvent(modifiedShortcut);
+    expect(isInteractiveKeyboardEvent(modifiedShortcut)).toBe(true);
+    const selectEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    select.dispatchEvent(selectEscape);
+    expect(isInteractiveKeyboardEvent(selectEscape)).toBe(true);
+    select.remove();
+
+    const combobox = document.createElement("div");
+    combobox.setAttribute("role", "combobox");
+    combobox.tabIndex = 0;
+    document.body.append(combobox);
+    combobox.focus();
+    for (const key of ["f", "F", "s", "S"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      combobox.dispatchEvent(event);
+      expect(isInteractiveKeyboardEvent(event)).toBe(true);
+    }
+    const comboboxEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    combobox.dispatchEvent(comboboxEscape);
+    expect(isInteractiveKeyboardEvent(comboboxEscape)).toBe(true);
+    combobox.remove();
   });
 });

@@ -9,6 +9,7 @@ export interface SelectionOverlayFrame {
 
 export interface SelectionOverlayMeasurement {
   key: string;
+  identityKey?: string;
   rect: DOMRect;
   frame?: SelectionOverlayFrame | null;
 }
@@ -43,6 +44,24 @@ export function createSelectionOverlayMeasurementKey({
   ]);
 }
 
+export function createSelectionOverlayMeasurementIdentityKey({
+  slideId,
+  objectId,
+  selector,
+  path,
+  canvasZoom,
+  revision,
+}: SelectionOverlayMeasurementIdentity): string {
+  return JSON.stringify([
+    slideId,
+    objectId,
+    selector,
+    path,
+    canvasZoom,
+    revision,
+  ]);
+}
+
 export function createSelectionOverlayAutofitKey(
   slideId: string,
   content: string,
@@ -53,15 +72,52 @@ export function createSelectionOverlayAutofitKey(
 export function currentSelectionOverlayRect(
   measurement: SelectionOverlayMeasurement | null,
   currentKey: string,
+  currentIdentityKey?: string,
 ): DOMRect | null {
-  return measurement?.key === currentKey ? measurement.rect : null;
+  return measurement &&
+    selectionOverlayMeasurementMatches(
+      measurement,
+      currentKey,
+      currentIdentityKey,
+    )
+    ? measurement.rect
+    : null;
 }
 
 export function currentSelectionOverlayFrame(
   measurement: SelectionOverlayMeasurement | null,
   currentKey: string,
+  currentIdentityKey?: string,
 ): SelectionOverlayFrame | null {
-  return measurement?.key === currentKey ? (measurement.frame ?? null) : null;
+  return measurement &&
+    selectionOverlayMeasurementMatches(
+      measurement,
+      currentKey,
+      currentIdentityKey,
+    )
+    ? (measurement.frame ?? null)
+    : null;
+}
+
+export function isSelectionOverlayMeasurementCurrent(
+  measurement: SelectionOverlayMeasurement | null,
+  currentKey: string,
+): boolean {
+  return measurement?.key === currentKey;
+}
+
+function selectionOverlayMeasurementMatches(
+  measurement: SelectionOverlayMeasurement,
+  currentKey: string,
+  currentIdentityKey?: string,
+): boolean {
+  if (measurement.key === currentKey) return true;
+  // Content changes can move a selected object while AutoFit settles. Keep
+  // its old outline visible until the new geometry is measured, but never
+  // carry it across a slide, selection, zoom, or explicit invalidation.
+  return Boolean(
+    currentIdentityKey && measurement.identityKey === currentIdentityKey,
+  );
 }
 
 export function isSelectionOverlayAutofitSettled(

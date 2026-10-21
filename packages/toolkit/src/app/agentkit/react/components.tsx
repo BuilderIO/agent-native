@@ -912,27 +912,29 @@ export function AgentInteractionItem({
       data-kind={interaction.kind}
       data-scope={interaction.scope}
     >
-      {interactionIcon(interaction.kind)}
-      {agent && AgentRenderer ? (
-        <AgentRenderer value={agent} threadId={threadId} />
-      ) : (
-        <AgentIdentityChip
-          id={interaction.agentId}
-          name={agentName}
-          fallbackName={labels.assistant}
-        />
-      )}
-      <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
-      {target && TargetRenderer ? (
-        <TargetRenderer value={target} threadId={threadId} />
-      ) : interaction.targetAgentId ? (
-        <AgentIdentityChip
-          id={interaction.targetAgentId}
-          name={targetName}
-          fallbackName={labels.assistant}
-        />
-      ) : null}
-      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      <span className="agentkit-agent-interaction-head">
+        {interactionIcon(interaction.kind)}
+        {agent && AgentRenderer ? (
+          <AgentRenderer value={agent} threadId={threadId} />
+        ) : (
+          <AgentIdentityChip
+            id={interaction.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
+        )}
+        <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
+        {target && TargetRenderer ? (
+          <TargetRenderer value={target} threadId={threadId} />
+        ) : interaction.targetAgentId ? (
+          <AgentIdentityChip
+            id={interaction.targetAgentId}
+            name={targetName}
+            fallbackName={labels.assistant}
+          />
+        ) : null}
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      </span>
       {detail && (!object || interaction.kind === "failed") ? (
         <span
           {...(interaction.kind === "failed"
@@ -4880,6 +4882,41 @@ export function AgentKitChat({
     composerProps?.attachmentsEnabled !== false;
   const hasFiles = (event: ReactDragEvent<HTMLElement>) =>
     Array.from(event.dataTransfer.types).includes("Files");
+  const attachDroppedFiles = (files: File[]) => {
+    if (!files.length) return;
+    window.dispatchEvent(
+      new CustomEvent("agentkit:attach-files", {
+        detail: { threadId, files },
+      }),
+    );
+  };
+  const observeFileDrop = (nativeEvent: DragEvent, files: File[]) => {
+    const eventPath = nativeEvent.composedPath();
+    const lastPathTarget = eventPath.at(-1);
+    let pending = true;
+    const finishDrop = (dropEvent: Event) => {
+      if (!pending) return;
+      const reachedEnd = dropEvent.currentTarget === lastPathTarget;
+      if (
+        !dropEvent.defaultPrevented &&
+        !dropEvent.cancelBubble &&
+        !reachedEnd
+      ) {
+        return;
+      }
+      pending = false;
+      for (const target of eventPath) {
+        target.removeEventListener("drop", finishDrop);
+      }
+      if (dropEvent.defaultPrevented) return;
+      dropEvent.preventDefault();
+      attachDroppedFiles(files);
+    };
+    // Observe each path target so a stopped event can still be claimed there.
+    for (const target of eventPath) {
+      target.addEventListener("drop", finishDrop);
+    }
+  };
   const handleFileDragEnter = (event: ReactDragEvent<HTMLElement>) => {
     if (!canDropFiles || event.defaultPrevented || !hasFiles(event)) return;
     if (
@@ -4909,20 +4946,21 @@ export function AgentKitChat({
     fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
     setFileDragActive(fileDragDepthRef.current > 0);
   };
-  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
+  const handleFileDropCapture = (event: ReactDragEvent<HTMLElement>) => {
     if (!canDropFiles || !hasFiles(event)) return;
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
     if (event.defaultPrevented) return;
-    event.preventDefault();
-    event.stopPropagation();
     const files = Array.from(event.dataTransfer.files);
     if (!files.length) return;
-    window.dispatchEvent(
-      new CustomEvent("agentkit:attach-files", {
-        detail: { threadId, files },
-      }),
-    );
+    observeFileDrop(event.nativeEvent, files);
+  };
+  const handleFileDrop = (event: ReactDragEvent<HTMLElement>) => {
+    if (!canDropFiles || !hasFiles(event)) return;
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    event.stopPropagation();
+    attachDroppedFiles(Array.from(event.dataTransfer.files));
   };
 
   const clearTranscriptScrollbarTimeout = useCallback(() => {
@@ -5491,6 +5529,7 @@ export function AgentKitChat({
         onDragEnter={handleFileDragEnter}
         onDragOver={handleFileDragOver}
         onDragLeave={handleFileDragLeave}
+        onDropCapture={handleFileDropCapture}
         onDrop={handleFileDrop}
       >
         {fileDragActive ? (

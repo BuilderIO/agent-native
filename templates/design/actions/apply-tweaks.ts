@@ -9,7 +9,10 @@ import {
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
+import {
+  isSafeCssTokenValue,
+  tweakSelectionsHash,
+} from "../shared/resolve-tweaks.js";
 
 function designDeepLink(designId: string): string {
   return buildDeepLink({
@@ -42,7 +45,14 @@ export default defineAction({
     selections: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+        z.record(
+          z.string(),
+          z.union([
+            z.string().refine(isSafeCssTokenValue),
+            z.number(),
+            z.boolean(),
+          ]),
+        ),
       )
       .describe(
         "Map of tweak id -> selected value (string | number | boolean), " +

@@ -16,8 +16,8 @@ export type Role = "viewer" | "editor" | "owner";
 
 const ROLE_RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 };
 
-// Mirrors recording_context_items in server/plugins/db.ts (migrations v81 to
-// v84). Keep the columns, indexes, and the partial unique index predicate
+// Mirrors recording_context_items in server/plugins/db.ts through migration
+// v86. Keep the columns, indexes, and the partial unique index predicate
 // identical to it.
 const CONTEXT_ITEMS_DDL = `
   CREATE TABLE recording_context_items (
@@ -34,6 +34,8 @@ const CONTEXT_ITEMS_DDL = `
     media_recording_id TEXT,
     pending_media_recording_id TEXT,
     captured_device_id TEXT,
+    include_microphone BOOLEAN,
+    include_system_audio BOOLEAN,
     duration_ms INTEGER,
     width INTEGER,
     height INTEGER,

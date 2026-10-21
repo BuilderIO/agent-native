@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 interface ExecCall {
   sql: string;
   args: unknown[];
@@ -226,5 +228,48 @@ describe("describeCredentialScopeGap across organizations", () => {
     });
 
     expect(message).toBeNull();
+  });
+
+  it("does not inspect another org for an org-member assertion", async () => {
+    execute = async ({ sql }) =>
+      sql.includes(CROSS_ORG_PROBE)
+        ? { rows: [{ org_name: "Other Org" }] }
+        : { rows: [] };
+
+    const message = await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "tim@example.com",
+        orgId: "coach-org",
+      },
+      () =>
+        describeCredentialScopeGap(["ACADEMY_CONVEX_SITE_URL"], {
+          userEmail: "tim@example.com",
+          orgId: "coach-org",
+        }),
+    );
+
+    expect(message).toBeNull();
+    expect(execCalls.some((call) => call.sql.includes(CROSS_ORG_PROBE))).toBe(
+      false,
+    );
+  });
+
+  it("declines diagnostics when an org-member context does not match the credential scope", async () => {
+    const message = await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "tim@example.com",
+        orgId: "coach-org",
+      },
+      () =>
+        describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
+          userEmail: "tim@example.com",
+          orgId: "other-org",
+        }),
+    );
+
+    expect(message).toBeNull();
+    expect(execCalls).toHaveLength(0);
   });
 });

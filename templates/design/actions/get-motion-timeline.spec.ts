@@ -41,4 +41,8 @@ describe("get-motion-timeline playback mode + timing recovery (source contract)"
       "parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css)",
     );
   });
+
+  it("normalizes legacy stored tracks to stable ids before returning them", () => {
+    expect(src).toContain("return withMotionTrackIds(parsed as MotionTrack[])");
+  });
 });

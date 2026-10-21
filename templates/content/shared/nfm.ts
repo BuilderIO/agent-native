@@ -311,15 +311,15 @@ function splitBlockAttrs(
   const toggle = /\btoggle\s*=\s*"true"/.test(body);
   const colorMatch = body.match(/\bcolor\s*=\s*"([^"]+)"/);
   const color = colorMatch && isColor(colorMatch[1]) ? colorMatch[1] : null;
-  if (!toggle && !color) return { text: line, toggle: false, color: null };
   if (toggle && !allowToggle)
     reportLoss("dropped-attribute", '{toggle="true"}');
   const rest = body
     .replace(/\btoggle\s*=\s*"true"/, "")
     .replace(/\bcolor\s*=\s*"[^"]+"/, "")
     .trim();
-  if (rest || (colorMatch && !color))
+  if ((colorMatch && !color) || ((toggle || color) && rest))
     reportLoss("dropped-attribute", `{${body}}`);
+  if (!toggle && !color) return { text: line, toggle: false, color: null };
   return { text: m.text, toggle, color };
 }
 
@@ -360,10 +360,10 @@ function serializeInline(
   escapeUnderscore = false,
 ): string {
   if (!nodes || !nodes.length) return "";
-  const parts = nodes.map((node) =>
+  const parts = nodes.map((node, index) =>
     node.type === "notionInlineAtom"
       ? ""
-      : serializeInlineNode(node, escapeUnderscore),
+      : serializeInlineNode(node, escapeUnderscore, index === 0),
   );
   let following = "";
   for (let index = parts.length - 1; index >= 0; index--) {
@@ -379,6 +379,7 @@ function serializeInline(
         false,
         escapeUnderscore,
         true,
+        index === 0,
       )!.source;
     following = (parts[index] + following).slice(0, 1);
   }
@@ -419,6 +420,7 @@ function serializeInlineTextNode(
   collectOffsets: boolean,
   escapeUnderscore = false,
   escapeTrailingBang = false,
+  startsLine = false,
 ): {
   source: string;
   textOffsets: number[] | null;
@@ -473,7 +475,6 @@ function serializeInlineTextNode(
       }
     }
   }
-
   const wrap = (prefix: string, suffix: string) => {
     out = prefix + out + suffix;
     if (textOffsets)
@@ -498,7 +499,16 @@ function serializeInlineTextNode(
 
   const span = markOf(node, "notionSpan");
   const plainUnderline = !!markOf(node, "underline");
-  if (span || plainUnderline) {
+  // Neutral spans keep literal whitespace out of NFM's indentation/blank-line
+  // grammar. Plain text needs one only where that grammar applies: at the
+  // start of a line. It's checked after the markers are added, since code
+  // backticks or emphasis asterisks already keep a line from starting with
+  // whitespace. A span can't hold a raw newline (it would cross lines and fail
+  // to parse back), so text containing one is left as it was.
+  const leadingWhitespace =
+    !out.includes("\n") && (out.startsWith("\t") || /^\s+$/.test(out));
+  const protectsWhitespace = (!!span || startsLine) && leadingWhitespace;
+  if (span || plainUnderline || protectsWhitespace) {
     const a = span?.attrs || {};
     const underlined =
       a.underline === "true" || a.underline === true || plainUnderline;
@@ -511,7 +521,7 @@ function serializeInlineTextNode(
       ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
-    if (attrStr) wrap(`<span${attrStr}>`, "</span>");
+    if (attrStr || protectsWhitespace) wrap(`<span${attrStr}>`, "</span>");
   }
 
   const link = markOf(node, "link");
@@ -525,6 +535,7 @@ export function serializeInlineTextNodeWithOffsets(
   node: PMNode,
   escapeUnderscore = false,
   escapeTrailingBang = false,
+  startsLine = false,
 ): {
   source: string;
   textOffsets: number[];
@@ -534,6 +545,7 @@ export function serializeInlineTextNodeWithOffsets(
     true,
     escapeUnderscore,
     escapeTrailingBang,
+    startsLine,
   );
   return serialized?.textOffsets
     ? { source: serialized.source, textOffsets: serialized.textOffsets }
@@ -543,10 +555,17 @@ export function serializeInlineTextNodeWithOffsets(
 export function serializeInlineNode(
   node: PMNode,
   escapeUnderscore = false,
+  startsLine = false,
 ): string {
   if (node.type === "hardBreak") return "<br>";
   if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
-  const textNode = serializeInlineTextNode(node, false, escapeUnderscore);
+  const textNode = serializeInlineTextNode(
+    node,
+    false,
+    escapeUnderscore,
+    false,
+    startsLine,
+  );
   if (textNode) return textNode.source;
   return node.text ? escapeInlineText(node.text) : "";
 }
@@ -3394,7 +3413,7 @@ function parseTable(
       if (typeof part === "string") rows[rows.length - 1].cells.push(part);
       else {
         enterGroups(part.gap);
-        openRow(part.rowAttrs);
+        if (part.rowAttrs !== null) openRow(part.rowAttrs);
       }
     }
   };
@@ -3402,8 +3421,14 @@ function parseTable(
 
   let i = start + 1;
   while (i < close) {
-    const ld = lineAt(i++);
+    let ld = lineAt(i++);
     if (!ld) continue;
+    const groupPrefix = ld.match(ROW_GROUP_PREFIX);
+    if (groupPrefix) {
+      enterGroups(groupPrefix[0]);
+      ld = ld.slice(groupPrefix[0].length);
+      if (!ld) continue;
+    }
     if (TABLE_WRAPPER_LINE.test(ld)) {
       enterGroups(ld);
       continue;
@@ -3425,9 +3450,8 @@ function parseTable(
     }
     openRow(rowMatch[1]);
     // An agent may write a whole row on its line; the writer never does.
-    let rest = rowMatch[2].trim();
-    let rowClosed = rest.endsWith("</tr>");
-    if (rowClosed) rest = rest.slice(0, -"</tr>".length).trim();
+    const rest = rowMatch[2].trim();
+    let rowClosed = ROW_END.test(rest);
     if (rest) addCells(rest);
     while (!rowClosed && i < close) {
       let cd = lineAt(i++);
@@ -3448,8 +3472,7 @@ function parseTable(
           cd = trimJoinedCell(cd);
         }
       }
-      rowClosed = /<\/t[dh]>\s*<\/tr>$/.test(cd);
-      if (rowClosed) cd = cd.slice(0, -"</tr>".length).trimEnd();
+      rowClosed = ROW_END.test(cd);
       // The writer puts one cell on a line and escapes `<` outside code and
       // math, so a close tag outside those before the line's end is an
       // agent's `<td>a</td><td>b</td>`.
@@ -3540,6 +3563,9 @@ const CELL_LINE_END = /<\/t[dh]>(?:\s*<\/tr>)?$/;
 const ROW_BREAK =
   /^(?:<\/tr>\s*)?(?:<\/?(?:thead|tbody|tfoot)>\s*)*<tr(\s[^>]*?)?>$/;
 const ROW_GROUP_TAG = /<(\/?)(thead|tbody|tfoot)>/g;
+const ROW_GROUP_PREFIX = /^(?:<\/?(?:thead|tbody|tfoot)>\s*)+/;
+const ROW_END = /<\/tr>(?:\s*<\/?(?:thead|tbody|tfoot)>)*\s*$/;
+const ROW_GROUP_TAIL = /^<\/tr>\s*(?:<\/?(?:thead|tbody|tfoot)>\s*)*$/;
 
 // Drops the spaces just inside a joined cell's tags, which HTML ignores. By
 // hand, since a pattern for the spaces before the close tag retries them from
@@ -3560,7 +3586,7 @@ function trimJoinedCell(cell: string): string {
 }
 
 // A cell's source, or where the next row opens.
-type TableLinePart = string | { rowAttrs: string; gap: string };
+type TableLinePart = string | { rowAttrs: string | null; gap: string };
 
 // Whether a cell's open tag sits between `from` and `to` outside code and
 // math, where the writer escapes every `<`.
@@ -3617,6 +3643,8 @@ function splitTableCells(source: string): TableLinePart[] {
   const readGap = (gap: string) => {
     const rowBreak = gap.match(ROW_BREAK);
     if (rowBreak) cells.push({ rowAttrs: rowBreak[1] ?? "", gap });
+    else if (gap && ROW_GROUP_TAIL.test(gap))
+      cells.push({ rowAttrs: null, gap });
     else if (gap) reportLoss("dropped-source", gap);
   };
   // Found by hand, not by one regex: searching from every open tag for a `>`

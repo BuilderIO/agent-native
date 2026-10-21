@@ -87,7 +87,9 @@ function formattingRuns(
   // Block syntax between two runs maps to their shared text boundary; an image,
   // rule, or empty block there is a document position of its own and does not.
   let nonTextPending = false;
-  const withMarkers = (node: PMNode): PMNode => {
+  // `position` is the node's index among its siblings: NFM protects leading
+  // whitespace only in a block's first inline node.
+  const withMarkers = (node: PMNode, position = 0): PMNode => {
     if (node.type === "codeBlock") {
       const text = (node.content ?? [])
         .map((child) => child.text ?? "")
@@ -152,6 +154,7 @@ function formattingRuns(
         node,
         spellings.escapedUnderscores.has(node),
         spellings.escapedTrailingBang.has(node),
+        position === 0,
       );
       if (!serialized) {
         nonTextPending = true;

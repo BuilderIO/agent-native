@@ -103,10 +103,9 @@ describe("defineAction service-principal grant", () => {
     );
     expect(runs).toEqual([]);
     expect(recordActionAuditMock).toHaveBeenCalledTimes(1);
-    expect(recordActionAuditMock.mock.calls[0][0].ctx).toMatchObject({
-      actionName: "delete-thing",
-      caller: "mcp",
-      userEmail: SVC,
+    expect(recordActionAuditMock.mock.calls[0][0]).toMatchObject({
+      ctx: { actionName: "delete-thing", userEmail: SVC },
+      attribution: { caller: "mcp" },
     });
   });
 

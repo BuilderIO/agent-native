@@ -595,12 +595,15 @@ export async function validateFederatedOrganizationMembership(
   return { active: true, role: body.memberRole };
 }
 
-export async function validateFederatedOrganizationMembershipForCurrentRequest(input: {
-  orgId: string;
-  email: string;
-}): Promise<FederatedMembershipValidation> {
+export async function validateFederatedOrganizationMembershipForCurrentRequest(
+  input: {
+    orgId: string;
+    email: string;
+  },
+  event?: H3Event,
+): Promise<FederatedMembershipValidation> {
   return validateFederatedOrganizationMembership(
-    requestEventFromContext(),
+    event ?? requestEventFromContext(),
     input,
   );
 }

@@ -1,0 +1,24 @@
+{
+  "explain": {
+    "causes": {
+      "perItem": {
+        "*": {
+          "suspects": [
+            {
+              "service": "Compute Engine",
+              "link": "https://github.example.test/example-org/example-repo/pull/412",
+              "why": "Scaled up the export workers the day compute doubled."
+            },
+            {
+              "service": "Cloud CDN",
+              "link": "https://github.example.test/example-org/example-repo/pull/415",
+              "why": "The nightly cache purge refills the CDN cache every night."
+            }
+          ],
+          "confidence": "medium",
+          "message": "Cloud spend spiked yesterday. Compute Engine doubled to 200 a day from 100: likely https://github.example.test/example-org/example-repo/pull/412. Cloud CDN rose to 120 a day from 50: likely https://github.example.test/example-org/example-repo/pull/415."
+        }
+      }
+    }
+  }
+}

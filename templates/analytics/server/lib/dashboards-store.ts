@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { fail } from "@agent-native/core/action";
 import { getRequestRunContext, recordChange } from "@agent-native/core/server";
 import {
   getOrgSetting,
@@ -27,6 +28,18 @@ import {
   sql,
 } from "drizzle-orm";
 
+import {
+  BUILTIN_DASHBOARD_HIDDEN_BY,
+  builtinDashboardIdFor,
+  isBuiltinDashboardId,
+} from "../../shared/builtin-dashboard-ids";
+import {
+  describeDashboardChanges,
+  parseDashboardChangeSummary,
+  summarizeDashboardChanges,
+  type DashboardChange,
+  type DashboardChangeSummary,
+} from "../../shared/dashboard-change-summary";
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -123,12 +136,20 @@ export interface DashboardRevisionRecord {
   chatContext: AnalyticsRevisionChatContext | null;
 }
 
+export type RevisionChangeSummaryMetadata =
+  | { changesStatus: "absent" | "unreadable" }
+  | {
+      changesStatus: "valid";
+      changes: DashboardChange[];
+      omittedChanges: number;
+    };
+
 export type DashboardRevisionMetadata = Omit<
   DashboardRevisionRecord,
   "config"
 > & {
   chatContextStatus: RevisionChatContextStatus;
-};
+} & RevisionChangeSummaryMetadata;
 
 export type DashboardArchiveFilter = "active" | "archived" | "all";
 export type DashboardHiddenFilter = "visible" | "hidden" | "all";
@@ -368,6 +389,19 @@ export function parseRevisionChatContextMetadata(raw: unknown): {
   }
 }
 
+export function parseRevisionChangeSummaryMetadata(
+  raw: unknown,
+): RevisionChangeSummaryMetadata {
+  const parsed = parseDashboardChangeSummary(raw);
+  return parsed.status === "valid"
+    ? {
+        changesStatus: "valid",
+        changes: parsed.summary.changes,
+        omittedChanges: parsed.summary.omitted,
+      }
+    : { changesStatus: parsed.status };
+}
+
 function escapeLikeLiteral(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
@@ -499,8 +533,10 @@ function legacyDashboardReferenceScope(
   visibility: DashboardReferenceRecord["visibility"];
 } | null {
   if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
+    const id = key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length);
+    if (isBuiltinDashboardId(id)) return null;
     return {
-      id: key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length),
+      id,
       kind: "sql",
       ownerEmail: ctx.email,
       orgId: ctx.orgId,
@@ -508,8 +544,10 @@ function legacyDashboardReferenceScope(
     };
   }
   if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
+    const id = key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length);
+    if (isBuiltinDashboardId(id)) return null;
     return {
-      id: key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length),
+      id,
       kind: "sql",
       ownerEmail: ctx.email,
       orgId: null,
@@ -518,7 +556,7 @@ function legacyDashboardReferenceScope(
   }
   if (ctx.email && key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)) {
     const id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-    if (!isLegacyDashboardId(id)) return null;
+    if (!isLegacyDashboardId(id) || isBuiltinDashboardId(id)) return null;
     return {
       id,
       kind: "explorer",
@@ -676,6 +714,7 @@ function rowToDashboardRevisionMetadata(row: any): DashboardRevisionMetadata {
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
     ...parseRevisionChatContextMetadata(row.chatContext),
+    ...parseRevisionChangeSummaryMetadata(row.changeSummary),
   };
 }
 
@@ -732,6 +771,7 @@ async function migrateDashboardFromSettings(
   visibility: DashboardRecord["visibility"],
   role?: AccessRole,
 ): Promise<DashboardRecord | null> {
+  if (isBuiltinDashboardId(id)) return null;
   const { title, config } = configFromSettings(settingsValue, kind);
   const db = getDb() as any;
   const createdAt =
@@ -781,6 +821,7 @@ async function findLegacyDashboard(
   orgId: string | null;
   visibility: DashboardRecord["visibility"];
 } | null> {
+  if (isBuiltinDashboardId(id)) return null;
   if (ctx.orgId) {
     const v = await getOrgSetting(ctx.orgId, `${SQL_PREFIX}${id}`);
     if (v)
@@ -883,6 +924,34 @@ export async function loadAccessibleDashboardMetadataByIds(
           userEmail: ctx.email,
           orgId: ctx.orgId ?? undefined,
         }),
+        inArray(schema.dashboards.id, uniqueIds),
+      ),
+    );
+}
+
+/**
+ * Owners of dashboards in one org, without a sharing check. Use it only to
+ * name who to ask for access; never return a title or config from it.
+ */
+export async function loadOrgDashboardOwnersByIds(
+  orgId: string,
+  ids: readonly string[],
+): Promise<Array<{ id: string; kind: DashboardKind; ownerEmail: string }>> {
+  const uniqueIds = [
+    ...new Set(ids.map((id) => id.trim()).filter(Boolean)),
+  ].slice(0, MAX_DASHBOARD_METADATA_HYDRATION);
+  if (!uniqueIds.length) return [];
+
+  return getDb()
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      ownerEmail: schema.dashboards.ownerEmail,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        eq(schema.dashboards.orgId, orgId),
         inArray(schema.dashboards.id, uniqueIds),
       ),
     );
@@ -1006,7 +1075,7 @@ export async function listDashboards(
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
         kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
-      if (!id || !kind) continue;
+      if (!id || !kind || isBuiltinDashboardId(id)) continue;
       if (filter?.kind && filter.kind !== kind) continue;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -1164,7 +1233,7 @@ export async function listDashboardSummaries(
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
         kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
-      if (!id || !kind || seen.has(id)) continue;
+      if (!id || !kind || isBuiltinDashboardId(id) || seen.has(id)) continue;
       if (filter?.kind && filter.kind !== kind) continue;
       seen.add(id);
       const config = value as Record<string, unknown>;
@@ -1594,6 +1663,7 @@ export async function persistDashboardVisibilityChange(
   update: Record<string, unknown>,
   ctx: AccessCtx,
 ): Promise<void> {
+  assertNotBuiltinDashboard(resource.id, await getDashboard(resource.id, ctx));
   const db = getDb() as any;
   await db.transaction(async (tx: any) => {
     if (visibility !== "private") {
@@ -1605,10 +1675,13 @@ export async function persistDashboardVisibilityChange(
         tx,
       );
     }
-    await tx
+    const mutation = await tx
       .update(schema.dashboards)
       .set(update)
-      .where(eq(schema.dashboards.id, resource.id));
+      .where(
+        and(dashboardWritableFilter(), eq(schema.dashboards.id, resource.id)),
+      );
+    assertDashboardMutationApplied(mutation, resource.id);
   });
 }
 
@@ -1632,11 +1705,19 @@ async function pruneDashboardRevisions(
   }
 }
 
+/**
+ * Records `dashboard` as a restore point. For a save, that is the state the
+ * save replaces, and `changeSummary` is what the save changes. A save whose
+ * prior state is already the newest revision (the agent's end-of-turn
+ * snapshot, say) adds no row and records the save on that one: what it
+ * changed, who saved, and when.
+ */
 async function snapshotDashboardRevision(
   db: any,
   dashboard: DashboardRecord,
   ctx: AccessCtx,
   chatContext: AnalyticsRevisionChatContext | null = requestRevisionChatContext(),
+  changeSummary: DashboardChangeSummary | null = null,
 ): Promise<string> {
   const config = stableStringify(dashboard.config);
   const [latest] = await db
@@ -1659,6 +1740,18 @@ async function snapshotDashboardRevision(
     latest.title === dashboard.title &&
     comparableJson(latest.config) === config
   ) {
+    if (changeSummary) {
+      // The chat context stays: it ties this state to the agent turn that
+      // produced it, and chat's "restore to this turn" still needs that link.
+      await db
+        .update(schema.dashboardRevisions)
+        .set({
+          changeSummary: JSON.stringify(changeSummary),
+          createdAt: nextRevisionTimestamp(latest.createdAt),
+          createdBy: ctx.email,
+        })
+        .where(eq(schema.dashboardRevisions.id, latest.id));
+    }
     return latest.id;
   }
   const id = revisionId("dashrev", dashboard.id, latest?.id, {
@@ -1677,6 +1770,9 @@ async function snapshotDashboardRevision(
       createdAt: nextRevisionTimestamp(latest?.createdAt),
       createdBy: ctx.email,
       ...(chatContext ? { chatContext: JSON.stringify(chatContext) } : {}),
+      ...(changeSummary
+        ? { changeSummary: JSON.stringify(changeSummary) }
+        : {}),
       ownerEmail: dashboard.ownerEmail,
       orgId: dashboard.orgId,
     })
@@ -1693,6 +1789,7 @@ export async function assertDashboardEditable(
   dashboardId: string,
   ctx: AccessCtx,
 ): Promise<void> {
+  assertNotBuiltinDashboard(dashboardId, await getDashboard(dashboardId, ctx));
   await assertAccess("dashboard", dashboardId, "editor", {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
@@ -1704,18 +1801,17 @@ export async function createDashboardRevisionSnapshot(
   ctx: AccessCtx,
   chatContext?: AnalyticsRevisionChatContext,
 ): Promise<string | null> {
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
+  await assertDashboardEditable(dashboardId, ctx);
+  return (getDb() as any).transaction(async (tx: any) => {
+    const row = await lockWritableDashboard(tx, dashboardId);
+    const dashboard = rowToDashboard(row);
+    return snapshotDashboardRevision(
+      tx,
+      dashboard,
+      ctx,
+      chatContext ?? requestRevisionChatContext(),
+    );
   });
-  const dashboard = await getDashboard(dashboardId, ctx);
-  if (!dashboard) return null;
-  return snapshotDashboardRevision(
-    getDb(),
-    dashboard,
-    ctx,
-    chatContext ?? requestRevisionChatContext(),
-  );
 }
 
 /**
@@ -1733,6 +1829,58 @@ export async function createDashboardRevisionSnapshot(
  * writes) still rely on. Those saves retry the same requested body against the
  * latest revision so every successful write advances its version token.
  */
+/**
+ * Built-ins are served from code, so a write at a built-in's id, or to an old
+ * copy the deploy pass hid in favor of one, would save something no reader
+ * sees. Saving under a new id is the only way to change one.
+ */
+function assertNotBuiltinDashboard(
+  id: string,
+  existing: Pick<DashboardRecord, "hiddenBy"> | null,
+): void {
+  const builtin = existing
+    ? existing.hiddenBy === BUILTIN_DASHBOARD_HIDDEN_BY
+    : builtinDashboardIdFor(id) !== null;
+  if (builtin) {
+    fail(
+      `Dashboard "${id}" is a built-in and is read-only. Call duplicate-dashboard to make an editable copy, then edit the copy.`,
+      { errorCode: "builtin_dashboard_read_only", statusCode: 409 },
+    );
+  }
+}
+
+/** The deploy pass preserves updatedAt, so version fencing alone cannot detect it. */
+export function dashboardWritableFilter() {
+  return sql`${schema.dashboards.hiddenBy} IS DISTINCT FROM ${BUILTIN_DASHBOARD_HIDDEN_BY}`;
+}
+
+export function assertDashboardMutationApplied(
+  result: unknown,
+  id: string,
+): void {
+  const affected = affectedRowCount(result);
+  if (affected === undefined) {
+    throw new Error(
+      "The Postgres dashboard mutation did not report an affected-row count.",
+    );
+  }
+  if (affected === 0) throw new DashboardConflictError(id);
+}
+
+async function lockWritableDashboard(
+  db: any,
+  id: string,
+): Promise<typeof schema.dashboards.$inferSelect> {
+  const [row] = await db
+    .select()
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, id))
+    .for("update");
+  if (!row) throw new DashboardConflictError(id);
+  assertNotBuiltinDashboard(id, row);
+  return row;
+}
+
 export interface DashboardUpsertOutcome {
   dashboard: DashboardRecord;
   didWrite: boolean;
@@ -1742,6 +1890,8 @@ export interface DashboardUpsertOutcome {
    * the dashboard.
    */
   revisionId?: string;
+  /** What the write changed, as recorded on `revisionId`. */
+  changeSummary?: DashboardChangeSummary;
 }
 
 async function upsertDashboardWithOutcome(
@@ -1752,6 +1902,7 @@ async function upsertDashboardWithOutcome(
   expectedUpdatedAt?: string,
 ): Promise<DashboardUpsertOutcome> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   const observedUpdatedAt = expectedUpdatedAt ?? existing?.updatedAt;
   if (!existing && expectedUpdatedAt !== undefined) {
     throw new DashboardConflictError(id);
@@ -1786,6 +1937,11 @@ async function upsertDashboardWithOutcome(
   if (nameChanged) {
     await assertDashboardNameIsAvailable(title, ctx, existing?.id);
   }
+  const changeSummary = existing
+    ? summarizeDashboardChanges(
+        describeDashboardChanges(existing.config, config),
+      )
+    : null;
   const persist = async (writeDb: any): Promise<void> => {
     if (existing) {
       const setValues = {
@@ -1804,8 +1960,11 @@ async function upsertDashboardWithOutcome(
           .set(setValues)
           .where(
             and(
-              eq(schema.dashboards.id, id),
-              eq(schema.dashboards.updatedAt, observedUpdatedAt),
+              dashboardWritableFilter(),
+              and(
+                eq(schema.dashboards.id, id),
+                eq(schema.dashboards.updatedAt, observedUpdatedAt),
+              ),
             ),
           )
           .returning();
@@ -1819,6 +1978,7 @@ async function upsertDashboardWithOutcome(
             existing,
             ctx,
             requestRevisionChatContext(),
+            changeSummary,
           );
       } else {
         if (changed)
@@ -1827,11 +1987,12 @@ async function upsertDashboardWithOutcome(
             existing,
             ctx,
             requestRevisionChatContext(),
+            changeSummary,
           );
         const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
-          .where(eq(schema.dashboards.id, id))
+          .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)))
           .returning();
         if (!row) {
           throw new Error(
@@ -1861,18 +2022,19 @@ async function upsertDashboardWithOutcome(
       persistedDashboard = rowToDashboard(row);
     }
   };
-  if (nameChanged) {
-    await db.transaction(async (tx: any) => {
+  // The update and the history entry it leaves commit together; otherwise a
+  // peer can save on top of this write before its entry lands, and the newest
+  // entry ends up describing the older save.
+  await db.transaction(async (tx: any) => {
+    if (nameChanged) {
       await lockDashboardNames(tx, [
         title,
         ...(existing ? [existing.title] : []),
       ]);
       await assertDashboardNameIsAvailable(title, ctx, existing?.id, tx);
-      await persist(tx);
-    });
-  } else {
-    await persist(db);
-  }
+    }
+    await persist(tx);
+  });
   if (!persistedDashboard) {
     throw new Error(`Dashboard "${id}" write returned no persisted row.`);
   }
@@ -1885,7 +2047,12 @@ async function upsertDashboardWithOutcome(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return { dashboard, didWrite: true, revisionId };
+  return {
+    dashboard,
+    didWrite: true,
+    revisionId,
+    ...(revisionId && changeSummary ? { changeSummary } : {}),
+  };
 }
 
 export async function upsertDashboardOutcome(
@@ -1925,17 +2092,24 @@ async function upsertDashboardLastWriteWins(
   body: Record<string, unknown>,
   ctx: AccessCtx,
 ): Promise<DashboardUpsertOutcome> {
+  return retryDashboardConflicts(id, async () => {
+    const existing = await getDashboard(id, ctx);
+    return upsertDashboardWithOutcome(id, kind, body, ctx, existing?.updatedAt);
+  });
+}
+
+/**
+ * Runs a write fenced on the version it reads, again against the latest one
+ * when a concurrent write gets there first.
+ */
+async function retryDashboardConflicts<T>(
+  id: string,
+  write: () => Promise<T>,
+): Promise<T> {
   let lastConflict: unknown;
   for (let attempt = 0; attempt < DASHBOARD_SAVE_MAX_ATTEMPTS; attempt++) {
-    const existing = await getDashboard(id, ctx);
     try {
-      return await upsertDashboardWithOutcome(
-        id,
-        kind,
-        body,
-        ctx,
-        existing?.updatedAt,
-      );
+      return await write();
     } catch (err) {
       if (err instanceof DashboardConflictError) {
         lastConflict = err;
@@ -2060,6 +2234,7 @@ export async function certifyDashboardWithRetry(
   let lastConflict: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getDashboard(id, ctx);
+    assertNotBuiltinDashboard(id, existing);
     if (!existing) {
       throw new Error(
         `dashboard "${id}" not found (or you don't have access).`,
@@ -2094,9 +2269,12 @@ export async function certifyDashboardWithRetry(
       })
       .where(
         and(
-          eq(schema.dashboards.id, id),
-          eq(schema.dashboards.orgId, ctx.orgId),
-          eq(schema.dashboards.updatedAt, existing.updatedAt),
+          dashboardWritableFilter(),
+          and(
+            eq(schema.dashboards.id, id),
+            eq(schema.dashboards.orgId, ctx.orgId),
+            eq(schema.dashboards.updatedAt, existing.updatedAt),
+          ),
         ),
       );
     const affected = affectedRowCount(updateResult);
@@ -2179,6 +2357,7 @@ export async function listDashboardRevisionMetadata(
       createdAt: schema.dashboardRevisions.createdAt,
       createdBy: schema.dashboardRevisions.createdBy,
       chatContext: schema.dashboardRevisions.chatContext,
+      changeSummary: schema.dashboardRevisions.changeSummary,
     })
     .from(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
@@ -2199,16 +2378,38 @@ export async function restoreDashboardRevision(
   dashboard: DashboardRecord;
   snapshotRevisionId: string;
 } | null> {
+  return expectedUpdatedAt === undefined
+    ? await retryDashboardConflicts(dashboardId, () =>
+        restoreDashboardRevisionAt(dashboardId, revisionId, ctx),
+      )
+    : await restoreDashboardRevisionAt(
+        dashboardId,
+        revisionId,
+        ctx,
+        expectedUpdatedAt,
+      );
+}
+
+async function restoreDashboardRevisionAt(
+  dashboardId: string,
+  revisionId: string,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<{
+  dashboard: DashboardRecord;
+  snapshotRevisionId: string;
+} | null> {
   const existing = await getDashboard(dashboardId, ctx);
+  assertNotBuiltinDashboard(dashboardId, existing);
   if (!existing) return null;
   await assertAccess("dashboard", dashboardId, "editor", {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
-  if (
-    expectedUpdatedAt !== undefined &&
-    existing.updatedAt !== expectedUpdatedAt
-  ) {
+  // Fenced even when the caller passed no version: the history entry this
+  // leaves records `existing`, so it must be the version the restore replaces.
+  const observedUpdatedAt = expectedUpdatedAt ?? existing.updatedAt;
+  if (existing.updatedAt !== observedUpdatedAt) {
     throw new DashboardConflictError(dashboardId);
   }
   const db = getDb() as any;
@@ -2224,7 +2425,7 @@ export async function restoreDashboardRevision(
     .limit(1);
   if (!revisionRow) return null;
   const revision = rowToDashboardRevision(revisionRow);
-  const updatedAt = nowIso();
+  const updatedAt = nextDashboardVersion(existing.updatedAt);
   const nameChanged =
     normalizeDashboardName(existing.title) !==
     normalizeDashboardName(revision.title);
@@ -2252,28 +2453,31 @@ export async function restoreDashboardRevision(
         updatedBy: ctx.email,
       })
       .where(
-        expectedUpdatedAt === undefined
-          ? eq(schema.dashboards.id, dashboardId)
-          : and(
-              eq(schema.dashboards.id, dashboardId),
-              eq(schema.dashboards.updatedAt, expectedUpdatedAt),
-            ),
+        and(
+          dashboardWritableFilter(),
+          and(
+            eq(schema.dashboards.id, dashboardId),
+            eq(schema.dashboards.updatedAt, observedUpdatedAt),
+          ),
+        ),
       );
-    if (expectedUpdatedAt !== undefined) {
-      const affected = affectedRowCount(updateResult);
-      if (affected === undefined) {
-        throw new Error(
-          "The Postgres update did not report an affected-row count for the fenced dashboard restore.",
-        );
-      }
-      if (affected === 0) throw new DashboardConflictError(dashboardId);
+    const affected = affectedRowCount(updateResult);
+    if (affected === undefined) {
+      throw new Error(
+        "The Postgres update did not report an affected-row count for the fenced dashboard restore.",
+      );
     }
+    if (affected === 0) throw new DashboardConflictError(dashboardId);
 
     const snapshotRevisionId = await snapshotDashboardRevision(
       tx,
       existing,
       ctx,
       requestRevisionChatContext(),
+      summarizeDashboardChanges([
+        { kind: "version-restored" },
+        ...describeDashboardChanges(existing.config, revision.config),
+      ]),
     );
     const [row] = await tx
       .select()
@@ -2302,6 +2506,7 @@ export async function archiveDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   if (existing.archivedAt) return existing;
   await assertAccess("dashboard", id, "editor", {
@@ -2310,10 +2515,11 @@ export async function archiveDashboard(
   });
   const db = getDb() as any;
   const now = nowIso();
-  await db
+  const mutation = await db
     .update(schema.dashboards)
     .set({ archivedAt: now, updatedAt: now, updatedBy: ctx.email })
-    .where(eq(schema.dashboards.id, id));
+    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+  assertDashboardMutationApplied(mutation, id);
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -2335,6 +2541,7 @@ export async function unarchiveDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   if (!existing.archivedAt) return existing;
   await assertAccess("dashboard", id, "editor", {
@@ -2346,10 +2553,11 @@ export async function unarchiveDashboard(
   }
   const db = getDb() as any;
   const persist = async (writeDb: any) => {
-    await writeDb
+    const mutation = await writeDb
       .update(schema.dashboards)
       .set({ archivedAt: null, updatedAt: nowIso(), updatedBy: ctx.email })
-      .where(eq(schema.dashboards.id, id));
+      .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+    assertDashboardMutationApplied(mutation, id);
   };
   if (!existing.hiddenAt) {
     await db.transaction(async (tx: any) => {
@@ -2381,6 +2589,7 @@ export async function hideDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   if (existing.hiddenAt) return existing;
   await assertAccess("dashboard", id, "editor", {
@@ -2389,7 +2598,7 @@ export async function hideDashboard(
   });
   const db = getDb() as any;
   const now = nowIso();
-  await db
+  const mutation = await db
     .update(schema.dashboards)
     .set({
       hiddenAt: now,
@@ -2397,7 +2606,8 @@ export async function hideDashboard(
       updatedAt: now,
       updatedBy: ctx.email,
     })
-    .where(eq(schema.dashboards.id, id));
+    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+  assertDashboardMutationApplied(mutation, id);
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -2419,6 +2629,7 @@ export async function unhideDashboard(
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return null;
   await assertAccess("dashboard", id, "viewer", {
     userEmail: ctx.email,
@@ -2439,10 +2650,11 @@ export async function unhideDashboard(
     patch.ownerEmail = ctx.email;
   }
   const persist = async (writeDb: any) => {
-    await writeDb
+    const mutation = await writeDb
       .update(schema.dashboards)
       .set(patch)
-      .where(eq(schema.dashboards.id, id));
+      .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+    assertDashboardMutationApplied(mutation, id);
   };
   if (!existing.archivedAt) {
     await db.transaction(async (tx: any) => {
@@ -2474,13 +2686,17 @@ export async function removeDashboard(
   ctx: AccessCtx,
 ): Promise<void> {
   const existing = await getDashboard(id, ctx);
+  assertNotBuiltinDashboard(id, existing);
   if (!existing) return;
   await assertAccess("dashboard", id, "admin", {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
   const db = getDb() as any;
-  await db.delete(schema.dashboards).where(eq(schema.dashboards.id, id));
+  const mutation = await db
+    .delete(schema.dashboards)
+    .where(and(dashboardWritableFilter(), eq(schema.dashboards.id, id)));
+  assertDashboardMutationApplied(mutation, id);
   await db
     .delete(schema.dashboardRevisions)
     .where(eq(schema.dashboardRevisions.dashboardId, id));
@@ -3461,18 +3677,11 @@ export async function saveDashboardView(
   },
   ctx: AccessCtx,
 ): Promise<DashboardViewRecord> {
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
+  await assertDashboardEditable(dashboardId, ctx);
   const db = getDb() as any;
   const row = await db.transaction(async (tx: any) => {
+    await lockWritableDashboard(tx, dashboardId);
     if (view.isDefault) {
-      await tx
-        .select({ id: schema.dashboards.id })
-        .from(schema.dashboards)
-        .where(eq(schema.dashboards.id, dashboardId))
-        .for("update");
       await tx
         .update(schema.dashboardViews)
         .set({ isDefault: false })
@@ -3559,19 +3768,19 @@ export async function deleteDashboardView(
   viewId: string,
   ctx: AccessCtx,
 ): Promise<void> {
-  await assertAccess("dashboard", dashboardId, "editor", {
-    userEmail: ctx.email,
-    orgId: ctx.orgId ?? undefined,
-  });
+  await assertDashboardEditable(dashboardId, ctx);
   const db = getDb() as any;
-  await db
-    .delete(schema.dashboardViews)
-    .where(
-      and(
-        eq(schema.dashboardViews.id, viewId),
-        eq(schema.dashboardViews.dashboardId, dashboardId),
-      ),
-    );
+  await db.transaction(async (tx: any) => {
+    await lockWritableDashboard(tx, dashboardId);
+    await tx
+      .delete(schema.dashboardViews)
+      .where(
+        and(
+          eq(schema.dashboardViews.id, viewId),
+          eq(schema.dashboardViews.dashboardId, dashboardId),
+        ),
+      );
+  });
   const dash = await getDashboard(dashboardId, ctx);
   if (dash) {
     recordScopedChange(

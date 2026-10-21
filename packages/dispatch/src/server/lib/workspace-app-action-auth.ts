@@ -119,14 +119,22 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
           refuseRegistryCaller("org-mismatch");
         }
       }
-      if (!(await isOrgMember(claimedOrgId, identity.email))) {
+      if (
+        !(await isOrgMember(claimedOrgId, identity.email, {
+          requestEvent: event,
+        }))
+      ) {
         refuseRegistryCaller("not-org-member");
       }
       orgId = claimedOrgId;
     } else if (orgDomain) {
       const org = await resolveOrgByDomain(orgDomain);
       if (!org) refuseRegistryCaller("org-unknown");
-      if (!(await isOrgMember(org.orgId, identity.email))) {
+      if (
+        !(await isOrgMember(org.orgId, identity.email, {
+          requestEvent: event,
+        }))
+      ) {
         refuseRegistryCaller("not-org-member");
       }
       orgId = org.orgId;
@@ -138,6 +146,8 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
       owner: identity.email,
       anonymous: false,
       orgId,
+      identityAssurance:
+        identity.identityAssurance === "org-member" ? "org-member" : "user",
     };
   },
 };
