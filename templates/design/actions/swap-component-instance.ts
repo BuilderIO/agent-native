@@ -76,6 +76,7 @@ import {
   isComponentInstanceForInstanceActions,
   propNameToDataAttribute,
 } from "../shared/component-model.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { applyRootAttributeEdit } from "./apply-component-prop-edit.js";
@@ -453,6 +454,7 @@ export default defineAction({
         nodeId,
         componentName,
         swapped: false,
+        _receipt: designOutputWriteReceipt(designId, 0),
         note: `Already an instance of "${targetComponentName}".`,
       };
     }
@@ -562,6 +564,7 @@ export default defineAction({
         nodeId,
         componentName,
         swapped: false,
+        _receipt: designOutputWriteReceipt(designId, 0),
         note: "Swap produced no change.",
       };
     }
@@ -597,6 +600,7 @@ export default defineAction({
       filename: file.filename,
       updatedAt,
       content: patchedContent,
+      _receipt: designOutputWriteReceipt(designId, 1),
       note: `Swapped "${componentName}" for "${targetComponentName}".`,
     };
   },

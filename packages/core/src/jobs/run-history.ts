@@ -8,7 +8,7 @@ import {
   withFencedExecutionWrite,
 } from "../agent/execution-fence.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -1004,6 +1004,36 @@ export async function attachAutomationRunThread(
     if (runGuard) throw new AutomationRunHistoryClaimLostError(id);
     throw new AutomationRunHistoryWriteError(id);
   }
+}
+
+/**
+ * Forget an automation's executions.
+ *
+ * History is keyed by the automation's name, which is reusable: deleting
+ * "digest" and creating a new "digest" would otherwise show the old
+ * definition's runs as the new one's history.
+ */
+export async function ensureAutomationRunHistoryReady(): Promise<void> {
+  await ensureTable();
+}
+
+export function prepareAutomationRunsDelete(
+  owner: string,
+  automation: string,
+  guard?: { sql: string; args: readonly unknown[] },
+): DbExecStatement {
+  return {
+    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?${guard ? ` AND EXISTS (${guard.sql})` : ""}`,
+    args: [owner, automation, ...(guard?.args ?? [])],
+  };
+}
+
+export async function deleteAutomationRunsWithDb(
+  client: DbExec,
+  owner: string,
+  automation: string,
+): Promise<void> {
+  await client.execute(prepareAutomationRunsDelete(owner, automation));
 }
 
 export async function deleteAutomationRuns(

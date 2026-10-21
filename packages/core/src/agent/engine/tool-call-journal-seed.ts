@@ -113,9 +113,14 @@ function durableStepToolDone(
     resultJson: string;
   },
 ): Extract<AgentChatEvent, { type: "tool_done" }> {
-  if (!event.id || event.id !== row.stepId || row.operationId !== row.stepId) {
+  const executionStepId = event.executionStepId ?? event.id;
+  if (
+    !executionStepId ||
+    executionStepId !== row.stepId ||
+    row.operationId !== row.stepId
+  ) {
     throw new Error(
-      `Completed execution step ${row.stepId} does not match its ledger call id`,
+      `Completed execution step ${row.stepId} does not match its ledger identity`,
     );
   }
   if (event.tool !== row.toolName) {
@@ -168,6 +173,9 @@ function durableStepToolDone(
     type: "tool_done",
     tool: event.tool,
     id: event.id,
+    ...(event.executionStepId
+      ? { executionStepId: event.executionStepId }
+      : {}),
     input: event.input,
     ...(event.inputFingerprint
       ? { inputFingerprint: event.inputFingerprint }
@@ -212,13 +220,15 @@ export async function overlayCompletedExecutionStepOutcomes(
   >();
   events.forEach((event, index) => {
     if (event.type === "tool_start" && event.id) {
-      const starts = startsById.get(event.id) ?? [];
+      const stepId = event.executionStepId ?? event.id;
+      const starts = startsById.get(stepId) ?? [];
       starts.push({ event, index });
-      startsById.set(event.id, starts);
+      startsById.set(stepId, starts);
     } else if (event.type === "tool_done" && event.id) {
-      const dones = donesById.get(event.id) ?? [];
+      const stepId = event.executionStepId ?? event.id;
+      const dones = donesById.get(stepId) ?? [];
       dones.push({ event, index });
-      donesById.set(event.id, dones);
+      donesById.set(stepId, dones);
     }
   });
   const candidateIds = [...startsById.keys()];

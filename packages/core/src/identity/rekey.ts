@@ -228,6 +228,20 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     emailChange: "delete",
     offboard: "delete",
   },
+  {
+    table: "automation_sharing_grants",
+    column: "user_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    orgScope: {
+      column: "resource_id",
+      references: {
+        table: "automation_sharing_overlays",
+        column: "resource_id",
+        orgColumn: "organization_id",
+      },
+    },
+  },
   { table: "resource_access_requests", column: "owner_email" },
   { table: "agent_review_comments", column: "author_email" },
   { table: "agent_review_comments", column: "owner_email" },

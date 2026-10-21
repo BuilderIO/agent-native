@@ -214,6 +214,7 @@ export type ServerRunState =
         | "aborted";
       readonly runId: string;
       readonly turnId?: string;
+      readonly startMessageId?: string;
       /** Server clock, epoch ms. */
       readonly startedAt?: number;
       readonly dispatchMode?: string;
