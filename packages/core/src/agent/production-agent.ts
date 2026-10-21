@@ -11936,9 +11936,22 @@ export async function chainServerDrivenContinuation(opts: {
   delete continuationBody.approvedToolCalls;
   delete continuationBody.approvedToolCallAskIds;
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+  const markRunsAbortedOrThrow = async (...runIds: string[]) => {
+    const results = await Promise.allSettled(
+      runIds.map((targetRunId) => d.markRunAborted(targetRunId, "user")),
+    );
+    const failedRunIds = results.flatMap((result, index) =>
+      result.status === "fulfilled" && result.value ? [] : [runIds[index]!],
+    );
+    if (failedRunIds.length > 0) {
+      throw new Error(
+        `Could not confirm durable abort for continuation run(s): ${failedRunIds.join(", ")}`,
+      );
+    }
+  };
   try {
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
-      await d.markRunAborted(runId, "user").catch(() => {});
+      await markRunsAbortedOrThrow(runId);
       return;
     }
     await d
@@ -11980,9 +11993,10 @@ export async function chainServerDrivenContinuation(opts: {
       );
     }
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
-      if (nextRowInserted)
-        await d.markRunAborted(nextRunId, "user").catch(() => {});
-      await d.markRunAborted(runId, "user").catch(() => {});
+      await markRunsAbortedOrThrow(
+        ...(nextRowInserted ? [nextRunId] : []),
+        runId,
+      );
       return;
     }
     const continuationTerminalEvent = {
@@ -12000,9 +12014,7 @@ export async function chainServerDrivenContinuation(opts: {
       );
     }
     if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
-      if (nextRowInserted)
-        await d.markRunAborted(nextRunId, "user").catch(() => {});
-      await d.markRunAborted(runId, "user").catch(() => {});
+      if (nextRowInserted) await markRunsAbortedOrThrow(nextRunId);
       return;
     }
     run.continuationTerminalEvent = continuationTerminalEvent;

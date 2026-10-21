@@ -929,6 +929,43 @@ describe("run manager soft timeout", () => {
     expect(run.status).toBe("completed");
   });
 
+  it("preserves a persisted checkpoint over a late driver terminal during processor unwind", async () => {
+    const runId = "run-checkpoint-processor-unwind-terminal";
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      runId,
+      "thread-checkpoint-processor-unwind-terminal",
+      async (send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              void send({ type: "done" }).then(resolve);
+            },
+            { once: true },
+          );
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(persistRunCheckpointEvent).toHaveBeenCalledOnce();
+    expect(events).toContainEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(run.events.at(-1)?.event).toMatchObject({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+  });
+
   it("does not publish a checkpoint after another instance aborts after commit", async () => {
     const runId = "run-checkpoint-cross-instance-abort";
     const threadId = "thread-checkpoint-cross-instance-abort";

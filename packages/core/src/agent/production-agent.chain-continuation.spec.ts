@@ -146,7 +146,7 @@ function makeHarness(overrides?: {
       })),
     updateRunHeartbeat: vi.fn(async () => {}),
     updateRunStatusIfRunning: vi.fn(async () => true),
-    markRunAborted: vi.fn(async () => {}),
+    markRunAborted: vi.fn(async () => true),
     setRunTerminalReason: vi.fn(async () => {}),
     setRunError: vi.fn(async () => {}),
     recordRunDiagnostic: vi.fn(async () => {}),
@@ -236,7 +236,36 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       h.deps.markBackgroundContinuationChunkTerminal,
     ).toHaveBeenCalledOnce();
     expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-next", "user");
+    expect(h.deps.markRunAborted).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      "user",
+    );
     expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+  });
+
+  it("reports when the successor abort does not persist after a turn abort", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    h.deps.markRunAborted = vi.fn(async (runId) => runId !== "run-next");
+
+    await runChain(h);
+
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-chunk0",
+      expect.any(String),
+      expect.stringContaining(
+        "Could not confirm durable abort for continuation run(s): run-next",
+      ),
+    );
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
   });
 
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {

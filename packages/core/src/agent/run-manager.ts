@@ -1409,6 +1409,7 @@ export function startRun(
   };
   let runDriverSettled = false;
   let pendingTerminalEvent: RunEvent | null = null;
+  let persistedCheckpointTerminalEvent: RunEvent | null = null;
   const checkpointRunBoundary = (
     event: AgentChatEvent,
     terminalReason: "no_progress" | "run_timeout",
@@ -1462,7 +1463,10 @@ export function startRun(
           engineName: options?.engineName,
           userId: options?.userId,
         });
-        if (!pendingTerminalEvent && run.status === "running") send(event);
+        if (!pendingTerminalEvent && run.status === "running") {
+          send(event);
+          persistedCheckpointTerminalEvent = pendingTerminalEvent;
+        }
       } catch (error) {
         let persistedCheckpointStatus: ReturnType<
           typeof observeCheckpointRunStatus
@@ -1954,6 +1958,7 @@ export function startRun(
       event: normalizedEvent,
     };
     if (isTerminalRunEvent(event)) {
+      if (persistedCheckpointTerminalEvent) return Promise.resolve();
       if (
         checkpointPersistenceFailed &&
         pendingTerminalEvent?.event.type === "error" &&
