@@ -173,6 +173,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Une requête en échec définit `error` et conserve les lignes déjà chargées. Elle n'apparaît jamais comme une liste vide. `<ShareButton>` et `<ShareDialog>` actualisent les listes de discussions montées après l'enregistrement. Si vous modifiez le partage d'une discussion par un autre moyen, appelez `notifyChatThreadsUpdated()` pour que les listes montées se rechargent.
 
+Les épingles sont personnelles : `pinnedAt` désigne celle de l'appelant, même pour un chat partagé ; listes et recherches suivent cet ordre. `useChatThreads().pinThread(id, pinned)` reste inchangé. Les deux hooks proposent `hideThread(id, hidden)` pour les chats partagés. Les chats masqués apparaissent uniquement avec `includeHidden: true` ; les lignes et lectures individuelles contiennent le `hiddenAt` personnel. L'ouverture par identifiant ou lien reste possible. Les propriétaires doivent archiver leurs chats ; seuls eux peuvent les renommer ou les archiver. Masquer lève `ChatThreadMutationError` en cas de refus (`status` : 403 pour le propriétaire, 404 sans accès) et renvoie `true` en cas de succès. HTTP : `POST /_agent-native/agent-chat/threads/:id/hide` avec `{ hidden: boolean }` ; listes/recherches : `includeHidden=1`. `chat-history` propose `pin`, `unpin`, `hide`, `unhide` et la recherche avec `includeHidden: true`. La révocation de l'accès masque l'état conservé ; supprimer le chat efface cet état.
+
 ## Même modèle, agent et UI {#agent-and-ui}
 
 Le framework monte automatiquement ces actions dans chaque modèle : l'agent les appelle en tant qu'outils et le UI les appelle via `useActionQuery` / `useActionMutation` :

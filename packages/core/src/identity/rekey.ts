@@ -131,6 +131,16 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   },
   { table: "agent_turn_initiators", column: "principal_email" },
   { table: "chat_threads", column: "owner_email" },
+  {
+    table: "chat_thread_viewer_state",
+    column: "user_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    orgScope: {
+      column: "thread_id",
+      references: { table: "chat_threads", column: "id", orgColumn: "org_id" },
+    },
+  },
   { table: "chat_thread_shares", column: "principal_id", mode: "user-share" },
   { table: "chat_thread_shares", column: "created_by" },
   { table: "data_programs", column: "owner_email" },

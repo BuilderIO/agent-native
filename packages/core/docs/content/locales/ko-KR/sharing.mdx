@@ -173,6 +173,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 요청이 실패하면 `error`가 설정되고 이미 로드된 행은 유지됩니다. 빈 목록처럼 보이지 않습니다. `<ShareButton>`과 `<ShareDialog>`는 저장 후 마운트된 채팅 목록을 새로 고칩니다. 다른 방법으로 채팅의 공유를 변경했다면 `notifyChatThreadsUpdated()`를 호출하여 마운트된 목록이 다시 불러오게 하세요.
 
+고정 상태는 개인별입니다. 공유 채팅의 `pinnedAt`도 호출자의 고정 상태이며 목록과 검색은 이 값으로 정렬됩니다. `useChatThreads().pinThread(id, pinned)`는 그대로 유지됩니다. 두 훅은 공유 채팅용 `hideThread(id, hidden)`를 제공합니다. 숨긴 채팅은 `includeHidden: true`일 때만 표시되며 목록과 개별 조회에 호출자의 `hiddenAt`이 포함됩니다. ID나 링크로 여전히 열 수 있습니다. 소유자는 숨기기 대신 보관해야 하며 이름 변경과 보관은 소유자만 가능합니다. 숨기기 거부 시 `ChatThreadMutationError`(`status`: 소유자 403, 접근 권한 없음 404)가 발생하고 성공하면 `true`를 반환합니다. HTTP는 `POST /_agent-native/agent-chat/threads/:id/hide`에 `{ hidden: boolean }`을 전달하며 목록과 검색은 `includeHidden=1`을 사용합니다. `chat-history`는 `pin`, `unpin`, `hide`, `unhide` 및 `includeHidden: true` 검색을 지원합니다. 접근 취소 후 기존 상태는 표시되지 않으며 채팅 삭제 시 상태도 삭제됩니다.
+
 ## 동일 모델, 에이전트 및 UI {#agent-and-ui}
 
 프레임워크는 모든 템플릿에 이러한 actions를 자동으로 마운트합니다. 에이전트는 이를 도구로 호출하고 UI는 `useActionQuery` / `useActionMutation`를 통해 호출합니다.

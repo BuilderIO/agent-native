@@ -194,6 +194,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 A failed request sets `error` and keeps the rows already loaded. It never looks like an empty list. `<ShareButton>` and `<ShareDialog>` refresh mounted chat lists after they save. If you change a chat's sharing some other way, call `notifyChatThreadsUpdated()` so mounted lists refetch.
 
+Pins are personal: `pinnedAt` is the caller's pin, including on shared chats; list and search sort by it. `useChatThreads().pinThread(id, pinned)` keeps its existing signature. Both `useChatThreads()` and `useChatThreadList()` provide `hideThread(id, hidden)` for shared chats. Hidden chats are excluded from list and search unless `includeHidden: true` is set; their rows and single-thread reads include the caller's `hiddenAt`. Opening a hidden chat by id or link still works. Owners cannot hide their own chats; they archive instead. Rename and archive remain owner-only. Hide throws `ChatThreadMutationError` on HTTP refusals (`status` 403 for owners, 404 without access); successful calls return `true`. The HTTP contract is `POST /_agent-native/agent-chat/threads/:id/hide` with `{ hidden: boolean }`; list/search use `includeHidden=1`. The `chat-history` tool supports `pin`, `unpin`, `hide`, `unhide`, and search with `includeHidden: true`. Revoking access hides prior viewer state; deleting a thread deletes that state.
+
 ## Same model, agent and UI {#agent-and-ui}
 
 The framework auto-mounts these actions in every template — the agent calls them as tools, and the UI calls them through `useActionQuery` / `useActionMutation`:

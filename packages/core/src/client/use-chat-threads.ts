@@ -34,6 +34,7 @@ export interface ChatThreadSummary {
   scope: ChatThreadScope | null;
   source?: ChatThreadSource | null;
   pinnedAt?: number | null;
+  hiddenAt?: number | null;
   archivedAt?: number | null;
   /**
    * Server-supplied on listed threads. Absent on optimistic local drafts,
@@ -63,6 +64,7 @@ export interface ChatThreadData {
   scope: ChatThreadScope | null;
   source?: ChatThreadSource | null;
   pinnedAt?: number | null;
+  hiddenAt?: number | null;
   archivedAt?: number | null;
 }
 
@@ -97,6 +99,7 @@ export interface UseChatThreadsOptions {
   browserTabId?: string;
   routeThreadId?: string | null;
   includeExternal?: boolean;
+  includeHidden?: boolean;
   isolateHistoryByScope?: boolean;
   /** Narrows the history list and search. Defaults to `all`. */
   ownership?: ChatThreadOwnership;
@@ -177,6 +180,7 @@ export interface ChatThreadListPageRequest {
   query?: string;
   ownership?: ChatThreadOwnership;
   includeExternal?: boolean;
+  includeHidden?: boolean;
   scope?: ChatThreadScope | null;
 }
 
@@ -263,6 +267,7 @@ async function requestChatThreadListPage(
     params.set("ownership", request.ownership);
   }
   if (request.includeExternal) params.set("includeExternal", "1");
+  if (request.includeHidden) params.set("includeHidden", "1");
   appendChatThreadScopeParams(params, request.scope);
   const search = params.toString();
   const res = await fetch(`${apiUrl}/threads${search ? `?${search}` : ""}`);
@@ -311,12 +316,42 @@ export async function fetchChatThreadListPage(
   };
 }
 
+export class ChatThreadMutationError extends Error {
+  constructor(public readonly status: number) {
+    super(`Chat thread mutation failed (HTTP ${status}).`);
+    this.name = "ChatThreadMutationError";
+  }
+}
+
+export async function hideChatThread(
+  threadId: string,
+  hidden: boolean,
+  options: { apiUrl?: string; scope?: ChatThreadScope | null } = {},
+): Promise<boolean> {
+  const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const response = await fetch(
+    withChatThreadScope(
+      `${apiUrl}/threads/${encodeURIComponent(threadId)}/hide`,
+      options.scope,
+    ),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hidden }),
+    },
+  );
+  if (!response.ok) throw new ChatThreadMutationError(response.status);
+  notifyChatThreadsUpdated();
+  return true;
+}
+
 async function fetchThreadListPage(
   apiUrl: string,
   offset: number,
   includeExternal: boolean,
   scope?: ChatThreadScope | null,
   ownership?: ChatThreadOwnership,
+  includeHidden = false,
 ): Promise<ChatThreadSummary[] | undefined> {
   // The lifecycle list keeps optimistic local drafts beside server rows, so it
   // tolerates summaries without ownership metadata; the ownership-aware lists
@@ -328,6 +363,7 @@ async function fetchThreadListPage(
       includeExternal,
       scope,
       ownership,
+      includeHidden,
     });
     return page.threads as ChatThreadSummary[];
   } catch (error) {
@@ -558,6 +594,7 @@ export function useChatThreads(
   const autoCreate = options?.autoCreate !== false;
   const restoreActiveThread = options?.restoreActiveThread !== false;
   const includeExternal = options?.includeExternal === true;
+  const includeHidden = options?.includeHidden === true;
   const ownership = options?.ownership;
   const isolateHistoryByScope = options?.isolateHistoryByScope === true;
   const browserTabId =
@@ -1091,6 +1128,7 @@ export function useChatThreads(
           includeExternal,
           historyScope,
           ownership,
+          includeHidden,
         );
         if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!loaded) {
@@ -1335,6 +1373,7 @@ export function useChatThreads(
       historyScope,
       historyScopeKey,
       includeExternal,
+      includeHidden,
       isolateHistory,
       ownership,
       routeControlsActiveThread,
@@ -1694,6 +1733,35 @@ export function useChatThreads(
       }
     },
     [apiUrl, fetchThreads, historyScope],
+  );
+
+  const hideThread = useCallback(
+    async (threadId: string, hidden: boolean): Promise<boolean> => {
+      const previous = threadsRef.current.find(
+        (thread) => thread.id === threadId,
+      );
+      setThreads((threads) =>
+        threads.map((thread) =>
+          thread.id === threadId
+            ? { ...thread, hiddenAt: hidden ? Date.now() : null }
+            : thread,
+        ),
+      );
+      try {
+        return await hideChatThread(threadId, hidden, {
+          apiUrl,
+          scope: historyScope,
+        });
+      } catch (error) {
+        if (previous)
+          setThreads((threads) => [
+            previous,
+            ...threads.filter((thread) => thread.id !== threadId),
+          ]);
+        throw error;
+      }
+    },
+    [apiUrl, historyScope],
   );
 
   const archiveThread = useCallback(
@@ -2269,6 +2337,7 @@ export function useChatThreads(
       try {
         const params = new URLSearchParams({ q: query });
         if (includeExternal) params.set("includeExternal", "1");
+        if (includeHidden) params.set("includeHidden", "1");
         if (ownership && ownership !== "all") {
           params.set("ownership", ownership);
         }
@@ -2289,7 +2358,14 @@ export function useChatThreads(
         return [];
       }
     },
-    [apiUrl, historyScope, includeExternal, isolateHistory, ownership],
+    [
+      apiUrl,
+      historyScope,
+      includeExternal,
+      includeHidden,
+      isolateHistory,
+      ownership,
+    ],
   );
 
   const getThreadShareState = useCallback(
@@ -2356,8 +2432,14 @@ export function useChatThreads(
     void fetchThreads();
   }, [fetchThreads]);
 
+  const visibleThreads = useMemo(
+    () =>
+      includeHidden ? threads : threads.filter((thread) => !thread.hiddenAt),
+    [includeHidden, threads],
+  );
+
   return {
-    threads,
+    threads: visibleThreads,
     activeThreadId,
     isLoading,
     createThread,
@@ -2366,6 +2448,7 @@ export function useChatThreads(
     deleteThread: removeThread,
     detachThread,
     pinThread,
+    hideThread,
     archiveThread,
     renameThread,
     forkThread,
