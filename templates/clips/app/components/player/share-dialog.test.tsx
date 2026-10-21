@@ -198,7 +198,9 @@ describe("recording sharing adoption", () => {
   it("shows known recording access while share details load without granting manage rights", async () => {
     mocks.data = undefined;
     await render({ initialVisibility: "public" });
-    expect(button("General access").textContent).toContain("Public");
+    expect(button("General access").textContent).toContain(
+      "Anyone with the link can view",
+    );
     expect(button("General access").disabled).toBe(true);
     expect(document.querySelector('input[role="combobox"]')).toBeNull();
   });
