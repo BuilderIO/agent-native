@@ -8,6 +8,7 @@ import {
   registerBuiltinEngines,
 } from "@agent-native/core/agent/engine";
 import { getDbExec } from "@agent-native/core/db";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   builderCreditsFromCostCents,
@@ -426,22 +427,6 @@ async function initializeUsageMetricsTable(sinceMs: number): Promise<void> {
     // Metrics should still render an empty state if usage storage is locked,
     // stale, or unavailable; each aggregate read below is already best-effort.
   }
-}
-
-async function getViewerOrgRole(
-  orgId: string | null,
-  email: string,
-): Promise<string | null> {
-  if (!orgId) return null;
-  const rows = await queryRows<{ role?: string }>(
-    `SELECT role FROM org_members
-     WHERE org_id = ? AND LOWER(email) = ?
-       AND federation_removal_pending_at IS NULL
-     LIMIT 1`,
-    [orgId, email.toLowerCase()],
-  );
-  const role = rows[0]?.role;
-  return typeof role === "string" ? role : null;
 }
 
 async function listOrgMembers(orgId: string | null): Promise<MemberRecord[]> {
@@ -950,7 +935,7 @@ async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
 }> {
   const viewerEmail = currentOwnerEmail();
   const orgId = currentOrgId();
-  const role = await getViewerOrgRole(orgId, viewerEmail);
+  const role = orgId ? await readOrgMemberRole(orgId, viewerEmail) : null;
   if (
     viewScope === "me" ||
     isDispatchEnvironmentAdmin(viewerEmail) ||

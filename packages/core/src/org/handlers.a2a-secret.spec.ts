@@ -1,6 +1,8 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 const mockExecute = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockGetSession = vi.fn();
@@ -129,6 +131,7 @@ import {
   receiveA2ASecretHandler,
   revealA2ASecretHandler,
   setA2ASecretHandler,
+  setA2AMemberDelegationHandler,
   syncA2ASecretHandler,
 } from "./handlers.js";
 
@@ -150,10 +153,44 @@ describe("cross-app secret handlers", () => {
     ["reveal", revealA2ASecretHandler],
     ["set", setA2ASecretHandler],
     ["sync", syncA2ASecretHandler],
+    ["change member delegation", setA2AMemberDelegationHandler],
   ])("rejects an admin trying to %s it", async (_name, handler) => {
     await expect(handler({} as any)).rejects.toMatchObject({
       statusCode: 403,
     });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
+
+describe("setA2AMemberDelegationHandler", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadBody.mockResolvedValue({ enabled: true });
+    mockGetOrgContext.mockResolvedValue({
+      email: "owner@example.test",
+      orgId: "org_1",
+      orgName: "Example",
+      role: "owner",
+    });
+    mockExecute.mockResolvedValue({ rows: [] });
+  });
+
+  it("persists the owner's explicit opt-in", async () => {
+    await expect(setA2AMemberDelegationHandler({} as any)).resolves.toEqual({
+      enabled: true,
+    });
+    expect(mockExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining("SET a2a_member_delegation_enabled = ?"),
+      args: [true, "org_1"],
+    });
+  });
+
+  it("rejects non-boolean values without writing", async () => {
+    mockReadBody.mockResolvedValueOnce({ enabled: "true" });
+
+    await expect(
+      setA2AMemberDelegationHandler({} as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
     expect(mockExecute).not.toHaveBeenCalled();
   });
 });
@@ -469,6 +506,10 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
     const receive = async (
       pushedSecret: string,
       storedSecret = "existing-org-secret",
+      identityAssurance:
+        | "organization"
+        | "org-member"
+        | "user" = "organization",
     ) => {
       mockExecute.mockResolvedValue({
         rows: [{ id: "org_1", a2a_secret: storedSecret }],
@@ -481,9 +522,11 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
         orgDomain: "example.test",
       });
       mockVerifyA2AToken.mockResolvedValue({
-        email: null,
+        email:
+          identityAssurance === "organization" ? null : "owner@example.test",
         orgId: "org_1",
         orgDomain: "example.test",
+        identityAssurance,
       });
       return receiveA2ASecretHandler({
         _headers: { authorization: `Bearer ${token}` },
@@ -524,6 +567,14 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
         ok: true,
         orgId: "org_1",
       });
+      expect(mockVerifyA2AToken).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.anything(),
+        {
+          globalSecretOnly: true,
+          verificationSecret: "existing-org-secret",
+        },
+      );
       expect(mockExecute).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: expect.stringContaining("UPDATE organizations"),
@@ -532,6 +583,24 @@ describe("org A2A secret equal to the deployment A2A_SECRET", () => {
       );
       expect(mockInvalidateMemberOrgCaches).toHaveBeenCalledTimes(1);
     });
+
+    it.each(["org-member", "user"] as const)(
+      "does not let %s identity rotate the organization secret",
+      async (identityAssurance) => {
+        await expect(
+          receive(
+            "distinct-org-secret",
+            "existing-org-secret",
+            identityAssurance,
+          ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+        expect(mockExecute).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            sql: expect.stringContaining("UPDATE organizations"),
+          }),
+        );
+      },
+    );
 
     it("rotates away from a stored secret equal to the deployment secret", async () => {
       await expect(
@@ -631,6 +700,107 @@ describe("getMyOrgHandler", () => {
     await expect(getMyOrgHandler({} as any)).rejects.toThrow(
       "settings database unavailable",
     );
+  });
+
+  it("limits delegated org details to the asserted org and caps the returned role", async () => {
+    mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("a2a_secret")) {
+        return {
+          rows: [
+            {
+              allowed_domain: "example.test",
+              a2a_secret: "example-stored-secret",
+              a2a_member_delegation_enabled: true,
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM org_members m") && sql.includes("icon_json")) {
+        return {
+          rows: [
+            {
+              orgId: "org_1",
+              role: "owner",
+              orgName: "Example",
+            },
+            {
+              orgId: "org_2",
+              role: "owner",
+              orgName: "Other",
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM org_invitations i")) {
+        return {
+          rows: [{ id: "invite-1", orgId: "org_1", orgName: "Example" }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const result = (await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+      () => getMyOrgHandler({} as any),
+    )) as Record<string, any>;
+
+    expect(result.orgId).toBe("org_1");
+    expect(result.role).toBe("member");
+    expect(result.orgs).toEqual([
+      expect.objectContaining({ orgId: "org_1", role: "member" }),
+    ]);
+    expect(result.pendingInvitations).toEqual([
+      expect.objectContaining({ id: "invite-1", orgId: "org_1" }),
+    ]);
+    expect(result.signInMethods).toBeUndefined();
+    expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.a2aMemberDelegationEnabled).toBeUndefined();
+
+    const membershipQuery = mockExecute.mock.calls.find(
+      ([query]) =>
+        query.sql.includes("FROM org_members m") &&
+        query.sql.includes("icon_json"),
+    )?.[0];
+    expect(membershipQuery?.args).toEqual(["owner@example.test", "org_1"]);
+    const invitationQuery = mockExecute.mock.calls.find(([query]) =>
+      query.sql.includes("FROM org_invitations i"),
+    )?.[0];
+    expect(invitationQuery?.args).toEqual(["owner@example.test", "org_1"]);
+  });
+
+  it("does not expose a stale session org for a different delegated identity scope", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "owner@example.test",
+      orgId: "org_other",
+      orgName: "Other",
+      role: "owner",
+    });
+
+    const result = (await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+      () => getMyOrgHandler({} as any),
+    )) as Record<string, any>;
+
+    expect(result.orgId).toBeNull();
+    expect(result.orgName).toBeNull();
+    expect(result.role).toBeNull();
+    expect(result.orgs).toEqual([]);
+    expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.a2aMemberDelegationEnabled).toBeUndefined();
+    expect(
+      mockExecute.mock.calls.some(([query]) =>
+        query.sql.includes("a2a_secret"),
+      ),
+    ).toBe(false);
+    expect(mockGetOrgSetting).not.toHaveBeenCalled();
   });
 });
 

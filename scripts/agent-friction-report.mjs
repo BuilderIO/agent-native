@@ -3827,7 +3827,7 @@ const PATTERNS = [
     key: "branch-worktree-ask",
     label: "Had to correct branch, worktree, or authorized PR sync prompts",
     fixedBy:
-      "AGENTS.md + ship + babysit-pr + concurrent-agents (safe authorized PR sync, 2026-10-21)",
+      "AGENTS.md + ship + new-branch + babysit-pr (task-scoped authorization persists across resumptions, 2026-10-21)",
     re: BRANCH_WORKTREE_ASK_RE,
   },
   {

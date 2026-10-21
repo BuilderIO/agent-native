@@ -99,9 +99,10 @@ Do not rebase or merge `origin/main` just to clear behind status or restart
 checks. During an explicitly authorized `/ship` for the same PR, a clean
 task-owned PR worktree at the exact live head may merge freshly fetched
 `origin/main` when GitHub reports a conflict or a failing required check is
-fixed there; no extra approval is needed. For shared branches, use a normal
-merge and never rebase. Pending checks or behind status alone are not a reason
-to sync.
+fixed there; the authorization persists across resumed turns and heartbeat
+continuations, so no extra approval is needed. For shared branches, use a
+normal merge and never rebase. Pending checks or behind status alone are not a
+reason to sync.
 
 ## Reading a Codex peer's intent
 

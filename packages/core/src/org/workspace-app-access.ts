@@ -2,7 +2,10 @@ import { createHmac, randomUUID } from "node:crypto";
 
 import { canonicalA2AAudience } from "../a2a/audience.js";
 import { isLoopbackAddress } from "../a2a/auth-policy.js";
-import { signA2AToken } from "../a2a/client.js";
+import {
+  signA2AOrgMemberDelegationToken,
+  signA2AToken,
+} from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -10,6 +13,8 @@ import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/deployment-protection.js";
+import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
+import { getRequestContext } from "../server/request-context.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 import {
@@ -374,20 +379,54 @@ async function resolveHostedWorkspaceAppAuth(
     const orgSecret = orgId
       ? (await cachedOrgA2ASecret(orgId))?.trim() || undefined
       : undefined;
-    const signingSecret =
-      orgSecret || readDeployCredentialEnv("A2A_SECRET")?.trim();
+    const deploymentSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+    const signingSecret = orgSecret || deploymentSecret;
     if (!signingSecret) {
       return workspaceAppAccessUnavailable("a2a-secret-missing", { audience });
     }
     stage = "token-signing-failed";
-    const token = await signA2AToken(email, normalizedOrgDomain, orgSecret, {
-      expiresIn: "1m",
-      preferGlobalSecret: false,
-      audience,
-      extraClaims: {
-        jti: randomUUID(),
-      },
-    });
+    const requestContext = getRequestContext();
+    let token: string;
+    if (requestContext?.a2aIdentityAssurance === "org-member") {
+      if (
+        !orgId ||
+        !normalizedOrgDomain ||
+        requestContext.orgId?.trim() !== orgId ||
+        requestContext.userEmail?.trim().toLowerCase() !== email
+      ) {
+        return workspaceAppAccessUnavailable("token-signing-failed", {
+          audience,
+          detail: "Delegated member identity is missing or out of scope.",
+        });
+      }
+      if (!orgSecret) {
+        return workspaceAppAccessUnavailable("a2a-secret-missing", {
+          audience,
+        });
+      }
+      if (orgSecret === deploymentSecret) {
+        return workspaceAppAccessUnavailable("token-signing-failed", {
+          audience,
+          detail:
+            "Organization and deployment A2A secrets must differ for delegated identity.",
+        });
+      }
+      token = await signA2AOrgMemberDelegationToken(
+        email,
+        normalizedOrgDomain,
+        orgSecret,
+        audience,
+      );
+    } else {
+      token = await signA2AToken(email, normalizedOrgDomain, orgSecret, {
+        expiresIn: "1m",
+        preferGlobalSecret: false,
+        audience,
+        extraClaims: {
+          jti: randomUUID(),
+        },
+      });
+    }
 
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
       url.toString(),
@@ -398,6 +437,7 @@ async function resolveHostedWorkspaceAppAuth(
           configuredDirectory,
           email,
           orgId,
+          requestContext?.a2aIdentityAssurance ?? "user",
           normalizedOrgDomain ?? null,
           getAppConfig().app.url ?? "http://localhost:3000",
           protectionHeaders,
@@ -808,7 +848,13 @@ export async function claimWorkspaceAppForOrganization(
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
-    return claimWorkspaceAppOrganization(db, normalizedAppId, orgId, member);
+    const role = effectiveOrgMemberRole(member.role, orgId, email);
+    return role
+      ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+          ...member,
+          role,
+        })
+      : false;
   } catch (error) {
     console.error("[workspace-app-access] organization claim failed", error);
     return false;
@@ -895,7 +941,13 @@ export async function checkWorkspaceAppAccess(
       ) {
         return false;
       }
-      return claimWorkspaceAppOrganization(db, normalizedAppId, orgId, member);
+      const role = effectiveOrgMemberRole(member.role, orgId, email);
+      return role
+        ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+            ...member,
+            role,
+          })
+        : false;
     }
 
     const ownerEmail = normalizedEmail(
@@ -921,15 +973,14 @@ export async function checkWorkspaceAppAccess(
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
-    const memberRole = member.role;
+    const memberRole = effectiveOrgMemberRole(member.role, orgId, email);
+    if (!memberRole) return false;
     if (canClaimCallerOrg) {
       if (
-        !(await claimWorkspaceAppOrganization(
-          db,
-          normalizedAppId,
-          orgId,
-          member,
-        ))
+        !(await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+          ...member,
+          role: memberRole,
+        }))
       ) {
         return false;
       }

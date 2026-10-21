@@ -24,9 +24,12 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 - Ship all nonignored changes belonging to the requested work on the current
   branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
 - A ship request authorizes publishing a new PR. Pushing to someone else's PR
-  needs explicit current authorization for that exact PR; links and inherited
-  ship authority don't count. It permits a normal fast-forward push, not a
-  merge. Merge with separate current authorization; otherwise use
+  needs explicit authorization for that exact PR within the active task; a
+  linked PR or general ship request alone does not count. That authorization
+  persists across turns, heartbeats, and context compaction until the named
+  scope is complete or revoked; do not ask again for an authorized step. It
+  permits a normal fast-forward push. Merge that PR only if the user also
+  authorized the exact merge; otherwise use
   `ship_mode=ready-only` and leave the PR open. Before every push, resolve the
   active GitHub login with `gh api user --jq .login`, include `author` in the
   live PR query, and compare `author.login` with that login. Verify the head
@@ -42,6 +45,21 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   recap, unless the current request explicitly authorizes commenting on that
   exact PR. Review, monitor, fix, push, or merge authorization alone does not
   authorize comments.
+- Before asking for any approval during a resumed shipment, inspect the
+  current task transcript for the user's authorization. Record its exact PR,
+  repository, branch, and allowed endpoint there once; reuse it across replies,
+  heartbeats, and context compaction. An affirmative answer to an approval
+  request completes that request. For an explicit end-to-end or merge-authorized
+  ship, the covered steps include safe task-owned worktree/branch setup, fetching
+  fresh `origin/main`, merging it only to resolve a conflict or confirmed
+  main-side fix, committing, pushing, updating the named PR, replying to review
+  feedback on the user's PR, and the guarded merge/branch disposition. A request
+  to open or update a PR without merge authorization ends at the ready-PR gate.
+  Revalidate the live owner, repository, ref, and head before writing; these
+  checks verify the target and are not a reason to ask for the same approval.
+  Keep separately reserved boundaries, including production promotion and
+  contacting other people, outside the ledger unless the user explicitly
+  authorizes them.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
 - `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored

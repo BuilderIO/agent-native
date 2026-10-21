@@ -120,6 +120,8 @@ export interface RequestContext {
   isSyntheticTraffic?: boolean;
   mcpRequestId?: string;
   userEmail?: string;
+  /** Provenance for a cross-app identity; org-member grants only member-level org role. */
+  a2aIdentityAssurance?: "user" | "organization" | "org-member";
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
   /** Storage-only org selection; null prevents an active-org fallback. */
@@ -432,6 +434,15 @@ export function runWithRequestContext<T>(
     inheritedContext?.trackingScope !== undefined
   ) {
     context = { ...context, trackingScope: inheritedContext.trackingScope };
+  }
+  if (
+    context.a2aIdentityAssurance === undefined &&
+    inheritedContext?.a2aIdentityAssurance !== undefined
+  ) {
+    context = {
+      ...context,
+      a2aIdentityAssurance: inheritedContext.a2aIdentityAssurance,
+    };
   }
   const contextUserEmail = context.userEmail?.trim().toLowerCase();
   if (contextUserEmail) {

@@ -1,8 +1,10 @@
 import { createHmac } from "node:crypto";
 
+import { jwtVerify } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   __resetProcessMemberOrgCacheForTests,
   invalidateMemberOrgCaches,
@@ -200,6 +202,34 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
+  it("fails closed when an organization member role cannot be read", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "owner@example.com",
+            org_id: "org-1",
+            visibility: "org",
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("org member query unavailable"));
+
+    try {
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", {
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      ).resolves.toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("allows a non-owner member to access a migrated ownerless legacy app", async () => {
     mocks.execute
       .mockResolvedValueOnce({
@@ -393,7 +423,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
   });
 
   it("denies access when the local ACL record is missing", async () => {
-    mocks.execute.mockResolvedValueOnce({ rows: [] });
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
     await expect(
       isWorkspaceAppAccessAllowed("unregistered", {
@@ -650,6 +682,58 @@ describe("isWorkspaceAppAccessAllowed", () => {
       jti: expect.any(String),
     });
     expect(claims).not.toHaveProperty("org_id");
+  });
+
+  it("preserves org-member assurance when signing for the hosted workspace registry", async () => {
+    vi.stubEnv("A2A_SECRET", "deployment-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://delegation-registry.example.test",
+    );
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ allowed_domain: "example.test" }] })
+      .mockResolvedValueOnce({ rows: [{ a2a_secret: "sender-org-secret" }] });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "member@example.com",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          isWorkspaceAppAccessAllowed("analytics", {
+            email: "member@example.com",
+            orgId: "delegated-org",
+          }),
+      ),
+    ).resolves.toBe(true);
+
+    const authorization = (fetchMock.mock.calls[0]?.[1] as RequestInit)
+      .headers as Record<string, string>;
+    const token = authorization.Authorization.replace(/^Bearer /, "");
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode("sender-org-secret"),
+      { audience: "https://delegation-registry.example.test" },
+    );
+    expect(payload).toMatchObject({
+      typ: "agent-native-org-member-delegation",
+      sub: "member@example.com",
+      org_domain: "example.test",
+      aud: "https://delegation-registry.example.test",
+      jti: expect.any(String),
+    });
+    await expect(
+      jwtVerify(token, new TextEncoder().encode("deployment-secret")),
+    ).rejects.toThrow();
   });
 
   it("does not call the registry with an unscoped token when the active org has no domain", async () => {
@@ -1011,6 +1095,64 @@ describe("isWorkspaceAppAccessAllowed", () => {
     await expect(
       Promise.all([primary, otherUser, otherOrg, otherCredential]),
     ).resolves.toEqual([true, true, true, true]);
+  });
+
+  it("isolates registry cache entries by identity assurance", async () => {
+    vi.stubEnv("A2A_SECRET", "deployment-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : query?.sql?.includes("SELECT a2a_secret")
+          ? [{ a2a_secret: "sender-org-secret" }]
+          : [],
+    }));
+    const pendingResponses: Array<(response: Response) => void> = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          pendingResponses.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const call = (assurance: "user" | "org-member") =>
+      runWithRequestContext(
+        {
+          userEmail: "member@example.com",
+          orgId: "org-1",
+          a2aIdentityAssurance: assurance,
+        },
+        () =>
+          isWorkspaceAppAccessAllowed("analytics", {
+            email: "member@example.com",
+            orgId: "org-1",
+          }),
+      );
+
+    const user = call("user");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const delegatedMember = call("org-member");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), {
+      timeout: 5_000,
+    });
+
+    pendingResponses.forEach((resolve) =>
+      resolve(
+        new Response(JSON.stringify([{ id: "analytics" }]), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    await expect(Promise.all([user, delegatedMember])).resolves.toEqual([
+      true,
+      true,
+    ]);
+    expect(fetchMock.mock.calls[0]?.[1]).not.toEqual(
+      fetchMock.mock.calls[1]?.[1],
+    );
   });
 
   it("returns unavailable when the hosted registry list times out", async () => {

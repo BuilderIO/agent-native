@@ -1,9 +1,9 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
 import {
   resourcePutIfAbsent,
   sharedResourceOwner,
 } from "@agent-native/core/resources/store";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { normalizeConnectUrl } from "../lib/connect-apps.js";
@@ -30,14 +30,7 @@ async function assertCanManageSharedAgent() {
     });
   }
   const actor = currentOwnerEmail().trim().toLowerCase();
-  const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, actor],
-  });
-  const role = result.rows[0]?.role;
+  const role = await readOrgMemberRole(orgId, actor);
   if (role !== "owner" && role !== "admin") {
     fail("Only organization owners and admins can connect agents.", {
       statusCode: 403,

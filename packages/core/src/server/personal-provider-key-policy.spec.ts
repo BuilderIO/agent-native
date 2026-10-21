@@ -34,6 +34,7 @@ import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
   personalProviderKeyWriteDenial,
+  readOrgMemberRole,
   readPersonalProviderKeyPolicy,
   resolvePersonalProviderKeySaveDenial,
   writePersonalProviderKeyPolicy,
@@ -80,6 +81,69 @@ describe("isPersonalProviderPolicyKey", () => {
       expect(isPersonalProviderPolicyKey(key)).toBe(false);
     }
   });
+});
+
+describe("readOrgMemberRole", () => {
+  it.each(["owner", "admin"] as const)(
+    "caps a matching delegated %s identity at member",
+    async (storedRole) => {
+      role(storedRole);
+      mocks.request.ctx = {
+        a2aIdentityAssurance: "org-member",
+        userEmail: " OWNER@example.com ",
+        orgId: " org-1 ",
+      };
+
+      await expect(
+        readOrgMemberRole("org-1", "owner@example.com"),
+      ).resolves.toBe("member");
+    },
+  );
+
+  it.each([
+    {
+      label: "a different request email",
+      context: {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "other@example.com",
+        orgId: "org-1",
+      },
+      email: "owner@example.com",
+      orgId: "org-1",
+      expectedRole: null,
+    },
+    {
+      label: "a different request organization",
+      context: {
+        a2aIdentityAssurance: "org-member",
+        userEmail: "owner@example.com",
+        orgId: "org-2",
+      },
+      email: "owner@example.com",
+      orgId: "org-1",
+      expectedRole: null,
+    },
+    {
+      label: "a deployment user identity",
+      context: {
+        a2aIdentityAssurance: "user",
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+      },
+      email: "owner@example.com",
+      orgId: "org-1",
+      expectedRole: "owner",
+    },
+  ])(
+    "returns $expectedRole for $label",
+    async ({ context, email, orgId, expectedRole }) => {
+      role("owner");
+      mocks.request.ctx = context;
+
+      await expect(readOrgMemberRole(orgId, email)).resolves.toBe(expectedRole);
+      if (expectedRole === null) expect(mocks.execute).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("isPersonalProviderKeyUseRestricted", () => {
