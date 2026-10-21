@@ -8,6 +8,10 @@ import {
   type BigQueryBackendReason,
 } from "./bigquery.js";
 import {
+  getFirstPartyAnalyticsBackend,
+  type FirstPartyAnalyticsSink,
+} from "./first-party-analytics-backend.js";
+import {
   queryFirstPartyAnalytics,
   FirstPartyAnalyticsQueryTimeoutError,
   type AnalyticsScope,
@@ -49,11 +53,18 @@ import {
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
 export const ONBOARDING_EVENT_PAGE_ROWS = 4_000;
+export const DEFAULT_ONBOARDING_EVENT_ROW_BUDGET = 40_000;
+export const MAX_ONBOARDING_EVENT_ROW_BUDGET = 200_000;
 const MAX_ONBOARDING_JOURNEY_FOLLOWUP_TERMINALS = 2_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
 const ONBOARDING_QUERY_TIMEOUT_MS = 20_000;
+export const ONBOARDING_EVENT_READ_DEADLINE_MS = 45_000;
 export const ONBOARDING_EVENTS_MAX_BYTES_BILLED = 25_000_000_000;
+export const ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED =
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED * 11;
+export const ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED =
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED * 51;
 const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -61,6 +72,12 @@ export function getOnboardingJourneyEventReadPageCount(
   maxEventRows: number,
 ): number {
   return Math.ceil((maxEventRows + 1) / ONBOARDING_EVENT_PAGE_ROWS);
+}
+
+export function getOnboardingJourneyEventReadPageBudget(
+  maxTotalBytesBilled: number,
+): number {
+  return Math.floor(maxTotalBytesBilled / ONBOARDING_EVENTS_MAX_BYTES_BILLED);
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -189,6 +206,7 @@ export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
   minNodeSessions: number;
   examplesPerNode: number;
   maxEventRows: number;
+  maxTotalBytesBilled: number;
   maxNodes: number;
   settleMs: number;
   recency: "newest" | "none";
@@ -203,8 +221,8 @@ export interface JourneyTree {
   coverage: {
     /** Sessions in the tree: entered onboarding in the window and produced a step. */
     sessionsWithEvents: number;
-    /** Sessions with a playable recording the caller can open. */
-    sessionsWithReplay: number;
+    /** Null when a truncated event sample causes replay reads to be skipped. */
+    sessionsWithReplay: number | null;
     /** Counts are a partial sample: the event read or the node list was cut. */
     truncated: boolean;
   };
@@ -216,7 +234,7 @@ export interface JourneyTree {
     rootN: number;
     coverage: {
       sessionsWithEvents: number;
-      sessionsWithReplay: number;
+      sessionsWithReplay: number | null;
       truncated: boolean;
     };
     nodes: JourneyNode[];
@@ -232,7 +250,7 @@ export interface JourneySummary {
   rootN: number;
   coverage: {
     sessionsWithEvents: number;
-    /** Null for summaries that skip replay reads or when a replay read fails. */
+    /** Null when replay reads are skipped for summaries or truncated samples. */
     sessionsWithReplay: number | null;
     truncated: boolean;
   };
@@ -476,7 +494,12 @@ interface EventRead {
   lastSessionDroppedFor: JourneyEventRow["journeyKind"] | null;
   pages: number;
   paginationConsistency: "stable" | "may_have_shifted";
-  truncationReason: "max_event_rows" | "backend_result" | "page_budget" | null;
+  truncationReason:
+    | "max_event_rows"
+    | "backend_result"
+    | "page_budget"
+    | "read_deadline"
+    | null;
 }
 
 export interface OnboardingJourneyEventPageRequest {
@@ -517,11 +540,13 @@ async function readJourneyEvents(
   scope: AnalyticsScope,
   filters: OnboardingJourneyEventsFilters,
   maxEventRows: number,
+  maxTotalBytesBilled: number,
   observation: OnboardingJourneyObservationWindow,
   freezeReceivedAt: boolean,
   signal?: AbortSignal,
 ): Promise<EventRead> {
-  const maxPages = getOnboardingJourneyEventReadPageCount(maxEventRows);
+  const requestedMaxPages =
+    getOnboardingJourneyEventReadPageCount(maxEventRows);
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
   let truncationReason: EventRead["truncationReason"] = null;
@@ -529,61 +554,109 @@ async function readJourneyEvents(
   let overflowSessionId: string | null = null;
   let pages = 0;
   let rowsFetched = 0;
-  for (;;) {
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(
+    () =>
+      deadline.abort(
+        new DOMException(
+          "Onboarding event read deadline exceeded",
+          "AbortError",
+        ),
+      ),
+    ONBOARDING_EVENT_READ_DEADLINE_MS,
+  );
+  const querySignal = signal
+    ? AbortSignal.any([signal, deadline.signal])
+    : deadline.signal;
+  try {
     throwIfAborted(signal);
-    // One row past the budget tells a full read from a cut one.
-    const request = buildOnboardingJourneyEventPageRequest(
-      filters,
-      maxEventRows,
-      raw.length,
-      observation,
-      freezeReceivedAt,
-    );
-    let page: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+    let backendSink: FirstPartyAnalyticsSink | null = null;
     try {
-      page = await queryFirstPartyAnalytics(request.sql, scope, {
-        cache: true,
-        timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
-        maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-        eventDateRange: request.eventDateRange,
-        scopedEventsSingleScan: true,
-        scopedEventsProjection: "onboarding_journey",
-        scopedEventsSourceProjections: {
-          e: "onboarding_journey",
-          r: "onboarding_journey_response_identity",
-        },
-        signal,
-      });
+      const backend = await getFirstPartyAnalyticsBackend(scope, querySignal);
+      backendSink = backend.sink;
     } catch (error) {
-      if (signal?.aborted || isAbortError(error)) throw error;
-      throw new OnboardingJourneyReadError(error, pages + 1);
-    }
-    pages += 1;
-    raw.push(...page.rows);
-    rowsFetched += page.rows.length;
-    if (page.truncated) {
+      if (signal?.aborted) throw error;
+      if (!deadline.signal.aborted) throw error;
       truncated = true;
-      truncationReason = "backend_result";
-      break;
+      truncationReason = "read_deadline";
     }
-    if (page.rows.length < request.limit) break;
-    if (raw.length > maxEventRows) {
-      truncated = true;
-      truncationReason = "max_event_rows";
-      const overflowKind = raw[maxEventRows]?.journey_kind;
-      truncatedAt =
-        overflowKind === "onboarding" || overflowKind === "standalone_setup"
-          ? overflowKind
-          : null;
-      overflowSessionId = text(raw[maxEventRows]?.session_id);
-      raw.length = maxEventRows;
-      break;
+    const maxPages =
+      backendSink === "bigquery"
+        ? Math.min(
+            requestedMaxPages,
+            getOnboardingJourneyEventReadPageBudget(maxTotalBytesBilled),
+          )
+        : requestedMaxPages;
+
+    while (!truncated) {
+      throwIfAborted(signal);
+      if (deadline.signal.aborted) {
+        truncated = true;
+        truncationReason = "read_deadline";
+        break;
+      }
+      // One row past the budget tells a full read from a cut one.
+      const request = buildOnboardingJourneyEventPageRequest(
+        filters,
+        maxEventRows,
+        raw.length,
+        observation,
+        freezeReceivedAt,
+      );
+      let page: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+      try {
+        page = await queryFirstPartyAnalytics(request.sql, scope, {
+          cache: true,
+          timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+          maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+          eventDateRange: request.eventDateRange,
+          scopedEventsSingleScan: true,
+          scopedEventsProjection: "onboarding_journey",
+          scopedEventsSourceProjections: {
+            e: "onboarding_journey",
+            r: "onboarding_journey_response_identity",
+          },
+          signal: querySignal,
+        });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (deadline.signal.aborted) {
+          truncated = true;
+          truncationReason = "read_deadline";
+          break;
+        }
+        if (isAbortError(error)) throw error;
+        throw new OnboardingJourneyReadError(error, pages + 1);
+      }
+      pages += 1;
+      raw.push(...page.rows);
+      rowsFetched += page.rows.length;
+      if (page.truncated) {
+        truncated = true;
+        truncationReason = "backend_result";
+        break;
+      }
+      if (page.rows.length < request.limit) break;
+      if (raw.length > maxEventRows) {
+        truncated = true;
+        truncationReason = "max_event_rows";
+        const overflowKind = raw[maxEventRows]?.journey_kind;
+        truncatedAt =
+          overflowKind === "onboarding" || overflowKind === "standalone_setup"
+            ? overflowKind
+            : null;
+        overflowSessionId = text(raw[maxEventRows]?.session_id);
+        raw.length = maxEventRows;
+        break;
+      }
+      if (pages >= maxPages) {
+        truncated = true;
+        truncationReason = "page_budget";
+        break;
+      }
     }
-    if (pages >= maxPages) {
-      truncated = true;
-      truncationReason = "page_budget";
-      break;
-    }
+  } finally {
+    clearTimeout(deadlineTimer);
   }
 
   const byId = new Map<string, JourneyEventRow>();
@@ -1577,6 +1650,7 @@ export async function getOnboardingJourney(
       scope,
       args,
       args.maxEventRows,
+      args.maxTotalBytesBilled,
       observation,
       args.followUpMode === "person",
       signal,
@@ -1647,7 +1721,8 @@ export async function getOnboardingJourney(
 
   let recordings: JourneyRecording[] | null;
   throwIfAborted(signal);
-  if (args.format === "summary") {
+  const replayReadSkipped = args.format === "tree" && read.truncated;
+  if (args.format === "summary" || replayReadSkipped) {
     recordings = null;
   } else {
     recordings = await readRecordings(
@@ -1694,10 +1769,12 @@ export async function getOnboardingJourney(
   const notes: string[] = [];
   const eventReadLimit =
     read.truncationReason === "page_budget"
-      ? `Event read reached its safe page limit before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
-      : read.truncationReason === "backend_result"
-        ? "BigQuery returned an incomplete event page"
-        : `Event read stopped at maxEventRows=${args.maxEventRows}`;
+      ? `Event read reached its aggregate maxTotalBytesBilled=${args.maxTotalBytesBilled} bytes budget before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
+      : read.truncationReason === "read_deadline"
+        ? `Event read reached its ${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000}-second deadline before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
+        : read.truncationReason === "backend_result"
+          ? "BigQuery returned an incomplete event page"
+          : `Event read stopped at maxEventRows=${args.maxEventRows}`;
   if (read.onboardingTruncated) {
     notes.push(
       `${eventReadLimit} while reading onboarding events; onboarding counts are a partial sample${read.lastSessionDroppedFor === "onboarding" ? " and the last onboarding session read was left out" : ""}.`,
@@ -1732,6 +1809,11 @@ export async function getOnboardingJourney(
   if (read.invalidRows) {
     notes.push(
       `${read.invalidRows} event rows had no id, session, or readable timestamp and were not counted.`,
+    );
+  }
+  if (replayReadSkipped) {
+    notes.push(
+      "Replay availability is unknown because the event sample was truncated; replay reads were skipped.",
     );
   }
   if (sessionsWithoutSteps + standalone.sessionsWithoutSteps) {
@@ -1793,9 +1875,11 @@ export async function getOnboardingJourney(
     ...head,
     coverage: {
       sessionsWithEvents: sessions.length,
-      sessionsWithReplay: sessions.filter((session) =>
-        bySession.has(session.sessionId),
-      ).length,
+      sessionsWithReplay:
+        recordings === null
+          ? null
+          : sessions.filter((session) => bySession.has(session.sessionId))
+              .length,
       truncated,
     },
     nodes: capped.nodes,
@@ -1807,9 +1891,12 @@ export async function getOnboardingJourney(
             rootN: standaloneBuilt.rootN,
             coverage: {
               sessionsWithEvents: standalone.sessions.length,
-              sessionsWithReplay: standalone.sessions.filter((session) =>
-                bySession.has(session.sessionId),
-              ).length,
+              sessionsWithReplay:
+                recordings === null
+                  ? null
+                  : standalone.sessions.filter((session) =>
+                      bySession.has(session.sessionId),
+                    ).length,
               truncated:
                 read.standaloneSetupTruncated ||
                 standaloneDepthTruncated ||

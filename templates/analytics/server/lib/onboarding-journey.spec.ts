@@ -44,6 +44,8 @@ import {
   getOnboardingJourney,
   OnboardingJourneyReadError,
   JourneyRecordingsError,
+  ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENT_READ_DEADLINE_MS,
   parseJourneyEventRow,
   parseJourneyTimestampMs,
   type JourneySummary,
@@ -65,6 +67,7 @@ const ARGS: OnboardingJourneyArgs = {
   minNodeSessions: 1,
   examplesPerNode: 2,
   maxEventRows: 1000,
+  maxTotalBytesBilled: ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   maxNodes: 60,
   settleMs: 300,
   recency: "newest",
@@ -1572,40 +1575,125 @@ describe("getOnboardingJourney", () => {
     }
   });
 
-  it("allows bounded Postgres reads through the requested row budget", async () => {
-    const rows = Array.from({ length: 8_001 }, (_, index) =>
-      eventRow("postgres-pages", "pageview", index),
-    );
-    mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
-      sink: "postgres",
-      table: null,
-    });
-    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
-      const offset = Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
-      const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 0);
-      return { rows: rows.slice(offset, offset + limit), schema: [] };
+  it("stops BigQuery pages at the aggregate budget and marks the tree partial", async () => {
+    let page = 0;
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
+      const offset = page++ * 4_000;
+      return {
+        rows: Array.from({ length: 4_000 }, (_, index) =>
+          eventRow(`budget-${offset + index}`, "signup", offset + index),
+        ),
+        schema: [],
+      };
     });
 
-    const summary = (await getOnboardingJourney(scope, {
+    const tree = (await getOnboardingJourney(scope, {
       ...ARGS,
-      format: "summary",
-      maxEventRows: 10_000,
-    })) as JourneySummary;
+      format: "tree",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneyTree;
 
-    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
-    expect(summary.followUp).toMatchObject({
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(2);
+    expect(mocks.listJourneyRecordings).not.toHaveBeenCalled();
+    expect(tree.coverage).toMatchObject({
+      sessionsWithReplay: null,
+      truncated: true,
+    });
+    expect(tree.notes?.join(" ")).toMatch(
+      /aggregate maxTotalBytesBilled=50000000000 bytes budget/,
+    );
+    expect(tree.notes?.join(" ")).toMatch(/replay reads were skipped/);
+    expect(tree.followUp).toMatchObject({
       status: "incomplete",
-      incompleteReason: "journey_event_read_may_have_shifted",
-      coverage: {
-        journeyEventRead: {
-          rows: 8_001,
-          pages: 3,
-          truncated: false,
-          paginationConsistency: "may_have_shifted",
-        },
-      },
+      incompleteReason: "journey_event_read_truncated",
+      coverage: { journeyEventRead: { pages: 2, truncated: true } },
     });
   });
+
+  it("returns completed pages as partial coverage at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      return {
+        rows: Array.from({ length: 4_000 }, (_, index) =>
+          eventRow(`deadline-${index}`, "signup", index),
+        ),
+        schema: [],
+      };
+    });
+
+    try {
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        dateTo: "2026-10-09",
+        format: "summary",
+        maxEventRows: 20_000,
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+      expect(summary.coverage.truncated).toBe(true);
+      expect(summary.notes?.join(" ")).toMatch(/45-second deadline/);
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "journey_event_read_truncated",
+        coverage: { journeyEventRead: { pages: 1, truncated: true } },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps caller cancellation distinct from internal partial-read limits", async () => {
+    const controller = new AbortController();
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    await expect(
+      getOnboardingJourney(scope, ARGS, controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it.each(["postgres", "dual"] as const)(
+    "allows %s-backed reads through the requested row budget",
+    async (sink) => {
+      const rows = Array.from({ length: 8_001 }, (_, index) =>
+        eventRow("postgres-pages", "pageview", index),
+      );
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+        const offset = Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
+        const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 0);
+        return { rows: rows.slice(offset, offset + limit), schema: [] };
+      });
+
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+        maxEventRows: 10_000,
+        maxTotalBytesBilled: 25_000_000_000,
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "journey_event_read_may_have_shifted",
+        coverage: {
+          journeyEventRead: {
+            rows: 8_001,
+            pages: 3,
+            truncated: false,
+            paginationConsistency: "may_have_shifted",
+          },
+        },
+      });
+    },
+  );
 
   it("counts rows it cannot read, and says so", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({

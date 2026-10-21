@@ -40,6 +40,11 @@ import {
   estimateOnboardingJourneyEventQueryCost,
   OnboardingJourneyCostError,
 } from "./onboarding-journey-cost.js";
+import {
+  ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENT_READ_DEADLINE_MS,
+} from "./onboarding-journey.js";
 
 const scope = { userEmail: "caller@example.test", orgId: "org-1" };
 const filters: OnboardingJourneyEventsFilters = {
@@ -93,7 +98,13 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
     expect(estimate).toEqual({
       status: "within_cap",
       maxBytesBilledPerQuery: 25_000_000_000,
+      maxTotalBytesBilled: ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
+      requestedPageCount: 2,
+      allowedPageCount: 2,
+      pageBudgetLimited: false,
+      estimatedPagesBytes: 1_400,
       possiblePagesEstimatedBytes: 1_400,
+      unestimatedPageCount: 0,
       pages: [
         { page: 1, offset: 0, estimatedBytes: 700 },
         { page: 2, offset: 4_000, estimatedBytes: 700 },
@@ -103,7 +114,10 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
     expect(mocks.dryRunQuerySchema).toHaveBeenNthCalledWith(
       1,
       "private rendered SQL",
-      { signal, wrapPreparationErrors: true },
+      expect.objectContaining({
+        signal: expect.anything(),
+        wrapPreparationErrors: true,
+      }),
     );
     expect(mocks.scopedAnalyticsSql).toHaveBeenCalledWith(
       expect.stringContaining("LIMIT 4000 OFFSET 0"),
@@ -158,6 +172,8 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
       200_000,
       observation,
       false,
+      undefined,
+      ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
     );
 
     expect(estimate.status).toBe("within_cap");
@@ -172,6 +188,83 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
     expect(mocks.scopedAnalyticsSql.mock.calls[50]?.[0]).toContain(
       "LIMIT 1 OFFSET 200000",
     );
+  });
+
+  it("reports the default aggregate budget as a page limit for larger row requests", async () => {
+    const estimate = await estimateOnboardingJourneyEventQueryCost(
+      scope,
+      filters,
+      200_000,
+      observation,
+      false,
+    );
+
+    expect(estimate).toMatchObject({
+      status: "within_cap",
+      maxTotalBytesBilled: ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
+      requestedPageCount: 51,
+      allowedPageCount: 11,
+      pageBudgetLimited: true,
+      estimatedPagesBytes: 11 * 700,
+      possiblePagesEstimatedBytes: 11 * 700,
+      unestimatedPageCount: 0,
+    });
+    expect(estimate.pages).toHaveLength(11);
+  });
+
+  it("returns explicitly incomplete estimates when the total deadline expires", async () => {
+    vi.useFakeTimers();
+    mocks.dryRunQuerySchema.mockImplementationOnce(async () => {
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    try {
+      const estimate = await estimateOnboardingJourneyEventQueryCost(
+        scope,
+        filters,
+        200_000,
+        observation,
+        false,
+        undefined,
+        ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
+      );
+
+      expect(estimate).toMatchObject({
+        status: "incomplete",
+        allowedPageCount: 51,
+        possiblePagesEstimatedBytes: null,
+        estimatedPagesBytes: 0,
+        unestimatedPageCount: 51,
+        incompleteReason: "deadline",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports per-page dry-run timeouts as an incomplete estimate", async () => {
+    mocks.dryRunQuerySchema.mockResolvedValueOnce({
+      error: "timed out",
+      timedOut: true,
+    });
+
+    const estimate = await estimateOnboardingJourneyEventQueryCost(
+      scope,
+      filters,
+      4_000,
+      observation,
+      false,
+    );
+
+    expect(estimate).toMatchObject({
+      status: "incomplete",
+      allowedPageCount: 2,
+      possiblePagesEstimatedBytes: null,
+      estimatedPagesBytes: 0,
+      unestimatedPageCount: 2,
+      incompleteReason: "page_timeout",
+    });
   });
 
   it("does not report a missing byte estimate as a successful zero", async () => {

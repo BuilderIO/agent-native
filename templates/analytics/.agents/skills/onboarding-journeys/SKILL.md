@@ -31,12 +31,16 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 
 `estimate-onboarding-journey-cost` dry-runs the same access-scoped BigQuery
 event-page SQL as `get-onboarding-journey`. Pass matching dates, app,
-email filter, follow-up mode, and event row budget. It returns estimated bytes
-for every possible 4,000-row page through that budget, including the one-row
-overflow check, their sum in `possiblePagesEstimatedBytes`, the unchanged
-per-query cap, and `within_cap` or `over_cap`. Production reads each page only
-when the previous page fills. The sum is a possible-pages estimate, not
-executed or billed bytes; the 25 GB billed-byte cap applies to each query.
+email filter, follow-up mode, event row budget, and `maxTotalBytesBilled`. It
+reports requested and allowed page counts, then dry-runs each allowed 4,000-row
+page, including the one-row overflow check when within budget. `maxTotalBytesBilled`
+defaults to 275 GB, reserving the full 25 GB per-query cap for each of 11 pages;
+raise it deliberately to allow more pages, up to 1.275 TB and 51 pages. Match
+this value when calling `get-onboarding-journey`. A 45-second deadline or a
+per-page dry-run timeout can return `status: "incomplete"`, the count of
+unestimated allowed pages, and `possiblePagesEstimatedBytes: null`. Read
+`pageBudgetLimited` and the requested/allowed counts before interpreting an
+estimate. The sum is a possible-pages estimate, not executed or billed bytes.
 Data-dependent follow-up queries are excluded. An unavailable estimate fails
 explicitly.
 
@@ -55,7 +59,7 @@ type JourneyNode = { key: string; keyTruncated?: boolean; label: string; labelTr
 type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "followup_aggregate_cost_limited" | "followup_aggregate_query_timeout" | "followup_aggregate_query_failed" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean; status?: "incomplete"; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
 type JourneyPersonFollowupCounts = { canonicalPeople: number; laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number; laterActivityInBothSelectedAndOutside: number; laterActivityObservedAnywhere: number; noActivityObservedWithinHorizon: number; rightCensoredHorizon: number; fullyObservedCanonicalPeople: number; noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: number | null; identityUnavailableSessions: number; identityUnavailableSessionEvidence: { laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number } };
 type JourneyPersonFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_too_large" | "terminal_cohort_invalid" | "person_followup_aggregate_truncated" | "person_followup_query_cost_limited" | "person_followup_query_timeout" | "person_followup_query_failed" | "person_followup_aggregate_invalid" | "person_followup_terminal_cohort_mismatch"; horizonDays: 30; horizonMs: number; observationWatermark: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { status: "complete" | "truncated" | "incomplete" | "not_run"; rows: number | null; queries: number; truncated: boolean; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; terminalSessions: number | null; sessionsWithoutSelectedStep: number | null; identityJoin: { status: "complete" | "partial" | "unavailable" | "not_applicable" | "unknown"; terminalSessions: number | null; sessionsWithCanonicalIdentity: number | null; sessionsWithoutCanonicalIdentity: number | null; uniqueCanonicalPeople: number | null; coveragePct: number | null } }; total: JourneyPersonFollowupCounts | null; byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null };
-type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; followUp: JourneyFollowup; personFollowUp?: JourneyPersonFollowup; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
+type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number | null; truncated: boolean }; nodes: JourneyNode[]; followUp: JourneyFollowup; personFollowUp?: JourneyPersonFollowup; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number | null; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
 ```
 
 Analytics returns cohort nodes with counts. When extending a Design storyboard
@@ -135,8 +139,14 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   reports `may_have_shifted` when the event read uses multiple `OFFSET` pages;
   a late-arriving event can change page membership inside a historical window
   too. The action reads 4,000-row pages up to `maxEventRows` (at most 200,000),
-  plus one overflow row to detect truncation. Each BigQuery page keeps the
-  25 GB billed-byte cap. If a read truncates, page boundaries may have shifted,
+  plus one overflow row to detect truncation. Each BigQuery page keeps a 25 GB
+  billed-byte cap; by default, `maxTotalBytesBilled` reserves that cap for 11
+  pages (275 GB), and can be raised deliberately to 1.275 TB (51 pages). Event
+  page reads also stop at a 45-second deadline. If the aggregate budget or
+  deadline cuts a read, `coverage.truncated` and `notes` identify why; read them
+  before interpreting counts. A truncated event sample skips replay reads and
+  returns `sessionsWithReplay: null` because replay availability is unknown. If
+  a read truncates, page boundaries may have shifted,
   or the terminal cohort cannot be covered in one query under the
   800,000-character SQL limit or 50,000-token parser limit, `status` is
   `incomplete` and all new cohort counts and follow-up duration are `null`;
@@ -194,8 +204,9 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
 - A session is an analytics session id. One that began before `dateFrom`
   starts mid-journey, so start the window a day early.
 - Read `coverage` before using the numbers. `truncated: true` means the event
-  read hit `maxEventRows`, a session went past `maxDepth`, or the node list hit
-  `maxNodes`; `notes` says which.
+  read hit `maxEventRows`, `maxTotalBytesBilled`, or its 45-second deadline, a
+  session went past `maxDepth`, or the node list hit `maxNodes`; `notes` says
+  which.
   Never report a truncated tree as the whole window.
 - The event row cap is shared by onboarding and standalone setup. If it is hit,
   `standaloneSetup` may be an empty, truncated tree because standalone events
