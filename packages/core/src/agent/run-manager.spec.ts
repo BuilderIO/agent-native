@@ -383,7 +383,15 @@ describe("run manager soft timeout", () => {
     clearHostedEnvForTest();
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: false });
     vi.mocked(getRunStatus).mockResolvedValue("running");
-    vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(getRunById).mockImplementation(async (runId) => ({
+      id: runId,
+      threadId: "test-thread",
+      status: "running",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: null,
+    }));
     vi.mocked(listRunsForThread).mockReset();
     vi.mocked(listRunsForThread).mockResolvedValue([]);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
@@ -960,6 +968,59 @@ describe("run manager soft timeout", () => {
     expect(onComplete).toHaveBeenCalledWith(
       expect.objectContaining({ status: "aborted" }),
     );
+  });
+
+  it("keeps checkpoint status unreadable separate from checkpoint persistence failure", async () => {
+    const runId = "run-checkpoint-status-read-failure";
+    const threadId = "thread-checkpoint-status-read-failure";
+    const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(persistRunCheckpointEvent).mockResolvedValueOnce();
+    vi.mocked(getRunById).mockRejectedValueOnce(
+      new Error("database read unavailable"),
+    );
+    const run = startRun(
+      runId,
+      threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 10 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(persistRunCheckpointEvent).toHaveBeenCalledOnce();
+    expect(getRunById).toHaveBeenCalledWith(runId);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "run_terminal_lookup_failed",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        errorCode: "run_checkpoint_persistence_failed",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "auto_continue" }),
+    );
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      expect.any(String),
+    );
+    expect(run.status).toBe("errored");
+    consoleError.mockRestore();
   });
 
   it("preserves a driver terminal emitted while checkpoint persistence is pending", async () => {

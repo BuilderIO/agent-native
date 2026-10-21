@@ -1362,6 +1362,7 @@ export function startRun(
   let checkpointRunBoundaryTask: Promise<void> = Promise.resolve();
   let checkpointAbortInFlight = false;
   let checkpointPersistenceFailed = false;
+  let checkpointStatusReadFailed = false;
   let runDriverSettled = false;
   let pendingTerminalEvent: RunEvent | null = null;
   const checkpointRunBoundary = (
@@ -1383,12 +1384,40 @@ export function startRun(
           persistRunCheckpointEvent(runId, event, terminalReason),
         );
         checkpointPersisted = true;
-        const persistedRun = await getRunById(runId);
+        let persistedRun: Awaited<ReturnType<typeof getRunById>>;
+        try {
+          persistedRun = await getRunById(runId);
+        } catch (error) {
+          checkpointStatusReadFailed = true;
+          console.error(
+            "[run-manager] could not confirm run status after checkpoint persistence",
+            runId,
+            error instanceof Error ? error.message : error,
+          );
+          return;
+        }
+        if (!persistedRun) {
+          checkpointStatusReadFailed = true;
+          console.error(
+            "[run-manager] run row missing after checkpoint persistence",
+            runId,
+          );
+          return;
+        }
         if (persistedRun?.status === "aborted") {
           run.status = "aborted";
           run.abortReason = persistedRun.terminalReason?.startsWith("aborted:")
             ? persistedRun.terminalReason.slice("aborted:".length)
             : undefined;
+          return;
+        }
+        if (persistedRun.status !== "running") {
+          checkpointStatusReadFailed = true;
+          console.error(
+            "[run-manager] run became terminal after checkpoint persistence",
+            runId,
+            persistedRun.status,
+          );
           return;
         }
         softTimedOut = true;
@@ -1423,6 +1452,7 @@ export function startRun(
                 : undefined;
             }
           } catch (statusError) {
+            checkpointStatusReadFailed = true;
             console.error(
               "[run-manager] could not confirm run status after checkpoint rejection",
               runId,
@@ -1430,19 +1460,26 @@ export function startRun(
             );
           }
         }
-        if (persistedAbort || (pendingTerminalEvent && !checkpointPersisted)) {
+        if (
+          !checkpointStatusReadFailed &&
+          (persistedAbort || (pendingTerminalEvent && !checkpointPersisted))
+        ) {
           softTimedOut = true;
-        } else {
+        } else if (!checkpointStatusReadFailed) {
           checkpointPersistenceFailed = true;
         }
-        if (!persistedAbort) {
+        if (!persistedAbort && !checkpointStatusReadFailed) {
           console.error(
             "[run-manager] could not persist run boundary checkpoint",
             runId,
             error instanceof Error ? error.message : error,
           );
         }
-        if (!pendingTerminalEvent && !persistedAbort) {
+        if (
+          !pendingTerminalEvent &&
+          !persistedAbort &&
+          !checkpointStatusReadFailed
+        ) {
           send({
             type: "error",
             error: "The agent could not save its continuation checkpoint.",
@@ -1986,6 +2023,17 @@ export function startRun(
             },
           };
         }
+      }
+      if (checkpointStatusReadFailed) {
+        run.status = "errored";
+        publishRunEvent({
+          seq: peekRunEventSeq(run),
+          event: { ...RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT },
+        });
+        for (const subscriber of run.subscribers) {
+          run.subscribers.delete(subscriber);
+        }
+        return;
       }
       const resolveTerminalEventForCompletion = () => {
         if (run.status === "aborted") return null;
