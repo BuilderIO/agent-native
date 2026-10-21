@@ -100,9 +100,14 @@ function cleanValue(value: string | null | undefined): string | undefined {
   return cleaned ? cleaned : undefined;
 }
 
-function buildBucketConfig(
+/** A bucket's settings, or what is missing or wrong in them. */
+type BucketSettings =
+  | { config: BucketConfig; problem?: undefined }
+  | { config: null; problem: string };
+
+function readBucketSettings(
   read: (key: string) => string | undefined,
-): BucketConfig | null {
+): BucketSettings {
   const value = (field: StorageField) => {
     const [primary, legacy] = STORAGE_KEYS[field];
     return cleanValue(read(primary)) ?? cleanValue(read(legacy));
@@ -111,33 +116,66 @@ function buildBucketConfig(
   const accessKeyId = value("accessKeyId");
   const secretAccessKey = value("secretAccessKey");
   const endpoint = value("endpoint")?.replace(/\/+$/, "");
-  if (!bucket || !accessKeyId || !secretAccessKey || !endpoint) return null;
-  if (!URL.canParse(endpoint)) return null;
-  if (!["http:", "https:"].includes(new URL(endpoint).protocol)) return null;
+  if (!bucket || !accessKeyId || !secretAccessKey || !endpoint) {
+    const missing = (
+      ["bucket", "accessKeyId", "secretAccessKey", "endpoint"] as const
+    ).filter((field) => !value(field));
+    return {
+      config: null,
+      problem: `missing ${missing.map((field) => STORAGE_KEYS[field][0]).join(", ")}`,
+    };
+  }
+  if (
+    !URL.canParse(endpoint) ||
+    !["http:", "https:"].includes(new URL(endpoint).protocol)
+  ) {
+    return {
+      config: null,
+      problem: `${STORAGE_KEYS.endpoint[0]} is not an http(s) URL`,
+    };
+  }
   return {
-    bucket,
-    accessKeyId,
-    secretAccessKey,
-    endpoint,
-    region: value("region") ?? "auto",
-    publicBaseUrl: value("publicBaseUrl")?.replace(/\/+$/, "") ?? null,
+    config: {
+      bucket,
+      accessKeyId,
+      secretAccessKey,
+      endpoint,
+      region: value("region") ?? "auto",
+      publicBaseUrl: value("publicBaseUrl")?.replace(/\/+$/, "") ?? null,
+    },
   };
 }
 
-function readEnvBucketConfig(): BucketConfig | null {
-  return buildBucketConfig(readDeployCredentialEnv);
+function readEnvBucketSettings(): BucketSettings {
+  return readBucketSettings(readDeployCredentialEnv);
 }
 
-async function readScopedBucketConfig(
+async function readScopedBucketSettings(
   scope: SecretScope,
   scopeId: string,
-): Promise<BucketConfig | null> {
+): Promise<BucketSettings> {
   const secrets = await readAppSecrets({
     keys: Object.values(STORAGE_KEYS).flat(),
     scope,
     scopeId,
   });
-  return buildBucketConfig((key) => secrets.get(key)?.value);
+  return readBucketSettings((key) => secrets.get(key)?.value);
+}
+
+/**
+ * Endpoints saved in settings must use HTTPS, because requests carry signed
+ * credentials and private bytes. The deployment's own endpoints may use HTTP
+ * (a MinIO on its private network, for example).
+ */
+function assertSecureEndpoint(source: CredentialSource, endpoint: string) {
+  if (source.kind !== "secret") return;
+  if (URL.canParse(endpoint) && new URL(endpoint).protocol === "https:") {
+    return;
+  }
+  throw new PrivateBlobError(
+    "Storage endpoints saved in settings must use HTTPS",
+    "not_configured",
+  );
 }
 
 /** The first of a setting's names that resolves for this request. */
@@ -161,21 +199,24 @@ async function resolveSetting(field: StorageField) {
 async function resolveBucketScope(): Promise<ResolvedBucket | null> {
   const detail = await resolveSetting("bucket");
   if (!detail) return null;
-  if (detail.source === "env" || !detail.source || !detail.scopeId) {
-    const config = readEnvBucketConfig();
-    return config ? { config, source: { kind: "env" } } : null;
+  const source: CredentialSource =
+    detail.source && detail.source !== "env" && detail.scopeId
+      ? { kind: "secret", scope: detail.source, scopeId: detail.scopeId }
+      : { kind: "env" };
+  const settings =
+    source.kind === "secret"
+      ? await readScopedBucketSettings(source.scope, source.scopeId)
+      : readEnvBucketSettings();
+  // A bucket setting means the workspace or deployment chose its own bucket,
+  // so the put fails rather than storing the blob in the hosted bucket.
+  if (!settings.config) {
+    throw new PrivateBlobError(
+      `Storage settings are incomplete: ${settings.problem}`,
+      "not_configured",
+    );
   }
-  const config = await readScopedBucketConfig(detail.source, detail.scopeId);
-  return config
-    ? {
-        config,
-        source: {
-          kind: "secret",
-          scope: detail.source,
-          scopeId: detail.scopeId,
-        },
-      }
-    : null;
+  assertSecureEndpoint(source, settings.config.endpoint);
+  return { config: settings.config, source };
 }
 
 /**
@@ -232,11 +273,11 @@ function readHostedBucketConfig(options: {
 async function readCredentialsForSource(
   source: CredentialSource,
 ): Promise<BucketConfig | null> {
-  if (source.kind === "env") return readEnvBucketConfig();
+  if (source.kind === "env") return readEnvBucketSettings().config;
   if (source.kind === "hosted") {
     return readHostedBucketConfig({ forExistingObject: true });
   }
-  return readScopedBucketConfig(source.scope, source.scopeId);
+  return (await readScopedBucketSettings(source.scope, source.scopeId)).config;
 }
 
 function encodeDescriptor(descriptor: S3BlobDescriptor): string {
@@ -302,6 +343,7 @@ function trustsEndpoint(source: CredentialSource, endpoint: string): boolean {
 async function clientConfigFor(
   descriptor: S3BlobDescriptor,
 ): Promise<S3ClientConfig> {
+  assertSecureEndpoint(descriptor.source, descriptor.endpoint);
   const credentials = await readCredentialsForSource(descriptor.source);
   if (!credentials) {
     throw new PrivateBlobError(

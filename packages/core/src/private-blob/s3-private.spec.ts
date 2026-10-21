@@ -343,9 +343,13 @@ describe("S3 private blob providers", () => {
     readAppSecretsMock.mockResolvedValue(
       new Map([["S3_BUCKET", { value: "user-bucket" }]]),
     );
-    await expect(s3PrivateBlobProvider.isConfiguredForRequest!()).resolves.toBe(
-      false,
-    );
+    await expect(
+      s3PrivateBlobProvider.isConfiguredForRequest!(),
+    ).rejects.toMatchObject({
+      kind: "not_configured",
+      message:
+        "Storage settings are incomplete: missing S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_ENDPOINT",
+    });
   });
 
   it("fails instead of picking other storage when settings can't be read", async () => {
@@ -446,7 +450,7 @@ describe("S3 private blob providers", () => {
     readAppSecretsMock.mockResolvedValue(
       new Map(
         Object.entries({
-          S3_ENDPOINT: "http://10.0.0.6:9000",
+          S3_ENDPOINT: "https://10.0.0.6:9000",
           S3_BUCKET: "user-bucket",
           S3_ACCESS_KEY_ID: "user-access",
           S3_SECRET_ACCESS_KEY: "user-secret",
@@ -602,6 +606,100 @@ describe("S3 private blob providers", () => {
     expect(text((await hostedPrivateBlobProvider.read(handle)).data)).toBe(
       "hosted image",
     );
+  });
+
+  it("refuses saved endpoints without HTTPS, but not the deployment's", async () => {
+    const { ensureS3PrivateBlobProviders } = await import("./s3-private.js");
+    const registry = await import("./registry.js");
+    const { requests } = fakeBucket();
+    ensureS3PrivateBlobProviders();
+    defineAppConfig({
+      hostedStorage: {
+        enabled: true,
+        endpoint: "https://hosted.example.test",
+        bucket: "hosted-private",
+        accessKeyId: "hosted-access",
+        secretAccessKey: "hosted-secret",
+        region: "auto",
+      },
+    });
+    readAppSecretsMock.mockResolvedValue(
+      new Map(
+        Object.entries({
+          S3_ENDPOINT: "http://storage.example.test",
+          S3_BUCKET: "user-bucket",
+          S3_ACCESS_KEY_ID: "user-access",
+          S3_SECRET_ACCESS_KEY: "user-secret",
+        }).map(([key, value]) => [key, { value }]),
+      ),
+    );
+    resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+      key === "S3_BUCKET"
+        ? {
+            value: "user-bucket",
+            lookupFailed: false,
+            source: "user",
+            scopeId: "owner@example.test",
+          }
+        : { value: null, lookupFailed: false },
+    );
+
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({
+      kind: "not_configured",
+      message: expect.stringMatching(/must use HTTPS/),
+    });
+    expect(requests).toHaveLength(0);
+
+    useEnvBucket({ S3_ENDPOINT: "http://minio.example.test:9000" });
+    const handle = await registry.putPrivateBlob({ data: new Uint8Array([1]) });
+    expect(handle?.provider).toBe("s3-private");
+    expect(requests[0]?.url).toMatch(/^http:\/\/minio\.example\.test:9000\//);
+  });
+
+  it("fails instead of using the hosted bucket when saved settings are incomplete", async () => {
+    const { ensureS3PrivateBlobProviders } = await import("./s3-private.js");
+    const registry = await import("./registry.js");
+    const { requests } = fakeBucket();
+    ensureS3PrivateBlobProviders();
+    defineAppConfig({
+      hostedStorage: {
+        enabled: true,
+        endpoint: "https://hosted.example.test",
+        bucket: "hosted-private",
+        accessKeyId: "hosted-access",
+        secretAccessKey: "hosted-secret",
+        region: "auto",
+      },
+    });
+    readAppSecretsMock.mockResolvedValue(
+      new Map(
+        Object.entries({
+          S3_ENDPOINT: "https://storage.example.test",
+          S3_BUCKET: "org-bucket",
+          S3_ACCESS_KEY_ID: "org-access",
+        }).map(([key, value]) => [key, { value }]),
+      ),
+    );
+    resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+      key === "S3_BUCKET"
+        ? {
+            value: "org-bucket",
+            lookupFailed: false,
+            source: "org",
+            scopeId: "org-1",
+          }
+        : { value: null, lookupFailed: false },
+    );
+
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({
+      kind: "not_configured",
+      message: "Storage settings are incomplete: missing S3_SECRET_ACCESS_KEY",
+    });
+    expect(requests).toHaveLength(0);
   });
 
   it("registers the workspace bucket ahead of the hosted bucket, once", async () => {
