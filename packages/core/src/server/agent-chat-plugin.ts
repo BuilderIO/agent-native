@@ -8740,6 +8740,68 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             break;
           }
           let claimId: string | undefined;
+          let retryCount = receipt.retryCount;
+          let recoveryMutationAttempted = false;
+          const retryClaimedReceipt = async (countRetry = false) => {
+            if (!claimId) {
+              throw new Error(
+                `Queued submission ${receipt.messageId} has no active claim to retry`,
+              );
+            }
+            recoveryMutationAttempted = true;
+            const updated = await retryQueuedSubmissionReceipt(
+              receipt.threadId,
+              receipt.messageId,
+              Date.now() + 10_000,
+              { claimId, ...(countRetry ? { countRetry: true } : {}) },
+            );
+            if (updated && countRetry) retryCount += 1;
+            return updated;
+          };
+          const blockClaimedReceipt = async () => {
+            if (!claimId) {
+              throw new Error(
+                `Queued submission ${receipt.messageId} has no active claim to block`,
+              );
+            }
+            recoveryMutationAttempted = true;
+            return blockQueuedSubmissionReceipt(
+              receipt.threadId,
+              receipt.messageId,
+              {
+                claimId,
+              },
+            );
+          };
+          const recoverClaimedReceipt = async () => {
+            if (!claimId) {
+              deferReceipt(receipt.threadId);
+              return;
+            }
+            if (
+              !recoveryMutationAttempted &&
+              retryCount >= MAX_QUEUED_SUBMISSION_RETRIES
+            ) {
+              const blocked = await blockClaimedReceipt();
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              if (blocked) result.blocked += 1;
+              else deferReceipt(receipt.threadId);
+              return;
+            }
+            if (!recoveryMutationAttempted) await retryClaimedReceipt(true);
+            await mutateThreadQueuedMessages(receipt.threadId, {
+              type: "release",
+              messageId: receipt.messageId,
+              claimId,
+            });
+            claimId = undefined;
+            deferReceipt(receipt.threadId);
+          };
           try {
             const message = receipt.message;
             if (
@@ -8841,6 +8903,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               claimId = undefined;
               continue;
             }
+            retryCount = claimedReceipt.retryCount;
 
             const finishInterrupt = async (runId: string) => {
               if (
@@ -8889,12 +8952,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimedReceipt.interruptRunId,
               );
               if (!stableIdle) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
@@ -8909,12 +8967,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
@@ -8931,12 +8984,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 claimId,
               });
               if (!recorded) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
@@ -8947,12 +8995,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 continue;
               }
               if (!(await finishInterrupt(active.runId))) {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
+                await retryClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
@@ -9033,13 +9076,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   receipt.messageId,
                 );
               } catch (receiptError) {
-                result.failed += 1;
                 console.error(
                   `[agent-chat] could not verify queued submission ${receipt.messageId} after admission failed:`,
                   { error, receiptError },
                 );
-                claimId = undefined;
-                deferReceipt(receipt.threadId);
+                await recoverClaimedReceipt();
+                result.failed += 1;
                 continue;
               }
               if (afterError?.state === "submitted") {
@@ -9055,11 +9097,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const retryLimitReached =
                 (afterError?.retryCount ?? 0) >= MAX_QUEUED_SUBMISSION_RETRIES;
               if (nonRetryableError || retryLimitReached) {
-                const blocked = await blockQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  { claimId },
-                );
+                const blocked = await blockClaimedReceipt();
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
@@ -9074,12 +9112,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 );
                 continue;
               }
-              await retryQueuedSubmissionReceipt(
-                receipt.threadId,
-                receipt.messageId,
-                Date.now() + 10_000,
-                { claimId, countRetry: true },
-              );
+              await retryClaimedReceipt(true);
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
                 messageId: receipt.messageId,
@@ -9123,13 +9156,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 receipt.messageId,
               );
             } catch (error) {
-              result.failed += 1;
               console.error(
                 `[agent-chat] could not verify queued submission ${receipt.messageId} after admission returned:`,
                 error,
               );
-              claimId = undefined;
-              deferReceipt(receipt.threadId);
               await stream
                 ?.cancel()
                 .catch((cancelError) =>
@@ -9138,6 +9168,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     cancelError,
                   ),
                 );
+              await recoverClaimedReceipt();
+              result.failed += 1;
               continue;
             }
 
@@ -9146,11 +9178,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               (responseStatus < 400 || admittedReceipt?.state === "submitted")
             ) {
               if (admittedReceipt?.state !== "submitted") {
-                await blockQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  { claimId },
-                );
+                await blockClaimedReceipt();
                 result.failed += 1;
                 console.error(
                   `[agent-chat] run ${responseRunId} started without a submitted receipt for ${receipt.messageId}`,
@@ -9176,14 +9204,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 (responseStatus >= 500 || responseCode === "run_slot_busy"));
             if (
               retryableAdmission &&
-              (admittedReceipt?.retryCount ?? 0) < MAX_QUEUED_SUBMISSION_RETRIES
+              retryCount < MAX_QUEUED_SUBMISSION_RETRIES
             ) {
-              await retryQueuedSubmissionReceipt(
-                receipt.threadId,
-                receipt.messageId,
-                Date.now() + 10_000,
-                { claimId, countRetry: true },
-              );
+              await retryClaimedReceipt(true);
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
                 messageId: receipt.messageId,
@@ -9195,11 +9218,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
 
-            const blocked = await blockQueuedSubmissionReceipt(
-              receipt.threadId,
-              receipt.messageId,
-              { claimId },
-            );
+            const blocked = await blockClaimedReceipt();
             await mutateThreadQueuedMessages(receipt.threadId, {
               type: "release",
               messageId: receipt.messageId,
@@ -9215,26 +9234,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               `[agent-chat] queued submission drain failed for ${receipt.messageId}:`,
               error,
             );
-            if (claimId) {
-              try {
-                await retryQueuedSubmissionReceipt(
-                  receipt.threadId,
-                  receipt.messageId,
-                  Date.now() + 10_000,
-                  { claimId },
-                );
-                await mutateThreadQueuedMessages(receipt.threadId, {
-                  type: "release",
-                  messageId: receipt.messageId,
-                  claimId,
-                });
-                deferReceipt(receipt.threadId);
-              } catch (releaseError) {
-                console.error(
-                  `[agent-chat] could not release queued submission ${receipt.messageId}:`,
-                  releaseError,
-                );
-              }
+            try {
+              await recoverClaimedReceipt();
+            } catch (releaseError) {
+              console.error(
+                `[agent-chat] could not release queued submission ${receipt.messageId}:`,
+                releaseError,
+              );
+              deferReceipt(receipt.threadId);
             }
           }
         }
