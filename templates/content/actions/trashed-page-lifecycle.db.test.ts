@@ -46,6 +46,8 @@ let restoreDocument: typeof import("./restore-document.js").default;
 let removeDatabaseItems: typeof import("./remove-database-items.js").default;
 let getContentDatabase: typeof import("./get-content-database.js").default;
 let editDocument: typeof import("./edit-document.js").default;
+let updateDocument: typeof import("./update-document.js").default;
+let restoreDocumentVersion: typeof import("./restore-document-version.js").default;
 
 const asOwner = async <T>(run: () => T | Promise<T>): Promise<T> =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -63,6 +65,9 @@ beforeAll(async () => {
   removeDatabaseItems = (await import("./remove-database-items.js")).default;
   getContentDatabase = (await import("./get-content-database.js")).default;
   editDocument = (await import("./edit-document.js")).default;
+  updateDocument = (await import("./update-document.js")).default;
+  restoreDocumentVersion = (await import("./restore-document-version.js"))
+    .default;
   await (await import("../server/plugins/db.js")).default(undefined as never);
   await getDb()
     .insert(schema.contentSpaces)
@@ -245,6 +250,73 @@ describe("edit-document", () => {
       updatedAt: before.updatedAt,
     });
   });
+
+  it.each([
+    { key: "body", update: () => ({ content: "Saved in Trash" }) },
+    { key: "same-body", update: () => ({ content: "Body in Trash" }) },
+    {
+      key: "same-title",
+      update: (page: { title: string }) => ({ title: page.title }),
+    },
+  ])(
+    "refuses a browser save ($key) to a page in Trash",
+    async ({ key, update }) => {
+      const before = await trashedPage(`save-trashed-${key}`);
+      await expect(
+        asOwner(() => updateDocument.run({ id: before.id, ...update(before) })),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+      expect(await readPage(before.id)).toMatchObject({
+        content: before.content,
+        bodyRevision: before.bodyRevision,
+        updatedAt: before.updatedAt,
+      });
+    },
+  );
+
+  it.each([
+    { key: "before-trash", expectedUpdatedAt: () => STAMP },
+    {
+      key: "in-trash",
+      expectedUpdatedAt: (page: { updatedAt: string }) => page.updatedAt,
+    },
+  ])(
+    "refuses a version restore ($key) to a page in Trash",
+    async ({ key, expectedUpdatedAt }) => {
+      const before = await trashedPage(`version-trashed-${key}`);
+      expect(before.updatedAt).not.toBe(STAMP);
+      await getDb()
+        .insert(schema.documentVersions)
+        .values({
+          id: `${before.id}-version`,
+          ownerEmail: OWNER,
+          documentId: before.id,
+          title: before.title,
+          content: "Earlier body",
+          bodyRevision: 0,
+          createdAt: STAMP,
+        });
+      await expect(
+        asOwner(() =>
+          restoreDocumentVersion.run({
+            documentId: before.id,
+            versionId: `${before.id}-version`,
+            expectedUpdatedAt: expectedUpdatedAt(before),
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+      expect(await readPage(before.id)).toMatchObject({
+        content: before.content,
+        bodyRevision: before.bodyRevision,
+        updatedAt: before.updatedAt,
+      });
+    },
+  );
 
   it("refuses an unrevisioned edit to a page in Trash", async () => {
     const before = await trashedPage("edit-trashed-legacy");
