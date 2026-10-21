@@ -57,9 +57,6 @@ type ProductionSite = {
 
 type BetaSite = ProductionSite & {
   id: string;
-  // Beta sites whose own DATABASE_URL is a masked secret borrow the
-  // production site's readable database address for the release migration.
-  migrationSiteId?: string;
 };
 
 const REPO_ROOT = path.resolve(
@@ -152,10 +149,7 @@ export function resolveNetlifyPrebuiltTarget(
     clientDirectory: project.clientDirectory,
     functionsDirectory: project.functionsDirectory,
     host: site.host,
-    migrationSiteId:
-      target === "beta"
-        ? ((site as BetaSite).migrationSiteId ?? site.siteId)
-        : site.siteId,
+    migrationSiteId: site.siteId,
     publishDirectory: project.publishDirectory,
     siteId: site.siteId,
     siteName,
