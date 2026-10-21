@@ -446,6 +446,28 @@ describe("S3 private blob providers", () => {
     ).rejects.toMatchObject({ kind: "unavailable" });
   });
 
+  it("fails instead of using env values a failed lookup fell back to", async () => {
+    const { s3PrivateBlobProvider } = await import("./s3-private.js");
+    const { requests } = fakeBucket();
+    useEnvBucket({
+      S3_REGION: "auto",
+      S3_PUBLIC_BASE_URL: "https://files.example.test",
+    });
+    // A self-hosted runtime answers a failed lookup with the env value, here
+    // under both the S3_ and R2_ names of every setting.
+    resolveSecretDetailedMock.mockImplementation(async (key: string) => ({
+      value: process.env[key.replace(/^R2_/, "S3_")],
+      lookupFailed: true,
+      cause: new Error("database unavailable"),
+      source: "env",
+    }));
+
+    await expect(
+      s3PrivateBlobProvider.put({ data: new Uint8Array([1]) }),
+    ).rejects.toMatchObject({ kind: "unavailable" });
+    expect(requests).toHaveLength(0);
+  });
+
   it("encrypts when the bucket's public URL is saved in another scope", async () => {
     const { s3PrivateBlobProvider } = await import("./s3-private.js");
     const { objects } = fakeBucket();

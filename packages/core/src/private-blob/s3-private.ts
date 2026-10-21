@@ -191,8 +191,9 @@ async function resolveSetting(field: StorageField) {
   for (const key of STORAGE_KEYS[field]) {
     const detail = await resolveSecretDetailed(key);
     // A settings read that failed must not quietly send the blob to other
-    // storage, such as the hosted bucket.
-    if (detail.lookupFailed && !detail.value) {
+    // storage, such as the hosted bucket. That includes the env value a
+    // self-hosted runtime falls back to when the lookup fails.
+    if (detail.lookupFailed) {
       throw new PrivateBlobError(
         "Storage settings could not be read",
         "unavailable",
