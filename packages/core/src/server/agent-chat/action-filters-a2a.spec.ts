@@ -16,6 +16,7 @@ import {
   runWithRequestContext,
 } from "../request-context.js";
 import {
+  addAgentProfileExamples,
   assembleA2AFinalResponse,
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
@@ -232,6 +233,51 @@ describe("assembleA2AFinalResponse", () => {
 });
 
 describe("filterDirectA2AActions", () => {
+  it("adds each profile example only to a clearly matching skill", () => {
+    const skills = [
+      {
+        id: "generate-qr-code",
+        name: "Generate QR code",
+        description: "Generate a QR code image for a URL or text.",
+      },
+      {
+        id: "update-slide",
+        name: "Update slide",
+        description: "Edit the selected presentation slide.",
+      },
+    ];
+
+    expect(
+      addAgentProfileExamples(skills, {
+        whenToUse: [
+          "Generate a QR code for this link",
+          "Create a QR code for this clip",
+          "Add this QR code to the selected slide",
+        ],
+      }),
+    ).toEqual([
+      {
+        ...skills[0],
+        examples: [
+          "Generate a QR code for this link",
+          "Create a QR code for this clip",
+        ],
+      },
+      skills[1],
+    ]);
+  });
+
+  it("does not assign an example when multiple skills match equally", () => {
+    const skills = [
+      { id: "qr-one", name: "QR code one", description: "Generate QR codes" },
+      { id: "qr-two", name: "QR code two", description: "Generate QR codes" },
+    ];
+
+    expect(
+      addAgentProfileExamples(skills, { whenToUse: ["Generate a QR code"] }),
+    ).toEqual(skills);
+  });
+
   it("publishes input schemas for public and authenticated skill cards", () => {
     const inputSchema = {
       type: "object",

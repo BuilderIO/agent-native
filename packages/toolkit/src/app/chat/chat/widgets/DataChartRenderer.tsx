@@ -3,17 +3,21 @@ import { useT } from "@agent-native/core/client/i18n";
 import type { DataChartWidget as DataChartWidgetData } from "./data-widget-types.js";
 
 const DEFAULT_COLORS = [
-  "hsl(var(--primary))",
-  "hsl(199 89% 48%)",
-  "hsl(151 55% 42%)",
-  "hsl(35 92% 50%)",
+  "hsl(var(--chart-1, var(--primary)))",
+  "hsl(var(--chart-2, 199 89% 48%))",
+  "hsl(var(--chart-3, 151 55% 42%))",
+  "hsl(var(--chart-4, 35 92% 50%))",
 ];
 
 const WIDTH = 640;
-const HEIGHT = 240;
+const HEIGHT = 360;
 const MARGIN = { top: 14, right: 18, bottom: 34, left: 46 };
-const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right;
-const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom;
+const MAX_LABEL_LENGTH = 16;
+const LABEL_FONT_FAMILIES = {
+  sans: "var(--font-sans, ui-sans-serif, system-ui, sans-serif)",
+  serif: "ui-serif, Georgia, Cambria, serif",
+  mono: "ui-monospace, SFMono-Regular, Menlo, monospace",
+} as const;
 
 function numericValue(
   row: Record<string, unknown>,
@@ -35,8 +39,17 @@ function formatTick(value: number): string {
 }
 
 function labelFor(value: unknown): string {
-  const label = value == null ? "" : String(value);
-  return label.length > 16 ? `${label.slice(0, 15)}...` : label;
+  const characters = Array.from(value == null ? "" : String(value));
+  return characters.length > MAX_LABEL_LENGTH
+    ? `${characters.slice(0, MAX_LABEL_LENGTH - 3).join("")}...`
+    : characters.join("");
+}
+
+function estimateTextWidth(text: string, fontSize: number): number {
+  return Array.from(text).reduce((width, character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return width + (codePoint >= 0x2e80 ? fontSize : fontSize * 0.65);
+  }, 0);
 }
 
 function rangeFor(chart: DataChartWidgetData) {
@@ -61,76 +74,215 @@ function rangeFor(chart: DataChartWidgetData) {
   return { min, max };
 }
 
-function ChartBody({ chart }: { chart: DataChartWidgetData }) {
+function ChartBody({
+  chart,
+  labelFontSize,
+}: {
+  chart: DataChartWidgetData;
+  labelFontSize: number;
+}) {
   const { min, max } = rangeFor(chart);
-  const yFor = (value: number) =>
-    MARGIN.top + ((max - value) / (max - min)) * PLOT_HEIGHT;
+  const isHorizontalBar = chart.type === "bar" && chart.layout === "horizontal";
+  const horizontalCategoryWidth = isHorizontalBar
+    ? Math.max(
+        0,
+        ...chart.data.map((row) =>
+          estimateTextWidth(labelFor(row[chart.xKey]), labelFontSize),
+        ),
+      )
+    : 0;
+  const horizontalPositiveValueWidth =
+    isHorizontalBar && chart.showValueLabels
+      ? Math.max(
+          0,
+          ...chart.data.flatMap((row) =>
+            chart.series
+              .map((series) => numericValue(row, series.key))
+              .filter((value): value is number => value !== null && value >= 0)
+              .map((value) =>
+                estimateTextWidth(
+                  formatTick(value),
+                  chart.valueLabelFontSize ?? 11,
+                ),
+              ),
+          ),
+        )
+      : 0;
+  const horizontalNegativeValueWidth =
+    isHorizontalBar && chart.showValueLabels
+      ? Math.max(
+          0,
+          ...chart.data.flatMap((row) =>
+            chart.series
+              .map((series) => numericValue(row, series.key))
+              .filter((value): value is number => value !== null && value < 0)
+              .map((value) =>
+                estimateTextWidth(
+                  formatTick(value),
+                  chart.valueLabelFontSize ?? 11,
+                ),
+              ),
+          ),
+        )
+      : 0;
+  const categoryMargin =
+    Math.max(MARGIN.left, horizontalCategoryWidth + 14) +
+    (chart.yAxisTitle ? 20 : 0);
+  const categoryLabelX = categoryMargin - 8;
+  const margin = {
+    ...MARGIN,
+    left:
+      categoryMargin +
+      (horizontalNegativeValueWidth > 0
+        ? horizontalNegativeValueWidth + 13
+        : 0),
+    right: Math.max(MARGIN.right, horizontalPositiveValueWidth + 13),
+    bottom: MARGIN.bottom + (chart.xAxisTitle ? 16 : 0),
+  };
+  const plotWidth = WIDTH - margin.left - margin.right;
+  const plotHeight = HEIGHT - margin.top - margin.bottom;
+  const xForValue = (value: number) =>
+    margin.left + ((value - min) / (max - min)) * plotWidth;
+  const yForValue = (value: number) =>
+    margin.top + ((max - value) / (max - min)) * plotHeight;
   const xForPoint = (index: number) =>
     chart.data.length <= 1
-      ? MARGIN.left + PLOT_WIDTH / 2
-      : MARGIN.left + (index / (chart.data.length - 1)) * PLOT_WIDTH;
+      ? margin.left + plotWidth / 2
+      : margin.left + (index / (chart.data.length - 1)) * plotWidth;
+  const yForRow = (index: number) =>
+    margin.top + ((index + 0.5) * plotHeight) / Math.max(1, chart.data.length);
   const gridTicks = Array.from({ length: 4 }, (_, index) => {
     const value = min + ((max - min) * index) / 3;
-    return { value, y: yFor(value) };
+    return {
+      value,
+      x: xForValue(value),
+      y: yForValue(value),
+    };
   });
   const xTickEvery = Math.max(1, Math.ceil(chart.data.length / 6));
-  const zeroY = yFor(Math.max(min, Math.min(max, 0)));
+  const zero = Math.max(min, Math.min(max, 0));
+  const zeroX = xForValue(zero);
+  const zeroY = yForValue(zero);
+  const axisTitleFontSize = chart.axisTitleFontSize ?? 11;
+  const axisTitleFontWeight = chart.axisTitleFontWeight ?? 500;
+  const valueLabelFontSize = chart.valueLabelFontSize ?? 11;
+  const valueLabelFontWeight = chart.valueLabelFontWeight ?? 400;
 
   const axes = (
     <g aria-hidden="true">
-      {gridTicks.map((tick) => (
-        <g key={tick.y}>
-          <line
-            x1={MARGIN.left}
-            x2={WIDTH - MARGIN.right}
-            y1={tick.y}
-            y2={tick.y}
-            stroke="hsl(var(--border))"
-            strokeDasharray="3 3"
-          />
-          <text
-            x={MARGIN.left - 8}
-            y={tick.y + 4}
-            fill="hsl(var(--muted-foreground))"
-            fontSize="11"
-            textAnchor="end"
-          >
-            {formatTick(tick.value)}
-          </text>
-        </g>
-      ))}
+      {gridTicks.map((tick) =>
+        isHorizontalBar ? (
+          <g key={tick.x}>
+            <line
+              x1={tick.x}
+              x2={tick.x}
+              y1={margin.top}
+              y2={HEIGHT - margin.bottom}
+              stroke="hsl(var(--border))"
+              strokeDasharray="3 3"
+            />
+            <text
+              x={tick.x}
+              y={HEIGHT - margin.bottom + 14}
+              fill="hsl(var(--muted-foreground))"
+              fontSize={labelFontSize}
+              textAnchor="middle"
+            >
+              {formatTick(tick.value)}
+            </text>
+          </g>
+        ) : (
+          <g key={tick.y}>
+            <line
+              x1={margin.left}
+              x2={WIDTH - margin.right}
+              y1={tick.y}
+              y2={tick.y}
+              stroke="hsl(var(--border))"
+              strokeDasharray="3 3"
+            />
+            <text
+              x={margin.left - 8}
+              y={tick.y + 4}
+              fill="hsl(var(--muted-foreground))"
+              fontSize={labelFontSize}
+              textAnchor="end"
+            >
+              {formatTick(tick.value)}
+            </text>
+          </g>
+        ),
+      )}
       <line
-        x1={MARGIN.left}
-        x2={WIDTH - MARGIN.right}
-        y1={zeroY}
-        y2={zeroY}
+        x1={isHorizontalBar ? zeroX : margin.left}
+        x2={isHorizontalBar ? zeroX : WIDTH - margin.right}
+        y1={isHorizontalBar ? margin.top : zeroY}
+        y2={isHorizontalBar ? HEIGHT - margin.bottom : zeroY}
         stroke="hsl(var(--border))"
       />
       {chart.data.map((row, index) =>
-        index % xTickEvery === 0 || index === chart.data.length - 1 ? (
+        isHorizontalBar ? (
+          <text
+            key={`${index}-${String(row[chart.xKey] ?? "")}`}
+            x={categoryLabelX}
+            y={yForRow(index) + labelFontSize * 0.35}
+            fill="hsl(var(--muted-foreground))"
+            fontSize={labelFontSize}
+            textAnchor="end"
+          >
+            {labelFor(row[chart.xKey])}
+          </text>
+        ) : index % xTickEvery === 0 || index === chart.data.length - 1 ? (
           <text
             key={`${index}-${String(row[chart.xKey] ?? "")}`}
             x={
               chart.type === "bar"
-                ? MARGIN.left + (index + 0.5) * (PLOT_WIDTH / chart.data.length)
+                ? margin.left + (index + 0.5) * (plotWidth / chart.data.length)
                 : xForPoint(index)
             }
             y={HEIGHT - 12}
             fill="hsl(var(--muted-foreground))"
-            fontSize="11"
+            fontSize={labelFontSize}
             textAnchor="middle"
           >
             {labelFor(row[chart.xKey])}
           </text>
         ) : null,
       )}
+      {chart.xAxisTitle ? (
+        <text
+          x={margin.left + plotWidth / 2}
+          y={HEIGHT - 4}
+          fill="hsl(var(--foreground))"
+          fontSize={axisTitleFontSize}
+          fontWeight={axisTitleFontWeight}
+          textAnchor="middle"
+        >
+          {chart.xAxisTitle}
+        </text>
+      ) : null}
+      {chart.yAxisTitle ? (
+        <text
+          x={14}
+          y={margin.top + plotHeight / 2}
+          transform={`rotate(-90 14 ${margin.top + plotHeight / 2})`}
+          fill="hsl(var(--foreground))"
+          fontSize={axisTitleFontSize}
+          fontWeight={axisTitleFontWeight}
+          textAnchor="middle"
+        >
+          {chart.yAxisTitle}
+        </text>
+      ) : null}
     </g>
   );
 
   if (chart.type === "bar") {
-    const slotWidth = PLOT_WIDTH / Math.max(1, chart.data.length);
-    const groupWidth = slotWidth * 0.72;
-    const barWidth = groupWidth / Math.max(1, chart.series.length);
+    const slotSize =
+      (isHorizontalBar ? plotHeight : plotWidth) /
+      Math.max(1, chart.data.length);
+    const groupSize = slotSize * 0.72;
+    const barSize = groupSize / Math.max(1, chart.series.length);
     return (
       <>
         {axes}
@@ -141,23 +293,59 @@ function ChartBody({ chart }: { chart: DataChartWidgetData }) {
             const color =
               series.color ??
               DEFAULT_COLORS[seriesIndex % DEFAULT_COLORS.length];
-            const y = yFor(Math.max(value, 0));
-            const height = Math.max(1, Math.abs(zeroY - yFor(value)));
+            const valueX = xForValue(value);
+            const valueY = yForValue(value);
+            const x = isHorizontalBar
+              ? Math.min(zeroX, valueX)
+              : margin.left +
+                rowIndex * slotSize +
+                (slotSize - groupSize) / 2 +
+                seriesIndex * barSize;
+            const y = isHorizontalBar
+              ? margin.top +
+                rowIndex * slotSize +
+                (slotSize - groupSize) / 2 +
+                seriesIndex * barSize
+              : yForValue(Math.max(value, 0));
+            const width = isHorizontalBar
+              ? Math.max(2, Math.abs(valueX - zeroX))
+              : Math.max(2, barSize - 2);
+            const height = isHorizontalBar
+              ? Math.max(2, barSize - 2)
+              : Math.max(1, Math.abs(zeroY - valueY));
             return (
-              <rect
-                key={`${rowIndex}-${series.key}`}
-                x={
-                  MARGIN.left +
-                  rowIndex * slotWidth +
-                  (slotWidth - groupWidth) / 2 +
-                  seriesIndex * barWidth
-                }
-                y={y}
-                width={Math.max(2, barWidth - 2)}
-                height={height}
-                rx="3"
-                fill={color}
-              />
+              <g key={`${rowIndex}-${series.key}`}>
+                <rect
+                  x={x}
+                  y={y}
+                  width={width}
+                  height={height}
+                  rx="3"
+                  fill={color}
+                />
+                {chart.showValueLabels ? (
+                  <text
+                    x={
+                      isHorizontalBar
+                        ? valueX + (value < 0 ? -5 : 5)
+                        : x + width / 2
+                    }
+                    y={
+                      isHorizontalBar
+                        ? y + height / 2 + valueLabelFontSize * 0.35
+                        : y - 5
+                    }
+                    fill="hsl(var(--muted-foreground))"
+                    fontSize={valueLabelFontSize}
+                    fontWeight={valueLabelFontWeight}
+                    textAnchor={
+                      isHorizontalBar ? (value < 0 ? "end" : "start") : "middle"
+                    }
+                  >
+                    {formatTick(value)}
+                  </text>
+                ) : null}
+              </g>
             );
           }),
         )}
@@ -171,9 +359,12 @@ function ChartBody({ chart }: { chart: DataChartWidgetData }) {
         const value = numericValue(row, series.key);
         return value === null
           ? null
-          : { x: xForPoint(rowIndex), y: yFor(value) };
+          : { x: xForPoint(rowIndex), y: yForValue(value), value };
       })
-      .filter((point): point is { x: number; y: number } => point !== null);
+      .filter(
+        (point): point is { x: number; y: number; value: number } =>
+          point !== null,
+      );
     const color =
       series.color ?? DEFAULT_COLORS[seriesIndex % DEFAULT_COLORS.length];
     const linePath = points
@@ -221,6 +412,35 @@ function ChartBody({ chart }: { chart: DataChartWidgetData }) {
               strokeWidth="2"
             />
           ))}
+          {chart.showValueLabels
+            ? points.map((point, index) => {
+                const abovePoint =
+                  point.y - valueLabelFontSize - 5 >= margin.top;
+                return (
+                  <text
+                    key={`value-${index}`}
+                    x={point.x}
+                    y={
+                      abovePoint
+                        ? point.y - 5
+                        : point.y + valueLabelFontSize + 5
+                    }
+                    fill="hsl(var(--muted-foreground))"
+                    fontSize={valueLabelFontSize}
+                    fontWeight={valueLabelFontWeight}
+                    textAnchor={
+                      point.x <= margin.left
+                        ? "start"
+                        : point.x >= WIDTH - margin.right
+                          ? "end"
+                          : "middle"
+                    }
+                  >
+                    {formatTick(point.value)}
+                  </text>
+                );
+              })
+            : null}
         </g>
       ))}
     </>
@@ -229,16 +449,34 @@ function ChartBody({ chart }: { chart: DataChartWidgetData }) {
 
 export function DataChartRenderer({ chart }: { chart: DataChartWidgetData }) {
   const t = useT();
+  const contentHeight = chart.contentHeight;
+  const contentPadding = chart.contentPadding ?? 0;
+  const hasContentBox = contentHeight !== undefined || contentPadding > 0;
+  const labelFontFamily = LABEL_FONT_FAMILIES[chart.labelFontFamily ?? "sans"];
+  const labelFontSize = chart.labelFontSize ?? 11;
   return (
-    <div className="h-60 w-full min-w-0 overflow-hidden">
+    <div
+      className="box-border w-full min-w-0 overflow-hidden"
+      style={
+        hasContentBox
+          ? {
+              ...(contentHeight !== undefined
+                ? { height: `${contentHeight}px` }
+                : {}),
+              padding: `${contentPadding}px`,
+            }
+          : undefined
+      }
+    >
       <svg
-        className="agent-data-chart-renderer h-full w-full"
+        className={`agent-data-chart-renderer block w-full ${contentHeight !== undefined ? "h-full" : "h-auto"}`}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        preserveAspectRatio={contentHeight !== undefined ? "none" : undefined}
+        fontFamily={labelFontFamily}
         role="img"
         aria-label={chart.title ?? t("agentChat.widget.dataChart")}
-        preserveAspectRatio="none"
       >
-        <ChartBody chart={chart} />
+        <ChartBody chart={chart} labelFontSize={labelFontSize} />
       </svg>
     </div>
   );

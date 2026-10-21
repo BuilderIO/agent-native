@@ -20,6 +20,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   assertMotionAnimationStyleDefinitions,
   MOTION_ANIMATION_STYLE_MAX_DEFINITIONS,
@@ -1786,6 +1787,7 @@ export default defineAction({
     return {
       timelineId: resolvedTimelineId,
       designId,
+      _receipt: designOutputWriteReceipt(designId, 1),
       fileId,
       sourceRef: resolvedSourceRef,
       sourceType: localSourceLocation ? "localhost" : "inline",

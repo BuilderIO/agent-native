@@ -164,6 +164,52 @@ describe("background automation identity scope", () => {
   });
 });
 
+describe("background workspace app context", () => {
+  it("preloads matching app context for background runs that expose call-agent", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("workspace-app-context");
+    const appContext =
+      '<relevant-apps status="selected" selected-ids="calendar">calendar</relevant-apps>';
+    const getWorkspaceAppContext = vi.fn(async () => appContext);
+    let capturedSystemPrompt = "";
+
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        capturedSystemPrompt = opts.systemPrompt;
+        opts.send({
+          type: "tool_done",
+          tool: "send-notification",
+          result: "Sent",
+          completedSideEffect: true,
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+
+    await runBackgroundAutomation(runOptions(automation), {
+      ...standardDeps,
+      getActions: () => ({ "call-agent": {} as any }),
+      getWorkspaceAppContext,
+    });
+
+    expect(getWorkspaceAppContext).toHaveBeenCalledWith({
+      request: "Send the reminders.",
+      ownerEmail: "alice@agent-native.test",
+      orgId: undefined,
+      appId: undefined,
+      workspaceAppsEnabled: true,
+    });
+    expect(capturedSystemPrompt).toContain(appContext);
+  });
+});
+
 describe("automation history ownership", () => {
   it.each([
     { owner: "alice@agent-native.test", scope: "personal", orgId: null },
@@ -174,7 +220,20 @@ describe("automation history ownership", () => {
       const { startAutomationRun } = await import("./run-history.js");
       const { default: listRuns } =
         await import("./actions/list-automation-runs.js");
+      const { resourceDeleteByPath, resourcePut } =
+        await import("../resources/store.js");
       const name = `ownership-${scope}`;
+      const path = `jobs/${name}.md`;
+      const membershipId = `acme:ownership-${scope}:alice@agent-native.test`;
+      const resourceContent = [
+        "---",
+        'schedule: "* * * * *"',
+        "enabled: true",
+        "createdBy: alice@agent-native.test",
+        ...(scope === "organization" ? ['orgId: "acme"'] : []),
+        "---",
+        "Summarize the inbox.",
+      ].join("\n");
       const options = {
         automation: {
           name,
@@ -185,7 +244,7 @@ describe("automation history ownership", () => {
             orgId: "acme",
           },
           body: "Summarize the inbox.",
-          resource: { owner, path: `jobs/${name}.md` } as any,
+          resource: { owner, path } as any,
         },
         ownerEmail: "alice@agent-native.test",
         orgId: "acme",
@@ -200,43 +259,73 @@ describe("automation history ownership", () => {
         engine: testEngine,
         appId: "calendar",
       };
-      await runBackgroundAutomation(options, deps);
-      const historyId = await startAutomationRun({
-        owner,
-        automation: name,
-        path: options.automation.resource.path,
-        scope,
-        orgId,
-        appId: "calendar",
-      });
-      await runBackgroundAutomation(
-        { ...options, historyId, manual: true },
-        deps,
-      );
+      try {
+        if (scope === "organization") {
+          await pglite.exec(`
+            CREATE TABLE IF NOT EXISTS org_members (
+              id TEXT,
+              joined_at BIGINT,
+              org_id TEXT NOT NULL,
+              email TEXT NOT NULL,
+              role TEXT NOT NULL,
+              federation_removal_pending_at BIGINT
+            )
+          `);
+          await pglite
+            .prepare(
+              "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, 'acme', 'alice@agent-native.test', 'member', 0) ON CONFLICT DO NOTHING",
+            )
+            .run(membershipId);
+        }
+        await resourcePut(owner, path, resourceContent);
+        await runBackgroundAutomation(options, deps);
+        const historyId = await startAutomationRun({
+          owner,
+          automation: name,
+          path: options.automation.resource.path,
+          scope,
+          orgId,
+          appId: "calendar",
+        });
+        await runBackgroundAutomation(
+          { ...options, historyId, manual: true },
+          deps,
+        );
 
-      const ctx = {
-        userEmail: options.ownerEmail,
-        orgId: "acme",
-        appId: "calendar",
-      };
-      const runs = await listRuns.run({ name, scope }, ctx);
-      expect(runs).toHaveLength(2);
-      for (const run of runs) {
-        expect(run).toMatchObject({ owner, scope, orgId, status: "success" });
+        const ctx = {
+          userEmail: options.ownerEmail,
+          orgId: "acme",
+          appId: "calendar",
+        };
+        const runs = await listRuns.run({ name, scope }, ctx);
+        expect(runs).toHaveLength(2);
+        for (const run of runs) {
+          expect(run).toMatchObject({ owner, scope, orgId, status: "success" });
+        }
+        expect(runs.some((run) => run.id === historyId)).toBe(true);
+        await expect(
+          listRuns.run(
+            {
+              name,
+              scope: scope === "personal" ? "organization" : "personal",
+            },
+            ctx,
+          ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        await expect(
+          listRuns.run(
+            { name, scope },
+            { ...ctx, userEmail: "bob@agent-native.test", orgId: "other" },
+          ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+      } finally {
+        await resourceDeleteByPath(owner, path);
+        if (scope === "organization") {
+          await pglite
+            .prepare("DELETE FROM org_members WHERE id = ?")
+            .run(membershipId);
+        }
       }
-      expect(runs.some((run) => run.id === historyId)).toBe(true);
-      expect(
-        await listRuns.run(
-          { name, scope: scope === "personal" ? "organization" : "personal" },
-          ctx,
-        ),
-      ).toEqual([]);
-      expect(
-        await listRuns.run(
-          { name, scope },
-          { ...ctx, userEmail: "bob@agent-native.test", orgId: "other" },
-        ),
-      ).toEqual([]);
     },
   );
 });

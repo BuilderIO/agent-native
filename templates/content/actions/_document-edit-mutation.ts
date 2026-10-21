@@ -35,6 +35,7 @@ import {
   boundedContentSaveReason,
   recordContentSaveOutcome,
 } from "./_content-save-outcomes.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -442,6 +443,7 @@ async function performDocumentBodyMutation(
         .from(schema.documents)
         .where(eq(schema.documents.id, args.documentId));
       assertEditableDocument(document);
+      assertSourceAllowsPageEdit(document);
       const hasCurrentBase =
         document?.bodyRevision === base.revision &&
         documentContentHash(document.content ?? "") === base.contentHash;

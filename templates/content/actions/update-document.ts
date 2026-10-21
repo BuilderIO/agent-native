@@ -98,7 +98,10 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import {
+  assertSourceAllowsPageEdit,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   lockPreviewDocumentDraftSettlement,
   readDiscardedPreviewDraftGeneration,
@@ -1054,6 +1057,9 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
+      if (titleChanged || contentChanged || descriptionChanged) {
+        assertSourceAllowsPageEdit(existing);
+      }
       const anyChange =
         titleChanged ||
         contentChanged ||

@@ -38,6 +38,7 @@ import {
   assertEditableDocument,
   mutateDocumentBody,
 } from "./_document-edit-mutation.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
 interface TextEdit {
@@ -297,6 +298,7 @@ export default defineAction({
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
+    assertSourceAllowsPageEdit(existing);
     const isExternalCaller =
       ctx?.caller === "tool" ||
       ctx?.caller === "mcp" ||

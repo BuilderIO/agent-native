@@ -33,6 +33,10 @@ import {
   usesDocumentLifecycleProtocol,
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import {
+  assertSourceAllowsPageEdit,
+  releaseRestoredPagesFromGitHubCollections,
+} from "./_document-source.js";
 import { lockDocumentRows, sortRowIds } from "./_row-lock-order.js";
 
 const DELETE_BATCH_SIZE = 90;
@@ -895,6 +899,14 @@ export async function restoreDocumentSubtree(
   }
 
   const now = new Date().toISOString();
+  // First, so the restore takes a GitHub collection's lock before it writes
+  // any page, in the same order a sync does.
+  const releasedFrom = await releaseRestoredPagesFromGitHubCollections(
+    db,
+    documentIds,
+    ownerEmail,
+    now,
+  );
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
@@ -918,14 +930,15 @@ export async function restoreDocumentSubtree(
   }
 
   const databaseIds = [
-    ...new Set(
-      (
+    ...new Set([
+      ...(
         await db
           .select({ databaseId: schema.contentDatabaseItems.databaseId })
           .from(schema.contentDatabaseItems)
           .where(inArray(schema.contentDatabaseItems.documentId, documentIds))
       ).map((item) => item.databaseId),
-    ),
+      ...releasedFrom,
+    ]),
   ];
   for (const databaseId of databaseIds) {
     const [database] = await db
@@ -1402,6 +1415,7 @@ async function trashDocumentWithReceipt(
   origin: string | undefined,
 ) {
   const access = await assertDocumentMutationAccess(input.id, "admin", "id");
+  assertSourceAllowsPageEdit(access.resource, "trash");
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
@@ -1527,6 +1541,7 @@ export default defineAction({
 
     const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
+    assertSourceAllowsPageEdit(existing, "trash");
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })
       .from(schema.contentDatabases)

@@ -156,7 +156,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       scopes: ["repo", "read:org", "read:user", "user:email"],
     },
     capabilities: ["search", "import", "code", "docs"],
-    recommendedTemplateUses: ["brain", "analytics", "dispatch", "factory"],
+    recommendedTemplateUses: [
+      "brain",
+      "analytics",
+      "content",
+      "dispatch",
+      "factory",
+    ],
   }),
   defineWorkspaceConnectionProvider({
     id: "figma",

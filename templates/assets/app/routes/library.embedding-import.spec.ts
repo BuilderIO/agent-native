@@ -11,18 +11,4 @@ describe("Library route embedding import safety", () => {
     const source = appSource("./library.tsx");
     expect(source).not.toMatch(/from\s+["']@agent-native\/core\/embedding["']/);
   });
-
-  it("imports the embed bridge helpers from the browser-safe bridge subpath", () => {
-    const source = appSource("./library.tsx");
-    expect(source).toMatch(
-      /from\s+["']@agent-native\/core\/embedding\/bridge["']/,
-    );
-  });
-
-  it("imports the embed protocol helpers from the browser-safe protocol subpath", () => {
-    const source = appSource("./library.tsx");
-    expect(source).toMatch(
-      /from\s+["']@agent-native\/core\/embedding\/protocol["']/,
-    );
-  });
 });

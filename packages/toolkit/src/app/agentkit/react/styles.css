@@ -1216,7 +1216,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   inline-size: fit-content;
   max-inline-size: 100%;
   align-items: center;
-  gap: 0.375rem;
+  gap: 1rem;
 }
 
 .agentkit-activities {
@@ -1418,7 +1418,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 }
 
 .agentkit-activities-summary > .agentkit-summary-chevron {
-  opacity: 0;
+  opacity: 1;
 }
 
 .agentkit-activities[data-expandable="true"]

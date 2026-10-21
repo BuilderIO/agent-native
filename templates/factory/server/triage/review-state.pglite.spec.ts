@@ -42,6 +42,8 @@ beforeEach(async () => {
       coverage text NOT NULL,
       dedupe_key text NOT NULL,
       metadata_json text NOT NULL DEFAULT '{}',
+      payload_json text NOT NULL DEFAULT '{}',
+      text_ref text,
       last_seen_at text,
       created_at text NOT NULL,
       updated_at text NOT NULL,

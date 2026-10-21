@@ -9,6 +9,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Locally saved desktop recordings now appear in the recovery list with upload and storage setup actions.
 
+### Changed
+
+- Clips asks you to connect storage before recording when no storage destination is available.
+
 ## 2026-10-19
 
 ### Fixed
@@ -55,6 +59,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Rewind settings now show whether Rewind is remembering screen only or screen + audio.
 - Clips detects browser meetings more reliably and keeps notes until the meeting stop and transcript save are confirmed.
 - Clips detects browser meetings sooner, asks before starting when the active tab is unclear, and retries failed stops.
 - Desktop dictation confirms when text is pasted or copied and keeps transcripts available when saving fails.
@@ -67,6 +72,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- If permanently deleting a Clip fails, the Clip and its video are left intact.
+- Rewind now deletes history past its time limit even while it's off or paused.
+- The Replace transcript dialog keeps showing the file name while it closes.
+- Tooltips no longer pop up on their own after a menu, popover, or dialog closes.
+- Video posters load again when your own storage runs on a private network address.
 - Recordings uploaded by a connected agent can now use free Clips storage, like recordings made in the app.
 - An agent upload too large for free hosted storage is now refused before it starts, with the size limit that applies.
 - Agents connected to Clips over MCP can now import a transcript file, instead of getting an unknown-tool error.

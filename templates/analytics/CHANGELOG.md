@@ -3,6 +3,17 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-21
+
+### Improved
+
+- Analytics recognizes questions about connected data, product analytics, sessions, dashboards, and charts.
+- Onboarding journeys honor larger event row budgets with aggregate cost limits, a read deadline, and clear partial-coverage reporting.
+
+### Fixed
+
+- Preserve unknown replay availability in partial journeys
+
 ## 2026-10-20
 
 ### Fixed
@@ -62,6 +73,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- In Edit mode, rename or delete a multi-select filter's group from its dropdown while that group is selected.
 - The Content dashboard can show signups per blog article, collected once a day behind a BigQuery cost cap that a dry run measures first
 - Click a table row to see its numbers broken down by app, or another column, in a side panel.
 - Connect a personal Sigma account to import its dashboards
@@ -69,6 +81,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Data notes under charts without a date axis now follow the dashboard's time range, so a 90-day view lists a note from two months ago and a 30-day view drops it.
 - Analytics preserves requested organization grain and guides supported ratio query retries
 - Charts that compute their window from today's date can now reuse BigQuery's cached results within the day instead of rerunning the full query on every load.
 - Dashboard callouts and descriptions support Markdown links
@@ -82,6 +95,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- A key-date marker opens its card on hover even where a chart's hovered point sits on top of it.
 - Alert polls enforce a query byte limit and report evaluations that exceed it as errors.
 - All-time dashboard panels keep their historical label when you edit a title or description
 - Analytics answers owner-defined dbt metrics through the Semantic Layer and say when dbt is not ready, instead of reading warehouse tables as the approved definition.

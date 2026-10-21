@@ -4,10 +4,9 @@
  * decided on the server from `org_members`, never from anything the caller
  * sends.
  */
-import { getDbExec } from "../db/client.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
 import { canManageOrg } from "../org/permissions.js";
-import type { OrgRole } from "../org/types.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import type { AuditReadScope, AuditTrail } from "./store.js";
 
 export class AuditAccessError extends Error {
@@ -21,19 +20,9 @@ export class AuditAccessError extends Error {
 async function readOrgRole(
   orgId: string,
   email: string,
-): Promise<OrgRole | null> {
+): Promise<Awaited<ReturnType<typeof readOrgMemberRole>>> {
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email.toLowerCase()],
-    });
-    const role = (rows[0] as { role?: unknown } | undefined)?.role;
-    return role === "owner" || role === "admin" || role === "member"
-      ? role
-      : null;
+    return await readOrgMemberRole(orgId, email);
   } catch (error) {
     // No org tables means no organization to administer. Any other failure
     // must surface: reading it as "member" would hide the org trail from an

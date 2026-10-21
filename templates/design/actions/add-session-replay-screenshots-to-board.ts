@@ -36,6 +36,7 @@ import {
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import createDesign from "./create-design.js";
 import deleteDesign from "./delete-design.js";
 import migrateBoardObjectsToFile from "./migrate-board-objects-to-file.js";
@@ -650,6 +651,10 @@ export default defineAction({
           cohortTotal: cohortTotal ?? null,
           selectedReplayCount: selectedReplayCount ?? uploaded.length,
         },
+        _receipt: designOutputWriteReceipt(
+          targetDesignId,
+          write.changed ? 1 : 0,
+        ),
       };
     } catch (error) {
       let createdDesignDeleted = false;

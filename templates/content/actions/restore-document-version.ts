@@ -32,6 +32,7 @@ import {
 } from "./_document-edit-mutation.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 function isLinkedLocalSource(
   documentId: string,
@@ -88,6 +89,7 @@ export default defineAction({
     };
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
+    assertSourceAllowsPageEdit(access.resource);
     const db = getDb();
     const [versionForScope] = await db
       .select({ title: schema.documentVersions.title })
@@ -179,6 +181,7 @@ export default defineAction({
       if (isLinkedLocalSource(documentId, current)) {
         linkedLocalRestoreUnsupported();
       }
+      assertSourceAllowsPageEdit(current);
       if (current.updatedAt !== expectedUpdatedAt) {
         throw new ActionContractError(
           "The document changed after this restore was prepared.",

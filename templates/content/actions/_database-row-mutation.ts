@@ -46,6 +46,10 @@ import {
   type DatabasePropertyEntry,
 } from "./_database-property-input.js";
 import {
+  assertCollectionAcceptsNewRows,
+  assertSourceAllowsPageEdit,
+} from "./_document-source.js";
+import {
   databaseItemsPositionScope,
   documentsPositionScope,
   nextAppendPosition,
@@ -1119,6 +1123,7 @@ async function createInsideTransaction(
     documentId?: string;
   },
 ) {
+  await assertCollectionAcceptsNewRows(context.database.id, tx);
   const now = new Date().toISOString();
   const actor = requireDocumentRequestActor();
   const documentId = args.documentId ?? nanoid();
@@ -1229,6 +1234,7 @@ async function writeRowTitle(
   before: RowSnapshot,
   args: { title: string; expectedRowRevision: string },
 ) {
+  assertSourceAllowsPageEdit(before.document);
   const [updatedDocument] = await tx
     .update(schema.documents)
     .set({

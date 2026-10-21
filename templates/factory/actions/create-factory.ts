@@ -4,25 +4,17 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import {
-  factoryDefinitions,
-  factoryGraphVersions,
-} from "../server/db/schema.js";
-import {
-  minimalFactoryGraph,
-  normalizeFactoryGraph,
-} from "../server/factory-graph/contracts.js";
+import { factoryDefinitions } from "../server/db/schema.js";
 import { isFactoryIdConflict } from "../server/lib/factory-automation-plan.js";
 import { resolveUniqueFactoryId } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { stableId } from "../server/triage/ids.js";
 
 export default defineAction({
   description:
-    "Create a named empty Factory the same way /new-factory does. Opens that factory's Inbox. Reply with the factory name and that automations start empty. Do not list graph nodes, stages, or graph versions unless the user asked about the map. Add jobs later with create-factory-automation.",
+    "Create a named empty Factory the same way /new-factory does. Opens that factory's Workflows tab. Reply with the factory name and that workflows start empty. Add workflows later with save-factory-workflow.",
   schema: z.object({
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().max(500).optional(),
@@ -43,42 +35,25 @@ export default defineAction({
     );
     const db = getDb();
     const description = input.description?.trim() ?? "";
-    const graph = normalizeFactoryGraph(
-      minimalFactoryGraph(input.name, description),
-    );
     const now = new Date().toISOString();
 
     const MAX_FACTORY_CREATE_ATTEMPTS = 5;
     let factoryId = "";
     for (let attempt = 0; attempt < MAX_FACTORY_CREATE_ATTEMPTS; attempt++) {
       factoryId = await resolveUniqueFactoryId(db, orgId, input.name);
-      const versionId = stableId("factory-graph", orgId, factoryId, "1");
       try {
-        await db.transaction(async (tx) => {
-          await tx.insert(factoryDefinitions).values({
-            id: factoryId,
-            name: input.name,
-            description,
-            prompt: "",
-            graphVersion: 1,
-            graphJson: JSON.stringify(graph),
-            createdAt: now,
-            updatedAt: now,
-            ownerEmail: userEmail,
-            orgId,
-          });
-          await tx.insert(factoryGraphVersions).values({
-            id: versionId,
-            factoryId,
-            version: 1,
-            graphJson: JSON.stringify(graph),
-            source: "manual",
-            changeSummary: "Created from the new factory dialog.",
-            createdAt: now,
-            createdBy: userEmail,
-            ownerEmail: userEmail,
-            orgId,
-          });
+        await db.insert(factoryDefinitions).values({
+          id: factoryId,
+          name: input.name,
+          description,
+          prompt: "",
+          // Legacy NOT NULL columns: this row is the registry, no graph is stored.
+          graphVersion: 1,
+          graphJson: "{}",
+          createdAt: now,
+          updatedAt: now,
+          ownerEmail: userEmail,
+          orgId,
         });
         break;
       } catch (error) {
@@ -111,7 +86,6 @@ export default defineAction({
       ok: true,
       factoryId,
       name: input.name,
-      graphVersion: 1,
       enabledAutomations: [],
     };
   },
