@@ -51,7 +51,7 @@ export function DispatchChatHomeApps() {
         <ActionQueryError
           error={launcher.error}
           onRetry={launcher.retry}
-          queryName="list-workspace-apps"
+          queryName={launcher.errorQueryName}
         />
       </div>
     );
@@ -65,7 +65,7 @@ export function DispatchChatHomeApps() {
           error={launcher.error}
           onRetry={launcher.retry}
           className="mb-3"
-          queryName="list-workspace-apps"
+          queryName={launcher.errorQueryName}
         />
       ) : null}
       <section aria-label={t("dispatch.nav.apps")}>
