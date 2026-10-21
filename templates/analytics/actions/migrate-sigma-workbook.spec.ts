@@ -288,6 +288,39 @@ describe("migrate-sigma-workbook", () => {
     });
   });
 
+  it("stops dry runs early and refuses to claim without time to write", async () => {
+    workbookWith([panelElement("element_1", "Revenue")]);
+    const startedAt = 1_000_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    mocks.proveSql.mockImplementation(async () => {
+      // An in-flight dry run ran past the proof deadline.
+      now.mockReturnValue(startedAt + 50_000);
+      return new Map([
+        [
+          "element_1",
+          { ok: true, sql: "SELECT 1 AS revenue", estimatedBytes: 1 },
+        ],
+      ]);
+    });
+
+    try {
+      await expect(
+        migrateSigmaWorkbook.run({ workbookId, connectionId: "connection_1" }),
+      ).rejects.toMatchObject({
+        errorCode: "bigquery_dry_run_unavailable",
+        statusCode: 503,
+      });
+      expect(mocks.proveSql).toHaveBeenCalledWith(
+        expect.anything(),
+        ["element_1"],
+        { deadline: startedAt + 35_000 },
+      );
+      expect(mocks.claimMigration).not.toHaveBeenCalled();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("imports proven panels and turns the rest into flagged callouts", async () => {
     workbookWith([
       panelElement("element_1", "Revenue"),

@@ -47,6 +47,7 @@ import {
   getDashboard,
   upsertDashboard,
 } from "../server/lib/dashboards-store.js";
+import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   requireSigmaSourceInspection,
   summarizeSigmaElementReview,
@@ -90,6 +91,12 @@ const MIGRATION_DEADLINE_MS = 55_000;
 const MIGRATION_WRITE_MARGIN_MS = 10_000;
 const MIGRATION_VERIFICATION_BUDGET_MS = 12_000;
 const MIN_VERIFICATION_BUDGET_MS = 1_000;
+// New dry runs stop early enough that one still in flight, which can take up
+// to its own timeout, ends before the write margin.
+const PROOF_DEADLINE_MS =
+  MIGRATION_DEADLINE_MS -
+  MIGRATION_WRITE_MARGIN_MS -
+  DASHBOARD_SQL_VALIDATION_TIMEOUT_MS;
 
 function dashboardIdFor(args: {
   orgId: string;
@@ -393,7 +400,8 @@ export default defineAction({
     };
   },
   run: async (args) => {
-    const deadline = Date.now() + MIGRATION_DEADLINE_MS;
+    const startedAt = Date.now();
+    const deadline = startedAt + MIGRATION_DEADLINE_MS;
     const context = await requireSigmaMigrationContext();
     const selection = await resolveSigmaConnectionSelection(args.connectionId);
     if (!selection.selected) {
@@ -453,7 +461,18 @@ export default defineAction({
       }
     }
 
-    const proofs = await proveSigmaWorkbook(inspection, deadline);
+    const proofs = await proveSigmaWorkbook(
+      inspection,
+      startedAt + PROOF_DEADLINE_MS,
+    );
+    // Claiming without time to write could leave the row migrating until the
+    // claim goes stale.
+    if (deadline - Date.now() < MIGRATION_WRITE_MARGIN_MS) {
+      fail("BigQuery took too long checking this workbook. Try again.", {
+        errorCode: "bigquery_dry_run_unavailable",
+        statusCode: 503,
+      });
+    }
 
     await createExternalDashboard({
       provider: "sigma",
