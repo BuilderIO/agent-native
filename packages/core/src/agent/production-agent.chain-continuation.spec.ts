@@ -111,6 +111,7 @@ interface Harness {
       | "readTurnStartedAt"
       | "emitRunText"
       | "isTurnAborted"
+      | "isRunAborted"
       | "markRunAborted"
     >
   >;
@@ -129,6 +130,7 @@ function makeHarness(overrides?: {
     readTurnStartedAt:
       overrides?.readTurnStartedAt ?? vi.fn(async () => Date.now()),
     isTurnAborted: vi.fn(async () => false),
+    isRunAborted: vi.fn(async () => false),
     emitRunText: vi.fn(async () => {}),
     insertRun: vi.fn(async () => {
       callOrder.push("insertRun");
@@ -204,6 +206,29 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
 
     expect(h.deps.insertRun).not.toHaveBeenCalled();
     expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-chunk0", "user");
+  });
+
+  it("accepts an existing abort with a different terminal reason", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi.fn(async () => true);
+    h.deps.markRunAborted = vi.fn(async () => false);
+    h.deps.isRunAborted = vi.fn(async () => true);
+
+    await runChain(h);
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-chunk0", "user");
+    expect(h.deps.isRunAborted).toHaveBeenCalledWith("run-chunk0");
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.recordRunDiagnostic).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      RUN_DIAG_STAGE.workerThrew,
+      expect.stringContaining("Could not confirm durable abort"),
+    );
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
   });
 
   it("does not dispatch until the predecessor terminal marker succeeds", async () => {
