@@ -3384,6 +3384,19 @@ const messages: ToolkitAgentChatTranslation = {
   "reportProblem.notAttached": "El informe no se adjuntó.",
   "reportProblem.agentMessage":
     "Algo salió mal en la app. Usa el informe del problema adjunto para explicar qué pasó.",
+  "unsupportedDevice.title": "Ábrelo en una pantalla más grande",
+  "unsupportedDevice.titleDeck":
+    "Abre esta presentación en una pantalla más grande",
+  "unsupportedDevice.titleDesign":
+    "Abre este diseño en una pantalla más grande",
+  "unsupportedDevice.body":
+    "{{app}} funciona en iPad, tabletas y ordenadores. Envíate el enlace para continuar allí.",
+  "unsupportedDevice.email": "Enviarme el enlace por correo",
+  "unsupportedDevice.share": "Compartir enlace",
+  "unsupportedDevice.copy": "Copiar enlace",
+  "unsupportedDevice.copyFailed": "No se pudo copiar el enlace",
+  "unsupportedDevice.copied": "Enlace copiado",
+  "unsupportedDevice.emailSubject": "Abre {{app}} en tu ordenador",
 };
 
 export default messages;
