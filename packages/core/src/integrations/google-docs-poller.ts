@@ -775,7 +775,7 @@ export async function processChanges(
   }
 }
 
-export async function handlePushNotification(): Promise<void> {
+export const handlePushNotification = trackCallback(async () => {
   if (!activeOptions) {
     console.warn(
       "[google-docs] Push notification received but poller not configured",
@@ -788,7 +788,7 @@ export async function handlePushNotification(): Promise<void> {
   } catch (err) {
     console.error("[google-docs] Error processing push notification:", err);
   }
-}
+});
 
 async function processComment(
   fileId: string,
@@ -1119,7 +1119,7 @@ export function shutdownGoogleDocsPoller(): Promise<void> {
   for (const timer of watchCleanupTimers.values()) clearTimeout(timer);
   watchCleanupTimers.clear();
   const draining = pollerJob?.stop();
-  shutdownPromise = (async () => {
+  const pending = (async () => {
     const results = await Promise.allSettled([...activeCallbacks, draining]);
     // An admitted poll may start a run while its own callback is draining.
     while (activeCallbacks.size) {
@@ -1134,5 +1134,10 @@ export function shutdownGoogleDocsPoller(): Promise<void> {
       );
     }
   })();
-  return shutdownPromise;
+  shutdownPromise = pending;
+  const clearShutdown = () => {
+    if (shutdownPromise === pending) shutdownPromise = undefined;
+  };
+  void pending.then(clearShutdown, clearShutdown);
+  return pending;
 }

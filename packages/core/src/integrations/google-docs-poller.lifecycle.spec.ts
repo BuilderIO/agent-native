@@ -45,6 +45,7 @@ vi.mock("../agent/engine/index.js", () => ({
 vi.mock("../agent/run-manager.js", () => ({ startRun: mocks.startRun }));
 
 import {
+  handlePushNotification,
   startGoogleDocsPoller,
   shutdownGoogleDocsPoller,
 } from "./google-docs-poller.js";
@@ -58,10 +59,12 @@ const options = {
 };
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 beforeEach(() => {
@@ -80,6 +83,55 @@ afterEach(async () => {
 });
 
 describe("Google Docs service lifecycle", () => {
+  it("drains admitted push processing and its child run while rejecting late pushes", async () => {
+    await startGoogleDocsPoller(options);
+    const changes = deferred<any>();
+    const finalized = deferred();
+    mocks.changes.mockReturnValueOnce(changes.promise);
+    mocks.comments.mockResolvedValue([
+      {
+        id: "push-comment",
+        content: "@agent hello",
+        author: { displayName: "Test" },
+      },
+    ]);
+    mocks.startRun.mockReturnValue({ finalized: finalized.promise });
+    const push = handlePushNotification();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.changes).toHaveBeenCalledOnce();
+
+    let closed = false;
+    const closing = shutdownGoogleDocsPoller().then(() => {
+      closed = true;
+    });
+    try {
+      await handlePushNotification();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.changes).toHaveBeenCalledOnce();
+      expect(closed).toBe(false);
+
+      changes.resolve({
+        changes: [{ fileId: "push-document" }],
+        nextPageToken: "next",
+      });
+      await push;
+      expect(mocks.startRun).toHaveBeenCalledOnce();
+      expect(closed).toBe(false);
+
+      finalized.resolve();
+      await closing;
+      await handlePushNotification();
+      expect(mocks.changes).toHaveBeenCalledOnce();
+      expect(mocks.startRun).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      changes.resolve({ changes: [], nextPageToken: "next" });
+      finalized.resolve();
+      await push;
+      await closing;
+    }
+  });
+
   it("cancels the pending first poll without reading configuration again", async () => {
     await startGoogleDocsPoller(options);
     await shutdownGoogleDocsPoller();
@@ -203,5 +255,38 @@ describe("Google Docs service lifecycle", () => {
       promotion.resolve();
       await closing;
     }
+  });
+
+  it("allows a fresh start after shutdown reports a child finalization failure", async () => {
+    await startGoogleDocsPoller(options);
+    const finalized = deferred();
+    mocks.changes.mockResolvedValue({
+      changes: [{ fileId: "failed-push-document" }],
+      nextPageToken: "next",
+    });
+    mocks.comments.mockResolvedValue([
+      {
+        id: "failed-push-comment",
+        content: "@agent hello",
+        author: { displayName: "Test" },
+      },
+    ]);
+    mocks.startRun.mockReturnValue({ finalized: finalized.promise });
+    await handlePushNotification();
+    expect(mocks.startRun).toHaveBeenCalledOnce();
+
+    const closing = shutdownGoogleDocsPoller();
+    const failedShutdown = expect(closing).rejects.toThrow(
+      "Google Docs shutdown failed",
+    );
+    finalized.reject(new Error("finalization failed"));
+    await failedShutdown;
+
+    mocks.config.mockClear();
+    await startGoogleDocsPoller(options);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.config).toHaveBeenCalledTimes(2);
+    await shutdownGoogleDocsPoller();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
