@@ -379,6 +379,57 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("keeps a replayed queued receipt in its existing queue position", async () => {
+    const first: AgentQueuedMessage = {
+      id: "queued-first",
+      threadId: "thread-1",
+      text: "Retry this one",
+      createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    const later: AgentQueuedMessage = {
+      id: "queued-later",
+      threadId: "thread-1",
+      text: "Keep this behind the retry",
+      createdAt: "2026-10-21T00:00:01.000Z",
+    };
+    const replayed = { ...first, text: "Canonical receipt" };
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: first.createdAt,
+          updatedAt: later.createdAt,
+          messages: [],
+          queuedMessages: [first, later],
+        };
+      },
+      async startRun() {
+        return {
+          queuedSubmission: {
+            state: "queued",
+            message: replayed,
+            activeRunId: "run-active",
+          },
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    await client.sendMessage({
+      threadId: "thread-1",
+      text: "Retry this one",
+      queueWhileRunning: false,
+    });
+
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      replayed,
+      later,
+    ]);
+    await client.shutdown();
+  });
+
   it("rejects a receipt-backed completion when active-run replay fails", async () => {
     const queued: AgentQueuedMessage = {
       id: "message-queued-after-replay-failure",

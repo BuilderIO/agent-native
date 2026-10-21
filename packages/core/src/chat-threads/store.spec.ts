@@ -194,20 +194,19 @@ describe("chat thread store", () => {
       }
       if (/FROM agent_chat_submission_inbox/i.test(sql)) {
         const interruptPoll = /interrupt_active_run = TRUE/i.test(sql);
-        const threadIdIndex = 1;
         const retryFilter =
-          /\(retry_after IS NULL OR retry_after <= \?\)/i.test(sql);
+          /\(current\.retry_after IS NULL OR current\.retry_after <= \?\)/i.test(
+            sql,
+          );
+        const isQueueList = /ORDER BY current\.interrupt_active_run/i.test(sql);
+        const threadIdIndex = retryFilter ? 2 : 0;
         const threadId = /thread_id = \?/i.test(sql)
           ? args[threadIdIndex]
           : undefined;
         const pending = submissionRows.filter(
           (candidate) =>
             candidate.state === "queued" &&
-            (threadId === undefined || candidate.thread_id === threadId) &&
-            (!interruptPoll || candidate.interrupt_active_run === true) &&
-            (!retryFilter ||
-              candidate.retry_after == null ||
-              Number(candidate.retry_after) <= Number(args[0])),
+            (threadId === undefined || candidate.thread_id === threadId),
         );
         pending.sort((left, right) => {
           const interruptOrder =
@@ -229,8 +228,28 @@ describe("chat thread store", () => {
           if (leftMove !== null && rightMove === null) return -1;
           return Number(left.queue_order) - Number(right.queue_order);
         });
+        const deferredThreads = new Set<string>();
+        const ready = pending.filter((candidate) => {
+          const retryAfter =
+            candidate.retry_after == null
+              ? undefined
+              : Number(candidate.retry_after);
+          if (
+            isQueueList &&
+            retryFilter &&
+            retryAfter !== undefined &&
+            retryAfter > Number(args[0])
+          ) {
+            deferredThreads.add(candidate.thread_id);
+            return false;
+          }
+          if (isQueueList && deferredThreads.has(candidate.thread_id)) {
+            return false;
+          }
+          return !interruptPoll || candidate.interrupt_active_run === true;
+        });
         return {
-          rows: pending.slice(0, Number(args.at(-1))),
+          rows: ready.slice(0, Number(args.at(-1))),
           rowsAffected: 0,
         };
       }
@@ -5003,6 +5022,47 @@ describe("chat thread store", () => {
         },
       ],
     );
+  });
+
+  it("does not expose a later receipt past a delayed thread head", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const delayedHead = {
+      id: "queued-delayed-head",
+      threadId: "thread-1",
+      text: "Retry me first",
+    };
+    for (const message of [
+      delayedHead,
+      {
+        id: "queued-after-delayed-head",
+        threadId: "thread-1",
+        text: "Do not overtake",
+      },
+    ]) {
+      await mutateThreadQueuedMessages(
+        message.threadId,
+        { type: "append", message },
+        { actor },
+      );
+    }
+    const retryAfter = 20_000;
+    expect(
+      await retryQueuedSubmissionReceipt(
+        delayedHead.threadId,
+        delayedHead.id,
+        retryAfter,
+      ),
+    ).toBe(true);
+
+    await expect(
+      listQueuedSubmissionReceipts({ now: retryAfter - 1 }),
+    ).resolves.toEqual([]);
+    await expect(
+      listQueuedSubmissionReceipts({ now: retryAfter }),
+    ).resolves.toMatchObject([
+      { messageId: delayedHead.id },
+      { messageId: "queued-after-delayed-head" },
+    ]);
   });
 });
 

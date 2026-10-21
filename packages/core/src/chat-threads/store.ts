@@ -2182,20 +2182,42 @@ export async function listQueuedSubmissionReceipts(
   await ensureTable();
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 25)));
   const now = options.now ?? Date.now();
-  const where = ["state = 'queued'"];
+  const where = ["current.state = 'queued'"];
   const args: (number | string)[] = [now];
-  where.push("(retry_after IS NULL OR retry_after <= ?)");
+  where.push("(current.retry_after IS NULL OR current.retry_after <= ?)");
+  where.push(`NOT EXISTS (
+    SELECT 1 FROM agent_chat_submission_inbox AS earlier
+    WHERE earlier.thread_id = current.thread_id
+      AND earlier.state = 'queued'
+      AND earlier.retry_after > ?
+      AND (
+        earlier.interrupt_active_run > current.interrupt_active_run
+        OR (
+          earlier.interrupt_active_run = current.interrupt_active_run
+          AND (
+            (earlier.move_to_top_at IS NOT NULL AND current.move_to_top_at IS NULL)
+            OR earlier.move_to_top_at > current.move_to_top_at
+            OR (
+              (earlier.move_to_top_at = current.move_to_top_at
+                OR (earlier.move_to_top_at IS NULL AND current.move_to_top_at IS NULL))
+              AND earlier.queue_order < current.queue_order
+            )
+          )
+        )
+      )
+  )`);
+  args.push(now);
   if (options.threadId) {
-    where.push("thread_id = ?");
+    where.push("current.thread_id = ?");
     args.push(options.threadId);
   }
   if (options.interruptActiveRun === true) {
-    where.push("interrupt_active_run = TRUE");
+    where.push("current.interrupt_active_run = TRUE");
   }
   const { rows } = await getDbExec().execute({
-    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox
+    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox AS current
           WHERE ${where.join(" AND ")}
-          ORDER BY interrupt_active_run DESC, move_to_top_at DESC NULLS LAST, queue_order ASC
+          ORDER BY current.interrupt_active_run DESC, current.move_to_top_at DESC NULLS LAST, current.queue_order ASC
           LIMIT ?`,
     args: [...args, limit],
   });

@@ -243,8 +243,10 @@ import { getRunById } from "../agent/run-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
+  listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   mutateThreadQueuedMessages,
+  retryQueuedSubmissionReceipt,
 } from "../chat-threads/store.js";
 import { closeDbExec, getDbExec } from "../db/client.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
@@ -276,6 +278,44 @@ describe("queued submission inbox recurring sweep", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
+
+  it("keeps a delayed receipt as a per-thread drain barrier", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const otherThreadId = `thread-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    const now = Date.now();
+    await createThread(actor.email, { id: threadId });
+    await createThread(actor.email, { id: otherThreadId });
+    for (const [receiptThreadId, message] of [
+      [threadId, { id: "delayed-head", text: "Retry first" }],
+      [threadId, { id: "later-receipt", text: "Do not overtake" }],
+      [otherThreadId, { id: "other-thread", text: "Independent thread" }],
+    ] as const) {
+      await mutateThreadQueuedMessages(
+        receiptThreadId,
+        {
+          type: "append",
+          message: { ...message, threadId: receiptThreadId },
+        },
+        { actor },
+      );
+    }
+    const retryAfter = now + 60_000;
+    expect(
+      await retryQueuedSubmissionReceipt(threadId, "delayed-head", retryAfter),
+    ).toBe(true);
+
+    await expect(
+      listQueuedSubmissionReceipts({ now: retryAfter - 1 }),
+    ).resolves.toMatchObject([{ messageId: "other-thread" }]);
+    await expect(
+      listQueuedSubmissionReceipts({ now: retryAfter }),
+    ).resolves.toMatchObject([
+      { messageId: "delayed-head" },
+      { messageId: "later-receipt" },
+      { messageId: "other-thread" },
+    ]);
+  }, 20_000);
 
   it("admits a queued receipt once through the authenticated sweep", async () => {
     const threadId = `thread-${randomUUID()}`;

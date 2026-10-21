@@ -3143,12 +3143,12 @@ export class AgentKitClient implements AgentKitController {
         const receipt = result.queuedSubmission;
         const queued = receipt.message;
         const current = this.getThread(input.threadId);
-        const queuedMessages = [
-          ...current.queuedMessages.filter(
-            (candidate) => candidate.id !== queued.id,
-          ),
-          queued,
-        ];
+        const existingQueueIndex = current.queuedMessages.findIndex(
+          (candidate) => candidate.id === queued.id,
+        );
+        const queuedMessages = current.queuedMessages.slice();
+        if (existingQueueIndex === -1) queuedMessages.push(queued);
+        else queuedMessages[existingQueueIndex] = queued;
         this.setThread(input.threadId, {
           ...current,
           messages: current.messages.filter(

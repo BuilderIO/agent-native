@@ -8628,7 +8628,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             !(await waitForStableIdle(drainOptions.threadId))
           ) {
             result.deferred += 1;
-            continue;
+            break;
           }
           let claimId: string | undefined;
           try {

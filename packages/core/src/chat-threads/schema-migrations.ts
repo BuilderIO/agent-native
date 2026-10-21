@@ -113,4 +113,13 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
         ADD COLUMN IF NOT EXISTS interrupt_run_id TEXT
     `,
   },
+  {
+    version: 7,
+    name: "chat-thread-inbox-thread-order-index",
+    sql: `
+      CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_thread_pending_idx
+        ON agent_chat_submission_inbox (thread_id, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)
+        WHERE state = 'queued'
+    `,
+  },
 ];

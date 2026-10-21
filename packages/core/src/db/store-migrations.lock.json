@@ -353,6 +353,10 @@
     {
       "name": "chat-thread-inbox-interrupt-replay",
       "checksum": "904890f43aebd9fe"
+    },
+    {
+      "name": "chat-thread-inbox-thread-order-index",
+      "checksum": "78d46649cafade48"
     }
   ],
   "checkpoints": [

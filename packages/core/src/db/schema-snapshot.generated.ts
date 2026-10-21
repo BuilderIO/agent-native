@@ -394,6 +394,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     "CREATE INDEX idx_audit_target ON public.agent_audit_log USING btree (target_type, target_id, created_at);",
     "CREATE INDEX idx_audit_turn ON public.agent_audit_log USING btree (turn_id);",
     "CREATE INDEX agent_chat_submission_inbox_pending_idx ON public.agent_chat_submission_inbox USING btree (state, retry_after, interrupt_active_run DESC, move_to_top_at DESC, queue_order);",
+    "CREATE INDEX agent_chat_submission_inbox_thread_pending_idx ON public.agent_chat_submission_inbox USING btree (thread_id, interrupt_active_run DESC, move_to_top_at DESC, queue_order) WHERE (state = 'queued'::text);",
     "CREATE INDEX agent_checkpoints_run_idx ON public.agent_checkpoints USING btree (run_id);",
     "CREATE INDEX agent_checkpoints_thread_created_idx ON public.agent_checkpoints USING btree (thread_id, created_at);",
     "CREATE UNIQUE INDEX idx_eval_datasets_idempotency ON public.agent_eval_datasets USING btree (idempotency_key);",
@@ -963,6 +964,11 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
       "953882e24b68e4fb",
     ],
     ["chat_threads", "chat-thread-inbox-interrupt-replay", "904890f43aebd9fe"],
+    [
+      "chat_threads",
+      "chat-thread-inbox-thread-order-index",
+      "78d46649cafade48",
+    ],
     ["chat_threads", "chat-thread-shares-notified-at", "f2a3dce63fe66310"],
     ["chat_threads", "chat-threads-base-tables", "bfeaaa8ca4af1288"],
     [
