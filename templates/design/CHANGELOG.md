@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Journey canvases accept partial Analytics samples when replay counts are unknown
 - Design generation now counts file renames and type changes as saved output.
 - Design reports uncertain generation outcomes clearly and confirms completed file deletions
 - Generation offers a retry when a completed run saved no design files

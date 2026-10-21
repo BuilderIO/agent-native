@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-21
+
+### Fixed
+
+- Organization favorites include documents shared with the current member
+
 ## 2026-10-19
 
 ### Improved

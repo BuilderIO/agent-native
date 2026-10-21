@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-21
 
+### Improved
+
+- Customer AI credit questions route to account health instead of workspace spend metrics.
+
 ### Fixed
 
 - Workspace apps load reliably with organization sign-in, and failures identify the request and status

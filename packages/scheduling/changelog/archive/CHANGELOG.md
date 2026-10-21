@@ -1,3 +1,9 @@
+## 0.1.13
+
+### Patch Changes
+
+- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
+
 ## 0.1.12
 
 ### Patch Changes
