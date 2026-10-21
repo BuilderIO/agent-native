@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetCanvasOutcomeTrackingForTests,
   flushCanvasOutcomeCounts,
+  recordSaveReplayOutcomes,
   setCanvasOutcomeContext,
 } from "@/lib/canvas-outcome-tracking";
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
@@ -525,6 +526,29 @@ describe("runSaveFileContent outcome counts", () => {
         ([, props]) => (props as { design_id?: string }).design_id,
       ),
     ).toEqual(["design-a"]);
+  });
+
+  it("never counts an outbox replay of a save still queued or in flight", async () => {
+    const mutation = deferred<unknown>();
+    const { args, pending } = setup({ mutate: () => mutation.promise });
+    args.createFileSaveOutboxEntry = vi.fn(
+      () => ({ key: "outbox-entry" }) as never,
+    );
+    const drain = {
+      saved: [{ actionName: "update-file", key: "outbox-entry" }],
+      rebased: [],
+      dropped: [],
+    };
+    const save = runSaveFileContent(args, pending);
+    recordSaveReplayOutcomes(drain, "design-a");
+    mutation.resolve({ updated: true, versionHash: sourceContentHash(MINE) });
+    await expect(save).resolves.toBe("persisted");
+    // Once the live save settles, a later replay of that entry is real.
+    recordSaveReplayOutcomes(drain, "design-a");
+    expect(saveOutcomes()).toEqual({
+      "save/succeeded/none": 1,
+      "save_replay/succeeded/none": 1,
+    });
   });
 
   it("counts a save that merged and retried as one success", async () => {

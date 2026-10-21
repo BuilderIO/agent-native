@@ -969,6 +969,8 @@ function commitVisualStylesWithOutcome(
         setContentRenderRevision((revision) => revision + 1);
       }
     }
+    // Applied on the canvas. Whether it persisted is the save's own outcome;
+    // only a caller that requires server acceptance waits for it.
     op.succeed();
     if (options.preserveSelection) return;
     // The user may have selected something else before this commit landed.

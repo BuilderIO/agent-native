@@ -15,6 +15,7 @@ import {
   CANVAS_OUTCOME_FLUSH_MS,
   __resetCanvasOutcomeTrackingForTests,
   flushCanvasOutcomeCounts,
+  holdLiveSaveFromReplayCounts,
   recordCanvasOutcome,
   recordSaveReplayOutcomes,
   runCanvasOperation,
@@ -502,8 +503,8 @@ describe("canvas outcome tracking", () => {
   });
 
   it("counts finished file-save replays only", () => {
-    const fileSave = { actionName: "update-file" };
-    const geometry = { actionName: "update-design" };
+    const fileSave = { actionName: "update-file", key: "file-a" };
+    const geometry = { actionName: "update-design", key: "geometry-a" };
     const drain = {
       saved: [fileSave, fileSave, geometry],
       rebased: [
@@ -529,6 +530,24 @@ describe("canvas outcome tracking", () => {
       "save_replay/succeeded/none": 2,
       "save_replay/failed/rebased": 1,
     });
+  });
+
+  it("never counts a replay of a save still live", () => {
+    const release = holdLiveSaveFromReplayCounts("file-a");
+    const drain = {
+      saved: [
+        { actionName: "update-file", key: "file-a" },
+        { actionName: "update-file", key: "file-b" },
+      ],
+      rebased: [],
+      dropped: [],
+    };
+    recordSaveReplayOutcomes(drain, "design-a");
+    release();
+    release();
+    recordSaveReplayOutcomes(drain, "design-a");
+    flushCanvasOutcomeCounts();
+    expect(totals()).toEqual({ "save_replay/succeeded/none": 3 });
   });
 
   describe("style kind", () => {
