@@ -67,9 +67,9 @@ async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return values;
 }
 
-function userMessage(text: string): AgentMessage {
+function userMessage(text: string, id = "user-1"): AgentMessage {
   return {
-    id: "user-1",
+    id,
     role: "user",
     parts: [{ type: "text", text }],
   };
@@ -3799,6 +3799,7 @@ describe("createAgentKitProtocolAdapter", () => {
             status: "running",
             runId: "runtime-restored-queue",
             turnId: "turn-queued-message",
+            startMessageId: "user-1",
             terminalReason: null,
           };
         },
@@ -3902,7 +3903,7 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
-  it("reuses a replayed runtime run ID for the same thread and turn", async () => {
+  it("reuses a replayed runtime run ID for the same submission", async () => {
     let startCount = 0;
     const discardedStreamClosed = vi.fn(async () => ({
       done: true as const,
@@ -3950,11 +3951,11 @@ describe("createAgentKitProtocolAdapter", () => {
 
     const first = await transport.startRun({
       threadId: "thread-1",
-      messages: [userMessage("Start")],
+      messages: [userMessage("Start", "user-start")],
     });
     const replay = await transport.startRun({
       threadId: "thread-1",
-      messages: [userMessage("Replay")],
+      messages: [userMessage("Replay", "user-start")],
     });
 
     expect(replay.runId).toBe(first.runId);
@@ -3988,14 +3989,111 @@ describe("createAgentKitProtocolAdapter", () => {
 
     await transport.startRun({
       threadId: "thread-1",
-      messages: [userMessage("Start")],
+      messages: [userMessage("Start", "user-start")],
     });
     await expect(
       transport.startRun({
         threadId: "thread-1",
-        messages: [userMessage("Different turn")],
+        messages: [userMessage("Different turn", "user-different")],
       }),
     ).rejects.toThrow("Duplicate AgentKit run id: runtime-run-duplicate");
+    await transport.dispose();
+  });
+
+  it("rejects a duplicate run ID for a different submission on the same turn", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn: async () => ({
+            id: "turn-same",
+            runId: "runtime-run-duplicate-submission",
+            sessionId: "thread-1",
+            events: events(),
+          }),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Start", "user-start")],
+    });
+    await expect(
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Different submission", "user-different")],
+      }),
+    ).rejects.toThrow(
+      "Duplicate AgentKit run id: runtime-run-duplicate-submission",
+    );
+    await transport.dispose();
+  });
+
+  it("reuses a restored runtime run for its submission after the turn changes", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    async function* waitForAbort(
+      signal?: AbortSignal,
+    ): AsyncIterable<AgentChatRuntimeEvent> {
+      if (!signal) return;
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", resolve, { once: true });
+      });
+    }
+    const startTurn = vi.fn(async () => ({
+      id: "turn-replayed-after-restore",
+      runId: "runtime-restored-replay",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      capabilities: {
+        messages: { streaming: true },
+        resumableRuns: true,
+      },
+      async readRunState() {
+        return {
+          status: "running",
+          runId: "runtime-restored-replay",
+          turnId: "turn-original",
+          startMessageId: "user-original",
+          terminalReason: null,
+        };
+      },
+      async subscribe(input) {
+        return waitForAbort(input.abortSignal);
+      },
+      async createSession() {
+        return { id: "thread-1", runtimeId: "runtime-test", startTurn };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const restored = transport
+      .subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-restored-replay",
+      })
+      [Symbol.asyncIterator]();
+    await expect(restored.next()).resolves.toMatchObject({
+      done: false,
+      value: { runId: "runtime-restored-replay", type: "run.started" },
+    });
+
+    const replay = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Retry the original submission", "user-original")],
+    });
+
+    expect(replay.runId).toBe("runtime-restored-replay");
+    expect(startTurn).toHaveBeenCalledOnce();
+    await restored.return?.();
     await transport.dispose();
   });
 
@@ -4135,6 +4233,7 @@ describe("createAgentKitProtocolAdapter", () => {
             status: "running",
             runId: "runtime-restored-failed-queue",
             turnId: "turn-queued-message",
+            startMessageId: "user-1",
             terminalReason: null,
           };
         },
@@ -4680,6 +4779,7 @@ describe("createAgentKitProtocolAdapter", () => {
       Response.json({
         runId: "run-1",
         status: "running",
+        startMessageId: "user-start",
         pendingConnectionRequestId: "request-1",
       }),
     ) as typeof fetch;
@@ -4697,6 +4797,7 @@ describe("createAgentKitProtocolAdapter", () => {
     ).resolves.toMatchObject({
       status: "running",
       runId: "run-1",
+      startMessageId: "user-start",
       pendingConnectionRequestId: "request-1",
     });
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
@@ -6057,6 +6158,61 @@ describe("createAgentKitProtocolAdapter", () => {
       });
       expect(runId).toBe("run-continued");
       expect(events.map((event) => event.type)).toContain("run.completed");
+    });
+
+    it("preserves the persisted message identity for a continued run", async () => {
+      const startTurn = vi.fn(async () => ({
+        id: "turn-replayed",
+        runId: "run-continued",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }));
+      const continueTurn = vi.fn(async () => ({
+        id: "turn-continued",
+        runId: "run-continued",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }));
+      const runtime = createRuntime(async function* () {}, {
+        readRunState: async () => ({
+          status: "errored",
+          runId: "run-crashed",
+          turnId: "turn-1",
+          startMessageId: "user-original",
+          terminalReason: "stale_run",
+        }),
+        subscribe: async () => (async function* () {})(),
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn,
+        continueTurn,
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      try {
+        await transport.continueRun!({
+          threadId: "thread-1",
+          runId: "run-crashed",
+        });
+        const replay = await transport.startRun({
+          threadId: "thread-1",
+          messages: [
+            userMessage("Retry the original submission", "user-original"),
+          ],
+        });
+
+        expect(replay.runId).toBe("run-continued");
+        expect(continueTurn).toHaveBeenCalledOnce();
+        expect(startTurn).toHaveBeenCalledOnce();
+      } finally {
+        await transport.dispose();
+      }
     });
 
     it("re-sends the turn's durable attachment references, never inline bytes", async () => {
