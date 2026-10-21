@@ -7,6 +7,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Mail keeps the newest 2,000 inbox threads per account in its local cache and drops archived mail from it within minutes.
+- Mail's inbox loads faster, opens threads sooner after you hover them, and stops polling Gmail on pages other than the inbox.
 - Connected Gong settings now open the shared integration manager.
 - Gong connection details now match the call data available in Mail.
 - Improve Gong setup with a click-to-connect flow and permission gating

@@ -171,6 +171,10 @@
     {
       "name": "mcp-client-attribution",
       "checksum": "bc0ea72722e10241"
+    },
+    {
+      "name": "a2a-identity-assurance",
+      "checksum": "5ebfefc25224eaa5"
     }
   ],
   "auth_sessions": [
@@ -759,6 +763,10 @@
     {
       "name": "private-icon-assets",
       "checksum": "005daf4cb4bf77f7"
+    },
+    {
+      "name": "organization-a2a-member-delegation",
+      "checksum": "3d01bcd4e7c259b0"
     }
   ],
   "pending_tasks": [

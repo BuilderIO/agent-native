@@ -76,6 +76,39 @@ describe("parseTree", () => {
     });
   });
 
+  it("keeps skipped replay lookup distinct from a completed empty lookup", () => {
+    const parsed = parseTree({
+      nodes: [
+        {
+          key: "signup",
+          examples: [
+            {
+              sessionId: "unknown",
+              ts: "2026-10-01T00:00:00.000Z",
+              offsetMs: null,
+              viewport: null,
+              viewportReason: "recording_unknown",
+            },
+            {
+              sessionId: "absent",
+              recordingId: null,
+              ts: "2026-10-01T00:00:00.000Z",
+              offsetMs: null,
+              viewport: null,
+              viewportReason: "no_recording",
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.nodes[0]!.examples[0]).not.toHaveProperty("recordingId");
+    expect(parsed.nodes[0]!.examples[1]).toHaveProperty("recordingId", null);
+    expect(planCapture(parsed, { perNode: 1 }).skipped).toEqual([
+      { nodeKey: "signup", exampleIndex: 0, reason: "replay_unknown" },
+      { nodeKey: "signup", exampleIndex: 1, reason: "no_recording" },
+    ]);
+  });
+
   it("rejects the wrong shape with the path that is wrong", () => {
     expect(() => parseTree({})).toThrow(TreeFormatError);
     expect(() => parseTree({ nodes: [{ key: "a" }] })).toThrow(

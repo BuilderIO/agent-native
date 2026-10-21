@@ -1,5 +1,8 @@
 import type { JWTPayload } from "jose";
 
+export const A2A_ORG_MEMBER_DELEGATION_TYPE =
+  "agent-native-org-member-delegation";
+
 export interface VerifiedA2AOrganizationIdentity {
   orgId: string;
   orgDomain: string | null;
@@ -8,11 +11,13 @@ export interface VerifiedA2AOrganizationIdentity {
 export interface A2AOrganizationCredential extends VerifiedA2AOrganizationIdentity {
   orgDomain: string;
   secret: string;
+  a2aMemberDelegationEnabled?: boolean;
 }
 
 /**
  * An organization secret authenticates an organization principal. Its JWT
- * subject is caller-controlled data and must never become a user identity.
+ * subject is caller-controlled data unless it is an opted-in, audience-bound
+ * member delegation verified against the receiver's current roster.
  */
 export function organizationPrincipalClaims(
   payload: JWTPayload,

@@ -1,3 +1,4 @@
+import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -5358,6 +5359,66 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("caps a signed owner-sub flags write through the feature-flag action route", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+      orgDomain: "builder.io",
+      jti: "owner-write-1",
+      scope: ["flags:write"],
+      identityAssurance: "org-member",
+    });
+    const token = await new jose.SignJWT({
+      aud: "https://flags.example.com",
+      org_id: "org-1",
+      org_domain: "builder.io",
+      jti: "owner-write-1",
+      scope: "flags:write",
+      typ: "agent-native-org-member-delegation",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("owner@example.com")
+      .setIssuer("https://dispatch.example.com")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode("test-org-secret"));
+    const { effectiveOrgMemberRole } =
+      await import("../server/personal-provider-key-policy.js");
+    const writes: unknown[] = [];
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "set-feature-flag": {
+          run: async (_params: unknown, ctx: any) => {
+            const role = effectiveOrgMemberRole(
+              "owner",
+              ctx.orgId,
+              ctx.userEmail,
+            );
+            if (role === "owner" || role === "admin") writes.push(ctx);
+            return { role };
+          },
+        } as any,
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ role: "member" });
+    expect(writes).toEqual([]);
+    expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledWith(
+      token,
+      expect.anything(),
+    );
+  });
+
   it("allows allowlisted no-org list and set delegations without active-org fallback", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS = "admin@example.com";
@@ -5432,6 +5493,7 @@ describe("mountActionRoutes", () => {
             ctx,
             requestUserEmail: getRequestUserEmail(),
             requestUserName: getRequestUserName(),
+            identityAssurance: getRequestContext()?.a2aIdentityAssurance,
           };
           return { ok: true };
         }),
@@ -5445,6 +5507,7 @@ describe("mountActionRoutes", () => {
           owner: "a2a-caller@example.com",
           anonymous: false,
           name: "A2A Caller",
+          identityAssurance: "org-member",
         }),
       },
     });
@@ -5461,6 +5524,7 @@ describe("mountActionRoutes", () => {
     expect(received.ctx.userEmail).toBe("a2a-caller@example.com");
     expect(received.requestUserEmail).toBe("a2a-caller@example.com");
     expect(received.requestUserName).toBe("A2A Caller");
+    expect(received.identityAssurance).toBe("org-member");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(event.context[AGENT_RUN_OWNER_CONTEXT_KEY]).toEqual({
       owner: "a2a-caller@example.com",

@@ -1885,6 +1885,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.auth.sharedSecret": "共享密钥",
   "settingsOrg.auth.sharedSecretSet": "已设置。让此工作区中的应用相互验证。",
   "settingsOrg.auth.sharedSecretNotSet": "未设置。让此工作区中的应用相互验证。",
+  "settingsOrg.auth.memberDelegation": "组织成员身份委派",
+  "settingsOrg.auth.memberDelegationHelp":
+    "持有此组织共享密钥的已连接应用在调用此应用时，可以声明为任意一名当前成员。此应用会检查实时成员名单，并将受委派的组织访问权限限制为成员级权限。",
   "settingsOrg.auth.secretNotSetValue": "未设置",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "显示",

@@ -3,12 +3,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalA2AAudience, signA2AToken } from "@agent-native/core/a2a";
-import { isActionContractError } from "@agent-native/core/action";
+import {
+  canonicalA2AAudience,
+  getGlobalA2ASecret,
+  signA2AToken,
+} from "@agent-native/core/a2a";
+import {
+  ActionContractError,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray } from "@agent-native/core/db/schema";
 import {
+  getOrgA2ASecret,
   getOrgDomain,
   isWorkspaceAppAccessAllowed,
   workspaceApps,
@@ -23,6 +31,7 @@ import {
   inferWorkspaceAppRootHomePath,
   isIntegrationCallerRequest,
   readConfiguredWorkspaceAppHomePath,
+  readOrgMemberRole,
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   normalizeBuilderAgentAttachments,
@@ -152,17 +161,15 @@ function requireWorkspaceAppOrgId(): string {
   return orgId;
 }
 
-class WorkspaceAppsGatewayAuthorizationError extends Error {
+class WorkspaceAppsGatewayAuthorizationError extends ActionContractError {
   constructor(
-    statusCode: 401 | 403,
+    statusCode: 401 | 403 | 503,
+    errorCode = "workspace_gateway_rejected",
     message = `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
   ) {
-    super(message);
+    super(message, { statusCode, errorCode });
     this.name = "WorkspaceAppsGatewayAuthorizationError";
-    this.statusCode = statusCode;
   }
-
-  statusCode: 401 | 403;
 }
 
 function warnWorkspaceAppsGatewayDenial(
@@ -869,6 +876,21 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
     .sort(sortWorkspaceApps);
 
   return apps.length ? apps : null;
+}
+
+function parseWorkspaceAppsGatewayResponse(
+  parsed: unknown,
+): WorkspaceAppSummary[] | null {
+  const rawApps =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as { apps?: unknown }).apps
+      : parsed;
+  if (!Array.isArray(rawApps)) return null;
+  if (rawApps.length === 0) return [];
+  const apps = parseWorkspaceAppsManifest(parsed);
+  if (!apps || apps.length !== rawApps.length) return null;
+  const ids = new Set(apps.map((app) => app.id.toLowerCase()));
+  return ids.size === apps.length ? apps : null;
 }
 
 function parseDateMs(value: string | null | undefined): number | null {
@@ -1863,37 +1885,89 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
   }
 
   const requestContext = getRequestContext();
+  const isLocalGateway = isLocalWorkspaceGateway(baseUrl);
+  const requestOrigin = requestContext?.requestOrigin;
+  const isSameOriginGateway = requestOrigin
+    ? (() => {
+        try {
+          return new URL(requestOrigin).origin === baseUrl.origin;
+        } catch {
+          // coercion-ok: an invalid request origin cannot prove a self-fetch.
+          return false;
+        }
+      })()
+    : false;
+  if (isSameOriginGateway && !isLocalGateway) return null;
+
   const authHeaders: Record<string, string> = {};
   if (requestContext?.userEmail) {
-    const orgDomain = requestContext.orgId
-      ? (await getOrgDomain(requestContext.orgId))?.trim().toLowerCase()
-      : undefined;
+    let orgDomain: string | undefined;
+    let orgSecret: string | undefined;
+    if (requestContext.orgId) {
+      try {
+        orgDomain =
+          (await getOrgDomain(requestContext.orgId))?.trim().toLowerCase() ||
+          undefined;
+      } catch {
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          503,
+          "workspace_gateway_org_domain_unavailable",
+          "Workspace apps gateway organization domain could not be read.",
+        );
+      }
+    }
     if (requestContext.orgId && !orgDomain) {
       throw new WorkspaceAppsGatewayAuthorizationError(
         401,
+        "workspace_gateway_org_domain_missing",
         "Workspace apps gateway cannot authenticate without a resolved organization domain.",
       );
     }
-    try {
-      const token = await signA2AToken(
-        requestContext.userEmail,
-        orgDomain,
-        undefined,
-        {
-          expiresIn: "1m",
-          preferGlobalSecret: true,
-          audience: canonicalA2AAudience(
-            baseUrl.toString(),
-            getConfiguredAppBasePath() || undefined,
-          ),
-        },
+    if (requestContext.orgId) {
+      try {
+        orgSecret =
+          (await getOrgA2ASecret(requestContext.orgId))?.trim() || undefined;
+      } catch {
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          503,
+          "workspace_gateway_org_a2a_secret_unavailable",
+          "Workspace apps gateway organization A2A secret could not be read.",
+        );
+      }
+    }
+    const globalSecret = getGlobalA2ASecret();
+    const allowLocalUnauthenticatedRequest =
+      isLocalGateway && !orgSecret && !globalSecret;
+    if (!orgSecret && !globalSecret && !allowLocalUnauthenticatedRequest) {
+      throw new WorkspaceAppsGatewayAuthorizationError(
+        503,
+        "workspace_gateway_a2a_secret_missing",
+        "Workspace apps gateway cannot authenticate because no A2A secret is configured.",
       );
-      authHeaders.Authorization = `Bearer ${token}`;
-    } catch {
-      // coercion-ok: absent signing credentials keep local unauthenticated
-      // gateway discovery available and make hosted discovery fail closed.
-      // Keep the unauthenticated local-dev gateway path available. A hosted
-      // gateway will fail closed below when its action route needs identity.
+    }
+    if (!allowLocalUnauthenticatedRequest) {
+      try {
+        const token = await signA2AToken(
+          requestContext.userEmail,
+          orgDomain,
+          orgSecret,
+          {
+            expiresIn: "1m",
+            preferGlobalSecret: false,
+            audience: canonicalA2AAudience(
+              baseUrl.toString(),
+              getConfiguredAppBasePath() || undefined,
+            ),
+          },
+        );
+        authHeaders.Authorization = `Bearer ${token}`;
+      } catch {
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          503,
+          "workspace_gateway_token_signing_failed",
+          "Workspace apps gateway could not sign the authenticated request.",
+        );
+      }
     }
   }
 
@@ -1923,9 +1997,34 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
   const protectedRedirect = protectionHeaders["x-vercel-protection-bypass"]
     ? { redirect: "manual" as const }
     : {};
+  const readAppsResponse = async (response: Response) => {
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new ActionContractError(
+        "Workspace apps gateway returned an unreadable response.",
+        {
+          statusCode: 503,
+          errorCode: "workspace_gateway_invalid_response",
+        },
+      );
+    }
+    const apps = parseWorkspaceAppsGatewayResponse(payload);
+    if (!apps) {
+      throw new ActionContractError(
+        "Workspace apps gateway returned an invalid response.",
+        {
+          statusCode: 503,
+          errorCode: "workspace_gateway_invalid_response",
+        },
+      );
+    }
+    return { apps };
+  };
 
   try {
-    if (isLocalWorkspaceGateway(baseUrl)) {
+    if (isLocalGateway) {
       const localResponse = await fetch(
         gatewayUrl(WORKSPACE_APPS_GATEWAY_PATH),
         {
@@ -1935,29 +2034,25 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         },
       );
       if (localResponse.status === 401 || localResponse.status === 403) {
-        throw new WorkspaceAppsGatewayAuthorizationError(localResponse.status);
-      }
-      if (localResponse.ok) {
-        const apps = parseWorkspaceAppsManifest(
-          // coercion-ok: malformed gateway JSON is an unavailable registry and
-          // must fall through to the local manifest sources.
-          await localResponse.json().catch(() => null),
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          localResponse.status,
+          "workspace_gateway_rejected",
         );
-        return apps ? { apps } : null;
+      }
+      if (localResponse.status !== 404 && localResponse.status !== 200) {
+        throw new ActionContractError(
+          `Workspace apps gateway returned HTTP ${localResponse.status}.`,
+          {
+            statusCode: 503,
+            errorCode: `workspace_gateway_http_${localResponse.status}`,
+          },
+        );
+      }
+      if (localResponse.status === 200) {
+        return await readAppsResponse(localResponse);
       }
     }
 
-    const requestOrigin = requestContext?.requestOrigin;
-    const isSameOriginGateway = requestOrigin
-      ? (() => {
-          try {
-            return new URL(requestOrigin).origin === baseUrl.origin;
-          } catch {
-            // coercion-ok: an invalid request origin cannot prove a self-fetch.
-            return false;
-          }
-        })()
-      : false;
     if (isSameOriginGateway || !authHeaders.Authorization) return null;
     const actionUrl = gatewayUrl(WORKSPACE_APPS_ACTION_PATH);
     actionUrl.searchParams.set("includeAgentCards", "false");
@@ -1968,18 +2063,31 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       signal: controller.signal,
     });
     if (actionResponse.status === 401 || actionResponse.status === 403) {
-      throw new WorkspaceAppsGatewayAuthorizationError(actionResponse.status);
+      throw new WorkspaceAppsGatewayAuthorizationError(
+        actionResponse.status,
+        "workspace_gateway_rejected",
+      );
     }
-    if (!actionResponse.ok) return null;
-    const apps = parseWorkspaceAppsManifest(
-      // coercion-ok: malformed gateway JSON is an unavailable registry and
-      // must fall through to the local manifest sources.
-      await actionResponse.json().catch(() => null),
-    );
-    return apps ? { apps } : null;
+    if (actionResponse.status === 404) return null;
+    if (actionResponse.status !== 200) {
+      throw new ActionContractError(
+        `Workspace apps gateway returned HTTP ${actionResponse.status}.`,
+        {
+          statusCode: 503,
+          errorCode: `workspace_gateway_http_${actionResponse.status}`,
+        },
+      );
+    }
+    return await readAppsResponse(actionResponse);
   } catch (error) {
-    if (error instanceof WorkspaceAppsGatewayAuthorizationError) throw error;
-    return null;
+    if (error instanceof ActionContractError) throw error;
+    throw new ActionContractError(
+      "Workspace apps gateway could not be reached.",
+      {
+        statusCode: 503,
+        errorCode: "workspace_gateway_unavailable",
+      },
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -2260,6 +2368,9 @@ async function listWorkspaceAppsWithPrincipal(
   if (gatewayApps) {
     return finalize(gatewayApps.apps);
   }
+  if (gatewayDenial && gatewayDenial.statusCode >= 500) {
+    throw gatewayDenial;
+  }
   const unverified = gatewayDenial !== null;
 
   const workspaceRoot = findWorkspaceRoot();
@@ -2284,7 +2395,9 @@ async function listWorkspaceAppsWithPrincipal(
   // means the registry will not show this reader its apps, so they get the
   // deployment's own list instead, and none of it is recorded. (A manifest
   // answers earlier for both, with the warning above.)
-  if (gatewayDenial?.statusCode === 401) throw gatewayDenial;
+  if (gatewayDenial && gatewayDenial.statusCode !== 403) {
+    throw gatewayDenial;
+  }
   warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment's own app list");
 
   if (!workspaceRoot) {
@@ -2715,18 +2828,9 @@ function isSyntheticIntegrationOwner(ownerEmail: string): boolean {
 
 async function requestOwnerRole(): Promise<string | null> {
   const orgId = currentOrgId();
-  const ownerEmail = currentOwnerEmail();
   if (!orgId) return null;
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, ownerEmail.toLowerCase()],
-    });
-    const role = (rows[0] as any)?.role;
-    return typeof role === "string" ? role : null;
+    return await readOrgMemberRole(orgId, currentOwnerEmail());
   } catch (error) {
     throw new AppCreationOwnerRoleUnavailableError(error);
   }

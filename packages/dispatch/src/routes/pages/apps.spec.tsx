@@ -80,8 +80,16 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("../../components/action-query-error", () => ({
-  ActionQueryError: ({ error }: { error: Error }) => (
-    <div role="alert">{error.message}</div>
+  ActionQueryError: ({
+    error,
+    queryName,
+  }: {
+    error: Error;
+    queryName?: string;
+  }) => (
+    <div role="alert">
+      {queryName}: {error.message}
+    </div>
   ),
 }));
 
@@ -165,6 +173,22 @@ describe("Dispatch apps route", () => {
     await renderAppsRoute();
 
     expect(container.textContent).toContain("No workspace apps");
+  });
+
+  it("identifies each app discovery query when both fail", async () => {
+    queryState.workspaceAppsError = new Error("Workspace app list failed");
+    queryState.connectedAppsError = new Error("Connected agent list failed");
+
+    await renderAppsRoute();
+
+    const errors = Array.from(
+      container.querySelectorAll('[role="alert"]'),
+      (alert) => alert.textContent,
+    );
+    expect(errors).toContain("list-workspace-apps: Workspace app list failed");
+    expect(errors).toContain(
+      "list-connected-agents: Connected agent list failed",
+    );
   });
 
   it("hides community apps while the Lab is off", async () => {
