@@ -1750,16 +1750,15 @@ jobs:
               exit 1
             fi
             case "$SOURCE_TEMPLATE" in
-              brain|factory)
-                echo "::warning::No exportable beta migration URL for $SOURCE_TEMPLATE; relying on the strict post-publish health, schema, and auth smoke check."
-                exit 0
-                ;;
               @agent-native/docs)
                 echo "No application database migration is required for the docs beta site."
                 exit 0
                 ;;
             esac
-            echo "::error::No beta PostgreSQL migration URL is available for $SOURCE_TEMPLATE."
+            # Fail closed: a publish that skips its migration serves new code
+            # against an old schema. Supply NETLIFY_PREVIEW_DATABASE_URL_<APP>
+            # or a production-context DATABASE_URL on the beta site.
+            echo "::error::No beta PostgreSQL migration URL is available for $SOURCE_TEMPLATE; refusing to publish without migrating its schema."
             exit 1
           fi
           export CONTEXT=production

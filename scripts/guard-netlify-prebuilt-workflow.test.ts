@@ -1432,7 +1432,11 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
     assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
     assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET/);
-    assert.match(String(betaMigration?.run), /brain\|factory/);
+    assert.doesNotMatch(String(betaMigration?.run), /relying on the strict/);
+    assert.match(
+      String(betaMigration?.run),
+      /refusing to publish without migrating/,
+    );
     assert.match(String(betaMigration?.run), /@agent-native\/docs/);
     assert.match(String(betaMigration?.run), /migrate:production/);
     const validation = (
