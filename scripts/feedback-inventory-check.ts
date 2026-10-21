@@ -1566,19 +1566,22 @@ function hasPublicEvidenceSummary(
 
 function hasConcisePublicEvidenceSummary(reply: StatusReply): boolean {
   const summary = reply.publicEvidenceSummary;
-  const summaryWordCount =
+  const summaryWords =
     typeof summary === "string"
-      ? normalizeReplyPhrase(summary).split(" ").filter(Boolean).length
-      : 0;
+      ? normalizeReplyPhrase(summary).split(" ").filter(Boolean)
+      : [];
+  const meaningfulSummaryWordCount = new Set(
+    summaryWords.filter((word) => !publicSummaryFillerWords.has(word)),
+  ).size;
   return (
-    summaryWordCount >= 2 &&
-    summaryWordCount <= 12 &&
+    meaningfulSummaryWordCount >= 2 &&
+    summaryWords.length <= 12 &&
     replyContainsPhrase(reply.evidence, summary) &&
     replyContainsPhrase(reply.text, summary)
   );
 }
 
-const publicActionSummaryFillerWords = new Set([
+const publicSummaryFillerWords = new Set([
   "a",
   "an",
   "and",
@@ -1633,7 +1636,7 @@ function publicActionSummaryMatchesAction(
       (word) => !["this", "that", "it", "something", "anything"].includes(word),
     );
   const meaningfulSummaryWords = summaryWords.filter(
-    (word) => !publicActionSummaryFillerWords.has(word),
+    (word) => !publicSummaryFillerWords.has(word),
   );
   const ownerWords = new Set(
     normalizeReplyPhrase(owner ?? leadingNamedHumanOwner(action) ?? "")
@@ -1645,7 +1648,7 @@ function publicActionSummaryMatchesAction(
   );
   return (
     (!isPublicSummary || summaryWordCount <= 12) &&
-    (!isPublicSummary || actionSummaryWords.length >= 2) &&
+    (!isPublicSummary || new Set(actionSummaryWords).size >= 2) &&
     actionSummaryWords.length > 0 &&
     (normalizedAction === normalizedSummary ||
       normalizedAction.startsWith(`${normalizedSummary} `))
@@ -8993,6 +8996,16 @@ if (args[0] === "--self-test" && args.length === 1) {
   ) {
     throw new Error(
       "Feedback inventory checker self-test accepted filler words toward the public action summary minimum.",
+    );
+  }
+  if (
+    publicActionSummaryMatchesAction(
+      "route route the affected report",
+      "route route",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test counted repeated words toward the public action summary minimum.",
     );
   }
   if (
@@ -17994,6 +18007,23 @@ if (args[0] === "--self-test" && args.length === 1) {
           withFixedScopeStatusUpdates({
             text: "Fixed: The initial route screen passed the focused test. :white_check_mark: covers the initial route screen. No :ticket: — no separate human-owned action remains. this was sent from a bot.",
           }),
+        ),
+      fixedScopeSummaryDiagnostic,
+    );
+    const fillerEvidenceSummary = "and but";
+    const fillerEvidenceVerification = `The initial route screen passed its focused test and ${fillerEvidenceSummary}`;
+    expectFocusedFailure(
+      "fixed-scope public evidence summary made only of filler words",
+      () =>
+        validateTestInventory(
+          withFixedScopeStatusUpdates(
+            {
+              evidence: fillerEvidenceVerification,
+              publicEvidenceSummary: fillerEvidenceSummary,
+              text: `Fixed: ${fillerEvidenceSummary}. this was sent from a bot.`,
+            },
+            fillerEvidenceVerification,
+          ),
         ),
       fixedScopeSummaryDiagnostic,
     );
