@@ -1805,7 +1805,7 @@ function AgentPanelInner({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  {pageHeaderActions.showShareAction ? (
+                  {pageHeaderActions.showShareAction && activeTab ? (
                     <ShareButton
                       resourceType="chat_thread"
                       resourceId={activeTab.id}
