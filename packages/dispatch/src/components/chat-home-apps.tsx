@@ -48,7 +48,11 @@ export function DispatchChatHomeApps() {
   if (launcher.error && launcher.workspaceApps.length === 0) {
     return (
       <div className="mx-auto w-full max-w-[1000px]">
-        <ActionQueryError error={launcher.error} onRetry={launcher.retry} />
+        <ActionQueryError
+          error={launcher.error}
+          onRetry={launcher.retry}
+          queryName="list-workspace-apps"
+        />
       </div>
     );
   }
@@ -61,6 +65,7 @@ export function DispatchChatHomeApps() {
           error={launcher.error}
           onRetry={launcher.retry}
           className="mb-3"
+          queryName="list-workspace-apps"
         />
       ) : null}
       <section aria-label={t("dispatch.nav.apps")}>

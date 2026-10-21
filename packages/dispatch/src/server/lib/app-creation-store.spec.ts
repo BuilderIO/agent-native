@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +23,20 @@ import {
 
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
+
+function verifyJwtWithSecret(
+  token: string,
+  secret: string,
+): Record<string, unknown> {
+  const [header, payload, signature] = token.split(".");
+  const expected = createHmac("sha256", secret)
+    .update(`${header}.${payload}`)
+    .digest("base64url");
+  if (signature !== expected || !payload) {
+    throw new Error("JWT signature did not match the provided secret.");
+  }
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+}
 
 const mocks = vi.hoisted(() => {
   const settings = new Map<string, unknown>();
@@ -48,6 +63,7 @@ const mocks = vi.hoisted(() => {
     getOrgDomain: vi.fn(async (orgId: string) =>
       orgId ? "example.test" : null,
     ),
+    getOrgA2ASecret: vi.fn(async () => null as string | null),
     isWorkspaceAppAccessAllowed: vi.fn(
       async (): Promise<boolean | "unavailable"> => true,
     ),
@@ -124,6 +140,7 @@ vi.mock("@agent-native/core/org", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/org")>();
   return {
     ...actual,
+    getOrgA2ASecret: (...args: any[]) => mocks.getOrgA2ASecret(...args),
     getOrgDomain: (...args: any[]) => mocks.getOrgDomain(...args),
     isWorkspaceAppAccessAllowed: (...args: any[]) =>
       mocks.isWorkspaceAppAccessAllowed(...args),
@@ -176,6 +193,8 @@ afterEach(() => {
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.getOrgA2ASecret.mockReset();
+  mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.isWorkspaceAppAccessAllowed.mockReset();
   mocks.isWorkspaceAppAccessAllowed.mockResolvedValue(true);
   mocks.mutateSetting.mockReset();
@@ -472,6 +491,56 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
+  it("signs the hosted registry request with the caller's organization secret", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([]), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "dispatch-deployment-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValueOnce("workspace-org-secret");
+
+    await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-1" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const token = authorization.slice("Bearer ".length);
+    const payload = verifyJwtWithSecret(token, "workspace-org-secret");
+    expect(payload).toMatchObject({
+      sub: "dev@example.test",
+      org_domain: "example.test",
+      aud: "https://agent-workspace.builder.io",
+    });
+    expect(() =>
+      verifyJwtWithSecret(token, "dispatch-deployment-secret"),
+    ).toThrow();
+  });
+
+  it("reports missing hosted gateway signing credentials instead of sending anonymously", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(null);
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      errorCode: "workspace_gateway_a2a_secret_missing",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("binds hosted registry tokens to the mounted Dispatch path", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(
@@ -763,9 +832,13 @@ describe("listWorkspaceApps", () => {
         { userEmail: "dev@example.test", orgId: "org-without-domain" },
         () => listWorkspaceApps({ includeAgentCards: false }),
       ),
-    ).rejects.toThrow(
-      "Workspace apps gateway cannot authenticate without a resolved organization domain.",
-    );
+    ).rejects.toMatchObject({
+      name: "WorkspaceAppsGatewayAuthorizationError",
+      statusCode: 401,
+      errorCode: "workspace_gateway_org_domain_missing",
+      message:
+        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

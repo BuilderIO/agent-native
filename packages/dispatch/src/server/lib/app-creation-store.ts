@@ -3,11 +3,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { canonicalA2AAudience, signA2AToken } from "@agent-native/core/a2a";
-import { isActionContractError } from "@agent-native/core/action";
+import {
+  canonicalA2AAudience,
+  getGlobalA2ASecret,
+  signA2AToken,
+} from "@agent-native/core/a2a";
+import {
+  ActionContractError,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getDbExec } from "@agent-native/core/db";
 import {
+  getOrgA2ASecret,
   getOrgDomain,
   isWorkspaceAppAccessAllowed,
 } from "@agent-native/core/org";
@@ -126,17 +134,15 @@ function requireWorkspaceAppOrgId(): string {
   return orgId;
 }
 
-class WorkspaceAppsGatewayAuthorizationError extends Error {
+class WorkspaceAppsGatewayAuthorizationError extends ActionContractError {
   constructor(
-    statusCode: 401 | 403,
+    statusCode: 401 | 403 | 503,
+    errorCode = "workspace_gateway_rejected",
     message = `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
   ) {
-    super(message);
+    super(message, { statusCode, errorCode });
     this.name = "WorkspaceAppsGatewayAuthorizationError";
-    this.statusCode = statusCode;
   }
-
-  statusCode: 401 | 403;
 }
 
 function warnWorkspaceAppsGatewayDenial(
@@ -1702,35 +1708,73 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
   const requestContext = getRequestContext();
   const authHeaders: Record<string, string> = {};
   if (requestContext?.userEmail) {
-    const orgDomain = requestContext.orgId
-      ? (await getOrgDomain(requestContext.orgId))?.trim().toLowerCase()
-      : undefined;
+    let orgDomain: string | undefined;
+    let orgSecret: string | undefined;
+    if (requestContext.orgId) {
+      try {
+        orgDomain =
+          (await getOrgDomain(requestContext.orgId))?.trim().toLowerCase() ||
+          undefined;
+      } catch {
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          503,
+          "workspace_gateway_org_domain_unavailable",
+          "Workspace apps gateway organization domain could not be read.",
+        );
+      }
+    }
     if (requestContext.orgId && !orgDomain) {
       throw new WorkspaceAppsGatewayAuthorizationError(
         401,
+        "workspace_gateway_org_domain_missing",
         "Workspace apps gateway cannot authenticate without a resolved organization domain.",
       );
     }
-    try {
-      const token = await signA2AToken(
-        requestContext.userEmail,
-        orgDomain,
-        undefined,
-        {
-          expiresIn: "1m",
-          preferGlobalSecret: true,
-          audience: canonicalA2AAudience(
-            baseUrl.toString(),
-            getConfiguredAppBasePath() || undefined,
-          ),
-        },
+    if (requestContext.orgId) {
+      try {
+        orgSecret =
+          (await getOrgA2ASecret(requestContext.orgId))?.trim() || undefined;
+      } catch {
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          503,
+          "workspace_gateway_org_a2a_secret_unavailable",
+          "Workspace apps gateway organization A2A secret could not be read.",
+        );
+      }
+    }
+    const globalSecret = getGlobalA2ASecret();
+    const allowLocalUnauthenticatedRequest =
+      isLocalWorkspaceGateway(baseUrl) && !orgSecret && !globalSecret;
+    if (!orgSecret && !globalSecret && !allowLocalUnauthenticatedRequest) {
+      throw new WorkspaceAppsGatewayAuthorizationError(
+        401,
+        "workspace_gateway_a2a_secret_missing",
+        "Workspace apps gateway cannot authenticate because no A2A secret is configured.",
       );
-      authHeaders.Authorization = `Bearer ${token}`;
-    } catch {
-      // coercion-ok: absent signing credentials keep local unauthenticated
-      // gateway discovery available and make hosted discovery fail closed.
-      // Keep the unauthenticated local-dev gateway path available. A hosted
-      // gateway will fail closed below when its action route needs identity.
+    }
+    if (!allowLocalUnauthenticatedRequest) {
+      try {
+        const token = await signA2AToken(
+          requestContext.userEmail,
+          orgDomain,
+          orgSecret,
+          {
+            expiresIn: "1m",
+            preferGlobalSecret: false,
+            audience: canonicalA2AAudience(
+              baseUrl.toString(),
+              getConfiguredAppBasePath() || undefined,
+            ),
+          },
+        );
+        authHeaders.Authorization = `Bearer ${token}`;
+      } catch {
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          401,
+          "workspace_gateway_token_signing_failed",
+          "Workspace apps gateway could not sign the authenticated request.",
+        );
+      }
     }
   }
 
@@ -1772,7 +1816,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         },
       );
       if (localResponse.status === 401 || localResponse.status === 403) {
-        throw new WorkspaceAppsGatewayAuthorizationError(localResponse.status);
+        throw new WorkspaceAppsGatewayAuthorizationError(
+          localResponse.status,
+          "workspace_gateway_rejected",
+        );
       }
       if (localResponse.ok) {
         const apps = parseWorkspaceAppsManifest(
@@ -1805,7 +1852,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       signal: controller.signal,
     });
     if (actionResponse.status === 401 || actionResponse.status === 403) {
-      throw new WorkspaceAppsGatewayAuthorizationError(actionResponse.status);
+      throw new WorkspaceAppsGatewayAuthorizationError(
+        actionResponse.status,
+        "workspace_gateway_rejected",
+      );
     }
     if (!actionResponse.ok) return null;
     const apps = parseWorkspaceAppsManifest(
@@ -2088,7 +2138,9 @@ export async function listWorkspaceApps(
   // means the registry will not show this reader its apps, so they get the
   // deployment's own list instead, and none of it is recorded. (A manifest
   // answers earlier for both, with the warning above.)
-  if (gatewayDenial?.statusCode === 401) throw gatewayDenial;
+  if (gatewayDenial && gatewayDenial.statusCode !== 403) {
+    throw gatewayDenial;
+  }
   warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment's own app list");
 
   if (!workspaceRoot) {

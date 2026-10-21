@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
@@ -33,6 +35,20 @@ import {
 } from "./workspace-app-access.js";
 
 const CALLER = { email: "member@example.com", orgId: null } as const;
+
+function verifyJwtWithSecret(
+  token: string,
+  secret: string,
+): Record<string, unknown> {
+  const [header, payload, signature] = token.split(".");
+  const expected = createHmac("sha256", secret)
+    .update(`${header}.${payload}`)
+    .digest("base64url");
+  if (signature !== expected || !payload) {
+    throw new Error("JWT signature did not match the provided secret.");
+  }
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+}
 
 describe("isWorkspaceAppAccessAllowed", () => {
   beforeEach(() => {
@@ -553,15 +569,60 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
+  it("signs org-scoped Dispatch registry reads with the organization secret", async () => {
+    vi.stubEnv("A2A_SECRET", "workspace-deployment-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : query?.sql?.includes("SELECT a2a_secret")
+          ? [{ a2a_secret: "dispatch-org-secret" }]
+          : [],
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "allowed-app" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("allowed-app", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const token = authorization.slice("Bearer ".length);
+    const payload = verifyJwtWithSecret(token, "dispatch-org-secret");
+    expect(payload).toMatchObject({
+      sub: "member@example.com",
+      org_domain: "example.test",
+      aud: "https://dispatch.example.test",
+    });
+    expect(() =>
+      verifyJwtWithSecret(token, "workspace-deployment-secret"),
+    ).toThrow();
+  });
+
   it("omits the sender-local organization ID from registry auth tokens", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
-    mocks.execute
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ allowed_domain: "example.test" }] });
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : query?.sql?.includes("SELECT a2a_secret")
+          ? [{ a2a_secret: "test-a2a-secret" }]
+          : [],
+    }));
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([{ id: "analytics" }]), {
         headers: { "content-type": "application/json" },
