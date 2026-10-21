@@ -460,30 +460,37 @@ describe("canonicalizeNfmWithFidelity", () => {
     expect(() => requireLosslessNfm(nested(4_000))).toThrow(NfmFidelityError);
   });
 
-  it("reads pages of unclosed and nested containers in linear time", () => {
-    const nestedDetails = (depth: number) =>
-      `${"<details>\n".repeat(depth)}x\n${"</details>\n".repeat(depth)}`;
-    const started = performance.now();
-    for (const opener of [
+  // Each page gets its own budget: together they are a few megabytes of
+  // linear work that a busy CI runner can stretch past one shared budget,
+  // while a quadratic read of any one of them takes several seconds.
+  it.each([
+    ...[
       "<details>",
       '<callout icon="i">',
       "<columns>",
       '<synced_block url="u">',
       "<meeting-notes>",
-    ])
-      canonicalizeNfm(`${opener}\n`.repeat(20_000));
-    canonicalizeNfm("<details>\n- a\n  - b\n".repeat(10_000));
-    canonicalizeNfm(
+    ].map((opener) => [`unclosed ${opener}`, `${opener}\n`.repeat(20_000)]),
+    ["unclosed <details> over lists", "<details>\n- a\n  - b\n".repeat(10_000)],
+    [
+      "unclosed callouts in a details",
       `<details>\n${'<callout icon="i">\n'.repeat(20_000)}</details>`,
-    );
-    canonicalizeNfm(nestedDetails(2_000));
-    canonicalizeNfm(
+    ],
+    [
+      "nested <details>",
+      `${"<details>\n".repeat(2_000)}x\n${"</details>\n".repeat(2_000)}`,
+    ],
+    [
+      "callouts a tab deeper each line",
       Array.from(
         { length: 1_000 },
         (_, i) => `${"\t".repeat(i)}<callout icon="i">`,
       ).join("\n"),
-    );
-    expect(performance.now() - started).toBeLessThan(2_000);
+    ],
+  ])("reads a page of %s in linear time", (_name, markdown) => {
+    const started = performance.now();
+    canonicalizeNfm(markdown);
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   it("reads containers nested past the depth limit as text and reports it", () => {
