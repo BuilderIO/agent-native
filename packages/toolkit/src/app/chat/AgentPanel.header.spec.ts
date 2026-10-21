@@ -1193,6 +1193,29 @@ describe("AgentChatSurface chrome defaults", () => {
     expect(surface.props.showHeader).toBe(true);
     expect(surface.props.showTabBar).toBe(true);
   });
+
+  it("allows a page host to hide only the title menu", () => {
+    const surface = AgentChatSurface({
+      mode: "page",
+      showPageTitleMenu: false,
+    });
+    const panel = surface.props.children[1];
+    const source = readSource("src/app/chat/AgentPanel.tsx", "utf8").replace(
+      /\s+/g,
+      " ",
+    );
+    const titleMenuStart = source.indexOf("{showPageTitleMenu ? (");
+    const titleMenuEnd = source.indexOf(
+      '{activeTab?.status === "running"',
+      titleMenuStart,
+    );
+    const shareAction = source.indexOf("{canShareActiveTab ? (", titleMenuEnd);
+
+    expect(panel.props.showPageTitleMenu).toBe(false);
+    expect(titleMenuStart).toBeGreaterThan(-1);
+    expect(titleMenuEnd).toBeGreaterThan(titleMenuStart);
+    expect(shareAction).toBeGreaterThan(titleMenuEnd);
+  });
 });
 
 describe("AgentPanel stale lazy chunk recovery", () => {

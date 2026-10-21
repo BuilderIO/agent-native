@@ -583,6 +583,8 @@ export interface AgentPanelProps extends Omit<
   showPageNewChatButton?: boolean;
   showPageHeader?: boolean;
   showPageHeaderWhenEmpty?: boolean;
+  /** Hide the default page title menu while keeping the shared page actions. */
+  showPageTitleMenu?: boolean;
   pageHeaderLeadingSlot?: React.ReactNode;
   pageToolbarSlot?: React.ReactNode;
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
@@ -778,6 +780,7 @@ function AgentPanelInner({
   showPageNewChatButton = false,
   showPageHeader = false,
   showPageHeaderWhenEmpty = false,
+  showPageTitleMenu = true,
   pageHeaderLeadingSlot,
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
@@ -1730,56 +1733,58 @@ function AgentPanelInner({
                   <h1 className="truncate text-xs font-medium text-foreground">
                     {activeTab?.label || t("agentPanel.newChat")}
                   </h1>
-                  <DropdownMenu
-                    open={headerMenuOpen}
-                    onOpenChange={setHeaderMenuOpen}
-                  >
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        data-agent-page-title-menu=""
-                        aria-label={t("agentPanel.panelOptions")}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
-                      >
-                        <IconDotsVertical size={14} />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="start"
-                      sideOffset={5}
-                      className="w-44"
-                      onCloseAutoFocus={(event) => {
-                        consumeAgentPanelOverlayFocusRestore(
-                          pendingHeaderOverlayRef,
-                          event,
-                        );
-                      }}
+                  {showPageTitleMenu ? (
+                    <DropdownMenu
+                      open={headerMenuOpen}
+                      onOpenChange={setHeaderMenuOpen}
                     >
-                      {toggleHistory ? (
-                        <DropdownMenuItem
-                          onSelect={(event) =>
-                            deferAgentPanelOverlayOpen(
-                              event,
-                              closeHeaderMenuForOverlay,
-                              toggleHistory,
-                              pendingHeaderOverlayRef,
-                            )
-                          }
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          data-agent-page-title-menu=""
+                          aria-label={t("agentPanel.panelOptions")}
+                          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
                         >
-                          <IconHistory size={14} className="shrink-0" />
-                          {showHistory
-                            ? t("agentPanel.hideChats")
-                            : t("agentPanel.allChats")}
-                        </DropdownMenuItem>
-                      ) : null}
-                      {activeTabMessageCount > 0 ? (
-                        <DropdownMenuItem onSelect={clearActiveTab}>
-                          <IconX size={14} className="shrink-0" />
-                          {t("agentPanel.clearChat")}
-                        </DropdownMenuItem>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                          <IconDotsVertical size={14} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        sideOffset={5}
+                        className="w-44"
+                        onCloseAutoFocus={(event) => {
+                          consumeAgentPanelOverlayFocusRestore(
+                            pendingHeaderOverlayRef,
+                            event,
+                          );
+                        }}
+                      >
+                        {toggleHistory ? (
+                          <DropdownMenuItem
+                            onSelect={(event) =>
+                              deferAgentPanelOverlayOpen(
+                                event,
+                                closeHeaderMenuForOverlay,
+                                toggleHistory,
+                                pendingHeaderOverlayRef,
+                              )
+                            }
+                          >
+                            <IconHistory size={14} className="shrink-0" />
+                            {showHistory
+                              ? t("agentPanel.hideChats")
+                              : t("agentPanel.allChats")}
+                          </DropdownMenuItem>
+                        ) : null}
+                        {activeTabMessageCount > 0 ? (
+                          <DropdownMenuItem onSelect={clearActiveTab}>
+                            <IconX size={14} className="shrink-0" />
+                            {t("agentPanel.clearChat")}
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null}
                   {activeTab?.status === "running" ? (
                     <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/55 animate-pulse motion-reduce:animate-none" />
                   ) : null}
@@ -1829,6 +1834,7 @@ function AgentPanelInner({
       pageToolbarSlot,
       pendingHeaderOverlayRef,
       setHeaderMenuOpen,
+      showPageTitleMenu,
       showPageNewChatButton,
       t,
     ],
