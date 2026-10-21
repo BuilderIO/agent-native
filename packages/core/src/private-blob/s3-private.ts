@@ -27,7 +27,10 @@ import {
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import type { SecretScope } from "../secrets/register.js";
 import { readAppSecrets } from "../secrets/storage.js";
-import { resolveSecretDetailed } from "../server/credential-provider.js";
+import {
+  readDeployCredentialEnv,
+  resolveSecretDetailed,
+} from "../server/credential-provider.js";
 import {
   decryptBlobBytes,
   encryptBlobBytes,
@@ -122,7 +125,7 @@ function buildBucketConfig(
 }
 
 function readEnvBucketConfig(): BucketConfig | null {
-  return buildBucketConfig((key) => process.env[key]);
+  return buildBucketConfig(readDeployCredentialEnv);
 }
 
 async function readScopedBucketConfig(
@@ -204,8 +207,8 @@ async function resolveRequestBucket(): Promise<ResolvedBucket | null> {
  */
 function envPublicBaseUrlFor(bucket: string): string | undefined {
   const value = (field: StorageField) =>
-    cleanValue(process.env[STORAGE_KEYS[field][0]]) ??
-    cleanValue(process.env[STORAGE_KEYS[field][1]]);
+    cleanValue(readDeployCredentialEnv(STORAGE_KEYS[field][0])) ??
+    cleanValue(readDeployCredentialEnv(STORAGE_KEYS[field][1]));
   const publicBaseUrl = value("publicBaseUrl");
   if (!publicBaseUrl) return undefined;
   const envBucket = value("bucket");
@@ -322,6 +325,7 @@ function failureKindForStatus(status: number) {
 }
 
 async function readFailure(response: Response, action: string) {
+  // coercion-ok: the body only adds detail to a failure thrown below with its status.
   const detail = await response.text().catch(() => "");
   return new PrivateBlobError(
     `S3 ${action} failed (${response.status}): ${detail.slice(0, 300) || response.statusText}`,

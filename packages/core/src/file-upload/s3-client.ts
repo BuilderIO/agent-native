@@ -11,6 +11,7 @@ import {
   isBlockedExtensionUrlWithDns,
   ssrfSafeFetch,
 } from "../extensions/url-safety.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 
 export interface S3ClientConfig {
   region: string;
@@ -69,7 +70,8 @@ export function trustedDeploymentS3Origin(
   endpoint: string,
 ): string | undefined {
   const configuredEndpoint =
-    cleanValue(process.env.S3_ENDPOINT) ?? cleanValue(process.env.R2_ENDPOINT);
+    cleanValue(readDeployCredentialEnv("S3_ENDPOINT")) ??
+    cleanValue(readDeployCredentialEnv("R2_ENDPOINT"));
   if (!configuredEndpoint) return undefined;
   if (!URL.canParse(endpoint) || !URL.canParse(configuredEndpoint)) {
     return undefined;

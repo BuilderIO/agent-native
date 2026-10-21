@@ -13,6 +13,7 @@ const isBlockedUrlMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveSecretDetailed: resolveSecretDetailedMock,
+  readDeployCredentialEnv: (key: string) => process.env[key] || undefined,
 }));
 vi.mock("../secrets/storage.js", () => ({
   readAppSecrets: readAppSecretsMock,

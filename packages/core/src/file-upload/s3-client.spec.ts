@@ -5,8 +5,8 @@ import { presignS3GetUrl, s3ObjectUri, signS3Request } from "./s3-client.js";
 // The expected signatures were produced independently by the aws4 package
 // (mhart/aws4) for the same requests.
 const credentials = {
-  accessKeyId: "AKIAIOSFODNN7EXAMPLE",
-  secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  accessKeyId: "test-access-key-id",
+  secretAccessKey: "test-secret-access-key",
 };
 const now = new Date("2026-10-21T12:34:56.789Z");
 const r2 = {
@@ -28,11 +28,11 @@ describe("presignS3GetUrl", () => {
     expect(url).toBe(
       "https://acct123.r2.cloudflarestorage.com/an-private/private-blobs/a%20b%2Bc.png" +
         "?X-Amz-Algorithm=AWS4-HMAC-SHA256" +
-        "&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20261021%2Fauto%2Fs3%2Faws4_request" +
+        "&X-Amz-Credential=test-access-key-id%2F20261021%2Fauto%2Fs3%2Faws4_request" +
         "&X-Amz-Date=20261021T123456Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host" +
         "&response-cache-control=private%2C%20max-age%3D300" +
         "&response-content-type=image%2Fpng" +
-        "&X-Amz-Signature=655f415d49112b8a4dab4dbd0352a47c3e37a68e68f1e4705385154fbc079a2a",
+        "&X-Amz-Signature=d8437bcbbf9a57c58e4d74a0b38aae06509843c45c10185b913ac6780da5c342",
     );
   });
 
@@ -70,9 +70,9 @@ describe("signS3Request", () => {
       "https://proj.supabase.co/storage/v1/s3/files/private-blobs/one.png",
     );
     expect(signed.headers.Authorization).toBe(
-      "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20261021/us-west-2/s3/aws4_request, " +
+      "AWS4-HMAC-SHA256 Credential=test-access-key-id/20261021/us-west-2/s3/aws4_request, " +
         "SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, " +
-        "Signature=90d9f53d43e3506567f586ee6d354008a490a90114a80e51bd4c757af5ba335d",
+        "Signature=8ecd74defef544a1e6328978e9b8a6e5e6f0fa844bf65103bc58d796ec19802c",
     );
   });
 
@@ -85,9 +85,9 @@ describe("signS3Request", () => {
 
     expect(signed.headers.range).toBe("bytes=10-99");
     expect(signed.headers.Authorization).toBe(
-      "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20261021/auto/s3/aws4_request, " +
+      "AWS4-HMAC-SHA256 Credential=test-access-key-id/20261021/auto/s3/aws4_request, " +
         "SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, " +
-        "Signature=d8d1b35527694d3b6049338e6e1c9f23f36aa896c8ddeaa1e4169d6027a61a0a",
+        "Signature=566abe7d99165106caa103fde9a9d8014fde9b090140530eb6469b391c73c0ea",
     );
   });
 });
