@@ -298,7 +298,7 @@ export const journeyTreeSchema = z
       .describe("Per-app root denominators for separate app-band layouts."),
     coverage: z.object({
       sessionsWithEvents: count,
-      sessionsWithReplay: count,
+      sessionsWithReplay: count.nullable(),
       truncated: z.boolean(),
     }),
     nodes: z.array(journeyNodeSchema).min(1).max(MAX_JOURNEY_NODES),

@@ -2564,6 +2564,8 @@ describe("planJourneyCanvas", () => {
     }
     const truncated = rawInput();
     truncated.tree.coverage.truncated = true;
+    truncated.tree.coverage.sessionsWithReplay = null;
+    expect(parse(truncated).tree.coverage.sessionsWithReplay).toBeNull();
     expect(plan(truncated).boardFragments({ x: 0, y: 0 }).join("\n")).toContain(
       "partial sample",
     );
