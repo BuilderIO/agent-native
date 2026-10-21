@@ -93,9 +93,24 @@ export function trustedDeploymentS3Origin(
 }
 
 /**
+ * The slowest an upload may send its body: 32 KiB/s, about 256 kbps. A slow
+ * link still finishes, and a hung endpoint still times out.
+ */
+const MIN_UPLOAD_BYTES_PER_SECOND = 32 * 1024;
+
+function uploadAllowanceMs(body: RequestInit["body"]): number {
+  const bytes =
+    body instanceof ArrayBuffer || ArrayBuffer.isView(body)
+      ? body.byteLength
+      : 0;
+  return Math.ceil((bytes / MIN_UPLOAD_BYTES_PER_SECOND) * 1000);
+}
+
+/**
  * Fetches an S3 URL through the SSRF guard. `timeoutMs` bounds the wait for
  * response headers and then each gap between body chunks, so a hung endpoint
- * can't hold a request open forever.
+ * can't hold a request open forever. Headers only arrive once an upload's
+ * body is sent, so the header wait also allows the body time at 32 KiB/s.
  */
 export async function fetchS3WithTimeout(
   url: string,
@@ -104,10 +119,11 @@ export async function fetchS3WithTimeout(
   trustedPrivateOrigin?: string,
 ): Promise<Response> {
   const controller = new AbortController();
+  const headersTimeoutMs = timeoutMs + uploadAllowanceMs(init.body);
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  const createTimeoutError = () => {
+  const createTimeoutError = (elapsedMs: number) => {
     const error = new Error(
-      `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
+      `S3 request timed out after ${elapsedMs}ms: ${init.method ?? "GET"} ${url}`,
     );
     error.name = "TimeoutError";
     return error;
@@ -120,10 +136,10 @@ export async function fetchS3WithTimeout(
   };
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
-      const timeoutError = createTimeoutError();
+      const timeoutError = createTimeoutError(headersTimeoutMs);
       controller.abort(timeoutError);
       reject(timeoutError);
-    }, timeoutMs);
+    }, headersTimeoutMs);
   });
 
   try {
@@ -172,7 +188,7 @@ export async function fetchS3WithTimeout(
     };
     const timeOutBody = () => {
       if (bodySettled) return;
-      const timeoutError = createTimeoutError();
+      const timeoutError = createTimeoutError(timeoutMs);
       bodySettled = true;
       clearIdleTimeout();
       controller.abort(timeoutError);
@@ -228,11 +244,11 @@ export async function fetchS3WithTimeout(
   } catch (err) {
     clearTimeoutIfRunning();
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw createTimeoutError();
+      throw createTimeoutError(headersTimeoutMs);
     }
     if (err instanceof Error && err.name === "AbortError") {
       const abortError = new Error(
-        `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
+        `S3 request aborted (timeout ${headersTimeoutMs}ms): ${init.method ?? "GET"} ${url}`,
       );
       abortError.name = "AbortError";
       throw abortError;

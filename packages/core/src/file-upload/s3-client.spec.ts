@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { isBlockedMock, ssrfSafeFetchMock } = vi.hoisted(() => ({
+  isBlockedMock: vi.fn(),
+  ssrfSafeFetchMock: vi.fn(),
+}));
+
+vi.mock("../extensions/url-safety.js", () => ({
+  isBlockedExtensionUrlWithDns: isBlockedMock,
+  ssrfSafeFetch: ssrfSafeFetchMock,
+}));
 
 import {
+  fetchS3WithTimeout,
   presignS3GetUrl,
   s3ObjectUri,
   signedS3Request,
@@ -116,6 +127,54 @@ describe("signedS3Request", () => {
         { method: "GET", timeoutMs: 1_000 },
       ),
     ).rejects.toThrow(/saved in settings must use HTTPS/);
+  });
+});
+
+describe("fetchS3WithTimeout", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    isBlockedMock.mockReset();
+    ssrfSafeFetchMock.mockReset();
+  });
+
+  it("gives an upload time to send its body before waiting on headers", async () => {
+    vi.useFakeTimers();
+    isBlockedMock.mockResolvedValue(false);
+    // An endpoint that never answers.
+    ssrfSafeFetchMock.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          );
+        }),
+    );
+    const url = "https://storage.example.test/bucket/a.png";
+    const outcome = (request: Promise<Response>) => {
+      const state: { error?: unknown } = {};
+      request.catch((error: unknown) => {
+        state.error = error;
+      });
+      return state;
+    };
+
+    // 64 KiB takes two seconds at the slowest allowed rate.
+    const upload = outcome(
+      fetchS3WithTimeout(
+        url,
+        { method: "PUT", body: new ArrayBuffer(64 * 1024) },
+        1_000,
+      ),
+    );
+    const read = outcome(fetchS3WithTimeout(url, { method: "GET" }, 1_000));
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(read.error).toMatchObject({ name: "TimeoutError" });
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(upload.error).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(upload.error).toMatchObject({ name: "TimeoutError" });
+    expect(String(upload.error)).toContain("timed out after 3000ms");
   });
 });
 

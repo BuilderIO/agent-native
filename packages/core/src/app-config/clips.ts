@@ -2,6 +2,12 @@ import { z } from "zod";
 
 import { AppConfigurationError } from "./configuration-error.js";
 
+/**
+ * Clips' hosted recordings use the deployment's hosted private bucket. Its
+ * settings read the shared `AGENT_NATIVE_HOSTED_STORAGE_*` names first, in the
+ * same order as `hostedStorageConfig`, so the same environment gives Clips
+ * and private files the same bucket.
+ */
 export const clipsHostedStorageConfig = z.object({
   enabled: z.boolean().default(false).meta({
     env: "CLIPS_HOSTED_STORAGE_ENABLED",
@@ -13,8 +19,8 @@ export const clipsHostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "CLIPS_HOSTED_STORAGE_ENDPOINT",
         "AGENT_NATIVE_HOSTED_STORAGE_ENDPOINT",
+        "CLIPS_HOSTED_STORAGE_ENDPOINT",
       ],
       doc: "S3-compatible endpoint for server-hosted Clips recordings.",
     }),
@@ -24,8 +30,8 @@ export const clipsHostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "CLIPS_HOSTED_STORAGE_BUCKET",
         "AGENT_NATIVE_HOSTED_STORAGE_BUCKET",
+        "CLIPS_HOSTED_STORAGE_BUCKET",
       ],
       doc: "Private object-storage bucket for server-hosted Clips recordings.",
     }),
@@ -35,8 +41,8 @@ export const clipsHostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "CLIPS_HOSTED_STORAGE_ACCESS_KEY_ID",
         "AGENT_NATIVE_HOSTED_STORAGE_ACCESS_KEY_ID",
+        "CLIPS_HOSTED_STORAGE_ACCESS_KEY_ID",
       ],
       doc: "Access key for server-hosted Clips object storage.",
     }),
@@ -46,8 +52,8 @@ export const clipsHostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "CLIPS_HOSTED_STORAGE_SECRET_ACCESS_KEY",
         "AGENT_NATIVE_HOSTED_STORAGE_SECRET_ACCESS_KEY",
+        "CLIPS_HOSTED_STORAGE_SECRET_ACCESS_KEY",
       ],
       doc: "Secret access key for server-hosted Clips object storage.",
     }),
@@ -57,8 +63,8 @@ export const clipsHostedStorageConfig = z.object({
     .optional()
     .meta({
       env: [
-        "CLIPS_HOSTED_STORAGE_REGION",
         "AGENT_NATIVE_HOSTED_STORAGE_REGION",
+        "CLIPS_HOSTED_STORAGE_REGION",
       ],
       doc: "S3-compatible object-storage region for server-hosted Clips recordings.",
     }),
