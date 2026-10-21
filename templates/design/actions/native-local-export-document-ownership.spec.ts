@@ -63,16 +63,22 @@ vi.mock("../shared/native-effects.js", () => ({
     document: { instances: [{ enabled: true }] },
   }),
 }));
-vi.mock("./_native-local-export-server.js", () => ({
-  assertNativeLocalExportEditor: vi.fn(),
-  classifyNativeLocalExportNavigation: mocks.classifyNavigation,
-  expireNativeLocalExportState: async (state: unknown) => state,
-  markNativeLocalExportDocumentReplaced: vi.fn(),
-  readNativeLocalExportState: async (designId: string, tabId: string) =>
-    mocks.states.get(`native-local-export:${designId}:${tabId}`) ?? null,
-  readNativeLocalExportVersion: mocks.readVersion,
-  requireNativeLocalExportTabId: () => TAB_ID,
-}));
+vi.mock("../server/source-workspace.js", () => ({}));
+vi.mock("./_native-local-export-server.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./_native-local-export-server.js")>();
+  return {
+    assertNativeLocalExportEditor: vi.fn(),
+    classifyNativeLocalExportNavigation: mocks.classifyNavigation,
+    expireNativeLocalExportState: async (state: unknown) => state,
+    markNativeLocalExportDocumentReplaced:
+      original.markNativeLocalExportDocumentReplaced,
+    readNativeLocalExportState: async (designId: string, tabId: string) =>
+      mocks.states.get(`native-local-export:${designId}:${tabId}`) ?? null,
+    readNativeLocalExportVersion: mocks.readVersion,
+    requireNativeLocalExportTabId: () => TAB_ID,
+  };
+});
 
 import {
   readNativeRenderContextSnapshot,
@@ -245,6 +251,31 @@ describe("native local export document ownership", () => {
         documentId: DOCUMENT_ID,
       }),
     ).resolves.toMatchObject({ status: "running" });
+  });
+
+  it("adopts a no-context request on registration and keeps it claimable", async () => {
+    const created = await run(request, requestInput);
+    const key = `native-local-export:${DESIGN_ID}:${TAB_ID}`;
+    expect(mocks.states.get(key)).toMatchObject({ status: "pending" });
+
+    await registerNativeRenderContext(DESIGN_ID, DOCUMENT_ID);
+    expect(mocks.states.get(key)).toMatchObject({
+      status: "pending",
+      targetDocumentId: DOCUMENT_ID,
+    });
+    await registerNativeRenderContext(DESIGN_ID, DOCUMENT_ID);
+    expect(mocks.states.get(key)).toMatchObject({ status: "pending" });
+
+    await expect(
+      run(claim, {
+        designId: DESIGN_ID,
+        requestId: created.requestId,
+        documentId: DOCUMENT_ID,
+      }),
+    ).resolves.toMatchObject({
+      status: "running",
+      ownerDocumentId: DOCUMENT_ID,
+    });
   });
 
   it("rejects an export when its selected context changes during source preparation", async () => {

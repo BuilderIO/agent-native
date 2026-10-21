@@ -140,16 +140,28 @@ export async function markNativeLocalExportDocumentReplaced(
     const raw = await readNativeLocalExportState(designId, tabId);
     if (!raw) return;
     const current = await expireNativeLocalExportState(raw);
-    if (
-      (current.status !== "pending" &&
-        current.status !== "running" &&
-        current.status !== "uploading" &&
-        current.status !== "cancel-requested") ||
-      (current.status === "pending"
-        ? current.targetDocumentId === documentId
-        : !current.ownerDocumentId || current.ownerDocumentId === documentId)
-    )
+    if (current.status === "pending") {
+      if (!current.targetDocumentId) {
+        const adopted: NativeLocalExportState = {
+          ...current,
+          targetDocumentId: documentId,
+        };
+        if (await compareAndSetAppState(key, current, adopted)) return;
+        continue;
+      }
+      if (current.targetDocumentId === documentId) return;
+    } else if (
+      current.status !== "running" &&
+      current.status !== "uploading" &&
+      current.status !== "cancel-requested"
+    ) {
       return;
+    } else if (
+      !current.ownerDocumentId ||
+      current.ownerDocumentId === documentId
+    ) {
+      return;
+    }
     const failed: NativeLocalExportState = {
       ...current,
       status: "failed",
