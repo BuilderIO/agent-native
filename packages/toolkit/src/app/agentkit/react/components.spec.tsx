@@ -1793,6 +1793,7 @@ describe("AgentKitChat", () => {
         client={client}
         threadId="thread-slots"
         load="manual"
+        transcriptLayout={{ topInset: 7 }}
         title="Release room"
         toolbar={<button type="button">Share</button>}
         labels={{ conversation: "Release conversation" }}
@@ -1852,6 +1853,7 @@ describe("AgentKitChat", () => {
       expect(html).toContain(`data-slot="${slot}"`);
     }
     expect(html).toContain('aria-label="Release room"');
+    expect(html).toContain("--agentkit-transcript-top-inset:7px");
     expect(html).toContain("Check the deployment");
     expect(html).not.toContain("private context");
     expect(html).not.toContain("private slot context");
