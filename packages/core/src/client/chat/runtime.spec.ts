@@ -1093,6 +1093,11 @@ describe("createAgentNativeChatRuntime", () => {
     });
     const first = await session.startTurn({
       prompt: "Review this image before publishing.",
+      submissionPayload: {
+        id: "submission-image-approval",
+        threadId: "thread-approval-image-history",
+        text: "Review this image before publishing.",
+      },
       attachments: [requestAttachment],
       messages: [
         {
@@ -1134,9 +1139,16 @@ describe("createAgentNativeChatRuntime", () => {
     const continuationBody = JSON.parse(
       String(fetchMock.mock.calls[1]?.[1]?.body),
     );
+    const initialBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(initialBody.submissionPayload).toEqual({
+      id: "submission-image-approval",
+      threadId: "thread-approval-image-history",
+      text: "Review this image before publishing.",
+    });
     expect(continuationBody.message).toBe(
       "Approved. Go ahead and run the requested action.",
     );
+    expect(continuationBody).not.toHaveProperty("submissionPayload");
     expect(continuationBody.approvedToolCalls).toEqual([approvalKey]);
   });
 

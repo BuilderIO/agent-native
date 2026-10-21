@@ -464,7 +464,7 @@ describe("queued submission inbox recurring sweep", () => {
     );
   }, 20_000);
 
-  it("revokes a live promotion claim before it can submit a queued receipt", async () => {
+  it("keeps a queued receipt while a live promotion claim owns it", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
     const actor = { email: "user@example.com", anonymous: false };
@@ -483,6 +483,24 @@ describe("queued submission inbox recurring sweep", () => {
       claimId: "live-promoter",
     });
 
+    const busyCancellation = await mutateThreadQueuedMessages(threadId, {
+      type: "cancel",
+      messageId,
+    });
+    expect(busyCancellation?.promotionBusy).toBe(true);
+    expect(busyCancellation?.receiptUpdated).toBeUndefined();
+    expect(busyCancellation?.queuedMessages).toMatchObject([
+      { id: messageId, promotionClaim: { id: "live-promoter" } },
+    ]);
+    await expect(
+      getQueuedSubmissionReceipt(threadId, messageId),
+    ).resolves.toMatchObject({ state: "queued" });
+
+    await mutateThreadQueuedMessages(threadId, {
+      type: "release",
+      messageId,
+      claimId: "live-promoter",
+    });
     const cancelled = await mutateThreadQueuedMessages(threadId, {
       type: "cancel",
       messageId,

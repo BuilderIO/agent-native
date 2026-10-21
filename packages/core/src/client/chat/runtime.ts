@@ -5163,6 +5163,8 @@ export function createAgentNativeChatRuntime(
       const turnToContinue = continuation.attachments?.length
         ? { ...previousTurn, attachments: continuation.attachments }
         : previousTurn;
+      const { submissionPayload: _submissionPayload, ...continuationTurn } =
+        turnToContinue ?? {};
       const approval = continuation.approval;
       const connection = continuation.connection;
       const messageStateKey = continuation.turnId ?? session.id;
@@ -5178,7 +5180,7 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.connectionPending = false;
         return startTurn({
-          ...turnToContinue,
+          ...continuationTurn,
           prompt:
             continuation.prompt ??
             `The ${connection.id} connection is now available. Continue the requested work.`,
@@ -5201,7 +5203,7 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.approvalPending = false;
         return startTurn({
-          ...turnToContinue,
+          ...continuationTurn,
           prompt: continuation.prompt,
           metadata: {
             ...previousMetadata,
@@ -5256,7 +5258,7 @@ export function createAgentNativeChatRuntime(
       }
       if (messageState) messageState.message.approvalPending = false;
       return startTurn({
-        ...turnToContinue,
+        ...continuationTurn,
         prompt:
           continuation.prompt ??
           "Approved. Go ahead and run the requested action.",
