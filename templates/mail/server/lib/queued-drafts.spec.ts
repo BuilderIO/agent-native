@@ -30,6 +30,11 @@ const dbState = vi.hoisted(() => ({
 const updateSet = vi.hoisted(() => vi.fn());
 const updateWhere = vi.hoisted(() => vi.fn());
 const updateReturning = vi.hoisted(() => vi.fn());
+const readOrgMemberRole = vi.hoisted(() => vi.fn(async () => "owner"));
+const requestIdentity = vi.hoisted(() => ({
+  orgId: "org_1",
+  userEmail: "owner@example.com",
+}));
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
@@ -49,8 +54,9 @@ vi.mock("@agent-native/core/org", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getAppProductionUrl: () => "https://mail.example.com",
-  getRequestOrgId: () => "org_1",
-  getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => requestIdentity.orgId,
+  getRequestUserEmail: () => requestIdentity.userEmail,
+  readOrgMemberRole,
   withConfiguredAppBasePath: (url: string) => url,
 }));
 
@@ -76,8 +82,8 @@ vi.mock("../db/index.js", () => ({
       from: () => ({
         where: () => ({
           limit: async () =>
-            selection && "email" in selection && "role" in selection
-              ? [{ email: "owner@example.com", role: "member" }]
+            selection && "email" in selection
+              ? [{ email: "owner@example.com" }]
               : [dbState.draft],
         }),
       }),
@@ -147,4 +153,48 @@ describe("queued draft send claims", () => {
 
     expect(second).toEqual({ claimed: false, reason: "sending" });
   });
+});
+
+describe("queued draft organization context", () => {
+  beforeEach(() => {
+    requestIdentity.orgId = "org_1";
+    requestIdentity.userEmail = "owner@example.com";
+    readOrgMemberRole.mockResolvedValue("owner");
+  });
+
+  it("uses the effective role for a delegated organization owner", async () => {
+    readOrgMemberRole.mockResolvedValue("member");
+    const { requireQueueContext } = await import("./queued-drafts.js");
+
+    await expect(requireQueueContext()).resolves.toEqual({
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+      role: "member",
+    });
+    expect(readOrgMemberRole).toHaveBeenCalledWith(
+      "org_1",
+      "owner@example.com",
+    );
+  });
+
+  it.each([
+    { orgId: "org_1", userEmail: "other@example.com" },
+    { orgId: "org_2", userEmail: "owner@example.com" },
+  ])(
+    "denies a delegated request identity mismatch when role resolution rejects it: %o",
+    async (identity) => {
+      requestIdentity.orgId = identity.orgId;
+      requestIdentity.userEmail = identity.userEmail;
+      readOrgMemberRole.mockResolvedValue(null);
+      const { requireQueueContext } = await import("./queued-drafts.js");
+
+      await expect(requireQueueContext()).rejects.toThrow(
+        "Only members of this organization can queue drafts.",
+      );
+      expect(readOrgMemberRole).toHaveBeenCalledWith(
+        identity.orgId,
+        identity.userEmail,
+      );
+    },
+  );
 });

@@ -4,6 +4,7 @@ import {
 } from "../server/request-context.js";
 import {
   getGlobalA2ASecret,
+  signA2AOrgMemberDelegationToken,
   signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
@@ -74,6 +75,16 @@ export async function resolveA2ACallerAuth(options?: {
     options?.audience &&
     (orgSecret || globalSecret)
   ) {
+    if (userEmail && orgSecret) {
+      addApiKeyAttempt(
+        await signA2AOrgMemberDelegationToken(
+          userEmail,
+          orgDomain,
+          orgSecret,
+          options.audience,
+        ),
+      );
+    }
     addApiKeyAttempt(
       await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,

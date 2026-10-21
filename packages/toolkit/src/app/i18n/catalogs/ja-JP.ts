@@ -2031,6 +2031,9 @@ const messages: ToolkitAgentChatTranslation = {
     "設定済み。このワークスペースのアプリが互いを検証できます。",
   "settingsOrg.auth.sharedSecretNotSet":
     "未設定。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.memberDelegation": "組織メンバーの本人確認を委任",
+  "settingsOrg.auth.memberDelegationHelp":
+    "この組織の共有シークレットを持つ接続済みアプリは、このアプリを呼び出す際に現在のメンバーであれば誰でもその本人であると主張できます。このアプリは最新のメンバー一覧を確認し、委任された組織アクセスをメンバー権限に制限します。",
   "settingsOrg.auth.secretNotSetValue": "未設定",
   "settingsOrg.auth.manage": "管理",
   "settingsOrg.auth.reveal": "表示",

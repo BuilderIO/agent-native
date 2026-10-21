@@ -10,6 +10,7 @@ import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/deployment-protection.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 import {
@@ -790,7 +791,13 @@ export async function claimWorkspaceAppForOrganization(
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
-    return claimWorkspaceAppOrganization(db, normalizedAppId, orgId, member);
+    const role = await readOrgMemberRole(orgId, email);
+    return role
+      ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+          ...member,
+          role,
+        })
+      : false;
   } catch (error) {
     console.error("[workspace-app-access] organization claim failed", error);
     return false;
@@ -877,7 +884,13 @@ export async function checkWorkspaceAppAccess(
       ) {
         return false;
       }
-      return claimWorkspaceAppOrganization(db, normalizedAppId, orgId, member);
+      const role = await readOrgMemberRole(orgId, email);
+      return role
+        ? claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+            ...member,
+            role,
+          })
+        : false;
     }
 
     const ownerEmail = normalizedEmail(
@@ -903,15 +916,14 @@ export async function checkWorkspaceAppAccess(
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }
-    const memberRole = member.role;
+    const memberRole = await readOrgMemberRole(orgId, email);
+    if (!memberRole) return false;
     if (canClaimCallerOrg) {
       if (
-        !(await claimWorkspaceAppOrganization(
-          db,
-          normalizedAppId,
-          orgId,
-          member,
-        ))
+        !(await claimWorkspaceAppOrganization(db, normalizedAppId, orgId, {
+          ...member,
+          role: memberRole,
+        }))
       ) {
         return false;
       }

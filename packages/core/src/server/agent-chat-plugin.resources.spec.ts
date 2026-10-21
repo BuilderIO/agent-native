@@ -2476,6 +2476,12 @@ describe("loadResourcesForPrompt", () => {
         "This list is a directory, not a request to involve another app.",
       );
       expect(prompt).toContain(
+        "Prefer the current app's own connected integrations and tools when they can answer the request",
+      );
+      expect(prompt).toContain(
+        "use a direct FullStory connection for session-replay questions when one is available here",
+      );
+      expect(prompt).toContain(
         "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",
       );
       expect(prompt).toContain(

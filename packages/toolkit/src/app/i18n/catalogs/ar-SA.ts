@@ -2157,6 +2157,9 @@ const messages: ToolkitAgentChatTranslation = {
     "معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
   "settingsOrg.auth.sharedSecretNotSet":
     "غير معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.memberDelegation": "تفويض هوية أعضاء المؤسسة",
+  "settingsOrg.auth.memberDelegationHelp":
+    "يمكن للتطبيقات المتصلة التي تستخدم السر المشترك لهذه المؤسسة ادّعاء هوية أي عضو حالي عند الاتصال بهذا التطبيق. يتحقق هذا التطبيق من قائمة الأعضاء الحالية ويقيّد الوصول المفوّض إلى المؤسسة بصلاحيات مستوى العضو.",
   "settingsOrg.auth.secretNotSetValue": "غير معيّن",
   "settingsOrg.auth.manage": "إدارة",
   "settingsOrg.auth.reveal": "إظهار",

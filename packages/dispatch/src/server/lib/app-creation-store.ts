@@ -21,6 +21,7 @@ import {
   inferWorkspaceAppRootHomePath,
   isIntegrationCallerRequest,
   readConfiguredWorkspaceAppHomePath,
+  readOrgMemberRole,
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   normalizeBuilderAgentAttachments,
@@ -2500,18 +2501,9 @@ function isSyntheticIntegrationOwner(ownerEmail: string): boolean {
 
 async function requestOwnerRole(): Promise<string | null> {
   const orgId = currentOrgId();
-  const ownerEmail = currentOwnerEmail();
   if (!orgId) return null;
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, ownerEmail.toLowerCase()],
-    });
-    const role = (rows[0] as any)?.role;
-    return typeof role === "string" ? role : null;
+    return await readOrgMemberRole(orgId, currentOwnerEmail());
   } catch {
     return null;
   }

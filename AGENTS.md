@@ -36,7 +36,9 @@ Use `/sidecar <task>` for read-only investigations.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
-- In task worktrees, create safe needed branches without asking. For `/ship`
+- Carry explicit task approval across turns and heartbeats; ask only for broader
+  scope. In task worktrees,
+  create safe needed branches without asking. For `/ship`
   from an unsafe shared checkout, use a managed worktree without asking:
   fresh `origin/main` for new PRs, the live PR head and its head repository
   for updates. Carry only task changes; preserve the checkout. See `new-branch`.
@@ -58,9 +60,8 @@ Use `/sidecar <task>` for read-only investigations.
   one does not promote production.
 - When shipping from a worktree, commit, push, and open or update the PR there;
   leave the shared checkout untouched.
-- Never push to someone else's PR without explicit authorization for that exact
-  PR in this request. This does not authorize merging. See `ship` and
-  `babysit-pr` for the live author/head verification gate.
+- Never push to another's PR without exact-PR authorization; merge authorization
+  is separate. See `ship`/`babysit-pr` for author/head checks.
 - On your own PRs, replies to every review thread you fix or disposition are
   always authorized and expected; add a concise top-level recap for review-body-only
   feedback. On others' PRs, comment only with explicit authorization for that

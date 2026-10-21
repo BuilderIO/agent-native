@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   listAutomationsForOwner,
   setAutomationEnabledForOwner,
@@ -364,6 +365,46 @@ Organization body.`,
       "jobs/organization.md",
       expect.stringContaining("enabled: false"),
     );
+  });
+
+  it("does not let a delegated owner update another member's shared automation", async () => {
+    const resource = {
+      id: "shared",
+      owner: "__shared__",
+      path: "jobs/shared.md",
+      content: `---
+schedule: "0 9 * * *"
+enabled: true
+createdBy: bob@example.com
+orgId: org-1
+appId: mail
+---
+
+Run the shared automation.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValue([resource]);
+    resourceGetByPathMock.mockResolvedValue(resource);
+    dbExecuteMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+
+    await runWithRequestContext(
+      {
+        a2aIdentityAssurance: "org-member",
+        userEmail: owner,
+        orgId: "org-1",
+      },
+      async () => {
+        const [listed] = await listAutomationsForOwner(event, owner);
+        expect(listed.canUpdate).toBe(false);
+        await expect(
+          setAutomationEnabledForOwner(event, owner, {
+            owner: "__shared__",
+            path: resource.path,
+            enabled: false,
+          }),
+        ).rejects.toMatchObject({ statusCode: 403 });
+      },
+    );
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("toggles a personal automation and refreshes event subscriptions", async () => {

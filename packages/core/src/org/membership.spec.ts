@@ -90,10 +90,13 @@ describe("isOrgMember", () => {
     await expect(isOrgMember("org-1", "member@example.com")).resolves.toBe(
       false,
     );
-    expect(validateFederatedMembershipMock).toHaveBeenCalledWith({
-      orgId: "org-1",
-      email: "member@example.com",
-    });
+    expect(validateFederatedMembershipMock).toHaveBeenCalledWith(
+      {
+        orgId: "org-1",
+        email: "member@example.com",
+      },
+      undefined,
+    );
   });
 
   it("does not turn an authority check failure into membership", async () => {
@@ -144,6 +147,33 @@ describe("isOrgMemberForA2A", () => {
 
     await expect(isOrgMemberForA2A("org-x", "alice@x.example")).resolves.toBe(
       true,
+    );
+  });
+
+  it("passes the inbound request to federation validation for linked orgs", async () => {
+    const requestEvent = { context: { requestId: "inbound" } } as any;
+    executeMock
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            identity_authority: "https://dispatch.example.test",
+            identity_id: "dispatch-org-1",
+          },
+        ],
+      });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+    validateFederatedMembershipMock.mockResolvedValue({
+      active: true,
+      role: "owner",
+    });
+
+    await expect(
+      isOrgMemberForA2A("org-x", "alice@x.example", requestEvent),
+    ).resolves.toBe(true);
+    expect(validateFederatedMembershipMock).toHaveBeenCalledWith(
+      { orgId: "org-x", email: "alice@x.example" },
+      requestEvent,
     );
   });
 

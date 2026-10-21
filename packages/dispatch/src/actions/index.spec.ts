@@ -81,5 +81,8 @@ describe("dispatch action registry", () => {
       "workspaceAppCreationsByUserMonth",
     );
     expect(action.tool.description).toContain("app adoption metrics");
+    expect(action.tool.description).toContain(
+      "do not include customer/account/company usage or product data",
+    );
   });
 });

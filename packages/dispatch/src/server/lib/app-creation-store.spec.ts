@@ -55,6 +55,7 @@ const mocks = vi.hoisted(() => {
       role: "viewer",
       resource: {},
     })),
+    readOrgMemberRole: vi.fn(async () => state.orgRole),
     getDbExec: vi.fn(() => ({
       execute: vi.fn(async (statement: unknown) => {
         const sql =
@@ -144,6 +145,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/server")>();
   return {
     ...actual,
+    readOrgMemberRole: (...args: any[]) => mocks.readOrgMemberRole(...args),
     resolveBuilderCredentialsDetailed: (...args: any[]) =>
       mocks.resolveBuilderCredentialsDetailed(...args),
     createBuilderProject: (...args: any[]) =>
@@ -187,6 +189,8 @@ afterEach(() => {
     },
   );
   mocks.state.orgRole = "admin";
+  mocks.readOrgMemberRole.mockReset();
+  mocks.readOrgMemberRole.mockImplementation(async () => mocks.state.orgRole);
   mocks.getDbExec.mockReset();
   mocks.getDbExec.mockImplementation(() => ({
     execute: vi.fn(async (statement: unknown) => {
@@ -2398,5 +2402,25 @@ describe("setAppCreationSettings", () => {
     ).toEqual({ builderProjectId: projectId });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("caps a delegated owner before changing the shared Builder project", async () => {
+    mocks.readOrgMemberRole.mockResolvedValueOnce("member");
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "dev@example.test",
+          orgId,
+          a2aIdentityAssurance: "org-member",
+        },
+        () => setAppCreationSettings({ builderProjectId: projectId }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+      orgId,
+      "dev@example.test",
+    );
+    expect(mocks.putSetting).not.toHaveBeenCalled();
   });
 });

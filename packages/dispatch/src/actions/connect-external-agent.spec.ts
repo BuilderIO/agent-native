@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getDbExec: vi.fn(),
   resourcePutIfAbsent: vi.fn(),
   sharedResourceOwner: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   currentOrgId: vi.fn(),
   currentOwnerEmail: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: mocks.getDbExec,
+vi.mock("@agent-native/core/server", () => ({
+  readOrgMemberRole: mocks.readOrgMemberRole,
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
@@ -31,6 +31,7 @@ describe("connect-external-agent action", () => {
     vi.clearAllMocks();
     mocks.currentOrgId.mockReturnValue(null);
     mocks.currentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.readOrgMemberRole.mockResolvedValue("admin");
     mocks.sharedResourceOwner.mockReturnValue("shared-owner");
     mocks.resourcePutIfAbsent.mockResolvedValue({ id: "resource_1" });
   });
@@ -73,6 +74,24 @@ describe("connect-external-agent action", () => {
 
     expect(result.status).toBe("created");
     expect(mocks.resourcePutIfAbsent).toHaveBeenCalled();
+  });
+
+  it("does not let an asserted owner register a shared agent without an admin role", async () => {
+    mocks.currentOrgId.mockReturnValue("org-1");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.readOrgMemberRole.mockResolvedValue("member");
+
+    await expect(
+      action.run({
+        url: "https://agent.example.com",
+        scope: "shared",
+      } as never),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.com",
+    );
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
   it("rejects a concurrent duplicate connect as a clean 409, not an overwrite", async () => {

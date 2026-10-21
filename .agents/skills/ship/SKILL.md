@@ -24,9 +24,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 - Ship all nonignored changes belonging to the requested work on the current
   branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
 - A ship request authorizes publishing a new PR. Pushing to someone else's PR
-  needs explicit current authorization for that exact PR; links and inherited
-  ship authority don't count. It permits a normal fast-forward push, not a
-  merge. Merge with separate current authorization; otherwise use
+  needs explicit authorization for that exact PR within the active task; a
+  linked PR or general ship request alone does not count. It permits a normal
+  fast-forward push, not a merge. Merge with separate authorization for that
+  exact PR; otherwise use
   `ship_mode=ready-only` and leave the PR open. Before every push, resolve the
   active GitHub login with `gh api user --jq .login`, include `author` in the
   live PR query, and compare `author.login` with that login. Verify the head

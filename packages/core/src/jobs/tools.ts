@@ -1,7 +1,6 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { resolveAutomationAccess } from "../automations/access.js";
 import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
-import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
@@ -13,6 +12,7 @@ import {
   sharedResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -64,16 +64,7 @@ async function isCurrentUserOrgAdmin(
   const email = getRequestUserEmail();
   if (!email) return false;
   try {
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email.toLowerCase()],
-    });
-    if (rows.length === 0) return false;
-    const role = String((rows[0] as any).role ?? "").toLowerCase();
+    const role = await readOrgMemberRole(orgId, email);
     return role === "owner" || role === "admin";
   } catch {
     return false;

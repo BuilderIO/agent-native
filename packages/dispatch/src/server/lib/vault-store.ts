@@ -11,6 +11,7 @@ import {
   writeAppSecret,
   type SecretScope,
 } from "@agent-native/core/secrets";
+import { readOrgMemberRole } from "@agent-native/core/server";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import {
   getOrgSetting,
@@ -148,16 +149,9 @@ export async function assertCanManageVault(): Promise<void> {
   if (!orgId) return;
 
   const email = currentOwnerEmail().trim().toLowerCase();
-  let role: unknown = null;
+  let role: string | null = null;
   try {
-    const result = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email],
-    });
-    role = result.rows[0]?.role;
+    role = await readOrgMemberRole(orgId, email);
   } catch {
     // coercion-ok: unknown membership is treated as unauthorized below.
     // A failed membership check must not become an authorization bypass.

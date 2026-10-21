@@ -1998,6 +1998,9 @@ const messages: ToolkitAgentChatTranslation = {
     "सेट है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
   "settingsOrg.auth.sharedSecretNotSet":
     "सेट नहीं है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.memberDelegation": "संगठन सदस्य की पहचान का प्रत्यायोजन",
+  "settingsOrg.auth.memberDelegationHelp":
+    "इस साझा संगठन सीक्रेट वाले कनेक्टेड ऐप्स इस ऐप को कॉल करते समय किसी भी वर्तमान सदस्य की पहचान का दावा कर सकते हैं। यह ऐप लाइव सदस्य सूची की जांच करता है और प्रत्यायोजित संगठन एक्सेस को सदस्य-स्तर की अनुमतियों तक सीमित रखता है।",
   "settingsOrg.auth.secretNotSetValue": "सेट नहीं है",
   "settingsOrg.auth.manage": "प्रबंधित करें",
   "settingsOrg.auth.reveal": "दिखाएं",
