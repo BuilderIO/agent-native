@@ -698,6 +698,34 @@ export function assertAgentChatRunProjectionUpdated(
   }
 }
 
+export async function runAgentChatRunCompletionHooksAfterProjection(
+  persistProjection: () => Promise<void>,
+  runCompletionHooks: () => Promise<void>,
+): Promise<void> {
+  let projectionFailed = false;
+  let projectionError: unknown;
+  try {
+    await persistProjection();
+  } catch (error) {
+    projectionFailed = true;
+    projectionError = error;
+  }
+
+  try {
+    await runCompletionHooks();
+  } catch (error) {
+    if (projectionFailed) {
+      throw new AggregateError(
+        [projectionError, error],
+        "Agent chat projection and completion hooks failed.",
+      );
+    }
+    throw error;
+  }
+
+  if (projectionFailed) throw projectionError;
+}
+
 /**
  * The model this mount runs with, when the caller does not pass one per request.
  *
@@ -3916,63 +3944,67 @@ export function createAgentChatPlugin(
         // the frontend-triggered saves below). Without the lock, a concurrent
         // queued-message save can clobber the assistant message we just
         // appended here, or vice versa.
-        await withThreadDataLock(threadId, async () => {
-          const thread = await getThread(threadId);
-          if (!thread) {
-            throw new Error(
-              `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
+        await runAgentChatRunCompletionHooksAfterProjection(
+          () =>
+            withThreadDataLock(threadId, async () => {
+              const thread = await getThread(threadId);
+              if (!thread) {
+                throw new Error(
+                  `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
+                );
+              }
+              // Parse existing thread_data, append assistant message only if
+              // the frontend hasn't already saved it (avoids duplicates when
+              // the client is still connected during a normal flow).
+              let repo = JSON.parse(thread.threadData || "{}");
+              if (!Array.isArray(repo.messages)) repo.messages = [];
+
+              repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
+
+              // Store debug metadata so we can inspect what the LLM actually
+              // received (system prompt, model, engine) when diagnosing issues.
+              const runCtx = getRequestRunContext();
+              const debug = {
+                runId: run.runId,
+                systemPrompt: runCtx?.systemPrompt,
+                model: runCtx?.model ?? resolvedModel,
+                engine: runCtx?.engine?.name ?? "unknown",
+                timestamp: Date.now(),
+              };
+              repo = appendThreadDebugHistory(repo, debug);
+
+              const meta = extractThreadMeta(repo);
+              const projectionUpdated = await updateThreadData(
+                threadId,
+                JSON.stringify(repo),
+                thread.title,
+                meta.preview || thread.preview,
+                repo.messages.length,
+                { trustedRunSequenceResetIds: new Set([run.runId]) },
+              );
+              assertAgentChatRunProjectionUpdated(
+                projectionUpdated,
+                threadId,
+                run.runId,
+              );
+            }),
+          async () => {
+            // Checkpoint creation is part of durable turn completion. The helper
+            // catches and reports its own failures, so a broken app checkpoint does
+            // not strand the run while a successful checkpoint cannot be lost when
+            // a serverless invocation exits.
+            await runPostAgentTurnAutosave(
+              options?.onAgentTurnComplete,
+              chatScope,
+              run,
             );
-          }
-          // Parse existing thread_data, append assistant message only if
-          // the frontend hasn't already saved it (avoids duplicates when
-          // the client is still connected during a normal flow).
-          let repo = JSON.parse(thread.threadData || "{}");
-          if (!Array.isArray(repo.messages)) repo.messages = [];
-
-          repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
-
-          // Store debug metadata so we can inspect what the LLM actually
-          // received (system prompt, model, engine) when diagnosing issues.
-          const runCtx = getRequestRunContext();
-          const debug = {
-            runId: run.runId,
-            systemPrompt: runCtx?.systemPrompt,
-            model: runCtx?.model ?? resolvedModel,
-            engine: runCtx?.engine?.name ?? "unknown",
-            timestamp: Date.now(),
-          };
-          repo = appendThreadDebugHistory(repo, debug);
-
-          const meta = extractThreadMeta(repo);
-          const projectionUpdated = await updateThreadData(
-            threadId,
-            JSON.stringify(repo),
-            thread.title,
-            meta.preview || thread.preview,
-            repo.messages.length,
-            { trustedRunSequenceResetIds: new Set([run.runId]) },
-          );
-          assertAgentChatRunProjectionUpdated(
-            projectionUpdated,
-            threadId,
-            run.runId,
-          );
-        });
-
-        // Checkpoint creation is part of durable turn completion. The helper
-        // catches and reports its own failures, so a broken app checkpoint does
-        // not strand the run while a successful checkpoint cannot be lost when
-        // a serverless invocation exits.
-        await runPostAgentTurnAutosave(
-          options?.onAgentTurnComplete,
-          chatScope,
-          run,
-        );
-        await runPostAgentRunComplete(
-          options?.onAgentRunComplete,
-          chatScope,
-          run,
-          { turnContinues: endsAtContinuationBoundary(run) },
+            await runPostAgentRunComplete(
+              options?.onAgentRunComplete,
+              chatScope,
+              run,
+              { turnContinues: endsAtContinuationBoundary(run) },
+            );
+          },
         );
 
         // Event triggers and local git checkpoints remain best effort and do
