@@ -1871,11 +1871,13 @@ export function startRun(
       if (checkpointAbortInFlight) await checkpointRunBoundaryTask;
       settleBoundary(false);
       if (abort.signal.aborted) {
-        run.status = checkpointPersistenceFailed
-          ? "errored"
-          : softTimedOut
-            ? "completed"
-            : "aborted";
+        if (run.status !== "aborted") {
+          run.status = checkpointPersistenceFailed
+            ? "errored"
+            : softTimedOut
+              ? "completed"
+              : "aborted";
+        }
         return;
       }
       run.status = "completed";
@@ -1885,11 +1887,13 @@ export function startRun(
       if (checkpointAbortInFlight) await checkpointRunBoundaryTask;
       settleBoundary(false);
       if (abort.signal.aborted) {
-        run.status = checkpointPersistenceFailed
-          ? "errored"
-          : softTimedOut
-            ? "completed"
-            : "aborted";
+        if (run.status !== "aborted") {
+          run.status = checkpointPersistenceFailed
+            ? "errored"
+            : softTimedOut
+              ? "completed"
+              : "aborted";
+        }
         return;
       }
       run.status = "errored";

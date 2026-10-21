@@ -3812,6 +3812,13 @@ export async function insertRunEvent(
     options?.toolInputSource,
   );
   const eventAt = options?.eventAt ?? Date.now();
+  let resolvesCheckpoint = false;
+  try {
+    const event = JSON.parse(eventData) as AgentChatEvent;
+    resolvesCheckpoint = terminalStatusForEvent(event) !== null;
+  } catch {
+    // Invalid event payloads retain the existing insert behavior.
+  }
   // The reaper must wait for the marker's commit before exposing a successor.
   let result: {
     rowsAffected: number | undefined;
@@ -3821,59 +3828,95 @@ export async function insertRunEvent(
   try {
     result = await withFencedExecutionWrite(
       async (tx) => {
-        const { rowsAffected } = await tx.execute({
-          sql: options?.requireInserted
-            ? `WITH running_run AS MATERIALIZED (
+        const writeEvent = async (writeTx: DbExec) => {
+          const { rowsAffected } = await writeTx.execute({
+            sql: options?.requireInserted
+              ? `WITH running_run AS MATERIALIZED (
           SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
         )
         INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
         SELECT id, ?, ?, ? FROM running_run LIMIT 1
         ON CONFLICT (run_id, seq) DO NOTHING`
-            : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+              : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-          args: [
-            runId,
-            seq,
-            eventAt,
-            storedEventData,
-            ...(options?.requireInserted ? [] : [runId]),
-          ],
-        });
-        if (!options?.requireInserted || rowsAffected === 1)
+            args: [
+              runId,
+              seq,
+              eventAt,
+              storedEventData,
+              ...(options?.requireInserted ? [] : [runId]),
+            ],
+          });
+          if (resolvesCheckpoint) {
+            let terminalPersisted = rowsAffected === 1;
+            if (!terminalPersisted) {
+              const existing = await writeTx.execute({
+                sql: "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+                args: [runId, seq],
+              });
+              terminalPersisted =
+                String(
+                  (existing.rows[0] as { event_data?: string } | undefined)
+                    ?.event_data,
+                ) === storedEventData;
+            }
+            if (terminalPersisted) {
+              // The reserved checkpoint sequence sorts after ordinary events,
+              // so an authoritative terminal event must retire it atomically.
+              await writeTx.execute({
+                sql: "DELETE FROM agent_run_events WHERE run_id = ? AND seq = ?",
+                args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+              });
+            }
+          }
+
+          if (!options?.requireInserted || rowsAffected === 1)
+            return {
+              rowsAffected,
+              terminalRun: false,
+              persistedIdentically: rowsAffected === 1,
+            };
+
+          const existing = await writeTx.execute({
+            sql: `SELECT event_at, event_data FROM agent_run_events
+              WHERE run_id = ? AND seq = ?`,
+            args: [runId, seq],
+          });
+          const existingRow = existing.rows[0] as
+            | { event_at?: number | string; event_data?: string }
+            | undefined;
+          const persistedIdentically =
+            existingRow !== undefined &&
+            Number(existingRow.event_at) === eventAt &&
+            String(existingRow.event_data) === storedEventData;
+
+          const run = await writeTx.execute({
+            sql: "SELECT status FROM agent_runs WHERE id = ?",
+            args: [runId],
+          });
+          const status = (run.rows[0] as { status?: string } | undefined)
+            ?.status;
           return {
             rowsAffected,
-            terminalRun: false,
-            persistedIdentically: rowsAffected === 1,
+            terminalRun: status !== "running",
+            persistedIdentically,
           };
-
-        const existing = await tx.execute({
-          sql: `SELECT event_at, event_data FROM agent_run_events
-              WHERE run_id = ? AND seq = ?`,
-          args: [runId, seq],
-        });
-        const existingRow = existing.rows[0] as
-          | { event_at?: number | string; event_data?: string }
-          | undefined;
-        const persistedIdentically =
-          existingRow !== undefined &&
-          Number(existingRow.event_at) === eventAt &&
-          String(existingRow.event_data) === storedEventData;
-
-        const run = await tx.execute({
-          sql: "SELECT status FROM agent_runs WHERE id = ?",
-          args: [runId],
-        });
-        const status = (run.rows[0] as { status?: string } | undefined)?.status;
-        return {
-          rowsAffected,
-          terminalRun: status !== "running",
-          persistedIdentically,
         };
+
+        if (!resolvesCheckpoint || currentExecutionFence()) {
+          return writeEvent(tx);
+        }
+        if (!tx.transaction) {
+          throw new Error(
+            "Checkpoint resolution requires run event transaction support",
+          );
+        }
+        return tx.transaction(writeEvent);
       },
       { runId },
     );
@@ -5271,42 +5314,68 @@ async function appendTerminalRunEvent(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
-    args: [runId],
-  });
-  const last = rows[0] as
-    | { seq?: number | string; event_data?: string }
-    | undefined;
-  if (last?.event_data) {
-    try {
-      const parsed = JSON.parse(last.event_data);
-      if (
-        parsed?.type === "done" ||
-        parsed?.type === "error" ||
-        parsed?.type === "missing_api_key" ||
-        parsed?.type === "loop_limit" ||
-        parsed?.type === "auto_continue"
-      ) {
-        return;
+  if (!client.transaction) {
+    throw new Error("Terminal run event writes require transaction support");
+  }
+  const storedEventData = stripInlineBytesFromJson(
+    JSON.stringify(event),
+    "placeholder",
+  );
+  await client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `SELECT seq, event_data FROM agent_run_events
+            WHERE run_id = ? ORDER BY seq DESC LIMIT 1 FOR UPDATE`,
+      args: [runId],
+    });
+    const last = rows[0] as
+      | { seq?: number | string; event_data?: string }
+      | undefined;
+    let nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
+    if (last?.event_data) {
+      let parsed: { type?: unknown } | undefined;
+      try {
+        parsed = JSON.parse(last.event_data) as { type?: unknown };
+      } catch {
+        // Ignore malformed rows and append the terminal event.
       }
-    } catch {
-      // Ignore malformed rows and append the terminal event.
+      if (parsed) {
+        const lastEventIsTerminal =
+          parsed?.type === "done" ||
+          parsed?.type === "error" ||
+          parsed?.type === "missing_api_key" ||
+          parsed?.type === "loop_limit" ||
+          parsed?.type === "auto_continue";
+        const replacesCheckpoint =
+          Number(last.seq) === CHECKPOINT_TERMINAL_EVENT_SEQ &&
+          parsed?.type === "auto_continue" &&
+          event.type !== "auto_continue";
+        if (lastEventIsTerminal && !replacesCheckpoint) return;
+        if (replacesCheckpoint) {
+          await tx.execute({
+            sql: "DELETE FROM agent_run_events WHERE run_id = ? AND seq = ?",
+            args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+          });
+          const regularEvents = await tx.execute({
+            sql: `SELECT COALESCE(MAX(seq), -1) AS seq FROM agent_run_events
+                  WHERE run_id = ? AND seq < ?`,
+            args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+          });
+          nextSeq =
+            Number(
+              (regularEvents.rows[0] as { seq?: number | string } | undefined)
+                ?.seq ?? -1,
+            ) + 1;
+        }
+      }
     }
-  }
-  const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
-  const inserted = await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING RETURNING seq`,
-    args: [
-      runId,
-      nextSeq,
-      Date.now(),
-      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
-    ],
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING RETURNING seq`,
+      args: [runId, nextSeq, Date.now(), storedEventData],
+    });
+    if (inserted.rows.length === 0) {
+      throw new Error(
+        `Run ${runId} terminal event conflicted with sequence ${nextSeq}`,
+      );
+    }
   });
-  if (inserted.rows.length === 0) {
-    throw new Error(
-      `Run ${runId} terminal event conflicted with sequence ${nextSeq}`,
-    );
-  }
 }

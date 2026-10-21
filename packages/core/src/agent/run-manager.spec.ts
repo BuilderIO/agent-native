@@ -998,6 +998,53 @@ describe("run manager soft timeout", () => {
     consoleError.mockRestore();
   });
 
+  it.each([
+    ["checkpoint and driver resolve", "resolve", "resolve"],
+    ["checkpoint resolves and driver rejects", "resolve", "reject"],
+    ["checkpoint rejects and driver resolves", "reject", "resolve"],
+    ["checkpoint and driver reject", "reject", "reject"],
+  ] as const)(
+    "keeps explicit cancellation authoritative when %s",
+    async (_label, checkpointOutcome, driverOutcome) => {
+      const checkpoint = Promise.withResolvers<void>();
+      const driver = Promise.withResolvers<void>();
+      vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(
+        () => checkpoint.promise,
+      );
+      const run = startRun(
+        `run-checkpoint-cancel-${checkpointOutcome}`,
+        `thread-checkpoint-cancel-${checkpointOutcome}`,
+        async () => driver.promise,
+        undefined,
+        { softTimeoutMs: 10 },
+      );
+
+      await vi.advanceTimersByTimeAsync(11);
+      expect(persistRunCheckpointEvent).toHaveBeenCalledOnce();
+      expect(abortRun(run.runId, "user")).toBe(true);
+      if (driverOutcome === "resolve") driver.resolve();
+      else driver.reject(new Error("driver stopped after cancellation"));
+      await Promise.resolve();
+
+      if (checkpointOutcome === "resolve") checkpoint.resolve();
+      else checkpoint.reject(new Error("checkpoint write failed"));
+      await run.finalized;
+
+      expect(run.status).toBe("aborted");
+      await vi.waitFor(() =>
+        expect(markRunAborted).toHaveBeenCalledWith(run.runId, "user"),
+      );
+      expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+        run.runId,
+        "completed",
+      );
+      expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+        run.runId,
+        "errored",
+      );
+    },
+  );
+
   it("fails the run instead of advertising continuation when checkpoint persistence fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")

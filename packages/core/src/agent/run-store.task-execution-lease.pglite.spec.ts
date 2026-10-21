@@ -131,6 +131,78 @@ describe("task execution leases", () => {
     ]);
   });
 
+  it("retires a durable checkpoint when a later terminal event is persisted", async () => {
+    const runId = "run-checkpoint-terminal-resolution";
+    await insertRun(runId, "thread-checkpoint-terminal-resolution");
+
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    await insertRunEvent(runId, 0, JSON.stringify({ type: "done" }));
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done" },
+    });
+    const checkpoint = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(checkpoint.rows).toEqual([]);
+  });
+
+  it("replaces a durable checkpoint with an explicit abort terminal event", async () => {
+    const runId = "run-checkpoint-user-abort";
+    await insertRun(runId, "thread-checkpoint-user-abort");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    await markRunAborted(runId, "user");
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done", reason: "user" },
+    });
+    const events = await pglite.query(
+      "SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      [runId],
+    );
+    expect(events.rows).toEqual([
+      { seq: 0, event_data: '{"type":"done","reason":"user"}' },
+    ]);
+  });
+
+  it("retires a checkpoint when retrying an already persisted terminal event", async () => {
+    const runId = "run-checkpoint-terminal-retry";
+    await insertRun(runId, "thread-checkpoint-terminal-retry");
+    await persistRunCheckpointEvent(
+      runId,
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+    await pglite.query(
+      "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      [runId, 0, Date.now(), JSON.stringify({ type: "done" })],
+    );
+
+    await insertRunEvent(runId, 0, JSON.stringify({ type: "done" }));
+
+    await expect(getLastTerminalRunEvent(runId)).resolves.toEqual({
+      seq: 0,
+      event: { type: "done" },
+    });
+    const checkpoint = await pglite.query(
+      "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    );
+    expect(checkpoint.rows).toEqual([]);
+  });
+
   it("rolls back the checkpoint event when the terminal reason write fails", async () => {
     const runId = "run-rollback-checkpoint";
     await insertRun(runId, "thread-rollback-checkpoint");
