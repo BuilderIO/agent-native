@@ -240,24 +240,25 @@ describe("data widget helpers", () => {
         },
       }),
     ).toBeNull();
-    expect(
-      normalizeDataWidgetResult({
-        widget: DATA_CHART_WIDGET,
-        chartSeries: {
-          type: "line",
-          xKey: "day",
-          series: [{ key: "count", label: "Count" }],
-          data: [],
+    const invalidOptionalAction = normalizeDataWidgetResult({
+      widget: DATA_CHART_WIDGET,
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "count", label: "Count" }],
+        data: [],
+      },
+      display: {
+        primaryAction: {
+          label: "Open",
+          href: "/reports/1",
+          icon: "unknown",
         },
-        display: {
-          primaryAction: {
-            label: "Open",
-            href: "/reports/1",
-            icon: "unknown",
-          },
-        },
-      }),
-    ).toBeNull();
+      },
+    });
+    expect(invalidOptionalAction?.widget).toBe(DATA_CHART_WIDGET);
+    expect(invalidOptionalAction?.chartSeries?.data).toEqual([]);
+    expect(invalidOptionalAction?.display?.primaryAction).toBeUndefined();
   });
 
   it("creates insights widget results with app metadata", () => {
