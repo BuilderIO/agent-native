@@ -475,12 +475,15 @@ describe("Builder CMS read client", () => {
           { status: 200 },
         );
       }
-      const continuation = input.searchParams.get("offset") === "2";
+      const continuation = input.searchParams.get("offset") === "1";
       return new Response(
         JSON.stringify(
           continuation
             ? {
-                results: [{ id: "entry-2", modelId: "model-uuid", data: {} }],
+                results: [
+                  { id: "entry-2", modelId: "model-uuid", data: {} },
+                  { id: "entry-3", modelId: "model-uuid", data: {} },
+                ],
                 totalCount: 4,
               }
             : {
@@ -527,8 +530,82 @@ describe("Builder CMS read client", () => {
       ),
     });
     const continuationRequest = fetchImpl.mock.calls[3]?.[0] as URL;
-    expect(continuationRequest.searchParams.get("offset")).toBe("2");
+    expect(continuationRequest.searchParams.get("offset")).toBe("1");
     expect(continuationRequest.searchParams.has("query.id.$gt")).toBe(false);
+  });
+
+  it("rejects a refresh continuation when an entry is removed before its saved cursor while another is appended", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "selected-space-key",
+    });
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog_article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
+      const continuation = input.searchParams.get("offset") === "1";
+      return new Response(
+        JSON.stringify(
+          continuation
+            ? {
+                results: [
+                  { id: "entry-3", modelId: "model-uuid", data: {} },
+                  { id: "entry-4", modelId: "model-uuid", data: {} },
+                ],
+                totalCount: 3,
+              }
+            : {
+                results: [
+                  { id: "entry-1", modelId: "model-uuid", data: {} },
+                  { id: "entry-2", modelId: "model-uuid", data: {} },
+                ],
+                totalCount: 3,
+              },
+        ),
+        { status: 200 },
+      );
+    });
+    const fetch = fetchImpl as unknown as typeof globalThis.fetch;
+
+    const firstPage = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 2,
+      fetchImpl: fetch,
+    });
+    expect(firstPage).toMatchObject({
+      state: "live",
+      progress: {
+        observedCollectionCount: 3,
+        nextOffset: 2,
+        nextCursor: "entry-2",
+        partial: true,
+      },
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        limit: 2,
+        offset: 2,
+        afterId: "entry-2",
+        expectedCollectionCount: 3,
+        fetchImpl: fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      message: expect.stringContaining("changed before the saved cursor"),
+    });
+    const continuationRequest = fetchImpl.mock.calls[3]?.[0] as URL;
+    expect(continuationRequest.searchParams.get("offset")).toBe("1");
   });
 
   it("requires a saved source binding before an unbound OAuth refresh", async () => {

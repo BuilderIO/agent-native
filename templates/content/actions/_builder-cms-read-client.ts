@@ -1454,12 +1454,16 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   while (entries.length < requestedLimit) {
     if (args.maxPages && pagesRead >= args.maxPages) break;
     const pageLimit = readPageLimit(requestedLimit - entries.length);
+    // A continuation re-reads its saved cursor entry so a count-preserving
+    // edit before the offset (delete + append) cannot silently skip a row.
+    const anchored =
+      pagesRead === 0 && startOffset > 0 && Boolean(startAfterId);
     const url = new URL("/api/v1/query-data", BUILDER_OAUTH_READ_HOST);
     url.searchParams.set("apiKey", publicKey);
     url.searchParams.set("query.modelId", modelId);
     url.searchParams.set("sort.id", "1");
-    url.searchParams.set("offset", String(offset));
-    url.searchParams.set("limit", String(pageLimit));
+    url.searchParams.set("offset", String(anchored ? offset - 1 : offset));
+    url.searchParams.set("limit", String(anchored ? pageLimit + 1 : pageLimit));
     url.searchParams.set("fetchTotalCount", "true");
     url.searchParams.set("noCache", "true");
     url.searchParams.set("cachebust", String(Date.now() + pagesRead));
@@ -1521,15 +1525,24 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
         { errorCode: "builder_source_changed", statusCode: 409 },
       );
     }
-    const pageEntries = rawPageEntries
+    const normalizedEntries = rawPageEntries
       .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
       .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
-    if (pageEntries.length !== rawPageEntries.length) {
+    if (normalizedEntries.length !== rawPageEntries.length) {
       fail(
         "Builder query-data returned a malformed entry before the observed collection was complete.",
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
+    if (anchored && normalizedEntries[0]?.id !== startAfterId) {
+      fail(
+        "Builder query-data collection changed before the saved cursor; restart the source refresh.",
+        { errorCode: "builder_source_changed", statusCode: 409 },
+      );
+    }
+    const pageEntries = anchored
+      ? normalizedEntries.slice(1)
+      : normalizedEntries;
     const priorCursor = cursor;
     if (priorCursor && pageEntries.some((entry) => entry.id <= priorCursor)) {
       fail(
